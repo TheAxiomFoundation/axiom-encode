@@ -9,6 +9,8 @@ copy-equivalent preflight — with no root or patchelf required.
 from __future__ import annotations
 
 import importlib.util
+import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -285,6 +287,609 @@ class TestSanePrefixPreflight:
         (inner / "loop").symlink_to(prefix)
         with pytest.raises(SystemExit, match="symlink cycle"):
             provisioner._assert_sane_source_prefix(prefix, None, 100)
+
+
+class TestTrustedGit:
+    def test_accepts_root_owned_system_git(self):
+        git = shutil.which("git")
+        if git is None:
+            pytest.skip("Git is required")
+        resolved = Path(git).resolve()
+        assert provisioner._resolve_trusted_git(resolved) == resolved
+
+    def test_rejects_relative_path(self):
+        with pytest.raises(SystemExit, match="absolute and normalized"):
+            provisioner._resolve_trusted_git(Path("git"))
+
+    def test_rejects_symlinked_path(self, tmp_path):
+        git = shutil.which("git")
+        if git is None:
+            pytest.skip("Git is required")
+        alias = tmp_path / "git"
+        alias.symlink_to(Path(git).resolve())
+        with pytest.raises(SystemExit, match="contains a symlink"):
+            provisioner._resolve_trusted_git(alias)
+
+    def test_installed_wrapper_blocks_local_executable_config(self, tmp_path):
+        git = shutil.which("git")
+        if git is None:
+            pytest.skip("Git is required")
+        destination = tmp_path / "destination"
+        destination.mkdir()
+        wrapper = provisioner._install_trusted_git_wrapper(
+            destination,
+            Path(sys.executable).resolve(),
+            provisioner._resolve_trusted_git(Path(git).resolve()),
+        )
+        repository = tmp_path / "rulespec-us"
+        subprocess.run([git, "init", "--quiet", str(repository)], check=True)
+        (repository / "a.txt").write_text("original\n")
+        (repository / ".gitattributes").write_text("*.txt diff=hostile\n")
+        subprocess.run([git, "-C", str(repository), "add", "."], check=True)
+        subprocess.run(
+            [
+                git,
+                "-c",
+                "user.name=Axiom test",
+                "-c",
+                "user.email=test@axiom.invalid",
+                "-C",
+                str(repository),
+                "commit",
+                "--quiet",
+                "-m",
+                "fixture",
+            ],
+            check=True,
+        )
+        marker = tmp_path / "helper-executed"
+        helper = tmp_path / "hostile-helper"
+        helper.write_text(
+            f"#!{Path(sys.executable).resolve()}\n"
+            "import sys\n"
+            "from pathlib import Path\n"
+            f"Path({str(marker)!r}).touch()\n"
+            "sys.stdout.buffer.write(sys.stdin.buffer.read())\n"
+        )
+        helper.chmod(0o755)
+        for key in (
+            "core.fsmonitor",
+            "diff.external",
+            "diff.hostile.textconv",
+        ):
+            subprocess.run(
+                [git, "-C", str(repository), "config", key, str(helper)], check=True
+            )
+        subprocess.run(
+            [
+                git,
+                "-C",
+                str(repository),
+                "remote",
+                "add",
+                "origin",
+                "https://github.com/TheAxiomFoundation/rulespec-us.git",
+            ],
+            check=True,
+        )
+        (repository / "a.txt").write_text("changed\n")
+        (repository / "untracked.txt").write_text("untracked\n")
+        clean_environment = {
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": "core.fsmonitor",
+            "GIT_CONFIG_VALUE_0": str(helper),
+            "GIT_EXTERNAL_DIFF": str(helper),
+            "HOME": str(tmp_path),
+            "PATH": str(destination),
+        }
+        object_id = subprocess.check_output(
+            [git, "-C", str(repository), "rev-parse", "HEAD:a.txt"], text=True
+        ).strip()
+        allowed_commands = (
+            (["rev-parse", "HEAD"], None),
+            (["rev-parse", "--is-inside-work-tree"], None),
+            (["rev-parse", "--show-toplevel"], None),
+            (["rev-parse", "--verify", "HEAD^{commit}"], None),
+            (["status", "--porcelain"], None),
+            (["status", "--porcelain", "--untracked-files=no"], None),
+            (["remote", "get-url", "origin"], None),
+            (["diff", "--binary", "HEAD", "--", "a.txt"], None),
+            (
+                [
+                    "diff",
+                    "--name-only",
+                    "--no-renames",
+                    "--diff-filter=ACDMRT",
+                    "-z",
+                    "HEAD",
+                ],
+                None,
+            ),
+            (
+                [
+                    "diff",
+                    "--name-only",
+                    "--no-renames",
+                    "--diff-filter=ACDMRT",
+                    "-z",
+                    "HEAD",
+                    "HEAD",
+                ],
+                None,
+            ),
+            (
+                ["diff", "--name-only", "--diff-filter=ACMRT", "HEAD..HEAD"],
+                None,
+            ),
+            (["ls-files", "-z"], None),
+            (["ls-files", "--others", "--exclude-standard", "-z"], None),
+            (
+                [
+                    "ls-files",
+                    "--others",
+                    "--exclude-standard",
+                    "-z",
+                    "--",
+                    "untracked.txt",
+                ],
+                None,
+            ),
+            (
+                [
+                    "log",
+                    "--format=%H",
+                    "--",
+                    "pyproject.toml",
+                    "src/axiom_encode/__init__.py",
+                    "uv.lock",
+                ],
+                None,
+            ),
+            (["ls-tree", "-z", "HEAD", "--", "a.txt"], None),
+            (["ls-tree", "-r", "-z", "HEAD"], None),
+            (["cat-file", "blob", object_id], None),
+            (["cat-file", "--batch"], f"{object_id}\n".encode()),
+            (["merge-base", "--is-ancestor", "HEAD", "HEAD"], None),
+            (["rev-list", "--parents", "-n", "1", "HEAD"], None),
+            (["show", "HEAD:a.txt"], None),
+        )
+        for command, command_input in allowed_commands:
+            subprocess.run(
+                [str(wrapper), "-C", str(repository), *command],
+                input=command_input,
+                check=True,
+                capture_output=True,
+                env=clean_environment,
+            )
+        subprocess.run(
+            [str(wrapper), "rev-parse", "--show-prefix"],
+            cwd=repository,
+            check=True,
+            capture_output=True,
+            env=clean_environment,
+        )
+        assert not marker.exists()
+
+        (repository / ".gitattributes").write_text(
+            "*.txt diff=hostile filter=hostile\n"
+        )
+        for key in ("filter.hostile.clean", "filter.hostile.smudge"):
+            subprocess.run(
+                [git, "-C", str(repository), "config", key, str(helper)], check=True
+            )
+        filtered_worktree_commands = (
+            ["status", "--porcelain"],
+            ["status", "--porcelain", "--untracked-files=no"],
+            ["diff", "--binary", "HEAD", "--", "a.txt"],
+            [
+                "diff",
+                "--name-only",
+                "--no-renames",
+                "--diff-filter=ACDMRT",
+                "-z",
+                "HEAD",
+            ],
+        )
+        for command in filtered_worktree_commands:
+            refused_filter = subprocess.run(
+                [str(wrapper), "-C", str(repository), *command],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=clean_environment,
+            )
+            assert refused_filter.returncode != 0
+            assert "refused worktree filter for" in refused_filter.stderr
+        assert not marker.exists()
+        for driver in ("unspecified", "unset"):
+            (repository / ".gitattributes").write_text(f"*.txt filter={driver}\n")
+            subprocess.run(
+                [
+                    git,
+                    "-C",
+                    str(repository),
+                    "config",
+                    f"filter.{driver}.clean",
+                    str(helper),
+                ],
+                check=True,
+            )
+            refused_sentinel = subprocess.run(
+                [
+                    str(wrapper),
+                    "-C",
+                    str(repository),
+                    "diff",
+                    "--binary",
+                    "HEAD",
+                    "--",
+                    "a.txt",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=clean_environment,
+            )
+            assert refused_sentinel.returncode != 0
+            assert "refused worktree filter for" in refused_sentinel.stderr
+            assert not marker.exists()
+
+        refused_arguments = (
+            ["cat-file", "--filters", "HEAD:a.txt"],
+            ["diff", "--stat", "HEAD"],
+            ["log", "--oneline"],
+            ["ls-files", "--stage"],
+            ["ls-tree", "--name-only", "HEAD"],
+            ["merge-base", "--octopus", "HEAD", "HEAD"],
+            ["remote", "add", "blocked", "https://example.invalid/repo.git"],
+            ["remote", "update"],
+            ["rev-list", "--all"],
+            ["rev-parse", "--git-dir"],
+            ["show", "--stat", "HEAD"],
+            ["status", "--short"],
+        )
+        for command in refused_arguments:
+            refused = subprocess.run(
+                [str(wrapper), "-C", str(repository), *command],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=clean_environment,
+            )
+            assert refused.returncode != 0
+            assert f"refused arguments for {command[0]}" in refused.stderr
+        assert not marker.exists()
+        assert (
+            subprocess.run(
+                [git, "-C", str(repository), "remote", "get-url", "blocked"],
+                check=False,
+                capture_output=True,
+            ).returncode
+            != 0
+        )
+
+        refused_command = subprocess.run(
+            [str(wrapper), "-C", str(repository), "fetch"],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=clean_environment,
+        )
+        assert refused_command.returncode != 0
+        assert "refused command: fetch" in refused_command.stderr
+
+        child_source = tmp_path / "child-source"
+        subprocess.run([git, "init", "--quiet", str(child_source)], check=True)
+        (child_source / "a.txt").write_text("original\n")
+        (child_source / ".gitattributes").write_text("*.txt filter=hostile\n")
+        subprocess.run([git, "-C", str(child_source), "add", "."], check=True)
+        subprocess.run(
+            [
+                git,
+                "-c",
+                "user.name=Axiom test",
+                "-c",
+                "user.email=test@axiom.invalid",
+                "-C",
+                str(child_source),
+                "commit",
+                "--quiet",
+                "-m",
+                "fixture",
+            ],
+            check=True,
+        )
+        parent = tmp_path / "parent"
+        subprocess.run([git, "init", "--quiet", str(parent)], check=True)
+        subprocess.run(
+            [
+                git,
+                "-c",
+                "protocol.file.allow=always",
+                "-C",
+                str(parent),
+                "submodule",
+                "add",
+                "--quiet",
+                str(child_source),
+                "sub",
+            ],
+            check=True,
+        )
+        subprocess.run(
+            [
+                git,
+                "-c",
+                "user.name=Axiom test",
+                "-c",
+                "user.email=test@axiom.invalid",
+                "-C",
+                str(parent),
+                "commit",
+                "--quiet",
+                "-m",
+                "fixture",
+            ],
+            check=True,
+        )
+        initialized_submodule = parent / "sub"
+        subprocess.run(
+            [
+                git,
+                "-C",
+                str(initialized_submodule),
+                "config",
+                "filter.hostile.clean",
+                str(helper),
+            ],
+            check=True,
+        )
+        (initialized_submodule / "a.txt").write_text("changed\n")
+        gitlink_commands = (
+            ["status", "--porcelain"],
+            ["status", "--porcelain", "--untracked-files=no"],
+            ["diff", "--binary", "HEAD", "--", "sub"],
+        )
+        for command in gitlink_commands:
+            refused_gitlink = subprocess.run(
+                [str(wrapper), "-C", str(parent), *command],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=clean_environment,
+            )
+            assert refused_gitlink.returncode != 0
+            assert "refused gitlink at sub" in refused_gitlink.stderr
+        assert not marker.exists()
+
+    def test_installed_wrapper_disables_partial_clone_lazy_fetch(self, tmp_path):
+        git = shutil.which("git")
+        if git is None:
+            pytest.skip("Git is required")
+        destination = tmp_path / "destination"
+        destination.mkdir()
+        wrapper = provisioner._install_trusted_git_wrapper(
+            destination,
+            Path(sys.executable).resolve(),
+            provisioner._resolve_trusted_git(Path(git).resolve()),
+        )
+        source = tmp_path / "source"
+        subprocess.run([git, "init", "--quiet", str(source)], check=True)
+        (source / "a.txt").write_text("promised blob\n")
+        subprocess.run([git, "-C", str(source), "add", "a.txt"], check=True)
+        subprocess.run(
+            [
+                git,
+                "-c",
+                "user.name=Axiom test",
+                "-c",
+                "user.email=test@axiom.invalid",
+                "-C",
+                str(source),
+                "commit",
+                "--quiet",
+                "-m",
+                "fixture",
+            ],
+            check=True,
+        )
+        object_id = subprocess.check_output(
+            [git, "-C", str(source), "rev-parse", "HEAD:a.txt"], text=True
+        ).strip()
+        subprocess.run(
+            [git, "-C", str(source), "config", "uploadpack.allowFilter", "true"],
+            check=True,
+        )
+        partial = tmp_path / "partial"
+        subprocess.run(
+            [
+                git,
+                "-c",
+                "protocol.file.allow=always",
+                "clone",
+                "--quiet",
+                "--filter=blob:none",
+                "--no-checkout",
+                source.as_uri(),
+                str(partial),
+            ],
+            check=True,
+        )
+        no_lazy_environment = {**os.environ, "GIT_NO_LAZY_FETCH": "1"}
+        missing = subprocess.run(
+            [git, "-C", str(partial), "cat-file", "-e", object_id],
+            check=False,
+            capture_output=True,
+            env=no_lazy_environment,
+        )
+        if missing.returncode == 0:
+            pytest.skip("Git did not create a blobless partial clone")
+        pack_root = partial / ".git" / "objects" / "pack"
+        packs_before = {path.name for path in pack_root.iterdir()}
+        wrapped = subprocess.run(
+            [str(wrapper), "-C", str(partial), "cat-file", "blob", object_id],
+            check=False,
+            capture_output=True,
+            env={"HOME": str(tmp_path), "PATH": str(destination)},
+        )
+        assert wrapped.returncode != 0
+        assert {path.name for path in pack_root.iterdir()} == packs_before
+        assert (
+            subprocess.run(
+                [git, "-C", str(partial), "cat-file", "-e", object_id],
+                check=False,
+                capture_output=True,
+                env=no_lazy_environment,
+            ).returncode
+            != 0
+        )
+
+    def test_installed_wrapper_disables_replacement_objects(self, tmp_path):
+        git = shutil.which("git")
+        if git is None:
+            pytest.skip("Git is required")
+        destination = tmp_path / "destination"
+        destination.mkdir()
+        wrapper = provisioner._install_trusted_git_wrapper(
+            destination,
+            Path(sys.executable).resolve(),
+            provisioner._resolve_trusted_git(Path(git).resolve()),
+        )
+        repository = tmp_path / "repository"
+        subprocess.run([git, "init", "--quiet", str(repository)], check=True)
+        original = b"original blob\n"
+        replacement = b"replacement blob\n"
+        (repository / "original.txt").write_bytes(original)
+        (repository / "replacement.txt").write_bytes(replacement)
+        original_id = subprocess.check_output(
+            [git, "-C", str(repository), "hash-object", "-w", "original.txt"],
+            text=True,
+        ).strip()
+        replacement_id = subprocess.check_output(
+            [git, "-C", str(repository), "hash-object", "-w", "replacement.txt"],
+            text=True,
+        ).strip()
+        subprocess.run(
+            [git, "-C", str(repository), "replace", original_id, replacement_id],
+            check=True,
+        )
+        assert (
+            subprocess.check_output(
+                [git, "-C", str(repository), "cat-file", "blob", original_id]
+            )
+            == replacement
+        )
+        wrapped = subprocess.run(
+            [str(wrapper), "-C", str(repository), "cat-file", "blob", original_id],
+            check=True,
+            capture_output=True,
+            env={"HOME": str(tmp_path), "PATH": str(destination)},
+        )
+        assert wrapped.stdout == original
+
+    def test_installed_wrapper_disables_log_signature_verification(self, tmp_path):
+        git = shutil.which("git")
+        if git is None:
+            pytest.skip("Git is required")
+        destination = tmp_path / "destination"
+        destination.mkdir()
+        wrapper = provisioner._install_trusted_git_wrapper(
+            destination,
+            Path(sys.executable).resolve(),
+            provisioner._resolve_trusted_git(Path(git).resolve()),
+        )
+        repository = tmp_path / "repository"
+        subprocess.run([git, "init", "--quiet", str(repository)], check=True)
+        (repository / "pyproject.toml").write_text('[project]\nname = "fixture"\n')
+        subprocess.run(
+            [git, "-C", str(repository), "add", "pyproject.toml"], check=True
+        )
+        subprocess.run(
+            [
+                git,
+                "-c",
+                "user.name=Axiom test",
+                "-c",
+                "user.email=test@axiom.invalid",
+                "-C",
+                str(repository),
+                "commit",
+                "--quiet",
+                "-m",
+                "fixture",
+            ],
+            check=True,
+        )
+        raw_commit = subprocess.check_output(
+            [git, "-C", str(repository), "cat-file", "commit", "HEAD"]
+        )
+        headers, message = raw_commit.split(b"\n\n", 1)
+        signed_commit = (
+            headers
+            + b"\ngpgsig -----BEGIN PGP SIGNATURE-----\n"
+            + b" fake\n -----END PGP SIGNATURE-----\n\n"
+            + message
+        )
+        signed_id = (
+            subprocess.check_output(
+                [
+                    git,
+                    "-C",
+                    str(repository),
+                    "hash-object",
+                    "-t",
+                    "commit",
+                    "-w",
+                    "--stdin",
+                ],
+                input=signed_commit,
+                text=False,
+            )
+            .decode()
+            .strip()
+        )
+        subprocess.run(
+            [git, "-C", str(repository), "update-ref", "HEAD", signed_id], check=True
+        )
+        marker = tmp_path / "verifier-executed"
+        helper = tmp_path / "fake-gpg"
+        helper.write_text(
+            f"#!{Path(sys.executable).resolve()}\n"
+            "from pathlib import Path\n"
+            f"Path({str(marker)!r}).touch()\n"
+            "raise SystemExit(1)\n"
+        )
+        helper.chmod(0o755)
+        subprocess.run(
+            [git, "-C", str(repository), "config", "log.showSignature", "true"],
+            check=True,
+        )
+        subprocess.run(
+            [git, "-C", str(repository), "config", "gpg.program", str(helper)],
+            check=True,
+        )
+        log_arguments = [
+            "log",
+            "--format=%H",
+            "--",
+            "pyproject.toml",
+            "src/axiom_encode/__init__.py",
+            "uv.lock",
+        ]
+        subprocess.run(
+            [git, "-C", str(repository), *log_arguments],
+            check=False,
+            capture_output=True,
+        )
+        assert marker.exists()
+        marker.unlink()
+        subprocess.run(
+            [str(wrapper), "-C", str(repository), *log_arguments],
+            check=True,
+            capture_output=True,
+            env={"HOME": str(tmp_path), "PATH": str(destination)},
+        )
+        assert not marker.exists()
 
 
 class TestIsElf:

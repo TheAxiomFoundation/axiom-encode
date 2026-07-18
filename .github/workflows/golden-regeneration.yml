@@ -119,7 +119,8 @@ jobs:
             --supervisor "$RUNNER_TEMP/axiom-encode-signing-supervisor" \
             --site-packages "$RUNNER_TEMP/axiom-verification-site-packages" \
             --apply-root "$TRUST_APPLY_ROOT" --eval-root "$TRUST_EVAL_ROOT" \
-            --corpus-release-root "$TRUST_CORPUS_RELEASE_ROOT"
+            --corpus-release-root "$TRUST_CORPUS_RELEASE_ROOT" \
+            --git /usr/bin/git
           sudo chown -R 0:0 /opt/axiom-verification
           sudo chmod -R go-w /opt/axiom-verification
 

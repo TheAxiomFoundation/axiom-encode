@@ -1,10 +1,14 @@
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 
 def test_provision_replaces_base_runtime_site_packages(tmp_path: Path) -> None:
+    git = shutil.which("git")
+    if git is None:
+        raise AssertionError("Git is required for the provisioner test")
     source_site_packages = (
         Path(sys.base_prefix)
         / "lib"
@@ -38,6 +42,8 @@ def test_provision_replaces_base_runtime_site_packages(tmp_path: Path) -> None:
             "eval-root",
             "--corpus-release-root",
             "corpus-release-root",
+            "--git",
+            str(Path(git).resolve()),
         ],
         check=True,
     )
@@ -49,6 +55,25 @@ def test_provision_replaces_base_runtime_site_packages(tmp_path: Path) -> None:
     assert (destination / "axiom-encode").read_text().splitlines()[0] == (
         f"#!{interpreter} -I"
     )
+    git_wrapper = destination / "git"
+    assert git_wrapper.read_text().splitlines()[0] == f"#!{interpreter} -I"
+    repository = tmp_path / "rulespec-us"
+    subprocess.run(
+        [str(Path(git).resolve()), "init", "--quiet", str(repository)], check=True
+    )
+    top_level = subprocess.run(
+        [str(git_wrapper), "-C", str(repository), "rev-parse", "--show-toplevel"],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "HOME": str(runtime),
+            "PATH": str(destination),
+        },
+    )
+    assert Path(top_level.stdout.strip()) == repository
     assert json.loads((destination / "signing-trust-roots.json").read_text()) == {
         "schema": "axiom-encode/signing-trust-roots/v2",
         "apply_ed25519_public_key": "apply-root",

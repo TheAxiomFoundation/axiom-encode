@@ -46,6 +46,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -437,6 +438,254 @@ def _assert_self_contained(
             raise SystemExit(f"libpython mapped outside the runtime: {stray}")
 
 
+def _resolve_trusted_git(raw_git: Path) -> Path:
+    """Admit one immutable, root-owned Git executable by exact path."""
+
+    if not raw_git.is_absolute() or Path(os.path.normpath(raw_git)) != raw_git:
+        raise SystemExit("trusted git path must be absolute and normalized")
+    cursor = Path(raw_git.anchor)
+    for part in raw_git.parts[1:]:
+        cursor /= part
+        if cursor.is_symlink():
+            raise SystemExit(f"trusted git path contains a symlink: {raw_git}")
+    try:
+        resolved = raw_git.resolve(strict=True)
+    except OSError as exc:
+        raise SystemExit(f"trusted git path does not exist: {raw_git}") from exc
+    metadata = resolved.stat()
+    if not stat.S_ISREG(metadata.st_mode) or not os.access(resolved, os.X_OK):
+        raise SystemExit(f"trusted git path is not an executable file: {resolved}")
+    for component in (resolved, *resolved.parents):
+        component_metadata = component.stat()
+        if component_metadata.st_uid != 0:
+            raise SystemExit(f"trusted git path is not root-owned: {component}")
+        if component_metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+            raise SystemExit(
+                f"trusted git path is group- or other-writable: {component}"
+            )
+    if metadata.st_mode & (stat.S_ISUID | stat.S_ISGID):
+        raise SystemExit("trusted git executable must not be setuid or setgid")
+    return resolved
+
+
+def _install_trusted_git_wrapper(
+    destination: Path, interpreter: Path, trusted_git: Path
+) -> Path:
+    """Install a read-only Git command broker into the isolated PATH."""
+
+    wrapper = destination / "git"
+    wrapper.write_text(
+        f"#!{interpreter} -I\n"
+        "import os\n"
+        "import re\n"
+        "import subprocess\n"
+        "import sys\n"
+        f"git = {str(trusted_git)!r}\n"
+        "args = sys.argv[1:]\n"
+        "cursor = 0\n"
+        "if args[:1] == ['-C']:\n"
+        "    if len(args) < 3:\n"
+        "        raise SystemExit('trusted git wrapper requires a command after -C')\n"
+        "    cursor = 2\n"
+        "allowed = {\n"
+        "    'cat-file', 'diff', 'log', 'ls-files', 'ls-tree', 'merge-base',\n"
+        "    'remote', 'rev-list', 'rev-parse', 'show', 'status',\n"
+        "}\n"
+        "if cursor >= len(args) or args[cursor] not in allowed:\n"
+        "    selected = args[cursor] if cursor < len(args) else '<missing>'\n"
+        "    raise SystemExit(f'trusted git wrapper refused command: {selected}')\n"
+        "command = args[cursor]\n"
+        "options = args[cursor + 1:]\n"
+        "def safe_ref(value):\n"
+        "    return re.fullmatch(\n"
+        "        r'(?:HEAD|main|origin/main|[0-9a-f]{40})(?:\\^\\{commit\\})?',\n"
+        "        value,\n"
+        "    ) is not None\n"
+        "def safe_range(value):\n"
+        "    parts = value.split('..')\n"
+        "    return len(parts) == 2 and all(safe_ref(part) for part in parts)\n"
+        "def safe_path(value):\n"
+        "    return (\n"
+        "        bool(value)\n"
+        "        and not value.startswith(('-', ':', '/'))\n"
+        "        and all(part not in {'', '.', '..'} for part in value.split('/'))\n"
+        "    )\n"
+        "def allowed_options():\n"
+        "    if command == 'cat-file':\n"
+        "        return options == ['--batch'] or (\n"
+        "            len(options) == 2\n"
+        "            and options[0] == 'blob'\n"
+        "            and re.fullmatch(r'[0-9a-f]{40}', options[1]) is not None\n"
+        "        )\n"
+        "    if command == 'diff':\n"
+        "        if (\n"
+        "            options[:3] == ['--binary', 'HEAD', '--']\n"
+        "            and all(safe_path(value) for value in options[3:])\n"
+        "        ):\n"
+        "            return True\n"
+        "        changed_prefix = [\n"
+        "            '--name-only', '--no-renames', '--diff-filter=ACDMRT', '-z'\n"
+        "        ]\n"
+        "        if options[:4] == changed_prefix:\n"
+        "            return len(options[4:]) in {1, 2} and all(\n"
+        "                safe_ref(value) for value in options[4:]\n"
+        "            )\n"
+        "        return (\n"
+        "            options[:2] == ['--name-only', '--diff-filter=ACMRT']\n"
+        "            and len(options) == 3\n"
+        "            and safe_range(options[2])\n"
+        "        )\n"
+        "    if command == 'log':\n"
+        "        return options == [\n"
+        "            '--format=%H', '--', 'pyproject.toml',\n"
+        "            'src/axiom_encode/__init__.py', 'uv.lock',\n"
+        "        ]\n"
+        "    if command == 'ls-files':\n"
+        "        if options == ['-z']:\n"
+        "            return True\n"
+        "        prefix = ['--others', '--exclude-standard', '-z']\n"
+        "        if options == prefix:\n"
+        "            return True\n"
+        "        return (\n"
+        "            options[:4] == [*prefix, '--']\n"
+        "            and all(safe_path(value) for value in options[4:])\n"
+        "        )\n"
+        "    if command == 'ls-tree':\n"
+        "        return (\n"
+        "            len(options) == 4\n"
+        "            and options[0] == '-z'\n"
+        "            and safe_ref(options[1])\n"
+        "            and options[2] == '--'\n"
+        "            and safe_path(options[3])\n"
+        "        ) or (\n"
+        "            len(options) == 3\n"
+        "            and options[:2] == ['-r', '-z']\n"
+        "            and safe_ref(options[2])\n"
+        "        )\n"
+        "    if command == 'merge-base':\n"
+        "        return (\n"
+        "            len(options) == 3\n"
+        "            and options[0] == '--is-ancestor'\n"
+        "            and all(safe_ref(value) for value in options[1:])\n"
+        "        )\n"
+        "    if command == 'remote':\n"
+        "        return options == ['get-url', 'origin']\n"
+        "    if command == 'rev-list':\n"
+        "        return (\n"
+        "            len(options) == 4\n"
+        "            and options[:3] == ['--parents', '-n', '1']\n"
+        "            and safe_ref(options[-1])\n"
+        "        )\n"
+        "    if command == 'rev-parse':\n"
+        "        if options in (\n"
+        "            ['HEAD'], ['--is-inside-work-tree'], ['--show-prefix'],\n"
+        "            ['--show-toplevel'],\n"
+        "        ):\n"
+        "            return True\n"
+        "        return (\n"
+        "            len(options) == 2\n"
+        "            and options[0] == '--verify'\n"
+        "            and safe_ref(options[1])\n"
+        "        )\n"
+        "    if command == 'show':\n"
+        "        if len(options) != 1 or ':' not in options[0]:\n"
+        "            return False\n"
+        "        ref, path = options[0].split(':', 1)\n"
+        "        return safe_ref(ref) and safe_path(path)\n"
+        "    if command == 'status':\n"
+        "        return options in (\n"
+        "            ['--porcelain'], ['--porcelain', '--untracked-files=no'],\n"
+        "        )\n"
+        "    return False\n"
+        "if not allowed_options():\n"
+        "    raise SystemExit(f'trusted git wrapper refused arguments for {command}')\n"
+        "for name in tuple(os.environ):\n"
+        "    if name.startswith('GIT_') or name == 'SSH_ASKPASS':\n"
+        "        os.environ.pop(name, None)\n"
+        "os.environ['GIT_ATTR_NOSYSTEM'] = '1'\n"
+        "os.environ['GIT_CONFIG_GLOBAL'] = '/dev/null'\n"
+        "os.environ['GIT_CONFIG_NOSYSTEM'] = '1'\n"
+        "os.environ['GIT_NO_LAZY_FETCH'] = '1'\n"
+        "os.environ['GIT_NO_REPLACE_OBJECTS'] = '1'\n"
+        "os.environ['GIT_OPTIONAL_LOCKS'] = '0'\n"
+        "os.environ['GIT_TERMINAL_PROMPT'] = '0'\n"
+        "trusted = [\n"
+        "    git, '--no-pager',\n"
+        "    '-c', 'core.fsmonitor=false',\n"
+        "    '-c', 'core.hooksPath=/dev/null',\n"
+        "    '-c', 'credential.helper=',\n"
+        "    '-c', 'core.attributesFile=/dev/null',\n"
+        "    '-c', 'core.sshCommand=false',\n"
+        "    '-c', 'protocol.ext.allow=never',\n"
+        "    '-c', 'diff.external=/usr/bin/false',\n"
+        "    '-c', 'log.showSignature=false',\n"
+        "    '-c', 'submodule.recurse=false',\n"
+        "]\n"
+        "def worktree_sensitive():\n"
+        "    if command == 'status':\n"
+        "        return True\n"
+        "    if command != 'diff':\n"
+        "        return False\n"
+        "    if options[:3] == ['--binary', 'HEAD', '--']:\n"
+        "        return True\n"
+        "    prefix = [\n"
+        "        '--name-only', '--no-renames', '--diff-filter=ACDMRT', '-z'\n"
+        "    ]\n"
+        "    return options[:4] == prefix and len(options) == 5\n"
+        "def assert_no_worktree_filters():\n"
+        "    repository = args[:cursor]\n"
+        "    try:\n"
+        "        staged = subprocess.run(\n"
+        "            [*trusted, *repository, 'ls-files', '--stage', '-z'],\n"
+        "            check=True, capture_output=True, env=os.environ,\n"
+        "        ).stdout\n"
+        "        for entry in staged.split(b'\\0'):\n"
+        "            if not entry.startswith(b'160000 '):\n"
+        "                continue\n"
+        "            _metadata, _separator, path = entry.partition(b'\\t')\n"
+        "            display = os.fsdecode(path)\n"
+        "            raise SystemExit(\n"
+        "                f'trusted git wrapper refused gitlink at {display}'\n"
+        "            )\n"
+        "        listed = subprocess.run(\n"
+        "            [*trusted, *repository, 'ls-files', '-co',\n"
+        "             '--exclude-standard', '-z'],\n"
+        "            check=True, capture_output=True, env=os.environ,\n"
+        "        ).stdout\n"
+        "        if not listed:\n"
+        "            return\n"
+        "        checked = subprocess.run(\n"
+        "            [*trusted, *repository, 'check-attr', '-z', '--stdin',\n"
+        "             '--all'],\n"
+        "            input=listed, check=True, capture_output=True, env=os.environ,\n"
+        "        ).stdout\n"
+        "    except (OSError, subprocess.CalledProcessError) as error:\n"
+        "        raise SystemExit(\n"
+        "            'trusted git wrapper could not audit worktree filters'\n"
+        "        ) from error\n"
+        "    records = checked.split(b'\\0')\n"
+        "    if records and records[-1] == b'':\n"
+        "        records.pop()\n"
+        "    if len(records) % 3:\n"
+        "        raise SystemExit('trusted git wrapper received invalid attributes')\n"
+        "    for index in range(0, len(records), 3):\n"
+        "        path, attribute, value = records[index:index + 3]\n"
+        "        if attribute != b'filter':\n"
+        "            continue\n"
+        "        display = os.fsdecode(path)\n"
+        "        raise SystemExit(\n"
+        "            f'trusted git wrapper refused worktree filter for {display}'\n"
+        "        )\n"
+        "if worktree_sensitive():\n"
+        "    assert_no_worktree_filters()\n"
+        "if command == 'diff':\n"
+        "    args[cursor + 1:cursor + 1] = ['--no-ext-diff', '--no-textconv']\n"
+        "os.execv(git, [*trusted, *args])\n"
+    )
+    wrapper.chmod(0o755)
+    return wrapper
+
+
 def provision(
     destination: Path,
     supervisor: Path,
@@ -444,10 +693,12 @@ def provision(
     apply_root: str,
     eval_root: str,
     corpus_release_root: str,
+    git: Path,
     require_prefix_under: Path | None = None,
     patchelf: str | None = None,
     max_runtime_files: int = DEFAULT_MAX_RUNTIME_FILES,
 ) -> None:
+    trusted_git = _resolve_trusted_git(git)
     source_runtime = Path(sys.base_prefix).resolve(strict=True)
     source_interpreter = Path(sys.executable).resolve(strict=True)
     _assert_sane_source_prefix(source_runtime, require_prefix_under, max_runtime_files)
@@ -464,6 +715,7 @@ def provision(
         _relocate_elf_rpaths(runtime, patchelf)
     interpreter = runtime / source_interpreter.relative_to(source_runtime)
     _assert_self_contained(runtime, source_runtime, interpreter)
+    _install_trusted_git_wrapper(destination, interpreter, trusted_git)
     launcher = destination / "axiom-encode"
     launcher.write_text(f"#!{interpreter} -I\nraise SystemExit('launcher executed')\n")
     launcher.chmod(0o755)
@@ -494,6 +746,12 @@ if __name__ == "__main__":
     parser.add_argument("--eval-root", required=True)
     parser.add_argument("--corpus-release-root", required=True)
     parser.add_argument(
+        "--git",
+        type=Path,
+        required=True,
+        help="Exact root-owned Git executable exposed inside the isolated PATH.",
+    )
+    parser.add_argument(
         "--require-prefix-under",
         type=Path,
         default=None,
@@ -520,6 +778,7 @@ if __name__ == "__main__":
         args.apply_root,
         args.eval_root,
         args.corpus_release_root,
+        args.git,
         args.require_prefix_under,
         args.patchelf,
         args.max_runtime_files,
