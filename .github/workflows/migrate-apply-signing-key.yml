@@ -20,6 +20,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Install pinned Go toolchain
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: "1.26.1"
+          cache: false
+
       - name: Encrypt inherited signing key
         env:
           APPLY_SIGNING_KEY: ${{ secrets.AXIOM_ENCODE_APPLY_SIGNING_KEY }}
@@ -31,9 +37,8 @@ jobs:
           artifact="$RUNNER_TEMP/apply-signing-key-migration"
           recipient="$RUNNER_TEMP/recipient-public.pem"
           plaintext="$RUNNER_TEMP/apply-signing-key.material"
-          private_der="$RUNNER_TEMP/apply-signing-key.pkcs8.der"
-          trusted_public_pem="$RUNNER_TEMP/apply-public-key.pem"
-          trap 'rm -f "$recipient" "$plaintext" "$private_der" "$trusted_public_pem"' EXIT
+          validator_source="$RUNNER_TEMP/validate-apply-signing-key.go"
+          trap 'rm -f "$recipient" "$plaintext" "$validator_source"' EXIT
           mkdir -m 700 -p "$artifact"
 
           test -n "$APPLY_SIGNING_KEY"
@@ -46,90 +51,109 @@ jobs:
             exit 1
           fi
 
-          python3 - "$plaintext" "$private_der" "$trusted_public_pem" <<'PY'
-          import base64
-          import binascii
-          import hmac
-          import os
-          import subprocess
-          import sys
-          from pathlib import Path
+          cat > "$validator_source" <<'GO'
+          package main
 
-          plaintext = Path(sys.argv[1])
-          private_der = Path(sys.argv[2])
-          trusted_public_pem = Path(sys.argv[3])
-          private_prefix = bytes.fromhex("302e020100300506032b657004220420")
-          public_prefix = bytes.fromhex("302a300506032b6570032100")
+          import (
+            "bytes"
+            "crypto/ed25519"
+            "crypto/x509"
+            "encoding/asn1"
+            "encoding/base64"
+            "encoding/pem"
+            "fmt"
+            "os"
+          )
 
-          def openssl(*args: str, input_bytes: bytes | None = None) -> bytes:
-              completed = subprocess.run(
-                  ["openssl", *args],
-                  check=False,
-                  capture_output=True,
-                  env={"PATH": os.environ["PATH"]},
-                  input=input_bytes,
-              )
-              if completed.returncode:
-                  raise SystemExit("inherited signing material is not valid Ed25519 key material")
-              return completed.stdout
+          func fail(message string) {
+            fmt.Fprintln(os.Stderr, message)
+            os.Exit(1)
+          }
 
-          material = plaintext.read_bytes().strip()
-          if material.startswith(b"-----BEGIN"):
-              begin_marker = b"-----BEGIN PRIVATE KEY-----"
-              end_marker = b"-----END PRIVATE KEY-----"
-              if not material.startswith(begin_marker):
-                  raise SystemExit("inherited signing key PEM is not an unencrypted PKCS8 key")
-              end_offset = material.find(end_marker, len(begin_marker))
-              if end_offset < 0:
-                  raise SystemExit("inherited signing key PEM is malformed")
-              end_offset += len(end_marker)
-              if material[end_offset:].strip():
-                  raise SystemExit("inherited signing key PEM contains trailing data")
-              material = material[:end_offset]
-              derived_public = openssl(
-                  "pkey", "-pubout", "-outform", "DER", input_bytes=material
-              )
-          else:
-              try:
-                  seed = base64.b64decode(material, validate=True)
-              except (ValueError, binascii.Error):
-                  raise SystemExit("inherited signing key is not strict base64 or PKCS8 PEM") from None
-              if len(seed) != 32:
-                  raise SystemExit("inherited signing key is not a 32-byte Ed25519 seed")
-              private_der.write_bytes(private_prefix + seed)
-              derived_public = openssl(
-                  "pkey",
-                  "-inform", "DER",
-                  "-in", str(private_der),
-                  "-pubout",
-                  "-outform", "DER",
-              )
+          func parsePrivate(material []byte) (ed25519.PrivateKey, []byte) {
+            normalized := bytes.TrimSpace(material)
+            if bytes.HasPrefix(normalized, []byte("-----BEGIN")) {
+              block, rest := pem.Decode(normalized)
+              if block == nil {
+                fail("inherited signing key PEM is malformed")
+              }
+              if len(bytes.TrimSpace(rest)) != 0 {
+                fail("inherited signing key PEM contains trailing data")
+              }
+              var raw asn1.RawValue
+              trailing, err := asn1.Unmarshal(block.Bytes, &raw)
+              if err != nil || len(trailing) != 0 {
+                fail("inherited signing key PEM contains trailing ASN.1 data")
+              }
+              parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+              if err != nil {
+                fail("inherited signing key PEM must contain one PKCS8 key")
+              }
+              privateKey, ok := parsed.(ed25519.PrivateKey)
+              if !ok {
+                fail("inherited signing key must be Ed25519")
+              }
+              return privateKey, normalized
+            }
+            seed, err := base64.StdEncoding.Strict().DecodeString(string(normalized))
+            if err != nil {
+              fail("inherited signing key is not strict base64 or PKCS8 PEM")
+            }
+            if len(seed) != ed25519.SeedSize {
+              fail("inherited signing key is not a 32-byte Ed25519 seed")
+            }
+            return ed25519.NewKeyFromSeed(seed), normalized
+          }
 
-          if len(derived_public) != 44 or not derived_public.startswith(public_prefix):
-              raise SystemExit("inherited signing key is not Ed25519")
+          func parsePublic(material []byte) ed25519.PublicKey {
+            normalized := bytes.TrimSpace(material)
+            if bytes.HasPrefix(normalized, []byte("-----BEGIN")) {
+              block, rest := pem.Decode(normalized)
+              if block == nil || len(bytes.TrimSpace(rest)) != 0 {
+                fail("trusted apply public key PEM is malformed")
+              }
+              var raw asn1.RawValue
+              trailing, err := asn1.Unmarshal(block.Bytes, &raw)
+              if err != nil || len(trailing) != 0 {
+                fail("trusted apply public key PEM contains trailing ASN.1 data")
+              }
+              parsed, err := x509.ParsePKIXPublicKey(block.Bytes)
+              if err != nil {
+                fail("trusted apply public key PEM is malformed")
+              }
+              publicKey, ok := parsed.(ed25519.PublicKey)
+              if !ok {
+                fail("trusted apply public key must be Ed25519")
+              }
+              return publicKey
+            }
+            publicKey, err := base64.StdEncoding.Strict().DecodeString(string(normalized))
+            if err != nil || len(publicKey) != ed25519.PublicKeySize {
+              fail("trusted apply public key is not strict base64 Ed25519 material")
+            }
+            return ed25519.PublicKey(publicKey)
+          }
 
-          trusted_serialized = os.environ["APPLY_PUBLIC_KEY"].strip()
-          if trusted_serialized.startswith("-----BEGIN PUBLIC KEY-----"):
-              trusted_public_pem.write_text(trusted_serialized + "\n", encoding="ascii")
-              trusted_public = openssl(
-                  "pkey",
-                  "-pubin",
-                  "-in", str(trusted_public_pem),
-                  "-outform", "DER",
-              )
-          else:
-              try:
-                  trusted_raw = base64.b64decode(trusted_serialized, validate=True)
-              except (ValueError, binascii.Error):
-                  raise SystemExit("trusted apply public key is malformed") from None
-              if len(trusted_raw) != 32:
-                  raise SystemExit("trusted apply public key is not 32 bytes")
-              trusted_public = public_prefix + trusted_raw
-
-          if not hmac.compare_digest(derived_public, trusted_public):
-              raise SystemExit("inherited signing key does not match the trusted apply public key")
-          plaintext.write_bytes(material)
-          PY
+          func main() {
+            if len(os.Args) != 2 {
+              fail("expected one private-key path")
+            }
+            material, err := os.ReadFile(os.Args[1])
+            if err != nil {
+              fail("could not read inherited signing key")
+            }
+            privateKey, normalized := parsePrivate(material)
+            trustedPublic := parsePublic([]byte(os.Getenv("APPLY_PUBLIC_KEY")))
+            derivedPublic := privateKey.Public().(ed25519.PublicKey)
+            if !bytes.Equal(derivedPublic, trustedPublic) {
+              fail("inherited signing key does not match the trusted apply public key")
+            }
+            if err := os.WriteFile(os.Args[1], normalized, 0600); err != nil {
+              fail("could not normalize inherited signing key")
+            }
+          }
+          GO
+          go run "$validator_source" "$plaintext"
 
           key_bytes="$(wc -c < "$plaintext" | tr -d ' ')"
           if [ "$key_bytes" -lt 40 ] || [ "$key_bytes" -gt 256 ]; then
@@ -174,10 +198,12 @@ jobs:
 
           printf '%s\n' "$APPLY_PUBLIC_KEY" > "$artifact/apply-public-key.txt"
           unset APPLY_PUBLIC_KEY
-          sha256sum \
-            "$artifact/apply-signing-key.oaep-sha256.bin" \
-            "$artifact/apply-public-key.txt" \
-            > "$artifact/SHA256SUMS"
+          (
+            cd "$artifact"
+            sha256sum apply-signing-key.oaep-sha256.bin apply-public-key.txt \
+              > SHA256SUMS
+            sha256sum --check SHA256SUMS
+          )
           actual_files="$(find "$artifact" -type f -exec basename {} \; | LC_ALL=C sort)"
           expected_files="$(printf '%s\n' SHA256SUMS apply-public-key.txt apply-signing-key.oaep-sha256.bin)"
           test "$actual_files" = "$expected_files"
