@@ -255,6 +255,27 @@ jobs:
             echo "promised blob appeared after trusted wrapper query" >&2
             exit 1
           fi
+          replace_repo="$RUNNER_TEMP/replace-repo"
+          /usr/bin/git init --quiet "$replace_repo"
+          printf 'original blob\n' > "$replace_repo/original.txt"
+          printf 'replacement blob\n' > "$replace_repo/replacement.txt"
+          original_oid="$(
+            /usr/bin/git -C "$replace_repo" hash-object -w original.txt
+          )"
+          replacement_oid="$(
+            /usr/bin/git -C "$replace_repo" hash-object -w replacement.txt
+          )"
+          /usr/bin/git -C "$replace_repo" replace \
+            "$original_oid" "$replacement_oid"
+          /usr/bin/git -C "$replace_repo" cat-file blob "$original_oid" \
+            > "$RUNNER_TEMP/replaced-output"
+          cmp "$replace_repo/replacement.txt" "$RUNNER_TEMP/replaced-output"
+          env -i \
+            PATH="$dest" \
+            HOME="$dest/python" \
+            git -C "$replace_repo" cat-file blob "$original_oid" \
+            > "$RUNNER_TEMP/trusted-object-output"
+          cmp "$replace_repo/original.txt" "$RUNNER_TEMP/trusted-object-output"
           # Probe in LAUNCHER mode (-I, site enabled — a surviving .pth would
           # execute here) under a minimal env with no LD_LIBRARY_PATH, using
           # Path containment (not startswith) so <dest>-evil cannot slip by.

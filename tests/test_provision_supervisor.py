@@ -744,6 +744,49 @@ class TestTrustedGit:
             != 0
         )
 
+    def test_installed_wrapper_disables_replacement_objects(self, tmp_path):
+        git = shutil.which("git")
+        if git is None:
+            pytest.skip("Git is required")
+        destination = tmp_path / "destination"
+        destination.mkdir()
+        wrapper = provisioner._install_trusted_git_wrapper(
+            destination,
+            Path(sys.executable).resolve(),
+            provisioner._resolve_trusted_git(Path(git).resolve()),
+        )
+        repository = tmp_path / "repository"
+        subprocess.run([git, "init", "--quiet", str(repository)], check=True)
+        original = b"original blob\n"
+        replacement = b"replacement blob\n"
+        (repository / "original.txt").write_bytes(original)
+        (repository / "replacement.txt").write_bytes(replacement)
+        original_id = subprocess.check_output(
+            [git, "-C", str(repository), "hash-object", "-w", "original.txt"],
+            text=True,
+        ).strip()
+        replacement_id = subprocess.check_output(
+            [git, "-C", str(repository), "hash-object", "-w", "replacement.txt"],
+            text=True,
+        ).strip()
+        subprocess.run(
+            [git, "-C", str(repository), "replace", original_id, replacement_id],
+            check=True,
+        )
+        assert (
+            subprocess.check_output(
+                [git, "-C", str(repository), "cat-file", "blob", original_id]
+            )
+            == replacement
+        )
+        wrapped = subprocess.run(
+            [str(wrapper), "-C", str(repository), "cat-file", "blob", original_id],
+            check=True,
+            capture_output=True,
+            env={"HOME": str(tmp_path), "PATH": str(destination)},
+        )
+        assert wrapped.stdout == original
+
 
 class TestIsElf:
     def test_elf_magic(self, tmp_path):
