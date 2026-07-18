@@ -116,9 +116,10 @@ jobs:
           "
           # Every planted startup carrier must be gone AND must not have
           # executed during the -I probe above (the marker file is untouched).
+          # The canonical stdlib zip (on sys.path even absent) must also be gone.
           test -z "$(find "$dest/python" \( -name '*.pth' -o -name '*._pth' \
             -o -name 'pybuilddir.txt' -o -name 'sitecustomize*' \
-            -o -name 'usercustomize*' \) -print -quit)"
+            -o -name 'usercustomize*' -o -name 'python3*.zip' \) -print -quit)"
           test ! -e "$RUNNER_TEMP/pth-executed"
           # A hostile LD_LIBRARY_PATH pointing at the source toolcache must NOT
           # win: the relocation pass pins RPATH (which outranks it), so every

@@ -9,7 +9,6 @@ copy-equivalent preflight — with no root or patchelf required.
 from __future__ import annotations
 
 import importlib.util
-import struct
 import subprocess
 import sys
 from pathlib import Path
@@ -162,72 +161,6 @@ class TestRewriteRpathForObject:
         assert new_rpath == f"{target}:$ORIGIN"
 
 
-class TestNeededPathbearing:
-    def test_bare_soname_is_not_pathbearing(self):
-        assert not provisioner._needed_is_pathbearing("libc.so.6")
-        assert not provisioner._needed_is_pathbearing("libpython3.14.so.1.0")
-
-    def test_slash_bearing_is_pathbearing(self):
-        assert provisioner._needed_is_pathbearing("/opt/evil/libx.so")
-        assert provisioner._needed_is_pathbearing("./libx.so")
-        assert provisioner._needed_is_pathbearing("sub/libx.so")
-        # CPython's own libpython3.so ships this — path-bearing but $ORIGIN-safe;
-        # _audit_dynamic_elf allows it via _rpath_component_inside, not here.
-        assert provisioner._needed_is_pathbearing("$ORIGIN/../lib/libpython3.13.so.1.0")
-
-
-class TestInterpTrusted:
-    def test_system_loader_dirs_trusted(self, tmp_path):
-        source = (tmp_path / "toolcache" / "python").resolve()
-        source.mkdir(parents=True)
-        # non-existent paths under allowlisted dirs pass on the lexical allowlist
-        assert provisioner._interp_trusted("/lib64/ld-linux-x86-64.so.2", source)
-        assert provisioner._interp_trusted("/usr/lib/ld-2.99.so", source)
-
-    def test_non_allowlisted_dir_untrusted(self, tmp_path):
-        source = (tmp_path / "toolcache" / "python").resolve()
-        source.mkdir(parents=True)
-        assert not provisioner._interp_trusted("/tmp/evil-ld.so", source)
-        assert not provisioner._interp_trusted("/opt/evil/ld.so", source)
-
-    def test_loader_under_source_prefix_untrusted(self, tmp_path):
-        # even if it were under an allowlisted dir, being inside the source
-        # (user-writable) prefix disqualifies it
-        source = (tmp_path / "usr" / "lib" / "python").resolve()
-        source.mkdir(parents=True)
-        assert not provisioner._interp_trusted(str(source / "ld.so"), source)
-
-    def test_relative_loader_untrusted(self, tmp_path):
-        source = (tmp_path / "toolcache" / "python").resolve()
-        source.mkdir(parents=True)
-        assert not provisioner._interp_trusted("ld.so", source)
-
-    def test_existing_but_writable_loader_untrusted(self, tmp_path, monkeypatch):
-        source = (tmp_path / "toolcache").resolve()
-        source.mkdir()
-
-        # An allowlisted, existing loader that is world-writable → untrusted.
-        # stat() runs on the RESOLVED path, which on usrmerge systems differs
-        # from the literal (/lib64 -> /usr/lib64), so intercept unconditionally.
-        class FakeStat:
-            st_uid = 0
-            st_mode = 0o100777  # regular file, world-writable
-
-        monkeypatch.setattr(provisioner.os, "stat", lambda *a, **k: FakeStat())
-        assert not provisioner._interp_trusted("/lib64/ld-linux-x86-64.so.2", source)
-
-    def test_existing_root_owned_loader_trusted(self, tmp_path, monkeypatch):
-        source = (tmp_path / "toolcache").resolve()
-        source.mkdir()
-
-        class FakeStat:
-            st_uid = 0
-            st_mode = 0o100755  # regular file, not group/other writable
-
-        monkeypatch.setattr(provisioner.os, "stat", lambda *a, **k: FakeStat())
-        assert provisioner._interp_trusted("/lib64/ld-linux-x86-64.so.2", source)
-
-
 class TestStageRuntimeTree:
     def _make_source(self, tmp_path: Path) -> Path:
         version = f"python{sys.version_info.major}.{sys.version_info.minor}"
@@ -238,6 +171,26 @@ class TestStageRuntimeTree:
         (source / "bin" / "python3").write_text("fake interpreter")
         (site / "toolcache-only.txt").write_text("replaced wholesale")
         return source
+
+    def test_stdlib_zip_is_purged_across_platlibdir_and_abi(self, tmp_path):
+        """The canonical stdlib zip is on sys.path even absent; purge it in lib,
+        lib64 (PLATLIBDIR), and the free-threaded ``t`` name."""
+        source = self._make_source(tmp_path)
+        major, minor = sys.version_info.major, sys.version_info.minor
+        for rel in (
+            f"lib/python{major}{minor}.zip",
+            f"lib64/python{major}{minor}.zip",
+            f"lib/python{major}{minor}t.zip",
+        ):
+            zip_path = source / rel
+            zip_path.parent.mkdir(parents=True, exist_ok=True)
+            zip_path.write_bytes(b"PK\x03\x04")
+        staged = tmp_path / "staged-empty"
+        staged.mkdir()
+        runtime = tmp_path / "dest" / "python"
+        runtime.parent.mkdir()
+        provisioner._stage_runtime_tree(source, runtime, staged)
+        assert not list(runtime.rglob(f"python{major}{minor}*.zip"))
 
     def test_staged_startup_hooks_are_purged(self, tmp_path):
         """Every importable/path-config startup carrier in the STAGED tree must
@@ -334,230 +287,111 @@ class TestSanePrefixPreflight:
             provisioner._assert_sane_source_prefix(prefix, None, 100)
 
 
-def _build_elf(
-    *,
-    dyn=(),
-    interp=None,
-    include_dynamic=True,
-    ei_class=2,
-    ei_data=1,
-    ei_version=1,
-    e_type=3,
-):
-    """Assemble a minimal but structurally valid 64-bit LE ELF.
+class TestIsElf:
+    def test_elf_magic(self, tmp_path):
+        elf = tmp_path / "obj"
+        elf.write_bytes(b"\x7fELF" + b"\x00" * 60)
+        assert provisioner._is_elf(elf)
 
-    `dyn` is a list of (tag, value); a str value is placed in the string table
-    and referenced by offset, an int value is used raw. A single PT_LOAD maps
-    the whole file identity (vaddr == offset) so DT_STRTAB resolves trivially.
+    def test_non_elf(self, tmp_path):
+        script = tmp_path / "script"
+        script.write_bytes(b"#!/bin/sh\n")
+        assert not provisioner._is_elf(script)
+
+
+class _FakePatchelf:
+    """subprocess.run stand-in keyed by patchelf flag.
+
+    `rpath_by_path[str(path)]` supplies successive --print-rpath returns (a
+    string, or None to simulate a returncode!=0 read failure). --set-rpath
+    records and updates the object's current run path; a subsequent
+    --print-rpath then returns that new value.
     """
-    n_ph = 1 + (1 if interp is not None else 0) + (1 if include_dynamic else 0)
-    ph_off = 64
-    body_off = ph_off + 56 * n_ph
-    cursor = body_off
-    interp_bytes = b""
-    interp_off = interp_sz = 0
-    if interp is not None:
-        interp_bytes = interp.encode() + b"\x00"
-        interp_off, interp_sz = cursor, len(interp_bytes)
-        cursor += interp_sz
 
-    strtab = bytearray(b"\x00")
-    resolved = []
-    for tag, value in dyn:
-        if isinstance(value, str):
-            offset = len(strtab)
-            strtab += value.encode() + b"\x00"
-            resolved.append((tag, offset))
-        else:
-            resolved.append((tag, value))
+    def __init__(self, rpath):
+        # single object under test: sequence of run-path states over time
+        self._current = rpath
+        self.set_calls = []
 
-    dyn_bytes = b""
-    dyn_off = dyn_size = strtab_off = 0
-    if include_dynamic:
-        dyn_off = cursor
-        dyn_size = (len(resolved) + 2) * 16  # + DT_STRTAB + DT_NULL
-        strtab_off = dyn_off + dyn_size
-        for tag, val in resolved:
-            dyn_bytes += struct.pack("<qQ", tag, val)
-        dyn_bytes += struct.pack("<qQ", 5, strtab_off)  # DT_STRTAB (vaddr==offset)
-        dyn_bytes += struct.pack("<qQ", 0, 0)  # DT_NULL
-        file_len = strtab_off + len(strtab)
-    else:
-        file_len = cursor
-
-    program_headers = struct.pack(
-        "<IIQQQQQQ", 1, 5, 0, 0, 0, file_len, file_len, 0x1000
-    )  # PT_LOAD, whole file
-    if interp is not None:
-        program_headers += struct.pack(
-            "<IIQQQQQQ", 3, 4, interp_off, interp_off, 0, interp_sz, interp_sz, 1
-        )  # PT_INTERP
-    if include_dynamic:
-        program_headers += struct.pack(
-            "<IIQQQQQQ", 2, 6, dyn_off, dyn_off, 0, dyn_size, dyn_size, 8
-        )  # PT_DYNAMIC
-
-    ehdr = bytearray(64)
-    ehdr[0:4] = b"\x7fELF"
-    ehdr[4], ehdr[5], ehdr[6] = ei_class, ei_data, ei_version
-    struct.pack_into("<H", ehdr, 16, e_type)
-    struct.pack_into("<Q", ehdr, 32, ph_off)
-    struct.pack_into("<H", ehdr, 54, 56)
-    struct.pack_into("<H", ehdr, 56, n_ph)
-
-    out = bytearray(file_len)
-    out[0:64] = ehdr
-    out[ph_off : ph_off + len(program_headers)] = program_headers
-    if interp is not None:
-        out[interp_off : interp_off + len(interp_bytes)] = interp_bytes
-    if include_dynamic:
-        out[dyn_off : dyn_off + len(dyn_bytes)] = dyn_bytes
-        out[strtab_off : strtab_off + len(strtab)] = strtab
-    return bytes(out)
-
-
-# DT tag numbers used by the tests (mirror the module's private constants).
-_NEEDED, _RPATH, _RUNPATH, _AUDIT = 1, 15, 29, 0x6FFFFEF8
-
-
-class TestParseElf:
-    def test_non_elf_is_none(self, tmp_path):
-        path = tmp_path / "script"
-        path.write_bytes(b"#!/bin/sh\necho hi\n")
-        assert provisioner._parse_elf(path) is None
-
-    def test_static_object_is_not_dynamic(self, tmp_path):
-        path = tmp_path / "static"
-        path.write_bytes(_build_elf(include_dynamic=False))
-        info = provisioner._parse_elf(path)
-        assert info is not None and not info.is_dynamic
-
-    def test_relocatable_object_without_program_headers(self, tmp_path):
-        """A stdlib .o (ET_REL, config-*/python.o) has no program header table
-        (e_phnum == e_phentsize == 0); the loader never acts on it, so it must
-        parse as non-dynamic rather than tripping the phentsize sanity check."""
-        elf = bytearray(_build_elf(include_dynamic=False))
-        struct.pack_into("<H", elf, 16, 1)  # e_type = ET_REL
-        struct.pack_into("<Q", elf, 32, 0)  # e_phoff = 0
-        struct.pack_into("<H", elf, 54, 0)  # e_phentsize = 0
-        struct.pack_into("<H", elf, 56, 0)  # e_phnum = 0
-        path = tmp_path / "python.o"
-        path.write_bytes(bytes(elf))
-        info = provisioner._parse_elf(path)
-        assert info is not None and not info.is_dynamic
-
-    def test_reads_needed_rpath_and_interp(self, tmp_path):
-        path = tmp_path / "lib.so"
-        path.write_bytes(
-            _build_elf(
-                dyn=[
-                    (_NEEDED, "libc.so.6"),
-                    (_RUNPATH, "$ORIGIN/../lib:/opt/toolcache/lib"),
-                ],
-                interp="/lib64/ld-linux-x86-64.so.2",
-            )
-        )
-        info = provisioner._parse_elf(path)
-        assert info.is_dynamic
-        assert info.interp == "/lib64/ld-linux-x86-64.so.2"
-        assert info.dyn_strings["DT_NEEDED"] == ["libc.so.6"]
-        assert info.dyn_strings["DT_RUNPATH"] == ["$ORIGIN/../lib:/opt/toolcache/lib"]
-
-    def test_flipped_ei_data_is_fatal(self, tmp_path):
-        """A native x86-64 object with EI_DATA flipped to big-endian: the kernel
-        still reads the native headers, so a naive parser skipping it would miss
-        the audit. Must be fatal, not skipped."""
-        path = tmp_path / "flipped"
-        path.write_bytes(_build_elf(dyn=[(_NEEDED, "libc.so.6")], ei_data=2))
-        with pytest.raises(SystemExit, match="unsupported ELF data encoding"):
-            provisioner._parse_elf(path)
-
-    def test_unsupported_class_is_fatal(self, tmp_path):
-        path = tmp_path / "elf32"
-        path.write_bytes(_build_elf(ei_class=1))
-        with pytest.raises(SystemExit, match="unsupported ELF class"):
-            provisioner._parse_elf(path)
-
-
-class TestAuditDynamicElf:
-    def _runtime(self, tmp_path):
-        runtime = (tmp_path / "python").resolve()
-        (runtime / "lib").mkdir(parents=True)
-        return runtime
-
-    def test_origin_safe_pathbearing_needed_passes(self, tmp_path):
-        runtime = self._runtime(tmp_path)
-        obj = runtime / "lib" / "libpython3.so"
-        # CPython's own stub: path-bearing NEEDED, but $ORIGIN-anchored inside.
-        info = provisioner._ElfInfo(
-            is_dynamic=True,
-            dyn_strings={"DT_NEEDED": ["$ORIGIN/../lib/libpython3.13.so.1.0"]},
-        )
-        provisioner._audit_dynamic_elf(obj, info, obj.parent, runtime, runtime)
-
-    def test_escaping_needed_refused(self, tmp_path):
-        runtime = self._runtime(tmp_path)
-        obj = runtime / "lib" / "x.so"
-        info = provisioner._ElfInfo(
-            is_dynamic=True, dyn_strings={"DT_NEEDED": ["/opt/evil/libx.so"]}
-        )
-        with pytest.raises(SystemExit, match="escaping DT_NEEDED"):
-            provisioner._audit_dynamic_elf(obj, info, obj.parent, runtime, runtime)
-
-    def test_escaping_audit_hook_refused(self, tmp_path):
-        runtime = self._runtime(tmp_path)
-        obj = runtime / "lib" / "x.so"
-        info = provisioner._ElfInfo(
-            is_dynamic=True, dyn_strings={"DT_AUDIT": ["/opt/evil/audit.so"]}
-        )
-        with pytest.raises(SystemExit, match="escaping DT_AUDIT"):
-            provisioner._audit_dynamic_elf(obj, info, obj.parent, runtime, runtime)
-
-    def test_untrusted_interp_refused(self, tmp_path):
-        runtime = self._runtime(tmp_path)
-        source = (tmp_path / "toolcache").resolve()
-        source.mkdir()
-        obj = runtime / "lib" / "python3"
-        info = provisioner._ElfInfo(is_dynamic=True, interp="/tmp/evil-ld.so")
-        with pytest.raises(SystemExit, match="untrusted program interpreter"):
-            provisioner._audit_dynamic_elf(obj, info, obj.parent, runtime, source)
+    def __call__(self, cmd, *args, **kwargs):
+        if "--print-rpath" in cmd:
+            if self._current is None:
+                return subprocess.CompletedProcess(cmd, 1, "", "no rpath")
+            return subprocess.CompletedProcess(cmd, 0, self._current + "\n", "")
+        if "--set-rpath" in cmd:
+            value = cmd[cmd.index("--set-rpath") + 1]
+            self.set_calls.append(value)
+            self._current = value
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        raise AssertionError(f"unexpected patchelf call: {cmd}")
 
 
 class TestRelocateElfRpaths:
-    def _runtime_with_elf(self, tmp_path, rpath):
+    def _runtime_with_elf(self, tmp_path):
         runtime = (tmp_path / "python").resolve()
         (runtime / "lib").mkdir(parents=True)
         obj = runtime / "lib" / "libpython.so"
-        obj.write_bytes(_build_elf(dyn=[(_NEEDED, "libc.so.6"), (_RPATH, rpath)]))
+        obj.write_bytes(b"\x7fELF" + b"\x00" * 60)  # magic only; patchelf is stubbed
         return runtime, obj
 
-    def test_noop_rewrite_is_caught_by_reparse(self, tmp_path, monkeypatch):
-        """If patchelf were a no-op (or a decoy left the segment unchanged), the
-        re-parse must catch that the escaping rpath is still present."""
-        runtime, _ = self._runtime_with_elf(
-            tmp_path, "/opt/hostedtoolcache/Python/3.14/x64/lib"
-        )
+    def test_escaping_runpath_is_repinned(self, tmp_path, monkeypatch):
+        runtime, _ = self._runtime_with_elf(tmp_path)
+        fake = _FakePatchelf("/opt/hostedtoolcache/Python/3.14/x64/lib")
+        monkeypatch.setattr(provisioner.subprocess, "run", fake)
+        assert provisioner._relocate_elf_rpaths(runtime, "patchelf") == 1
+        assert fake.set_calls == [str(runtime / "lib")]
+
+    def test_origin_only_runpath_untouched(self, tmp_path, monkeypatch):
+        runtime, _ = self._runtime_with_elf(tmp_path)
+        fake = _FakePatchelf("$ORIGIN")
+        monkeypatch.setattr(provisioner.subprocess, "run", fake)
+        assert provisioner._relocate_elf_rpaths(runtime, "patchelf") == 0
+        assert fake.set_calls == []
+
+    def test_unreadable_rpath_is_skipped(self, tmp_path, monkeypatch):
+        # a .o-style object patchelf can't read a run path from → skipped, no set
+        runtime, _ = self._runtime_with_elf(tmp_path)
+        fake = _FakePatchelf(None)
+        monkeypatch.setattr(provisioner.subprocess, "run", fake)
+        assert provisioner._relocate_elf_rpaths(runtime, "patchelf") == 0
+        assert fake.set_calls == []
+
+    def test_rewrite_that_does_not_take_is_fatal(self, tmp_path, monkeypatch):
+        """If --set-rpath silently failed to change the object, the confirming
+        re-read must catch that an escaping component survives."""
+        runtime, _ = self._runtime_with_elf(tmp_path)
+        fake = _FakePatchelf("/opt/toolcache/lib")
+
+        def stubborn(cmd, *a, **k):
+            if "--set-rpath" in cmd:  # pretend the write was a no-op
+                return subprocess.CompletedProcess(cmd, 0, "", "")
+            return fake(cmd, *a, **k)
+
+        monkeypatch.setattr(provisioner.subprocess, "run", stubborn)
+        with pytest.raises(SystemExit, match="still escapes the runtime"):
+            provisioner._relocate_elf_rpaths(runtime, "patchelf")
+
+    # The real-patchelf rewrite round-trip is covered end-to-end on hosted Ubuntu
+    # by provision-selftest.yml, which relocates a genuine escaping RUNPATH in the
+    # toolchain libpython and confirms via /proc/self/maps that libpython loads
+    # from inside the runtime. patchelf edits ELF sections that a byte-magic stub
+    # can't model, so the rewrite itself is not unit-tested with a synthetic file.
+
+
+class TestPrintRpath:
+    def test_strips_only_trailing_newline(self, monkeypatch):
+        # a leading space is part of the (malformed) value and must survive
         monkeypatch.setattr(
             provisioner.subprocess,
             "run",
-            lambda *a, **k: subprocess.CompletedProcess(a[0], 0, "", ""),
+            lambda *a, **k: subprocess.CompletedProcess(a[0], 0, " /x:$ORIGIN\n", ""),
         )
-        with pytest.raises(SystemExit, match="still escapes the runtime"):
-            provisioner._relocate_elf_rpaths(runtime, runtime, "patchelf")
+        assert provisioner._print_rpath("patchelf", Path("obj")) == " /x:$ORIGIN"
 
-    def test_origin_only_rpath_needs_no_rewrite(self, tmp_path, monkeypatch):
-        runtime, _ = self._runtime_with_elf(tmp_path, "$ORIGIN")
-
-        def forbid(*a, **k):
-            raise AssertionError("patchelf must not be called for a clean object")
-
-        monkeypatch.setattr(provisioner.subprocess, "run", forbid)
-        assert provisioner._relocate_elf_rpaths(runtime, runtime, "patchelf") == 0
-
-    # The real-patchelf rewrite round-trip is NOT unit-tested with a synthetic
-    # ELF on purpose: patchelf operates on ELF *sections*, which the hand-built
-    # program-header-only fixtures here deliberately lack (that section/segment
-    # split is exactly what the direct parser defends against). The authoritative
-    # coverage for the real rewrite is provision-selftest.yml, which relocates a
-    # genuine escaping RUNPATH in the toolchain libpython on hosted Ubuntu and
-    # confirms via /proc/self/maps that libpython loads from inside the runtime.
+    def test_nonzero_return_is_none(self, monkeypatch):
+        monkeypatch.setattr(
+            provisioner.subprocess,
+            "run",
+            lambda *a, **k: subprocess.CompletedProcess(a[0], 1, "", "err"),
+        )
+        assert provisioner._print_rpath("patchelf", Path("obj")) is None
