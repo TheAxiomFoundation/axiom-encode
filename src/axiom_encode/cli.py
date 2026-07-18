@@ -18391,8 +18391,7 @@ def _require_clean_axiom_encode_git_provenance() -> dict[str, object]:
             or not isinstance(commit, str)
         ):
             raise RuntimeError(
-                "Cannot apply generated RuleSpec from an uncommitted encoder "
-                "execution"
+                "Cannot apply generated RuleSpec from an uncommitted encoder execution"
             )
         version_provenance = _require_axiom_encode_version_provenance(Path(root))
         return {
@@ -36583,10 +36582,8 @@ def _apply_encoder_execution_identity() -> dict[str, object]:
         if (
             checkout_package.get("state") != "directory"
             or runtime_package.get("state") != "directory"
-            or checkout_package.get("file_count")
-            != runtime_package.get("file_count")
-            or checkout_package.get("tree_sha256")
-            != runtime_package.get("tree_sha256")
+            or checkout_package.get("file_count") != runtime_package.get("file_count")
+            or checkout_package.get("tree_sha256") != runtime_package.get("tree_sha256")
         ):
             raise RuntimeError(
                 "Provisioned encoder package bytes do not match the workflow checkout"
