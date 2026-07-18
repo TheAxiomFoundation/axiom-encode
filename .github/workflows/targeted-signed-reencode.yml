@@ -152,6 +152,8 @@ jobs:
           CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-buildid=' \
             -o "$RUNNER_TEMP/axiom-encode-apply-signer" \
             ./cmd/axiom-encode-apply-signer
+          sudo chown 0:0 /opt
+          sudo chmod go-w /opt
           sudo rm -rf /opt/axiom-verification
           sudo .venv/bin/python scripts/provision_verification_supervisor.py \
             --destination /opt/axiom-verification \
