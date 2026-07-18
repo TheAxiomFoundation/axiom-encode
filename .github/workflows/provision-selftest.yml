@@ -90,11 +90,12 @@ jobs:
         run: |
           set -euo pipefail
           dest="$RUNNER_TEMP/dest"
+          trusted_path="$dest/python/bin"
           interp="$(sed -n '1s/^#!\([^ ]*\).*/\1/p' "$dest/axiom-encode")"
           echo "launcher interpreter: $interp"
           case "$interp" in "$dest"/python/*) ;; *) echo "launcher points outside the runtime"; exit 1 ;; esac
           env -i \
-            PATH="$dest" \
+            PATH="$trusted_path" \
             HOME="$dest/python" \
             GIT_CONFIG_GLOBAL=/dev/null \
             GIT_CONFIG_NOSYSTEM=1 \
@@ -118,7 +119,7 @@ jobs:
           done
           printf 'changed\n' > "$hostile_repo/a.txt"
           env -i \
-            PATH="$dest" \
+            PATH="$trusted_path" \
             HOME="$dest/python" \
             GIT_CONFIG_COUNT=1 \
             GIT_CONFIG_KEY_0=core.fsmonitor \
@@ -126,7 +127,7 @@ jobs:
             GIT_EXTERNAL_DIFF="$RUNNER_TEMP/hostile-git-helper" \
             git -C "$hostile_repo" status --porcelain >/dev/null
           env -i \
-            PATH="$dest" \
+            PATH="$trusted_path" \
             HOME="$dest/python" \
             GIT_CONFIG_COUNT=1 \
             GIT_CONFIG_KEY_0=core.fsmonitor \
@@ -145,7 +146,7 @@ jobs:
             'diff --binary HEAD -- a.txt' \
             'diff --name-only --no-renames --diff-filter=ACDMRT -z HEAD'; do
             if env -i \
-              PATH="$dest" \
+              PATH="$trusted_path" \
               HOME="$dest/python" \
               git -C "$hostile_repo" $args >/dev/null; then
               echo "trusted Git wrapper accepted worktree filter: $args" >&2
@@ -158,7 +159,7 @@ jobs:
             /usr/bin/git -C "$hostile_repo" config \
               "filter.$driver.clean" "$RUNNER_TEMP/hostile-git-helper"
             if env -i \
-              PATH="$dest" \
+              PATH="$trusted_path" \
               HOME="$dest/python" \
               git -C "$hostile_repo" diff --binary HEAD -- a.txt >/dev/null; then
               echo "trusted Git wrapper accepted sentinel filter: $driver" >&2
@@ -166,7 +167,7 @@ jobs:
             fi
           done
           if env -i \
-            PATH="$dest" \
+            PATH="$trusted_path" \
             HOME="$dest/python" \
             git -C "$hostile_repo" remote add blocked \
               https://example.invalid/repo.git; then
@@ -178,7 +179,7 @@ jobs:
             exit 1
           fi
           if env -i \
-            PATH="$dest" \
+            PATH="$trusted_path" \
             HOME="$dest/python" \
             git -C "$hostile_repo" cat-file --filters HEAD:a.txt >/dev/null; then
             echo "trusted Git wrapper accepted cat-file --filters" >&2
@@ -210,7 +211,7 @@ jobs:
             'status --porcelain --untracked-files=no' \
             'diff --binary HEAD -- sub'; do
             if env -i \
-              PATH="$dest" \
+              PATH="$trusted_path" \
               HOME="$dest/python" \
               git -C "$parent_repo" $args >/dev/null; then
               echo "trusted Git wrapper accepted gitlink: $args" >&2
@@ -241,7 +242,7 @@ jobs:
           find "$partial_clone/.git/objects/pack" -maxdepth 1 -type f \
             -printf '%f\n' | sort > "$RUNNER_TEMP/packs-before"
           if env -i \
-            PATH="$dest" \
+            PATH="$trusted_path" \
             HOME="$dest/python" \
             git -C "$partial_clone" cat-file blob "$promised_oid" >/dev/null; then
             echo "trusted Git wrapper lazily fetched a promised object" >&2
@@ -271,7 +272,7 @@ jobs:
             > "$RUNNER_TEMP/replaced-output"
           cmp "$replace_repo/replacement.txt" "$RUNNER_TEMP/replaced-output"
           env -i \
-            PATH="$dest" \
+            PATH="$trusted_path" \
             HOME="$dest/python" \
             git -C "$replace_repo" cat-file blob "$original_oid" \
             > "$RUNNER_TEMP/trusted-object-output"
@@ -317,7 +318,7 @@ jobs:
           test -e "$hostile_marker"
           rm -f "$hostile_marker"
           env -i \
-            PATH="$dest" \
+            PATH="$trusted_path" \
             HOME="$dest/python" \
             git -C "$signature_repo" log --format=%H -- \
               pyproject.toml src/axiom_encode/__init__.py uv.lock >/dev/null

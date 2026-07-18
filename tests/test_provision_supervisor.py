@@ -310,6 +310,32 @@ class TestTrustedGit:
         with pytest.raises(SystemExit, match="contains a symlink"):
             provisioner._resolve_trusted_git(alias)
 
+    @pytest.mark.parametrize("symlink", [False, True])
+    def test_installed_wrapper_refuses_existing_path(self, tmp_path, symlink):
+        git = shutil.which("git")
+        if git is None:
+            pytest.skip("Git is required")
+        tool_directory = tmp_path / "tools"
+        tool_directory.mkdir()
+        wrapper = tool_directory / "git"
+        sentinel = tmp_path / "sentinel"
+        sentinel.write_text("unchanged\n")
+        if symlink:
+            wrapper.symlink_to(sentinel)
+        else:
+            wrapper.write_text("unchanged\n")
+
+        with pytest.raises(SystemExit, match="wrapper path already exists"):
+            provisioner._install_trusted_git_wrapper(
+                tool_directory,
+                Path(sys.executable).resolve(),
+                provisioner._resolve_trusted_git(Path(git).resolve()),
+            )
+
+        assert sentinel.read_text() == "unchanged\n"
+        if not symlink:
+            assert wrapper.read_text() == "unchanged\n"
+
     def test_installed_wrapper_blocks_local_executable_config(self, tmp_path):
         git = shutil.which("git")
         if git is None:

@@ -55,8 +55,9 @@ def test_provision_replaces_base_runtime_site_packages(tmp_path: Path) -> None:
     assert (destination / "axiom-encode").read_text().splitlines()[0] == (
         f"#!{interpreter} -I"
     )
-    git_wrapper = destination / "git"
+    git_wrapper = interpreter.parent / "git"
     assert git_wrapper.read_text().splitlines()[0] == f"#!{interpreter} -I"
+    assert not (destination / "git").exists()
     repository = tmp_path / "rulespec-us"
     subprocess.run(
         [str(Path(git).resolve()), "init", "--quiet", str(repository)], check=True
@@ -70,7 +71,7 @@ def test_provision_replaces_base_runtime_site_packages(tmp_path: Path) -> None:
             "GIT_CONFIG_GLOBAL": "/dev/null",
             "GIT_CONFIG_NOSYSTEM": "1",
             "HOME": str(runtime),
-            "PATH": str(destination),
+            "PATH": str(interpreter.parent),
         },
     )
     assert Path(top_level.stdout.strip()) == repository

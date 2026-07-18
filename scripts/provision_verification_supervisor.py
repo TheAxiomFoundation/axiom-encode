@@ -469,12 +469,12 @@ def _resolve_trusted_git(raw_git: Path) -> Path:
 
 
 def _install_trusted_git_wrapper(
-    destination: Path, interpreter: Path, trusted_git: Path
+    tool_directory: Path, interpreter: Path, trusted_git: Path
 ) -> Path:
     """Install a read-only Git command broker into the isolated PATH."""
 
-    wrapper = destination / "git"
-    wrapper.write_text(
+    wrapper = tool_directory / "git"
+    content = (
         f"#!{interpreter} -I\n"
         "import os\n"
         "import re\n"
@@ -682,6 +682,15 @@ def _install_trusted_git_wrapper(
         "    args[cursor + 1:cursor + 1] = ['--no-ext-diff', '--no-textconv']\n"
         "os.execv(git, [*trusted, *args])\n"
     )
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(wrapper, flags, 0o700)
+    except FileExistsError as exc:
+        raise SystemExit("trusted Git wrapper path already exists") from exc
+    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+        stream.write(content)
     wrapper.chmod(0o755)
     return wrapper
 
@@ -715,7 +724,7 @@ def provision(
         _relocate_elf_rpaths(runtime, patchelf)
     interpreter = runtime / source_interpreter.relative_to(source_runtime)
     _assert_self_contained(runtime, source_runtime, interpreter)
-    _install_trusted_git_wrapper(destination, interpreter, trusted_git)
+    _install_trusted_git_wrapper(interpreter.parent, interpreter, trusted_git)
     launcher = destination / "axiom-encode"
     launcher.write_text(f"#!{interpreter} -I\nraise SystemExit('launcher executed')\n")
     launcher.chmod(0o755)

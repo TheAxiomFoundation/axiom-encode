@@ -1494,6 +1494,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         if step.get("name") == "Verify protected RuleSpec routing"
     )
     routing_command = routing_step["run"]
+    assert "trusted_path=/opt/axiom-verification/python/bin" in routing_command
     assert 'env -i PATH="$trusted_path" HOME="$trusted_home"' in routing_command
     assert "canonical_rulespec_repo_name(checkout)" in routing_command
     assert "inspect_canonical_rulespec_checkout" in routing_command

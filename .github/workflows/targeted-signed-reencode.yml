@@ -174,7 +174,7 @@ jobs:
           RULESPEC_CHECKOUT: ${{ github.workspace }}/rulespec-us
         run: |
           set -euo pipefail
-          trusted_path=/opt/axiom-verification
+          trusted_path=/opt/axiom-verification/python/bin
           trusted_home=/opt/axiom-verification/python
           env -i PATH="$trusted_path" HOME="$trusted_home" \
             git -C "$RULESPEC_CHECKOUT" rev-parse --show-toplevel
