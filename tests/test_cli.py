@@ -1235,6 +1235,33 @@ def test_running_encoder_identity_default_preserves_non_git_error(
         _current_guard_encoder_execution_identity()
 
 
+def test_running_encoder_identity_uses_verified_workflow_checkout(
+    tmp_path, monkeypatch
+):
+    workspace = tmp_path / "workspace"
+    checkout = workspace / "axiom-encode"
+    commit = _init_encoder_identity_checkout(checkout)
+    _git(
+        checkout,
+        "remote",
+        "add",
+        "origin",
+        "https://github.com/TheAxiomFoundation/axiom-encode.git",
+    )
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("GITHUB_WORKSPACE", str(workspace))
+    monkeypatch.setenv("GITHUB_SHA", commit)
+    monkeypatch.setenv("AXIOM_ENCODE_APPLY_CHECKOUT", str(checkout))
+
+    identity = _current_guard_encoder_execution_identity()
+
+    assert identity == {
+        "repository": APPLIED_ENCODING_OFFICIAL_REPOSITORY,
+        "commit": commit,
+        "version": AXIOM_ENCODE_TEST_VERSION,
+    }
+
+
 def test_apply_encoder_identity_uses_verified_workflow_checkout(tmp_path, monkeypatch):
     workspace = tmp_path / "workspace"
     checkout = workspace / "axiom-encode"
@@ -6978,8 +7005,7 @@ rules:
         assert exc_info.value.code != 0
         assert (
             "Proof atom kind normalization error: RuleSpec jurisdiction root "
-            "must not be a symlink:"
-            in capsys.readouterr().err
+            "must not be a symlink:" in capsys.readouterr().err
         )
 
 

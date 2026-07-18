@@ -18577,9 +18577,8 @@ def _current_guard_encoder_execution_identity() -> dict[str, str]:
     exact encoder commit and version pinned by the consumer workflow.
     """
 
-    repo_root = _axiom_encode_repo_root()
     try:
-        checkout_identity = _git_checkout_execution_identity(repo_root)
+        checkout_identity = _apply_encoder_execution_identity()
     except (OSError, ValueError, RuntimeError) as exc:
         raise RuntimeError(
             f"running axiom-encode checkout identity is unavailable: {exc}"
@@ -18594,7 +18593,10 @@ def _current_guard_encoder_execution_identity() -> dict[str, str]:
         raise RuntimeError(
             "running axiom-encode must be a clean Git checkout at a full commit"
         )
-    versions = _axiom_encode_versions_at_ref(repo_root, "HEAD")
+    repo_root = checkout_identity.get("path")
+    if not isinstance(repo_root, str):
+        raise RuntimeError("running axiom-encode checkout identity lacks its root")
+    versions = _axiom_encode_versions_at_ref(Path(repo_root), "HEAD")
     if any(
         versions.get(field) != __version__ for field in ("pyproject", "package", "lock")
     ):
