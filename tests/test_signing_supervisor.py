@@ -19,7 +19,8 @@ import _cffi_backend
 import cryptography
 import pytest
 import yaml
-from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from axiom_encode import __version__
@@ -1538,10 +1539,186 @@ def test_apply_signing_key_migration_workflow_is_main_only() -> None:
     command = encrypt_step["run"]
     assert "rsa_padding_mode:oaep" in command
     assert "rsa_oaep_md:sha256" in command
+    assert "rsa_mgf1_md:sha256" in command
+    assert "unset APPLY_SIGNING_KEY" in command
+    assert '"$rsa_bits" -lt 3072' in command
+    assert "hmac.compare_digest(derived_public, trusted_public)" in command
     assert 'rm -f "$plaintext"' in command
     assert 'echo "$APPLY_SIGNING_KEY"' not in command
+    assert workflow["jobs"]["migrate"]["steps"][1]["with"]["path"] == (
+        "${{ runner.temp }}/apply-signing-key-migration"
+    )
+    assert workflow["jobs"]["migrate"]["steps"][1]["with"]["retention-days"] == 1
 
     secret_steps = [
         step for step in steps if "APPLY_SIGNING_KEY" in (step.get("env") or {})
     ]
     assert secret_steps == [encrypt_step]
+
+
+def _migration_openssl() -> Path:
+    candidates = (
+        Path("/opt/homebrew/opt/openssl@3/bin/openssl"),
+        Path("/usr/local/opt/openssl@3/bin/openssl"),
+        Path(shutil.which("openssl") or "/missing"),
+    )
+    for candidate in candidates:
+        if not candidate.is_file():
+            continue
+        version = subprocess.run(
+            [candidate, "version"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if version.returncode == 0 and version.stdout.startswith("OpenSSL 3."):
+            return candidate
+    pytest.skip("OpenSSL 3 is required for the executable migration workflow test")
+
+
+def _run_apply_key_migration(
+    tmp_path: Path,
+    *,
+    run_name: str,
+    signing_key: str,
+    apply_public_key: str,
+    recipient_public_key: bytes,
+) -> tuple[subprocess.CompletedProcess[str], Path]:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/migrate-apply-signing-key.yml").read_text()
+    )
+    command = workflow["jobs"]["migrate"]["steps"][0]["run"]
+    runner_temp = tmp_path / run_name
+    runner_temp.mkdir()
+    shim_dir = runner_temp / "bin"
+    shim_dir.mkdir()
+    (shim_dir / "openssl").symlink_to(_migration_openssl())
+    sha256sum = shim_dir / "sha256sum"
+    sha256sum.write_text(
+        "#!/usr/bin/env python3\n"
+        "import hashlib, pathlib, sys\n"
+        "for name in sys.argv[1:]:\n"
+        "    digest = hashlib.sha256(pathlib.Path(name).read_bytes()).hexdigest()\n"
+        "    print(f'{digest}  {name}')\n"
+    )
+    sha256sum.chmod(0o700)
+    completed = subprocess.run(
+        ["bash", "-c", command],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "RUNNER_TEMP": str(runner_temp),
+            "APPLY_SIGNING_KEY": signing_key,
+            "APPLY_PUBLIC_KEY": apply_public_key,
+            "RECIPIENT_PUBLIC_KEY": b64encode(recipient_public_key).decode("ascii"),
+            "PATH": f"{shim_dir}{os.pathsep}{os.environ['PATH']}",
+        },
+    )
+    return completed, runner_temp / "apply-signing-key-migration"
+
+
+def test_apply_signing_key_migration_round_trip_and_artifact_allowlist(
+    tmp_path: Path,
+) -> None:
+    seed = bytes(range(32))
+    apply_public_key, private_key = _keypair(seed)
+    recipient_private_key = rsa.generate_private_key(
+        public_exponent=65537, key_size=3072
+    )
+    recipient_public_key = recipient_private_key.public_key().public_bytes(
+        serialization.Encoding.PEM,
+        serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    serializations = {
+        "raw-seed": b64encode(seed).decode("ascii"),
+        "pkcs8-pem": private_key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        ).decode("ascii"),
+    }
+
+    for run_name, serialized_private_key in serializations.items():
+        completed, artifact = _run_apply_key_migration(
+            tmp_path,
+            run_name=run_name,
+            signing_key=serialized_private_key,
+            apply_public_key=apply_public_key,
+            recipient_public_key=recipient_public_key,
+        )
+
+        assert completed.returncode == 0, completed.stderr
+        assert sorted(path.name for path in artifact.iterdir()) == [
+            "SHA256SUMS",
+            "apply-public-key.txt",
+            "apply-signing-key.oaep-sha256.bin",
+        ]
+        decrypted = recipient_private_key.decrypt(
+            (artifact / "apply-signing-key.oaep-sha256.bin").read_bytes(),
+            padding.OAEP(
+                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                algorithm=hashes.SHA256(),
+                label=None,
+            ),
+        )
+        assert decrypted.decode("ascii") == serialized_private_key
+
+
+def test_apply_signing_key_migration_rejects_mismatched_or_malformed_key(
+    tmp_path: Path,
+) -> None:
+    seed = bytes(range(32))
+    apply_public_key, _private_key = _keypair(seed)
+    wrong_public_key, _wrong_private_key = _keypair(bytes(reversed(range(32))))
+    recipient_private_key = rsa.generate_private_key(
+        public_exponent=65537, key_size=3072
+    )
+    recipient_public_key = recipient_private_key.public_key().public_bytes(
+        serialization.Encoding.PEM,
+        serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+
+    mismatched, _artifact = _run_apply_key_migration(
+        tmp_path,
+        run_name="mismatched",
+        signing_key=b64encode(seed).decode("ascii"),
+        apply_public_key=wrong_public_key,
+        recipient_public_key=recipient_public_key,
+    )
+    malformed, _artifact = _run_apply_key_migration(
+        tmp_path,
+        run_name="malformed",
+        signing_key="!" * 44,
+        apply_public_key=apply_public_key,
+        recipient_public_key=recipient_public_key,
+    )
+
+    assert mismatched.returncode != 0
+    assert "does not match the trusted apply public key" in mismatched.stderr
+    assert malformed.returncode != 0
+    assert "not strict base64 or PKCS8 PEM" in malformed.stderr
+
+
+def test_apply_signing_key_migration_rejects_weak_recipient_rsa(
+    tmp_path: Path,
+) -> None:
+    seed = bytes(range(32))
+    apply_public_key, _private_key = _keypair(seed)
+    weak_recipient = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    weak_public_key = weak_recipient.public_key().public_bytes(
+        serialization.Encoding.PEM,
+        serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+
+    completed, _artifact = _run_apply_key_migration(
+        tmp_path,
+        run_name="weak-rsa",
+        signing_key=b64encode(seed).decode("ascii"),
+        apply_public_key=apply_public_key,
+        recipient_public_key=weak_public_key,
+    )
+
+    assert completed.returncode != 0
+    assert "must be RSA with at least 3072 bits" in completed.stderr

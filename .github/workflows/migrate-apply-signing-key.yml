@@ -1,3 +1,4 @@
+# One-time lane: remove this workflow and its Environment after verified migration.
 name: Migrate inherited apply signing key
 
 on:
@@ -29,31 +30,135 @@ jobs:
           artifact="$RUNNER_TEMP/apply-signing-key-migration"
           recipient="$RUNNER_TEMP/recipient-public.pem"
           plaintext="$RUNNER_TEMP/apply-signing-key.material"
-          trap 'rm -f "$recipient" "$plaintext"' EXIT
-          mkdir -p "$artifact"
+          private_der="$RUNNER_TEMP/apply-signing-key.pkcs8.der"
+          trusted_public_pem="$RUNNER_TEMP/apply-public-key.pem"
+          trap 'rm -f "$recipient" "$plaintext" "$private_der" "$trusted_public_pem"' EXIT
+          mkdir -m 700 -p "$artifact"
 
           test -n "$APPLY_SIGNING_KEY"
           test -n "$APPLY_PUBLIC_KEY"
-          printf '%s' "$RECIPIENT_PUBLIC_KEY" | base64 --decode > "$recipient"
-          openssl pkey -pubin -in "$recipient" -noout
-
           printf '%s' "$APPLY_SIGNING_KEY" > "$plaintext"
+          unset APPLY_SIGNING_KEY
           key_bytes="$(wc -c < "$plaintext" | tr -d ' ')"
-          if [ "$key_bytes" -lt 40 ] || [ "$key_bytes" -gt 512 ]; then
+          if [ "$key_bytes" -lt 40 ] || [ "$key_bytes" -gt 256 ]; then
             echo "inherited signing key has an unsupported serialized length" >&2
             exit 1
           fi
+
+          python3 - "$plaintext" "$private_der" "$trusted_public_pem" <<'PY'
+          import base64
+          import hmac
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          plaintext = Path(sys.argv[1])
+          private_der = Path(sys.argv[2])
+          trusted_public_pem = Path(sys.argv[3])
+          private_prefix = bytes.fromhex("302e020100300506032b657004220420")
+          public_prefix = bytes.fromhex("302a300506032b6570032100")
+
+          def openssl(*args: str) -> bytes:
+              completed = subprocess.run(
+                  ["openssl", *args],
+                  check=False,
+                  capture_output=True,
+                  env={"PATH": os.environ["PATH"]},
+              )
+              if completed.returncode:
+                  raise SystemExit("inherited signing material is not valid Ed25519 key material")
+              return completed.stdout
+
+          material = plaintext.read_bytes()
+          if material.startswith(b"-----BEGIN PRIVATE KEY-----"):
+              derived_public = openssl(
+                  "pkey", "-in", str(plaintext), "-pubout", "-outform", "DER"
+              )
+          else:
+              try:
+                  seed = base64.b64decode(material, validate=True)
+              except (ValueError, base64.binascii.Error):
+                  raise SystemExit("inherited signing key is not strict base64 or PKCS8 PEM") from None
+              if len(seed) != 32:
+                  raise SystemExit("inherited signing key is not a 32-byte Ed25519 seed")
+              private_der.write_bytes(private_prefix + seed)
+              derived_public = openssl(
+                  "pkey",
+                  "-inform", "DER",
+                  "-in", str(private_der),
+                  "-pubout",
+                  "-outform", "DER",
+              )
+
+          if len(derived_public) != 44 or not derived_public.startswith(public_prefix):
+              raise SystemExit("inherited signing key is not Ed25519")
+
+          trusted_serialized = os.environ["APPLY_PUBLIC_KEY"].strip()
+          if trusted_serialized.startswith("-----BEGIN PUBLIC KEY-----"):
+              trusted_public_pem.write_text(trusted_serialized + "\n", encoding="ascii")
+              trusted_public = openssl(
+                  "pkey",
+                  "-pubin",
+                  "-in", str(trusted_public_pem),
+                  "-outform", "DER",
+              )
+          else:
+              try:
+                  trusted_raw = base64.b64decode(trusted_serialized, validate=True)
+              except (ValueError, base64.binascii.Error):
+                  raise SystemExit("trusted apply public key is malformed") from None
+              if len(trusted_raw) != 32:
+                  raise SystemExit("trusted apply public key is not 32 bytes")
+              trusted_public = public_prefix + trusted_raw
+
+          if not hmac.compare_digest(derived_public, trusted_public):
+              raise SystemExit("inherited signing key does not match the trusted apply public key")
+          PY
+
+          python3 - "$recipient" <<'PY'
+          import base64
+          import os
+          import sys
+          from pathlib import Path
+
+          try:
+              recipient = base64.b64decode(
+                  os.environ["RECIPIENT_PUBLIC_KEY"], validate=True
+              )
+          except (ValueError, base64.binascii.Error):
+              raise SystemExit("recipient public key is not strict base64") from None
+          Path(sys.argv[1]).write_bytes(recipient)
+          PY
+          unset RECIPIENT_PUBLIC_KEY
+          rsa_bits="$(
+            openssl rsa -pubin -in "$recipient" -text -noout 2>/dev/null \
+              | sed -n '1s/.*(\([0-9][0-9]*\) bit).*/\1/p'
+          )"
+          if ! [[ "$rsa_bits" =~ ^[0-9]+$ ]] || [ "$rsa_bits" -lt 3072 ]; then
+            echo "recipient public key must be RSA with at least 3072 bits" >&2
+            exit 1
+          fi
+
           openssl pkeyutl -encrypt \
             -pubin \
             -inkey "$recipient" \
             -pkeyopt rsa_padding_mode:oaep \
             -pkeyopt rsa_oaep_md:sha256 \
+            -pkeyopt rsa_mgf1_md:sha256 \
             -in "$plaintext" \
             -out "$artifact/apply-signing-key.oaep-sha256.bin"
           rm -f "$plaintext"
 
           printf '%s\n' "$APPLY_PUBLIC_KEY" > "$artifact/apply-public-key.txt"
-          sha256sum "$artifact"/* > "$artifact/SHA256SUMS"
+          unset APPLY_PUBLIC_KEY
+          sha256sum \
+            "$artifact/apply-signing-key.oaep-sha256.bin" \
+            "$artifact/apply-public-key.txt" \
+            > "$artifact/SHA256SUMS"
+          actual_files="$(find "$artifact" -type f -exec basename {} \; | LC_ALL=C sort)"
+          expected_files="$(printf '%s\n' SHA256SUMS apply-public-key.txt apply-signing-key.oaep-sha256.bin)"
+          test "$actual_files" = "$expected_files"
 
       - name: Upload encrypted migration artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
