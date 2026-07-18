@@ -169,6 +169,46 @@ jobs:
           sudo chown -R 0:0 /opt/axiom-verification
           sudo chmod -R go-w /opt/axiom-verification
 
+      - name: Verify protected RuleSpec routing
+        env:
+          RULESPEC_CHECKOUT: ${{ github.workspace }}/rulespec-us
+        run: |
+          set -euo pipefail
+          trusted_path=/opt/axiom-verification
+          trusted_home=/opt/axiom-verification/python
+          env -i PATH="$trusted_path" HOME="$trusted_home" \
+            git -C "$RULESPEC_CHECKOUT" rev-parse --show-toplevel
+          env -i PATH="$trusted_path" HOME="$trusted_home" \
+            git -C "$RULESPEC_CHECKOUT" remote get-url origin
+          interpreter="$(sed -n '1s/^#!\([^ ]*\).*/\1/p' \
+            /opt/axiom-verification/axiom-encode)"
+          env -i PATH="$trusted_path" HOME="$trusted_home" \
+            "$interpreter" -I - "$RULESPEC_CHECKOUT" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          from axiom_encode.constants import RULESPEC_FILESYSTEM_ROOTS
+          from axiom_encode.repo_routing import canonical_rulespec_repo_name
+
+          checkout = Path(sys.argv[1])
+          payload = {
+              "canonical_repo_name": canonical_rulespec_repo_name(checkout),
+              "git_marker_is_symlink": (checkout / ".git").is_symlink(),
+              "name": checkout.name,
+              "path": str(checkout),
+              "resolved_path": str(checkout.resolve()),
+              "unexpected_root_entries": sorted(
+                  name
+                  for name in RULESPEC_FILESYSTEM_ROOTS - {"programs"}
+                  if (checkout / name).exists() or (checkout / name).is_symlink()
+              ),
+          }
+          print(json.dumps(payload, sort_keys=True))
+          if payload["canonical_repo_name"] != checkout.name:
+              raise SystemExit("protected RuleSpec routing rejected checkout")
+          PY
+
       - name: Encode, review, validate, and apply
         env:
           AXIOM_ENCODE_APPLY_SIGNING_KEY: ${{ secrets.AXIOM_ENCODE_APPLY_SIGNING_KEY }}

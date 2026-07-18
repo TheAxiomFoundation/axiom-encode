@@ -1488,6 +1488,16 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert "sudo chmod go-w /opt" in provision_step["run"]
     assert "--git /usr/bin/git" in provision_step["run"]
 
+    routing_step = next(
+        step
+        for step in steps
+        if step.get("name") == "Verify protected RuleSpec routing"
+    )
+    routing_command = routing_step["run"]
+    assert 'env -i PATH="$trusted_path" HOME="$trusted_home"' in routing_command
+    assert "canonical_rulespec_repo_name(checkout)" in routing_command
+    assert "protected RuleSpec routing rejected checkout" in routing_command
+
     apply_step = next(
         step
         for step in steps
