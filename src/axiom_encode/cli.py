@@ -36478,11 +36478,7 @@ def _apply_validation_execution_identity(
     engine = Path(axiom_rules_path).resolve()
     content_root = _rulespec_apply_content_root(policy_repo_path, relative_output)
     dependencies = _normalize_rulespec_dependency_roots(rulespec_dependency_roots)
-    encoder = _git_checkout_execution_identity(
-        Path(__file__).resolve().parents[2],
-        pathspecs=("src/axiom_encode", "pyproject.toml", "uv.lock"),
-    )
-    encoder["version"] = __version__
+    encoder = _apply_encoder_execution_identity()
     return {
         "axiom_encode_identity": encoder,
         "axiom_rules_path": str(engine),
@@ -36494,6 +36490,52 @@ def _apply_validation_execution_identity(
             _apply_dependency_checkout_identity(path) for path in dependencies
         ],
     }
+
+
+def _apply_encoder_execution_identity() -> dict[str, object]:
+    """Bind apply provenance to this checkout or the verified CI source checkout."""
+
+    checkout_override = os.environ.get("AXIOM_ENCODE_APPLY_CHECKOUT")
+    checkout_root = Path(__file__).resolve().parents[2]
+    expected_ci_sha: str | None = None
+    if checkout_override:
+        if os.environ.get("GITHUB_ACTIONS") != "true":
+            raise RuntimeError(
+                "AXIOM_ENCODE_APPLY_CHECKOUT is only allowed in GitHub Actions"
+            )
+        workspace = os.environ.get("GITHUB_WORKSPACE")
+        github_sha = os.environ.get("GITHUB_SHA")
+        if (
+            not workspace
+            or not github_sha
+            or re.fullmatch(r"[0-9a-f]{40}", github_sha) is None
+        ):
+            raise RuntimeError("GitHub Actions encoder checkout identity is incomplete")
+        expected_checkout = Path(os.path.abspath(workspace)) / "axiom-encode"
+        checkout_root = Path(os.path.abspath(checkout_override))
+        if checkout_root != expected_checkout or checkout_root.is_symlink():
+            raise RuntimeError(
+                "AXIOM_ENCODE_APPLY_CHECKOUT must be the workflow axiom-encode checkout"
+            )
+        expected_ci_sha = github_sha
+
+    encoder = _git_checkout_execution_identity(
+        checkout_root,
+        pathspecs=("src/axiom_encode", "pyproject.toml", "uv.lock"),
+    )
+    if expected_ci_sha is not None:
+        if encoder.get("commit") != expected_ci_sha:
+            raise RuntimeError("Workflow encoder checkout does not match GITHUB_SHA")
+        versions = _axiom_encode_versions_at_ref(checkout_root, "HEAD")
+        if any(
+            versions.get(field) != __version__
+            for field in ("pyproject", "package", "lock")
+        ):
+            raise RuntimeError(
+                "Provisioned encoder version does not match the workflow checkout"
+            )
+    encoder["version"] = __version__
+    return encoder
 
 
 def _portable_clean_apply_git_identity(

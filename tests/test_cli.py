@@ -43,6 +43,7 @@ from axiom_encode.cli import (
     _applied_encoding_manifest_signature_issue,
     _applied_encoding_manifest_verifier,
     _applied_manifest_source_attestation_issues,
+    _apply_encoder_execution_identity,
     _apply_generated_encoding_result,
     _build_eval_suite_payload,
     _build_eval_suite_report,
@@ -1217,6 +1218,59 @@ def test_running_encoder_identity_default_preserves_non_git_error(
         match="running axiom-encode must be a clean Git checkout at a full commit",
     ):
         _current_guard_encoder_execution_identity()
+
+
+def test_apply_encoder_identity_uses_verified_workflow_checkout(tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    checkout = workspace / "axiom-encode"
+    commit = _init_encoder_identity_checkout(checkout)
+    _git(
+        checkout,
+        "remote",
+        "add",
+        "origin",
+        "https://github.com/TheAxiomFoundation/axiom-encode.git",
+    )
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("GITHUB_WORKSPACE", str(workspace))
+    monkeypatch.setenv("GITHUB_SHA", commit)
+    monkeypatch.setenv("AXIOM_ENCODE_APPLY_CHECKOUT", str(checkout))
+
+    identity = _apply_encoder_execution_identity()
+
+    assert identity["kind"] == "git"
+    assert identity["commit"] == commit
+    assert identity["dirty"] is False
+    assert identity["version"] == AXIOM_ENCODE_TEST_VERSION
+
+
+def test_apply_encoder_identity_rejects_checkout_not_at_workflow_sha(
+    tmp_path, monkeypatch
+):
+    workspace = tmp_path / "workspace"
+    checkout = workspace / "axiom-encode"
+    _init_encoder_identity_checkout(checkout)
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("GITHUB_WORKSPACE", str(workspace))
+    monkeypatch.setenv("GITHUB_SHA", "a" * 40)
+    monkeypatch.setenv("AXIOM_ENCODE_APPLY_CHECKOUT", str(checkout))
+
+    with pytest.raises(
+        RuntimeError,
+        match="Workflow encoder checkout does not match GITHUB_SHA",
+    ):
+        _apply_encoder_execution_identity()
+
+
+def test_apply_encoder_identity_override_is_ci_only(tmp_path, monkeypatch):
+    monkeypatch.setenv("AXIOM_ENCODE_APPLY_CHECKOUT", str(tmp_path / "axiom-encode"))
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+
+    with pytest.raises(
+        RuntimeError,
+        match="AXIOM_ENCODE_APPLY_CHECKOUT is only allowed in GitHub Actions",
+    ):
+        _apply_encoder_execution_identity()
 
 
 def _write_active_corpus_row(
