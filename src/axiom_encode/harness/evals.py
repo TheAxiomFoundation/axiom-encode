@@ -7456,15 +7456,21 @@ def _contained_eval_output_file(
     """Resolve an eval artifact path and require runner-root containment."""
 
     resolved_output_root = Path(output_root).resolve()
-    runner_root = (resolved_output_root / runner_name).resolve()
-    if not runner_root.is_relative_to(resolved_output_root):
+    runner_relative = Path(runner_name)
+    relative = Path(relative_output)
+    if runner_relative.is_absolute() or any(
+        part in {"", ".", ".."} for part in runner_relative.parts
+    ):
         raise ValueError(f"Eval runner path escapes output root: {runner_name!r}")
-    output_file = (runner_root / relative_output).resolve()
-    if not output_file.is_relative_to(runner_root):
+    if (
+        relative.is_absolute()
+        or not relative.parts
+        or any(part in {"", ".", ".."} for part in relative.parts)
+    ):
         raise ValueError(
             f"Eval output path escapes runner root: {relative_output.as_posix()!r}"
         )
-    return output_file
+    return resolved_output_root / runner_relative / relative
 
 
 @contextlib.contextmanager

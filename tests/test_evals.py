@@ -2146,19 +2146,30 @@ def test_contained_eval_output_file_rejects_output_root_escape(tmp_path):
         _contained_eval_output_file(tmp_path, "../outside", Path("artifact.yaml"))
 
 
-def test_contained_eval_output_file_rejects_symlink_escape(tmp_path):
+def test_contained_eval_output_file_preserves_lexical_target_symlink(tmp_path):
     runner_root = tmp_path / "runner"
-    outside = tmp_path / "outside"
-    runner_root.mkdir()
-    outside.mkdir()
-    (runner_root / "linked").symlink_to(outside, target_is_directory=True)
+    canonical = runner_root / "statutes" / "26" / "1.yaml"
+    requested = runner_root / "statutes" / "47" / "294.yaml"
+    canonical.parent.mkdir(parents=True)
+    requested.parent.mkdir(parents=True)
+    canonical.write_text("canonical sentinel\n", encoding="utf-8")
+    requested.symlink_to(canonical)
 
-    with pytest.raises(ValueError, match="escapes runner root"):
-        _contained_eval_output_file(
-            tmp_path,
-            "runner",
-            Path("linked/artifact.yaml"),
-        )
+    output_file = _contained_eval_output_file(
+        tmp_path,
+        "runner",
+        Path("statutes/47/294.yaml"),
+    )
+    wrote = _materialize_eval_artifact(
+        "format: rulespec/v1\nrules: []\n",
+        output_file,
+        artifact_root=tmp_path,
+    )
+
+    assert wrote is True
+    assert output_file == requested
+    assert not requested.is_symlink()
+    assert canonical.read_text(encoding="utf-8") == "canonical sentinel\n"
 
 
 class TestCorpusSourceResolution:
