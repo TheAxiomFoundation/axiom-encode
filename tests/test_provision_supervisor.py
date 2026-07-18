@@ -323,9 +323,7 @@ class TestTrustedGit:
         repository = tmp_path / "rulespec-us"
         subprocess.run([git, "init", "--quiet", str(repository)], check=True)
         (repository / "a.txt").write_text("original\n")
-        (repository / ".gitattributes").write_text(
-            "*.txt diff=hostile filter=hostile\n"
-        )
+        (repository / ".gitattributes").write_text("*.txt diff=hostile\n")
         subprocess.run([git, "-C", str(repository), "add", "."], check=True)
         subprocess.run(
             [
@@ -357,7 +355,6 @@ class TestTrustedGit:
             "core.fsmonitor",
             "diff.external",
             "diff.hostile.textconv",
-            "filter.hostile.smudge",
         ):
             subprocess.run(
                 [git, "-C", str(repository), "config", key, str(helper)], check=True
@@ -470,6 +467,38 @@ class TestTrustedGit:
             capture_output=True,
             env=clean_environment,
         )
+        assert not marker.exists()
+
+        (repository / ".gitattributes").write_text(
+            "*.txt diff=hostile filter=hostile\n"
+        )
+        for key in ("filter.hostile.clean", "filter.hostile.smudge"):
+            subprocess.run(
+                [git, "-C", str(repository), "config", key, str(helper)], check=True
+            )
+        filtered_worktree_commands = (
+            ["status", "--porcelain"],
+            ["status", "--porcelain", "--untracked-files=no"],
+            ["diff", "--binary", "HEAD", "--", "a.txt"],
+            [
+                "diff",
+                "--name-only",
+                "--no-renames",
+                "--diff-filter=ACDMRT",
+                "-z",
+                "HEAD",
+            ],
+        )
+        for command in filtered_worktree_commands:
+            refused_filter = subprocess.run(
+                [str(wrapper), "-C", str(repository), *command],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=clean_environment,
+            )
+            assert refused_filter.returncode != 0
+            assert "refused worktree filter for" in refused_filter.stderr
         assert not marker.exists()
 
         refused_arguments = (

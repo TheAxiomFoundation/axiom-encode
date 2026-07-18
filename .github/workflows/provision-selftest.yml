@@ -103,7 +103,7 @@ jobs:
           hostile_marker="$RUNNER_TEMP/hostile-git-helper-executed"
           /usr/bin/git init --quiet "$hostile_repo"
           printf 'original\n' > "$hostile_repo/a.txt"
-          printf '*.txt diff=hostile filter=hostile\n' > "$hostile_repo/.gitattributes"
+          printf '*.txt diff=hostile\n' > "$hostile_repo/.gitattributes"
           /usr/bin/git -C "$hostile_repo" add .
           /usr/bin/git \
             -c user.name='Axiom selftest' \
@@ -112,9 +112,7 @@ jobs:
           printf '#!/bin/sh\ntouch %s\n' "$hostile_marker" \
             > "$RUNNER_TEMP/hostile-git-helper"
           chmod 755 "$RUNNER_TEMP/hostile-git-helper"
-          for key in \
-            core.fsmonitor diff.external diff.hostile.textconv \
-            filter.hostile.smudge; do
+          for key in core.fsmonitor diff.external diff.hostile.textconv; do
             /usr/bin/git -C "$hostile_repo" config \
               "$key" "$RUNNER_TEMP/hostile-git-helper"
           done
@@ -135,6 +133,25 @@ jobs:
             GIT_CONFIG_VALUE_0="$RUNNER_TEMP/hostile-git-helper" \
             GIT_EXTERNAL_DIFF="$RUNNER_TEMP/hostile-git-helper" \
             git -C "$hostile_repo" diff --binary HEAD -- a.txt >/dev/null
+          printf '*.txt diff=hostile filter=hostile\n' \
+            > "$hostile_repo/.gitattributes"
+          for key in filter.hostile.clean filter.hostile.smudge; do
+            /usr/bin/git -C "$hostile_repo" config \
+              "$key" "$RUNNER_TEMP/hostile-git-helper"
+          done
+          for args in \
+            'status --porcelain' \
+            'status --porcelain --untracked-files=no' \
+            'diff --binary HEAD -- a.txt' \
+            'diff --name-only --no-renames --diff-filter=ACDMRT -z HEAD'; do
+            if env -i \
+              PATH="$dest" \
+              HOME="$dest/python" \
+              git -C "$hostile_repo" $args >/dev/null; then
+              echo "trusted Git wrapper accepted worktree filter: $args" >&2
+              exit 1
+            fi
+          done
           if env -i \
             PATH="$dest" \
             HOME="$dest/python" \
