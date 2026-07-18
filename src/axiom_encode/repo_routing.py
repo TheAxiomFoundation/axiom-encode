@@ -28,6 +28,10 @@ from .constants import RULESPEC_COMPOSITION_SPEC_ROOT, RULESPEC_FILESYSTEM_ROOTS
 class _GitProbeError(RuntimeError):
     """Git identity could not be checked for an observed repository boundary."""
 
+    def __init__(self, message: str, *, category: str = "error") -> None:
+        super().__init__(message)
+        self.category = category
+
 
 class CanonicalRuleSpecCheckoutInspection(NamedTuple):
     """Canonical checkout identity and a stable rejection code."""
@@ -124,24 +128,30 @@ def inspect_canonical_rulespec_checkout(
         return CanonicalRuleSpecCheckoutInspection(None, "atomic-root-at-checkout")
     try:
         git_boundary = _nearest_git_boundary(checkout)
-    except _GitProbeError:
-        return CanonicalRuleSpecCheckoutInspection(None, "git-boundary-probe-error")
+    except _GitProbeError as exc:
+        return CanonicalRuleSpecCheckoutInspection(
+            None, f"git-boundary-probe-{exc.category}"
+        )
     if git_boundary is not None and git_boundary != checkout:
         return CanonicalRuleSpecCheckoutInspection(None, "git-boundary-mismatch")
     if git_boundary is None:
         return CanonicalRuleSpecCheckoutInspection(name, None)
     try:
         git_top_level = _git_top_level(str(checkout))
-    except _GitProbeError:
-        return CanonicalRuleSpecCheckoutInspection(None, "git-top-level-probe-error")
+    except _GitProbeError as exc:
+        return CanonicalRuleSpecCheckoutInspection(
+            None, f"git-top-level-probe-{exc.category}"
+        )
     if git_top_level is None:
         return CanonicalRuleSpecCheckoutInspection(None, "git-top-level-unavailable")
     if git_top_level is not None and git_top_level != checkout:
         return CanonicalRuleSpecCheckoutInspection(None, "git-top-level-mismatch")
     try:
         origin_name = _git_origin_repo_name(str(checkout))
-    except _GitProbeError:
-        return CanonicalRuleSpecCheckoutInspection(None, "git-origin-probe-error")
+    except _GitProbeError as exc:
+        return CanonicalRuleSpecCheckoutInspection(
+            None, f"git-origin-probe-{exc.category}"
+        )
     if origin_name is not None and origin_name != name:
         return CanonicalRuleSpecCheckoutInspection(None, "git-origin-name-mismatch")
     return CanonicalRuleSpecCheckoutInspection(name, None)
@@ -348,7 +358,10 @@ def _git_top_level(root: str) -> Path | None:
             timeout=2,
         )
     except (OSError, subprocess.SubprocessError) as exc:
-        raise _GitProbeError(f"Could not inspect Git top-level for {root}") from exc
+        raise _GitProbeError(
+            f"Could not inspect Git top-level for {root}",
+            category=_git_probe_exception_category(exc),
+        ) from exc
     if completed.returncode != 0:
         return None
     top_level = completed.stdout.strip()
@@ -368,7 +381,10 @@ def _git_origin_repo_name(root: str) -> str | None:
             timeout=2,
         )
     except (OSError, subprocess.SubprocessError) as exc:
-        raise _GitProbeError(f"Could not inspect Git origin for {root}") from exc
+        raise _GitProbeError(
+            f"Could not inspect Git origin for {root}",
+            category=_git_probe_exception_category(exc),
+        ) from exc
     if completed.returncode != 0:
         return None
     remote = completed.stdout.strip().rstrip("/")
@@ -376,3 +392,13 @@ def _git_origin_repo_name(root: str) -> str | None:
         return None
     name = remote.rsplit("/", 1)[-1]
     return name.removesuffix(".git") or None
+
+
+def _git_probe_exception_category(exc: BaseException) -> str:
+    """Return a bounded, non-secret category for a failed Git process launch."""
+
+    if isinstance(exc, subprocess.TimeoutExpired):
+        return "timeout"
+    if isinstance(exc, OSError):
+        return f"oserror-{exc.errno}" if exc.errno is not None else "oserror"
+    return "subprocess-error"

@@ -174,7 +174,7 @@ jobs:
           RULESPEC_CHECKOUT: ${{ github.workspace }}/rulespec-us
         run: |
           set -euo pipefail
-          trusted_path=/opt/axiom-verification
+          trusted_path=/opt/axiom-verification/python/bin
           trusted_home=/opt/axiom-verification/python
           env -i PATH="$trusted_path" HOME="$trusted_home" \
             git -C "$RULESPEC_CHECKOUT" rev-parse --show-toplevel
@@ -184,16 +184,20 @@ jobs:
             /opt/axiom-verification/axiom-encode)"
           env -i PATH="$trusted_path" HOME="$trusted_home" \
             "$interpreter" -I - "$RULESPEC_CHECKOUT" <<'PY'
+          import ctypes
           import json
           import sys
           from pathlib import Path
 
           from axiom_encode.constants import RULESPEC_FILESYSTEM_ROOTS
-          from axiom_encode.repo_routing import canonical_rulespec_repo_name
+          from axiom_encode.repo_routing import (
+              canonical_rulespec_repo_name,
+              inspect_canonical_rulespec_checkout,
+          )
+          from axiom_encode.signing_broker import _harden_signing_capability_process
 
           checkout = Path(sys.argv[1])
-          payload = {
-              "canonical_repo_name": canonical_rulespec_repo_name(checkout),
+          structure = {
               "git_marker_is_symlink": (checkout / ".git").is_symlink(),
               "name": checkout.name,
               "path": str(checkout),
@@ -204,9 +208,29 @@ jobs:
                   if (checkout / name).exists() or (checkout / name).is_symlink()
               ),
           }
+
+          def route_payload():
+              inspection = inspect_canonical_rulespec_checkout(
+                  checkout, allow_composition_specs=True
+              )
+              return {
+                  "canonical_repo_name": canonical_rulespec_repo_name(checkout),
+                  "rejection": inspection.rejection,
+              }
+
+          direct = route_payload()
+          _harden_signing_capability_process(role="routing-probe")
+          if sys.platform.startswith("linux"):
+              libc = ctypes.CDLL(None, use_errno=True)
+              if libc.prctl(38, 1, 0, 0, 0) != 0:
+                  raise SystemExit("could not enable routing-probe no-new-privileges")
+          hardened = route_payload()
+          payload = {**structure, "direct": direct, "hardened": hardened}
           print(json.dumps(payload, sort_keys=True))
-          if payload["canonical_repo_name"] != checkout.name:
+          if direct["canonical_repo_name"] != checkout.name:
               raise SystemExit("protected RuleSpec routing rejected checkout")
+          if hardened["canonical_repo_name"] != checkout.name:
+              raise SystemExit("hardened RuleSpec routing rejected checkout")
           PY
 
       - name: Encode, review, validate, and apply
