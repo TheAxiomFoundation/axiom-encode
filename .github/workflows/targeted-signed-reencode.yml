@@ -279,7 +279,6 @@ jobs:
       - name: Encode, review, validate, and apply
         env:
           AXIOM_ENCODE_APPLY_SIGNING_KEY: ${{ secrets.AXIOM_ENCODE_APPLY_SIGNING_KEY }}
-          AXIOM_ENCODE_APPLY_CHECKOUT: ${{ github.workspace }}/axiom-encode
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           CITATION: ${{ inputs.citation }}
           REVIEW_FINDING: ${{ inputs.review_finding }}
