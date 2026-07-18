@@ -81,6 +81,7 @@ from axiom_encode.harness.evals import (
     _slugify,
     _source_identifier_to_relative_rulespec_path,
     _source_metadata_citation_path,
+    _target_rel_for_eval_identifier,
     _target_source_scope_for_heuristics,
     _validate_eval_result_artifacts,
     _validate_eval_suite_execution_identity,
@@ -2115,6 +2116,12 @@ def test_resolve_eval_output_path_rejects_empty_colon_statute_component():
         _resolve_eval_output_path("us-la/statute/47::294")
 
 
+def test_target_rel_preserves_colon_prefixed_louisiana_jurisdiction():
+    assert _target_rel_for_eval_identifier("us-la:statute/47:294") == Path(
+        "statutes/47/294.yaml"
+    )
+
+
 @pytest.mark.parametrize(
     "citation",
     [
@@ -3450,6 +3457,45 @@ rules:
     assert output_file.exists()
     assert output_file.with_name("tn-snap.test.yaml").exists()
     assert output_file.read_text().startswith("format: rulespec/v1")
+
+
+def test_materialize_eval_artifact_replaces_target_symlink_without_following_it(
+    tmp_path,
+):
+    output_file = tmp_path / "runner" / "statutes" / "47" / "294.yaml"
+    outside = tmp_path / "outside.yaml"
+    output_file.parent.mkdir(parents=True)
+    outside.write_text("outside sentinel\n", encoding="utf-8")
+    output_file.symlink_to(outside)
+
+    wrote = _materialize_eval_artifact(
+        "format: rulespec/v1\nrules: []\n",
+        output_file,
+    )
+
+    assert wrote is True
+    assert outside.read_text(encoding="utf-8") == "outside sentinel\n"
+    assert not output_file.is_symlink()
+    assert output_file.read_text(encoding="utf-8") == (
+        "format: rulespec/v1\nrules: []\n"
+    )
+
+
+def test_materialize_eval_artifact_rejects_symlinked_output_ancestor(tmp_path):
+    output_root = tmp_path / "output"
+    outside = tmp_path / "outside"
+    output_root.mkdir()
+    outside.mkdir()
+    (output_root / "runner").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(OSError):
+        _materialize_eval_artifact(
+            "format: rulespec/v1\nrules: []\n",
+            output_root / "runner" / "statutes" / "47" / "294.yaml",
+            artifact_root=output_root,
+        )
+
+    assert list(outside.iterdir()) == []
 
 
 def test_materialize_eval_artifact_repairs_copied_cross_reference_summary(tmp_path):
