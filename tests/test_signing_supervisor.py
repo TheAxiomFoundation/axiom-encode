@@ -1479,6 +1479,31 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert "rev-parse HEAD" in identity_command
     assert "merge-base --is-ancestor" in identity_command
 
+    release_step = next(
+        step
+        for step in steps
+        if step.get("name") == "Fetch pinned signed corpus release object"
+    )
+    assert release_step["env"] == {
+        "SUPABASE_URL": "https://swocpijqqahhuwtuahwc.supabase.co",
+        "SUPABASE_ANON_KEY": "${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}",
+    }
+    release_command = release_step["run"]
+    assert "materialize_corpus_release.py" in release_command
+    assert "rulespec-us/.axiom/toolchain.toml" in release_command
+    assert 'pin --toolchain "$toolchain"' in release_command
+    assert 'mktemp "$RUNNER_TEMP/' in release_command
+    assert "/rest/v1/release_objects?select=release_object" in release_command
+    assert "content_sha256=eq.${release_sha}&limit=2" in release_command
+    assert "--proto '=https' --proto-redir '=https' --tlsv1.2" in release_command
+    assert "--max-filesize 16777216" in release_command
+    assert "Accept-Profile: corpus" in release_command
+    assert (
+        'materialize --toolchain "$toolchain" --response "$response"' in release_command
+    )
+    assert "--corpus-root axiom-corpus" in release_command
+    assert 'merge-base --is-ancestor "$release_commit" HEAD' in release_command
+
     provision_step = next(
         step
         for step in steps

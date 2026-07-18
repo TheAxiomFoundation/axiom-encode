@@ -139,6 +139,49 @@ jobs:
           uv pip install --python .venv/bin/python \
             --target "$RUNNER_TEMP/axiom-verification-site-packages" ".[api]"
 
+      - name: Fetch pinned signed corpus release object
+        shell: bash
+        env:
+          SUPABASE_URL: https://swocpijqqahhuwtuahwc.supabase.co
+          SUPABASE_ANON_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_ANON_KEY"
+          materializer=axiom-encode/scripts/materialize_corpus_release.py
+          toolchain=rulespec-us/.axiom/toolchain.toml
+          mapfile -t release_pin < <(
+            axiom-encode/.venv/bin/python "$materializer" pin --toolchain "$toolchain"
+          )
+          if [ "${#release_pin[@]}" -ne 2 ]; then
+            echo "RuleSpec toolchain did not yield exactly one corpus release pin" >&2
+            exit 1
+          fi
+          release_name="${release_pin[0]}"
+          release_sha="${release_pin[1]}"
+          response="$(mktemp "$RUNNER_TEMP/corpus-release-response.XXXXXX")"
+          trap 'rm -f "$response"' EXIT
+          url="${SUPABASE_URL%/}/rest/v1/release_objects?select=release_object&release_name=eq.${release_name}&content_sha256=eq.${release_sha}&limit=2"
+          curl --fail --silent --show-error --location \
+            --proto '=https' --proto-redir '=https' --tlsv1.2 \
+            --max-filesize 16777216 \
+            --header "apikey: $SUPABASE_ANON_KEY" \
+            --header "Authorization: Bearer $SUPABASE_ANON_KEY" \
+            --header "Accept-Profile: corpus" \
+            --output "$response" "$url"
+          release_commit="$(axiom-encode/.venv/bin/python "$materializer" \
+            materialize --toolchain "$toolchain" --response "$response" \
+            --corpus-root axiom-corpus)"
+          rm -f "$response"
+          trap - EXIT
+          if [[ ! "$release_commit" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Signed release provenance is not a full lowercase commit SHA" >&2
+            exit 1
+          fi
+          git -C axiom-corpus merge-base --is-ancestor "$release_commit" HEAD || {
+            echo "Pinned corpus checkout predates signed release provenance" >&2
+            exit 1
+          }
+
       - name: Provision protected signing supervisor
         working-directory: axiom-encode
         env:
