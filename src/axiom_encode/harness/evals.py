@@ -4966,8 +4966,10 @@ def select_context_files(
     )
     if statutes_root is None:
         return []
+    title = normalize_rulespec_path_segment(parts.title)
+    section = normalize_rulespec_path_segment(parts.section)
     section_root = validate_rulespec_context_directory(
-        statutes_root / parts.title / parts.section,
+        statutes_root / title / section,
         repo_root,
     )
     target_rel = citation_to_relative_rulespec_path(parts)
@@ -4986,7 +4988,7 @@ def select_context_files(
 
     if not candidates:
         title_root = validate_rulespec_context_directory(
-            statutes_root / parts.title,
+            statutes_root / title,
             repo_root,
         )
         if title_root is not None:

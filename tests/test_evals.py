@@ -13852,6 +13852,32 @@ class TestRepoAugmentedContext:
         assert section_dir / "b.yaml" in selected
         assert section_dir / "c.yaml" in selected
 
+    @pytest.mark.parametrize(
+        "citation",
+        [
+            "42/1437c\u20131/d",
+            CitationParts(title="42", section="1437c\u20131", fragments=("d",)),
+        ],
+        ids=["slash-alias", "structured-citation"],
+    )
+    def test_select_context_files_uses_normalized_section_path(
+        self,
+        tmp_path,
+        citation,
+    ):
+        policy_repo_root = _canonical_rulespec_content_root(tmp_path, "us")
+        title_dir = policy_repo_root / "statutes" / "42"
+        section_dir = title_dir / "1437c-1"
+        section_dir.mkdir(parents=True)
+        sibling = section_dir / "e.yaml"
+        sibling.write_text("same-section sibling")
+        for index in range(6):
+            (title_dir / f"{index}.yaml").write_text("unrelated title context")
+
+        selected = select_context_files(citation, policy_repo_root)
+
+        assert sibling in selected
+
     def test_prepare_eval_workspace_writes_manifest_and_context(self, tmp_path):
         repo_root = tmp_path / "repos"
         policy_repo_root = _canonical_rulespec_content_root(repo_root, "us")
