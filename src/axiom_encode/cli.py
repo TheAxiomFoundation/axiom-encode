@@ -1052,7 +1052,11 @@ def main():
 
     normalize_proof_kinds_parser = subparsers.add_parser(
         "normalize-proof-atom-kinds",
-        help="Normalize classifiable invalid proof atom kinds in place",
+        help=(
+            "Normalize classifiable invalid proof atom kinds in place; custom atoms "
+            "whose rule/version derivation route uses YAML merge keys are left "
+            "unclassified"
+        ),
     )
     normalize_proof_kinds_parser.add_argument(
         "--root",
@@ -4580,6 +4584,13 @@ def cmd_inventory(args):
 def _proof_atom_kind_normalization_module_paths(checkout: Path) -> list[Path]:
     """Select primary atomic modules without validating unrelated checkout YAML."""
     modules: list[Path] = []
+    country = checkout.name.removeprefix("rulespec-")
+    jurisdiction_pattern = re.compile(rf"{re.escape(country)}(?:-[a-z0-9]+)*")
+    for child in checkout.iterdir():
+        if child.is_symlink() and jurisdiction_pattern.fullmatch(child.name):
+            raise ValueError(
+                f"RuleSpec jurisdiction root must not be a symlink: {child}"
+            )
     jurisdiction_names = jurisdiction_subdir_names(
         checkout, allow_composition_specs=True
     )
@@ -4664,7 +4675,11 @@ def build_proof_atom_kind_normalization_report(root: Path) -> dict[str, object]:
 
 def cmd_normalize_proof_atom_kinds(args) -> None:
     """Rewrite only classifiable invalid proof atom kinds in existing modules."""
-    report = build_proof_atom_kind_normalization_report(args.root)
+    try:
+        report = build_proof_atom_kind_normalization_report(args.root)
+    except ValueError as exc:
+        print(f"Proof atom kind normalization error: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
@@ -27261,6 +27276,27 @@ def _yaml_mapping_has_unique_scalar_keys(node: object) -> bool:
     return len(keys) == len(set(keys))
 
 
+def _yaml_node_contains_merge_key(node: object) -> bool:
+    """Return whether a composed derivation node contains a YAML merge key."""
+    pending = [node]
+    visited: set[int] = set()
+    while pending:
+        current = pending.pop()
+        if current is None or id(current) in visited:
+            continue
+        visited.add(id(current))
+        if isinstance(current, MappingNode):
+            for key_node, value_node in current.value:
+                if isinstance(key_node, ScalarNode) and (
+                    key_node.value == "<<" or key_node.tag == "tag:yaml.org,2002:merge"
+                ):
+                    return True
+                pending.extend((key_node, value_node))
+        elif isinstance(current, SequenceNode):
+            pending.extend(current.value)
+    return False
+
+
 def _proof_atom_nodes_from_rule_node(
     rule: dict[str, object],
     rule_node: object,
@@ -27495,6 +27531,9 @@ def _normalize_invalid_proof_atom_kinds(
             derivation_nodes = _proof_derivation_nodes(
                 candidate.rule_node, derivation.version_indices
             )
+            if any(_yaml_node_contains_merge_key(node) for node in derivation_nodes):
+                new_kind = None
+                reason = "YAML merge key appears on the rule/version derivation route"
         if new_kind is None:
             unclassified.append(
                 _UnclassifiedProofAtomKind(

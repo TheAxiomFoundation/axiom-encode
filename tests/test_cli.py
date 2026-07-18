@@ -6605,6 +6605,39 @@ rules:
             "YAML proof atom route is ambiguous or aliased"
         )
 
+    def test_version_formula_inherited_through_merge_alias_is_left_and_reported(self):
+        merge_alias_yaml = """format: rulespec/v1
+version_defaults: &defaults
+  formula: amount + 1
+rules:
+  - name: derived_amount
+    kind: derived
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: custom
+    versions:
+      - <<: *defaults
+        effective_from: 2026-01-01
+"""
+
+        result = _normalize_invalid_proof_atom_kinds(merge_alias_yaml)
+
+        assert result.error is None
+        assert result.content == merge_alias_yaml
+        assert result.repairs == ()
+        assert [
+            (issue.rule, issue.atom_index, issue.reason)
+            for issue in result.unclassified
+        ] == [
+            (
+                "derived_amount",
+                0,
+                "YAML merge key appears on the rule/version derivation route",
+            )
+        ]
+
     def test_replace_failure_leaves_original_module_bytes(self, tmp_path):
         rules_file = tmp_path / "rule.yaml"
         original = b"""format: rulespec/v1
@@ -6774,6 +6807,25 @@ rules:
         assert unresolved_file.read_bytes() == original_unresolved.encode()
         assert test_file.read_bytes() == test_bytes
         assert auxiliary_test_file.read_bytes() == auxiliary_test_bytes
+
+    def test_batch_rejects_symlinked_jurisdiction_root_with_named_error(
+        self, capsys, tmp_path
+    ):
+        checkout = tmp_path / "rulespec-us"
+        checkout.mkdir()
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        (checkout / "us").symlink_to(elsewhere, target_is_directory=True)
+
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_normalize_proof_atom_kinds(SimpleNamespace(root=checkout, json=True))
+
+        assert exc_info.value.code != 0
+        assert (
+            "Proof atom kind normalization error: RuleSpec jurisdiction root "
+            "must not be a symlink:"
+            in capsys.readouterr().err
+        )
 
 
 class TestCmdInventory:
