@@ -5,9 +5,40 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"os"
 	"strings"
 	"testing"
 )
+
+func TestCleanChildEnvironmentForwardsApplyCheckoutIdentity(t *testing.T) {
+	values := map[string]string{
+		"AXIOM_ENCODE_APPLY_CHECKOUT": "/home/runner/work/repo/repo/axiom-encode",
+		"GITHUB_ACTIONS":              "true",
+		"GITHUB_SHA":                  strings.Repeat("a", 40),
+		"GITHUB_WORKSPACE":            "/home/runner/work/repo/repo",
+		"UNTRUSTED_AMBIENT_VALUE":     "must-not-cross",
+	}
+	for name, value := range values {
+		t.Setenv(name, value)
+	}
+	environment := cleanChildEnvironment(10, 11, "/trusted/bin", "/trusted")
+	joined := "\n" + strings.Join(environment, "\n") + "\n"
+	for name, value := range values {
+		entry := "\n" + name + "=" + value + "\n"
+		if name == "UNTRUSTED_AMBIENT_VALUE" {
+			if strings.Contains(joined, entry) {
+				t.Fatalf("untrusted ambient value crossed supervisor boundary")
+			}
+			continue
+		}
+		if !strings.Contains(joined, entry) {
+			t.Fatalf("missing apply identity environment %s", name)
+		}
+	}
+	if _, present := os.LookupEnv("AXIOM_ENCODE_APPLY_SIGNING_KEY"); present {
+		t.Fatal("test environment unexpectedly contains an apply signing key")
+	}
+}
 
 func framed(raw string) []byte {
 	header := make([]byte, 4)

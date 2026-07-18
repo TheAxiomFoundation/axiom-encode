@@ -152,6 +152,7 @@ from .harness.evals import (
     _bind_eval_result_payload,
     _build_eval_suite_execution_identity,
     _build_eval_suite_manifest_identity,
+    _deterministic_tree_identity,
     _eval_artifact_validation_error,
     _eval_result_from_payload,
     _eval_suite_case_corpus_citation_path,
@@ -18379,6 +18380,27 @@ def _is_axiom_encode_versioned_path(path: str) -> bool:
 
 
 def _require_clean_axiom_encode_git_provenance() -> dict[str, object]:
+    if os.environ.get("AXIOM_ENCODE_APPLY_CHECKOUT"):
+        identity = _apply_encoder_execution_identity()
+        root = identity.get("path")
+        commit = identity.get("commit")
+        if (
+            identity.get("kind") != "git"
+            or identity.get("dirty") is not False
+            or not isinstance(root, str)
+            or not isinstance(commit, str)
+        ):
+            raise RuntimeError(
+                "Cannot apply generated RuleSpec from an uncommitted encoder execution"
+            )
+        version_provenance = _require_axiom_encode_version_provenance(Path(root))
+        return {
+            "root": root,
+            "commit": commit,
+            "dirty_tracked": False,
+            **version_provenance,
+        }
+
     provenance = _git_repo_provenance(_axiom_encode_repo_root())
     if provenance is None or not provenance.get("commit"):
         raise RuntimeError(
@@ -36478,11 +36500,7 @@ def _apply_validation_execution_identity(
     engine = Path(axiom_rules_path).resolve()
     content_root = _rulespec_apply_content_root(policy_repo_path, relative_output)
     dependencies = _normalize_rulespec_dependency_roots(rulespec_dependency_roots)
-    encoder = _git_checkout_execution_identity(
-        Path(__file__).resolve().parents[2],
-        pathspecs=("src/axiom_encode", "pyproject.toml", "uv.lock"),
-    )
-    encoder["version"] = __version__
+    encoder = _apply_encoder_execution_identity()
     return {
         "axiom_encode_identity": encoder,
         "axiom_rules_path": str(engine),
@@ -36494,6 +36512,84 @@ def _apply_validation_execution_identity(
             _apply_dependency_checkout_identity(path) for path in dependencies
         ],
     }
+
+
+def _apply_encoder_execution_identity() -> dict[str, object]:
+    """Bind apply provenance to this checkout or the verified CI source checkout."""
+
+    checkout_override = os.environ.get("AXIOM_ENCODE_APPLY_CHECKOUT")
+    checkout_root = Path(__file__).resolve().parents[2]
+    expected_ci_sha: str | None = None
+    if checkout_override:
+        if os.environ.get("GITHUB_ACTIONS") != "true":
+            raise RuntimeError(
+                "AXIOM_ENCODE_APPLY_CHECKOUT is only allowed in GitHub Actions"
+            )
+        workspace = os.environ.get("GITHUB_WORKSPACE")
+        github_sha = os.environ.get("GITHUB_SHA")
+        if (
+            not workspace
+            or not github_sha
+            or re.fullmatch(r"[0-9a-f]{40}", github_sha) is None
+        ):
+            raise RuntimeError("GitHub Actions encoder checkout identity is incomplete")
+        expected_checkout = Path(os.path.abspath(workspace)) / "axiom-encode"
+        checkout_root = Path(os.path.abspath(checkout_override))
+        try:
+            canonical_checkout = checkout_root.resolve(strict=True)
+        except OSError as exc:
+            raise RuntimeError(
+                "AXIOM_ENCODE_APPLY_CHECKOUT is not a readable checkout"
+            ) from exc
+        if (
+            checkout_root != expected_checkout
+            or canonical_checkout != checkout_root
+            or not canonical_checkout.is_dir()
+        ):
+            raise RuntimeError(
+                "AXIOM_ENCODE_APPLY_CHECKOUT must be the canonical, symlink-free "
+                "workflow axiom-encode checkout"
+            )
+        expected_ci_sha = github_sha
+
+    encoder = _git_checkout_execution_identity(
+        checkout_root,
+        pathspecs=("src/axiom_encode", "pyproject.toml", "uv.lock"),
+    )
+    if expected_ci_sha is not None:
+        if encoder.get("path") != str(checkout_root.resolve(strict=True)):
+            raise RuntimeError(
+                "Workflow encoder checkout must be the Git repository top level"
+            )
+        if encoder.get("commit") != expected_ci_sha:
+            raise RuntimeError("Workflow encoder checkout does not match GITHUB_SHA")
+        versions = _axiom_encode_versions_at_ref(checkout_root, "HEAD")
+        if any(
+            versions.get(field) != __version__
+            for field in ("pyproject", "package", "lock")
+        ):
+            raise RuntimeError(
+                "Provisioned encoder version does not match the workflow checkout"
+            )
+        checkout_package = _deterministic_tree_identity(
+            checkout_root / "src" / "axiom_encode",
+            excluded_directory_names=frozenset({"__pycache__"}),
+        )
+        runtime_package = _deterministic_tree_identity(
+            Path(__file__).resolve().parent,
+            excluded_directory_names=frozenset({"__pycache__"}),
+        )
+        if (
+            checkout_package.get("state") != "directory"
+            or runtime_package.get("state") != "directory"
+            or checkout_package.get("file_count") != runtime_package.get("file_count")
+            or checkout_package.get("tree_sha256") != runtime_package.get("tree_sha256")
+        ):
+            raise RuntimeError(
+                "Provisioned encoder package bytes do not match the workflow checkout"
+            )
+    encoder["version"] = __version__
+    return encoder
 
 
 def _portable_clean_apply_git_identity(

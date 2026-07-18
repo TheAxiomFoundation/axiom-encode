@@ -1536,6 +1536,9 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert apply_step["env"]["AXIOM_ENCODE_APPLY_SIGNING_KEY"] == (
         "${{ secrets.AXIOM_ENCODE_APPLY_SIGNING_KEY }}"
     )
+    assert apply_step["env"]["AXIOM_ENCODE_APPLY_CHECKOUT"] == (
+        "${{ github.workspace }}/axiom-encode"
+    )
     command = apply_step["run"]
     assert "exec /opt/axiom-verification/axiom-encode-apply-signer run" in command
     assert "--key-env AXIOM_ENCODE_APPLY_SIGNING_KEY" in command
