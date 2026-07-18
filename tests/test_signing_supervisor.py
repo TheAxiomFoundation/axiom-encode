@@ -1546,6 +1546,14 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert "sudo chown 0:0 /opt" in provision_step["run"]
     assert "sudo chmod go-w /opt" in provision_step["run"]
     assert "--git /usr/bin/git" in provision_step["run"]
+    assert (
+        '--encoder-git-root "$GITHUB_WORKSPACE/axiom-encode"' in provision_step["run"]
+    )
+    assert '--encoder-commit "$GITHUB_SHA"' in provision_step["run"]
+    assert (
+        "--encoder-origin-repository "
+        "github.com/TheAxiomFoundation/axiom-encode" in provision_step["run"]
+    )
 
     routing_step = next(
         step
@@ -1570,9 +1578,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert apply_step["env"]["AXIOM_ENCODE_APPLY_SIGNING_KEY"] == (
         "${{ secrets.AXIOM_ENCODE_APPLY_SIGNING_KEY }}"
     )
-    assert apply_step["env"]["AXIOM_ENCODE_APPLY_CHECKOUT"] == (
-        "${{ github.workspace }}/axiom-encode"
-    )
+    assert "AXIOM_ENCODE_APPLY_CHECKOUT" not in apply_step["env"]
     command = apply_step["run"]
     assert "exec /opt/axiom-verification/axiom-encode-apply-signer run" in command
     assert "--key-env AXIOM_ENCODE_APPLY_SIGNING_KEY" in command
