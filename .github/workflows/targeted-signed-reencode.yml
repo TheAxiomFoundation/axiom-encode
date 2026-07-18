@@ -1,0 +1,229 @@
+name: Targeted signed RuleSpec re-encode
+
+on:
+  workflow_dispatch:
+    inputs:
+      citation:
+        description: Canonical corpus citation path
+        required: true
+        type: string
+      rulespec_ref:
+        description: Immutable rulespec-us commit SHA to re-encode
+        required: true
+        type: string
+      corpus_ref:
+        description: Immutable axiom-corpus commit SHA
+        required: true
+        type: string
+      rules_engine_ref:
+        description: Immutable axiom-rules-engine commit SHA
+        required: true
+        type: string
+      review_finding:
+        description: Validator or independent-review finding to address
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: targeted-signed-reencode
+  cancel-in-progress: false
+
+jobs:
+  encode:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout axiom-encode
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: axiom-encode
+          persist-credentials: false
+
+      - name: Checkout rulespec-us
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: TheAxiomFoundation/rulespec-us
+          ref: ${{ inputs.rulespec_ref }}
+          path: rulespec-us
+          token: ${{ secrets.AXIOM_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+          persist-credentials: false
+
+      - name: Checkout axiom-corpus
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: TheAxiomFoundation/axiom-corpus
+          ref: ${{ inputs.corpus_ref }}
+          path: axiom-corpus
+          token: ${{ secrets.AXIOM_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+          persist-credentials: false
+
+      - name: Checkout axiom-rules-engine
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: TheAxiomFoundation/axiom-rules-engine
+          ref: ${{ inputs.rules_engine_ref }}
+          path: axiom-rules-engine
+          token: ${{ secrets.AXIOM_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.7"
+
+      - name: Set up Go 1.26.1
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: 1.26.1
+          cache: false
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+
+      - name: Build Axiom rules engine
+        working-directory: axiom-rules-engine
+        run: |
+          cargo build --release --locked
+          test -x target/release/axiom-rules-engine
+
+      - name: Install encoder
+        working-directory: axiom-encode
+        run: |
+          uv sync --locked --python 3.13 --extra api
+          rm -rf "$RUNNER_TEMP/axiom-verification-site-packages"
+          uv pip install --python .venv/bin/python \
+            --target "$RUNNER_TEMP/axiom-verification-site-packages" ".[api]"
+
+      - name: Provision protected signing supervisor
+        working-directory: axiom-encode
+        env:
+          TRUST_APPLY_ROOT: ${{ vars.AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY }}
+          TRUST_EVAL_ROOT: ${{ vars.AXIOM_ENCODE_EVAL_SIGNING_PUBLIC_KEY }}
+          TRUST_CORPUS_RELEASE_ROOT: ${{ vars.AXIOM_CORPUS_RELEASE_PUBLIC_KEY }}
+        run: |
+          CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-buildid=' \
+            -o "$RUNNER_TEMP/axiom-encode-signing-supervisor" \
+            ./cmd/axiom-encode-signing-supervisor
+          CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-buildid=' \
+            -o "$RUNNER_TEMP/axiom-encode-apply-signer" \
+            ./cmd/axiom-encode-apply-signer
+          sudo rm -rf /opt/axiom-verification
+          sudo .venv/bin/python scripts/provision_verification_supervisor.py \
+            --destination /opt/axiom-verification \
+            --supervisor "$RUNNER_TEMP/axiom-encode-signing-supervisor" \
+            --site-packages "$RUNNER_TEMP/axiom-verification-site-packages" \
+            --apply-root "$TRUST_APPLY_ROOT" \
+            --eval-root "$TRUST_EVAL_ROOT" \
+            --corpus-release-root "$TRUST_CORPUS_RELEASE_ROOT"
+          sudo install -o root -g root -m 0755 \
+            "$RUNNER_TEMP/axiom-encode-apply-signer" \
+            /opt/axiom-verification/axiom-encode-apply-signer
+          sudo chown -R 0:0 /opt/axiom-verification
+          sudo chmod -R go-w /opt/axiom-verification
+
+      - name: Encode, review, validate, and apply
+        env:
+          AXIOM_ENCODE_APPLY_SIGNING_KEY: ${{ secrets.AXIOM_ENCODE_APPLY_SIGNING_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CITATION: ${{ inputs.citation }}
+          REVIEW_FINDING: ${{ inputs.review_finding }}
+        run: |
+          args=(
+            /opt/axiom-verification/axiom-encode encode
+            --backend openai
+            --corpus-path "$GITHUB_WORKSPACE/axiom-corpus"
+            --axiom-rules-engine-path "$GITHUB_WORKSPACE/axiom-rules-engine"
+            --policy-repo-path "$GITHUB_WORKSPACE/rulespec-us"
+            --output "$RUNNER_TEMP/generated"
+            --mode repo-augmented
+            --db "$RUNNER_TEMP/encodings.db"
+            --no-sync
+            --apply
+          )
+          if [ -n "$REVIEW_FINDING" ]; then
+            args+=(--review-findings "$REVIEW_FINDING")
+          fi
+          args+=("$CITATION")
+
+          /opt/axiom-verification/axiom-encode-apply-signer run \
+            --scope apply_ed25519 \
+            --key-env AXIOM_ENCODE_APPLY_SIGNING_KEY \
+            --supervisor /opt/axiom-verification/axiom-encode-signing-supervisor \
+            --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
+            --trusted-python-runtime-root /opt/axiom-verification/python \
+            --trusted-python-import-root /opt/axiom-verification/python/lib/python3.13/site-packages \
+            --trusted-python-package-root /opt/axiom-verification/python/lib/python3.13/site-packages/axiom_encode \
+            --expected-github-repository TheAxiomFoundation/axiom-encode \
+            --allowed-workflow-ref TheAxiomFoundation/axiom-encode/.github/workflows/targeted-signed-reencode.yml@refs/heads/main \
+            --allowed-event-name workflow_dispatch \
+            -- "${args[@]}"
+
+      - name: Verify generated provenance
+        env:
+          RULESPEC_REF: ${{ inputs.rulespec_ref }}
+        run: |
+          /opt/axiom-verification/axiom-encode-signing-supervisor \
+            --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
+            --trusted-python-runtime-root /opt/axiom-verification/python \
+            --trusted-python-import-root /opt/axiom-verification/python/lib/python3.13/site-packages \
+            --trusted-python-package-root /opt/axiom-verification/python/lib/python3.13/site-packages/axiom_encode \
+            -- /opt/axiom-verification/axiom-encode guard-generated \
+            --repo "$GITHUB_WORKSPACE/rulespec-us" \
+            --base-ref "$RULESPEC_REF" \
+            --corpus-path "$GITHUB_WORKSPACE/axiom-corpus" \
+            --expected-encoder-checkout "$GITHUB_WORKSPACE/axiom-encode" \
+            --json > "$RUNNER_TEMP/guard-generated.json"
+          git -C rulespec-us diff --check
+
+      - name: Package exact generated changes
+        env:
+          CITATION: ${{ inputs.citation }}
+          RULESPEC_REF: ${{ inputs.rulespec_ref }}
+        run: |
+          artifact="$RUNNER_TEMP/targeted-reencode"
+          mkdir -p "$artifact"
+          git -C rulespec-us diff --binary --full-index HEAD > "$artifact/tracked.patch"
+          git -C rulespec-us ls-files --others --exclude-standard -z \
+            | tar -C rulespec-us --null -czf "$artifact/untracked.tar.gz" --files-from -
+          git -C rulespec-us status --short > "$artifact/status.txt"
+          cp "$RUNNER_TEMP/guard-generated.json" "$artifact/guard-generated.json"
+          python - "$artifact/metadata.json" <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+
+          def rev(path):
+              return subprocess.check_output(
+                  ["git", "-C", path, "rev-parse", "HEAD"], text=True
+              ).strip()
+
+          payload = {
+              "schema": "axiom-encode/targeted-reencode-artifact/v1",
+              "citation": os.environ["CITATION"],
+              "rulespec_base": os.environ["RULESPEC_REF"],
+              "encoder_commit": rev("axiom-encode"),
+              "corpus_commit": rev("axiom-corpus"),
+              "rules_engine_commit": rev("axiom-rules-engine"),
+              "workflow_run_id": os.environ["GITHUB_RUN_ID"],
+          }
+          with open(sys.argv[1], "w", encoding="utf-8") as stream:
+              json.dump(payload, stream, indent=2, sort_keys=True)
+              stream.write("\n")
+          PY
+          sha256sum "$artifact"/* > "$artifact/SHA256SUMS"
+          test -s "$artifact/status.txt"
+
+      - name: Upload signed re-encode artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: targeted-reencode-${{ github.run_id }}
+          path: ${{ runner.temp }}/targeted-reencode
+          if-no-files-found: error
+          retention-days: 7

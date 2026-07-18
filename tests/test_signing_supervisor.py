@@ -18,6 +18,7 @@ from pathlib import Path
 import _cffi_backend
 import cryptography
 import pytest
+import yaml
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
@@ -1446,3 +1447,45 @@ def test_production_apply_signer_binary_rejects_wrong_ci_context(
         os.close(key_read)
     assert completed.returncode == 2
     assert "does not match the expected repository" in completed.stderr
+
+
+def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    trigger = workflow.get("on", workflow.get(True))
+    assert set(trigger) == {"workflow_dispatch"}
+    assert workflow["permissions"] == {"contents": "read"}
+
+    steps = workflow["jobs"]["encode"]["steps"]
+    checkout_steps = [
+        step for step in steps if step.get("uses", "").startswith("actions/checkout@")
+    ]
+    assert checkout_steps
+    assert all(step["with"]["persist-credentials"] is False for step in checkout_steps)
+
+    apply_step = next(
+        step
+        for step in steps
+        if step.get("name") == "Encode, review, validate, and apply"
+    )
+    assert apply_step["env"]["AXIOM_ENCODE_APPLY_SIGNING_KEY"] == (
+        "${{ secrets.AXIOM_ENCODE_APPLY_SIGNING_KEY }}"
+    )
+    command = apply_step["run"]
+    assert "axiom-encode-apply-signer run" in command
+    assert "--key-env AXIOM_ENCODE_APPLY_SIGNING_KEY" in command
+    assert (
+        "TheAxiomFoundation/axiom-encode/.github/workflows/"
+        "targeted-signed-reencode.yml@refs/heads/main" in command
+    )
+    assert "--allowed-event-name workflow_dispatch" in command
+    assert "--apply" in command
+    assert "--skip-reviewers" not in command
+
+    secret_steps = [
+        step
+        for step in steps
+        if "AXIOM_ENCODE_APPLY_SIGNING_KEY" in (step.get("env") or {})
+    ]
+    assert secret_steps == [apply_step]
