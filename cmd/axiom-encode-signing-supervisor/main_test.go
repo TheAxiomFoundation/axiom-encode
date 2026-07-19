@@ -270,3 +270,16 @@ func TestCleanChildEnvironmentSetsTrustedRuntimeMarker(t *testing.T) {
 		}
 	}
 }
+
+func TestCodexScratchPolicyRejectsRootOwnedHomeForNonRootRuntime(t *testing.T) {
+	if err := validateCodexScratchPolicy(os.ModeDir|0700, 0, 1000); err == nil ||
+		!strings.Contains(err.Error(), "not runtime-owned") {
+		t.Fatalf("expected root-owned scratch rejection, got %v", err)
+	}
+}
+
+func TestCodexScratchPolicyAcceptsOperatorOwnedProtectedHome(t *testing.T) {
+	if err := validateCodexScratchPolicy(os.ModeDir|0700, 1000, 1000); err != nil {
+		t.Fatalf("expected operator-owned 0700 scratch acceptance, got %v", err)
+	}
+}

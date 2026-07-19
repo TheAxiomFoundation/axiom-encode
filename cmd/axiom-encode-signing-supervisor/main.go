@@ -744,6 +744,16 @@ func copyCredential(sourcePath, destinationPath string, exclusive bool) (os.File
 
 func definedNoFollow() bool { return syscall.O_NOFOLLOW != 0 }
 
+func validateCodexScratchPolicy(mode os.FileMode, ownerUID int, runtimeUID int) error {
+	if !mode.IsDir() || mode.Perm() != 0700 {
+		return errors.New("Codex scratch home must be a protected 0700 directory")
+	}
+	if ownerUID != runtimeUID {
+		return errors.New("Codex scratch home is not runtime-owned")
+	}
+	return nil
+}
+
 func validateCredentialOutbox(outboxPath string) error {
 	if !filepath.IsAbs(outboxPath) || filepath.Base(outboxPath) == "." {
 		return errors.New("Codex auth outbox must be an absolute file path")
@@ -840,11 +850,15 @@ func superviseWithCodexSubscription(parsed options, connection *os.File, environ
 		return err
 	}
 	homeMetadata, err := os.Lstat(home)
-	if err != nil || !homeMetadata.IsDir() || homeMetadata.Mode().Perm() != 0700 {
-		return errors.New("Codex scratch home must be a protected 0700 directory")
+	if err != nil {
+		return errors.New("could not inspect Codex scratch home")
 	}
-	if stat, ok := homeMetadata.Sys().(*syscall.Stat_t); !ok || int(stat.Uid) != os.Geteuid() {
-		return errors.New("Codex scratch home is not runtime-owned")
+	homeStat, ok := homeMetadata.Sys().(*syscall.Stat_t)
+	if !ok {
+		return errors.New("could not inspect Codex scratch home ownership")
+	}
+	if err := validateCodexScratchPolicy(homeMetadata.Mode(), int(homeStat.Uid), os.Geteuid()); err != nil {
+		return err
 	}
 	authPath := filepath.Join(home, "auth.json")
 	authMetadata, err := copyCredential(parsed.codexAuthPath, authPath, true)
