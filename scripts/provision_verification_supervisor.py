@@ -1534,10 +1534,6 @@ def provision(
             if install_pinned_codex_cli
             else None
         )
-        if codex_cli is not None:
-            codex_scratch_root = destination / "runtime-codex-homes"
-            codex_scratch_root.mkdir(mode=0o700)
-            codex_scratch_root.chmod(0o700)
         launcher = destination / "axiom-encode"
         launcher.write_text(
             f"#!{interpreter} -I\nraise SystemExit('launcher executed')\n"

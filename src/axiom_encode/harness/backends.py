@@ -405,17 +405,13 @@ class CodexCLIBackend(EncoderBackend):
         ):
             return None, None
         executable = Path(resolve_codex_cli()).resolve(strict=True)
+        expected_digest = os.environ.get("AXIOM_ENCODE_TRUSTED_CODEX_SHA256")
+        version = os.environ.get("AXIOM_ENCODE_TRUSTED_CODEX_VERSION")
+        if not expected_digest or not version:
+            raise RuntimeError("Trusted runtime omitted Codex CLI provenance")
         digest = hashlib.sha256(executable.read_bytes()).hexdigest()
-        completed = subprocess.run(
-            [str(executable), "--version"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=True,
-        )
-        version = completed.stdout.strip()
-        if not version:
-            raise RuntimeError("Pinned Codex CLI returned an empty version")
+        if digest != expected_digest:
+            raise RuntimeError("Trusted Codex CLI changed after supervisor verification")
         return version, digest
 
     def predict(self, citation: str, source_text: str) -> PredictionScores:

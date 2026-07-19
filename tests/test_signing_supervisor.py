@@ -177,7 +177,8 @@ def main():
     )
     if os.environ.get("CODEX_HOME"):
         from pathlib import Path
-        (Path(os.environ["CODEX_HOME"]) / "auth.json").write_text(
+        codex_home = Path(os.environ["CODEX_HOME"])
+        (codex_home / "auth.json").write_text(
             '{"token":"new"}\\n'
         )
     result = {
@@ -197,6 +198,10 @@ def main():
             ).decode(\"ascii\"),
         },
     }
+    if os.environ.get("CODEX_HOME"):
+        metadata = codex_home.stat()
+        result["codex_home_mode"] = metadata.st_mode & 0o777
+        result["codex_home_uid"] = metadata.st_uid
     if \"apply_ed25519\" in broker.capabilities:
         result[\"apply_signature\"] = b64encode(
             broker.apply_ed25519_sign(b\"compiled-apply-boundary\")
@@ -849,7 +854,9 @@ def test_subscription_auth_is_isolated_refreshed_and_wiped(
     trust_config = _trust_config(tmp_path, apply_public, eval_public)
     trusted = tmp_path / "trusted"
     (trusted / "bin").mkdir(parents=True)
-    (trusted / "runtime-codex-homes").mkdir(mode=0o700)
+    legacy_scratch = trusted / "runtime-codex-homes"
+    legacy_scratch.mkdir(mode=0o700)
+    legacy_scratch.chmod(0o000)
     codex = trusted / "bin/codex"
     codex.write_text("#!/bin/sh\nexit 0\n")
     codex.chmod(0o755)
@@ -874,20 +881,7 @@ def test_subscription_auth_is_isolated_refreshed_and_wiped(
     operator_home_auth = tmp_path / "operator-home/.codex/auth.json"
     operator_home_auth.parent.mkdir(parents=True)
     operator_home_auth.write_text('{"must":"not-cross"}\n')
-    launcher = _launcher(
-        tmp_path,
-        trusted_python_runtime,
-        body="""
-import json, os
-from pathlib import Path
-home = Path(os.environ["CODEX_HOME"])
-assert home.parent.name == "runtime-codex-homes"
-assert Path.home() != home
-assert not (Path(os.environ["HOME"]) / ".codex" / "auth.json").exists()
-(home / "auth.json").write_text('{"token":"new"}\\n')
-print(json.dumps({"codex_home": str(home), "home": os.environ["HOME"], "path": os.environ["PATH"]}))
-""",
-    )
+    launcher = _launcher(tmp_path, trusted_python_runtime)
     completed = _invoke(
         signing_supervisor,
         trusted_python_runtime,
@@ -907,10 +901,16 @@ print(json.dumps({"codex_home": str(home), "home": os.environ["HOME"], "path": o
     assert completed.returncode == 0, completed.stderr
     result = json.loads(completed.stdout)
     codex_home = Path(result["environment"]["CODEX_HOME"])
-    assert codex_home.parent.name == "runtime-codex-homes"
+    assert codex_home.name.startswith("axiom-codex-")
     assert not codex_home.exists()
-    assert str(codex.parent) in result["environment"]["PATH"].split(os.pathsep)
+    assert result["codex_home_mode"] == 0o700
+    assert result["codex_home_uid"] == os.geteuid()
+    assert result["environment"]["AXIOM_ENCODE_TRUSTED_CODEX_BIN"] == str(codex)
+    assert result["environment"]["AXIOM_ENCODE_TRUSTED_CODEX_SHA256"] == digest
+    assert result["environment"]["AXIOM_ENCODE_TRUSTED_CODEX_VERSION"] == "test"
+    assert str(codex.parent) not in result["environment"]["PATH"].split(os.pathsep)
     assert result["environment"]["HOME"] != str(tmp_path / "operator-home")
+    assert json.loads(operator_home_auth.read_text()) == {"must": "not-cross"}
     assert json.loads(outbox.read_text()) == {"token": "new"}
 
 
@@ -937,7 +937,6 @@ def test_subscription_tampered_binary_hard_fails_before_child(
         )
     )
     config.chmod(0o444)
-    (tmp_path / "runtime-codex-homes").mkdir(mode=0o700)
     auth = tmp_path / "auth.json"
     auth.write_text("{}")
     launcher = _launcher(
@@ -960,6 +959,60 @@ def test_subscription_tampered_binary_hard_fails_before_child(
     )
     assert completed.returncode == 2
     assert "sha256 mismatch" in completed.stderr
+
+
+@pytest.mark.parametrize("outbox_kind", ["symlink", "protected-directory"])
+def test_subscription_refuses_unsafe_auth_outbox(
+    signing_supervisor: Path,
+    trusted_python_runtime: tuple[Path, Path, Path],
+    tmp_path: Path,
+    outbox_kind: str,
+) -> None:
+    apply_public, _ = _keypair(b"\xab" * 32)
+    eval_public, _ = _keypair(b"\xcd" * 32)
+    trust_config = _trust_config(tmp_path, apply_public, eval_public)
+    codex = tmp_path / "codex"
+    codex.write_text("#!/bin/sh\nexit 0\n")
+    codex.chmod(0o755)
+    config = tmp_path / "codex-cli.json"
+    config.write_text(
+        json.dumps(
+            {
+                "schema": "axiom-encode/trusted-codex-cli/v1",
+                "version": "test",
+                "sha256": hashlib.sha256(codex.read_bytes()).hexdigest(),
+                "path": str(codex),
+            }
+        )
+    )
+    config.chmod(0o444)
+    auth = tmp_path / "auth.json"
+    auth.write_text("{}")
+    target = tmp_path / "target.json"
+    target.write_text('{"preserve":true}\n')
+    if outbox_kind == "symlink":
+        outbox = tmp_path / "out.json"
+        outbox.symlink_to(target)
+    else:
+        outbox = Path("/etc") / f"axiom-encode-test-{os.getpid()}.json"
+    completed = _invoke(
+        signing_supervisor,
+        trusted_python_runtime,
+        _launcher(tmp_path, trusted_python_runtime),
+        trust_config,
+        [],
+        supervisor_args=(
+            "--codex-subscription-auth",
+            str(auth),
+            "--codex-auth-outbox",
+            str(outbox),
+            "--trusted-codex-cli-config",
+            str(config),
+        ),
+    )
+    assert completed.returncode == 2
+    assert "outbox" in completed.stderr
+    assert json.loads(target.read_text()) == {"preserve": True}
 
 
 def test_subscription_refuses_ambient_codex_home_outside_scratch(

@@ -684,11 +684,36 @@ class TestCodexCLIBackend:
         )
         monkeypatch.setenv("AXIOM_ENCODE_TRUSTED_RUNTIME", "1")
         monkeypatch.setenv("CODEX_HOME", str(tmp_path / "runtime-home"))
-        with patch("subprocess.run") as run:
-            run.return_value = Mock(stdout="codex-cli 0.test\n")
-            version, digest = CodexCLIBackend._trusted_cli_provenance()
+        digest = hashlib.sha256(b"pinned-codex").hexdigest()
+        monkeypatch.setenv("AXIOM_ENCODE_TRUSTED_CODEX_VERSION", "codex-cli 0.test")
+        monkeypatch.setenv("AXIOM_ENCODE_TRUSTED_CODEX_SHA256", digest)
+        version, digest = CodexCLIBackend._trusted_cli_provenance()
         assert version == "codex-cli 0.test"
         assert digest == hashlib.sha256(b"pinned-codex").hexdigest()
+
+    def test_trusted_subscription_executes_bound_cli_not_path_decoy(
+        self, tmp_path, monkeypatch
+    ):
+        trusted = tmp_path / "trusted-codex"
+        trusted.write_text("#!/bin/sh\nexit 0\n")
+        trusted.chmod(0o700)
+        decoy_dir = tmp_path / "decoy-bin"
+        decoy_dir.mkdir()
+        decoy_marker = tmp_path / "decoy-executed"
+        decoy = decoy_dir / "codex"
+        decoy.write_text(f"#!/bin/sh\ntouch {decoy_marker}\nexit 99\n")
+        decoy.chmod(0o700)
+        monkeypatch.setenv("AXIOM_ENCODE_TRUSTED_RUNTIME", "1")
+        monkeypatch.setenv("CODEX_HOME", str(tmp_path / "runtime-home"))
+        monkeypatch.setenv("AXIOM_ENCODE_TRUSTED_CODEX_BIN", str(trusted))
+        monkeypatch.setenv("PATH", f"{decoy_dir}{os.pathsep}{os.environ['PATH']}")
+
+        output, returncode = CodexCLIBackend()._run_codex_exec(
+            "prompt", "gpt-test", 10, tmp_path
+        )
+
+        assert returncode == 0, output
+        assert not decoy_marker.exists()
 
     def test_encode_parses_jsonl_usage(self):
         backend = CodexCLIBackend(cwd=Path("/tmp/work"))
@@ -777,16 +802,13 @@ class TestCodexAuthPreflight:
         with patch.dict(os.environ, {}, clear=True):
             assert codex_auth_json_path() == Path.home() / ".codex" / "auth.json"
 
-    def test_trusted_runtime_resolution_uses_only_curated_path(self, monkeypatch):
+    def test_trusted_runtime_resolution_uses_supervisor_bound_path(self, monkeypatch):
         from axiom_encode.codex_cli import resolve_codex_cli
 
         monkeypatch.setenv("AXIOM_ENCODE_TRUSTED_RUNTIME", "1")
         monkeypatch.setenv("CODEX_HOME", "/protected/runtime-codex-home")
         monkeypatch.setenv("AXIOM_ENCODE_CODEX_BIN", "/hostile/override")
-        monkeypatch.setattr(
-            "axiom_encode.codex_cli.shutil.which",
-            lambda name: "/trusted/bin/codex",
-        )
+        monkeypatch.setenv("AXIOM_ENCODE_TRUSTED_CODEX_BIN", "/trusted/bin/codex")
         assert resolve_codex_cli() == "/trusted/bin/codex"
 
     def test_auth_path_honors_codex_home(self, tmp_path):

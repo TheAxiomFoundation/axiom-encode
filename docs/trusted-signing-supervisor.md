@@ -287,10 +287,23 @@ unset CODEX_HOME
   -- /opt/axiom-verification/axiom-encode encode ... --backend codex
 ```
 
-The supervisor copies auth into a per-run `0700` home under the protected root,
-sets `CODEX_HOME` only to that directory, disables update checks, exports any
-refresh atomically, and removes the scratch tree. Without these subscription
-flags, the original environment and API-key execution path are unchanged.
+The supervisor creates an euid-owned per-run `0700` home in the operating
+system's temporary directory, copies auth into it, sets `CODEX_HOME` only to
+that directory, disables update checks, binds execution and provenance to the
+exact hash-verified Codex executable, exports any refresh atomically, and
+removes the scratch tree. The outbox must be an absolute path in an
+operator-owned directory with no group/other write access; symlinked directories
+and symlink/special-file destinations are rejected.
+
+This is environment and lookup isolation, not same-uid filesystem isolation.
+The child cannot discover the operator home through `HOME`, `CODEX_HOME`, XDG
+variables, or the curated `PATH`, and Codex receives only the scratch copy.
+Because the supervisor and child intentionally run as the same non-root
+operator, a malicious child that already knows an absolute path to a readable
+operator-home file can still open it. Enforcing otherwise requires a separate
+OS sandbox or identity boundary; changing `HOME` alone cannot provide that
+property. Without the subscription flags, the original environment and API-key
+execution path are unchanged.
 
 ### Workflow deployment and secrets discipline
 
