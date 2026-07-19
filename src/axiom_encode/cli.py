@@ -37119,9 +37119,7 @@ def _apply_result_metadata(result) -> dict[str, object]:
             "Cannot sign a model-generated RuleSpec with a non-allowlisted tool"
         )
     codex_cli_version, codex_cli_sha256 = _result_codex_cli_provenance(result)
-    if backend == "codex" and (
-        codex_cli_version is None or codex_cli_sha256 is None
-    ):
+    if backend == "codex" and (codex_cli_version is None or codex_cli_sha256 is None):
         raise RuntimeError("Codex backend result has no trusted CLI provenance")
     return {
         "tool": tool,
@@ -39912,9 +39910,7 @@ def _write_applied_encoding_manifest(
         local_corpus_release=local_corpus_release,
     )
     codex_cli_version, codex_cli_sha256 = _result_codex_cli_provenance(result)
-    if backend == "codex" and (
-        codex_cli_version is None or codex_cli_sha256 is None
-    ):
+    if backend == "codex" and (codex_cli_version is None or codex_cli_sha256 is None):
         raise RuntimeError("Codex backend result has no trusted CLI provenance")
     payload = {
         "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,

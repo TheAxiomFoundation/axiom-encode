@@ -411,7 +411,9 @@ class CodexCLIBackend(EncoderBackend):
             raise RuntimeError("Trusted runtime omitted Codex CLI provenance")
         digest = hashlib.sha256(executable.read_bytes()).hexdigest()
         if digest != expected_digest:
-            raise RuntimeError("Trusted Codex CLI changed after supervisor verification")
+            raise RuntimeError(
+                "Trusted Codex CLI changed after supervisor verification"
+            )
         return version, digest
 
     def predict(self, citation: str, source_text: str) -> PredictionScores:
