@@ -8,7 +8,20 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
+
+func TestCredentialOutboxDestinationRejectsDevice(t *testing.T) {
+	fd, err := unix.Open("/dev", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unix.Close(fd)
+	if err := validateCredentialOutboxDestination(fd, "null"); err == nil || !strings.Contains(err.Error(), "special file") {
+		t.Fatalf("device destination was not rejected: %v", err)
+	}
+}
 
 func TestCleanChildEnvironmentForwardsApplyCheckoutIdentity(t *testing.T) {
 	values := map[string]string{
@@ -268,5 +281,18 @@ func TestCleanChildEnvironmentSetsTrustedRuntimeMarker(t *testing.T) {
 		if strings.HasPrefix(entry, trustedRuntimeEnv+"=") && entry != trustedRuntimeEnv+"=1" {
 			t.Fatalf("trusted-runtime marker must be exactly 1, got %q", entry)
 		}
+	}
+}
+
+func TestCodexScratchPolicyRejectsRootOwnedHomeForNonRootRuntime(t *testing.T) {
+	if err := validateCodexScratchPolicy(os.ModeDir|0700, 0, 1000); err == nil ||
+		!strings.Contains(err.Error(), "not runtime-owned") {
+		t.Fatalf("expected root-owned scratch rejection, got %v", err)
+	}
+}
+
+func TestCodexScratchPolicyAcceptsOperatorOwnedProtectedHome(t *testing.T) {
+	if err := validateCodexScratchPolicy(os.ModeDir|0700, 1000, 1000); err != nil {
+		t.Fatalf("expected operator-owned 0700 scratch acceptance, got %v", err)
 	}
 }

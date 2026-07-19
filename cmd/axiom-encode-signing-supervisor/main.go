@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/binary"
@@ -27,8 +28,11 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -58,7 +62,10 @@ const (
 	// identity from the root-written runtime-attestation.json instead of a Git
 	// checkout (which the provisioned runtime is not). It is set from the empty
 	// child environment below, so it can never be spoofed by an ambient value.
-	trustedRuntimeEnv = "AXIOM_ENCODE_TRUSTED_RUNTIME"
+	trustedRuntimeEnv      = "AXIOM_ENCODE_TRUSTED_RUNTIME"
+	trustedCodexBinEnv     = "AXIOM_ENCODE_TRUSTED_CODEX_BIN"
+	trustedCodexVersionEnv = "AXIOM_ENCODE_TRUSTED_CODEX_VERSION"
+	trustedCodexSHA256Env  = "AXIOM_ENCODE_TRUSTED_CODEX_SHA256"
 )
 
 var privateEnvironmentNames = map[string]struct{}{
@@ -102,7 +109,17 @@ type options struct {
 	pythonRuntimeRoots []string
 	pythonImportRoots  []string
 	pythonPackageRoot  string
+	codexAuthPath      string
+	codexAuthOutbox    string
+	codexCLIConfigPath string
 	command            []string
+}
+
+type trustedCodexCLI struct {
+	Schema  string `json:"schema"`
+	Version string `json:"version"`
+	SHA256  string `json:"sha256"`
+	Path    string `json:"path"`
 }
 
 type brokerOptions struct {
@@ -423,6 +440,9 @@ func parseOptions(arguments []string) (options, error) {
 		"",
 		"absolute root-owned axiom_encode package directory",
 	)
+	flags.StringVar(&parsed.codexAuthPath, "codex-subscription-auth", "", "operator auth.json copied into an isolated runtime CODEX_HOME")
+	flags.StringVar(&parsed.codexAuthOutbox, "codex-auth-outbox", "", "credential-bearing path receiving refreshed auth.json at teardown")
+	flags.StringVar(&parsed.codexCLIConfigPath, "trusted-codex-cli-config", "", "protected pinned Codex CLI config")
 	if err := flags.Parse(arguments); err != nil {
 		return options{}, err
 	}
@@ -434,6 +454,12 @@ func parseOptions(arguments []string) (options, error) {
 	}
 	if parsed.trustRootsPath == "" {
 		return options{}, errors.New("--trusted-signing-roots is required")
+	}
+	if parsed.codexAuthPath == "" && (parsed.codexAuthOutbox != "" || parsed.codexCLIConfigPath != "") {
+		return options{}, errors.New("Codex outbox/config requires --codex-subscription-auth")
+	}
+	if parsed.codexAuthPath != "" && (parsed.codexAuthOutbox == "" || parsed.codexCLIConfigPath == "") {
+		return options{}, errors.New("Codex subscription auth requires --codex-auth-outbox and --trusted-codex-cli-config")
 	}
 	if filepath.Base(parsed.command[0]) != "axiom-encode" {
 		return options{}, errors.New(
@@ -544,6 +570,11 @@ func supervise(arguments []string) error {
 	if err != nil {
 		return err
 	}
+	if parsed.codexAuthPath != "" {
+		if value, present := os.LookupEnv("CODEX_HOME"); present && value != "" {
+			return errors.New("ambient CODEX_HOME is outside supervisor custody; unset it and pass --codex-subscription-auth explicitly")
+		}
+	}
 
 	applyPublicKey, evalPublicKey, corpusReleasePublicKey, err := loadProtectedTrustRoots(
 		parsed.trustRootsPath,
@@ -611,6 +642,11 @@ func supervise(arguments []string) error {
 		filepath.Dir(parsed.command[0]),
 		trustedHome,
 	)
+	if parsed.codexAuthPath != "" {
+		return superviseWithCodexSubscription(
+			parsed, connection, childEnvironment, capabilityFD,
+		)
+	}
 
 	// Clear close-on-exec only for the one-generation capability and seal every
 	// other inherited descriptor. Retaining the socket's existing descriptor
@@ -628,6 +664,267 @@ func supervise(arguments []string) error {
 	if err := syscall.Exec(parsed.command[0], parsed.command, childEnvironment); err != nil {
 		cleanupBroker = true
 		return fmt.Errorf("could not execute trusted Python bootstrap: %w", err)
+	}
+	return nil
+}
+
+func loadTrustedCodexCLI(path string) (trustedCodexCLI, error) {
+	_, file, err := inspectTrustedRegularFile(path, false)
+	if err != nil {
+		return trustedCodexCLI{}, fmt.Errorf("Codex CLI config is not protected: %w", err)
+	}
+	defer file.Close()
+	raw, err := io.ReadAll(io.LimitReader(file, 16*1024+1))
+	if err != nil || len(raw) > 16*1024 {
+		return trustedCodexCLI{}, errors.New("could not read bounded Codex CLI config")
+	}
+	var config trustedCodexCLI
+	if err := json.Unmarshal(raw, &config); err != nil {
+		return trustedCodexCLI{}, fmt.Errorf("Codex CLI config is malformed: %w", err)
+	}
+	if config.Schema != "axiom-encode/trusted-codex-cli/v1" || config.Version == "" ||
+		len(config.SHA256) != 64 || !filepath.IsAbs(config.Path) {
+		return trustedCodexCLI{}, errors.New("Codex CLI config has invalid fields")
+	}
+	trustedPath, binary, err := inspectTrustedRegularFile(config.Path, true)
+	if err != nil {
+		return trustedCodexCLI{}, fmt.Errorf("pinned Codex CLI is not protected: %w", err)
+	}
+	defer binary.Close()
+	digest := sha256.New()
+	if _, err := io.Copy(digest, binary); err != nil {
+		return trustedCodexCLI{}, fmt.Errorf("could not hash pinned Codex CLI: %w", err)
+	}
+	actual := fmt.Sprintf("%x", digest.Sum(nil))
+	if !strings.EqualFold(actual, config.SHA256) {
+		return trustedCodexCLI{}, fmt.Errorf("pinned Codex CLI sha256 mismatch: expected %s, got %s", config.SHA256, actual)
+	}
+	config.Path = trustedPath
+	config.SHA256 = actual
+	return config, nil
+}
+
+func copyCredential(sourcePath, destinationPath string, exclusive bool) (os.FileInfo, error) {
+	flags := syscall.O_RDONLY
+	if definedNoFollow() {
+		flags |= syscall.O_NOFOLLOW
+	}
+	descriptor, err := syscall.Open(sourcePath, flags, 0)
+	if err != nil {
+		return nil, err
+	}
+	source := os.NewFile(uintptr(descriptor), sourcePath)
+	defer source.Close()
+	metadata, err := source.Stat()
+	if err != nil || !metadata.Mode().IsRegular() || metadata.Size() > 1024*1024 {
+		return nil, errors.New("Codex auth source must be a regular file no larger than 1 MiB")
+	}
+	destinationFlags := os.O_WRONLY | os.O_CREATE
+	if exclusive {
+		destinationFlags |= os.O_EXCL
+	} else {
+		destinationFlags |= os.O_TRUNC
+	}
+	destination, err := os.OpenFile(destinationPath, destinationFlags, 0600)
+	if err != nil {
+		return nil, err
+	}
+	_, copyErr := io.Copy(destination, source)
+	syncErr := destination.Sync()
+	closeErr := destination.Close()
+	if copyErr != nil {
+		return nil, copyErr
+	}
+	if syncErr != nil {
+		return nil, syncErr
+	}
+	if closeErr != nil {
+		return nil, closeErr
+	}
+	return metadata, nil
+}
+
+func definedNoFollow() bool { return syscall.O_NOFOLLOW != 0 }
+
+func validateCodexScratchPolicy(mode os.FileMode, ownerUID int, runtimeUID int) error {
+	if !mode.IsDir() || mode.Perm() != 0700 {
+		return errors.New("Codex scratch home must be a protected 0700 directory")
+	}
+	if ownerUID != runtimeUID {
+		return errors.New("Codex scratch home is not runtime-owned")
+	}
+	return nil
+}
+
+func openCredentialOutboxDirectory(outboxPath string) (int, string, error) {
+	if !filepath.IsAbs(outboxPath) || filepath.Clean(outboxPath) != outboxPath || filepath.Base(outboxPath) == "." {
+		return -1, "", errors.New("Codex auth outbox must be an absolute canonical file path")
+	}
+	name := filepath.Base(outboxPath)
+	fd, err := unix.Open("/", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return -1, "", fmt.Errorf("could not open filesystem root: %w", err)
+	}
+	for _, component := range strings.Split(strings.TrimPrefix(filepath.Dir(outboxPath), "/"), "/") {
+		if component == "" {
+			continue
+		}
+		next, openErr := unix.Openat(fd, component, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+		_ = unix.Close(fd)
+		if openErr != nil {
+			return -1, "", fmt.Errorf("Codex auth outbox directory must not contain symlinks: %w", openErr)
+		}
+		fd = next
+	}
+	var directoryStat unix.Stat_t
+	if err := unix.Fstat(fd, &directoryStat); err != nil || directoryStat.Mode&unix.S_IFMT != unix.S_IFDIR || directoryStat.Mode&0022 != 0 || int(directoryStat.Uid) != os.Geteuid() {
+		_ = unix.Close(fd)
+		return -1, "", errors.New("Codex auth outbox directory must be operator-owned and not group/other-writable")
+	}
+	return fd, name, nil
+}
+
+func validateCredentialOutbox(outboxPath string) error {
+	directoryFD, name, err := openCredentialOutboxDirectory(outboxPath)
+	if err != nil {
+		return err
+	}
+	defer unix.Close(directoryFD)
+	if err := validateCredentialOutboxDestination(directoryFD, name); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateCredentialOutboxDestination(directoryFD int, name string) error {
+	var destinationStat unix.Stat_t
+	err := unix.Fstatat(directoryFD, name, &destinationStat, unix.AT_SYMLINK_NOFOLLOW)
+	if errors.Is(err, unix.ENOENT) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("could not inspect Codex auth outbox: %w", err)
+	}
+	if destinationStat.Mode&unix.S_IFMT != unix.S_IFREG {
+		return errors.New("Codex auth outbox must not be a symlink or special file")
+	}
+	if int(destinationStat.Uid) != os.Geteuid() {
+		return errors.New("existing Codex auth outbox must be operator-owned")
+	}
+	return nil
+}
+
+func publishCredential(sourcePath, outboxPath string, owner os.FileInfo) error {
+	directoryFD, destinationName, err := openCredentialOutboxDirectory(outboxPath)
+	if err != nil {
+		return err
+	}
+	defer unix.Close(directoryFD)
+	var randomBytes [16]byte
+	if _, err := rand.Read(randomBytes[:]); err != nil {
+		return fmt.Errorf("could not generate Codex auth temporary name: %w", err)
+	}
+	temporaryName := fmt.Sprintf(".%s.%x.tmp", destinationName, randomBytes[:])
+	temporaryFD, err := unix.Openat(directoryFD, temporaryName, unix.O_WRONLY|unix.O_CREAT|unix.O_EXCL|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0600)
+	if err != nil {
+		return fmt.Errorf("could not create Codex auth temporary: %w", err)
+	}
+	temporary := os.NewFile(uintptr(temporaryFD), temporaryName)
+	removeTemporary := true
+	defer func() {
+		if removeTemporary {
+			_ = unix.Unlinkat(directoryFD, temporaryName, 0)
+		}
+	}()
+	sourceFlags := syscall.O_RDONLY | syscall.O_NOFOLLOW
+	sourceFD, err := syscall.Open(sourcePath, sourceFlags, 0)
+	if err != nil {
+		temporary.Close()
+		return err
+	}
+	source := os.NewFile(uintptr(sourceFD), sourcePath)
+	_, copyErr := io.Copy(temporary, io.LimitReader(source, 1024*1024+1))
+	sourceCloseErr := source.Close()
+	var chownErr error
+	if stat, ok := owner.Sys().(*syscall.Stat_t); ok {
+		chownErr = unix.Fchown(temporaryFD, int(stat.Uid), int(stat.Gid))
+	}
+	syncErr := temporary.Sync()
+	closeErr := temporary.Close()
+	if copyErr != nil || sourceCloseErr != nil || chownErr != nil || syncErr != nil || closeErr != nil {
+		return errors.New("could not copy refreshed Codex auth to outbox")
+	}
+	if err := validateCredentialOutboxDestination(directoryFD, destinationName); err != nil {
+		return err
+	}
+	if err := unix.Renameat(directoryFD, temporaryName, directoryFD, destinationName); err != nil {
+		return fmt.Errorf("could not publish refreshed Codex auth outbox: %w", err)
+	}
+	removeTemporary = false
+	return nil
+}
+
+func superviseWithCodexSubscription(parsed options, connection *os.File, environment []string, capabilityFD int) error {
+	config, err := loadTrustedCodexCLI(parsed.codexCLIConfigPath)
+	if err != nil {
+		return err
+	}
+	if err := validateCredentialOutbox(parsed.codexAuthOutbox); err != nil {
+		return err
+	}
+	home, err := os.MkdirTemp("", "axiom-codex-")
+	if err != nil {
+		return fmt.Errorf("could not create Codex scratch home: %w", err)
+	}
+	defer os.RemoveAll(home)
+	if err := os.Chmod(home, 0700); err != nil {
+		return err
+	}
+	homeMetadata, err := os.Lstat(home)
+	if err != nil {
+		return errors.New("could not inspect Codex scratch home")
+	}
+	homeStat, ok := homeMetadata.Sys().(*syscall.Stat_t)
+	if !ok {
+		return errors.New("could not inspect Codex scratch home ownership")
+	}
+	if err := validateCodexScratchPolicy(homeMetadata.Mode(), int(homeStat.Uid), os.Geteuid()); err != nil {
+		return err
+	}
+	authPath := filepath.Join(home, "auth.json")
+	authMetadata, err := copyCredential(parsed.codexAuthPath, authPath, true)
+	if err != nil {
+		return fmt.Errorf("could not materialize Codex auth: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte("check_for_update_on_startup = false\n"), 0600); err != nil {
+		return err
+	}
+	environment = append(
+		environment,
+		"CODEX_HOME="+home,
+		trustedCodexBinEnv+"="+config.Path,
+		trustedCodexVersionEnv+"="+config.Version,
+		trustedCodexSHA256Env+"="+config.SHA256,
+	)
+	for index, entry := range environment {
+		if strings.HasPrefix(entry, brokerFDEnv+"=") {
+			environment[index] = brokerFDEnv + "=3"
+		}
+	}
+	command := exec.Command(parsed.command[0], parsed.command[1:]...)
+	command.Env = environment
+	command.Stdin, command.Stdout, command.Stderr = os.Stdin, os.Stdout, os.Stderr
+	command.ExtraFiles = []*os.File{connection}
+	if err := sealOtherDescriptors(capabilityFD); err != nil {
+		return fmt.Errorf("could not seal inherited descriptors: %w", err)
+	}
+	commandErr := command.Run()
+	refreshed := filepath.Join(home, "auth.json")
+	if err := publishCredential(refreshed, parsed.codexAuthOutbox, authMetadata); err != nil {
+		return err
+	}
+	if commandErr != nil {
+		return fmt.Errorf("trusted generation failed: %w", commandErr)
 	}
 	return nil
 }

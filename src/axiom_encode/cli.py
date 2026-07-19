@@ -17637,7 +17637,7 @@ def _applied_manifest_exact_schema_issues(
     *,
     manifest_label: str,
 ) -> list[str]:
-    """Reject every field outside the one model or retirement v3 contract."""
+    """Reject every field outside the model or retirement v5 contract."""
 
     backend = payload.get("backend")
     tool = payload.get("tool")
@@ -17653,9 +17653,16 @@ def _applied_manifest_exact_schema_issues(
         return []
 
     issues: list[str] = []
-    if set(payload) != expected_fields:
+    codex_fields = {"codex_cli_version", "codex_cli_sha256"}
+    present_codex_fields = set(payload) & codex_fields
+    admitted_fields = expected_fields | (codex_fields if backend == "codex" else set())
+    if (
+        set(payload) - codex_fields != expected_fields
+        or (backend == "codex" and present_codex_fields not in (set(), codex_fields))
+        or (backend != "codex" and present_codex_fields)
+    ):
         missing = sorted(expected_fields - set(payload))
-        extra = sorted(set(payload) - expected_fields)
+        extra = sorted(set(payload) - admitted_fields)
         detail: list[str] = []
         if missing:
             detail.append("missing " + ", ".join(missing))
@@ -17665,6 +17672,17 @@ def _applied_manifest_exact_schema_issues(
             f"{manifest_label} does not match the exact {contract} v5 schema"
             + (f" ({'; '.join(detail)})" if detail else "")
         )
+
+    if backend == "codex" and present_codex_fields:
+        codex_version = payload.get("codex_cli_version")
+        codex_digest = payload.get("codex_cli_sha256")
+        if not isinstance(codex_version, str) or not codex_version.strip():
+            issues.append(f"{manifest_label} codex_cli_version is invalid")
+        if (
+            not isinstance(codex_digest, str)
+            or re.fullmatch(r"[0-9a-f]{64}", codex_digest) is None
+        ):
+            issues.append(f"{manifest_label} codex_cli_sha256 is invalid")
 
     generated_at = payload.get("generated_at")
     try:
@@ -37100,6 +37118,9 @@ def _apply_result_metadata(result) -> dict[str, object]:
         raise RuntimeError(
             "Cannot sign a model-generated RuleSpec with a non-allowlisted tool"
         )
+    codex_cli_version, codex_cli_sha256 = _result_codex_cli_provenance(result)
+    if backend == "codex" and (codex_cli_version is None or codex_cli_sha256 is None):
+        raise RuntimeError("Codex backend result has no trusted CLI provenance")
     return {
         "tool": tool,
         "citation": str(getattr(result, "citation", "") or ""),
@@ -37107,10 +37128,26 @@ def _apply_result_metadata(result) -> dict[str, object]:
         "backend": backend,
         "model": str(getattr(result, "model", "") or ""),
         "generation_prompt_sha256": getattr(result, "generation_prompt_sha256", None),
+        "codex_cli_version": codex_cli_version,
+        "codex_cli_sha256": codex_cli_sha256,
         "source_attestation": copy.deepcopy(
             getattr(result, "source_attestation", None)
         ),
     }
+
+
+def _result_codex_cli_provenance(result) -> tuple[str | None, str | None]:
+    version = getattr(result, "codex_cli_version", None)
+    digest = getattr(result, "codex_cli_sha256", None)
+    # Test doubles and legacy result objects expose arbitrary/missing attributes;
+    # both absent means the unchanged API/non-Codex path.
+    if not isinstance(version, str) and not isinstance(digest, str):
+        return None, None
+    if not isinstance(version, str) or not version.strip():
+        raise RuntimeError("Codex CLI provenance has no canonical version")
+    if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+        raise RuntimeError("Codex CLI provenance has no canonical sha256")
+    return version.strip(), digest
 
 
 def _apply_result_metadata_sha256(result) -> str:
@@ -38359,6 +38396,9 @@ def _require_staged_manifest_matches_validation_snapshot(
         "source_attestation": expected_source_attestation,
         "validation_execution": manifest_validation_execution,
     }
+    if result_metadata.get("codex_cli_version") is not None:
+        expected_fields["codex_cli_version"] = result_metadata["codex_cli_version"]
+        expected_fields["codex_cli_sha256"] = result_metadata["codex_cli_sha256"]
     mismatched = [
         field
         for field, expected in expected_fields.items()
@@ -39869,6 +39909,9 @@ def _write_applied_encoding_manifest(
         applied_files=unique_applied_files,
         local_corpus_release=local_corpus_release,
     )
+    codex_cli_version, codex_cli_sha256 = _result_codex_cli_provenance(result)
+    if backend == "codex" and (codex_cli_version is None or codex_cli_sha256 is None):
+        raise RuntimeError("Codex backend result has no trusted CLI provenance")
     payload = {
         "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -39907,6 +39950,9 @@ def _write_applied_encoding_manifest(
             for path in unique_applied_files
         ],
     }
+    if codex_cli_version is not None:
+        payload["codex_cli_version"] = codex_cli_version
+        payload["codex_cli_sha256"] = codex_cli_sha256
     payload["source_attestation"] = source_attestation
     validation_snapshot = getattr(
         result,

@@ -9,6 +9,14 @@ from pathlib import Path
 
 def resolve_codex_cli() -> str:
     """Return the Codex executable, preferring the Desktop-bundled CLI."""
+    # The trusted supervisor supplies the exact hash-verified executable. Never
+    # rediscover it through PATH, an override, or the Desktop app.
+    if os.getenv("AXIOM_ENCODE_TRUSTED_RUNTIME") == "1" and os.getenv("CODEX_HOME"):
+        executable = os.getenv("AXIOM_ENCODE_TRUSTED_CODEX_BIN")
+        if not executable or not Path(executable).is_absolute():
+            raise RuntimeError("Trusted runtime did not bind an absolute Codex CLI")
+        return executable
+
     override = os.getenv("AXIOM_ENCODE_CODEX_BIN")
     if override:
         return override

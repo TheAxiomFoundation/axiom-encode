@@ -7742,6 +7742,8 @@ class TestCmdEncode:
         result.citation = "26 USC 1(j)(2)"
         result.runner = "codex-test-model"
         result.backend = "codex"
+        result.codex_cli_version = "codex-cli fixture"
+        result.codex_cli_sha256 = "c" * 64
         result.model = "test-model"
         result.success = success
         result.duration_ms = 123
@@ -10207,6 +10209,8 @@ rules: []
         result.context_manifest_file = str(tmp_path / "context.json")
         result.trace_file = str(tmp_path / "trace.json")
         result.generation_prompt_sha256 = "prompt-sha-256"
+        result.codex_cli_version = "codex-cli 0.test"
+        result.codex_cli_sha256 = "c" * 64
         self._write_result_context(result, tmp_path)
         Path(result.trace_file).write_text("{}\n")
         corpus_path, result.source_attestation = self._bind_apply_source_release(
@@ -10283,6 +10287,8 @@ rules: []
         assert payload["model"] == "test-model"
         assert payload["run_id"] == "run-123"
         assert payload["generation_prompt_sha256"] == "prompt-sha-256"
+        assert payload["codex_cli_version"] == "codex-cli 0.test"
+        assert payload["codex_cli_sha256"] == "c" * 64
         assert payload["generated_output_sha256"]
         assert payload["trace_sha256"]
         assert payload["signature"]["value"]
@@ -10571,6 +10577,8 @@ rules: []
             citation="us:statutes/26/1401",
             runner="codex",
             backend="codex",
+            codex_cli_version="codex-cli fixture",
+            codex_cli_sha256="c" * 64,
             model="manifest-test",
             source_attestation=source_attestation,
         )
@@ -34071,6 +34079,8 @@ class TestManifestCurrentState:
             output_file=str(output_file),
             runner="codex:gpt-5.5",
             backend="codex",
+            codex_cli_version="codex-cli fixture",
+            codex_cli_sha256="c" * 64,
             model="gpt-5.5",
             tool="axiom-encode encode --apply",
             citation="be:statutes/be/example",

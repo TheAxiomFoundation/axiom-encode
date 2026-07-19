@@ -252,6 +252,59 @@ The launcher is the process manager the deployment model calls for. It:
 The supervisor performs its own forbidden-private-key-environment rejection and
 per-child scrub, so the launcher is a wiring layer, not a second trust boundary.
 
+### ChatGPT subscription generation
+
+The tier-1 provisioner can additionally install the repository-pinned Codex CLI:
+
+```bash
+sudo .venv/bin/python scripts/provision_verification_supervisor.py \
+  --destination /opt/axiom-verification \
+  --supervisor build/axiom-encode-signing-supervisor \
+  --site-packages .venv/lib/python3.13/site-packages \
+  --apply-root "$APPLY_ROOT" --eval-root "$EVAL_ROOT" \
+  --corpus-release-root "$CORPUS_RELEASE_ROOT" --git /usr/bin/git \
+  --encoder-origin-repository github.com/TheAxiomFoundation/axiom-encode \
+  --encoder-commit "$(git rev-parse HEAD)" --encoder-git-root "$PWD" \
+  --install-pinned-codex-cli
+```
+
+Install custody remains with the operator: never automate this sudo invocation.
+For a subscription run, explicitly name the source credential and its refreshed
+outbox (both are credential-bearing files):
+
+```bash
+CODEX_AUTH_SOURCE="$CODEX_HOME/auth.json"
+CODEX_AUTH_OUTBOX="$CODEX_HOME/auth.json.refreshed"
+unset CODEX_HOME
+/opt/axiom-verification/axiom-encode-signing-supervisor \
+  --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
+  --trusted-codex-cli-config /opt/axiom-verification/codex-cli.json \
+  --codex-subscription-auth "$CODEX_AUTH_SOURCE" \
+  --codex-auth-outbox "$CODEX_AUTH_OUTBOX" \
+  --trusted-python-runtime-root /opt/axiom-verification/python \
+  --trusted-python-import-root /opt/axiom-verification/python/lib/python3.13/site-packages \
+  --trusted-python-package-root /opt/axiom-verification/python/lib/python3.13/site-packages/axiom_encode \
+  -- /opt/axiom-verification/axiom-encode encode ... --backend codex
+```
+
+The supervisor creates an euid-owned per-run `0700` home in the operating
+system's temporary directory, copies auth into it, sets `CODEX_HOME` only to
+that directory, disables update checks, binds execution and provenance to the
+exact hash-verified Codex executable, exports any refresh atomically, and
+removes the scratch tree. The outbox must be an absolute path in an
+operator-owned directory with no group/other write access; symlinked directories
+and symlink/special-file destinations are rejected.
+
+This is environment and lookup isolation, not same-uid filesystem isolation.
+The child cannot discover the operator home through `HOME`, `CODEX_HOME`, XDG
+variables, or the curated `PATH`, and Codex receives only the scratch copy.
+Because the supervisor and child intentionally run as the same non-root
+operator, a malicious child that already knows an absolute path to a readable
+operator-home file can still open it. Enforcing otherwise requires a separate
+OS sandbox or identity boundary; changing `HOME` alone cannot provide that
+property. Without the subscription flags, the original environment and API-key
+execution path are unchanged.
+
 ### Workflow deployment and secrets discipline
 
 The signed-apply leg runs the same provisioning as the verification supervisor

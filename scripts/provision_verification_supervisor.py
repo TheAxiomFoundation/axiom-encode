@@ -45,12 +45,15 @@ import argparse
 import hashlib
 import json
 import os
+import platform
 import re
 import shutil
 import stat
 import subprocess
 import sys
+import tarfile
 import tempfile
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -709,6 +712,106 @@ def _install_trusted_git_wrapper(
 # file, so the CLI reader tolerates unknown siblings.
 _RUNTIME_ATTESTATION_FILENAME = "runtime-attestation.json"
 _RUNTIME_ATTESTATION_SCHEMA = "axiom-encode/trusted-runtime-attestation/v1"
+
+# Moving either pin is a reviewed repository change.  The installer never asks
+# npm for "latest" and the runtime disables update checks below.
+_CODEX_CLI_VERSION = "0.144.0"
+_CODEX_CLI_PINS = {
+    ("darwin", "arm64"): {
+        "url": "https://registry.npmjs.org/@openai/codex/-/codex-0.144.0-darwin-arm64.tgz",
+        "member": "package/vendor/aarch64-apple-darwin/bin/codex",
+        "sha256": "978740e6bcbd9af2f850823b723fb74f16d8d1e44de05f7dd6737ae631f72017",
+    },
+}
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _install_pinned_codex_cli(
+    destination: Path, archive: Path | None = None
+) -> dict[str, str]:
+    """Install only the reviewed Codex binary, failing closed on its digest."""
+
+    machine = platform.machine().lower()
+    if machine in {"aarch64", "arm64"}:
+        machine = "arm64"
+    elif machine in {"x86_64", "amd64"}:
+        machine = "x64"
+    pin = _CODEX_CLI_PINS.get((sys.platform, machine))
+    if pin is None:
+        raise SystemExit(
+            f"refusing to provision: no reviewed Codex CLI pin for {sys.platform}/{machine}"
+        )
+    downloaded: Path | None = None
+    if archive is None:
+        descriptor, raw_path = tempfile.mkstemp(
+            prefix="axiom-codex-cli-", suffix=".tgz"
+        )
+        os.close(descriptor)
+        downloaded = Path(raw_path)
+        try:
+            with (
+                urllib.request.urlopen(pin["url"], timeout=60) as response,
+                downloaded.open("wb") as output,
+            ):
+                shutil.copyfileobj(response, output)
+        except Exception as exc:
+            downloaded.unlink(missing_ok=True)
+            raise SystemExit(f"could not fetch pinned Codex CLI: {exc}") from exc
+        archive = downloaded
+    try:
+        try:
+            with tarfile.open(archive, "r:gz") as bundle:
+                member = bundle.getmember(pin["member"])
+                if not member.isfile() or member.issym() or member.islnk():
+                    raise SystemExit(
+                        "refusing pinned Codex archive member that is not a file"
+                    )
+                source = bundle.extractfile(member)
+                if source is None:
+                    raise SystemExit("pinned Codex archive does not contain its binary")
+                bin_dir = destination / "bin"
+                bin_dir.mkdir(mode=0o755, exist_ok=True)
+                target = bin_dir / "codex"
+                flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                if hasattr(os, "O_NOFOLLOW"):
+                    flags |= os.O_NOFOLLOW
+                descriptor = os.open(target, flags, 0o755)
+                with os.fdopen(descriptor, "wb") as output:
+                    shutil.copyfileobj(source, output)
+                    output.flush()
+                    os.fsync(output.fileno())
+        except (KeyError, tarfile.TarError) as exc:
+            raise SystemExit(f"invalid pinned Codex CLI archive: {exc}") from exc
+        actual = _sha256_file(target)
+        if actual != pin["sha256"]:
+            target.unlink(missing_ok=True)
+            raise SystemExit(
+                "refusing to provision: pinned Codex CLI sha256 mismatch "
+                f"(expected {pin['sha256']}, got {actual})"
+            )
+        target.chmod(0o755)
+        config = {
+            "schema": "axiom-encode/trusted-codex-cli/v1",
+            "version": _CODEX_CLI_VERSION,
+            "sha256": actual,
+            "path": str(target),
+        }
+        config_path = destination / "codex-cli.json"
+        config_path.write_text(json.dumps(config, sort_keys=True) + "\n")
+        config_path.chmod(0o444)
+        return config
+    finally:
+        if downloaded is not None:
+            downloaded.unlink(missing_ok=True)
+
+
 _ENCODER_PACKAGE_PATHSPEC = "src/axiom_encode"
 # Files whose in-tree version must agree for the encoder to declare one version,
 # and the paths whose change after a version bump is "unversioned encoder drift".
@@ -1213,6 +1316,7 @@ def _publish_runtime_attestation(
     encoder_commit: str,
     declared_version: str,
     package_tree_sha256: str,
+    codex_cli: dict[str, str] | None = None,
 ) -> Path:
     """Atomically publish the attestation into a root-owned prefix, fail-closed.
 
@@ -1233,23 +1337,22 @@ def _publish_runtime_attestation(
         )
     runtime.chmod(metadata.st_mode & ~(stat.S_IWGRP | stat.S_IWOTH))
     path = runtime / _RUNTIME_ATTESTATION_FILENAME
-    payload = (
-        json.dumps(
-            {
-                "schema": _RUNTIME_ATTESTATION_SCHEMA,
-                "provisioned_at": datetime.now(timezone.utc).isoformat(),
-                "axiom_encode": {
-                    "origin_repository": encoder_origin_repository,
-                    "commit": encoder_commit,
-                    "version": declared_version,
-                    "package_tree_sha256": package_tree_sha256,
-                },
-            },
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n"
-    )
+    attestation = {
+        "schema": _RUNTIME_ATTESTATION_SCHEMA,
+        "provisioned_at": datetime.now(timezone.utc).isoformat(),
+        "axiom_encode": {
+            "origin_repository": encoder_origin_repository,
+            "commit": encoder_commit,
+            "version": declared_version,
+            "package_tree_sha256": package_tree_sha256,
+        },
+    }
+    if codex_cli is not None:
+        attestation["codex_cli"] = {
+            "version": codex_cli["version"],
+            "sha256": codex_cli["sha256"],
+        }
+    payload = json.dumps(attestation, indent=2, sort_keys=True) + "\n"
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
@@ -1362,6 +1465,8 @@ def provision(
     encoder_origin_repository: str | None = None,
     encoder_commit: str | None = None,
     encoder_git_root: Path | None = None,
+    codex_cli_archive: Path | None = None,
+    install_pinned_codex_cli: bool = False,
 ) -> None:
     encoder_attestation_args = (
         encoder_origin_repository,
@@ -1424,6 +1529,11 @@ def provision(
         interpreter = runtime / source_interpreter.relative_to(source_runtime)
         _assert_self_contained(runtime, source_runtime, interpreter)
         _install_trusted_git_wrapper(interpreter.parent, interpreter, trusted_git)
+        codex_cli = (
+            _install_pinned_codex_cli(destination, codex_cli_archive)
+            if install_pinned_codex_cli
+            else None
+        )
         launcher = destination / "axiom-encode"
         launcher.write_text(
             f"#!{interpreter} -I\nraise SystemExit('launcher executed')\n"
@@ -1454,6 +1564,7 @@ def provision(
                 encoder_commit,
                 declared_version,
                 package_tree_sha256,
+                codex_cli,
             )
         shutil.copy2(supervisor, destination / "axiom-encode-signing-supervisor")
         (destination / "axiom-encode-signing-supervisor").chmod(0o755)
@@ -1470,6 +1581,11 @@ if __name__ == "__main__":
     parser.add_argument("--apply-root", required=True)
     parser.add_argument("--eval-root", required=True)
     parser.add_argument("--corpus-release-root", required=True)
+    parser.add_argument(
+        "--install-pinned-codex-cli",
+        action="store_true",
+        help="Fetch/install the repository-pinned Codex CLI for subscription generation.",
+    )
     parser.add_argument(
         "--git",
         type=Path,
@@ -1494,6 +1610,12 @@ if __name__ == "__main__":
         default=DEFAULT_MAX_RUNTIME_FILES,
         help="Refuse prefixes holding more files than this (copy-equivalent "
         "count, following symlinks the way the copy will).",
+    )
+    parser.add_argument(
+        "--codex-cli-archive",
+        type=Path,
+        default=None,
+        help="Optional pre-fetched exact pinned npm archive.",
     )
     parser.add_argument(
         "--encoder-origin-repository",
@@ -1533,4 +1655,8 @@ if __name__ == "__main__":
         args.encoder_origin_repository,
         args.encoder_commit,
         args.encoder_git_root.resolve() if args.encoder_git_root is not None else None,
+        args.codex_cli_archive.resolve()
+        if args.codex_cli_archive is not None
+        else None,
+        args.install_pinned_codex_cli,
     )

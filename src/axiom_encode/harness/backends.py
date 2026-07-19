@@ -9,6 +9,7 @@ Both use embedded prompts -- no external plugin dependencies.
 """
 
 import asyncio
+import hashlib
 import json
 import os
 import re
@@ -52,6 +53,8 @@ class EncoderResponse:
     tokens: Optional[TokenUsage] = None
     cost_usd: Optional[float] = None
     trace: Optional[dict[str, Any]] = None
+    codex_cli_version: Optional[str] = None
+    codex_cli_sha256: Optional[str] = None
 
 
 @dataclass
@@ -342,6 +345,7 @@ class CodexCLIBackend(EncoderBackend):
         )
         prompt += f"\n\nSource Text:\n{request.source_text}\n"
 
+        codex_cli_version, codex_cli_sha256 = self._trusted_cli_provenance()
         output, returncode = self._run_codex_exec(
             prompt=prompt,
             model=request.model,
@@ -368,6 +372,8 @@ class CodexCLIBackend(EncoderBackend):
                 tokens=token_usage,
                 cost_usd=cost_usd,
                 trace=trace,
+                codex_cli_version=codex_cli_version,
+                codex_cli_sha256=codex_cli_sha256,
             )
 
         if request.output_path.exists():
@@ -387,7 +393,28 @@ class CodexCLIBackend(EncoderBackend):
             tokens=token_usage,
             cost_usd=cost_usd,
             trace=trace,
+            codex_cli_version=codex_cli_version,
+            codex_cli_sha256=codex_cli_sha256,
         )
+
+    @staticmethod
+    def _trusted_cli_provenance() -> tuple[str | None, str | None]:
+        if not (
+            os.environ.get("AXIOM_ENCODE_TRUSTED_RUNTIME") == "1"
+            and os.environ.get("CODEX_HOME")
+        ):
+            return None, None
+        executable = Path(resolve_codex_cli()).resolve(strict=True)
+        expected_digest = os.environ.get("AXIOM_ENCODE_TRUSTED_CODEX_SHA256")
+        version = os.environ.get("AXIOM_ENCODE_TRUSTED_CODEX_VERSION")
+        if not expected_digest or not version:
+            raise RuntimeError("Trusted runtime omitted Codex CLI provenance")
+        digest = hashlib.sha256(executable.read_bytes()).hexdigest()
+        if digest != expected_digest:
+            raise RuntimeError(
+                "Trusted Codex CLI changed after supervisor verification"
+            )
+        return version, digest
 
     def predict(self, citation: str, source_text: str) -> PredictionScores:
         """Predict scores using Codex CLI."""
