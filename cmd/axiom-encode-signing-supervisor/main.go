@@ -565,6 +565,11 @@ func supervise(arguments []string) error {
 	if err != nil {
 		return err
 	}
+	if parsed.codexAuthPath != "" {
+		if value, present := os.LookupEnv("CODEX_HOME"); present && value != "" {
+			return errors.New("ambient CODEX_HOME is outside supervisor custody; unset it and pass --codex-subscription-auth explicitly")
+		}
+	}
 
 	applyPublicKey, evalPublicKey, corpusReleasePublicKey, err := loadProtectedTrustRoots(
 		parsed.trustRootsPath,

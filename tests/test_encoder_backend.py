@@ -4,6 +4,7 @@ Tests for encoder backend abstraction.
 Updated for self-contained backends (no plugin dependencies).
 """
 
+import hashlib
 import os
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
@@ -672,6 +673,22 @@ class TestCodexCLIBackend:
             assert "--add-dir" not in cmd
             assert cmd[cmd.index("-C") + 1] == str(Path("/tmp/output").resolve())
             assert mock_run.call_args.kwargs["cwd"] == Path("/tmp/output").resolve()
+
+    def test_trusted_subscription_records_pinned_cli_provenance(
+        self, tmp_path, monkeypatch
+    ):
+        binary = tmp_path / "codex"
+        binary.write_bytes(b"pinned-codex")
+        monkeypatch.setattr(
+            "axiom_encode.harness.backends.resolve_codex_cli", lambda: str(binary)
+        )
+        monkeypatch.setenv("AXIOM_ENCODE_TRUSTED_RUNTIME", "1")
+        monkeypatch.setenv("CODEX_HOME", str(tmp_path / "runtime-home"))
+        with patch("subprocess.run") as run:
+            run.return_value = Mock(stdout="codex-cli 0.test\n")
+            version, digest = CodexCLIBackend._trusted_cli_provenance()
+        assert version == "codex-cli 0.test"
+        assert digest == hashlib.sha256(b"pinned-codex").hexdigest()
 
     def test_encode_parses_jsonl_usage(self):
         backend = CodexCLIBackend(cwd=Path("/tmp/work"))

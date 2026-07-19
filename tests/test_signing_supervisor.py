@@ -175,6 +175,11 @@ def main():
         text=True,
         env=scrub_private_signing_environment(),
     )
+    if os.environ.get("CODEX_HOME"):
+        from pathlib import Path
+        (Path(os.environ["CODEX_HOME"]) / "auth.json").write_text(
+            '{"token":"new"}\\n'
+        )
     result = {
         \"isolated\": sys.flags.isolated,
         \"no_site\": sys.flags.no_site,
@@ -901,8 +906,11 @@ print(json.dumps({"codex_home": str(home), "home": os.environ["HOME"], "path": o
     )
     assert completed.returncode == 0, completed.stderr
     result = json.loads(completed.stdout)
-    assert not Path(result["codex_home"]).exists()
-    assert str(codex.parent) in result["path"].split(os.pathsep)
+    codex_home = Path(result["environment"]["CODEX_HOME"])
+    assert codex_home.parent.name == "runtime-codex-homes"
+    assert not codex_home.exists()
+    assert str(codex.parent) in result["environment"]["PATH"].split(os.pathsep)
+    assert result["environment"]["HOME"] != str(tmp_path / "operator-home")
     assert json.loads(outbox.read_text()) == {"token": "new"}
 
 
@@ -952,6 +960,34 @@ def test_subscription_tampered_binary_hard_fails_before_child(
     )
     assert completed.returncode == 2
     assert "sha256 mismatch" in completed.stderr
+
+
+def test_subscription_refuses_ambient_codex_home_outside_scratch(
+    signing_supervisor: Path,
+    trusted_python_runtime: tuple[Path, Path, Path],
+    tmp_path: Path,
+) -> None:
+    apply_public, _ = _keypair(b"\xab" * 32)
+    eval_public, _ = _keypair(b"\xcd" * 32)
+    trust_config = _trust_config(tmp_path, apply_public, eval_public)
+    completed = _invoke(
+        signing_supervisor,
+        trusted_python_runtime,
+        _launcher(tmp_path, trusted_python_runtime),
+        trust_config,
+        [],
+        environment={"CODEX_HOME": str(tmp_path / "outside")},
+        supervisor_args=(
+            "--codex-subscription-auth",
+            str(tmp_path / "auth.json"),
+            "--codex-auth-outbox",
+            str(tmp_path / "out.json"),
+            "--trusted-codex-cli-config",
+            str(tmp_path / "codex-cli.json"),
+        ),
+    )
+    assert completed.returncode == 2
+    assert "ambient CODEX_HOME is outside supervisor custody" in completed.stderr
 
 
 def test_fixture_binary_is_explicitly_nonpublishable(signing_supervisor: Path) -> None:

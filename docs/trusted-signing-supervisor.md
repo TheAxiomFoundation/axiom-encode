@@ -273,11 +273,14 @@ For a subscription run, explicitly name the source credential and its refreshed
 outbox (both are credential-bearing files):
 
 ```bash
+CODEX_AUTH_SOURCE="$CODEX_HOME/auth.json"
+CODEX_AUTH_OUTBOX="$CODEX_HOME/auth.json.refreshed"
+unset CODEX_HOME
 /opt/axiom-verification/axiom-encode-signing-supervisor \
   --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
   --trusted-codex-cli-config /opt/axiom-verification/codex-cli.json \
-  --codex-subscription-auth "$CODEX_HOME/auth.json" \
-  --codex-auth-outbox "$CODEX_HOME/auth.json.refreshed" \
+  --codex-subscription-auth "$CODEX_AUTH_SOURCE" \
+  --codex-auth-outbox "$CODEX_AUTH_OUTBOX" \
   --trusted-python-runtime-root /opt/axiom-verification/python \
   --trusted-python-import-root /opt/axiom-verification/python/lib/python3.13/site-packages \
   --trusted-python-package-root /opt/axiom-verification/python/lib/python3.13/site-packages/axiom_encode \
