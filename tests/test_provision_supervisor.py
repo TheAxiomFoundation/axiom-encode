@@ -15,6 +15,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tarfile
 from pathlib import Path
 
 import pytest
@@ -73,6 +74,48 @@ class TestPathInside:
         assert not provisioner._path_inside(
             str(runtime / "alias" / ".." / "lib"), runtime
         )
+
+
+class TestPinnedCodexCLI:
+    def _archive(self, tmp_path: Path, binary: bytes) -> Path:
+        source = tmp_path / "package/vendor/aarch64-apple-darwin/bin/codex"
+        source.parent.mkdir(parents=True)
+        source.write_bytes(binary)
+        archive = tmp_path / "codex.tgz"
+        with tarfile.open(archive, "w:gz") as bundle:
+            bundle.add(tmp_path / "package", arcname="package")
+        return archive
+
+    def test_installs_exact_hash_pinned_binary(self, tmp_path, monkeypatch):
+        binary = b"#!/bin/sh\necho codex-cli-test\n"
+        archive = self._archive(tmp_path, binary)
+        monkeypatch.setattr(provisioner.sys, "platform", "darwin")
+        monkeypatch.setattr(provisioner.platform, "machine", lambda: "arm64")
+        monkeypatch.setitem(
+            provisioner._CODEX_CLI_PINS[("darwin", "arm64")],
+            "sha256",
+            provisioner.hashlib.sha256(binary).hexdigest(),
+        )
+        destination = tmp_path / "runtime"
+        destination.mkdir()
+        config = provisioner._install_pinned_codex_cli(destination, archive)
+        assert (destination / "bin/codex").read_bytes() == binary
+        assert config["sha256"] == provisioner.hashlib.sha256(binary).hexdigest()
+
+    def test_hash_mismatch_hard_fails_and_removes_binary(self, tmp_path, monkeypatch):
+        archive = self._archive(tmp_path, b"tampered")
+        monkeypatch.setattr(provisioner.sys, "platform", "darwin")
+        monkeypatch.setattr(provisioner.platform, "machine", lambda: "arm64")
+        monkeypatch.setitem(
+            provisioner._CODEX_CLI_PINS[("darwin", "arm64")],
+            "sha256",
+            "0" * 64,
+        )
+        destination = tmp_path / "runtime"
+        destination.mkdir()
+        with pytest.raises(SystemExit, match="sha256 mismatch"):
+            provisioner._install_pinned_codex_cli(destination, archive)
+        assert not (destination / "bin/codex").exists()
 
 
 class TestRpathComponentInside:
@@ -1121,6 +1164,7 @@ class TestEncoderSnapshotProvisioning:
 
     GIT = Path(shutil.which("git") or "git")
     OFFICIAL = "github.com/TheAxiomFoundation/axiom-encode"
+    CODEX = {"version": "0.test", "sha256": "c" * 64}
 
     def _git(self, path: Path, *args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
@@ -1435,7 +1479,7 @@ class TestEncoderSnapshotProvisioning:
         runtime = tmp_path / "python"
         runtime.mkdir()
         out = provisioner._publish_runtime_attestation(
-            runtime, self.OFFICIAL, "a" * 40, "9.9.9", "b" * 64
+            runtime, self.OFFICIAL, "a" * 40, "9.9.9", "b" * 64, self.CODEX
         )
         assert out == runtime / "runtime-attestation.json"
         assert stat.S_IMODE(out.stat().st_mode) == 0o444
@@ -1447,6 +1491,7 @@ class TestEncoderSnapshotProvisioning:
             "version": "9.9.9",
             "package_tree_sha256": "b" * 64,
         }
+        assert payload["codex_cli"] == self.CODEX
         assert (
             __import__("datetime")
             .datetime.fromisoformat(payload["provisioned_at"])
@@ -1460,7 +1505,7 @@ class TestEncoderSnapshotProvisioning:
         (runtime / "runtime-attestation.json").write_text("{}\n")
         with pytest.raises(SystemExit, match="already exists"):
             provisioner._publish_runtime_attestation(
-                runtime, self.OFFICIAL, "a" * 40, "9.9.9", "b" * 64
+                runtime, self.OFFICIAL, "a" * 40, "9.9.9", "b" * 64, self.CODEX
             )
 
     def test_publish_refuses_preplaced_symlink(self, tmp_path):
@@ -1469,7 +1514,7 @@ class TestEncoderSnapshotProvisioning:
         (runtime / "runtime-attestation.json").symlink_to(tmp_path / "target")
         with pytest.raises(SystemExit, match="already exists|cannot create"):
             provisioner._publish_runtime_attestation(
-                runtime, self.OFFICIAL, "a" * 40, "9.9.9", "b" * 64
+                runtime, self.OFFICIAL, "a" * 40, "9.9.9", "b" * 64, self.CODEX
             )
 
     def test_package_tree_sha256_matches_deterministic_tree_identity(self, tmp_path):

@@ -966,6 +966,8 @@ class EvalResult:
     unexpected_accesses: list[str]
     metrics: EvalArtifactMetrics | None
     generation_prompt_sha256: str | None = None
+    codex_cli_version: str | None = None
+    codex_cli_sha256: str | None = None
     retry_count: int = 0
     source_attestation: dict[str, object] | None = None
     admission: dict[str, object] | None = None
@@ -7256,6 +7258,8 @@ def _run_single_eval(
         or (None if wrote_artifact else "No RuleSpec content returned")
         or validation_error,
         generation_prompt_sha256=generation_prompt_sha256,
+        codex_cli_version=getattr(response, "codex_cli_version", None),
+        codex_cli_sha256=getattr(response, "codex_cli_sha256", None),
         input_tokens=tokens.input_tokens if tokens else 0,
         output_tokens=tokens.output_tokens if tokens else 0,
         cache_read_tokens=tokens.cache_read_tokens if tokens else 0,

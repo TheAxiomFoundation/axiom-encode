@@ -394,10 +394,15 @@ def _runtime_arguments(runtime: tuple[Path, Path, Path]) -> list[str]:
     return arguments
 
 
-def _launcher(tmp_path: Path, runtime: tuple[Path, Path, Path]) -> Path:
+def _launcher(
+    tmp_path: Path, runtime: tuple[Path, Path, Path], body: str | None = None
+) -> Path:
     interpreter, _runtime_root, _package_root = runtime
     launcher = tmp_path.resolve() / "axiom-encode"
-    launcher.write_text(f"#!{interpreter} -I\nraise SystemExit('launcher executed')\n")
+    launcher.write_text(
+        f"#!{interpreter} -I\n"
+        + (body if body is not None else "raise SystemExit('launcher executed')\n")
+    )
     launcher.chmod(0o700)
     return launcher
 
@@ -802,6 +807,7 @@ def _invoke(
     *,
     environment: dict[str, str] | None = None,
     command_args: tuple[str, ...] = (),
+    supervisor_args: tuple[str, ...] = (),
 ) -> subprocess.CompletedProcess[str]:
     signer_arguments: list[str] = []
     if descriptors:
@@ -814,6 +820,7 @@ def _invoke(
             *signer_arguments,
             "--trusted-signing-roots",
             str(trust_config),
+            *supervisor_args,
             *_runtime_arguments(runtime),
             "--",
             str(launcher),
@@ -825,6 +832,126 @@ def _invoke(
         text=True,
         timeout=30,
     )
+
+
+def test_subscription_auth_is_isolated_refreshed_and_wiped(
+    signing_supervisor: Path,
+    trusted_python_runtime: tuple[Path, Path, Path],
+    tmp_path: Path,
+) -> None:
+    apply_public, _ = _keypair(b"\xab" * 32)
+    eval_public, _ = _keypair(b"\xcd" * 32)
+    trust_config = _trust_config(tmp_path, apply_public, eval_public)
+    trusted = tmp_path / "trusted"
+    (trusted / "bin").mkdir(parents=True)
+    (trusted / "runtime-codex-homes").mkdir(mode=0o700)
+    codex = trusted / "bin/codex"
+    codex.write_text("#!/bin/sh\nexit 0\n")
+    codex.chmod(0o755)
+    digest = hashlib.sha256(codex.read_bytes()).hexdigest()
+    config = trusted / "codex-cli.json"
+    config.write_text(
+        json.dumps(
+            {
+                "schema": "axiom-encode/trusted-codex-cli/v1",
+                "version": "test",
+                "sha256": digest,
+                "path": str(codex),
+            }
+        )
+        + "\n"
+    )
+    config.chmod(0o444)
+    auth = tmp_path / "operator-auth.json"
+    auth.write_text('{"token":"old"}\n')
+    auth.chmod(0o600)
+    outbox = tmp_path / "refreshed-auth.json"
+    operator_home_auth = tmp_path / "operator-home/.codex/auth.json"
+    operator_home_auth.parent.mkdir(parents=True)
+    operator_home_auth.write_text('{"must":"not-cross"}\n')
+    launcher = _launcher(
+        tmp_path,
+        trusted_python_runtime,
+        body="""
+import json, os
+from pathlib import Path
+home = Path(os.environ["CODEX_HOME"])
+assert home.parent.name == "runtime-codex-homes"
+assert Path.home() != home
+assert not (Path(os.environ["HOME"]) / ".codex" / "auth.json").exists()
+(home / "auth.json").write_text('{"token":"new"}\\n')
+print(json.dumps({"codex_home": str(home), "home": os.environ["HOME"], "path": os.environ["PATH"]}))
+""",
+    )
+    completed = _invoke(
+        signing_supervisor,
+        trusted_python_runtime,
+        launcher,
+        trust_config,
+        [],
+        environment={"HOME": str(tmp_path / "operator-home")},
+        supervisor_args=(
+            "--codex-subscription-auth",
+            str(auth),
+            "--codex-auth-outbox",
+            str(outbox),
+            "--trusted-codex-cli-config",
+            str(config),
+        ),
+    )
+    assert completed.returncode == 0, completed.stderr
+    result = json.loads(completed.stdout)
+    assert not Path(result["codex_home"]).exists()
+    assert str(codex.parent) in result["path"].split(os.pathsep)
+    assert json.loads(outbox.read_text()) == {"token": "new"}
+
+
+def test_subscription_tampered_binary_hard_fails_before_child(
+    signing_supervisor: Path,
+    trusted_python_runtime: tuple[Path, Path, Path],
+    tmp_path: Path,
+) -> None:
+    apply_public, _ = _keypair(b"\xab" * 32)
+    eval_public, _ = _keypair(b"\xcd" * 32)
+    trust_config = _trust_config(tmp_path, apply_public, eval_public)
+    codex = tmp_path / "codex"
+    codex.write_text("tampered")
+    codex.chmod(0o755)
+    config = tmp_path / "codex-cli.json"
+    config.write_text(
+        json.dumps(
+            {
+                "schema": "axiom-encode/trusted-codex-cli/v1",
+                "version": "test",
+                "sha256": "0" * 64,
+                "path": str(codex),
+            }
+        )
+    )
+    config.chmod(0o444)
+    (tmp_path / "runtime-codex-homes").mkdir(mode=0o700)
+    auth = tmp_path / "auth.json"
+    auth.write_text("{}")
+    launcher = _launcher(
+        tmp_path, trusted_python_runtime, body="raise RuntimeError('must not execute')"
+    )
+    completed = _invoke(
+        signing_supervisor,
+        trusted_python_runtime,
+        launcher,
+        trust_config,
+        [],
+        supervisor_args=(
+            "--codex-subscription-auth",
+            str(auth),
+            "--codex-auth-outbox",
+            str(tmp_path / "out.json"),
+            "--trusted-codex-cli-config",
+            str(config),
+        ),
+    )
+    assert completed.returncode == 2
+    assert "sha256 mismatch" in completed.stderr
 
 
 def test_fixture_binary_is_explicitly_nonpublishable(signing_supervisor: Path) -> None:
