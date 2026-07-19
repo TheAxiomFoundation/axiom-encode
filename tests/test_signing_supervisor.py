@@ -902,6 +902,7 @@ def test_subscription_auth_is_isolated_refreshed_and_wiped(
             str(config),
         ),
     )
+    legacy_scratch.chmod(0o700)
     assert completed.returncode == 0, completed.stderr
     result = json.loads(completed.stdout)
     codex_home = Path(result["environment"]["CODEX_HOME"])
