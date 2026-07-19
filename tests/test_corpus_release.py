@@ -1,4 +1,4 @@
-"""Consumer conformance tests for axiom-corpus release-object/v2."""
+"""Consumer conformance tests for signed axiom-corpus release objects."""
 
 from __future__ import annotations
 
@@ -12,6 +12,9 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from axiom_encode.corpus_release import (
+    COMPLETE_EXPRESSION_DATES_PROFILE,
+    RELEASE_OBJECT_SCHEMA_V2,
+    RELEASE_OBJECT_SCHEMA_VERSION,
     CorpusReleaseObjectError,
     canonical_release_object_bytes,
     verify_release_object,
@@ -28,7 +31,9 @@ def _canonical_sha256(payload: dict) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
-def _signed_release_object() -> tuple[dict, str]:
+def _signed_release_object(
+    *, schema_version: str = RELEASE_OBJECT_SCHEMA_V2
+) -> tuple[dict, str]:
     private_key = Ed25519PrivateKey.generate()
     public_key = b64encode(
         private_key.public_key().public_bytes(
@@ -76,18 +81,19 @@ def _signed_release_object() -> tuple[dict, str]:
             "navigation_projection_sha256": navigation_projection_sha256,
         }
     ]
-    selector_sha256 = _canonical_sha256(
-        {
-            "name": release,
-            "scopes": [
-                {
-                    "jurisdiction": "nz",
-                    "document_class": "statute",
-                    "version": version,
-                }
-            ],
-        }
-    )
+    selector = {
+        "name": release,
+        "scopes": [
+            {
+                "jurisdiction": "nz",
+                "document_class": "statute",
+                "version": version,
+            }
+        ],
+    }
+    if schema_version == RELEASE_OBJECT_SCHEMA_VERSION:
+        selector["quality_profile"] = COMPLETE_EXPRESSION_DATES_PROFILE
+    selector_sha256 = _canonical_sha256(selector)
     content = {
         "release": release,
         "created_at": "2026-07-10T00:00:00Z",
@@ -136,8 +142,11 @@ def _signed_release_object() -> tuple[dict, str]:
             ],
         },
     }
+    if schema_version == RELEASE_OBJECT_SCHEMA_VERSION:
+        content["quality_profile"] = COMPLETE_EXPRESSION_DATES_PROFILE
+        content["validation"]["quality_profile"] = COMPLETE_EXPRESSION_DATES_PROFILE
     payload = {
-        "schema_version": "axiom-corpus/release-object/v2",
+        "schema_version": schema_version,
         "release": release,
         "content_sha256": _canonical_sha256(content),
         "content": content,
@@ -174,6 +183,80 @@ def test_verified_release_object_exposes_only_signed_inventory() -> None:
         "provisions",
         "sources",
     ]
+
+
+def test_verified_release_object_accepts_profiled_v3() -> None:
+    payload, public_key = _signed_release_object(
+        schema_version=RELEASE_OBJECT_SCHEMA_VERSION
+    )
+
+    verified = verify_release_object(payload, public_key=public_key)
+
+    assert verified.content_sha256 == payload["content_sha256"]
+    assert payload["content"]["quality_profile"] == (COMPLETE_EXPRESSION_DATES_PROFILE)
+
+
+@pytest.mark.parametrize("profile", [None, "different-profile"])
+def test_v3_release_object_requires_supported_content_profile(
+    profile: str | None,
+) -> None:
+    payload, public_key = _signed_release_object(
+        schema_version=RELEASE_OBJECT_SCHEMA_VERSION
+    )
+    if profile is None:
+        payload["content"].pop("quality_profile")
+    else:
+        payload["content"]["quality_profile"] = profile
+    payload["content_sha256"] = _canonical_sha256(payload["content"])
+
+    with pytest.raises(
+        CorpusReleaseObjectError,
+        match="content does not match|unsupported quality profile",
+    ):
+        verify_release_object(payload, public_key=public_key)
+
+
+@pytest.mark.parametrize("profile", [None, "different-profile"])
+def test_v3_release_object_requires_matching_validation_profile(
+    profile: str | None,
+) -> None:
+    payload, public_key = _signed_release_object(
+        schema_version=RELEASE_OBJECT_SCHEMA_VERSION
+    )
+    validation = payload["content"]["validation"]
+    if profile is None:
+        validation.pop("quality_profile")
+    else:
+        validation["quality_profile"] = profile
+    payload["content_sha256"] = _canonical_sha256(payload["content"])
+
+    with pytest.raises(
+        CorpusReleaseObjectError,
+        match="validation does not match|quality profile is inconsistent",
+    ):
+        verify_release_object(payload, public_key=public_key)
+
+
+def test_v3_selector_sha256_attests_quality_profile() -> None:
+    payload, public_key = _signed_release_object(
+        schema_version=RELEASE_OBJECT_SCHEMA_VERSION
+    )
+    payload["content"]["selector_sha256"] = _canonical_sha256(
+        {
+            "name": payload["release"],
+            "scopes": [
+                {
+                    key: scope[key]
+                    for key in ("jurisdiction", "document_class", "version")
+                }
+                for scope in payload["content"]["scopes"]
+            ],
+        }
+    )
+    payload["content_sha256"] = _canonical_sha256(payload["content"])
+
+    with pytest.raises(CorpusReleaseObjectError, match="selector sha256"):
+        verify_release_object(payload, public_key=public_key)
 
 
 def test_release_object_rejects_content_tamper() -> None:
