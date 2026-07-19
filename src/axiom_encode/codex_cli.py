@@ -9,6 +9,11 @@ from pathlib import Path
 
 def resolve_codex_cli() -> str:
     """Return the Codex executable, preferring the Desktop-bundled CLI."""
+    # The trusted supervisor admits exactly one hash-verified Codex directory
+    # to PATH. Never escape that allowlist through an override or Desktop app.
+    if os.getenv("AXIOM_ENCODE_TRUSTED_RUNTIME") == "1" and os.getenv("CODEX_HOME"):
+        return shutil.which("codex") or "codex"
+
     override = os.getenv("AXIOM_ENCODE_CODEX_BIN")
     if override:
         return override

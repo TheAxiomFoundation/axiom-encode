@@ -777,6 +777,18 @@ class TestCodexAuthPreflight:
         with patch.dict(os.environ, {}, clear=True):
             assert codex_auth_json_path() == Path.home() / ".codex" / "auth.json"
 
+    def test_trusted_runtime_resolution_uses_only_curated_path(self, monkeypatch):
+        from axiom_encode.codex_cli import resolve_codex_cli
+
+        monkeypatch.setenv("AXIOM_ENCODE_TRUSTED_RUNTIME", "1")
+        monkeypatch.setenv("CODEX_HOME", "/protected/runtime-codex-home")
+        monkeypatch.setenv("AXIOM_ENCODE_CODEX_BIN", "/hostile/override")
+        monkeypatch.setattr(
+            "axiom_encode.codex_cli.shutil.which",
+            lambda name: "/trusted/bin/codex",
+        )
+        assert resolve_codex_cli() == "/trusted/bin/codex"
+
     def test_auth_path_honors_codex_home(self, tmp_path):
         from axiom_encode.codex_cli import codex_auth_json_path
 
