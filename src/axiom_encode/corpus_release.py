@@ -1,4 +1,4 @@
-"""Strict consumer verification for axiom-corpus release-object/v2."""
+"""Strict consumer verification for signed axiom-corpus release objects."""
 
 from __future__ import annotations
 
@@ -16,10 +16,12 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
-RELEASE_OBJECT_SCHEMA_VERSION = "axiom-corpus/release-object/v2"
+RELEASE_OBJECT_SCHEMA_V2 = "axiom-corpus/release-object/v2"
+RELEASE_OBJECT_SCHEMA_VERSION = "axiom-corpus/release-object/v3"
 RELEASE_OBJECT_SIGNATURE_ALGORITHM = "ed25519"
 RELEASE_OBJECT_SIGNATURE_KEY_ID = "axiom-corpus-release-v2"
 RELEASE_OBJECT_PUBLIC_KEY_ENV = "AXIOM_CORPUS_RELEASE_PUBLIC_KEY"
+COMPLETE_EXPRESSION_DATES_PROFILE = "complete-expression-dates-v1"
 
 _ARTIFACT_CLASSES = ("inventory", "provisions", "coverage", "sources")
 _DOCUMENT_CLASSES = {
@@ -67,7 +69,7 @@ class VerifiedReleaseScope:
 
 @dataclass(frozen=True, slots=True)
 class VerifiedCorpusReleaseObject:
-    """The immutable identities and local inventory from release-object/v2."""
+    """The immutable identities and local inventory from a release object."""
 
     name: str
     content_sha256: str
@@ -94,7 +96,7 @@ def verify_release_object(
     *,
     public_key: str,
 ) -> VerifiedCorpusReleaseObject:
-    """Verify the canonical axiom-corpus v2 contract and Ed25519 signature."""
+    """Verify a supported canonical axiom-corpus contract and signature."""
 
     materialized = copy.deepcopy(dict(payload))
     verified = _validate_unsigned_release_object(materialized)
@@ -142,13 +144,17 @@ def _validate_unsigned_release_object(
         raise CorpusReleaseObjectError(
             "release object has unsupported top-level fields"
         )
-    if payload.get("schema_version") != RELEASE_OBJECT_SCHEMA_VERSION:
+    schema_version = payload.get("schema_version")
+    if not isinstance(schema_version, str) or schema_version not in {
+        RELEASE_OBJECT_SCHEMA_V2,
+        RELEASE_OBJECT_SCHEMA_VERSION,
+    }:
         raise CorpusReleaseObjectError(
             "release object uses an unsupported schema version"
         )
     release = _validate_release_name(payload.get("release"))
     content = payload.get("content")
-    if not isinstance(content, dict) or set(content) != {
+    expected_content_fields = {
         "release",
         "created_at",
         "selector_sha256",
@@ -158,9 +164,20 @@ def _validate_unsigned_release_object(
         "scopes",
         "artifacts",
         "validation",
-    }:
+    }
+    if schema_version == RELEASE_OBJECT_SCHEMA_VERSION:
+        expected_content_fields.add("quality_profile")
+    if not isinstance(content, dict) or set(content) != expected_content_fields:
         raise CorpusReleaseObjectError(
-            "release object content does not match the v2 schema"
+            f"release object content does not match the {schema_version} schema"
+        )
+    quality_profile = content.get("quality_profile")
+    if (
+        schema_version == RELEASE_OBJECT_SCHEMA_VERSION
+        and quality_profile != COMPLETE_EXPRESSION_DATES_PROFILE
+    ):
+        raise CorpusReleaseObjectError(
+            "release object has an unsupported quality profile"
         )
     if content.get("release") != release:
         raise CorpusReleaseObjectError("release object name does not match its content")
@@ -213,6 +230,8 @@ def _validate_unsigned_release_object(
             for scope in scopes
         ],
     }
+    if schema_version == RELEASE_OBJECT_SCHEMA_VERSION:
+        selector_payload["quality_profile"] = quality_profile
     selector_sha256 = content.get("selector_sha256")
     if (
         not isinstance(selector_sha256, str)
@@ -230,6 +249,11 @@ def _validate_unsigned_release_object(
         scopes=scopes,
         artifacts=artifacts,
         bucket=r2["bucket"],
+        quality_profile=(
+            str(quality_profile)
+            if schema_version == RELEASE_OBJECT_SCHEMA_VERSION
+            else None
+        ),
     )
     return VerifiedCorpusReleaseObject(
         name=release,
@@ -442,20 +466,27 @@ def _validate_validation_attestation(
     scopes: Sequence[VerifiedReleaseScope],
     artifacts: Sequence[VerifiedReleaseArtifact],
     bucket: str,
+    quality_profile: str | None = None,
 ) -> None:
+    expected_fields = {
+        "passed",
+        "deep_validation",
+        "r2_readback",
+        "supabase_projection_evidence",
+    }
+    if quality_profile is not None:
+        expected_fields.add("quality_profile")
     if (
         not isinstance(raw, dict)
-        or set(raw)
-        != {
-            "passed",
-            "deep_validation",
-            "r2_readback",
-            "supabase_projection_evidence",
-        }
+        or set(raw) != expected_fields
         or raw.get("passed") is not True
     ):
         raise CorpusReleaseObjectError(
-            "release validation does not match the v2 schema"
+            "release validation does not match its object schema"
+        )
+    if quality_profile is not None and raw.get("quality_profile") != quality_profile:
+        raise CorpusReleaseObjectError(
+            "release validation quality profile is inconsistent"
         )
     deep = raw.get("deep_validation")
     if not isinstance(deep, dict) or set(deep) != {
