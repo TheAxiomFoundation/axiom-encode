@@ -196,6 +196,17 @@ def test_verified_release_object_accepts_profiled_v3() -> None:
     assert payload["content"]["quality_profile"] == (COMPLETE_EXPRESSION_DATES_PROFILE)
 
 
+@pytest.mark.parametrize("schema_version", [[], {}])
+def test_release_object_rejects_non_scalar_schema_version(
+    schema_version: object,
+) -> None:
+    payload, public_key = _signed_release_object()
+    payload["schema_version"] = schema_version
+
+    with pytest.raises(CorpusReleaseObjectError, match="unsupported schema version"):
+        verify_release_object(payload, public_key=public_key)
+
+
 @pytest.mark.parametrize("profile", [None, "different-profile"])
 def test_v3_release_object_requires_supported_content_profile(
     profile: str | None,

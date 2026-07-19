@@ -145,7 +145,7 @@ def _validate_unsigned_release_object(
             "release object has unsupported top-level fields"
         )
     schema_version = payload.get("schema_version")
-    if schema_version not in {
+    if not isinstance(schema_version, str) or schema_version not in {
         RELEASE_OBJECT_SCHEMA_V2,
         RELEASE_OBJECT_SCHEMA_VERSION,
     }:
