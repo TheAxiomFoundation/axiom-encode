@@ -178,7 +178,9 @@ def main():
     if os.environ.get("CODEX_HOME"):
         from pathlib import Path
         codex_home = Path(os.environ["CODEX_HOME"])
-        (codex_home / "auth.json").write_text(
+        codex_auth = codex_home / "auth.json"
+        codex_auth_before_refresh = codex_auth.read_text()
+        codex_auth.write_text(
             '{"token":"new"}\\n'
         )
     result = {
@@ -202,6 +204,8 @@ def main():
         metadata = codex_home.stat()
         result["codex_home_mode"] = metadata.st_mode & 0o777
         result["codex_home_uid"] = metadata.st_uid
+        result["codex_auth_read_path"] = str(codex_auth)
+        result["codex_auth_before_refresh"] = codex_auth_before_refresh
     if \"apply_ed25519\" in broker.capabilities:
         result[\"apply_signature\"] = b64encode(
             broker.apply_ed25519_sign(b\"compiled-apply-boundary\")
@@ -905,11 +909,15 @@ def test_subscription_auth_is_isolated_refreshed_and_wiped(
     assert not codex_home.exists()
     assert result["codex_home_mode"] == 0o700
     assert result["codex_home_uid"] == os.geteuid()
+    assert Path(result["codex_auth_read_path"]) == codex_home / "auth.json"
+    assert Path(result["codex_auth_read_path"]) != operator_home_auth
+    assert json.loads(result["codex_auth_before_refresh"]) == {"token": "old"}
     assert result["environment"]["AXIOM_ENCODE_TRUSTED_CODEX_BIN"] == str(codex)
     assert result["environment"]["AXIOM_ENCODE_TRUSTED_CODEX_SHA256"] == digest
     assert result["environment"]["AXIOM_ENCODE_TRUSTED_CODEX_VERSION"] == "test"
     assert str(codex.parent) not in result["environment"]["PATH"].split(os.pathsep)
     assert result["environment"]["HOME"] != str(tmp_path / "operator-home")
+    assert result["child"]["descriptor"] == "closed"
     assert json.loads(operator_home_auth.read_text()) == {"must": "not-cross"}
     assert json.loads(outbox.read_text()) == {"token": "new"}
 
