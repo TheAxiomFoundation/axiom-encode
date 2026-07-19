@@ -10207,6 +10207,8 @@ rules: []
         result.context_manifest_file = str(tmp_path / "context.json")
         result.trace_file = str(tmp_path / "trace.json")
         result.generation_prompt_sha256 = "prompt-sha-256"
+        result.codex_cli_version = "codex-cli 0.test"
+        result.codex_cli_sha256 = "c" * 64
         self._write_result_context(result, tmp_path)
         Path(result.trace_file).write_text("{}\n")
         corpus_path, result.source_attestation = self._bind_apply_source_release(
@@ -10283,6 +10285,8 @@ rules: []
         assert payload["model"] == "test-model"
         assert payload["run_id"] == "run-123"
         assert payload["generation_prompt_sha256"] == "prompt-sha-256"
+        assert payload["codex_cli_version"] == "codex-cli 0.test"
+        assert payload["codex_cli_sha256"] == "c" * 64
         assert payload["generated_output_sha256"]
         assert payload["trace_sha256"]
         assert payload["signature"]["value"]

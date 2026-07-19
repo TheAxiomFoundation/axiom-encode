@@ -37102,6 +37102,7 @@ def _apply_result_metadata(result) -> dict[str, object]:
         raise RuntimeError(
             "Cannot sign a model-generated RuleSpec with a non-allowlisted tool"
         )
+    codex_cli_version, codex_cli_sha256 = _result_codex_cli_provenance(result)
     return {
         "tool": tool,
         "citation": str(getattr(result, "citation", "") or ""),
@@ -37109,12 +37110,26 @@ def _apply_result_metadata(result) -> dict[str, object]:
         "backend": backend,
         "model": str(getattr(result, "model", "") or ""),
         "generation_prompt_sha256": getattr(result, "generation_prompt_sha256", None),
-        "codex_cli_version": getattr(result, "codex_cli_version", None),
-        "codex_cli_sha256": getattr(result, "codex_cli_sha256", None),
+        "codex_cli_version": codex_cli_version,
+        "codex_cli_sha256": codex_cli_sha256,
         "source_attestation": copy.deepcopy(
             getattr(result, "source_attestation", None)
         ),
     }
+
+
+def _result_codex_cli_provenance(result) -> tuple[str | None, str | None]:
+    version = getattr(result, "codex_cli_version", None)
+    digest = getattr(result, "codex_cli_sha256", None)
+    # Test doubles and legacy result objects expose arbitrary/missing attributes;
+    # both absent means the unchanged API/non-Codex path.
+    if not isinstance(version, str) and not isinstance(digest, str):
+        return None, None
+    if not isinstance(version, str) or not version.strip():
+        raise RuntimeError("Codex CLI provenance has no canonical version")
+    if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+        raise RuntimeError("Codex CLI provenance has no canonical sha256")
+    return version.strip(), digest
 
 
 def _apply_result_metadata_sha256(result) -> str:
@@ -39875,6 +39890,7 @@ def _write_applied_encoding_manifest(
         applied_files=unique_applied_files,
         local_corpus_release=local_corpus_release,
     )
+    codex_cli_version, codex_cli_sha256 = _result_codex_cli_provenance(result)
     payload = {
         "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -39882,8 +39898,8 @@ def _write_applied_encoding_manifest(
         "axiom_encode_version": __version__,
         "axiom_encode_git": axiom_encode_git,
         "generation_prompt_sha256": getattr(result, "generation_prompt_sha256", None),
-        "codex_cli_version": getattr(result, "codex_cli_version", None),
-        "codex_cli_sha256": getattr(result, "codex_cli_sha256", None),
+        "codex_cli_version": codex_cli_version,
+        "codex_cli_sha256": codex_cli_sha256,
         "run_id": run_id,
         "citation": str(getattr(result, "citation", "") or ""),
         "runner": str(getattr(result, "runner", "") or ""),
