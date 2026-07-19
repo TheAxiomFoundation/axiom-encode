@@ -7742,6 +7742,8 @@ class TestCmdEncode:
         result.citation = "26 USC 1(j)(2)"
         result.runner = "codex-test-model"
         result.backend = "codex"
+        result.codex_cli_version = "codex-cli fixture"
+        result.codex_cli_sha256 = "c" * 64
         result.model = "test-model"
         result.success = success
         result.duration_ms = 123
@@ -10575,6 +10577,8 @@ rules: []
             citation="us:statutes/26/1401",
             runner="codex",
             backend="codex",
+            codex_cli_version="codex-cli fixture",
+            codex_cli_sha256="c" * 64,
             model="manifest-test",
             source_attestation=source_attestation,
         )
@@ -34075,6 +34079,8 @@ class TestManifestCurrentState:
             output_file=str(output_file),
             runner="codex:gpt-5.5",
             backend="codex",
+            codex_cli_version="codex-cli fixture",
+            codex_cli_sha256="c" * 64,
             model="gpt-5.5",
             tool="axiom-encode encode --apply",
             citation="be:statutes/be/example",

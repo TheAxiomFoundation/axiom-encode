@@ -8,7 +8,20 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
+
+func TestCredentialOutboxDestinationRejectsDevice(t *testing.T) {
+	fd, err := unix.Open("/dev", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unix.Close(fd)
+	if err := validateCredentialOutboxDestination(fd, "null"); err == nil || !strings.Contains(err.Error(), "special file") {
+		t.Fatalf("device destination was not rejected: %v", err)
+	}
+}
 
 func TestCleanChildEnvironmentForwardsApplyCheckoutIdentity(t *testing.T) {
 	values := map[string]string{

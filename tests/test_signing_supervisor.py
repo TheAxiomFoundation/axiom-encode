@@ -970,7 +970,10 @@ def test_subscription_tampered_binary_hard_fails_before_child(
     assert "sha256 mismatch" in completed.stderr
 
 
-@pytest.mark.parametrize("outbox_kind", ["symlink", "protected-directory"])
+@pytest.mark.parametrize(
+    "outbox_kind",
+    ["symlink", "fifo", "socket", "device", "protected-directory"],
+)
 def test_subscription_refuses_unsafe_auth_outbox(
     signing_supervisor: Path,
     trusted_python_runtime: tuple[Path, Path, Path],
@@ -999,26 +1002,48 @@ def test_subscription_refuses_unsafe_auth_outbox(
     auth.write_text("{}")
     target = tmp_path / "target.json"
     target.write_text('{"preserve":true}\n')
+    outbox_socket = None
     if outbox_kind == "symlink":
         outbox = tmp_path / "out.json"
         outbox.symlink_to(target)
+    elif outbox_kind == "fifo":
+        outbox = tmp_path / "out.json"
+        os.mkfifo(outbox)
+    elif outbox_kind == "socket":
+        socket_directory = Path.cwd() / f".outbox-{os.getpid()}"
+        socket_directory.mkdir(mode=0o700)
+        outbox = socket_directory / "o"
+        outbox_socket = socket.socket(socket.AF_UNIX)
+        try:
+            outbox_socket.bind(str(outbox))
+        except PermissionError:
+            outbox_socket.close()
+            socket_directory.rmdir()
+            pytest.skip("sandbox does not permit creating Unix-domain sockets")
+    elif outbox_kind == "device":
+        outbox = Path("/dev/null")
     else:
         outbox = Path("/etc") / f"axiom-encode-test-{os.getpid()}.json"
-    completed = _invoke(
-        signing_supervisor,
-        trusted_python_runtime,
-        _launcher(tmp_path, trusted_python_runtime),
-        trust_config,
-        [],
-        supervisor_args=(
-            "--codex-subscription-auth",
-            str(auth),
-            "--codex-auth-outbox",
-            str(outbox),
-            "--trusted-codex-cli-config",
-            str(config),
-        ),
-    )
+    try:
+        completed = _invoke(
+            signing_supervisor,
+            trusted_python_runtime,
+            _launcher(tmp_path, trusted_python_runtime),
+            trust_config,
+            [],
+            supervisor_args=(
+                "--codex-subscription-auth",
+                str(auth),
+                "--codex-auth-outbox",
+                str(outbox),
+                "--trusted-codex-cli-config",
+                str(config),
+            ),
+        )
+    finally:
+        if outbox_socket is not None:
+            outbox_socket.close()
+            shutil.rmtree(socket_directory)
     assert completed.returncode == 2
     assert "outbox" in completed.stderr
     assert json.loads(target.read_text()) == {"preserve": True}

@@ -31,6 +31,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -754,59 +756,84 @@ func validateCodexScratchPolicy(mode os.FileMode, ownerUID int, runtimeUID int) 
 	return nil
 }
 
+func openCredentialOutboxDirectory(outboxPath string) (int, string, error) {
+	if !filepath.IsAbs(outboxPath) || filepath.Clean(outboxPath) != outboxPath || filepath.Base(outboxPath) == "." {
+		return -1, "", errors.New("Codex auth outbox must be an absolute canonical file path")
+	}
+	name := filepath.Base(outboxPath)
+	fd, err := unix.Open("/", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return -1, "", fmt.Errorf("could not open filesystem root: %w", err)
+	}
+	for _, component := range strings.Split(strings.TrimPrefix(filepath.Dir(outboxPath), "/"), "/") {
+		if component == "" {
+			continue
+		}
+		next, openErr := unix.Openat(fd, component, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+		_ = unix.Close(fd)
+		if openErr != nil {
+			return -1, "", fmt.Errorf("Codex auth outbox directory must not contain symlinks: %w", openErr)
+		}
+		fd = next
+	}
+	var directoryStat unix.Stat_t
+	if err := unix.Fstat(fd, &directoryStat); err != nil || directoryStat.Mode&unix.S_IFMT != unix.S_IFDIR || directoryStat.Mode&0022 != 0 || int(directoryStat.Uid) != os.Geteuid() {
+		_ = unix.Close(fd)
+		return -1, "", errors.New("Codex auth outbox directory must be operator-owned and not group/other-writable")
+	}
+	return fd, name, nil
+}
+
 func validateCredentialOutbox(outboxPath string) error {
-	if !filepath.IsAbs(outboxPath) || filepath.Base(outboxPath) == "." {
-		return errors.New("Codex auth outbox must be an absolute file path")
+	directoryFD, name, err := openCredentialOutboxDirectory(outboxPath)
+	if err != nil {
+		return err
 	}
-	directoryPath := filepath.Dir(outboxPath)
-	resolvedDirectory, err := filepath.EvalSymlinks(directoryPath)
-	if err != nil || resolvedDirectory != filepath.Clean(directoryPath) {
-		return errors.New("Codex auth outbox directory must not contain symlinks")
+	defer unix.Close(directoryFD)
+	if err := validateCredentialOutboxDestination(directoryFD, name); err != nil {
+		return err
 	}
-	directoryMetadata, err := os.Lstat(directoryPath)
-	if err != nil || !directoryMetadata.IsDir() || directoryMetadata.Mode()&0022 != 0 {
-		return errors.New("Codex auth outbox directory must be operator-owned and not group/other-writable")
+	return nil
+}
+
+func validateCredentialOutboxDestination(directoryFD int, name string) error {
+	var destinationStat unix.Stat_t
+	err := unix.Fstatat(directoryFD, name, &destinationStat, unix.AT_SYMLINK_NOFOLLOW)
+	if errors.Is(err, unix.ENOENT) {
+		return nil
 	}
-	directoryStat, ok := directoryMetadata.Sys().(*syscall.Stat_t)
-	if !ok || int(directoryStat.Uid) != os.Geteuid() {
-		return errors.New("Codex auth outbox directory must be operator-owned and not group/other-writable")
-	}
-	if existing, err := os.Lstat(outboxPath); err == nil {
-		if existing.Mode()&os.ModeSymlink != 0 || !existing.Mode().IsRegular() {
-			return errors.New("Codex auth outbox must not be a symlink or special file")
-		}
-		if stat, ok := existing.Sys().(*syscall.Stat_t); !ok || int(stat.Uid) != os.Geteuid() {
-			return errors.New("existing Codex auth outbox must be operator-owned")
-		}
-	} else if !os.IsNotExist(err) {
+	if err != nil {
 		return fmt.Errorf("could not inspect Codex auth outbox: %w", err)
+	}
+	if destinationStat.Mode&unix.S_IFMT != unix.S_IFREG {
+		return errors.New("Codex auth outbox must not be a symlink or special file")
+	}
+	if int(destinationStat.Uid) != os.Geteuid() {
+		return errors.New("existing Codex auth outbox must be operator-owned")
 	}
 	return nil
 }
 
 func publishCredential(sourcePath, outboxPath string, owner os.FileInfo) error {
-	if err := validateCredentialOutbox(outboxPath); err != nil {
+	directoryFD, destinationName, err := openCredentialOutboxDirectory(outboxPath)
+	if err != nil {
 		return err
 	}
-	directoryPath := filepath.Dir(outboxPath)
-	directory, err := os.OpenRoot(directoryPath)
-	if err != nil {
-		return fmt.Errorf("could not open Codex auth outbox directory: %w", err)
-	}
-	defer directory.Close()
+	defer unix.Close(directoryFD)
 	var randomBytes [16]byte
 	if _, err := rand.Read(randomBytes[:]); err != nil {
 		return fmt.Errorf("could not generate Codex auth temporary name: %w", err)
 	}
-	temporaryName := fmt.Sprintf(".%s.%x.tmp", filepath.Base(outboxPath), randomBytes[:])
-	temporary, err := directory.OpenFile(temporaryName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	temporaryName := fmt.Sprintf(".%s.%x.tmp", destinationName, randomBytes[:])
+	temporaryFD, err := unix.Openat(directoryFD, temporaryName, unix.O_WRONLY|unix.O_CREAT|unix.O_EXCL|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0600)
 	if err != nil {
 		return fmt.Errorf("could not create Codex auth temporary: %w", err)
 	}
+	temporary := os.NewFile(uintptr(temporaryFD), temporaryName)
 	removeTemporary := true
 	defer func() {
 		if removeTemporary {
-			_ = directory.Remove(temporaryName)
+			_ = unix.Unlinkat(directoryFD, temporaryName, 0)
 		}
 	}()
 	sourceFlags := syscall.O_RDONLY | syscall.O_NOFOLLOW
@@ -818,15 +845,19 @@ func publishCredential(sourcePath, outboxPath string, owner os.FileInfo) error {
 	source := os.NewFile(uintptr(sourceFD), sourcePath)
 	_, copyErr := io.Copy(temporary, io.LimitReader(source, 1024*1024+1))
 	sourceCloseErr := source.Close()
+	var chownErr error
+	if stat, ok := owner.Sys().(*syscall.Stat_t); ok {
+		chownErr = unix.Fchown(temporaryFD, int(stat.Uid), int(stat.Gid))
+	}
 	syncErr := temporary.Sync()
 	closeErr := temporary.Close()
-	if copyErr != nil || sourceCloseErr != nil || syncErr != nil || closeErr != nil {
+	if copyErr != nil || sourceCloseErr != nil || chownErr != nil || syncErr != nil || closeErr != nil {
 		return errors.New("could not copy refreshed Codex auth to outbox")
 	}
-	if stat, ok := owner.Sys().(*syscall.Stat_t); ok {
-		_ = directory.Chown(temporaryName, int(stat.Uid), int(stat.Gid))
+	if err := validateCredentialOutboxDestination(directoryFD, destinationName); err != nil {
+		return err
 	}
-	if err := directory.Rename(temporaryName, filepath.Base(outboxPath)); err != nil {
+	if err := unix.Renameat(directoryFD, temporaryName, directoryFD, destinationName); err != nil {
 		return fmt.Errorf("could not publish refreshed Codex auth outbox: %w", err)
 	}
 	removeTemporary = false
