@@ -7176,6 +7176,39 @@ def test_numeric_extraction_word_half_requires_percentage_context():
     assert not any(math.isclose(value, 0.005) for value in prose_numbers)
 
 
+def test_numeric_extraction_reads_nz_word_fraction_quantity():
+    source_text = (
+        "The amount of the tax credit is an amount equal to quarter of a "
+        "person's total member credit contributions."
+    )
+    assert 0.25 in extract_numbers_from_text(source_text)
+
+
+def test_numeric_extraction_reads_word_fractions_in_replacement_instruction():
+    assert {0.5, 0.25} <= extract_numbers_from_text("replace half with quarter")
+
+
+def test_numeric_extraction_reads_compound_word_fraction_quantity():
+    assert 0.75 in extract_numbers_from_text("three-quarters of the amount")
+
+
+@pytest.mark.parametrize(
+    ("source_text", "expected"),
+    [
+        ("equal to half", 0.5),
+        ("a quarter", 0.25),
+        ("one-third", 1 / 3),
+        ("two-thirds", 2 / 3),
+    ],
+)
+def test_numeric_extraction_maps_word_fraction_values(source_text, expected):
+    assert expected in extract_numbers_from_text(source_text)
+
+
+def test_numeric_extraction_ignores_non_quantity_quarter():
+    assert 0.25 not in extract_numbers_from_text("the quarter ended in March")
+
+
 def test_numeric_extraction_handles_ghana_cedi_grouped_thousands():
     # The Ghana cedi symbol glued to a grouped-thousands amount ("GH¢5,880")
     # must still yield the full value, not just the trailing "880". Mirrors

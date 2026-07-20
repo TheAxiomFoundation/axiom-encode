@@ -959,6 +959,20 @@ _STANDALONE_FRACTION_WORD_PATTERN = re.compile(
 # ("five and half per centum", "eighteen and a half per centum"); outside
 # one they would over-extract ordinary prose such as "half of the year".
 _PERCENT_FRACTION_WORD_PATTERN = rf"(?:{_FRACTION_WORD_PATTERN}|a[-\s]+half|half)"
+_WORD_QUANTITY_FRACTION_PATTERN = re.compile(
+    r"(?<!\bfirst\s)\b(?P<of_fraction>"
+    r"half|quarter|third|one[-\s]+(?:half|quarter|third)|"
+    r"a\s+(?:half|quarter|third)|two[-\s]+thirds|three[-\s]+quarters"
+    r")\b(?=\s+of\b)|"
+    r"\bequal\s+to\s+(?P<equal_fraction>half|quarter|third)\b|"
+    r"\b(?P<prefixed_fraction>"
+    r"one[-\s]+(?:half|quarter|third)|a\s+(?:half|quarter|third)|"
+    r"two[-\s]+thirds|three[-\s]+quarters"
+    r")\b|"
+    r"\breplace\s+(?P<replace_fraction>half|quarter|third)\s+with\s+"
+    r"(?P<replacement_fraction>half|quarter|third)\b",
+    re.IGNORECASE,
+)
 _DECIMAL_FRACTION_DENOMINATORS = {
     "tenth": 10.0,
     "hundredth": 100.0,
@@ -3160,6 +3174,11 @@ def extract_numbers_from_text(text: str) -> set[float]:
         occupied_spans.append(span)
     numbers.update(_iter_ascii_mixed_fraction_percentage_component_values(text))
     numbers.update(_extract_percentage_context_values(text))
+    for span, value in _iter_word_quantity_fraction_matches(text):
+        if _span_overlaps(span, occupied_spans):
+            continue
+        numbers.add(value)
+        occupied_spans.append(span)
     for span, value in _iter_standalone_fraction_word_matches(text):
         if _span_overlaps(span, occupied_spans):
             continue
@@ -3837,6 +3856,38 @@ def _iter_standalone_fraction_word_matches(
         value = _parse_fraction_word(match.group(1))
         if value is not None:
             yield match.span(1), value
+
+
+def _iter_word_quantity_fraction_matches(
+    text: str,
+) -> Iterator[tuple[tuple[int, int], float]]:
+    """Yield word fractions used as quantities, excluding ordinary prose senses."""
+    values = {
+        "half": 0.5,
+        "quarter": 0.25,
+        "third": 1 / 3,
+        "one half": 0.5,
+        "a half": 0.5,
+        "one quarter": 0.25,
+        "a quarter": 0.25,
+        "one third": 1 / 3,
+        "a third": 1 / 3,
+        "two thirds": 2 / 3,
+        "three quarters": 0.75,
+    }
+    for match in _WORD_QUANTITY_FRACTION_PATTERN.finditer(text):
+        for group_name in (
+            "of_fraction",
+            "equal_fraction",
+            "prefixed_fraction",
+            "replace_fraction",
+            "replacement_fraction",
+        ):
+            raw = match.group(group_name)
+            if raw is None:
+                continue
+            normalized = re.sub(r"[-\s]+", " ", raw.lower())
+            yield match.span(group_name), values[normalized]
 
 
 def _extract_percentage_context_values(text: str) -> set[float]:
