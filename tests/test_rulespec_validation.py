@@ -7338,6 +7338,37 @@ def test_numeric_extraction_handles_uganda_shilling_suffix():
     assert 5.0 in eq and 7.0 in eq
 
 
+@pytest.mark.parametrize(
+    "source_text",
+    [
+        "... does not exceed 1,500m2.",
+        "... does not exceed 1,500m².",
+        "... does not exceed 1500m2.",
+        "... does not exceed 1,500 m2.",
+        "... does not exceed 1,500.",
+    ],
+)
+def test_numeric_extraction_handles_unit_glued_numerals(source_text):
+    assert 1500.0 in extract_numbers_from_text(source_text)
+
+
+@pytest.mark.parametrize(
+    ("source_text", "excluded_values"),
+    [
+        ("MUZ-R13", {13.0}),
+        ("R13.1", {13.1, 1.0}),
+    ],
+)
+def test_numeric_extraction_keeps_identifier_shaped_tokens_excluded(
+    source_text, excluded_values
+):
+    assert extract_numbers_from_text(source_text).isdisjoint(excluded_values)
+
+
+def test_numeric_extraction_preserves_alphanumeric_clause_handling():
+    assert extract_numbers_from_text("clause 5AB") == set()
+
+
 def test_numeric_extraction_handles_ocr_range_hyphen():
     # OCR'd band tables glue the range hyphen to the upper bound
     # ("0 -2,000 0%" in the Ethiopia Proclamation 1395/2025 scan),
