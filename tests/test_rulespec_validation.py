@@ -253,6 +253,64 @@ def test_codex_reviewer_uses_writable_minimal_home(tmp_path, monkeypatch):
     }
 
 
+def test_codex_reviewer_redacts_and_rejects_seeded_credential(
+    tmp_path, monkeypatch
+):
+    token = 'seeded "reviewer\\credential"'
+    source_home = tmp_path / "runtime-codex-home"
+    source_home.mkdir()
+    (source_home / "auth.json").write_text(
+        json.dumps({"tokens": {"access_token": token}})
+    )
+    monkeypatch.setenv("CODEX_HOME", str(source_home))
+
+    result = validator_pipeline._SubprocessRunResult(
+        output=json.dumps(
+            {
+                "type": "item.completed",
+                "item": {"type": "agent_message", "text": f"leaked: {token}"},
+            }
+        ),
+        returncode=0,
+    )
+    with patch.object(
+        validator_pipeline,
+        "_run_subprocess_with_idle_timeout",
+        return_value=result,
+    ):
+        output, returncode = validator_pipeline._run_codex_reviewer_cli(
+            "review this", timeout=30, cwd=tmp_path
+        )
+
+    assert returncode == 1
+    assert "reviewer emitted a seeded credential" in output
+    assert "«REDACTED-CREDENTIAL»" in output
+    assert token not in output
+
+
+def test_codex_reviewer_redaction_leaves_benign_output_unchanged(tmp_path):
+    (tmp_path / "auth.json").write_text(
+        json.dumps({"tokens": {"access_token": "secret-access-token"}})
+    )
+    output = '{"passed": true, "reasoning": "No credential exposure found."}'
+
+    assert validator_pipeline._redact_codex_reviewer_credentials(
+        output, tmp_path
+    ) == (output, False)
+
+
+def test_codex_reviewer_redacts_jwt_shaped_output(tmp_path):
+    jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature_123"
+
+    redacted, exact_match = validator_pipeline._redact_codex_reviewer_credentials(
+        f"review output: {jwt}", tmp_path
+    )
+
+    assert redacted == "review output: «REDACTED-CREDENTIAL»"
+    assert exact_match is False
+    assert jwt not in redacted
+
+
 def _canonical_rulespec_content_root(base: Path, jurisdiction: str) -> Path:
     """Create and return ``rulespec-<country>/<jurisdiction>``."""
 

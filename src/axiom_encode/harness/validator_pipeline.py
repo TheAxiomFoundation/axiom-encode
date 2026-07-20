@@ -325,13 +325,86 @@ def _run_codex_reviewer_cli(
                 env=codex_env,
                 extra_public_env=extra_public_env,
             )
-        return _extract_codex_text_output(result.output), result.returncode
+            redacted_output, leaked_seeded_credential = (
+                _redact_codex_reviewer_credentials(result.output, codex_home)
+            )
+            reviewer_output = _extract_codex_text_output(redacted_output)
+            reviewer_output, decoded_exact_match = (
+                _redact_codex_reviewer_credentials(reviewer_output, codex_home)
+            )
+            leaked_seeded_credential |= decoded_exact_match
+        if leaked_seeded_credential:
+            return (
+                "Error: Codex reviewer emitted a seeded credential; reviewer "
+                f"result rejected. Sanitized output: {reviewer_output}",
+                1,
+            )
+        return reviewer_output, result.returncode
     except subprocess.TimeoutExpired:
         return f"Timeout after {timeout}s", 1
     except FileNotFoundError:
         return "Reviewer CLIs not found (missing claude and codex)", 1
     except Exception as e:
         return f"Error: {e}", 1
+
+
+_REDACTED_CREDENTIAL = "«REDACTED-CREDENTIAL»"
+_SENSITIVE_AUTH_FIELDS = {
+    "tokens",
+    "access_token",
+    "refresh_token",
+    "id_token",
+    "account_id",
+    "OPENAI_API_KEY",
+}
+_CREDENTIAL_PATTERNS = (
+    re.compile(r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"),
+    re.compile(r"(?<![A-Za-z0-9_-])(?:sk-|rt_)[A-Za-z0-9_-]{20,}"),
+)
+
+
+def _seeded_codex_credentials(codex_home: Path) -> set[str]:
+    """Return sensitive values copied into a subprocess CODEX_HOME."""
+    credentials: set[str] = set()
+    auth_path = codex_home / "auth.json"
+    if auth_path.is_file():
+        auth = json.loads(auth_path.read_text(encoding="utf-8"))
+
+        def collect(value: Any, sensitive: bool = False) -> None:
+            if isinstance(value, dict):
+                for key, child in value.items():
+                    collect(child, sensitive or key in _SENSITIVE_AUTH_FIELDS)
+            elif isinstance(value, list):
+                for child in value:
+                    collect(child, sensitive)
+            elif sensitive and isinstance(value, str) and value:
+                credentials.add(value)
+
+        collect(auth)
+
+    installation_path = codex_home / "installation_id"
+    if installation_path.is_file():
+        installation_id = installation_path.read_text(encoding="utf-8").strip()
+        if installation_id:
+            credentials.add(installation_id)
+    return credentials
+
+
+def _redact_codex_reviewer_credentials(
+    output: str, codex_home: Path
+) -> tuple[str, bool]:
+    """Redact seeded and token-shaped credentials from reviewer output."""
+    redacted = output
+    exact_match = False
+    for credential in sorted(
+        _seeded_codex_credentials(codex_home), key=len, reverse=True
+    ):
+        if credential and credential in redacted:
+            exact_match = True
+            redacted = redacted.replace(credential, _REDACTED_CREDENTIAL)
+    for pattern in _CREDENTIAL_PATTERNS:
+        redacted = pattern.sub(_REDACTED_CREDENTIAL, redacted)
+    return redacted, exact_match
 
 
 @dataclass
