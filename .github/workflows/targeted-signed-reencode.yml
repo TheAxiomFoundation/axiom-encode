@@ -7,8 +7,13 @@ on:
         description: Canonical corpus citation path
         required: true
         type: string
+      country:
+        description: Canonical RuleSpec country checkout (for rulespec-<country>)
+        required: true
+        default: us
+        type: string
       rulespec_ref:
-        description: Immutable rulespec-us commit SHA to re-encode
+        description: Immutable rulespec-<country> commit SHA on main to re-encode
         required: true
         type: string
       corpus_ref:
@@ -38,6 +43,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
+      - name: Validate country routing input
+        env:
+          COUNTRY: ${{ inputs.country }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$COUNTRY" =~ ^[a-z]{2}$ ]]; then
+            echo "country must be a two-letter lowercase country code" >&2
+            exit 1
+          fi
+
       - name: Checkout axiom-encode
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -45,12 +60,12 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Checkout rulespec-us
+      - name: Checkout canonical RuleSpec country
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          repository: TheAxiomFoundation/rulespec-us
+          repository: TheAxiomFoundation/rulespec-${{ inputs.country }}
           ref: ${{ inputs.rulespec_ref }}
-          path: rulespec-us
+          path: rulespec-${{ inputs.country }}
           fetch-depth: 0
           token: ${{ secrets.AXIOM_REPO_TOKEN || secrets.GITHUB_TOKEN }}
           persist-credentials: false
@@ -77,6 +92,8 @@ jobs:
 
       - name: Verify immutable checkout identities
         env:
+          COUNTRY: ${{ inputs.country }}
+          RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
           RULESPEC_REF: ${{ inputs.rulespec_ref }}
           CORPUS_REF: ${{ inputs.corpus_ref }}
           RULES_ENGINE_REF: ${{ inputs.rules_engine_ref }}
@@ -102,9 +119,13 @@ jobs:
             exit 1
           fi
           test "$(git -C axiom-encode rev-parse HEAD)" = "$GITHUB_SHA"
-          verify_checkout rulespec-us "$RULESPEC_REF" rulespec-us
+          verify_checkout "rulespec-$COUNTRY" "$RULESPEC_REF" "$RULESPEC_CHECKOUT"
           verify_checkout axiom-corpus "$CORPUS_REF" axiom-corpus
           verify_checkout axiom-rules-engine "$RULES_ENGINE_REF" axiom-rules-engine
+          test "$(git -C "$RULESPEC_CHECKOUT" remote get-url origin)" = \
+            "https://github.com/TheAxiomFoundation/rulespec-$COUNTRY"
+          git -C "$RULESPEC_CHECKOUT" merge-base --is-ancestor \
+            HEAD refs/remotes/origin/main
           git -C axiom-corpus merge-base --is-ancestor HEAD refs/remotes/origin/main
           git -C axiom-rules-engine merge-base --is-ancestor HEAD refs/remotes/origin/main
 
@@ -144,11 +165,12 @@ jobs:
         env:
           SUPABASE_URL: https://swocpijqqahhuwtuahwc.supabase.co
           SUPABASE_ANON_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
         run: |
           set -euo pipefail
           test -n "$SUPABASE_ANON_KEY"
           materializer=axiom-encode/scripts/materialize_corpus_release.py
-          toolchain=rulespec-us/.axiom/toolchain.toml
+          toolchain="$RULESPEC_CHECKOUT/.axiom/toolchain.toml"
           mapfile -t release_pin < <(
             axiom-encode/.venv/bin/python "$materializer" pin --toolchain "$toolchain"
           )
@@ -217,7 +239,7 @@ jobs:
 
       - name: Verify protected RuleSpec routing
         env:
-          RULESPEC_CHECKOUT: ${{ github.workspace }}/rulespec-us
+          RULESPEC_CHECKOUT: ${{ github.workspace }}/rulespec-${{ inputs.country }}
         run: |
           set -euo pipefail
           trusted_path=/opt/axiom-verification/python/bin
@@ -285,13 +307,14 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           CITATION: ${{ inputs.citation }}
           REVIEW_FINDING: ${{ inputs.review_finding }}
+          RULESPEC_CHECKOUT: ${{ github.workspace }}/rulespec-${{ inputs.country }}
         run: |
           args=(
             /opt/axiom-verification/axiom-encode encode
             --backend openai
             --corpus-path "$GITHUB_WORKSPACE/axiom-corpus"
             --axiom-rules-engine-path "$GITHUB_WORKSPACE/axiom-rules-engine"
-            --policy-repo-path "$GITHUB_WORKSPACE/rulespec-us"
+            --policy-repo-path "$RULESPEC_CHECKOUT"
             --output "$RUNNER_TEMP/generated"
             --mode repo-augmented
             --db "$RUNNER_TEMP/encodings.db"
@@ -319,6 +342,8 @@ jobs:
             -- "${args[@]}"
 
       - name: Verify generated provenance
+        env:
+          RULESPEC_CHECKOUT: ${{ github.workspace }}/rulespec-${{ inputs.country }}
         run: |
           /opt/axiom-verification/axiom-encode-signing-supervisor \
             --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
@@ -326,23 +351,24 @@ jobs:
             --trusted-python-import-root /opt/axiom-verification/python/lib/python3.13/site-packages \
             --trusted-python-package-root /opt/axiom-verification/python/lib/python3.13/site-packages/axiom_encode \
             -- /opt/axiom-verification/axiom-encode guard-generated \
-            --repo "$GITHUB_WORKSPACE/rulespec-us" \
+            --repo "$RULESPEC_CHECKOUT" \
             --corpus-path "$GITHUB_WORKSPACE/axiom-corpus" \
             --expected-encoder-checkout "$GITHUB_WORKSPACE/axiom-encode" \
             --json > "$RUNNER_TEMP/guard-generated.json"
-          git -C rulespec-us diff --check
+          git -C "$RULESPEC_CHECKOUT" diff --check
 
       - name: Package exact generated changes
         env:
           CITATION: ${{ inputs.citation }}
           REVIEW_FINDING_PRESENT: ${{ inputs.review_finding != '' }}
+          RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
         run: |
           artifact="$RUNNER_TEMP/targeted-reencode"
           mkdir -p "$artifact"
-          git -C rulespec-us diff --binary --full-index HEAD > "$artifact/tracked.patch"
-          git -C rulespec-us ls-files --others --exclude-standard -z \
-            | tar -C rulespec-us --null -czf "$artifact/untracked.tar.gz" --files-from -
-          git -C rulespec-us status --short > "$artifact/status.txt"
+          git -C "$RULESPEC_CHECKOUT" diff --binary --full-index HEAD > "$artifact/tracked.patch"
+          git -C "$RULESPEC_CHECKOUT" ls-files --others --exclude-standard -z \
+            | tar -C "$RULESPEC_CHECKOUT" --null -czf "$artifact/untracked.tar.gz" --files-from -
+          git -C "$RULESPEC_CHECKOUT" status --short > "$artifact/status.txt"
           cp "$RUNNER_TEMP/guard-generated.json" "$artifact/guard-generated.json"
           python - "$artifact/context-manifest.json" <<'PY'
           import hashlib
@@ -354,7 +380,7 @@ jobs:
 
           def git_paths(*args):
               output = subprocess.check_output(
-                  ["git", "-C", "rulespec-us", *args]
+                  ["git", "-C", os.environ["RULESPEC_CHECKOUT"], *args]
               )
               return {
                   Path(value.decode("utf-8"))
@@ -374,7 +400,7 @@ jobs:
           )
           matches = []
           for relative_path in sorted(manifest_paths):
-              manifest_path = Path("rulespec-us") / relative_path
+              manifest_path = Path(os.environ["RULESPEC_CHECKOUT"]) / relative_path
               payload = json.loads(manifest_path.read_text(encoding="utf-8"))
               if (
                   payload.get("schema_version")
@@ -434,7 +460,7 @@ jobs:
           payload = {
               "schema": "axiom-encode/targeted-reencode-artifact/v1",
               "citation": os.environ["CITATION"],
-              "rulespec_base": rev("rulespec-us"),
+              "rulespec_base": rev(os.environ["RULESPEC_CHECKOUT"]),
               "encoder_commit": rev("axiom-encode"),
               "corpus_commit": rev("axiom-corpus"),
               "rules_engine_commit": rev("axiom-rules-engine"),
@@ -444,8 +470,57 @@ jobs:
               json.dump(payload, stream, indent=2, sort_keys=True)
               stream.write("\n")
           PY
-          sha256sum "$artifact"/* > "$artifact/SHA256SUMS"
           test -s "$artifact/status.txt"
+
+      - name: Commit reviewed lane changes locally
+        env:
+          COUNTRY: ${{ inputs.country }}
+          CITATION: ${{ inputs.citation }}
+          RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
+        run: |
+          set -euo pipefail
+          branch="axiom/signed-backfill-${COUNTRY}-${GITHUB_RUN_ID}"
+          git -C "$RULESPEC_CHECKOUT" switch -c "$branch"
+          git -C "$RULESPEC_CHECKOUT" -c core.hooksPath=/dev/null add --all
+          git -C "$RULESPEC_CHECKOUT" \
+            -c core.hooksPath=/dev/null \
+            -c user.name=axiom-encode-bot \
+            -c user.email=axiom-encode-bot@users.noreply.github.com \
+            commit -m "Add signed encoding manifest for ${CITATION}"
+
+      - name: Push lane branch and open draft pull request
+        env:
+          GH_TOKEN: ${{ secrets.AXIOM_REPO_TOKEN }}
+          COUNTRY: ${{ inputs.country }}
+          CITATION: ${{ inputs.citation }}
+          RULESPEC_REF: ${{ inputs.rulespec_ref }}
+          RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN"
+          repo="TheAxiomFoundation/rulespec-${COUNTRY}"
+          branch="axiom/signed-backfill-${COUNTRY}-${GITHUB_RUN_ID}"
+          body="$(printf '%s\n' \
+            '## Signed apply manifest' \
+            '' \
+            "Citation: \`${CITATION}\`" \
+            "Base commit: \`${RULESPEC_REF}\`" \
+            "Axiom Encode run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            '' \
+            'This draft PR was produced by the protected country-general signed-apply workflow. Review all RuleSpec and manifest changes before marking it ready.')"
+          gh auth setup-git
+          git -C "$RULESPEC_CHECKOUT" -c core.hooksPath=/dev/null push \
+            "https://github.com/${repo}.git" "HEAD:refs/heads/${branch}"
+          gh api --method POST "repos/${repo}/pulls" \
+            -f title="Add signed encoding manifest for ${CITATION}" \
+            -f head="TheAxiomFoundation:${branch}" \
+            -f base=main \
+            -f body="$body" \
+            -F draft=true > "$RUNNER_TEMP/lane-pull-request.json"
+          cp "$RUNNER_TEMP/lane-pull-request.json" \
+            "$RUNNER_TEMP/targeted-reencode/lane-pull-request.json"
+          sha256sum "$RUNNER_TEMP/targeted-reencode"/* \
+            > "$RUNNER_TEMP/targeted-reencode/SHA256SUMS"
 
       - name: Upload signed re-encode artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
