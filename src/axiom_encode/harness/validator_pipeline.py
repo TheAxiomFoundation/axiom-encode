@@ -722,6 +722,13 @@ SOURCE_TEXT_NUMBER_PATTERN = re.compile(
     r"(?:^|(?<=[\s$£€(\[,+\-−*/\"'`“”‘’]))"
     r"(-?(?:[\d,]+(?:\.\d+)?|\.\d+))\b"
 )
+GLUED_UNIT_NUMBER_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9])"
+    r"(?P<number>\d{1,3}(?:,\d{3})+|\d+)"
+    r"(?P<unit>m(?:2|²)|ha|km|kw|db)"
+    r"(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
 EUROPEAN_DECIMAL_NUMBER_PATTERN = re.compile(
     r"(?:^|(?<=[\s$£€(\[,+\-−*/\"'`“”‘’]))"
     r"(-?(?:\d{1,3}(?:[.\u00a0\u202f]\d{3})+|\d+),(?:\d{1,2}|\d{4}))"
@@ -3139,6 +3146,12 @@ def extract_numbers_from_text(text: str) -> set[float]:
     numbers.update(_extract_centime_unit_values(original_text))
     numbers.update(_extract_annual_context_values(original_text))
     numbers.update(_extract_vehicle_tax_fiscal_power_table_values(original_text))
+
+    for match in GLUED_UNIT_NUMBER_PATTERN.finditer(text):
+        span = match.span()
+        with contextlib.suppress(ValueError):
+            numbers.add(float(match.group("number").replace(",", "")))
+            occupied_spans.append(span)
 
     for span, value in _iter_normalized_special_numeric_matches(text):
         if _span_overlaps(span, occupied_spans):
