@@ -284,11 +284,16 @@ def _run_codex_reviewer_cli(
     """Run reviewer prompts through Codex CLI and return assistant text."""
     cmd = [
         resolve_codex_cli(),
+        "-c",
+        'default_permissions="axiom-reviewer"',
+        "-c",
+        (
+            'permissions.axiom-reviewer={filesystem={":minimal"="read",'
+            '":workspace_roots"={"."="read"}},network={enabled=false}}'
+        ),
         "exec",
         "--json",
         "--skip-git-repo-check",
-        "--sandbox",
-        "read-only",
         "--model",
         os.environ.get("AXIOM_ENCODE_REVIEWER_CODEX_MODEL", DEFAULT_OPENAI_MODEL),
     ]

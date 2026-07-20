@@ -216,7 +216,8 @@ def test_codex_reviewer_uses_writable_minimal_home(tmp_path, monkeypatch):
 
     observed: dict[str, object] = {}
 
-    def fake_run(_cmd, **kwargs):
+    def fake_run(cmd, **kwargs):
+        observed["cmd"] = list(cmd)
         env = kwargs["env"]
         extra_public_env = kwargs["extra_public_env"]
         codex_home = Path(extra_public_env["CODEX_HOME"])
@@ -251,6 +252,18 @@ def test_codex_reviewer_uses_writable_minimal_home(tmp_path, monkeypatch):
         "CODEX_HOME": observed["codex_home"],
         "TMPDIR": os.environ["TMPDIR"],
     }
+    command = observed["cmd"]
+    assert command[:5] == [
+        validator_pipeline.resolve_codex_cli(),
+        "-c",
+        'default_permissions="axiom-reviewer"',
+        "-c",
+        (
+            'permissions.axiom-reviewer={filesystem={":minimal"="read",'
+            '":workspace_roots"={"."="read"}},network={enabled=false}}'
+        ),
+    ]
+    assert "--sandbox" not in command
 
 
 def test_codex_reviewer_redacts_and_rejects_seeded_credential(
