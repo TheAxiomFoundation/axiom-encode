@@ -29,19 +29,27 @@ def resolve_codex_cli() -> str:
 
 
 def prepare_minimal_codex_home(codex_home: Path) -> Path:
-    """Create a minimal CODEX_HOME for subprocesses without user skills."""
+    """Create a minimal CODEX_HOME for subprocesses without user skills.
+
+    Credential files are copied so reviewer and eval subprocess refreshes are
+    intentionally discarded. The trusted supervisor owns refresh publication
+    through its credential outbox.
+    """
     codex_home.mkdir(parents=True, exist_ok=True)
+    codex_home.chmod(0o700)
     (codex_home / "skills").mkdir(exist_ok=True)
+    (codex_home / "config.toml").write_text(
+        "check_for_update_on_startup = false\n",
+        encoding="utf-8",
+    )
     source_home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
     for filename in ("auth.json", "installation_id"):
         source = source_home / filename
         target = codex_home / filename
         if target.exists() or target.is_symlink() or not source.exists():
             continue
-        try:
-            target.symlink_to(source)
-        except OSError:
-            shutil.copy2(source, target)
+        shutil.copy2(source, target)
+        target.chmod(0o600)
     return codex_home
 
 

@@ -200,8 +200,8 @@ def test_reviewer_oracle_subprocess_scrubs_keys_and_broker_markers(
         "'codex_home': os.getenv('CODEX_HOME'),"
         "}, sort_keys=True))"
     )
-    child_environment = scrub_attestation_signing_keys()
-    child_environment["CODEX_HOME"] = str(tmp_path / "minimal-codex-home")
+    child_environment = dict(os.environ)
+    child_environment["CODEX_HOME"] = str(tmp_path / "ambient-codex-home")
 
     result = _run_subprocess_with_idle_timeout(
         [sys.executable, "-c", script],
@@ -217,4 +217,4 @@ def test_reviewer_oracle_subprocess_scrubs_keys_and_broker_markers(
     assert child["sentinels"] == {name: None for name in sentinel_names}
     assert child["path"] != "/hostile/bin"
     assert child["git_config"] != "/hostile/gitconfig"
-    assert child["codex_home"] == str(tmp_path / "minimal-codex-home")
+    assert child["codex_home"] is None

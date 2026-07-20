@@ -15771,13 +15771,26 @@ class TestCodexPromptEvalPolicyEngineSkillIsolation:
         source_home = tmp_path / "real-codex-home"
         source_home.mkdir()
         (source_home / "auth.json").write_text("{}\n")
+        (source_home / "installation_id").write_text("install-id\n")
         (source_home / "skills").mkdir()
         (source_home / "skills" / "encode-policy-v2-skill").mkdir()
         monkeypatch.setenv("CODEX_HOME", str(source_home))
 
-        eval_home = _prepare_codex_eval_home(tmp_path / "eval-home")
+        requested_home = tmp_path / "eval-home"
+        requested_home.mkdir(mode=0o755)
+        eval_home = _prepare_codex_eval_home(requested_home)
 
         assert (eval_home / "auth.json").exists()
+        assert not (eval_home / "auth.json").is_symlink()
+        assert (eval_home / "auth.json").stat().st_mode & 0o777 == 0o600
+        assert not (eval_home / "installation_id").is_symlink()
+        assert (eval_home / "installation_id").stat().st_mode & 0o777 == 0o600
+        assert eval_home.stat().st_mode & 0o777 == 0o700
+        assert (eval_home / "config.toml").read_text() == (
+            "check_for_update_on_startup = false\n"
+        )
+        (eval_home / "auth.json").write_text('{"refreshed": true}\n')
+        assert (source_home / "auth.json").read_text() == "{}\n"
         assert (eval_home / "skills").is_dir()
         assert not (eval_home / "skills" / "encode-policy-v2-skill").exists()
 

@@ -265,6 +265,7 @@ def run_claude_code(
             idle_timeout=idle_timeout,
             cwd=cwd,
             env=scrub_attestation_signing_keys(),
+            extra_public_env=None,
         )
         return result.output, result.returncode
     except subprocess.TimeoutExpired as exc:
@@ -313,13 +314,16 @@ def _run_codex_reviewer_cli(
         ) as codex_home_dir:
             codex_home = prepare_minimal_codex_home(Path(codex_home_dir))
             codex_env = scrub_attestation_signing_keys()
-            codex_env["CODEX_HOME"] = str(codex_home)
+            extra_public_env = {"CODEX_HOME": str(codex_home)}
+            if runtime_tmpdir := os.environ.get("TMPDIR"):
+                extra_public_env["TMPDIR"] = runtime_tmpdir
             result = _run_subprocess_with_idle_timeout(
                 cmd,
                 timeout=timeout,
                 idle_timeout=idle_timeout,
                 cwd=cwd,
                 env=codex_env,
+                extra_public_env=extra_public_env,
             )
         return _extract_codex_text_output(result.output), result.returncode
     except subprocess.TimeoutExpired:
@@ -352,6 +356,7 @@ def _run_subprocess_with_idle_timeout(
     idle_timeout: int,
     cwd: Optional[Path] = None,
     env: Mapping[str, str] | None = None,
+    extra_public_env: Mapping[str, str] | None = None,
     poll_interval: float = 0.5,
 ) -> _SubprocessRunResult:
     """Run a subprocess, aborting if it stops emitting output for too long."""
@@ -360,10 +365,13 @@ def _run_subprocess_with_idle_timeout(
         if env is None
         else scrub_attestation_signing_keys(env)
     )
-    # CODEX_HOME is not globally trusted. Preserve it only when a caller has
-    # explicitly added it to the already-scrubbed environment for this child.
-    if env is not None and "CODEX_HOME" in env:
-        child_env["CODEX_HOME"] = env["CODEX_HOME"]
+    if extra_public_env:
+        allowed_names = {"CODEX_HOME", "TMPDIR"}
+        unsupported_names = set(extra_public_env) - allowed_names
+        if unsupported_names:
+            names = ", ".join(sorted(unsupported_names))
+            raise ValueError(f"Unsupported public subprocess environment: {names}")
+        child_env.update(extra_public_env)
     with (
         tempfile.NamedTemporaryFile(mode="w+", delete=False) as stdout_file,
         tempfile.NamedTemporaryFile(mode="w+", delete=False) as stderr_file,
@@ -24419,6 +24427,7 @@ Output ONLY valid JSON:
                 idle_timeout=45,
                 cwd=runtime.root,
                 env=policyengine_subprocess_environment(),
+                extra_public_env=None,
             )
             return OracleSubprocessResult(
                 returncode=result.returncode,
