@@ -205,6 +205,47 @@ def test_claude_reviewer_disables_tools_and_scrubs_signing_capabilities(
     assert returncode == 0
 
 
+def test_codex_reviewer_uses_writable_minimal_home(tmp_path, monkeypatch):
+    source_home = tmp_path / "runtime-codex-home"
+    source_home.mkdir()
+    (source_home / "auth.json").write_text("{}\n")
+    (source_home / "skills").mkdir()
+    (source_home / "skills" / "user-skill").mkdir()
+    monkeypatch.setenv("CODEX_HOME", str(source_home))
+
+    observed: dict[str, object] = {}
+
+    def fake_run(_cmd, **kwargs):
+        env = kwargs["env"]
+        codex_home = Path(env["CODEX_HOME"])
+        observed["exists"] = codex_home.is_dir()
+        observed["writable"] = os.access(codex_home, os.W_OK)
+        observed["auth"] = (codex_home / "auth.json").exists()
+        observed["skills"] = sorted(path.name for path in (codex_home / "skills").iterdir())
+        observed["env"] = dict(env)
+        return validator_pipeline._SubprocessRunResult(
+            output='{"type":"item.completed","item":{"type":"agent_message","text":"OK"}}',
+            returncode=0,
+        )
+
+    with patch.object(
+        validator_pipeline,
+        "_run_subprocess_with_idle_timeout",
+        side_effect=fake_run,
+    ):
+        output, returncode = validator_pipeline._run_codex_reviewer_cli(
+            "review this", timeout=30, cwd=tmp_path
+        )
+
+    assert (output, returncode) == ("OK", 0)
+    assert observed["exists"] is True
+    assert observed["writable"] is True
+    assert observed["auth"] is True
+    assert observed["skills"] == []
+    assert "CODEX_HOME" in observed["env"]
+    assert "TMPDIR" not in observed["env"]
+
+
 def _canonical_rulespec_content_root(base: Path, jurisdiction: str) -> Path:
     """Create and return ``rulespec-<country>/<jurisdiction>``."""
 

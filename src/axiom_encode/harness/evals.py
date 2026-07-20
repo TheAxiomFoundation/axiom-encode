@@ -28,6 +28,9 @@ import yaml
 
 from axiom_encode import __version__
 from axiom_encode import corpus_resolver as _corpus_resolver
+from axiom_encode.codex_cli import (
+    prepare_minimal_codex_home as _prepare_codex_eval_home,
+)
 from axiom_encode.codex_cli import resolve_codex_cli
 from axiom_encode.concepts.jurisdiction import jurisdiction_prefix
 from axiom_encode.concepts.registry import (
@@ -12167,23 +12170,6 @@ def _run_codex_prompt_eval(
         unexpected_accesses=unexpected_accesses,
         error=error,
     )
-
-
-def _prepare_codex_eval_home(codex_home: Path) -> Path:
-    """Create a minimal CODEX_HOME for eval subprocesses without user skills."""
-    codex_home.mkdir(parents=True, exist_ok=True)
-    (codex_home / "skills").mkdir(exist_ok=True)
-    source_home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
-    for filename in ("auth.json", "installation_id"):
-        source = source_home / filename
-        target = codex_home / filename
-        if target.exists() or target.is_symlink() or not source.exists():
-            continue
-        try:
-            target.symlink_to(source)
-        except OSError:
-            shutil.copy2(source, target)
-    return codex_home
 
 
 def _codex_prompt_timeouts(workspace: EvalWorkspace) -> tuple[int, int]:

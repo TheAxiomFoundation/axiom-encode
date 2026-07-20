@@ -217,6 +217,14 @@ def test_scrub_removes_private_keys_and_broker_handles() -> None:
     }
 
 
+def test_scrub_does_not_forward_codex_home() -> None:
+    environment = scrub_private_signing_environment(
+        {"CODEX_HOME": "/runtime/codex-home"}
+    )
+
+    assert "CODEX_HOME" not in environment
+
+
 @pytest.mark.parametrize(
     ("descriptor", "broker_pid"),
     [("2", "1"), ("3", "0"), ("-1", "42")],

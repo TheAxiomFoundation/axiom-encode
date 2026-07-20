@@ -53,7 +53,7 @@ from axiom_oracles.bridges.registry import (
     load_policyengine_registry,
 )
 
-from axiom_encode.codex_cli import resolve_codex_cli
+from axiom_encode.codex_cli import prepare_minimal_codex_home, resolve_codex_cli
 from axiom_encode.concepts.jurisdiction import jurisdiction_prefix
 from axiom_encode.constants import (
     DEFAULT_OPENAI_MODEL,
@@ -308,12 +308,19 @@ def _run_codex_reviewer_cli(
                 ),
             ),
         )
-        result = _run_subprocess_with_idle_timeout(
-            cmd,
-            timeout=timeout,
-            idle_timeout=idle_timeout,
-            cwd=cwd,
-        )
+        with tempfile.TemporaryDirectory(
+            prefix="axiom-codex-reviewer-home-"
+        ) as codex_home_dir:
+            codex_home = prepare_minimal_codex_home(Path(codex_home_dir))
+            codex_env = scrub_attestation_signing_keys()
+            codex_env["CODEX_HOME"] = str(codex_home)
+            result = _run_subprocess_with_idle_timeout(
+                cmd,
+                timeout=timeout,
+                idle_timeout=idle_timeout,
+                cwd=cwd,
+                env=codex_env,
+            )
         return _extract_codex_text_output(result.output), result.returncode
     except subprocess.TimeoutExpired:
         return f"Timeout after {timeout}s", 1
@@ -348,6 +355,15 @@ def _run_subprocess_with_idle_timeout(
     poll_interval: float = 0.5,
 ) -> _SubprocessRunResult:
     """Run a subprocess, aborting if it stops emitting output for too long."""
+    child_env = (
+        scrub_attestation_signing_keys()
+        if env is None
+        else scrub_attestation_signing_keys(env)
+    )
+    # CODEX_HOME is not globally trusted. Preserve it only when a caller has
+    # explicitly added it to the already-scrubbed environment for this child.
+    if env is not None and "CODEX_HOME" in env:
+        child_env["CODEX_HOME"] = env["CODEX_HOME"]
     with (
         tempfile.NamedTemporaryFile(mode="w+", delete=False) as stdout_file,
         tempfile.NamedTemporaryFile(mode="w+", delete=False) as stderr_file,
@@ -361,11 +377,7 @@ def _run_subprocess_with_idle_timeout(
             stderr=stderr_file,
             text=True,
             cwd=cwd,
-            env=(
-                scrub_attestation_signing_keys()
-                if env is None
-                else scrub_attestation_signing_keys(env)
-            ),
+            env=child_env,
         )
 
     start = time.time()

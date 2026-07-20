@@ -28,6 +28,23 @@ def resolve_codex_cli() -> str:
     return shutil.which("codex") or "codex"
 
 
+def prepare_minimal_codex_home(codex_home: Path) -> Path:
+    """Create a minimal CODEX_HOME for subprocesses without user skills."""
+    codex_home.mkdir(parents=True, exist_ok=True)
+    (codex_home / "skills").mkdir(exist_ok=True)
+    source_home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+    for filename in ("auth.json", "installation_id"):
+        source = source_home / filename
+        target = codex_home / filename
+        if target.exists() or target.is_symlink() or not source.exists():
+            continue
+        try:
+            target.symlink_to(source)
+        except OSError:
+            shutil.copy2(source, target)
+    return codex_home
+
+
 def codex_auth_json_path() -> Path:
     """Return the Codex CLI auth file, honoring the CODEX_HOME override."""
     override = os.getenv("CODEX_HOME")
