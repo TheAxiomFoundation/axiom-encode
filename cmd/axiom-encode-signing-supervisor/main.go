@@ -746,14 +746,119 @@ func copyCredential(sourcePath, destinationPath string, exclusive bool) (os.File
 
 func definedNoFollow() bool { return syscall.O_NOFOLLOW != 0 }
 
-func validateCodexScratchPolicy(mode os.FileMode, ownerUID int, runtimeUID int) error {
+func validateRuntimeScratchPolicy(label string, mode os.FileMode, ownerUID int, runtimeUID int) error {
 	if !mode.IsDir() || mode.Perm() != 0700 {
-		return errors.New("Codex scratch home must be a protected 0700 directory")
+		return fmt.Errorf("%s must be a protected 0700 directory", label)
 	}
 	if ownerUID != runtimeUID {
-		return errors.New("Codex scratch home is not runtime-owned")
+		return fmt.Errorf("%s is not runtime-owned", label)
 	}
 	return nil
+}
+
+func validateCodexScratchPolicy(mode os.FileMode, ownerUID int, runtimeUID int) error {
+	return validateRuntimeScratchPolicy("Codex scratch home", mode, ownerUID, runtimeUID)
+}
+
+func inspectRuntimeScratch(path string, label string) (os.FileInfo, error) {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return nil, fmt.Errorf("%s must have a canonical absolute path", label)
+	}
+	fd, err := unix.Open("/", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, fmt.Errorf("could not open filesystem root: %w", err)
+	}
+	for _, component := range strings.Split(strings.TrimPrefix(path, "/"), "/") {
+		if component == "" {
+			continue
+		}
+		next, openErr := unix.Openat(fd, component, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+		if openErr != nil {
+			_ = unix.Close(fd)
+			return nil, fmt.Errorf("%s must not contain symlinks: %w", label, openErr)
+		}
+		_ = unix.Close(fd)
+		fd = next
+	}
+	file := os.NewFile(uintptr(fd), path)
+	metadata, err := file.Stat()
+	closeErr := file.Close()
+	if err != nil {
+		return nil, fmt.Errorf("could not inspect %s: %w", label, err)
+	}
+	if closeErr != nil {
+		return nil, fmt.Errorf("could not close %s: %w", label, closeErr)
+	}
+	return metadata, nil
+}
+
+func createRuntimeScratchDirectory(path string, label string) error {
+	if err := os.Mkdir(path, 0700); err != nil {
+		return fmt.Errorf("could not create %s: %w", label, err)
+	}
+	metadata, err := inspectRuntimeScratch(path, label)
+	if err != nil {
+		return err
+	}
+	stat, ok := metadata.Sys().(*syscall.Stat_t)
+	if !ok {
+		return fmt.Errorf("could not inspect %s ownership", label)
+	}
+	return validateRuntimeScratchPolicy(label, metadata.Mode(), int(stat.Uid), os.Geteuid())
+}
+
+func createSupervisedRuntimeRoot() (string, error) {
+	temporaryRoot, err := filepath.EvalSymlinks("/tmp")
+	if err != nil || !filepath.IsAbs(temporaryRoot) || filepath.Clean(temporaryRoot) != temporaryRoot {
+		return "", errors.New("could not resolve the canonical system temporary directory")
+	}
+	metadata, err := inspectRuntimeScratch(temporaryRoot, "system temporary directory")
+	if err != nil {
+		return "", err
+	}
+	stat, ok := metadata.Sys().(*syscall.Stat_t)
+	if !ok || stat.Uid != 0 || metadata.Mode()&0022 != 0 && metadata.Mode()&os.ModeSticky == 0 {
+		return "", errors.New("system temporary directory lacks protected parent semantics")
+	}
+	runtimeRoot, err := os.MkdirTemp(temporaryRoot, "axiom-runtime-")
+	if err != nil {
+		return "", fmt.Errorf("could not create supervised runtime directory: %w", err)
+	}
+	if err := os.Chmod(runtimeRoot, 0700); err != nil {
+		_ = os.RemoveAll(runtimeRoot)
+		return "", err
+	}
+	runtimeMetadata, err := inspectRuntimeScratch(runtimeRoot, "supervised runtime directory")
+	if err != nil {
+		_ = os.RemoveAll(runtimeRoot)
+		return "", err
+	}
+	runtimeStat, ok := runtimeMetadata.Sys().(*syscall.Stat_t)
+	if !ok {
+		_ = os.RemoveAll(runtimeRoot)
+		return "", errors.New("could not inspect supervised runtime directory ownership")
+	}
+	if err := validateRuntimeScratchPolicy("supervised runtime directory", runtimeMetadata.Mode(), int(runtimeStat.Uid), os.Geteuid()); err != nil {
+		_ = os.RemoveAll(runtimeRoot)
+		return "", err
+	}
+	return runtimeRoot, nil
+}
+
+func appendCodexRuntimeEnvironment(environment []string, home string, runtimeTemp string, config trustedCodexCLI) ([]string, error) {
+	for _, entry := range environment {
+		if strings.HasPrefix(entry, "CODEX_HOME=") || strings.HasPrefix(entry, "TMPDIR=") {
+			return nil, errors.New("clean child environment already contains a runtime directory")
+		}
+	}
+	return append(
+		environment,
+		"CODEX_HOME="+home,
+		"TMPDIR="+runtimeTemp,
+		trustedCodexBinEnv+"="+config.Path,
+		trustedCodexVersionEnv+"="+config.Version,
+		trustedCodexSHA256Env+"="+config.SHA256,
+	), nil
 }
 
 func openCredentialOutboxDirectory(outboxPath string) (int, string, error) {
@@ -872,23 +977,17 @@ func superviseWithCodexSubscription(parsed options, connection *os.File, environ
 	if err := validateCredentialOutbox(parsed.codexAuthOutbox); err != nil {
 		return err
 	}
-	home, err := os.MkdirTemp("", "axiom-codex-")
+	runtimeRoot, err := createSupervisedRuntimeRoot()
 	if err != nil {
-		return fmt.Errorf("could not create Codex scratch home: %w", err)
-	}
-	defer os.RemoveAll(home)
-	if err := os.Chmod(home, 0700); err != nil {
 		return err
 	}
-	homeMetadata, err := os.Lstat(home)
-	if err != nil {
-		return errors.New("could not inspect Codex scratch home")
+	defer os.RemoveAll(runtimeRoot)
+	home := filepath.Join(runtimeRoot, "codex-home")
+	if err := createRuntimeScratchDirectory(home, "Codex scratch home"); err != nil {
+		return err
 	}
-	homeStat, ok := homeMetadata.Sys().(*syscall.Stat_t)
-	if !ok {
-		return errors.New("could not inspect Codex scratch home ownership")
-	}
-	if err := validateCodexScratchPolicy(homeMetadata.Mode(), int(homeStat.Uid), os.Geteuid()); err != nil {
+	runtimeTemp := filepath.Join(runtimeRoot, "tmp")
+	if err := createRuntimeScratchDirectory(runtimeTemp, "supervised runtime TMPDIR"); err != nil {
 		return err
 	}
 	authPath := filepath.Join(home, "auth.json")
@@ -899,13 +998,10 @@ func superviseWithCodexSubscription(parsed options, connection *os.File, environ
 	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte("check_for_update_on_startup = false\n"), 0600); err != nil {
 		return err
 	}
-	environment = append(
-		environment,
-		"CODEX_HOME="+home,
-		trustedCodexBinEnv+"="+config.Path,
-		trustedCodexVersionEnv+"="+config.Version,
-		trustedCodexSHA256Env+"="+config.SHA256,
-	)
+	environment, err = appendCodexRuntimeEnvironment(environment, home, runtimeTemp, config)
+	if err != nil {
+		return err
+	}
 	for index, entry := range environment {
 		if strings.HasPrefix(entry, brokerFDEnv+"=") {
 			environment[index] = brokerFDEnv + "=3"

@@ -5,8 +5,11 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"os"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"golang.org/x/sys/unix"
@@ -294,5 +297,107 @@ func TestCodexScratchPolicyRejectsRootOwnedHomeForNonRootRuntime(t *testing.T) {
 func TestCodexScratchPolicyAcceptsOperatorOwnedProtectedHome(t *testing.T) {
 	if err := validateCodexScratchPolicy(os.ModeDir|0700, 1000, 1000); err != nil {
 		t.Fatalf("expected operator-owned 0700 scratch acceptance, got %v", err)
+	}
+}
+
+func TestCodexRuntimeEnvironmentUsesDistinctProtectedDirectories(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := filepath.Join(root, "codex-home")
+	runtimeTemp := filepath.Join(root, "tmp")
+	if err := createRuntimeScratchDirectory(home, "Codex scratch home"); err != nil {
+		t.Fatal(err)
+	}
+	if err := createRuntimeScratchDirectory(runtimeTemp, "supervised runtime TMPDIR"); err != nil {
+		t.Fatal(err)
+	}
+	environment, err := appendCodexRuntimeEnvironment(
+		cleanChildEnvironment(10, 11, "/trusted/bin", "/trusted"),
+		home,
+		runtimeTemp,
+		trustedCodexCLI{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpEntries := 0
+	for _, entry := range environment {
+		if strings.HasPrefix(entry, "TMPDIR=") {
+			tmpEntries++
+			if entry != "TMPDIR="+runtimeTemp {
+				t.Fatalf("unexpected TMPDIR entry: %q", entry)
+			}
+		}
+	}
+	if tmpEntries != 1 {
+		t.Fatalf("expected exactly one protected TMPDIR entry, got %v", environment)
+	}
+	if home == runtimeTemp {
+		t.Fatal("Codex scratch home and TMPDIR must be distinct")
+	}
+	for _, candidate := range []string{home, runtimeTemp} {
+		metadata, inspectErr := inspectRuntimeScratch(candidate, "runtime directory")
+		if inspectErr != nil {
+			t.Fatal(inspectErr)
+		}
+		stat, ok := metadata.Sys().(*syscall.Stat_t)
+		if !ok || int(stat.Uid) != os.Geteuid() || metadata.Mode().Perm() != 0700 {
+			t.Fatalf("runtime directory is not runtime-owned 0700: %s: %#v", candidate, metadata)
+		}
+	}
+}
+
+func TestRuntimeScratchCreationRejectsPreexistingCandidates(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(root, "target")
+	if err := os.Mkdir(target, 0700); err != nil {
+		t.Fatal(err)
+	}
+	permissive := filepath.Join(root, "permissive")
+	if err := os.Mkdir(permissive, 0755); err != nil {
+		t.Fatal(err)
+	}
+	symlink := filepath.Join(root, "symlink")
+	if err := os.Symlink(target, symlink); err != nil {
+		t.Fatal(err)
+	}
+	for _, candidate := range []string{target, permissive, symlink} {
+		if err := createRuntimeScratchDirectory(candidate, "runtime candidate"); err == nil || !os.IsExist(errors.Unwrap(err)) {
+			t.Fatalf("pre-existing runtime candidate was not rejected: %s: %v", candidate, err)
+		}
+	}
+	permissiveMetadata, err := os.Lstat(permissive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	permissiveStat := permissiveMetadata.Sys().(*syscall.Stat_t)
+	if err := validateRuntimeScratchPolicy("runtime candidate", permissiveMetadata.Mode(), int(permissiveStat.Uid), os.Geteuid()); err == nil {
+		t.Fatal("permissive runtime candidate was not rejected")
+	}
+	for _, candidate := range []string{symlink, filepath.Join(symlink, "child")} {
+		if _, err := inspectRuntimeScratch(candidate, "runtime candidate"); err == nil || !strings.Contains(err.Error(), "must not contain symlinks") {
+			t.Fatalf("symlinked runtime path was not rejected: %s: %v", candidate, err)
+		}
+	}
+}
+
+func TestSupervisedRuntimeRootIgnoresAmbientTMPDIR(t *testing.T) {
+	ambient := t.TempDir()
+	if err := os.Chmod(ambient, 0777); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMPDIR", ambient)
+	runtimeRoot, err := createSupervisedRuntimeRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(runtimeRoot)
+	if strings.HasPrefix(runtimeRoot, ambient+string(os.PathSeparator)) {
+		t.Fatalf("supervised runtime root used ambient TMPDIR: %s", runtimeRoot)
 	}
 }
