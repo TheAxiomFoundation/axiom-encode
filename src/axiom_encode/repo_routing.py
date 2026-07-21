@@ -77,6 +77,14 @@ class _CachedCheckoutInspection:
     fingerprint: _CheckoutMutationFingerprint
 
 
+@dataclass(frozen=True)
+class _CheckoutAdmissionSnapshot:
+    """Pre-inspection inputs used to admit one stable cache entry."""
+
+    git_config_inputs: tuple[Path, ...]
+    fingerprint: _CheckoutMutationFingerprint
+
+
 @dataclass
 class _RuleSpecRoutingCache:
     """Successful checkout identity probes admitted for one bounded operation."""
@@ -244,22 +252,38 @@ def inspect_canonical_rulespec_checkout(
             return cached.inspection
         cache.checkout_inspections.pop(cache_key, None)
 
-    inspection = _inspect_canonical_rulespec_checkout_uncached(
-        path,
-        allow_composition_specs=allow_composition_specs,
-    )
-    if cache is not None and inspection.name is not None:
-        cached_inspection = _cacheable_checkout_inspection(cache_key[0], inspection)
+    if cache is None:
+        return _inspect_canonical_rulespec_checkout_uncached(
+            path,
+            allow_composition_specs=allow_composition_specs,
+        )
+
+    for _attempt in range(2):
+        before = _checkout_admission_snapshot(cache_key[0])
+        inspection = _inspect_canonical_rulespec_checkout_uncached(
+            path,
+            allow_composition_specs=allow_composition_specs,
+        )
+        if inspection.name is None or before is None:
+            return inspection
+        cached_inspection = _cacheable_checkout_inspection(
+            cache_key[0],
+            inspection,
+            before=before,
+        )
         if cached_inspection is not None:
             cache.checkout_inspections[cache_key] = cached_inspection
-    return inspection
+            return inspection
+
+    return CanonicalRuleSpecCheckoutInspection(
+        None, "checkout-mutated-during-inspection"
+    )
 
 
-def _cacheable_checkout_inspection(
+def _checkout_admission_snapshot(
     checkout: Path,
-    inspection: CanonicalRuleSpecCheckoutInspection,
-) -> _CachedCheckoutInspection | None:
-    """Capture all cheap inputs needed to trust a successful Git admission."""
+) -> _CheckoutAdmissionSnapshot | None:
+    """Capture admission inputs before a successful identity inspection."""
 
     try:
         git_boundary = _nearest_git_boundary(checkout)
@@ -274,10 +298,30 @@ def _cacheable_checkout_inspection(
     )
     if fingerprint is None:
         return None
-    return _CachedCheckoutInspection(
-        inspection=inspection,
+    return _CheckoutAdmissionSnapshot(
         git_config_inputs=git_config_inputs,
         fingerprint=fingerprint,
+    )
+
+
+def _cacheable_checkout_inspection(
+    checkout: Path,
+    inspection: CanonicalRuleSpecCheckoutInspection,
+    *,
+    before: _CheckoutAdmissionSnapshot,
+) -> _CachedCheckoutInspection | None:
+    """Cache a successful admission only when its input snapshot stayed stable."""
+
+    after = _checkout_mutation_fingerprint(
+        checkout,
+        git_config_inputs=before.git_config_inputs,
+    )
+    if after is None or after != before.fingerprint:
+        return None
+    return _CachedCheckoutInspection(
+        inspection=inspection,
+        git_config_inputs=before.git_config_inputs,
+        fingerprint=after,
     )
 
 
@@ -359,6 +403,7 @@ def _git_identity_input_paths(
                 git_directory / "commondir",
                 git_directory / "config",
                 git_directory / "config.worktree",
+                git_directory / "HEAD",
             }
         )
         common_directory = _git_common_directory(git_directory)
@@ -716,7 +761,12 @@ def _git_origin_repo_name(root: str) -> str | None:
 
 
 def _git_config_input_paths(root: str) -> tuple[Path, ...]:
-    """Return every file Git loaded while resolving repository configuration."""
+    """Return loaded configs and every configured include target.
+
+    Git omits missing, empty, and inactive conditional include files from its
+    origin list. Include directives still appear in their containing config,
+    so collect their resolved targets from the same bounded Git probe.
+    """
 
     try:
         completed = subprocess.run(
@@ -726,7 +776,6 @@ def _git_config_input_paths(root: str) -> tuple[Path, ...]:
                 root,
                 "config",
                 "--show-origin",
-                "--name-only",
                 "--null",
                 "--list",
             ],
@@ -745,19 +794,58 @@ def _git_config_input_paths(root: str) -> tuple[Path, ...]:
             f"Could not inspect Git configuration inputs for {root}",
             category="unavailable",
         )
-    fields = completed.stdout.split("\0")
-    if fields and fields[-1] == "":
-        fields.pop()
-    origins = fields[::2]
+    fields = completed.stdout.removesuffix("\0").split("\0")
+    if len(fields) % 2 != 0:
+        raise _GitProbeError(
+            f"Could not parse Git configuration inputs for {root}",
+            category="invalid-output",
+        )
     inputs: set[Path] = set()
-    for origin in origins:
-        if not origin.startswith("file:"):
+    for origin, setting in zip(fields[::2], fields[1::2], strict=True):
+        origin_path = _git_config_file_path(root, origin.removeprefix("file:"))
+        if not origin.startswith("file:") or origin_path is None:
             continue
-        raw_path = Path(origin.removeprefix("file:")).expanduser()
-        if not raw_path.is_absolute():
-            raw_path = Path(root) / raw_path
-        inputs.add(Path(os.path.abspath(raw_path)))
+        inputs.add(origin_path)
+        key, separator, value = setting.partition("\n")
+        normalized_key = key.casefold()
+        if not separator or not (
+            normalized_key == "include.path"
+            or (
+                normalized_key.startswith("includeif.")
+                and normalized_key.endswith(".path")
+            )
+        ):
+            continue
+        include_path = _git_config_file_path(
+            str(origin_path.parent),
+            value,
+        )
+        if include_path is None:
+            raise _GitProbeError(
+                f"Could not resolve Git configuration include for {root}",
+                category="invalid-include-path",
+            )
+        inputs.add(include_path)
+        if len(inputs) > 1024:
+            raise _GitProbeError(
+                f"Too many Git configuration inputs for {root}",
+                category="input-limit",
+            )
     return tuple(sorted(inputs, key=str))
+
+
+def _git_config_file_path(base: str, raw_path: str) -> Path | None:
+    """Resolve one Git config path without accepting aliases or expansions."""
+
+    if not raw_path or "\0" in raw_path or raw_path.startswith("%("):
+        return None
+    try:
+        path = Path(raw_path).expanduser()
+    except (KeyError, RuntimeError):
+        return None
+    if not path.is_absolute():
+        path = Path(base) / path
+    return _lexical_rulespec_path(Path(os.path.abspath(path)))
 
 
 def _git_probe_exception_category(exc: BaseException) -> str:
