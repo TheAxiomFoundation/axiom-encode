@@ -2,11 +2,11 @@
 
 ## State
 
-In progress. The verify-side shim and exact dependency pin are implemented, and
-the real lock refresh records both known-good PyPI artifact hashes. Dedicated
-mechanical-equivalence tests and the changelog fragment are next. No configured
-final-report output path exists, so the report will be written outside the
-repository under `/private/tmp` at handoff.
+In progress. The verify-side shim, exact dependency pin, dedicated equivalence
+tests, and changelog fragment are implemented. Focused and full validation plus
+the required independent review-fix cycle remain. No configured final-report
+output path exists, so the report will be written outside the repository under
+`/private/tmp` at handoff.
 
 ## Done
 
@@ -27,8 +27,13 @@ repository under `/private/tmp` at handoff.
   implementation (with no 0.3.0-only `allow_legacy` parameter).
 - Completed read-only implementation, packaging, and test-design audits; no
   correctness defect was found in the interrupted shim.
+- Added seven dedicated receipt-adoption tests covering the real signing path,
+  four cryptographic refusal cases, exact receipt delegation inputs, and every
+  unchanged envelope/trust-root issue class and relevant check ordering.
+- Added the `ops#3` changelog fragment without claiming a trust-model change.
+- Ran the new test file against the installed receipt 0.2.0 wheel: 7 passed.
 
 ## Next
 
-- Add the dedicated receipt-adoption equivalence tests and changelog fragment.
-- Rerun focused and broad checks, then complete the independent review-fix cycle.
+- Rerun the unchanged focused behavior oracle and the repository's full local
+  checks, then complete the independent review-fix cycle.
