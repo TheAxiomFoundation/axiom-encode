@@ -1264,6 +1264,38 @@ _SUBPOUND_MONEY_PATTERN = re.compile(
     r"(\d+(?:\.\d+)?)\s*(?:pence|penny)\b", re.IGNORECASE
 )
 _TABLE_KEY_ASSIGNMENT_PATTERN = re.compile(r"\b\d+(?=\s*=)")
+_FORM_ARITHMETIC_OPERAND_PATTERN = re.compile(
+    r"(?:\b(?:multiplied|divided)\s+by\b|(?<!\w)[x×÷](?!\w))\s*"
+    r"(?:[$£€]\s*)?"
+    r"(?P<number>-?(?:\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?))(?![\d,])"
+    r"(?:\s*(?P<percent>%))?",
+    re.IGNORECASE,
+)
+_FORM_ARITHMETIC_FRACTION_PATTERN = re.compile(
+    r"(?:\b(?:multiplied|divided)\s+by\b|(?<!\w)[x×÷](?!\w))\s*"
+    r"(?P<numerator>\d+)\s*/\s*(?P<denominator>\d+)",
+    re.IGNORECASE,
+)
+_STANDALONE_FORM_FRACTION_PATTERN = re.compile(
+    r"(?m)^\s*(?P<numerator>\d+)\s*/\s*(?P<denominator>\d+)\s*$"
+)
+_CONTEXTUAL_ASCII_FRACTION_PATTERN = re.compile(
+    r"(?<![\d./])"
+    r"(?:(?P<whole>\d+)\s+)?"
+    r"(?P<numerator>\d+)\s*/\s*(?P<denominator>\d+)"
+    r"(?=\s*(?:times?\b|\(\s*Class\b|for\s+(?:property|RIIP|ZEV|Class)\b))",
+    re.IGNORECASE,
+)
+_SMALL_MONTH_RANGE_PATTERN = re.compile(
+    r"\b(?P<start>\d{1,2})\s+(?:through|to)\s+"
+    r"(?P<end>\d{1,2})\s+months?\b",
+    re.IGNORECASE,
+)
+_FORM_IMPLIED_CENTS_PATTERN = re.compile(
+    r"(?m)^[ \t]*(?P<dollars>\d{1,3}(?:[ ,]\d{3})*)[ \t]+"
+    r"(?P<cents>\d{2})[ \t]*$"
+    r"(?=(?:[ \t]*\r?\n){1,3}[ \t]*=)",
+)
 _TABLE_ROW_LABEL_PATTERN = re.compile(
     r"\b(?:size|household size|unit size)\s+\d+(?:\s+or\s+more)?(?=\s*:)",
     re.IGNORECASE,
@@ -3584,9 +3616,13 @@ def _call_body_contains_any(
 
 def extract_numbers_from_text(text: str) -> set[float]:
     """Extract numeric values from embedded statute text."""
-    original_text = text
+    implied_cents_matches = _iter_form_implied_cents_matches(text)
+    original_text = _FORM_IMPLIED_CENTS_PATTERN.sub(
+        lambda match: " " * len(match.group(0)),
+        text,
+    )
     two_line_table_occurrences = _extract_two_line_table_value_occurrences(text)
-    text = _clean_source_text_for_numeric_extraction(text)
+    text = _clean_source_text_for_numeric_extraction(original_text)
     schedule_occurrences, text = _extract_collapsed_schedule_row_occurrences(text)
     numbers = set()
     occupied_spans: list[tuple[int, int]] = []
@@ -3616,6 +3652,10 @@ def extract_numbers_from_text(text: str) -> set[float]:
     numbers.update(_extract_dotted_date_year_values(original_text))
     numbers.update(_extract_centime_unit_values(original_text))
     numbers.update(_extract_annual_context_values(original_text))
+    numbers.update(_extract_form_arithmetic_operand_values(original_text))
+    numbers.update(_extract_contextual_ascii_fraction_values(original_text))
+    numbers.update(_extract_small_month_range_values(original_text))
+    numbers.update(value for _, value in implied_cents_matches)
     numbers.update(_extract_vehicle_tax_fiscal_power_table_values(original_text))
 
     for match in GLUED_UNIT_NUMBER_PATTERN.finditer(text):
@@ -4147,6 +4187,77 @@ def _extract_annual_context_values(text: str) -> set[float]:
     return set()
 
 
+def _extract_form_arithmetic_operand_values(text: str) -> list[float]:
+    """Extract operands printed in official form calculation cells."""
+
+    values: list[float] = []
+    fraction_spans: list[tuple[int, int]] = []
+    for match in (
+        *_FORM_ARITHMETIC_FRACTION_PATTERN.finditer(text),
+        *_STANDALONE_FORM_FRACTION_PATTERN.finditer(text),
+    ):
+        with contextlib.suppress(ValueError, ZeroDivisionError):
+            denominator = float(match.group("denominator"))
+            values.append(float(match.group("numerator")) / denominator)
+            fraction_spans.append(match.span())
+    for match in _FORM_ARITHMETIC_OPERAND_PATTERN.finditer(text):
+        if _span_overlaps(match.span(), fraction_spans):
+            continue
+        with contextlib.suppress(ValueError):
+            value = float(match.group("number").replace(",", ""))
+            values.append(value / 100 if match.group("percent") else value)
+    return values
+
+
+def _extract_contextual_ascii_fraction_values(text: str) -> list[float]:
+    """Extract source-stated factors such as ``1 1/2`` and ``7/8 times``."""
+
+    values: list[float] = []
+    for match in _CONTEXTUAL_ASCII_FRACTION_PATTERN.finditer(text):
+        with contextlib.suppress(ValueError, ZeroDivisionError):
+            whole = float(match.group("whole") or 0)
+            numerator = float(match.group("numerator"))
+            denominator = float(match.group("denominator"))
+            values.append(whole + numerator / denominator)
+    return values
+
+
+def _extract_small_month_range_values(text: str) -> list[float]:
+    """Expand bounded month-count ranges explicitly stated by official tables."""
+
+    values: list[float] = []
+    for match in _SMALL_MONTH_RANGE_PATTERN.finditer(text):
+        start = int(match.group("start"))
+        end = int(match.group("end"))
+        preceding_context = text[max(0, match.start() - 500) : match.start()]
+        row_context = text[match.start() : match.end() + 80]
+        if (
+            0 <= start <= end <= 24
+            and re.search(
+                r"\bmonthly\s+proration\s+table\b",
+                preceding_context,
+                re.IGNORECASE,
+            )
+            and re.search(r"\bline\s+[A-E]\b", row_context, re.IGNORECASE)
+        ):
+            values.extend(float(value) for value in range(start, end + 1))
+    return values
+
+
+def _iter_form_implied_cents_matches(
+    text: str,
+) -> list[tuple[tuple[int, int], float]]:
+    """Match fixed-width form amounts whose decimal separator is omitted."""
+
+    matches: list[tuple[tuple[int, int], float]] = []
+    for match in _FORM_IMPLIED_CENTS_PATTERN.finditer(text):
+        with contextlib.suppress(ValueError):
+            dollars = float(match.group("dollars").replace(",", "").replace(" ", ""))
+            cents = float(match.group("cents"))
+            matches.append((match.span(), dollars + cents / 100))
+    return matches
+
+
 def _extract_vehicle_tax_fiscal_power_table_values(text: str) -> set[float]:
     values: set[float] = set()
     lowered = text.lower()
@@ -4669,15 +4780,20 @@ def _extract_two_line_table_value_occurrences(text: str) -> list[float]:
 
 def extract_numeric_occurrences_from_text(text: str) -> list[float]:
     """Extract substantive numeric occurrences from source text, preserving repeats."""
-    raw_text = text
+    implied_cents_matches = _iter_form_implied_cents_matches(text)
+    raw_text = _FORM_IMPLIED_CENTS_PATTERN.sub(
+        lambda match: " " * len(match.group(0)),
+        text,
+    )
     two_line_table_occurrences = _extract_two_line_table_value_occurrences(text)
-    cleaned = _clean_source_text_for_numeric_extraction(text)
+    cleaned = _clean_source_text_for_numeric_extraction(raw_text)
     collapsed_schedule_occurrences, cleaned = (
         _extract_collapsed_schedule_row_occurrences(cleaned)
     )
 
     occurrences: list[float] = list(two_line_table_occurrences)
     occurrences.extend(collapsed_schedule_occurrences)
+    occurrences.extend(value for _, value in implied_cents_matches)
     spans: list[tuple[int, int]] = []
     cleaned_money_values: list[float] = []
     for span, value in _iter_belgian_numeric_range_endpoint_matches(cleaned):
@@ -4709,6 +4825,9 @@ def extract_numeric_occurrences_from_text(text: str) -> list[float]:
     occurrences.extend(_extract_year_duration_month_values(raw_text))
     occurrences.extend(_extract_dotted_date_year_values(raw_text))
     occurrences.extend(_extract_centime_unit_values(raw_text))
+    occurrences.extend(_extract_form_arithmetic_operand_values(raw_text))
+    occurrences.extend(_extract_contextual_ascii_fraction_values(raw_text))
+    occurrences.extend(_extract_small_month_range_values(raw_text))
 
     for span, value in _iter_normalized_special_numeric_matches(cleaned):
         if _span_overlaps(span, spans):

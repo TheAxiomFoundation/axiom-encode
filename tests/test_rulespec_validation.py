@@ -7371,6 +7371,77 @@ def test_numeric_extraction_handles_uganda_shilling_suffix():
     assert 5.0 in eq and 7.0 in eq
 
 
+def test_numeric_extraction_keeps_official_form_arithmetic_operands():
+    source_text = (
+        "multiplied by $62 = ^\n"
+        "divided by 365 = ^\n"
+        "× $11,000 =\n"
+        "x 11000 =\n"
+        "× 2/3 =\n"
+        "2/3\n"
+    )
+
+    numbers = extract_numbers_from_text(source_text)
+    assert {62.0, 365.0, 11_000.0} <= numbers
+    assert any(math.isclose(value, 2 / 3) for value in numbers)
+    occurrences = extract_numeric_occurrences_from_text(source_text)
+    assert 62.0 in occurrences
+    assert 365.0 in occurrences
+    assert 11_000.0 in occurrences
+    assert any(math.isclose(value, 2 / 3) for value in occurrences)
+    assert 202.0 not in extract_numbers_from_text("tax 2025 and Box 2025")
+
+
+def test_numeric_extraction_still_ignores_bare_table_key_assignments():
+    assert 62.0 not in extract_numbers_from_text("62 = table row")
+
+
+def test_numeric_extraction_expands_bounded_official_month_ranges():
+    source_text = (
+        "The monthly proration table gives line B maximum earnings. "
+        "For 1 through 12 months, line B is $5,941.67."
+    )
+
+    assert set(range(1, 13)) <= extract_numbers_from_text(source_text)
+    assert set(range(1, 13)) <= set(extract_numeric_occurrences_from_text(source_text))
+    assert 13.0 not in extract_numbers_from_text(
+        "The monthly proration table gives line B. For 1 through 25 months, line B"
+    )
+    assert 7.0 not in extract_numbers_from_text(
+        "Benefits are payable within 1 through 12 months."
+    )
+
+
+def test_numeric_extraction_accepts_contextual_ascii_factors():
+    source_text = (
+        "The relevant factors are 1 1/2 (Class 54) and 7/8 (Class 55). "
+        "Multiply by 2 1/3 times the net addition and 1/2 for RIIP."
+    )
+
+    expected = {1.5, 0.875, 2 + 1 / 3, 0.5}
+    assert expected <= extract_numbers_from_text(source_text)
+    occurrences = extract_numeric_occurrences_from_text(source_text)
+    assert all(
+        any(math.isclose(actual, value) for actual in occurrences) for value in expected
+    )
+    assert 0.875 not in extract_numbers_from_text("See sections 7/8 and 10.")
+
+
+def test_numeric_extraction_accepts_fixed_width_form_cents_cells():
+    source_text = "000 00\n\n196 50\n\n=\nAmount from line 83"
+
+    numbers = extract_numbers_from_text(source_text)
+    assert 196.5 in numbers
+    assert 196.0 not in numbers
+    assert 50.0 not in numbers
+    occurrences = extract_numeric_occurrences_from_text(source_text)
+    assert 196.5 in occurrences
+    assert 196.0 not in occurrences
+    assert 50.0 not in occurrences
+    assert 196.5 not in extract_numbers_from_text("The values are 196 50 people")
+    assert 196.5 not in extract_numbers_from_text("196 50\n\n\n\n=")
+
+
 @pytest.mark.parametrize(
     "source_text",
     [
