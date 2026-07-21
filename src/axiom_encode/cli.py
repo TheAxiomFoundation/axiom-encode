@@ -18379,6 +18379,7 @@ def _applied_encoding_manifest_signature_issue(
             keyring,
             domain=_SIGNATURE_DOMAIN_PREFIX + signature_scope.encode("ascii") + b"\x00",
             label="encoder apply manifest",
+            allow_legacy=False,
         )
     except receipt.sign.SignError:
         return "has an invalid encoder apply manifest signature"

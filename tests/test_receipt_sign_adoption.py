@@ -141,6 +141,9 @@ def test_apply_verification_delegates_exact_inputs_to_receipt(monkeypatch) -> No
     assert kwargs == {
         "domain": canonical_signing_message("apply_ed25519", b""),
         "label": "encoder apply manifest",
+        # The apply keyring declares no legacy generations; new-material
+        # verification states that explicitly (receipt 0.3.0 requires it).
+        "allow_legacy": False,
     }
 
 
