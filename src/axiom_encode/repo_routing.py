@@ -809,19 +809,23 @@ def _git_config_input_paths(root: str) -> tuple[Path, ...]:
             f"Could not parse Git configuration inputs for {root}",
             category="invalid-output",
         )
+    custom_config_environment = {
+        name
+        for name in ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM")
+        if name in os.environ
+    }
+    if custom_config_environment:
+        raise _GitProbeError(
+            f"Custom Git configuration environment observed for {root}",
+            category="custom-config-environment",
+        )
     inputs: set[Path] = set()
-    for environment_name in ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"):
-        raw_path = os.environ.get(environment_name)
-        if raw_path is None:
-            continue
-        config_path = _git_config_file_path(root, raw_path)
-        if config_path is None:
-            raise _GitProbeError(
-                f"Could not resolve {environment_name} for {root}",
-                category="invalid-config-path",
-            )
-        inputs.add(config_path)
     for origin, setting in zip(fields[::2], fields[1::2], strict=True):
+        if not origin.startswith("file:"):
+            raise _GitProbeError(
+                f"Non-file Git configuration observed for {root}",
+                category="non-file-config",
+            )
         key, separator, value = setting.partition("\n")
         normalized_key = key.casefold()
         is_include = separator and (
@@ -831,13 +835,6 @@ def _git_config_input_paths(root: str) -> tuple[Path, ...]:
                 and normalized_key.endswith(".path")
             )
         )
-        if not origin.startswith("file:"):
-            if is_include:
-                raise _GitProbeError(
-                    f"Non-file Git configuration include observed for {root}",
-                    category="non-file-include",
-                )
-            continue
         origin_path = _git_config_file_path(root, origin.removeprefix("file:"))
         if origin_path is None:
             raise _GitProbeError(

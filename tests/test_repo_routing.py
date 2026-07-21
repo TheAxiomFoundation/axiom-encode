@@ -429,21 +429,72 @@ def test_routing_cache_retries_config_inputs_mutated_during_discovery(
         assert canonical_rulespec_root_identity(policy_root) is None
 
 
-def test_routing_cache_tracks_missing_custom_global_config(monkeypatch, tmp_path):
+def test_routing_cache_disables_custom_global_config_path_switch(
+    monkeypatch,
+    tmp_path,
+):
     checkout = tmp_path / "rulespec-us"
     _init_checkout(checkout, "https://github.com/TheAxiomFoundation/rulespec-us.git")
     policy_root = checkout / "us"
     policy_root.mkdir()
-    global_config = tmp_path / "custom-global.conf"
-    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(global_config))
+    initial_global = tmp_path / "initial-global.conf"
+    replacement_global = tmp_path / "replacement-global.conf"
+    initial_global.write_text("", encoding="utf-8")
+    replacement_global.write_text(
+        '[url "https://example.com/not-us.git"]\n'
+        "\tinsteadOf = https://github.com/TheAxiomFoundation/rulespec-us.git\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(initial_global))
 
-    with _rulespec_routing_cache_scope():
+    with _rulespec_routing_cache_scope() as cache:
         assert canonical_rulespec_root_identity(policy_root) == "rulespec-us/us"
-        global_config.write_text(
-            '[url "https://example.com/not-us.git"]\n'
-            "\tinsteadOf = https://github.com/TheAxiomFoundation/rulespec-us.git\n",
-            encoding="utf-8",
+        assert cache.checkout_inspections == {}
+        monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(replacement_global))
+        assert canonical_rulespec_root_identity(policy_root) is None
+
+
+@pytest.mark.parametrize(
+    ("config_key", "initial_value", "replacement_value"),
+    [
+        (
+            "remote.origin.url",
+            "https://github.com/TheAxiomFoundation/rulespec-us.git",
+            "https://example.com/not-us.git",
+        ),
+        (
+            "url.https://example.com/not-us.git.insteadOf",
+            "https://unused.example/",
+            "https://github.com/TheAxiomFoundation/rulespec-us.git",
+        ),
+    ],
+)
+def test_routing_cache_disables_mutable_command_scoped_git_config(
+    monkeypatch,
+    tmp_path,
+    config_key,
+    initial_value,
+    replacement_value,
+):
+    checkout = tmp_path / "rulespec-us"
+    _init_checkout(checkout, "https://github.com/TheAxiomFoundation/rulespec-us.git")
+    policy_root = checkout / "us"
+    policy_root.mkdir()
+    if config_key == "remote.origin.url":
+        subprocess.run(
+            ["git", "config", "--local", "--unset-all", "remote.origin.url"],
+            cwd=checkout,
+            check=True,
+            capture_output=True,
         )
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", config_key)
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", initial_value)
+
+    with _rulespec_routing_cache_scope() as cache:
+        assert canonical_rulespec_root_identity(policy_root) == "rulespec-us/us"
+        assert cache.checkout_inspections == {}
+        monkeypatch.setenv("GIT_CONFIG_VALUE_0", replacement_value)
         assert canonical_rulespec_root_identity(policy_root) is None
 
 
@@ -457,8 +508,9 @@ def test_routing_cache_disables_command_scoped_git_include(monkeypatch, tmp_path
     monkeypatch.setenv("GIT_CONFIG_KEY_0", "include.path")
     monkeypatch.setenv("GIT_CONFIG_VALUE_0", str(include_path))
 
-    with _rulespec_routing_cache_scope():
+    with _rulespec_routing_cache_scope() as cache:
         assert canonical_rulespec_root_identity(policy_root) == "rulespec-us/us"
+        assert cache.checkout_inspections == {}
         include_path.write_text(
             '[url "https://example.com/not-us.git"]\n'
             "\tinsteadOf = https://github.com/TheAxiomFoundation/rulespec-us.git\n",
