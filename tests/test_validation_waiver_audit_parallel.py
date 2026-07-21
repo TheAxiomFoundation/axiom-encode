@@ -74,6 +74,9 @@ def test_worker_count_env_override(monkeypatch):
     assert cli._waiver_audit_worker_count(100) == 1
     monkeypatch.setenv(cli._WAIVER_AUDIT_WORKERS_ENV, "1")
     assert cli._waiver_audit_worker_count(100) == 1
+    # Overrides are hard-capped so a hostile value cannot fork-bomb the runner.
+    monkeypatch.setenv(cli._WAIVER_AUDIT_WORKERS_ENV, "3109")
+    assert cli._waiver_audit_worker_count(3109) == cli._WAIVER_AUDIT_WORKERS_MAX
 
 
 @pytest.mark.parametrize("raw", ["-1", "many"])
@@ -154,7 +157,24 @@ def test_parallel_detects_lost_results(monkeypatch):
             for path in piece
         ]
         _FakePool.chunk_results[piece[0]] = rows[:-1] if start == 0 else rows
-    with pytest.raises(RuntimeError, match="lost module results"):
+    with pytest.raises(RuntimeError, match="corrupted module set"):
+        _run_parallel(paths, monkeypatch)
+
+
+def test_parallel_detects_duplicate_masking_missing(monkeypatch):
+    # Same cardinality, wrong multiset: one path duplicated, one omitted.
+    paths = [f"us/{index:03d}.yaml" for index in range(20)]
+    chunk = max(8, -(-len(paths) // (2 * 8)))
+    for start in range(0, len(paths), chunk):
+        piece = paths[start : start + chunk]
+        rows = [
+            {"path": path, "passed": False, "fingerprint": f"fp-{path}"}
+            for path in piece
+        ]
+        if start == 0:
+            rows[-1] = dict(rows[0])
+        _FakePool.chunk_results[piece[0]] = rows
+    with pytest.raises(RuntimeError, match="duplicated"):
         _run_parallel(paths, monkeypatch)
 
 

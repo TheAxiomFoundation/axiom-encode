@@ -3015,6 +3015,7 @@ def _fingerprint_validation_waiver_modules(
 
 
 _WAIVER_AUDIT_WORKERS_ENV = "AXIOM_ENCODE_WAIVER_AUDIT_WORKERS"
+_WAIVER_AUDIT_WORKERS_MAX = 32
 
 
 def _waiver_audit_worker_count(module_count: int) -> int:
@@ -3029,7 +3030,7 @@ def _waiver_audit_worker_count(module_count: int) -> int:
             ) from exc
         if configured < 0:
             raise ValueError(f"{_WAIVER_AUDIT_WORKERS_ENV} must not be negative")
-        workers = configured or 1
+        workers = min(configured or 1, _WAIVER_AUDIT_WORKERS_MAX)
     else:
         workers = min(8, os.cpu_count() or 1)
     return max(1, min(workers, module_count))
@@ -3129,10 +3130,19 @@ def _fingerprint_validation_waiver_modules_parallel(
         for future in futures:
             results.extend(future.result())
 
-    if len(results) != len(ordered):
+    returned = sorted(result["path"] for result in results)
+    if returned != ordered:
+        expected_set = set(ordered)
+        returned_set = set(returned)
+        missing = sorted(expected_set - returned_set)[:5]
+        unexpected = sorted(returned_set - expected_set)[:5]
+        duplicated = sorted(
+            {path for path in returned_set if returned.count(path) > 1}
+        )[:5]
         raise RuntimeError(
-            "validation waiver audit lost module results across workers: "
-            f"expected {len(ordered)}, got {len(results)}"
+            "validation waiver audit workers returned a corrupted module set: "
+            f"expected {len(ordered)}, got {len(returned)}; "
+            f"missing={missing} unexpected={unexpected} duplicated={duplicated}"
         )
     return sorted(results, key=lambda result: result["path"])
 
