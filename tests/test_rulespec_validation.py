@@ -1002,6 +1002,172 @@ def test_rulespec_target_resolution_ignores_cwd_and_sibling_checkouts(
     )
 
 
+def test_rulespec_resolution_cache_audits_checkout_once_per_scope(
+    monkeypatch,
+    tmp_path,
+):
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us")
+    original_walk = os.walk
+    walked_roots = []
+
+    def counting_walk(root, *args, **kwargs):
+        walked_roots.append(Path(root))
+        return original_walk(root, *args, **kwargs)
+
+    monkeypatch.setattr(validator_pipeline.os, "walk", counting_walk)
+
+    with validator_pipeline._rulespec_resolution_cache_scope():
+        assert (
+            validator_pipeline._rulespec_checkout_root_for_active_path(policy_repo)
+            == policy_repo.parent
+        )
+        assert (
+            validator_pipeline._rulespec_checkout_root_for_active_path(policy_repo)
+            == policy_repo.parent
+        )
+
+    assert walked_roots == [policy_repo.parent]
+
+    validator_pipeline._rulespec_checkout_root_for_active_path(policy_repo)
+    assert walked_roots == [policy_repo.parent, policy_repo.parent]
+
+
+def test_rulespec_resolution_cache_retries_rejected_symlink_audit(tmp_path):
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    unsafe = policy_repo / "unsafe"
+    unsafe.symlink_to(outside, target_is_directory=True)
+
+    with validator_pipeline._rulespec_resolution_cache_scope():
+        with pytest.raises(
+            validator_pipeline.UnsafeRulespecContextPath,
+            match="contains a symlink",
+        ):
+            validator_pipeline._rulespec_checkout_root_for_active_path(policy_repo)
+        unsafe.unlink()
+        assert (
+            validator_pipeline._rulespec_checkout_root_for_active_path(policy_repo)
+            == policy_repo.parent
+        )
+
+
+@pytest.mark.parametrize("replace_existing", [False, True])
+def test_rulespec_resolution_cache_invalidates_added_or_replaced_symlink(
+    tmp_path,
+    replace_existing,
+):
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us")
+    nested = policy_repo / "statutes/1"
+    nested.mkdir(parents=True)
+    candidate = nested / "unsafe.yaml"
+    if replace_existing:
+        candidate.write_text("format: rulespec/v1\nrules: []\n", encoding="utf-8")
+    outside = tmp_path / "outside.yaml"
+    outside.write_text("outside\n", encoding="utf-8")
+
+    with validator_pipeline._rulespec_resolution_cache_scope():
+        assert (
+            validator_pipeline._rulespec_checkout_root_for_active_path(policy_repo)
+            == policy_repo.parent
+        )
+        if replace_existing:
+            candidate.unlink()
+        candidate.symlink_to(outside)
+        with pytest.raises(
+            validator_pipeline.UnsafeRulespecContextPath,
+            match="contains a symlink",
+        ):
+            validator_pipeline._rulespec_checkout_root_for_active_path(policy_repo)
+
+
+def test_rulespec_resolution_cache_reuses_target_lookup_inside_scope(tmp_path):
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us")
+    target = policy_repo / "statutes/1/target.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text("format: rulespec/v1\nrules: []\n")
+    target_ref = validator_pipeline._parse_rulespec_target("us:statutes/1/target")
+
+    assert target_ref is not None
+    with patch.object(
+        validator_pipeline,
+        "_candidate_rulespec_repo_roots",
+        wraps=validator_pipeline._candidate_rulespec_repo_roots,
+    ) as candidates:
+        with validator_pipeline._rulespec_resolution_cache_scope():
+            assert (
+                validator_pipeline._resolve_rulespec_target_file(
+                    target_ref,
+                    policy_repo,
+                )
+                == target
+            )
+            assert (
+                validator_pipeline._resolve_rulespec_target_file(
+                    target_ref,
+                    policy_repo,
+                )
+                == target
+            )
+
+    candidates.assert_called_once()
+
+
+def test_rulespec_resolution_cache_does_not_cache_missing_target(tmp_path):
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us")
+    target = policy_repo / "statutes/1/target.yaml"
+    target_ref = validator_pipeline._parse_rulespec_target("us:statutes/1/target")
+
+    assert target_ref is not None
+    with validator_pipeline._rulespec_resolution_cache_scope():
+        assert (
+            validator_pipeline._resolve_rulespec_target_file(target_ref, policy_repo)
+            is None
+        )
+        target.parent.mkdir(parents=True)
+        target.write_text("format: rulespec/v1\nrules: []\n", encoding="utf-8")
+        assert (
+            validator_pipeline._resolve_rulespec_target_file(target_ref, policy_repo)
+            == target
+        )
+
+
+def test_rulespec_resolution_cache_invalidates_changed_target_file(tmp_path):
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us")
+    target = policy_repo / "statutes/1/target.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text("format: rulespec/v1\nrules: []\n", encoding="utf-8")
+    target_ref = validator_pipeline._parse_rulespec_target("us:statutes/1/target")
+
+    assert target_ref is not None
+    with patch.object(
+        validator_pipeline,
+        "_candidate_rulespec_repo_roots",
+        wraps=validator_pipeline._candidate_rulespec_repo_roots,
+    ) as candidates:
+        with validator_pipeline._rulespec_resolution_cache_scope():
+            assert (
+                validator_pipeline._resolve_rulespec_target_file(
+                    target_ref,
+                    policy_repo,
+                )
+                == target
+            )
+            target.write_text(
+                "format: rulespec/v1\nmodule:\n  name: changed\nrules: []\n",
+                encoding="utf-8",
+            )
+            assert (
+                validator_pipeline._resolve_rulespec_target_file(
+                    target_ref,
+                    policy_repo,
+                )
+                == target
+            )
+
+    assert candidates.call_count == 2
+
+
 def test_rulespec_target_resolution_rejects_workspace_dependency_root(tmp_path):
     workspace = tmp_path / "dependencies"
     target = workspace / "rulespec-us" / "us" / "statutes/1/target.yaml"

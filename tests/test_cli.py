@@ -4454,6 +4454,67 @@ class TestCmdValidate:
         captured = capsys.readouterr()
         assert "PASSED" in captured.out
 
+    def test_validate_command_reuses_nested_pipeline_admissions(self, tmp_path):
+        import axiom_encode.cli as cli_module
+        from axiom_encode.harness import validator_pipeline
+
+        modules = [self._module(tmp_path, f"cached-{index}.yaml") for index in range(2)]
+        for module in modules:
+            module.write_text("format: rulespec/v1\nrules: []\n", encoding="utf-8")
+        args = SimpleNamespace(
+            files=modules,
+            corpus_path=self.corpus_path,
+            axiom_rules_path=self.axiom_rules_path,
+            rulespec_dependency_root=[],
+            json=False,
+            skip_reviewers=True,
+            oracle=None,
+            min_match=0.95,
+            require_oracle_classification=False,
+        )
+        walked_roots = []
+        original_walk = os.walk
+
+        def counting_walk(root, *walk_args, **walk_kwargs):
+            walked_roots.append(Path(root))
+            return original_walk(root, *walk_args, **walk_kwargs)
+
+        class AdmissionPipeline(validator_pipeline.ValidatorPipeline):
+            def _validate_with_authoritative_roots(
+                self,
+                rulespec_file,
+                skip_reviewers=False,
+            ):
+                validator_pipeline._rulespec_checkout_root_for_active_path(
+                    self.policy_repo_path
+                )
+                return SimpleNamespace(file=rulespec_file, skipped=skip_reviewers)
+
+        def validate_one(
+            validate_args,
+            pipeline,
+            rulespec_file,
+            *,
+            policyengine_runtime,
+        ):
+            assert policyengine_runtime is None
+            pipeline.validate(
+                rulespec_file,
+                skip_reviewers=validate_args.skip_reviewers,
+            )
+            return True, None
+
+        with (
+            patch.object(cli_module, "ValidatorPipeline", AdmissionPipeline),
+            patch.object(cli_module, "_validate_one", side_effect=validate_one),
+            patch.object(validator_pipeline.os, "walk", side_effect=counting_walk),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_validate(args)
+
+        assert exc_info.value.code == 0
+        assert walked_roots == [tmp_path / "rulespec-us"]
+
     def test_validate_real_pipeline_compiles_from_exact_content_root(
         self, capsys, tmp_path
     ):
