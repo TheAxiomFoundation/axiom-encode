@@ -267,10 +267,10 @@ def test_routing_cache_reuses_git_identity_only_inside_bounded_scope(
         assert canonical_rulespec_root_identity(policy_root) == "rulespec-us/us"
         assert canonical_rulespec_root_identity(policy_root) == "rulespec-us/us"
 
-    assert len(git_calls) == 3
+    assert len(git_calls) == 4
 
     assert canonical_rulespec_root_identity(policy_root) == "rulespec-us/us"
-    assert len(git_calls) == 5
+    assert len(git_calls) == 6
 
 
 def test_routing_cache_invalidates_changed_git_origin_inside_scope(tmp_path):
@@ -377,6 +377,56 @@ def test_routing_cache_tracks_missing_conditional_git_include(tmp_path):
         assert inspect_canonical_rulespec_checkout(
             checkout, allow_composition_specs=True
         ) == (None, "git-origin-name-mismatch")
+
+
+def test_routing_cache_retries_config_inputs_mutated_during_discovery(
+    monkeypatch,
+    tmp_path,
+):
+    checkout = tmp_path / "rulespec-us"
+    _init_checkout(checkout, "https://github.com/TheAxiomFoundation/rulespec-us.git")
+    policy_root = checkout / "us"
+    policy_root.mkdir()
+    include_path = tmp_path / "future.conf"
+    from axiom_encode import repo_routing
+
+    original_config_inputs = repo_routing._git_config_input_paths
+    discoveries = 0
+
+    def add_include_after_discovery(root: str):
+        nonlocal discoveries
+        config_inputs = original_config_inputs(root)
+        discoveries += 1
+        if discoveries == 1:
+            subprocess.run(
+                [
+                    "git",
+                    "config",
+                    "--local",
+                    "include.path",
+                    str(include_path),
+                ],
+                cwd=checkout,
+                check=True,
+                capture_output=True,
+            )
+        return config_inputs
+
+    monkeypatch.setattr(
+        repo_routing,
+        "_git_config_input_paths",
+        add_include_after_discovery,
+    )
+
+    with _rulespec_routing_cache_scope():
+        assert canonical_rulespec_root_identity(policy_root) == "rulespec-us/us"
+        assert discoveries == 4
+        include_path.write_text(
+            '[url "https://example.com/not-us.git"]\n'
+            "\tinsteadOf = https://github.com/TheAxiomFoundation/rulespec-us.git\n",
+            encoding="utf-8",
+        )
+        assert canonical_rulespec_root_identity(policy_root) is None
 
 
 def test_routing_cache_invalidates_linked_worktree_config_change(tmp_path):

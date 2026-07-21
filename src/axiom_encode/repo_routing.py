@@ -312,15 +312,24 @@ def _cacheable_checkout_inspection(
 ) -> _CachedCheckoutInspection | None:
     """Cache a successful admission only when its input snapshot stayed stable."""
 
+    try:
+        git_boundary = _nearest_git_boundary(checkout)
+        git_config_inputs = (
+            _git_config_input_paths(str(checkout)) if git_boundary is not None else ()
+        )
+    except _GitProbeError:
+        return None
+    if git_config_inputs != before.git_config_inputs:
+        return None
     after = _checkout_mutation_fingerprint(
         checkout,
-        git_config_inputs=before.git_config_inputs,
+        git_config_inputs=git_config_inputs,
     )
     if after is None or after != before.fingerprint:
         return None
     return _CachedCheckoutInspection(
         inspection=inspection,
-        git_config_inputs=before.git_config_inputs,
+        git_config_inputs=git_config_inputs,
         fingerprint=after,
     )
 
