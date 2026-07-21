@@ -12,6 +12,7 @@ Self-contained -- no external plugin dependencies.
 """
 
 import argparse
+import concurrent.futures
 import contextlib
 import copy
 import csv
@@ -2906,6 +2907,7 @@ def _fingerprint_validation_waiver_modules(
     corpus_path: Path,
     axiom_rules_path: Path,
     rulespec_dependency_roots: Sequence[Path] = (),
+    corpus_release: LocalCorpusRelease | None = None,
 ) -> list[dict[str, Any]]:
     """Execute validation and companions against one canonical checkout root."""
     root = Path(root).resolve()
@@ -2931,7 +2933,8 @@ def _fingerprint_validation_waiver_modules(
         axiom_rules_path,
         label="Axiom rules engine",
     )
-    corpus_release = load_rulespec_local_corpus_release(root, corpus_path)
+    if corpus_release is None:
+        corpus_release = load_rulespec_local_corpus_release(root, corpus_path)
     pipelines = {
         content_root: ValidatorPipeline(
             policy_repo_path=content_root,
@@ -3009,6 +3012,129 @@ def _fingerprint_validation_waiver_modules(
                 }
             )
     return fingerprints
+
+
+_WAIVER_AUDIT_WORKERS_ENV = "AXIOM_ENCODE_WAIVER_AUDIT_WORKERS"
+
+
+def _waiver_audit_worker_count(module_count: int) -> int:
+    """Resolve the audit's process fan-out; 1 means the serial code path."""
+    raw = os.environ.get(_WAIVER_AUDIT_WORKERS_ENV)
+    if raw is not None:
+        try:
+            configured = int(raw)
+        except ValueError as exc:
+            raise ValueError(
+                f"{_WAIVER_AUDIT_WORKERS_ENV} must be an integer: {raw!r}"
+            ) from exc
+        if configured < 0:
+            raise ValueError(f"{_WAIVER_AUDIT_WORKERS_ENV} must not be negative")
+        workers = configured or 1
+    else:
+        workers = min(8, os.cpu_count() or 1)
+    return max(1, min(workers, module_count))
+
+
+def _fingerprint_waiver_chunk(
+    paths: list[str],
+    root: str,
+    corpus_path: str,
+    axiom_rules_path: str,
+    rulespec_dependency_roots: tuple[str, ...],
+    release_identity: tuple[str, str, str, str],
+) -> list[dict[str, Any]]:
+    """Worker entrypoint: fingerprint one chunk against a pre-attested release.
+
+    The parent process resolved the release identity through the trusted
+    signing broker; workers re-verify the signed release object against that
+    same public key and never hold any signing capability.
+    """
+    corpus_root, release_name, content_sha256, public_key = release_identity
+    corpus_release = LocalCorpusRelease(
+        Path(corpus_root),
+        release_name,
+        content_sha256,
+        public_key,
+    )
+    return _fingerprint_validation_waiver_modules(
+        [Path(path) for path in paths],
+        root=Path(root),
+        corpus_path=Path(corpus_path),
+        axiom_rules_path=Path(axiom_rules_path),
+        rulespec_dependency_roots=tuple(
+            Path(path) for path in rulespec_dependency_roots
+        ),
+        corpus_release=corpus_release,
+    )
+
+
+def _fingerprint_validation_waiver_modules_parallel(
+    modules: list[Path],
+    *,
+    root: Path,
+    corpus_path: Path,
+    axiom_rules_path: Path,
+    rulespec_dependency_roots: Sequence[Path] = (),
+) -> list[dict[str, Any]]:
+    """Fingerprint waiver modules across worker processes.
+
+    Each worker runs the unchanged serial executor over a contiguous slice of
+    the sorted module list with its own pipelines, temporary directory, and
+    compile cache; fingerprints are stable across the split because outcome
+    canonicalization replaces every process-specific path. A worker failure
+    fails the whole audit; results are re-sorted so output order matches the
+    serial code path exactly.
+    """
+    ordered = sorted(str(module) for module in modules)
+    workers = _waiver_audit_worker_count(len(ordered))
+    if workers <= 1:
+        return _fingerprint_validation_waiver_modules(
+            [Path(module) for module in ordered],
+            root=root,
+            corpus_path=corpus_path,
+            axiom_rules_path=axiom_rules_path,
+            rulespec_dependency_roots=rulespec_dependency_roots,
+        )
+
+    corpus_release = load_rulespec_local_corpus_release(
+        Path(root).resolve(), corpus_path
+    )
+    release_identity = (
+        str(corpus_release.root),
+        corpus_release.name,
+        corpus_release.content_sha256,
+        corpus_release.public_key,
+    )
+    chunk_size = max(8, math.ceil(len(ordered) / (workers * 8)))
+    chunks = [
+        ordered[start : start + chunk_size]
+        for start in range(0, len(ordered), chunk_size)
+    ]
+    dependency_roots = tuple(str(path) for path in rulespec_dependency_roots)
+
+    results: list[dict[str, Any]] = []
+    with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as pool:
+        futures = [
+            pool.submit(
+                _fingerprint_waiver_chunk,
+                chunk,
+                str(root),
+                str(corpus_path),
+                str(axiom_rules_path),
+                dependency_roots,
+                release_identity,
+            )
+            for chunk in chunks
+        ]
+        for future in futures:
+            results.extend(future.result())
+
+    if len(results) != len(ordered):
+        raise RuntimeError(
+            "validation waiver audit lost module results across workers: "
+            f"expected {len(ordered)}, got {len(results)}"
+        )
+    return sorted(results, key=lambda result: result["path"])
 
 
 def _validation_waiver_repo_relative_path(raw: str, *, label: str) -> str:
@@ -3166,7 +3292,7 @@ def _cmd_validation_waivers_audit(args) -> int:
             missing_required.add(path)
 
     executed = (
-        _fingerprint_validation_waiver_modules(
+        _fingerprint_validation_waiver_modules_parallel(
             executable_paths,
             root=root,
             corpus_path=args.corpus_path,

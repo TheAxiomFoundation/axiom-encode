@@ -91,6 +91,13 @@ def _reset_fake_pipeline():
     _FakePipeline.validate_error = None
 
 
+@pytest.fixture(autouse=True)
+def _serial_waiver_audit(monkeypatch):
+    # These tests fake the validator pipeline in-process; worker processes
+    # cannot see those patches, so pin the audit to its serial code path.
+    monkeypatch.setenv(cli._WAIVER_AUDIT_WORKERS_ENV, "1")
+
+
 def _engine(tmp_path: Path) -> Path:
     engine = tmp_path / "engine"
     engine.mkdir()
