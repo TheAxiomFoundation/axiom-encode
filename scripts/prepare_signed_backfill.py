@@ -11,6 +11,9 @@ from pathlib import Path, PurePosixPath
 
 COUNTRY_PATTERN = re.compile(r"[a-z]{2}")
 MANIFEST_ROOT = PurePosixPath(".axiom/encoding-manifests")
+RULESPEC_ATOMIC_ROOTS = frozenset(
+    {"legislation", "policies", "regulations", "statutes"}
+)
 
 
 def validate_country(value: str) -> str:
@@ -54,6 +57,20 @@ def _safe_relative_path(value: object, *, label: str) -> PurePosixPath:
     return path
 
 
+def _validate_rulespec_path(repo: Path, path: PurePosixPath, *, label: str) -> None:
+    repo_prefix = "rulespec-"
+    if not repo.name.startswith(repo_prefix):
+        raise ValueError("repository directory must use the rulespec-<country> name")
+    country = validate_country(repo.name.removeprefix(repo_prefix))
+    if (
+        len(path.parts) < 3
+        or (path.parts[0] != country and not path.parts[0].startswith(f"{country}-"))
+        or path.parts[1] not in RULESPEC_ATOMIC_ROOTS
+        or path.suffix != ".yaml"
+    ):
+        raise ValueError(f"{label} is not a canonical RuleSpec YAML path")
+
+
 def authorized_changed_paths(repo: Path) -> set[PurePosixPath]:
     changed = _changed_paths(repo)
     manifests = {
@@ -78,10 +95,11 @@ def authorized_changed_paths(repo: Path) -> set[PurePosixPath]:
         for index, entry in enumerate(applied_files):
             if not isinstance(entry, dict):
                 raise ValueError(f"{relative} applied_files[{index}] is malformed")
+            label = f"{relative} applied_files[{index}].path"
+            applied_path = _safe_relative_path(entry.get("path"), label=label)
+            _validate_rulespec_path(repo, applied_path, label=label)
             authorized.add(
-                _safe_relative_path(
-                    entry.get("path"), label=f"{relative} applied_files[{index}].path"
-                )
+                applied_path
             )
 
     unexpected = changed - authorized

@@ -83,6 +83,22 @@ def test_stage_authorized_changes_rejects_unexpected_file(tmp_path: Path) -> Non
     assert _git(repo, "diff", "--cached", "--name-only") == ""
 
 
+def test_stage_rejects_manifest_authorizing_non_rulespec_path(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    _rule, manifest = _write_signed_change(repo)
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    payload["applied_files"] = [{"path": ".github/workflows/pwn.yml"}]
+    manifest.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+    unexpected = repo / ".github/workflows/pwn.yml"
+    unexpected.parent.mkdir(parents=True)
+    unexpected.write_text("name: unexpected\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="not a canonical RuleSpec YAML path"):
+        stage_authorized_changes(repo)
+
+    assert _git(repo, "diff", "--cached", "--name-only") == ""
+
+
 def test_rerun_attempt_uses_recoverable_distinct_branch() -> None:
     first = branch_name("us", "12345", "1")
     rerun = branch_name("us", "12345", "2")
