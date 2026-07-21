@@ -1758,7 +1758,8 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     country_step = next(
         step for step in steps if step.get("name") == "Validate country routing input"
     )
-    assert "^[a-z]{2}$" in country_step["run"]
+    assert "prepare_signed_backfill.py" in country_step["run"]
+    assert 'validate-country "$COUNTRY"' in country_step["run"]
     assert steps.index(country_step) < next(
         index
         for index, step in enumerate(steps)
