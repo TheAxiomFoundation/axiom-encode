@@ -20188,9 +20188,7 @@ def _resolve_rulespec_target_file(
     rulespec_dependency_roots: Iterable[Path] | None = None,
 ) -> Path | None:
     """Resolve a canonical target only through caller-authorized checkouts."""
-    dependency_roots = _effective_rulespec_dependency_roots(
-        rulespec_dependency_roots
-    )
+    dependency_roots = _effective_rulespec_dependency_roots(rulespec_dependency_roots)
     policy_root_key = (
         Path(os.path.abspath(Path(policy_repo_path).expanduser()))
         if policy_repo_path is not None
