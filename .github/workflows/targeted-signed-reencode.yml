@@ -28,6 +28,11 @@ on:
         description: Validator or independent-review finding to address
         required: false
         type: string
+      open_pr:
+        description: Commit, push, and open a draft RuleSpec pull request
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -473,6 +478,7 @@ jobs:
           test -s "$artifact/status.txt"
 
       - name: Commit reviewed lane changes locally
+        if: ${{ inputs.open_pr }}
         env:
           COUNTRY: ${{ inputs.country }}
           CITATION: ${{ inputs.citation }}
@@ -491,6 +497,7 @@ jobs:
             commit -m "Add signed encoding manifest for ${CITATION}"
 
       - name: Push lane branch and open draft pull request
+        if: ${{ inputs.open_pr }}
         env:
           GH_TOKEN: ${{ secrets.AXIOM_REPO_TOKEN }}
           COUNTRY: ${{ inputs.country }}

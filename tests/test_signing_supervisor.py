@@ -1748,6 +1748,8 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         "default": "us",
         "type": "string",
     }
+    assert inputs["open_pr"]["type"] == "boolean"
+    assert inputs["open_pr"]["default"] is False
 
     job = workflow["jobs"]["encode"]
     assert job["environment"] == "production-signing"
@@ -1897,13 +1899,12 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         for step in steps
         if step.get("name") == "Push lane branch and open draft pull request"
     )
+    assert publish_step["if"] == "${{ inputs.open_pr }}"
     assert publish_step["env"]["GH_TOKEN"] == "${{ secrets.AXIOM_REPO_TOKEN }}"
     assert "AXIOM_ENCODE_APPLY_SIGNING_KEY" not in publish_step["env"]
     publish_command = publish_step["run"]
     assert 'repo="TheAxiomFoundation/rulespec-${COUNTRY}"' in publish_command
-    assert 'branch="axiom/signed-backfill-${COUNTRY}-${GITHUB_RUN_ID}"' in (
-        publish_command
-    )
+    assert '"$COUNTRY" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"' in publish_command
     assert "core.hooksPath=/dev/null" in publish_command
     assert '"HEAD:refs/heads/${branch}"' in publish_command
     assert "gh api --method POST" in publish_command
