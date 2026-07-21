@@ -1797,7 +1797,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     }
     release_command = release_step["run"]
     assert "materialize_corpus_release.py" in release_command
-    assert '$RULESPEC_CHECKOUT/.axiom/toolchain.toml' in release_command
+    assert "$RULESPEC_CHECKOUT/.axiom/toolchain.toml" in release_command
     assert 'pin --toolchain "$toolchain"' in release_command
     assert 'mktemp "$RUNNER_TEMP/' in release_command
     assert "/rest/v1/release_objects?select=release_object" in release_command
