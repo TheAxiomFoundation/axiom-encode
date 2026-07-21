@@ -481,7 +481,8 @@ jobs:
           set -euo pipefail
           branch="axiom/signed-backfill-${COUNTRY}-${GITHUB_RUN_ID}"
           git -C "$RULESPEC_CHECKOUT" switch -c "$branch"
-          git -C "$RULESPEC_CHECKOUT" -c core.hooksPath=/dev/null add --all
+          python axiom-encode/scripts/prepare_signed_backfill.py stage \
+            "$RULESPEC_CHECKOUT"
           git -C "$RULESPEC_CHECKOUT" \
             -c core.hooksPath=/dev/null \
             -c user.name=axiom-encode-bot \
