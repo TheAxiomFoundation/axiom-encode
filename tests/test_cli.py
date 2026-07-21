@@ -49,6 +49,7 @@ from axiom_encode.cli import (
     _apply_generated_encoding_result,
     _build_eval_suite_payload,
     _build_eval_suite_report,
+    _canonical_rulespec_compile_path,
     _changed_manifest_group_files,
     _collapse_additive_versioned_derived_formulas,
     _complete_missing_dependent_test_inputs,
@@ -183,6 +184,7 @@ from axiom_encode.cli import (
     _try_repair_generated_invalid_source_relation_types_for_apply,
     _try_repair_generated_judgment_conditionals_for_apply,
     _try_repair_generated_judgment_numeric_comparisons_for_apply,
+    _try_repair_generated_judgment_positive_tests_for_apply,
     _try_repair_generated_missing_data_relations_for_apply,
     _try_repair_generated_missing_deferred_outputs_for_apply,
     _try_repair_generated_missing_same_section_subsection_imports_for_apply,
@@ -7666,6 +7668,10 @@ class TestCmdEncode:
             patch(
                 "axiom_encode.cli._git_checkout_execution_identity",
                 side_effect=test_git_checkout_identity,
+            ),
+            patch(
+                "axiom_encode.cli._rulespec_companion_test_failures",
+                return_value=[],
             ),
         ):
             from axiom_encode.toolchain import (
@@ -20082,6 +20088,87 @@ rules:
         ]
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
+
+    def test_apply_judgment_positive_repair_checks_generated_pair_in_overlay(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        runner = "openai-gpt-5.6-terra"
+        relative_output = Path(
+            "regulations/dir-1021-2024/vat-electricity-water-exemption-directive.yaml"
+        )
+        rules_file = output_root / runner / relative_output
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: electricity_and_water_supply_is_exempt
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '2026-01-01'
+        formula: receives_electricity and receives_water
+"""
+        )
+        test_file = rules_file.with_name(
+            "vat-electricity-water-exemption-directive.test.yaml"
+        )
+        test_file.write_text("[]\n")
+        policy_repo = _canonical_rulespec_content_root(tmp_path, "et")
+        result = SimpleNamespace(runner=runner, output_file=str(rules_file))
+        target = (
+            "et:regulations/dir-1021-2024/"
+            "vat-electricity-water-exemption-directive"
+            "#electricity_and_water_supply_is_exempt"
+        )
+        checked: dict[str, Path] = {}
+
+        with pytest.raises(UnsafeRulespecContextPath):
+            _canonical_rulespec_compile_path(rules_file, policy_repo)
+
+        def check_companion(staged_test_file, *, root, axiom_rules_path):
+            staged_rules_file = staged_test_file.with_name(
+                "vat-electricity-water-exemption-directive.yaml"
+            )
+            checked["rules"] = _canonical_rulespec_compile_path(
+                staged_rules_file,
+                root,
+            )
+            checked["test"] = staged_test_file.resolve()
+            checked["root"] = root.resolve()
+            [case] = yaml.safe_load(staged_test_file.read_text())
+            assert case["output"] == {target: "holds"}
+            return []
+
+        with patch(
+            "axiom_encode.cli._rulespec_companion_test_failures",
+            side_effect=check_companion,
+        ):
+            repaired = _try_repair_generated_judgment_positive_tests_for_apply(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+                issues=[
+                    "Judgment rule missing positive companion output coverage: "
+                    f"`{target}` is not asserted as `holds` by the companion "
+                    "`.test.yaml` file."
+                ],
+            )
+
+        assert repaired == ["auto_positive_electricity_and_water_supply_is_exempt"]
+        assert checked["rules"].is_relative_to(checked["root"])
+        assert checked["test"].is_relative_to(checked["root"])
+        assert checked["root"] != policy_repo.resolve()
+        assert not (policy_repo / relative_output).exists()
+        [case] = yaml.safe_load(test_file.read_text())
+        assert case["input"] == {
+            "et:regulations/dir-1021-2024/"
+            "vat-electricity-water-exemption-directive#input.receives_electricity": True,
+            "et:regulations/dir-1021-2024/"
+            "vat-electricity-water-exemption-directive#input.receives_water": True,
+        }
+        assert case["output"] == {target: "holds"}
 
     def test_imported_output_repair_satisfies_positive_judgment_composition(
         self, tmp_path

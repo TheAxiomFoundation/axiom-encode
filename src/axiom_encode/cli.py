@@ -32829,14 +32829,58 @@ def _try_repair_generated_judgment_positive_tests_for_apply(
 
     rules_file = Path(str(getattr(result, "output_file", "") or ""))
     test_file = _rulespec_test_path(rules_file)
-    return _append_generated_judgment_positive_tests_if_missing(
-        rules_file=rules_file,
-        test_file=test_file,
-        repo_path=policy_repo_path,
-        axiom_rules_path=axiom_rules_path,
-        relative_output=relative_output,
-        issues=issues,
+    policy_content_root = _rulespec_apply_content_root(
+        policy_repo_path,
+        relative_output,
     )
+    policy_checkout_path = _rulespec_apply_checkout_root(
+        policy_repo_path,
+        relative_output,
+    )
+    with tempfile.TemporaryDirectory() as tmpdir:
+        overlay_parent = Path(tmpdir).resolve(strict=True)
+        overlay_checkout = overlay_parent / policy_checkout_path.name
+        _stage_apply_overlay_dependency_root(
+            source=policy_checkout_path,
+            target=overlay_checkout,
+        )
+        overlay_content_root = overlay_checkout / policy_content_root.name
+        if canonical_rulespec_root_identity(overlay_content_root) is None:
+            raise ValueError(
+                "Judgment test repair overlay did not preserve the canonical "
+                f"RuleSpec jurisdiction root: {overlay_content_root}"
+            )
+        overlay_rules_file = overlay_content_root / relative_output
+        overlay_rules_file.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(rules_file, overlay_rules_file)
+        overlay_test_file = _rulespec_test_path(overlay_rules_file)
+
+        def check_generated_test(
+            generated_test_file: Path,
+            *,
+            root: Path,
+            axiom_rules_path: Path,
+        ) -> list[dict[str, str | None]]:
+            if Path(root).resolve() != Path(policy_repo_path).resolve():
+                raise ValueError(
+                    "Judgment test repair checker received an unexpected policy root"
+                )
+            shutil.copy2(generated_test_file, overlay_test_file)
+            return _rulespec_companion_test_failures(
+                overlay_test_file,
+                root=overlay_content_root,
+                axiom_rules_path=axiom_rules_path,
+            )
+
+        return _append_generated_judgment_positive_tests_if_missing(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=policy_repo_path,
+            axiom_rules_path=axiom_rules_path,
+            relative_output=relative_output,
+            issues=issues,
+            test_failure_checker=check_generated_test,
+        )
 
 
 def _only_pending_judgment_positive_output_coverage_issues(
