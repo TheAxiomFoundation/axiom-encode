@@ -2,11 +2,13 @@
 
 ## State
 
-In progress. The verify-side shim, exact dependency pin, dedicated equivalence
-tests, and changelog fragment are implemented. Focused and full validation plus
-the required independent review-fix cycle remain. No configured final-report
-output path exists, so the report will be written outside the repository under
-`/private/tmp` at handoff.
+Implementation and validation are complete within the binding allowed-file
+scope. Handoff is blocked on one repository provenance requirement: the changed
+encoder paths must be behind a version bump, but a valid bump must also change
+`src/axiom_encode/__init__.py`, which this task explicitly forbids touching.
+Independent reviewers reproduced the conflict and found no other correctness
+issue. No configured final-report output path exists, so the report will be
+written outside the repository under `/private/tmp` at handoff.
 
 ## Done
 
@@ -32,8 +34,38 @@ output path exists, so the report will be written outside the repository under
   unchanged envelope/trust-root issue class and relevant check ordering.
 - Added the `ops#3` changelog fragment without claiming a trust-model change.
 - Ran the new test file against the installed receipt 0.2.0 wheel: 7 passed.
+- Ran the unchanged focused behavior oracle together with the new tests:
+  16 passed.
+- Ran repository lint, formatting, and compilation checks: Ruff check passed,
+  Ruff format check passed after applying its one-line domain-expression fix,
+  and `compileall` passed.
+- Ran the broadest locally runnable suite. After correcting an isolated test
+  environment that initially imported the parent checkout and rerunning two
+  temp-root-sensitive tests in the normal system temp directory, the runnable
+  tests total 4,427 passed and 31 skipped. Eleven host/provenance nodes cannot
+  pass locally: one task-caused version guard, one set-id semantics check, eight
+  root-owned Homebrew Git/provisioning checks, and one sandboxed `/var/tmp`
+  write check.
+- Reproduced the task-caused guard independently:
+  `test_current_encoder_affecting_changes_are_behind_version_bump` reports that
+  `pyproject.toml`, `src/axiom_encode/cli.py`, and `uv.lock` changed after
+  `fc04012d30d0`. The guard itself requires matching versions in
+  `pyproject.toml`, `src/axiom_encode/__init__.py`, and `uv.lock`.
+- Cross-checked the locked receipt wheel and sdist hashes again against the
+  supplied known-good values; both match exactly.
+- Completed independent code, packaging, and test reviews. All reviewers found
+  the receipt mechanics, domain bytes, issue behavior, tests, hashes, scope,
+  and changelog correct. The packaging review's only actionable formatting
+  finding was fixed and rechecked. The remaining version conflict was confirmed
+  by two reviewers as a blocker requiring a scope decision.
+- Reran the changed-path focused set after the review fix: 10 passed, with Ruff
+  check, Ruff format check, `compileall`, hash assertions, and `git diff --check`
+  all passing.
 
 ## Next
 
-- Rerun the unchanged focused behavior oracle and the repository's full local
-  checks, then complete the independent review-fix cycle.
+- Obtain explicit maintainer/user permission to add the required coordinated
+  version bump in `pyproject.toml`, `src/axiom_encode/__init__.py`, and `uv.lock`,
+  then rerun the provenance guard and the full suite. Without that scope
+  exception, retain this documented blocker and do not mark the branch ready or
+  merge it.

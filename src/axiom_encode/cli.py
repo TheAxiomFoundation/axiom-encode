@@ -18377,11 +18377,7 @@ def _applied_encoding_manifest_signature_issue(
             {receipt_key_id: raw_signature},
             {receipt_key_id: raw_public_key},
             keyring,
-            domain=(
-                _SIGNATURE_DOMAIN_PREFIX
-                + signature_scope.encode("ascii")
-                + b"\x00"
-            ),
+            domain=_SIGNATURE_DOMAIN_PREFIX + signature_scope.encode("ascii") + b"\x00",
             label="encoder apply manifest",
         )
     except receipt.sign.SignError:
