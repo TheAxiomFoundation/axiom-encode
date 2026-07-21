@@ -51,6 +51,7 @@ from axiom_encode.cli import (
     _build_eval_suite_report,
     _canonical_rulespec_compile_path,
     _changed_manifest_group_files,
+    _closest_exact_source_excerpt,
     _collapse_additive_versioned_derived_formulas,
     _complete_missing_dependent_test_inputs,
     _complete_missing_imported_test_inputs,
@@ -191,6 +192,7 @@ from axiom_encode.cli import (
     _try_repair_generated_mixed_missing_deferred_outputs_for_apply,
     _try_repair_generated_negated_comparisons_for_apply,
     _try_repair_generated_negated_sum_where_predicates_for_apply,
+    _try_repair_generated_nonexact_proof_excerpts_for_apply,
     _try_repair_generated_nonoperative_source_coverage_for_apply,
     _try_repair_generated_parameter_only_companion_tests_for_apply,
     _try_repair_generated_scalar_relation_rows_for_apply,
@@ -199,6 +201,7 @@ from axiom_encode.cli import (
     _try_repair_generated_source_relation_delegations_for_apply,
     _try_repair_generated_source_table_band_scalars_for_apply,
     _try_repair_generated_test_input_assignments_for_apply,
+    _try_repair_generated_undeclared_money_units_for_apply,
     _try_repair_generated_unreferenced_percent_label_parameters_for_apply,
     _try_repair_generated_unresolved_local_test_outputs_for_apply,
     _try_repair_generated_unsafe_formula_outputs_for_apply,
@@ -6730,6 +6733,19 @@ rules:
     versions:
       - effective_from: '2026-01-01'
         formula: 0.006
+  - name: legacy_threshold
+    kind: parameter
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: threshold  # generated synonym
+            source:
+              corpus_citation_path: us/statute/26/1
+              excerpt: income exceeds 50000
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 50000
 """.replace("\n", "\r\n")
         expected = (
             original.replace(
@@ -6748,6 +6764,10 @@ rules:
                 "kind: rate  # existing compatibility repair",
                 "kind: parameter  # existing compatibility repair",
             )
+            .replace(
+                "kind: threshold  # generated synonym",
+                "kind: parameter  # generated synonym",
+            )
         )
 
         result = _normalize_invalid_proof_atom_kinds(original)
@@ -6761,6 +6781,7 @@ rules:
             ("indexed_parameter", "custom", "parameter_table"),
             ("derived_formula", "custom", "formula"),
             ("legacy_rate", "rate", "parameter"),
+            ("legacy_threshold", "threshold", "parameter"),
         ]
         assert [
             (issue.rule, issue.atom_index, issue.reason)
@@ -7073,6 +7094,107 @@ rules:
             "Proof atom kind normalization error: RuleSpec jurisdiction root "
             "must not be a symlink:" in capsys.readouterr().err
         )
+
+
+def test_closest_exact_source_excerpt_aligns_numeric_paraphrase():
+    source_text = """Single individuals or single parent families
+$267 with no children
+$441 with 1 child
+$533 with 2 children
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="maximum payment of $533 for 2 children",
+    )
+
+    assert repaired == "$533 with 2 children"
+
+
+def test_closest_exact_source_excerpt_rejects_unrelated_numeric_text():
+    repaired = _closest_exact_source_excerpt(
+        source_text="The annual amount is $533 with 2 children.",
+        excerpt="The reduction rate is 5 percent.",
+    )
+
+    assert repaired is None
+
+
+def test_repair_generated_undeclared_money_unit(tmp_path):
+    output_root = tmp_path / "out"
+    rules_file = output_root / "model" / "policies" / "benefit.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+rules:
+- name: annual_benefit
+  kind: derived
+  entity: Family
+  dtype: Money
+  unit: CAD
+  versions:
+  - effective_from: '2026-01-01'
+    formula: gross_benefit
+"""
+    )
+    result = SimpleNamespace(output_file=str(rules_file))
+
+    repaired = _try_repair_generated_undeclared_money_units_for_apply(
+        result,
+        output_root=output_root,
+        issues=["Test case `example` execution failed: unit `CAD` was not declared"],
+    )
+
+    assert repaired == ["CAD"]
+    payload = yaml.safe_load(rules_file.read_text())
+    assert payload["units"] == [{"name": "CAD", "kind": "currency", "minor_units": 2}]
+
+
+def test_repair_generated_nonexact_proof_excerpt(tmp_path):
+    output_root = tmp_path / "out"
+    rules_file = output_root / "model" / "policies" / "benefit.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    Single individuals or single parent families
+    $267 with no children
+    $533 with 2 children
+rules:
+- name: additional_child_amount
+  kind: parameter
+  dtype: Money
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: ca/policy/example
+          excerpt: maximum payment of $533 for 2 children
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 533
+"""
+    )
+    result = SimpleNamespace(output_file=str(rules_file))
+
+    repaired = _try_repair_generated_nonexact_proof_excerpts_for_apply(
+        result,
+        output_root=output_root,
+        issues=[
+            "Proof source evidence not found: rule `additional_child_amount` "
+            "proof atom 0 `source.excerpt` does not appear in `ca/policy/example`."
+        ],
+    )
+
+    assert repaired == ["additional_child_amount[0]"]
+    payload = yaml.safe_load(rules_file.read_text())
+    assert payload["rules"][0]["metadata"]["proof"]["atoms"][0]["source"] == {
+        "corpus_citation_path": "ca/policy/example",
+        "excerpt": "$533 with 2 children",
+    }
 
 
 class TestCmdInventory:

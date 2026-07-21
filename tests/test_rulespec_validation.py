@@ -21474,6 +21474,34 @@ rules:
     assert find_person_scoped_definition_unit_issues(content) == []
 
 
+def test_person_scoped_definition_unit_accepts_explicit_family_source_scope():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    The term net earnings means remuneration paid to an individual. Separate
+    benefit guidance bases the payment on adjusted family net income.
+rules:
+  - name: benefit_adjusted_family_net_income
+    kind: derived
+    entity: Family
+    dtype: Money
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: definition
+            source:
+              corpus_citation_path: ca/policy/example
+              excerpt: adjusted family net income
+    versions:
+      - effective_from: '2026-01-01'
+        formula: max(0, adjusted_family_net_income)
+"""
+
+    assert find_person_scoped_definition_unit_issues(content) == []
+
+
 def test_imported_person_scoped_definition_unit_rejects_stale_1402a_import(tmp_path):
     repo = _canonical_rulespec_content_root(tmp_path, "us")
     imported_file = repo / "statutes" / "26" / "1402" / "a.yaml"

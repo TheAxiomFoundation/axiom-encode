@@ -185,6 +185,7 @@ from .harness.policyengine_runtime import (
     PolicyEngineRuntimeError,
 )
 from .harness.proof_validator import (
+    MONEY_UNITS,
     MoneyAtomRatchet,
     ProofValidationResult,
     emit_money_atom_ratchet,
@@ -20792,6 +20793,30 @@ def _run_encode_attempt(
                     if can_apply:
                         break
             if not can_apply:
+                repaired_units = _try_repair_generated_undeclared_money_units_for_apply(
+                    result,
+                    output_root=args.output,
+                    issues=apply_issues,
+                )
+                if repaired_units:
+                    outcome["auto_repaired_undeclared_money_units"] = repaired_units
+                    print(
+                        "  apply=auto_repaired_undeclared_money_units:"
+                        + ",".join(repaired_units)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 kind_normalization = (
                     _try_repair_generated_invalid_proof_atom_kinds_for_apply(
                         result,
@@ -20828,6 +20853,32 @@ def _run_encode_attempt(
                     print(
                         "  apply=auto_repaired_invalid_proof_atom_kinds:"
                         + ",".join(repaired_kinds)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
+                repaired_excerpts = (
+                    _try_repair_generated_nonexact_proof_excerpts_for_apply(
+                        result,
+                        output_root=args.output,
+                        issues=apply_issues,
+                    )
+                )
+                if repaired_excerpts:
+                    outcome["auto_repaired_nonexact_proof_excerpts"] = repaired_excerpts
+                    print(
+                        "  apply=auto_repaired_nonexact_proof_excerpts:"
+                        + ",".join(repaired_excerpts)
                     )
                     can_apply, apply_issues, supplemental_files = (
                         _validate_generated_encoding_in_policy_overlay(
@@ -27409,6 +27460,260 @@ def _try_repair_generated_proof_import_hashes_for_apply(
     return [f"hash[{index}]" for index in range(repair_count)]
 
 
+_UNDECLARED_UNIT_ISSUE_PATTERN = re.compile(r"unit `(?P<unit>[^`]+)` was not declared")
+_CURRENCY_MINOR_UNITS = {unit.upper(): 2 for unit in MONEY_UNITS}
+_CURRENCY_MINOR_UNITS["JPY"] = 0
+
+
+def _try_repair_generated_undeclared_money_units_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: list[str],
+) -> list[str]:
+    """Declare known currencies used by generated money rules."""
+    issue_units = {
+        match.group("unit")
+        for issue in issues
+        if (match := _UNDECLARED_UNIT_ISSUE_PATTERN.search(str(issue))) is not None
+    }
+    if not issue_units:
+        return []
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    if not rules_file.exists():
+        return []
+    try:
+        original_bytes = rules_file.read_bytes()
+        payload = yaml.safe_load(original_bytes) or {}
+    except (OSError, UnicodeError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+    money_rule_units = {
+        str(rule.get("unit") or "").strip()
+        for rule in rules
+        if isinstance(rule, dict)
+        and str(rule.get("dtype") or "").strip().lower() in {"money", "currency"}
+        and str(rule.get("unit") or "").strip()
+    }
+    units = payload.get("units")
+    if units is None:
+        units = []
+        payload["units"] = units
+    if not isinstance(units, list):
+        return []
+    declared = {
+        str(unit.get("name") or "").strip() for unit in units if isinstance(unit, dict)
+    }
+
+    repaired = sorted(
+        unit
+        for unit in issue_units & money_rule_units
+        if unit not in declared and unit.upper() in _CURRENCY_MINOR_UNITS
+    )
+    if not repaired:
+        return []
+    for unit in repaired:
+        units.append(
+            {
+                "name": unit,
+                "kind": "currency",
+                "minor_units": _CURRENCY_MINOR_UNITS[unit.upper()],
+            }
+        )
+    if not _install_generated_yaml_payload(rules_file, payload):
+        return []
+    return repaired
+
+
+_NONEXACT_PROOF_EXCERPT_ISSUE_PATTERN = re.compile(
+    r"Proof source evidence not found: rule `(?P<rule>[^`]+)` proof atom "
+    r"(?P<atom>\d+) `source\.excerpt`"
+)
+_PROOF_EXCERPT_TOKEN_STOPWORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "by",
+        "for",
+        "from",
+        "in",
+        "is",
+        "of",
+        "on",
+        "or",
+        "that",
+        "the",
+        "to",
+        "with",
+        "your",
+    }
+)
+
+
+def _try_repair_generated_nonexact_proof_excerpts_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: list[str],
+) -> list[str]:
+    """Align near-match generated proof excerpts to exact embedded source text."""
+    targets = {
+        (match.group("rule"), int(match.group("atom")))
+        for issue in issues
+        if (match := _NONEXACT_PROOF_EXCERPT_ISSUE_PATTERN.search(str(issue)))
+        is not None
+    }
+    if not targets:
+        return []
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    if not rules_file.exists():
+        return []
+    try:
+        original_bytes = rules_file.read_bytes()
+        content = original_bytes.decode("utf-8")
+        payload = yaml.safe_load(content) or {}
+    except (OSError, UnicodeError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    source_text = extract_embedded_source_text(
+        content
+    ) or _extract_source_verification_text(content)
+    if not source_text:
+        return []
+
+    repaired: list[str] = []
+    for rule in payload.get("rules") or []:
+        if not isinstance(rule, dict):
+            continue
+        rule_name = str(rule.get("name") or "").strip()
+        atoms = _proof_atoms_from_rule(rule)
+        if not isinstance(atoms, list):
+            continue
+        for atom_index, atom in enumerate(atoms):
+            if (rule_name, atom_index) not in targets or not isinstance(atom, dict):
+                continue
+            source = atom.get("source")
+            if not isinstance(source, dict):
+                continue
+            excerpt = source.get("excerpt")
+            if not isinstance(excerpt, str) or not excerpt.strip():
+                continue
+            exact_excerpt = _closest_exact_source_excerpt(
+                source_text=source_text,
+                excerpt=excerpt,
+            )
+            if exact_excerpt is None or exact_excerpt == excerpt:
+                continue
+            source["excerpt"] = exact_excerpt
+            repaired.append(f"{rule_name}[{atom_index}]")
+
+    if not repaired:
+        return []
+    if not _install_generated_yaml_payload(rules_file, payload):
+        return []
+    return repaired
+
+
+def _install_generated_yaml_payload(rules_file: Path, payload: dict) -> bool:
+    normalized = yaml.safe_dump(payload, sort_keys=False, allow_unicode=False).encode()
+    try:
+        _atomic_replace_bytes(
+            rules_file,
+            normalized,
+            mode=stat.S_IMODE(rules_file.stat().st_mode),
+        )
+    except (OSError, RuntimeError):
+        with contextlib.suppress(OSError):
+            return rules_file.read_bytes() == normalized
+        return False
+    return True
+
+
+def _closest_exact_source_excerpt(*, source_text: str, excerpt: str) -> str | None:
+    source = str(source_text)
+    query = re.sub(r"\s+", " ", str(excerpt)).strip()
+    if not source or not query:
+        return None
+
+    whitespace_pattern = r"\s+".join(re.escape(part) for part in query.split())
+    direct_match = re.search(whitespace_pattern, source, flags=re.IGNORECASE)
+    if direct_match is not None:
+        return source[direct_match.start() : direct_match.end()].strip()
+
+    query_tokens = _proof_excerpt_match_tokens(query)
+    query_numbers = set(extract_numbers_from_text(query))
+    candidates = _exact_source_excerpt_candidates(source)
+    scored: list[tuple[float, str]] = []
+    for candidate in candidates:
+        candidate_tokens = _proof_excerpt_match_tokens(candidate)
+        shared_tokens = query_tokens & candidate_tokens
+        candidate_numbers = set(extract_numbers_from_text(candidate))
+        shared_numbers = query_numbers & candidate_numbers
+        if query_numbers and not shared_numbers:
+            continue
+        if len(shared_tokens) < 2 and not (shared_numbers and shared_tokens):
+            continue
+        similarity = difflib.SequenceMatcher(
+            None,
+            query.casefold(),
+            candidate.casefold(),
+        ).ratio()
+        token_coverage = len(shared_tokens) / max(1, len(query_tokens))
+        if similarity < 0.55 and token_coverage < 0.6:
+            continue
+        score = similarity + (0.25 * token_coverage) + (0.1 * len(shared_numbers))
+        scored.append((score, candidate))
+    if not scored:
+        return None
+    return max(scored, key=lambda item: (item[0], -len(item[1])))[1]
+
+
+def _exact_source_excerpt_candidates(source_text: str) -> list[str]:
+    candidates: list[str] = []
+    seen: set[str] = set()
+    for line in source_text.splitlines():
+        collapsed = re.sub(r"\s+", " ", line).strip()
+        if not collapsed:
+            continue
+        segments = re.split(r"(?<=[.!?;])\s+", collapsed)
+        for candidate in (collapsed, *segments):
+            candidate = candidate.strip()
+            if not candidate or len(candidate) > 500 or candidate in seen:
+                continue
+            seen.add(candidate)
+            candidates.append(candidate)
+    return candidates
+
+
+def _proof_excerpt_match_tokens(value: str) -> set[str]:
+    return {
+        token
+        for token in re.findall(r"[a-z0-9]+", value.casefold())
+        if token not in _PROOF_EXCERPT_TOKEN_STOPWORDS and len(token) > 1
+    }
+
+
 class _ProofAtomKindRepair(NamedTuple):
     rule: str
     atom_index: int
@@ -27732,7 +28037,7 @@ def _normalize_invalid_proof_atom_kinds(
             if not isinstance(atom, dict):
                 continue
             kind = str(atom.get("kind") or "").strip()
-            if kind not in {"custom", "rate"}:
+            if kind not in {"custom", "rate", "threshold"}:
                 continue
             atom_node = atom_nodes[atom_index] if atom_index < len(atom_nodes) else None
             candidates.append(
@@ -27759,7 +28064,7 @@ def _normalize_invalid_proof_atom_kinds(
     for candidate in candidates:
         old_kind = str(candidate.atom.get("kind") or "").strip()
         derivation_nodes: tuple[object, ...] = ()
-        if old_kind == "rate":
+        if old_kind in {"rate", "threshold"}:
             new_kind, reason = "parameter", None
         else:
             derivation = _derived_custom_proof_atom_kind(candidate.rule, candidate.atom)
