@@ -7616,6 +7616,540 @@ rules:
     assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
 
 
+@pytest.mark.parametrize(
+    ("helper_name", "source_text"),
+    (
+        (
+            "rounding_half_increment",
+            "Increase the second digit by one if the third digit is five or more.",
+        ),
+        (
+            "rounding_half_unit",
+            "If the third digit is five or more, increase the second digit by one.",
+        ),
+        (
+            "rounding_half_unit",
+            "If the third digit is five or more, increase the second digit by one. "
+            "The rule for filing deadlines does not apply to non-residents.",
+        ),
+        (
+            "rounding_half_unit",
+            "Increase the second digit by one if the third digit is five or more. "
+            "Unless stated otherwise, applications close in June.",
+        ),
+        (
+            "rounding_half_unit",
+            "If the third digit is five or more, then increase the second digit by one.",
+        ),
+        (
+            "rounding_half_unit",
+            "If the third digit is 5 or more: increase the second digit by 1.",
+        ),
+        (
+            "rounding_half_unit",
+            "If the third digit after the decimal point is five or more, increase "
+            "the second digit after the decimal point by one.",
+        ),
+        (
+            "rounding_half_unit",
+            "If the third digit is equal to or greater than 5, increase the second "
+            "digit by one.",
+        ),
+        (
+            "rounding_half_unit",
+            "Increase the second digit by one if the third digit is at least 5.",
+        ),
+        (
+            "rounding_half_unit",
+            "If the figure calculated for a pay period has three or more digits "
+            "after the decimal point, increase the second digit after the decimal "
+            "point by one if the third digit is five or more, and drop the third digit.",
+        ),
+        (
+            "rounding_half_unit",
+            "Do not change the sign, but increase the second digit by one if the "
+            "third digit is five or more.",
+        ),
+        (
+            "rounding_half_unit",
+            "Do not change the sign\nIncrease the second digit by one if the third "
+            "digit is five or more.",
+        ),
+        (
+            "rounding_half_unit",
+            "(a) Increase the second digit by one if the third digit is five or more.",
+        ),
+    ),
+)
+def test_rulespec_grounding_accepts_named_half_up_rounding_helper(
+    helper_name, source_text
+):
+    content = f"""format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: ca/policy/example/rounding
+rules:
+  - name: {helper_name}
+    kind: parameter
+    dtype: Decimal
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: parameter
+            source:
+              corpus_citation_path: ca/policy/example/rounding
+              excerpt: increase the second digit by one if the third digit is five or more
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '0.5'
+"""
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert extract_grounding_values(content) == [(1, "0.5", 0.5)]
+
+
+@pytest.mark.parametrize(
+    "source_text",
+    (
+        "If the third digit is five or more, the second digit shall be increased by one.",
+        "The second digit is increased by one if the third digit is five or more.",
+        "The second digit after the decimal point shall be increased by one if the third digit is five or more.",
+    ),
+)
+def test_rulespec_grounding_accepts_passive_half_up_instruction(source_text):
+    content = """format: rulespec/v1
+rules:
+  - name: rounding_half_unit
+    kind: parameter
+    dtype: Decimal
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.5
+"""
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+
+
+def test_rulespec_grounding_rejects_half_up_helper_backed_only_by_inline_excerpt():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: ca/policy/example/rounding
+rules:
+  - name: rounding_half_unit
+    kind: parameter
+    dtype: Decimal
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: parameter
+            source:
+              corpus_citation_path: ca/policy/example/rounding
+              excerpt: round half-up
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '0.5'
+"""
+
+    issues = find_ungrounded_numeric_issues(
+        content,
+        source_text="The authoritative source says only to round to the nearest cent.",
+    )
+
+    assert issues == [
+        "Ungrounded generated numeric literal: 0.5 does not appear as a "
+        "substantive numeric value in the source text."
+    ]
+
+
+def test_rulespec_grounding_rejects_unrelated_terms_and_non_scalar_helper_value():
+    content = """format: rulespec/v1
+rules:
+  - name: rounding_half_unit
+    kind: derived
+    dtype: Decimal
+    versions:
+      - effective_from: '2026-01-01'
+        formula: taxable_income * 0.5
+"""
+    source_text = (
+        "Increase support for five or more children. Round the digit count "
+        "under the separate reporting procedure."
+    )
+
+    issues = find_ungrounded_numeric_issues(content, source_text=source_text)
+
+    assert any("0.5" in issue for issue in issues), issues
+
+
+@pytest.mark.parametrize(
+    "source_text",
+    (
+        "Round down the second digit when the third digit is five or more.",
+        "Do not use half-up; always round down.",
+        "Half-up rounding is prohibited; always round down.",
+        "Avoid half-up rounding; truncate instead.",
+        "Avoid increasing the second digit by one if the third digit is five or more.",
+        "Don't increase the second digit by one if the third digit is five or more.",
+        "You won't increase the second digit by one if the third digit is five or more.",
+        "You aren't permitted to increase the second digit by one if the third digit is five or more.",
+        "The instructions say not to increase the second digit by one if the third digit is five or more.",
+        "Rather than increase the second digit by one if the third digit is five or more, truncate it.",
+        "Do not increase the second digit if the third digit is five or more.",
+        "You cannot increase the second digit by one if the third digit is five or more.",
+        "You may not increase the second digit by one if the third digit is five or more.",
+        "It doesn't increase the second digit by one if the third digit is five or more.",
+        "It is prohibited to increase the second digit by one if the third digit is five or more.",
+        "Never increase the second digit when the third digit is five or more.",
+        "It doesn't increase the second digit if the third digit is five or more.",
+        "It didn't increase the second digit if the third digit was five or more.",
+        "You shouldn't increase the second digit if the third digit is five or more.",
+        "You mustn't increase the second digit if the third digit is five or more.",
+        "There is no increase to the second digit if the third digit is five or more.",
+        "Increase the second digit except when the third digit is five or more.",
+        "Increase the second digit if the third digit is five or more, except where required by law.",
+        "The rule to increase the second digit when the third digit is five or more does not apply.",
+        "Increasing the second digit when the third digit is five or more is prohibited.",
+        "Increasing the second digit when the third digit is five or more is not permitted.",
+        "Increasing the second digit when the third digit is five or more is not authorized.",
+        "Increasing the second digit when the third digit is five or more is not allowed.",
+        "Increase the second digit if the third digit is five or more; however, this rounding rule does not apply.",
+        "Increase the second digit if the third digit is five or more. Nevertheless, this rounding procedure must not be used.",
+        "Increase the second digit if the third digit is five or more. This rounding rule does not apply.",
+        "Increase the second digit if the third digit is five or more. The rounding procedure must not be used.",
+        "Increase the second digit if the third digit is five or more. This rounding rule shall not be applied.",
+        "Increase the second digit if the third digit is five or more. This rounding rule cannot be used.",
+        "Increase the second digit if the third digit is five or more, but do not do so.",
+        "Increase the second digit by one if the third digit is five or more, but do not do so.",
+        "Increase the second digit by one if the third digit is five or more, but never do so.",
+        "Increase the second digit by one if the third digit is five or more, but it will not be applied.",
+        "Increase the second digit by one if the third digit is five or more, although it is not allowed.",
+        "Increase the second digit by one if the third digit is five or more, but this is only an example.",
+        "Increase the second digit by one if the third digit is five or more, for example.",
+        "Increase the second digit by one if the third digit is five or more. Do not do so.",
+        "Increase the second digit by one if the third digit is five or more. That rule does not apply.",
+        "Increase the second digit by one if the third digit is five or more. Doing so is prohibited.",
+        "Increase the second digit by one if the third digit is five or more. This is illustrative only.",
+        "Increase the second digit by one if the third digit is five or more. This is prohibited.",
+        "Increase the second digit by one if the third digit is five or more, but only as an illustration.",
+        "Increase the second digit if the third digit is five or more, but this is only an example.",
+        "Increase the second digit when the third digit is five or more only in examples, not calculations.",
+        "Do not under any circumstances described elsewhere in this very long provision increase the second digit if the third digit is five or more.",
+        "Rounding must not, under any circumstances described elsewhere in this provision, increase the second digit if the third digit is five or more.",
+        "Do not, under any circumstances, increase the second digit if the third digit is five or more.",
+        "Do not, under any circumstances, increase the second digit by one if the third digit is five or more.",
+        "Do not, under the exceptional circumstances described in subsection 4 and all related administrative guidance, increase the second digit by one if the third digit is five or more.",
+        "Do not\nincrease the second digit by one if the third digit is five or more.",
+        "You must not\nincrease the second digit by one if the third digit is five or more.",
+        "Never, when calculating tax, increase the second digit if the third digit is five or more.",
+        "This rounding rule is not applicable: increase the second digit if the third digit is five or more.",
+        "Increase the number of digits from two digits to five or more digits.",
+        "Increase the third digit if the second digit is five or more.",
+        "Unless the third digit is five or more, increase the second digit.",
+        "The second digit is increased only if the third digit is five or more.",
+        "The second digit is increased only when the third digit is five or more.",
+    ),
+)
+def test_rulespec_grounding_rejects_non_half_up_rounding_instructions(source_text):
+    content = """format: rulespec/v1
+rules:
+  - name: rounding_half_unit
+    kind: parameter
+    dtype: Decimal
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.5
+"""
+
+    issues = find_ungrounded_numeric_issues(content, source_text=source_text)
+
+    assert any("0.5" in issue for issue in issues), issues
+
+
+def test_rulespec_grounding_accepts_substantive_word_form_half_for_helper():
+    content = """format: rulespec/v1
+rules:
+  - name: rounding_half_unit
+    kind: parameter
+    dtype: Decimal
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.5
+"""
+
+    assert (
+        find_ungrounded_numeric_issues(
+            content,
+            source_text="The rounding increment is one half of a unit.",
+        )
+        == []
+    )
+
+
+def test_rulespec_grounding_keeps_line_oriented_rounding_instructions_separate():
+    content = """format: rulespec/v1
+rules:
+  - name: rounding_half_unit
+    kind: parameter
+    dtype: Decimal
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.5
+"""
+    source_text = (
+        "If the third digit is five or more, increase the second digit by one\n"
+        "If it is not, leave the digit unchanged"
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+
+
+@pytest.mark.parametrize(
+    "source_text",
+    (
+        "Increase the second digit after the decimal point by one if\n"
+        "the third digit is five or more.",
+        "If the third digit is five or more,\nincrease the second digit by one.",
+    ),
+)
+def test_rulespec_grounding_accepts_soft_wrapped_rounding_instruction(source_text):
+    content = """format: rulespec/v1
+rules:
+  - name: rounding_half_unit
+    kind: parameter
+    dtype: Decimal
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.5
+"""
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+
+
+@pytest.mark.parametrize(
+    "source_text",
+    (
+        "Increase the second digit by one if the third digit is\n5 or more.",
+        "Increase the second digit by one if the third digit is\nFive or more.",
+        "Increase the second digit by one if the third digit is five or\nMORE.",
+    ),
+)
+def test_rulespec_grounding_accepts_digit_and_uppercase_soft_wraps(source_text):
+    content = """format: rulespec/v1
+rules:
+  - name: rounding_half_unit
+    kind: parameter
+    dtype: Decimal
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.5
+"""
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+
+
+@pytest.mark.parametrize(
+    "source_text",
+    (
+        "Increase the second digit by the third digit when there are five or more records.",
+        "Increase the second digit if the third digit has five or more characters.",
+        "Increase the second digit if the third digit is five or more characters long.",
+        "Increase the second digit if the third digit is five or more than the fourth digit.",
+        "Increase the second digit by zero if the third digit is five or more.",
+        "Increase the second digit by two if the third digit is five or more.",
+        "If the third digit is five or more, increase the second digit by ten.",
+        "Increase the second digit by eleven if the third digit is five or more.",
+        "Increase the second digit by one hundred if the third digit is five or more.",
+        "Increase the second digit by 1,000 if the third digit is five or more.",
+        "If the third digit is five or more, increase by two the second digit.",
+        "Increase, by zero, the second digit if the third digit is five or more.",
+        "By two, increase the second digit if the third digit is five or more.",
+    ),
+)
+def test_rulespec_grounding_rejects_unrelated_five_or_more_threshold(source_text):
+    content = """format: rulespec/v1
+rules:
+  - name: rounding_half_unit
+    kind: parameter
+    dtype: Decimal
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.5
+"""
+
+    issues = find_ungrounded_numeric_issues(content, source_text=source_text)
+
+    assert any("0.5" in issue for issue in issues), issues
+
+
+@pytest.mark.parametrize(
+    "amount",
+    ("eleven", "one-half", "one half", "one hundred", "one and a half", "1,000"),
+)
+def test_half_up_source_matcher_rejects_unrecognized_increment_amount(amount):
+    source_text = (
+        f"Increase the second digit by {amount} if the third digit is five or more."
+    )
+
+    assert not validator_pipeline._is_source_backed_half_up_rounding_helper(
+        "rounding_half_unit", 0.5, source_text
+    )
+
+
+def test_half_up_source_matcher_counts_each_instruction_in_one_clause():
+    source_text = (
+        "Increase the second digit by one if the third digit is five or more, and "
+        "increase the second digit by one when the third digit is five or more."
+    )
+
+    assert (
+        validator_pipeline._source_backed_half_up_rounding_instruction_count(
+            "rounding_half_unit", 0.5, source_text
+        )
+        == 2
+    )
+
+
+def test_rulespec_grounding_ignores_negation_after_rounding_instruction():
+    content = """format: rulespec/v1
+rules:
+  - name: rounding_half_unit
+    kind: parameter
+    dtype: Decimal
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.5
+"""
+    source_text = (
+        "Increase the second digit by one if the third digit is five or more, and make "
+        "no change to later digits."
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+
+
+@pytest.mark.parametrize(
+    "source_text",
+    (
+        "Increase the second digit by one if the third digit is five or more, but do not alter the sign.",
+        "Increase the second digit by one if the third digit is five or more, and do not change later digits.",
+    ),
+)
+def test_rulespec_grounding_ignores_unrelated_trailing_prohibition(source_text):
+    content = """format: rulespec/v1
+rules:
+  - name: rounding_half_unit
+    kind: parameter
+    dtype: Decimal
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.5
+"""
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+
+
+def test_rulespec_grounding_parses_large_source_once(monkeypatch):
+    values = "\n".join(f"          row_{value}: {value}" for value in range(100, 200))
+    content = f"""format: rulespec/v1
+rules:
+  - name: schedule
+    kind: parameter
+    dtype: Decimal
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+{values}
+"""
+    source_text = " ".join(f"The value is {value}." for value in range(100, 200))
+    calls = 0
+    original = validator_pipeline.extract_numbers_from_text
+
+    def counting_extract_numbers(text):
+        nonlocal calls
+        calls += 1
+        return original(text)
+
+    monkeypatch.setattr(
+        validator_pipeline, "extract_numbers_from_text", counting_extract_numbers
+    )
+
+    assert find_ungrounded_numeric_issues(content, source_text=source_text) == []
+    assert calls == 1
+
+
+def test_rulespec_grounding_rejects_half_up_exemption_for_helper_value_table():
+    content = """format: rulespec/v1
+rules:
+  - name: rounding_half_unit
+    kind: parameter
+    dtype: Decimal
+    versions:
+      - effective_from: '2026-01-01'
+        values:
+          default: 0.5
+"""
+
+    issues = find_ungrounded_numeric_issues(
+        content,
+        source_text="Round the result half-up to the nearest cent.",
+    )
+
+    assert any("0.5" in issue for issue in issues), issues
+
+
+def test_rulespec_grounding_rejects_unnamed_half_scalar_without_source_support():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: ca/policy/example/rounding
+rules:
+  - name: household_share
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '0.5'
+"""
+
+    issues = find_ungrounded_numeric_issues(
+        content,
+        source_text="Round monetary results to the nearest cent.",
+    )
+
+    assert issues == [
+        "Ungrounded generated numeric literal: 0.5 does not appear as a "
+        "substantive numeric value in the source text."
+    ]
+
+
+def test_rulespec_grounding_rejects_named_half_up_helper_without_source_support():
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: ca/policy/example/rounding
+rules:
+  - name: rounding_half_unit
+    kind: parameter
+    dtype: Decimal
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '0.5'
+"""
+
+    issues = find_ungrounded_numeric_issues(
+        content,
+        source_text="Round monetary results to the nearest cent.",
+    )
+
+    assert issues == [
+        "Ungrounded generated numeric literal: 0.5 does not appear as a "
+        "substantive numeric value in the source text."
+    ]
+
+
 def test_rulespec_grounding_accepts_european_thousands_separator_money():
     content = """format: rulespec/v1
 module:
@@ -28744,3 +29278,228 @@ def test_grounding_binds_each_literal_to_its_own_anchored_atom():
         },
     )
     assert any("450" in issue for issue in issues), issues
+
+
+def test_scoped_grounding_uses_resolved_source_for_half_up_helper():
+    content = textwrap.dedent(
+        """
+        format: rulespec/v1
+        module:
+          source_verification:
+            corpus_citation_path: xx/policy/rounding/module
+        rules:
+          - name: rounding_half_unit
+            kind: parameter
+            dtype: Decimal
+            metadata:
+              proof:
+                atoms:
+                  - path: versions[0].formula
+                    kind: parameter
+                    source:
+                      corpus_citation_path: xx/policy/rounding/procedure
+                      excerpt: Increase the second digit after the decimal point by one if the third digit is five or more.
+            versions:
+              - effective_from: '2026-01-01'
+                formula: '0.5'
+        """
+    ).strip()
+
+    assert (
+        find_ungrounded_numeric_issues_scoped(
+            content,
+            module_source_text="The module delegates rounding to the procedure.",
+            proof_source_texts={
+                "xx/policy/rounding/procedure": (
+                    "Increase the second digit after the decimal point by one if "
+                    "the third digit is five or more."
+                )
+            },
+        )
+        == []
+    )
+
+    inline_only = content.replace(
+        "Increase the second digit after the decimal point by one if the third digit is five or more.",
+        "round half-up",
+    )
+    issues = find_ungrounded_numeric_issues_scoped(
+        inline_only,
+        module_source_text="The module delegates rounding to the procedure.",
+        proof_source_texts={
+            "xx/policy/rounding/procedure": "Round to the nearest cent."
+        },
+    )
+    assert any("0.5" in issue for issue in issues), issues
+
+    unrelated_excerpt = content.replace(
+        "Increase the second digit after the decimal point by one if the third digit is five or more.",
+        "The tax rate is one percent.",
+    )
+    issues = find_ungrounded_numeric_issues_scoped(
+        unrelated_excerpt,
+        module_source_text="",
+        proof_source_texts={
+            "xx/policy/rounding/procedure": (
+                "The tax rate is one percent. Elsewhere, increase the second "
+                "digit if the third digit is five or more."
+            )
+        },
+    )
+    assert any("0.5" in issue for issue in issues), issues
+
+    explicit_literal = content.replace(
+        "Increase the second digit after the decimal point by one if the third digit is five or more.",
+        "the rounding increment is 0.5",
+    )
+    assert (
+        find_ungrounded_numeric_issues_scoped(
+            explicit_literal,
+            module_source_text="The module delegates rounding to the procedure.",
+            proof_source_texts={
+                "xx/policy/rounding/procedure": "Round to the nearest cent."
+            },
+        )
+        == []
+    )
+
+
+def test_scoped_grounding_does_not_widen_table_evidence_for_half_up_helper():
+    content = textwrap.dedent(
+        """
+        format: rulespec/v1
+        module:
+          source_verification:
+            corpus_citation_path: xx/policy/rounding/module
+        rules:
+          - name: rounding_half_unit
+            kind: parameter
+            dtype: Decimal
+            metadata:
+              proof:
+                atoms:
+                  - path: versions[0].formula
+                    kind: table_cell
+                    source:
+                      corpus_citation_path: xx/policy/rounding/procedure
+                      table:
+                        header: administrative values
+                        row: standard calculation
+                        column: adjustment
+            versions:
+              - effective_from: '2026-01-01'
+                formula: '0.5'
+        """
+    ).strip()
+
+    issues = find_ungrounded_numeric_issues_scoped(
+        content,
+        module_source_text="The module delegates calculations to the procedure.",
+        proof_source_texts={
+            "xx/policy/rounding/procedure": (
+                "Administrative values. Standard calculation. Adjustment. "
+                "Elsewhere, increase the second digit by one if the third digit "
+                "is five or more."
+            )
+        },
+    )
+
+    assert any("0.5" in issue for issue in issues), issues
+
+
+def test_scoped_grounding_does_not_join_distinct_sources_into_rounding_rule():
+    content = textwrap.dedent(
+        """
+        format: rulespec/v1
+        rules:
+          - name: rounding_half_unit
+            kind: parameter
+            dtype: Decimal
+            metadata:
+              proof:
+                atoms:
+                  - path: versions[0].formula
+                    kind: parameter
+                    source:
+                      corpus_citation_path: xx/policy/rounding/procedure
+            versions:
+              - effective_from: '2026-01-01'
+                formula: 0.5
+        """
+    ).strip()
+
+    issues = find_ungrounded_numeric_issues_scoped(
+        content,
+        module_source_text="Increase the second digit",
+        proof_source_texts={
+            "xx/policy/rounding/procedure": ("if the third digit is five or more.")
+        },
+    )
+
+    assert any("0.5" in issue for issue in issues), issues
+
+
+def test_scoped_grounding_accepts_authoritative_source_without_excerpt():
+    content = textwrap.dedent(
+        """
+        format: rulespec/v1
+        rules:
+          - name: rounding_half_unit
+            kind: parameter
+            dtype: Decimal
+            metadata:
+              proof:
+                atoms:
+                  - path: versions[0].formula
+                    kind: parameter
+                    source:
+                      corpus_citation_path: xx/policy/rounding/procedure
+            versions:
+              - effective_from: '2026-01-01'
+                formula: 0.5
+        """
+    ).strip()
+    source_text = "Increase the second digit by one if the third digit is five or more."
+
+    assert (
+        find_ungrounded_numeric_issues_scoped(
+            content,
+            module_source_text=source_text,
+            proof_source_texts={},
+        )
+        == []
+    )
+    assert (
+        find_ungrounded_numeric_issues_scoped(
+            content,
+            module_source_text="",
+            proof_source_texts={
+                "xx/policy/rounding/procedure": source_text,
+            },
+        )
+        == []
+    )
+
+    proof_atom = """                  - path: versions[0].formula
+                    kind: parameter
+                    source:
+                      corpus_citation_path: xx/policy/rounding/procedure"""
+    two_proof_sources = content.replace(
+        proof_atom,
+        proof_atom
+        + """
+                  - path: versions[0].formula
+                    kind: parameter
+                    source:
+                      corpus_citation_path: xx/policy/rounding/threshold""",
+    )
+    issues = find_ungrounded_numeric_issues_scoped(
+        two_proof_sources,
+        module_source_text="",
+        proof_source_texts={
+            "xx/policy/rounding/procedure": "Increase the second digit",
+            "xx/policy/rounding/threshold": ("if the third digit is five or more."),
+        },
+    )
+
+    assert any("0.5" in issue for issue in issues), issues
