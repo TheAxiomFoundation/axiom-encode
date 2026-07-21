@@ -39,6 +39,9 @@ from decimal import Decimal, InvalidOperation, localcontext
 from pathlib import Path
 from typing import Any, Callable, NamedTuple
 
+# receipt is pinned to an exact version and artifact hashes in uv.lock. Any
+# upgrade must rerun this repository's signature tests at the new pin first.
+import receipt.sign
 import yaml
 from axiom_oracles.bridges.coverage import (
     build_policyengine_candidate_report,
@@ -88,7 +91,6 @@ from axiom_oracles.bridges.us_populace import (
 from axiom_oracles.bridges.us_populace import (
     main as run_us_populace_compare,
 )
-from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from yaml.nodes import MappingNode, ScalarNode, SequenceNode
@@ -258,9 +260,9 @@ from .repo_routing import (
 )
 from .rules_engine_compat import run_rulespec_compile
 from .signing_broker import (
+    _SIGNATURE_DOMAIN_PREFIX,
     SigningBroker,
     SigningBrokerError,
-    canonical_signing_message,
     get_signing_broker,
     reject_direct_private_signing_environment,
 )
@@ -18356,15 +18358,33 @@ def _applied_encoding_manifest_signature_issue(
         return "has an invalid encoder apply manifest signature"
     if len(raw_signature) != 64:
         return "has an invalid encoder apply manifest signature"
+    raw_public_key = _raw_ed25519_public_key(public_key)
+    receipt_key_id = "apply-root"
+    signature_scope = "apply_ed25519"
     try:
-        public_key.verify(
-            raw_signature,
-            canonical_signing_message(
-                "apply_ed25519",
-                _unsigned_applied_encoding_manifest_bytes(payload),
+        keyring = receipt.sign.KeyringSpec(
+            keys=(
+                receipt.sign.KeySpec(
+                    key_id=receipt_key_id,
+                    fingerprint=receipt.sign.raw_public_key_sha256(raw_public_key),
+                    scheme="raw-sha256",
+                ),
             ),
+            threshold=1,
         )
-    except InvalidSignature:
+        receipt.sign.verify_threshold(
+            _unsigned_applied_encoding_manifest_bytes(payload),
+            {receipt_key_id: raw_signature},
+            {receipt_key_id: raw_public_key},
+            keyring,
+            domain=(
+                _SIGNATURE_DOMAIN_PREFIX
+                + signature_scope.encode("ascii")
+                + b"\x00"
+            ),
+            label="encoder apply manifest",
+        )
+    except receipt.sign.SignError:
         return "has an invalid encoder apply manifest signature"
     return None
 

@@ -61,6 +61,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "pypdf" },
     { name = "pyyaml" },
+    { name = "receipt" },
     { name = "requests" },
     { name = "sqlite-utils" },
     { name = "supabase" },
@@ -112,6 +113,7 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'dev'" },
     { name = "pytest-cov", marker = "extra == 'dev'" },
     { name = "pyyaml", specifier = ">=6.0" },
+    { name = "receipt", specifier = "==0.2.0" },
     { name = "requests", specifier = ">=2.28" },
     { name = "ruff", marker = "extra == 'dev'" },
     { name = "sqlite-utils", specifier = ">=3.30" },
@@ -1419,6 +1421,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/15/fe/489caa56c582b1b0fe863acbedcf5a56309606a85c5fcacbeae9f3a279ed/realtime-2.27.3.tar.gz", hash = "sha256:02b082243107656a5ef3fb63e8e2ab4c40bc199abb45adb8a42ed63f089a1041", size = 18710, upload-time = "2026-02-03T16:34:59.946Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b4/90/09d888104e6eca1883d56bd7adcc66acd0df9fbdb22d602658bd3f20f531/realtime-2.27.3-py3-none-any.whl", hash = "sha256:f571115f86988e33c41c895cb3fba2eaa1b693aeaede3617288f44274ca90f43", size = 22367, upload-time = "2026-02-03T16:34:59.061Z" },
+]
+
+[[package]]
+name = "receipt"
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cryptography" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9e/d5/ee2efdb0903a37ecd389d344e4822e0ff03b0fda79bc3a801a83dd84d777/receipt-0.2.0.tar.gz", hash = "sha256:41ef973355cf0cc18fdb1f5f78e116a3b95b5b7b27f67f48cb4fcbdd1561448d", size = 65898, upload-time = "2026-07-21T12:45:54.407Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/53/71/9efb03a89f382e5bdf33588bfe38ce04ce992d9c08c46c9c02ac4fc3b9d9/receipt-0.2.0-py3-none-any.whl", hash = "sha256:365b680ebec7e27de108cf990c807f8f45a8e9ccb40801a570c451afdd4aaf7a", size = 32646, upload-time = "2026-07-21T12:45:53.346Z" },
 ]
 
 [[package]]
