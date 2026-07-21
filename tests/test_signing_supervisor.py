@@ -1741,11 +1741,30 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     trigger = workflow.get("on", workflow.get(True))
     assert set(trigger) == {"workflow_dispatch"}
     assert workflow["permissions"] == {"contents": "read"}
+    inputs = trigger["workflow_dispatch"]["inputs"]
+    assert inputs["country"] == {
+        "description": "Canonical RuleSpec country checkout (for rulespec-<country>)",
+        "required": True,
+        "default": "us",
+        "type": "string",
+    }
+    assert inputs["open_pr"]["type"] == "boolean"
+    assert inputs["open_pr"]["default"] is False
 
     job = workflow["jobs"]["encode"]
     assert job["environment"] == "production-signing"
     assert "github.ref == 'refs/heads/main'" in job["if"]
     steps = job["steps"]
+    country_step = next(
+        step for step in steps if step.get("name") == "Validate country routing input"
+    )
+    assert "prepare_signed_backfill.py" in country_step["run"]
+    assert 'validate-country "$COUNTRY"' in country_step["run"]
+    assert steps.index(country_step) < next(
+        index
+        for index, step in enumerate(steps)
+        if step.get("name") == "Checkout canonical RuleSpec country"
+    )
     checkout_steps = [
         step for step in steps if step.get("uses", "").startswith("actions/checkout@")
     ]
@@ -1762,6 +1781,9 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert "^[0-9a-f]{40}$" in identity_command
     assert "rev-parse HEAD" in identity_command
     assert "merge-base --is-ancestor" in identity_command
+    assert '"https://github.com/TheAxiomFoundation/rulespec-$COUNTRY"' in (
+        identity_command
+    )
 
     release_step = next(
         step
@@ -1771,10 +1793,11 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert release_step["env"] == {
         "SUPABASE_URL": "https://swocpijqqahhuwtuahwc.supabase.co",
         "SUPABASE_ANON_KEY": "${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}",
+        "RULESPEC_CHECKOUT": "rulespec-${{ inputs.country }}",
     }
     release_command = release_step["run"]
     assert "materialize_corpus_release.py" in release_command
-    assert "rulespec-us/.axiom/toolchain.toml" in release_command
+    assert "$RULESPEC_CHECKOUT/.axiom/toolchain.toml" in release_command
     assert 'pin --toolchain "$toolchain"' in release_command
     assert 'mktemp "$RUNNER_TEMP/' in release_command
     assert "/rest/v1/release_objects?select=release_object" in release_command
@@ -1872,6 +1895,36 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     ]
     assert secret_steps == [apply_step]
 
+    publish_step = next(
+        step
+        for step in steps
+        if step.get("name") == "Push lane branch and open draft pull request"
+    )
+    assert publish_step["if"] == "${{ inputs.open_pr }}"
+    assert publish_step["env"]["GH_TOKEN"] == "${{ secrets.AXIOM_REPO_TOKEN }}"
+    assert "AXIOM_ENCODE_APPLY_SIGNING_KEY" not in publish_step["env"]
+    publish_command = publish_step["run"]
+    assert 'repo="TheAxiomFoundation/rulespec-${COUNTRY}"' in publish_command
+    assert '"$COUNTRY" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"' in publish_command
+    assert "core.hooksPath=/dev/null" in publish_command
+    assert '"HEAD:refs/heads/${branch}"' in publish_command
+    assert "gh api --method POST" in publish_command
+    assert "-f base=main" in publish_command
+    assert "-F draft=true" in publish_command
+    assert "SHA256SUMS" not in publish_command
+
+    checksum_step = next(
+        step
+        for step in steps
+        if step.get("name") == "Finalize signed re-encode artifact checksums"
+    )
+    assert "if" not in checksum_step
+    assert 'sha256sum "$RUNNER_TEMP/targeted-reencode"/*' in checksum_step["run"]
+    upload_step = next(
+        step for step in steps if step.get("name") == "Upload signed re-encode artifact"
+    )
+    assert steps.index(checksum_step) + 1 == steps.index(upload_step)
+
 
 def test_targeted_review_finding_temp_file_is_valid_context(tmp_path: Path) -> None:
     runner_temp = tmp_path / "runner-temp"
@@ -1913,7 +1966,7 @@ def test_targeted_artifact_packages_signed_review_context(tmp_path: Path) -> Non
         '\nPY\npython - "$artifact/metadata.json"', 1
     )[0]
 
-    rulespec = tmp_path / "rulespec-us"
+    rulespec = tmp_path / "rulespec-nz"
     rulespec.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=rulespec, check=True)
     subprocess.run(
@@ -1968,6 +2021,7 @@ def test_targeted_artifact_packages_signed_review_context(tmp_path: Path) -> Non
             "CITATION": citation,
             "REVIEW_FINDING_PRESENT": "true",
             "RUNNER_TEMP": str(tmp_path),
+            "RULESPEC_CHECKOUT": "rulespec-nz",
         },
     )
 
