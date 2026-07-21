@@ -10420,7 +10420,21 @@ def find_person_scoped_definition_unit_issues(content: str) -> list[str]:
         entity = str(rule.get("entity") or "").strip()
         if entity.lower() not in _UNIT_SCOPED_ENTITY_NAMES:
             continue
-        scoped_source_text = " ".join(_rule_proof_source_excerpts(rule))
+        proof_source_excerpts = _rule_proof_source_excerpts(rule)
+        source_scope_record = (
+            _rule_source_scope(rule, source_text) if proof_source_excerpts else None
+        )
+        if source_scope_record is not None:
+            source_scope, source_unit_entity = source_scope_record
+            if source_scope == _SOURCE_SCOPE_UNIT and (
+                source_unit_entity is None
+                or _unit_entities_are_equivalent(
+                    entity.lower(),
+                    source_unit_entity,
+                )
+            ):
+                continue
+        scoped_source_text = " ".join(proof_source_excerpts)
         if not scoped_source_text:
             scoped_source_text = _source_text_for_rule_source(source_text, rule_source)
         if (
