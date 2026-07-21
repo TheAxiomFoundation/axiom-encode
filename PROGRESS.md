@@ -61,6 +61,12 @@ written outside the repository under `/private/tmp` at handoff.
 - Reran the changed-path focused set after the review fix: 10 passed, with Ruff
   check, Ruff format check, `compileall`, hash assertions, and `git diff --check`
   all passing.
+- Ran the final post-review broad runnable-suite command without the temporary
+  root override: 4,427 passed, 31 skipped, 11 explicitly documented host/scope
+  checks deselected, and 12 dependency deprecation warnings in 109.06 seconds.
+- Repeated the independent review after the formatting fix. The code and
+  packaging reviewers reported no actionable findings; both retained only the
+  documented version-provenance scope blocker.
 
 ## Next
 
