@@ -113,7 +113,6 @@ from .constants import (
     RULESPEC_ATOMIC_MODULE_ROOTS,
     RULESPEC_COMPOSITION_SPEC_ROOT,
     RULESPEC_FILE_SUFFIX,
-    RULESPEC_FILESYSTEM_ROOTS,
     RULESPEC_TEST_FILE_SUFFIX,
 )
 from .corpus_resolver import (
@@ -231,6 +230,10 @@ from .harness.validator_pipeline import (
     repair_nonnegative_amount_reductions,
     repair_source_table_band_scalar_parameters,
 )
+from .notary_verification import (
+    NotaryVerificationError,
+    run_notary_verification,
+)
 from .oracles.policyengine.pending import (
     PendingDeclarationError,
     apply_pending_to_report,
@@ -247,6 +250,7 @@ from .proof_hash_migration import (
     render_proof_hash_cascade_plan,
 )
 from .repo_routing import (
+    atomic_rulespec_module_paths,
     canonical_rulespec_repo_name,
     canonical_rulespec_root_identity,
     find_policy_repo_root,
@@ -873,6 +877,63 @@ def main():
         help="Fail oracle validation when oracle coverage reports unclassified legal IDs",
     )
     _add_rulespec_dependency_root_argument(validate_parser)
+
+    notary_parser = subparsers.add_parser(
+        "notary-verify",
+        help="Run the strict, non-mutating RuleSpec notary verifier profile",
+    )
+    notary_parser.add_argument(
+        "--policy-repo-path",
+        type=Path,
+        required=True,
+        help="Exact clean canonical rulespec-<country> checkout",
+    )
+    notary_parser.add_argument(
+        "--corpus-path",
+        type=Path,
+        required=True,
+        help="Canonical axiom-corpus checkout bound by the RuleSpec toolchain",
+    )
+    notary_parser.add_argument(
+        "--axiom-rules-engine-path",
+        type=Path,
+        required=True,
+        help="Exact clean axiom-rules-engine checkout",
+    )
+    target_group = notary_parser.add_mutually_exclusive_group(required=True)
+    target_group.add_argument(
+        "--changed-files",
+        "--changed-file",
+        dest="changed_files",
+        action="extend",
+        nargs="+",
+        type=Path,
+        help=(
+            "Changed primary RuleSpec modules or companion tests, relative to "
+            "the policy checkout (repeatable)"
+        ),
+    )
+    target_group.add_argument(
+        "--whole-repo",
+        action="store_true",
+        help="Verify every atomic RuleSpec module in the policy checkout",
+    )
+    notary_parser.add_argument(
+        "--receipt-out",
+        type=Path,
+        required=True,
+        help="Output path outside the policy checkout for the unsigned receipt",
+    )
+    notary_parser.add_argument(
+        "--allow-reduced",
+        action="store_true",
+        help=(
+            "Allow an explicitly reduced receipt only when the pinned oracle "
+            "runtime is absent; oracle failures never degrade"
+        ),
+    )
+    _add_policyengine_runtime_root_argument(notary_parser)
+    _add_rulespec_dependency_root_argument(notary_parser)
 
     validation_waivers_parser = subparsers.add_parser(
         "validation-waivers",
@@ -2406,6 +2467,8 @@ def main():
 
     if args.command == "validate":
         cmd_validate(args)
+    elif args.command == "notary-verify":
+        cmd_notary_verify(args)
     elif args.command == "validation-waivers":
         cmd_validation_waivers(args)
     elif args.command == "proof-validate":
@@ -2590,6 +2653,34 @@ def cmd_validate(args):
             print(f"  - {file}")
 
     sys.exit(1 if failed_files else 0)
+
+
+def cmd_notary_verify(args) -> None:
+    """Run the strict verifier and emit its unsigned provisional receipt."""
+
+    try:
+        result = run_notary_verification(
+            policy_repo_path=args.policy_repo_path,
+            corpus_path=args.corpus_path,
+            axiom_rules_engine_path=args.axiom_rules_engine_path,
+            receipt_out=args.receipt_out,
+            changed_files=tuple(args.changed_files or ()),
+            whole_repo=bool(args.whole_repo),
+            policyengine_runtime_root=args.policyengine_runtime_root,
+            rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
+            allow_reduced=bool(args.allow_reduced),
+        )
+    except (NotaryVerificationError, ValueError) as exc:
+        print(f"notary-verify: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+
+    print(f"Receipt: {args.receipt_out}")
+    print(f"Receipt SHA-256: {result.receipt['receipt_sha256']}")
+    print(f"Result: {result.receipt['status']}")
+    if result.issues:
+        for issue in result.issues:
+            print(f"  - {issue}")
+    raise SystemExit(0 if result.passed else 1)
 
 
 def _validate_one(
@@ -4781,71 +4872,7 @@ def _rulespec_module_paths(checkout: Path) -> list[Path]:
     """Return only atomic modules from one explicit country checkout."""
 
     checkout = _resolve_canonical_rulespec_checkout(checkout)
-    flat_roots = [checkout / root for root in sorted(RULESPEC_ATOMIC_MODULE_ROOTS)]
-    invalid_flat_roots = [
-        path for path in flat_roots if path.exists() or path.is_symlink()
-    ]
-    if invalid_flat_roots:
-        raise ValueError(
-            "RuleSpec checkout contains repository-root atomic content; atomic roots must "
-            "live under rulespec-<country>/<jurisdiction>/<content-root>: "
-            + ", ".join(str(path) for path in invalid_flat_roots)
-        )
-
-    country = checkout.name.removeprefix("rulespec-")
-    jurisdiction_pattern = re.compile(rf"{re.escape(country)}(?:-[a-z0-9]+)*")
-    modules: list[Path] = []
-    for content_root in sorted(checkout.iterdir()):
-        if content_root.is_symlink():
-            raise ValueError(
-                f"RuleSpec checkout content must not contain symlinks: {content_root}"
-            )
-        root_markers = [
-            content_root / root_name
-            for root_name in sorted(RULESPEC_FILESYSTEM_ROOTS)
-            if (content_root / root_name).exists()
-            or (content_root / root_name).is_symlink()
-        ]
-        if jurisdiction_pattern.fullmatch(content_root.name) is None:
-            if root_markers:
-                raise ValueError(
-                    "RuleSpec content roots must be under a matching direct "
-                    f"jurisdiction directory: {content_root}"
-                )
-            continue
-        if not content_root.is_dir():
-            raise ValueError(
-                "RuleSpec jurisdiction roots must be regular direct directories: "
-                f"{content_root}"
-            )
-        if canonical_rulespec_root_identity(content_root) is None:
-            raise ValueError(f"Noncanonical RuleSpec jurisdiction root: {content_root}")
-        for candidate in sorted(content_root.rglob("*")):
-            if candidate.is_symlink():
-                raise ValueError(
-                    f"RuleSpec content must not contain symlinks: {candidate}"
-                )
-            if not candidate.is_file():
-                continue
-            relative = candidate.relative_to(content_root)
-            yaml_like = candidate.suffix.lower() in {".yaml", ".yml"}
-            if yaml_like and candidate.suffix != RULESPEC_FILE_SUFFIX:
-                raise ValueError(
-                    f"RuleSpec content must use the exact .yaml extension: {candidate}"
-                )
-            if candidate.suffix != RULESPEC_FILE_SUFFIX:
-                continue
-            if not relative.parts or relative.parts[0] not in RULESPEC_FILESYSTEM_ROOTS:
-                raise ValueError(
-                    "RuleSpec YAML must be beneath exactly one canonical filesystem "
-                    f"root {sorted(RULESPEC_FILESYSTEM_ROOTS)}: {candidate}"
-                )
-            if relative.parts[0] not in RULESPEC_ATOMIC_MODULE_ROOTS:
-                continue
-            if candidate.name.endswith(RULESPEC_TEST_FILE_SUFFIX):
-                continue
-            modules.append(candidate)
-    return modules
+    return list(atomic_rulespec_module_paths(checkout))
 
 
 def _module_corpus_citations(checkout: Path):
