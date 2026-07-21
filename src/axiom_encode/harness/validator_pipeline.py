@@ -2613,6 +2613,54 @@ def _rule_atom_evidence_by_path(
     return evidence
 
 
+def _rule_verified_source_excerpt_pairs_by_path(
+    rule: Any,
+    proof_source_texts: Mapping[str, str | None] | None,
+) -> dict[str, tuple[tuple[str | None, str], ...]]:
+    """Map proof anchors to citation-only or verified excerpt/source evidence."""
+    if not isinstance(rule, dict) or proof_source_texts is None:
+        return {}
+    metadata = rule.get("metadata")
+    proof = metadata.get("proof") if isinstance(metadata, dict) else None
+    if not isinstance(proof, dict):
+        proof = rule.get("proof")
+    atoms = proof.get("atoms") if isinstance(proof, dict) else None
+    if not isinstance(atoms, list):
+        return {}
+
+    by_path: dict[str, list[tuple[str | None, str]]] = {}
+    for atom in atoms:
+        if not isinstance(atom, dict):
+            continue
+        path = str(atom.get("path") or "").strip()
+        source = atom.get("source")
+        if not path or not isinstance(source, dict):
+            continue
+        citation_path = str(source.get("corpus_citation_path") or "").strip()
+        resolved_text = proof_source_texts.get(citation_path) if citation_path else None
+        excerpts = [
+            str(source.get(field) or "").strip() for field in ("excerpt", "quote")
+        ]
+        if not resolved_text:
+            continue
+        normalized_source = _collapse_source_sentence_text(resolved_text).lower()
+        selected_excerpts = [excerpt for excerpt in excerpts if excerpt]
+        if not selected_excerpts:
+            table = source.get("table")
+            if isinstance(table, dict) and table:
+                # Structured table coordinates are the atom's selected evidence.
+                # Do not widen them to the entire cited provision for semantic
+                # exemptions such as source-described rounding operations.
+                continue
+            by_path.setdefault(path, []).append((None, resolved_text))
+            continue
+        for excerpt in selected_excerpts:
+            normalized_excerpt = _collapse_source_sentence_text(excerpt).lower()
+            if normalized_excerpt and normalized_excerpt in normalized_source:
+                by_path.setdefault(path, []).append((excerpt, resolved_text))
+    return {path: tuple(pairs) for path, pairs in by_path.items()}
+
+
 def extract_grounding_values(content: str) -> list[tuple[int, str, float]]:
     """Extract grounded numeric values from RuleSpec definitions."""
     with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
@@ -2754,10 +2802,419 @@ def _is_half_up_rounding_helper_scalar(symbol_name: str, value: float) -> bool:
     if value != 0.5:
         return False
     normalized = symbol_name.lower()
-    if "half_increment" in normalized:
+    if "rounding" in normalized and (
+        "half_increment" in normalized or "half_unit" in normalized
+    ):
         return True
     return "half_up" in normalized and (
         "rounding" in normalized or "offset" in normalized
+    )
+
+
+def _half_up_rounding_source_matchers() -> tuple[
+    tuple[re.Pattern[str], ...],
+    re.Pattern[str],
+    re.Pattern[str],
+]:
+    """Build the narrow instruction, invalidation, and prohibition matchers."""
+    threshold_value = r"(?:five|5)"
+    threshold = (
+        r"(?:"
+        + threshold_value
+        + r"\s+or\s+(?:more|greater)|at\s+least\s+"
+        + threshold_value
+        + r"|equal\s+to\s+or\s+greater\s+than\s+"
+        + threshold_value
+        + r"|greater\s+than\s+or\s+equal\s+to\s+"
+        + threshold_value
+        + r")\b"
+        r"(?=\s*(?:[,.;:]|$|\bthen\b))"
+    )
+    second_digit = r"(?:the\s+)?(?:second|2nd)\s+digit"
+    third_digit = r"(?:the\s+)?(?:third|3rd)\s+digit"
+    decimal_position = r"(?:\s+after\s+the\s+decimal\s+point)?"
+    third_digit_position = third_digit + decimal_position
+    unit = r"(?:one|1)"
+    active_instruction = (
+        r"\b(?:increas\w*|round\w*\s+up)\s+"
+        + second_digit
+        + decimal_position
+        + r"\s+by\s+"
+        + unit
+        + r"\s+(?:if|when)\s+"
+        + third_digit_position
+        + r"\s+(?:(?:is|equals?)\s+)?"
+        + threshold
+    )
+    reverse_action = (
+        r"(?:increas\w*|round\w*\s+up)\s+"
+        + second_digit
+        + decimal_position
+        + r"\s+by\s+"
+        + unit
+    )
+    passive_action = (
+        second_digit
+        + decimal_position
+        + r"\s+(?:(?:shall|must|should|will)\s+be|is)\s+"
+        r"(?:increas\w*|round\w*\s+up)\s+by\s+" + unit
+    )
+    passive_then_condition = (
+        passive_action
+        + r"\s+(?:if|when)\s+"
+        + third_digit_position
+        + r"\s+(?:(?:is|equals?)\s+)?"
+        + threshold
+    )
+    reverse_instruction = (
+        r"\b(?:if|when)\s+"
+        + third_digit_position
+        + r"\s+(?:(?:is|equals?)\s+)?"
+        + threshold
+        + r"\s*[:,]?\s*(?:then\s+)?(?:"
+        + reverse_action
+        + "|"
+        + passive_action
+        + ")"
+    )
+    invalidation = re.compile(
+        r"(?:\b(?:(?:this|that)\s+(?:rounding\s+)?"
+        r"(?:rule|procedure|method|instruction)|the\s+rounding\s+"
+        r"(?:rule|procedure|method|instruction))\b"
+        r".{0,80}\b(?:do(?:es|ne)?\s+not\s+apply|"
+        r"(?:shall|should|must)\s+not\s+(?:apply|be\s+(?:applied|used))|"
+        r"may\s+not\s+(?:apply|be\s+(?:applied|used))|"
+        r"cannot\s+be\s+(?:applied|used)|is\s+not\s+applicable|"
+        r"is\s+inapplicable|is\s+(?:prohibit\w*|disallow\w*|forbid\w*))\b|"
+        r"\b(?:do\s+not|never|(?:shall|should|must|may)\s+not|cannot)\s+"
+        r"do\s+so\b|"
+        r"\bdoing\s+so\s+is\s+"
+        r"(?:prohibit\w*|forbid\w*|disallow\w*|not\s+(?:allowed|permitted))\b|"
+        r"\bwhich\s+is\s+"
+        r"(?:prohibit\w*|forbid\w*|disallow\w*|not\s+(?:allowed|permitted))\b|"
+        r"\b(?:this|that|it)\s+is\s+"
+        r"(?:prohibit\w*|forbid\w*|disallow\w*|not\s+(?:allowed|permitted))\b|"
+        r"\b(?:this|that|it)\s+is\s+(?:illustrative|an?\s+example)"
+        r"(?:\s+only)?\b|"
+        r"\bonly\s+as\s+an?\s+illustration\b|"
+        r"\b(?:it|this)\s+is\s+not\s+(?:allowed|permitted|authorized)\b)"
+    )
+    negated_or_excepted = re.compile(
+        r"\b(?:do\s+not|never|avoid(?:s|ed|ing)?)\b"
+        r"(?:(?![.;:]|,\s*(?:but|and)\b)[\s\S])*?"
+        r"\b(?:increas\w*|round\w*\s+up)\b|"
+        r"\b(?:not\s+to|rather\s+than)\s+"
+        r"(?:increas\w*|round\w*\s+up)\b|"
+        r"\b(?:cannot|can\s+not|does\s+not|did\s+not|"
+        r"won['\N{RIGHT SINGLE QUOTATION MARK}]t|"
+        r"shan['\N{RIGHT SINGLE QUOTATION MARK}]t|"
+        r"may\s+not|must\s+not|shall\s+not|should\s+not|"
+        r"(?:do|does|did|will|would|could|must|shall|should|is|are)"
+        r"n['\N{RIGHT SINGLE QUOTATION MARK}]t"
+        r"(?:\s+to)?|can['\N{RIGHT SINGLE QUOTATION MARK}]t)\b"
+        r"(?:(?![,;:])[\s\S]){0,80}\b(?:increas\w*|round\w*\s+up)\b|"
+        r"\b(?:is\s+)?(?:prohibit\w*|forbid\w*|"
+        r"not\s+(?:permitted|allowed|authorized))\s+to\s+"
+        r"(?:increas\w*|round\w*\s+up)\b|"
+        r"\bno\s+need\s+to\s+(?:increas\w*|round\w*\s+up)\b|"
+        r"\b(?:except(?:ion)?|excluding|unless|subject\s+to)\b|"
+        r"\bfor\s+example\b|"
+        r"\b(?:for|only\s+as\s+an?)\s+illustration\b|"
+        r"\b(?:but|although)\b.{0,80}"
+        r"(?:\b(?:(?:may|shall|should|must|will|would|could)\s+not\s+|cannot\s+)"
+        r"(?:apply|be\s+(?:applied|used)|do\s+so)\b|"
+        r"\bonly\s+(?:an?\s+)?example\b|"
+        r"\bnot\s+(?:calculations?|computations?)\b)"
+    )
+    return (
+        tuple(
+            re.compile(pattern)
+            for pattern in (
+                active_instruction,
+                reverse_instruction,
+                passive_then_condition,
+            )
+        ),
+        invalidation,
+        negated_or_excepted,
+    )
+
+
+def _normalized_half_up_rounding_source_text(source_text: str) -> str:
+    normalized = re.sub(r"[^\S\n]+", " ", source_text.strip()).lower()
+    normalized = re.sub(r",\s*\n\s*", ", ", normalized)
+    return re.sub(r"(?<=[a-z0-9)])\n\s*(?=[a-z0-9])", " ", normalized)
+
+
+def _half_up_rounding_clause_instruction_spans(
+    source_text: str,
+    instruction_patterns: tuple[re.Pattern[str], ...],
+    negated_or_excepted: re.Pattern[str],
+) -> tuple[tuple[int, int], ...]:
+    """Return structurally affirmative instructions in one source clause."""
+    normalized = source_text.lower()
+    if negated_or_excepted.search(normalized):
+        return ()
+    candidate_spans = sorted(
+        {
+            match.span()
+            for pattern in instruction_patterns
+            for match in pattern.finditer(normalized)
+        }
+    )
+    accepted: list[tuple[int, int]] = []
+    for span in candidate_spans:
+        start, _end = span
+        prefix_start = accepted[-1][1] if accepted else 0
+        prefix = normalized[prefix_start:start]
+        if accepted:
+            if not re.fullmatch(r"\s*,?\s*(?:and|or)\s+", prefix):
+                continue
+        elif prefix.strip(" \t\r\n,:"):
+            structural_prefix = _STRUCTURAL_SOURCE_PREFIX_PATTERN.fullmatch(prefix)
+            official_context = re.fullmatch(
+                r"\s*(?:if|when)\s+.{1,240}\b(?:has|have)\s+"
+                r"(?:three|3)\s+or\s+more\s+digits?\s+after\s+the\s+"
+                r"decimal\s+point\s*,\s*",
+                prefix,
+            )
+            unrelated_contrast = re.fullmatch(r".+,\s*but\s+", prefix)
+            if (
+                not structural_prefix
+                and not official_context
+                and not unrelated_contrast
+            ):
+                continue
+        accepted.append(span)
+    return tuple(accepted)
+
+
+def _half_up_rounding_clause_instruction_count(
+    source_text: str,
+    instruction_patterns: tuple[re.Pattern[str], ...],
+    negated_or_excepted: re.Pattern[str],
+) -> int:
+    """Count exact instructions in one clause after clause-level exclusions."""
+    return len(
+        _half_up_rounding_clause_instruction_spans(
+            source_text, instruction_patterns, negated_or_excepted
+        )
+    )
+
+
+def _half_up_rounding_supported_line_flags(
+    lines: list[str],
+    instruction_patterns: tuple[re.Pattern[str], ...],
+    negated_or_excepted: re.Pattern[str],
+) -> tuple[bool, ...]:
+    """Mark complete instruction lines not negated by the preceding line."""
+    flags: list[bool] = []
+    for index, line in enumerate(lines):
+        supported = bool(
+            _half_up_rounding_clause_instruction_count(
+                line, instruction_patterns, negated_or_excepted
+            )
+        )
+        if supported and index:
+            preceding_line = lines[index - 1].strip().lower()
+            dangling_negation = bool(
+                re.search(
+                    r"\b(?:do\s+not|never|avoid|cannot|can\s+not|"
+                    r"may\s+not|must\s+not|shall\s+not|should\s+not|"
+                    r"will\s+not|would\s+not|could\s+not|not\s+to)\s*$",
+                    preceding_line,
+                )
+                or re.fullmatch(
+                    r"\s*(?:do\s+not|never|avoid)\s*,\s*[^,]+,?\s*",
+                    preceding_line,
+                )
+            )
+            supported = not dangling_negation
+        flags.append(supported)
+    return tuple(flags)
+
+
+def normalize_source_backed_half_up_rounding_occurrence_text(
+    source_text: str,
+) -> str:
+    """Spell out increments only inside recognized affirmative instructions."""
+    instruction_patterns, invalidation, negated_or_excepted = (
+        _half_up_rounding_source_matchers()
+    )
+    case_insensitive_patterns = tuple(
+        re.compile(pattern.pattern, re.IGNORECASE) for pattern in instruction_patterns
+    )
+
+    def normalize_instruction_units(text: str) -> str:
+        spans = _half_up_rounding_clause_instruction_spans(
+            text, case_insensitive_patterns, negated_or_excepted
+        )
+        if not spans:
+            return text
+        for start, end in sorted(spans, reverse=True):
+            instruction = re.sub(
+                r"(\bby\s+)1\b",
+                r"\g<1>one",
+                text[start:end],
+                flags=re.IGNORECASE,
+            )
+            text = text[:start] + instruction + text[end:]
+        return text
+
+    parts = re.split(r"([.!?;]+)", source_text)
+    clause_indexes = [
+        index for index in range(0, len(parts), 2) if parts[index].strip()
+    ]
+    for position, part_index in enumerate(clause_indexes):
+        clause = parts[part_index]
+        context_indexes = clause_indexes[max(0, position - 1) : position + 2]
+        context = _normalized_half_up_rounding_source_text(
+            ". ".join(parts[index] for index in context_indexes)
+        )
+        if invalidation.search(context):
+            continue
+        lines = clause.splitlines(keepends=True)
+        supported_line_flags = _half_up_rounding_supported_line_flags(
+            lines, instruction_patterns, negated_or_excepted
+        )
+        if any(supported_line_flags):
+            parts[part_index] = "".join(
+                normalize_instruction_units(line)
+                if supported_line_flags[index]
+                else line
+                for index, line in enumerate(lines)
+            )
+        else:
+            parts[part_index] = normalize_instruction_units(clause)
+    return "".join(parts)
+
+
+def _is_source_backed_half_up_rounding_helper(
+    symbol_name: str,
+    value: float,
+    source_text: str,
+) -> bool:
+    """Return True for an explicit source-backed half-up digit instruction."""
+    return bool(
+        _source_backed_half_up_rounding_instruction_count(
+            symbol_name, value, source_text
+        )
+    )
+
+
+def _source_backed_half_up_rounding_instruction_count(
+    symbol_name: str,
+    value: float,
+    source_text: str,
+) -> int:
+    """Count supported instructions while retaining adjacent invalidations."""
+    if not _is_half_up_rounding_helper_scalar(symbol_name, value):
+        return 0
+    instruction_patterns, invalidation, negated_or_excepted = (
+        _half_up_rounding_source_matchers()
+    )
+    punctuation_clauses = [
+        clause.strip() for clause in re.split(r"[.!?;]+", source_text) if clause.strip()
+    ]
+    clauses: list[str] = []
+    for clause in punctuation_clauses:
+        lines = [line.strip() for line in clause.splitlines() if line.strip()]
+        supported_line_flags = _half_up_rounding_supported_line_flags(
+            lines, instruction_patterns, negated_or_excepted
+        )
+        if not any(supported_line_flags):
+            clauses.append(clause)
+            continue
+        for index, line in enumerate(lines):
+            raw_supported = bool(
+                _half_up_rounding_clause_instruction_count(
+                    line, instruction_patterns, negated_or_excepted
+                )
+            )
+            if raw_supported and not supported_line_flags[index] and index:
+                clauses.append(f"{lines[index - 1]}\n{line}")
+            else:
+                clauses.append(line)
+    count = 0
+    for index, clause in enumerate(clauses):
+        instruction_count = _half_up_rounding_clause_instruction_count(
+            clause, instruction_patterns, negated_or_excepted
+        )
+        if not instruction_count:
+            continue
+        context = _normalized_half_up_rounding_source_text(
+            ". ".join(clauses[max(0, index - 1) : index + 2])
+        )
+        if not invalidation.search(context):
+            count += instruction_count
+    return count
+
+
+def source_backed_half_up_rounding_helper_count(
+    content: str,
+    authoritative_source_text: str,
+) -> int:
+    """Count source instructions supported by at least one direct helper."""
+    with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
+        payload = yaml.safe_load(content)
+        rules = payload.get("rules") if isinstance(payload, dict) else None
+        if isinstance(rules, list):
+            selector_table_keys = _rulespec_index_selector_keys(rules)
+            for rule in rules:
+                rule_name = (
+                    str(rule.get("name") or "").strip()
+                    if isinstance(rule, dict)
+                    else ""
+                )
+                for anchor_path, _raw, value in _rule_grounding_values_by_path(
+                    rule,
+                    selector_table_keys=selector_table_keys,
+                ):
+                    if not _is_direct_half_up_rounding_helper_value(
+                        rule, anchor_path, value
+                    ):
+                        continue
+                    instruction_count = (
+                        _source_backed_half_up_rounding_instruction_count(
+                            rule_name,
+                            value,
+                            authoritative_source_text,
+                        )
+                    )
+                    if instruction_count:
+                        return instruction_count
+    return 0
+
+
+def _is_direct_half_up_rounding_helper_value(
+    rule: Any,
+    anchor_path: str,
+    value: float,
+) -> bool:
+    """Return True only for a helper version whose whole formula is ``0.5``."""
+    if not isinstance(rule, dict):
+        return False
+    rule_name = str(rule.get("name") or "").strip()
+    if not _is_half_up_rounding_helper_scalar(rule_name, value):
+        return False
+    match = re.fullmatch(r"versions\[(\d+)\]\.formula", anchor_path)
+    versions = rule.get("versions")
+    if match is None or not isinstance(versions, list):
+        return False
+    index = int(match.group(1))
+    if index >= len(versions) or not isinstance(versions[index], dict):
+        return False
+    direct_value = _numeric_rule_value(versions[index].get("formula"))
+    return direct_value is not None and direct_value[1] == value
+
+
+def _strip_ambiguous_half_up_terms(text: str) -> str:
+    """Remove ``half-up`` prose while retaining substantive word-form halves."""
+    return re.sub(
+        r"\bhalf[- ]up\b",
+        " ",
+        text,
+        flags=re.IGNORECASE,
     )
 
 
@@ -4528,10 +4985,15 @@ def _numeric_value_grounded_in_source(
 def _ungrounded_from_values(
     grounding_values: Sequence[tuple[int, str, float]],
     source: str,
+    *,
+    source_numbers: set[float] | None = None,
+    decimal_place_scale_values: set[float] | None = None,
 ) -> list[str]:
     """Report values not grounded in ``source`` (which must be pre-stripped)."""
-    source_numbers = extract_numbers_from_text(source)
-    decimal_place_scale_values = _decimal_place_scale_values_from_source(source)
+    if source_numbers is None:
+        source_numbers = extract_numbers_from_text(source)
+    if decimal_place_scale_values is None:
+        decimal_place_scale_values = _decimal_place_scale_values_from_source(source)
     issues: list[str] = []
     for _, raw, value in grounding_values:
         if _numeric_value_grounded_in_source(
@@ -4546,9 +5008,100 @@ def _ungrounded_from_values(
     return issues
 
 
+def evaluate_numeric_grounding_values(
+    content: str,
+    source_text: str,
+    *,
+    authoritative_source_text: str | None = None,
+) -> list[tuple[int, str, float, bool]]:
+    """Return a grounding decision for every generated numeric literal.
+
+    ``source_text`` may include excerpt-verified proof evidence used for ordinary
+    literal matching. Semantic rounding support is intentionally restricted to
+    ``authoritative_source_text`` when supplied, so inline excerpts cannot grant
+    the half-up helper exemption.
+    """
+    grounding_values = extract_grounding_values(content)
+    if not grounding_values:
+        return []
+
+    authoritative_source = (
+        source_text
+        if authoritative_source_text is None
+        else authoritative_source_text.strip()
+    )
+    with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
+        payload = yaml.safe_load(content)
+        rules = payload.get("rules") if isinstance(payload, dict) else None
+        if isinstance(rules, list):
+            selector_table_keys = _rulespec_index_selector_keys(rules)
+            decisions: list[tuple[int, str, float, bool]] = []
+            source_indexes: dict[str, tuple[set[float], set[float]]] = {}
+            for rule in rules:
+                anchored_values = _rule_grounding_values_by_path(
+                    rule, selector_table_keys=selector_table_keys
+                )
+                rule_name = (
+                    str(rule.get("name") or "").strip()
+                    if isinstance(rule, dict)
+                    else ""
+                )
+                for anchor_path, raw, value in anchored_values:
+                    direct_half_up_helper = _is_direct_half_up_rounding_helper_value(
+                        rule, anchor_path, value
+                    )
+                    if direct_half_up_helper and (
+                        _is_source_backed_half_up_rounding_helper(
+                            rule_name, value, authoritative_source
+                        )
+                    ):
+                        decisions.append((1, raw, value, True))
+                        continue
+                    grounding_source = (
+                        _strip_ambiguous_half_up_terms(source_text)
+                        if _is_half_up_rounding_helper_scalar(rule_name, value)
+                        else source_text
+                    )
+                    source_index = source_indexes.get(grounding_source)
+                    if source_index is None:
+                        source_index = (
+                            extract_numbers_from_text(grounding_source),
+                            _decimal_place_scale_values_from_source(grounding_source),
+                        )
+                        source_indexes[grounding_source] = source_index
+                    decisions.append(
+                        (
+                            1,
+                            raw,
+                            value,
+                            _numeric_value_grounded_in_source(
+                                value, source_index[0], source_index[1]
+                            ),
+                        )
+                    )
+            if len(decisions) == len(grounding_values):
+                return decisions
+
+    source_numbers = extract_numbers_from_text(source_text)
+    decimal_place_scale_values = _decimal_place_scale_values_from_source(source_text)
+    return [
+        (
+            line,
+            raw,
+            value,
+            _numeric_value_grounded_in_source(
+                value, source_numbers, decimal_place_scale_values
+            ),
+        )
+        for line, raw, value in grounding_values
+    ]
+
+
 def find_ungrounded_numeric_issues(
     content: str,
     source_text: str | None = None,
+    *,
+    authoritative_source_text: str | None = None,
 ) -> list[str]:
     """Return issues for generated numeric literals absent from source text."""
     grounding_values = extract_grounding_values(content)
@@ -4566,7 +5119,20 @@ def find_ungrounded_numeric_issues(
             "`module.summary` is not accepted as source text for numeric grounding."
         ]
 
-    return _ungrounded_from_values(grounding_values, source)
+    issues: list[str] = []
+    for _line, raw, value, grounded in evaluate_numeric_grounding_values(
+        content,
+        source,
+        authoritative_source_text=authoritative_source_text,
+    ):
+        if grounded:
+            continue
+        display = raw if raw == f"{value:g}" else f"{raw} ({value:g})"
+        issues.append(
+            "Ungrounded generated numeric literal: "
+            f"{display} does not appear as a substantive numeric value in the source text."
+        )
+    return issues
 
 
 def find_ungrounded_numeric_issues_scoped(
@@ -4629,10 +5195,46 @@ def find_ungrounded_numeric_issues_scoped(
         # fabricated value that merely appears in its own excerpt. Module-source
         # retention matches the pre-existing single-source check (no regression).
         evidence_by_path = _rule_atom_evidence_by_path(rule, proof_source_texts)
+        verified_source_pairs_by_path = _rule_verified_source_excerpt_pairs_by_path(
+            rule, proof_source_texts
+        )
+        rule_name = (
+            str(rule.get("name") or "").strip() if isinstance(rule, dict) else ""
+        )
         for anchor_path, raw, value in anchored_values:
+            direct_half_up_helper = _is_direct_half_up_rounding_helper_value(
+                rule, anchor_path, value
+            )
             texts = [module_source, evidence_by_path.get(anchor_path, "")]
             combined = "\n".join(text for text in texts if text).strip()
-            for issue in _ungrounded_from_values([(1, raw, value)], combined):
+            source_evidence = verified_source_pairs_by_path.get(anchor_path, ())
+            module_supports_rounding = bool(module_source) and (
+                _is_source_backed_half_up_rounding_helper(
+                    rule_name, value, module_source
+                )
+            )
+            atom_supports_rounding = any(
+                (
+                    excerpt is None
+                    or _is_source_backed_half_up_rounding_helper(
+                        rule_name, value, excerpt
+                    )
+                )
+                and _is_source_backed_half_up_rounding_helper(
+                    rule_name, value, resolved_source
+                )
+                for excerpt, resolved_source in source_evidence
+            )
+            if direct_half_up_helper and (
+                module_supports_rounding or atom_supports_rounding
+            ):
+                continue
+            grounding_source = (
+                _strip_ambiguous_half_up_terms(combined)
+                if _is_half_up_rounding_helper_scalar(rule_name, value)
+                else combined
+            )
+            for issue in _ungrounded_from_values([(1, raw, value)], grounding_source):
                 if issue not in seen:
                     seen.add(issue)
                     issues.append(issue)

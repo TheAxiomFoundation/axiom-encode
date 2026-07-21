@@ -103,16 +103,16 @@ from .validator_pipeline import (
     _parse_rulespec_target,
     _resolve_rulespec_target_file,
     _source_text_looks_like_table,
+    evaluate_numeric_grounding_values,
     extract_embedded_source_text,
-    extract_grounding_values,
     extract_named_scalar_occurrences,
-    extract_numbers_from_text,
     extract_numeric_grounding_source_text,
     extract_numeric_occurrences_from_text,
     find_deferred_output_issues,
     find_ungrounded_numeric_issues,
     find_unused_import_issues,
     find_unused_modifier_parameter_issues,
+    normalize_source_backed_half_up_rounding_occurrence_text,
     numeric_value_is_grounded,
     repair_copied_cross_reference_summary,
     repair_formula_let_bindings,
@@ -121,6 +121,7 @@ from .validator_pipeline import (
     repair_source_table_interval_tests,
     repair_source_table_open_ended_bound_sentinels,
     repair_unsupported_chained_conditionals,
+    source_backed_half_up_rounding_helper_count,
 )
 
 EvalMode = Literal["cold", "repo-augmented"]
@@ -424,10 +425,22 @@ _SECTION_CROSS_REFERENCE_PATTERN = re.compile(
 _LEADING_ZERO_MANUAL_SECTION_PATTERN = re.compile(r"\b0\d{3}\.\d{2}(?:\.\d{2})?\b")
 
 
-def _numeric_occurrence_source_text(source_text: str) -> str:
+def _numeric_occurrence_source_text(
+    source_text: str,
+    *,
+    suppress_source_backed_half_up_increment: bool = False,
+) -> str:
     """Drop citation-like cross-references before source numeric coverage checks."""
     without_cross_references = _SECTION_CROSS_REFERENCE_PATTERN.sub("", source_text)
-    return _LEADING_ZERO_MANUAL_SECTION_PATTERN.sub("", without_cross_references)
+    cleaned = _LEADING_ZERO_MANUAL_SECTION_PATTERN.sub("", without_cross_references)
+    if suppress_source_backed_half_up_increment:
+        cleaned = normalize_source_backed_half_up_rounding_occurrence_text(cleaned)
+    return re.sub(
+        r"\b(?:2nd|3rd)\s+digit\b",
+        "digit",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
 
 
 _UNREFERENCED_PROOF_IMPORT_RE = re.compile(
@@ -6374,11 +6387,18 @@ def _evaluate_artifact_in_scope(
         for part in (numeric_grounding_validation_source_text, proof_excerpt_text)
         if part
     )
-    source_numbers = extract_numbers_from_text(numeric_grounding_source_text or "")
+    half_up_helper_count = min(
+        source_backed_half_up_rounding_helper_count(content, source_text),
+        source_backed_half_up_rounding_helper_count(
+            content, numeric_validation_source_text or ""
+        ),
+    )
+    counted_numeric_source_text = _numeric_occurrence_source_text(
+        numeric_validation_source_text or "",
+        suppress_source_backed_half_up_increment=bool(half_up_helper_count),
+    )
     source_numeric_occurrences = Counter(
-        extract_numeric_occurrences_from_text(
-            _numeric_occurrence_source_text(numeric_validation_source_text or "")
-        )
+        extract_numeric_occurrences_from_text(counted_numeric_source_text)
     )
     if _is_empty_nonassertable_artifact(content):
         source_numeric_occurrences = Counter()
@@ -6391,6 +6411,9 @@ def _evaluate_artifact_in_scope(
     named_scalar_occurrences.update(
         _imported_named_scalar_occurrences(content, policy_repo_root)
     )
+    semantic_source_occurrence_coverage = Counter[float]()
+    if half_up_helper_count:
+        semantic_source_occurrence_coverage[5.0] = half_up_helper_count
     source_is_table = _source_text_looks_like_table(
         numeric_grounding_validation_source_text or ""
     )
@@ -6401,13 +6424,17 @@ def _evaluate_artifact_in_scope(
     )
 
     grounding_metrics: list[GroundingMetric] = []
-    for line, raw, value in extract_grounding_values(content):
+    for line, raw, value, grounded in evaluate_numeric_grounding_values(
+        content,
+        numeric_grounding_source_text,
+        authoritative_source_text=source_text,
+    ):
         grounding_metrics.append(
             GroundingMetric(
                 line=line,
                 raw=raw,
                 value=value,
-                grounded=numeric_value_is_grounded(value, source_numbers),
+                grounded=grounded,
             )
         )
 
@@ -6419,6 +6446,10 @@ def _evaluate_artifact_in_scope(
             expected_count
             if _matching_numeric_occurrence_count(named_scalar_occurrences, value)
             else 0
+        )
+        covered_count = max(
+            covered_count,
+            min(expected_count, semantic_source_occurrence_coverage[value]),
         )
         if inline_table_formula_occurrences.get(value):
             covered_count = max(covered_count, expected_count)
@@ -6434,6 +6465,7 @@ def _evaluate_artifact_in_scope(
     ungrounded_numeric_issues = find_ungrounded_numeric_issues(
         content,
         numeric_grounding_source_text,
+        authoritative_source_text=source_text,
     )
     admin_agency_aggregate_issues = find_admin_agency_aggregate_entity_issues(
         content,
