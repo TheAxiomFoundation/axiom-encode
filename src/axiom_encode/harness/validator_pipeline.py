@@ -20301,6 +20301,26 @@ class ValidationResult:
     details: dict[str, Any] = field(default_factory=dict)
 
 
+_DETERMINISTIC_CI_GATES = (
+    "proof-revalidation",
+    "companion-tests",
+    "grounding-contract",
+    "layout-inspection",
+)
+
+
+def _deterministic_ci_gate_details(
+    **outcomes: bool,
+) -> dict[str, dict[str, bool]]:
+    """Return fail-closed metadata for the deterministic CI sub-gates."""
+
+    return {
+        "deterministic_gates": {
+            gate: bool(outcomes.get(gate, False)) for gate in _DETERMINISTIC_CI_GATES
+        }
+    }
+
+
 @dataclass
 class OracleSubprocessResult:
     """Structured result from a local oracle subprocess."""
@@ -20757,6 +20777,24 @@ def _rulespec_declared_relation_names(compiled_payload: dict[str, Any]) -> set[s
     }
 
 
+def resolve_axiom_rules_engine_binary(axiom_rules_path: Path) -> Path:
+    """Resolve the local engine CLI using the validator's canonical search order."""
+
+    root = Path(axiom_rules_path)
+    candidates = [
+        root / "target" / "debug" / "axiom-rules-engine",
+        root / "target" / "release" / "axiom-rules-engine",
+        root / "axiom-rules-engine",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    raise FileNotFoundError(
+        "axiom-rules-engine binary not found in the explicitly declared "
+        f"checkout: {root}"
+    )
+
+
 class ValidatorPipeline:
     """Runs validators in 3 tiers with session event logging."""
 
@@ -21060,6 +21098,7 @@ class ValidatorPipeline:
                 passed=False,
                 error=str(e),
                 issues=[str(e)],
+                details=_deterministic_ci_gate_details(),
             )
         self._log_event(
             "validation_ci_end",
@@ -21234,18 +21273,7 @@ class ValidatorPipeline:
 
     def _axiom_rules_binary(self) -> Path:
         """Resolve the local Axiom rules engine CLI binary."""
-        candidates = [
-            self.axiom_rules_path / "target" / "debug" / "axiom-rules-engine",
-            self.axiom_rules_path / "target" / "release" / "axiom-rules-engine",
-            self.axiom_rules_path / "axiom-rules-engine",
-        ]
-        for candidate in candidates:
-            if candidate.exists():
-                return candidate
-        raise FileNotFoundError(
-            "axiom-rules-engine binary not found in the explicitly declared "
-            f"checkout: {self.axiom_rules_path}"
-        )
+        return resolve_axiom_rules_engine_binary(self.axiom_rules_path)
 
     def _compile_rulespec_to_artifact(
         self,
@@ -22333,6 +22361,7 @@ class ValidatorPipeline:
         raw_output: str | None = None
         compiled_payload: dict[str, Any] | None = None
         compiled_path: Path | None = None
+        compile_issue_count = 0
 
         issues.extend(find_source_table_row_scalar_parameter_issues(content))
         issues.extend(find_interval_table_reencoding_issues(content))
@@ -22349,6 +22378,7 @@ class ValidatorPipeline:
             if compile_result.returncode != 0:
                 detail = compile_result.stderr.strip() or compile_result.stdout.strip()
                 issues.append(f"Axiom rules engine compile failed: {detail}")
+                compile_issue_count += 1
             elif isinstance(payload, dict):
                 compiled_payload = payload
                 raw_output = self._rulespec_compile_success_output(payload)
@@ -22356,8 +22386,10 @@ class ValidatorPipeline:
                 issues.append(
                     "Axiom rules engine compile did not return an artifact payload."
                 )
+                compile_issue_count += 1
         except Exception as exc:
             issues.append(f"Axiom rules engine compile failed: {exc}")
+            compile_issue_count += 1
 
         validation_source_texts = self._source_texts_for_rulespec_content(content)
         proof_source_texts = self._proof_source_texts_for_rulespec_content(
@@ -22558,10 +22590,14 @@ class ValidatorPipeline:
             )
             and self.enforce_repository_layout
         )
+        layout_issues: list[str] = []
         if strict_layout_checks:
-            issues.extend(find_rule_source_metadata_issues(content))
+            layout_issues = find_rule_source_metadata_issues(content)
+            issues.extend(layout_issues)
 
         test_path = self._rulespec_test_path(rules_file)
+        companion_issue_start = len(issues)
+        companion_stage_completed = False
         if test_path.exists():
             try:
                 payload = _safe_load_unique_keys(test_path.read_text())
@@ -22569,7 +22605,9 @@ class ValidatorPipeline:
                 issues.append(_yaml_parse_issue(test_path, exc))
             else:
                 if payload in (None, ""):
-                    if not self._is_nonassertable_rulespec_artifact(rules_file):
+                    if self._is_nonassertable_rulespec_artifact(rules_file):
+                        companion_stage_completed = True
+                    else:
                         issues.append("No tests found.")
                 elif not isinstance(payload, list):
                     if isinstance(payload, dict) and isinstance(
@@ -22580,6 +22618,12 @@ class ValidatorPipeline:
                         issues.append("RuleSpec tests must be a YAML list of cases.")
                         payload = None
                 if isinstance(payload, list) and compiled_payload and compiled_path:
+                    # An empty case list executes no assertions.  It remains
+                    # accepted by the legacy aggregate, but cannot attest that
+                    # the companion-test gate actually ran.
+                    companion_stage_completed = bool(payload) or (
+                        self._is_nonassertable_rulespec_artifact(rules_file)
+                    )
                     pre_test_issue_count = len(issues)
                     if strict_layout_checks:
                         issues.extend(
@@ -22613,8 +22657,24 @@ class ValidatorPipeline:
                                 cases=payload,
                             )
                         )
-        elif not issues and not self._is_nonassertable_rulespec_artifact(rules_file):
-            issues.append("No tests found.")
+        else:
+            nonassertable = self._is_nonassertable_rulespec_artifact(rules_file)
+            companion_stage_completed = nonassertable
+            if not issues and not nonassertable:
+                issues.append("No tests found.")
+
+        companion_issue_count = len(issues) - companion_issue_start
+        proof_issue_count = len(proof_issues)
+        layout_issue_count = len(layout_issues)
+        # The CI pipeline's remaining static validators form the grounding
+        # contract.  Counting the residual keeps every existing CI issue
+        # represented without changing its text, order, or aggregate verdict.
+        grounding_issue_count = len(issues) - (
+            compile_issue_count
+            + proof_issue_count
+            + layout_issue_count
+            + companion_issue_count
+        )
 
         duration = int((time.time() - start) * 1000)
         try:
@@ -22625,6 +22685,16 @@ class ValidatorPipeline:
                 duration_ms=duration,
                 error=issues[0] if issues else None,
                 raw_output=raw_output,
+                details=_deterministic_ci_gate_details(
+                    **{
+                        "proof-revalidation": proof_issue_count == 0,
+                        "companion-tests": companion_stage_completed
+                        and companion_issue_count == 0,
+                        "grounding-contract": grounding_issue_count == 0,
+                        "layout-inspection": strict_layout_checks
+                        and layout_issue_count == 0,
+                    }
+                ),
             )
         finally:
             tmpdir_cm.cleanup()
@@ -22676,6 +22746,7 @@ class ValidatorPipeline:
                     passed=False,
                     issues=[issue],
                     error=issue,
+                    details=_deterministic_ci_gate_details(),
                 )
             yaml_issue = self._rulespec_yaml_preflight_issue(canonical_file)
             if yaml_issue:
@@ -22684,6 +22755,7 @@ class ValidatorPipeline:
                     passed=False,
                     issues=[yaml_issue],
                     error=yaml_issue,
+                    details=_deterministic_ci_gate_details(),
                 )
             return self._run_rulespec_ci(canonical_file)
 
