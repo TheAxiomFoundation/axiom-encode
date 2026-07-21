@@ -479,7 +479,8 @@ jobs:
           RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
         run: |
           set -euo pipefail
-          branch="axiom/signed-backfill-${COUNTRY}-${GITHUB_RUN_ID}"
+          branch="$(python axiom-encode/scripts/prepare_signed_backfill.py branch-name \
+            "$COUNTRY" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT")"
           git -C "$RULESPEC_CHECKOUT" switch -c "$branch"
           python axiom-encode/scripts/prepare_signed_backfill.py stage \
             "$RULESPEC_CHECKOUT"
@@ -500,7 +501,8 @@ jobs:
           set -euo pipefail
           test -n "$GH_TOKEN"
           repo="TheAxiomFoundation/rulespec-${COUNTRY}"
-          branch="axiom/signed-backfill-${COUNTRY}-${GITHUB_RUN_ID}"
+          branch="$(python axiom-encode/scripts/prepare_signed_backfill.py branch-name \
+            "$COUNTRY" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT")"
           body="$(printf '%s\n' \
             '## Signed apply manifest' \
             '' \
