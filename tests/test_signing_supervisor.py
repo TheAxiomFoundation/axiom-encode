@@ -1911,6 +1911,19 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert "gh api --method POST" in publish_command
     assert "-f base=main" in publish_command
     assert "-F draft=true" in publish_command
+    assert "SHA256SUMS" not in publish_command
+
+    checksum_step = next(
+        step
+        for step in steps
+        if step.get("name") == "Finalize signed re-encode artifact checksums"
+    )
+    assert "if" not in checksum_step
+    assert 'sha256sum "$RUNNER_TEMP/targeted-reencode"/*' in checksum_step["run"]
+    upload_step = next(
+        step for step in steps if step.get("name") == "Upload signed re-encode artifact"
+    )
+    assert steps.index(checksum_step) + 1 == steps.index(upload_step)
 
 
 def test_targeted_review_finding_temp_file_is_valid_context(tmp_path: Path) -> None:
