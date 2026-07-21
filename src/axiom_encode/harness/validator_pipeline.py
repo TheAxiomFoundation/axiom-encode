@@ -73,6 +73,7 @@ from axiom_encode.corpus_resolver import (
     resolve_local_corpus_source,
 )
 from axiom_encode.repo_routing import (
+    _rulespec_routing_cache_scope,
     candidate_jurisdiction_content_dirs,
     canonical_rulespec_repo_name,
     canonical_rulespec_root_identity,
@@ -125,6 +126,39 @@ _AUTHORITATIVE_RULESPEC_DEPENDENCY_ROOTS: ContextVar[tuple[Path, ...]] = Context
     "axiom_authoritative_rulespec_dependency_roots",
     default=(),
 )
+
+
+@dataclass
+class _RuleSpecResolutionCache:
+    """Successful filesystem admissions retained for one validation operation."""
+
+    explicit_directories: dict[Path, Path] = field(default_factory=dict)
+    active_checkouts: dict[Path, Path] = field(default_factory=dict)
+    symlink_audits: set[Path] = field(default_factory=set)
+    target_files: dict[tuple[Any, ...], Path | None] = field(default_factory=dict)
+
+
+_RULESPEC_RESOLUTION_CACHE: ContextVar[_RuleSpecResolutionCache | None] = ContextVar(
+    "axiom_rulespec_resolution_cache",
+    default=None,
+)
+
+
+@contextlib.contextmanager
+def _rulespec_resolution_cache_scope() -> Iterator[_RuleSpecResolutionCache]:
+    """Bound RuleSpec path and identity caches to one explicit operation."""
+
+    current = _RULESPEC_RESOLUTION_CACHE.get()
+    if current is not None:
+        yield current
+        return
+    cache = _RuleSpecResolutionCache()
+    with _rulespec_routing_cache_scope():
+        token = _RULESPEC_RESOLUTION_CACHE.set(cache)
+        try:
+            yield cache
+        finally:
+            _RULESPEC_RESOLUTION_CACHE.reset(token)
 
 
 @contextlib.contextmanager
@@ -19984,6 +20018,9 @@ def _validate_explicit_rulespec_directory(
     """Return one existing directory whose lexical path has no symlinks."""
 
     raw = Path(os.path.abspath(Path(root).expanduser()))
+    cache = _RULESPEC_RESOLUTION_CACHE.get()
+    if cache is not None and raw in cache.explicit_directories:
+        return cache.explicit_directories[raw]
     checked = _normalize_macos_system_path_alias(raw)
     cursor = Path(checked.anchor)
     relative_parts = checked.parts[1:] if checked.is_absolute() else checked.parts
@@ -19997,6 +20034,8 @@ def _validate_explicit_rulespec_directory(
         raise UnsafeRulespecContextPath(f"{label} does not exist: {raw}") from exc
     if not resolved.is_dir():
         raise UnsafeRulespecContextPath(f"{label} is not a directory: {raw}")
+    if cache is not None:
+        cache.explicit_directories[raw] = resolved
     return resolved
 
 
@@ -20026,6 +20065,11 @@ def _normalize_macos_system_path_alias(path: Path) -> Path:
 def _rulespec_checkout_root_for_active_path(path: Path) -> Path:
     """Return the direct country checkout for one explicit content root."""
 
+    cache = _RULESPEC_RESOLUTION_CACHE.get()
+    cache_key = Path(os.path.abspath(Path(path).expanduser()))
+    if cache is not None and cache_key in cache.active_checkouts:
+        return cache.active_checkouts[cache_key]
+
     active = _validate_explicit_rulespec_directory(
         path,
         label="active RuleSpec root",
@@ -20042,11 +20086,18 @@ def _rulespec_checkout_root_for_active_path(path: Path) -> Path:
         checkout,
         label="active RuleSpec checkout",
     )
+    if cache is not None:
+        cache.active_checkouts[cache_key] = checkout
     return checkout
 
 
 def _reject_rulespec_checkout_symlinks(checkout: Path, *, label: str) -> None:
     """Reject every symlink beneath a checkout exposed to the RuleSpec engine."""
+
+    cache = _RULESPEC_RESOLUTION_CACHE.get()
+    cache_key = Path(checkout).resolve()
+    if cache is not None and cache_key in cache.symlink_audits:
+        return
 
     for current, directory_names, file_names in os.walk(checkout, followlinks=False):
         current_path = Path(current)
@@ -20056,6 +20107,8 @@ def _reject_rulespec_checkout_symlinks(checkout: Path, *, label: str) -> None:
                 raise UnsafeRulespecContextPath(
                     f"{label} contains a symlink: {candidate}"
                 )
+    if cache is not None:
+        cache.symlink_audits.add(cache_key)
 
 
 def _normalize_rulespec_dependency_roots(
@@ -20135,11 +20188,23 @@ def _resolve_rulespec_target_file(
     rulespec_dependency_roots: Iterable[Path] | None = None,
 ) -> Path | None:
     """Resolve a canonical target only through caller-authorized checkouts."""
+    dependency_roots = _effective_rulespec_dependency_roots(
+        rulespec_dependency_roots
+    )
+    policy_root_key = (
+        Path(os.path.abspath(Path(policy_repo_path).expanduser()))
+        if policy_repo_path is not None
+        else None
+    )
+    cache = _RULESPEC_RESOLUTION_CACHE.get()
+    cache_key = (target_ref, policy_root_key, dependency_roots)
+    if cache is not None and cache_key in cache.target_files:
+        return cache.target_files[cache_key]
     for root in _candidate_rulespec_repo_roots(
         target_ref.repo_name,
         policy_repo_path,
         prefix=target_ref.prefix,
-        rulespec_dependency_roots=rulespec_dependency_roots,
+        rulespec_dependency_roots=dependency_roots,
     ):
         if not root.is_dir():
             continue
@@ -20157,7 +20222,12 @@ def _resolve_rulespec_target_file(
             raise UnsafeRulespecContextPath(
                 f"Resolved RuleSpec target is a symlink: {target_file}"
             )
-        return validate_rulespec_context_file(target_file, root)
+        resolved = validate_rulespec_context_file(target_file, root)
+        if cache is not None:
+            cache.target_files[cache_key] = resolved
+        return resolved
+    if cache is not None:
+        cache.target_files[cache_key] = None
     return None
 
 
@@ -21120,7 +21190,10 @@ class ValidatorPipeline:
     ) -> PipelineResult:
         """Run validation with the caller-authorized dependency roots bound."""
 
-        with _authoritative_rulespec_dependency_scope(self.rulespec_dependency_roots):
+        with (
+            _rulespec_resolution_cache_scope(),
+            _authoritative_rulespec_dependency_scope(self.rulespec_dependency_roots),
+        ):
             return self._validate_with_authoritative_roots(
                 rulespec_file,
                 skip_reviewers=skip_reviewers,

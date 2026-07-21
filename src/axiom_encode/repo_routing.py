@@ -19,8 +19,11 @@ import re
 import subprocess
 import sys
 from collections.abc import Iterable
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import NamedTuple
+from typing import Iterator, NamedTuple
 
 from .constants import RULESPEC_COMPOSITION_SPEC_ROOT, RULESPEC_FILESYSTEM_ROOTS
 
@@ -38,6 +41,37 @@ class CanonicalRuleSpecCheckoutInspection(NamedTuple):
 
     name: str | None
     rejection: str | None
+
+
+@dataclass
+class _RuleSpecRoutingCache:
+    """Successful checkout identity probes admitted for one bounded operation."""
+
+    checkout_inspections: dict[
+        tuple[Path, bool], CanonicalRuleSpecCheckoutInspection
+    ] = field(default_factory=dict)
+
+
+_RULESPEC_ROUTING_CACHE: ContextVar[_RuleSpecRoutingCache | None] = ContextVar(
+    "axiom_rulespec_routing_cache",
+    default=None,
+)
+
+
+@contextmanager
+def _rulespec_routing_cache_scope() -> Iterator[_RuleSpecRoutingCache]:
+    """Reuse successful identity probes only for one explicit operation."""
+
+    current = _RULESPEC_ROUTING_CACHE.get()
+    if current is not None:
+        yield current
+        return
+    cache = _RuleSpecRoutingCache()
+    token = _RULESPEC_ROUTING_CACHE.set(cache)
+    try:
+        yield cache
+    finally:
+        _RULESPEC_ROUTING_CACHE.reset(token)
 
 
 def jurisdiction_country(prefix: str) -> str:
@@ -98,6 +132,30 @@ def inspect_canonical_rulespec_checkout(
     allow_composition_specs: bool = False,
 ) -> CanonicalRuleSpecCheckoutInspection:
     """Inspect one exact country checkout without weakening route acceptance."""
+
+    cache = _RULESPEC_ROUTING_CACHE.get()
+    cache_key = (
+        Path(os.path.abspath(Path(path).expanduser())),
+        allow_composition_specs,
+    )
+    if cache is not None and cache_key in cache.checkout_inspections:
+        return cache.checkout_inspections[cache_key]
+
+    inspection = _inspect_canonical_rulespec_checkout_uncached(
+        path,
+        allow_composition_specs=allow_composition_specs,
+    )
+    if cache is not None and inspection.name is not None:
+        cache.checkout_inspections[cache_key] = inspection
+    return inspection
+
+
+def _inspect_canonical_rulespec_checkout_uncached(
+    path: Path,
+    *,
+    allow_composition_specs: bool = False,
+) -> CanonicalRuleSpecCheckoutInspection:
+    """Inspect one checkout before it is admitted to an operation cache."""
 
     lexical = _lexical_rulespec_path(path)
     if lexical is None:

@@ -21,6 +21,7 @@ from axiom_encode.harness.validator_pipeline import (
     _canonical_rulespec_compile_path,
 )
 from axiom_encode.repo_routing import (
+    _rulespec_routing_cache_scope,
     candidate_jurisdiction_content_dirs,
     canonical_rulespec_repo_name,
     canonical_rulespec_root_identity,
@@ -243,6 +244,56 @@ def test_canonical_identity_observes_changed_git_origin(tmp_path):
     assert inspect_canonical_rulespec_checkout(
         checkout, allow_composition_specs=True
     ) == (None, "git-origin-name-mismatch")
+
+
+def test_routing_cache_reuses_git_identity_only_inside_bounded_scope(
+    monkeypatch,
+    tmp_path,
+):
+    checkout = tmp_path / "rulespec-us"
+    _init_checkout(checkout, "https://github.com/TheAxiomFoundation/rulespec-us.git")
+    policy_root = checkout / "us"
+    policy_root.mkdir()
+    original_run = subprocess.run
+    git_calls = []
+
+    def counting_run(command, *args, **kwargs):
+        git_calls.append(tuple(command))
+        return original_run(command, *args, **kwargs)
+
+    monkeypatch.setattr("axiom_encode.repo_routing.subprocess.run", counting_run)
+
+    with _rulespec_routing_cache_scope():
+        assert canonical_rulespec_root_identity(policy_root) == "rulespec-us/us"
+        assert canonical_rulespec_root_identity(policy_root) == "rulespec-us/us"
+
+    assert len(git_calls) == 2
+
+    assert canonical_rulespec_root_identity(policy_root) == "rulespec-us/us"
+    assert len(git_calls) == 4
+
+
+def test_routing_cache_retries_rejected_checkout_identity(tmp_path):
+    checkout = tmp_path / "rulespec-us"
+    _init_checkout(checkout, "https://example.com/not-us.git")
+    policy_root = checkout / "us"
+    policy_root.mkdir()
+
+    with _rulespec_routing_cache_scope():
+        assert canonical_rulespec_root_identity(policy_root) is None
+        subprocess.run(
+            [
+                "git",
+                "remote",
+                "set-url",
+                "origin",
+                "https://github.com/TheAxiomFoundation/rulespec-us.git",
+            ],
+            cwd=checkout,
+            check=True,
+            capture_output=True,
+        )
+        assert canonical_rulespec_root_identity(policy_root) == "rulespec-us/us"
 
 
 def test_canonical_identity_rejects_observed_git_boundary_when_git_unavailable(

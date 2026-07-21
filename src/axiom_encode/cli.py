@@ -218,6 +218,7 @@ from .harness.validator_pipeline import (
     _rulespec_payload_from_file,
     _rulespec_public_item_keys,
     _rulespec_repo_prefix,
+    _rulespec_resolution_cache_scope,
     _rulespec_rule_formula_rule_records,
     _rulespec_target_is_descendant_of,
     extract_embedded_source_text,
@@ -2517,6 +2518,14 @@ def main():
 
 def cmd_validate(args):
     """Validate one or more RuleSpec YAML files in a single process."""
+
+    with _rulespec_resolution_cache_scope():
+        return _cmd_validate_with_resolution_cache(args)
+
+
+def _cmd_validate_with_resolution_cache(args):
+    """Validate files while sharing successful checkout admissions."""
+
     missing = [file for file in args.files if not file.exists()]
     if missing:
         for file in missing:
@@ -2908,6 +2917,27 @@ def _fingerprint_validation_waiver_modules(
     rulespec_dependency_roots: Sequence[Path] = (),
 ) -> list[dict[str, Any]]:
     """Execute validation and companions against one canonical checkout root."""
+
+    with _rulespec_resolution_cache_scope():
+        return _fingerprint_validation_waiver_modules_with_resolution_cache(
+            modules,
+            root=root,
+            corpus_path=corpus_path,
+            axiom_rules_path=axiom_rules_path,
+            rulespec_dependency_roots=rulespec_dependency_roots,
+        )
+
+
+def _fingerprint_validation_waiver_modules_with_resolution_cache(
+    modules: list[Path],
+    *,
+    root: Path,
+    corpus_path: Path,
+    axiom_rules_path: Path,
+    rulespec_dependency_roots: Sequence[Path] = (),
+) -> list[dict[str, Any]]:
+    """Fingerprint every module inside one bounded resolution-cache scope."""
+
     root = Path(root).resolve()
     if not root.is_dir():
         raise ValueError(f"RuleSpec repository root does not exist: {root}")
