@@ -14,8 +14,10 @@ active content root).
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
+import stat
 import subprocess
 import sys
 from collections.abc import Iterable
@@ -43,13 +45,45 @@ class CanonicalRuleSpecCheckoutInspection(NamedTuple):
     rejection: str | None
 
 
+class _PathMutationStamp(NamedTuple):
+    """Cheap identity and metadata stamp for one filesystem entry."""
+
+    device: int
+    inode: int
+    mode: int
+    size: int
+    mtime_ns: int
+    ctime_ns: int
+    content_sha256: str | None
+
+
+@dataclass(frozen=True)
+class _CheckoutMutationFingerprint:
+    """Filesystem and environment inputs that determine checkout admission."""
+
+    path_identities: tuple[tuple[Path, tuple[int, int, int]], ...]
+    directory_stamps: tuple[tuple[Path, _PathMutationStamp], ...]
+    git_path_identities: tuple[
+        tuple[Path, tuple[tuple[Path, tuple[int, int, int]], ...] | None], ...
+    ]
+    git_input_stamps: tuple[tuple[Path, _PathMutationStamp | None], ...]
+    git_environment: tuple[tuple[str, str | None], ...]
+
+
+@dataclass(frozen=True)
+class _CachedCheckoutInspection:
+    inspection: CanonicalRuleSpecCheckoutInspection
+    git_config_inputs: tuple[Path, ...]
+    fingerprint: _CheckoutMutationFingerprint
+
+
 @dataclass
 class _RuleSpecRoutingCache:
     """Successful checkout identity probes admitted for one bounded operation."""
 
-    checkout_inspections: dict[
-        tuple[Path, bool], CanonicalRuleSpecCheckoutInspection
-    ] = field(default_factory=dict)
+    checkout_inspections: dict[tuple[Path, bool], _CachedCheckoutInspection] = field(
+        default_factory=dict
+    )
 
 
 _RULESPEC_ROUTING_CACHE: ContextVar[_RuleSpecRoutingCache | None] = ContextVar(
@@ -72,6 +106,68 @@ def _rulespec_routing_cache_scope() -> Iterator[_RuleSpecRoutingCache]:
         yield cache
     finally:
         _RULESPEC_ROUTING_CACHE.reset(token)
+
+
+def _path_mutation_stamp(
+    path: Path,
+    *,
+    hash_regular_file: bool = False,
+) -> _PathMutationStamp | None:
+    """Return a stable lstat stamp, optionally binding regular-file contents."""
+
+    path = Path(path)
+    try:
+        before = path.lstat()
+    except OSError:
+        return None
+    digest = None
+    if hash_regular_file and stat.S_ISREG(before.st_mode):
+        try:
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            after = path.lstat()
+        except OSError:
+            return None
+        if _stat_identity(after) != _stat_identity(before):
+            return None
+    return _PathMutationStamp(
+        before.st_dev,
+        before.st_ino,
+        before.st_mode,
+        before.st_size,
+        before.st_mtime_ns,
+        before.st_ctime_ns,
+        digest,
+    )
+
+
+def _stat_identity(value: os.stat_result) -> tuple[int, int, int, int, int, int]:
+    """Return fields that must remain stable while a file is fingerprinted."""
+
+    return (
+        value.st_dev,
+        value.st_ino,
+        value.st_mode,
+        value.st_size,
+        value.st_mtime_ns,
+        value.st_ctime_ns,
+    )
+
+
+def _path_identity_fingerprint(
+    path: Path,
+) -> tuple[tuple[Path, tuple[int, int, int]], ...] | None:
+    """Bind every lexical component to its inode and file type."""
+
+    absolute = Path(os.path.abspath(Path(path).expanduser()))
+    components: list[tuple[Path, tuple[int, int, int]]] = []
+    cursor = Path(absolute.anchor)
+    for part in absolute.parts[1:]:
+        cursor /= part
+        stamp = _path_mutation_stamp(cursor)
+        if stamp is None:
+            return None
+        components.append((cursor, (stamp.device, stamp.inode, stamp.mode)))
+    return tuple(components)
 
 
 def jurisdiction_country(prefix: str) -> str:
@@ -138,16 +234,183 @@ def inspect_canonical_rulespec_checkout(
         Path(os.path.abspath(Path(path).expanduser())),
         allow_composition_specs,
     )
-    if cache is not None and cache_key in cache.checkout_inspections:
-        return cache.checkout_inspections[cache_key]
+    cached = cache.checkout_inspections.get(cache_key) if cache is not None else None
+    if cached is not None:
+        current_fingerprint = _checkout_mutation_fingerprint(
+            cache_key[0],
+            git_config_inputs=cached.git_config_inputs,
+        )
+        if current_fingerprint == cached.fingerprint:
+            return cached.inspection
+        cache.checkout_inspections.pop(cache_key, None)
 
     inspection = _inspect_canonical_rulespec_checkout_uncached(
         path,
         allow_composition_specs=allow_composition_specs,
     )
     if cache is not None and inspection.name is not None:
-        cache.checkout_inspections[cache_key] = inspection
+        cached_inspection = _cacheable_checkout_inspection(cache_key[0], inspection)
+        if cached_inspection is not None:
+            cache.checkout_inspections[cache_key] = cached_inspection
     return inspection
+
+
+def _cacheable_checkout_inspection(
+    checkout: Path,
+    inspection: CanonicalRuleSpecCheckoutInspection,
+) -> _CachedCheckoutInspection | None:
+    """Capture all cheap inputs needed to trust a successful Git admission."""
+
+    try:
+        git_boundary = _nearest_git_boundary(checkout)
+        git_config_inputs = (
+            _git_config_input_paths(str(checkout)) if git_boundary is not None else ()
+        )
+    except _GitProbeError:
+        return None
+    fingerprint = _checkout_mutation_fingerprint(
+        checkout,
+        git_config_inputs=git_config_inputs,
+    )
+    if fingerprint is None:
+        return None
+    return _CachedCheckoutInspection(
+        inspection=inspection,
+        git_config_inputs=git_config_inputs,
+        fingerprint=fingerprint,
+    )
+
+
+def _checkout_mutation_fingerprint(
+    checkout: Path,
+    *,
+    git_config_inputs: tuple[Path, ...],
+) -> _CheckoutMutationFingerprint | None:
+    """Fingerprint checkout admission inputs without invoking Git or walking files."""
+
+    lexical = _lexical_rulespec_path(checkout)
+    if lexical is None:
+        return None
+    path_identities = _path_identity_fingerprint(lexical)
+    if path_identities is None:
+        return None
+
+    try:
+        git_boundary = _nearest_git_boundary(lexical)
+    except _GitProbeError:
+        return None
+    directory_stamps: list[tuple[Path, _PathMutationStamp]] = []
+    for directory in (lexical,):
+        stamp = _path_mutation_stamp(directory)
+        if stamp is None or not stat.S_ISDIR(stamp.mode):
+            return None
+        directory_stamps.append((directory, stamp))
+    git_paths = _git_identity_input_paths(
+        lexical,
+        git_boundary=git_boundary,
+        git_config_inputs=git_config_inputs,
+    )
+    git_path_identities = tuple(
+        (path, _path_identity_fingerprint(path)) for path in git_paths
+    )
+    git_input_stamps = tuple(
+        (path, _path_mutation_stamp(path, hash_regular_file=True)) for path in git_paths
+    )
+    git_environment = tuple(
+        (name, os.environ.get(name))
+        for name in sorted(
+            {
+                "HOME",
+                "XDG_CONFIG_HOME",
+                *(name for name in os.environ if name.startswith("GIT_")),
+            }
+        )
+    )
+    return _CheckoutMutationFingerprint(
+        path_identities=path_identities,
+        directory_stamps=tuple(directory_stamps),
+        git_path_identities=git_path_identities,
+        git_input_stamps=git_input_stamps,
+        git_environment=git_environment,
+    )
+
+
+def _git_identity_input_paths(
+    checkout: Path,
+    *,
+    git_boundary: Path | None,
+    git_config_inputs: tuple[Path, ...],
+) -> tuple[Path, ...]:
+    """Return files whose mutation can change Git worktree/origin identity."""
+
+    candidate_markers = {
+        directory / ".git" for directory in (checkout, *checkout.parents)
+    }
+    if git_boundary is None:
+        return tuple(sorted(candidate_markers, key=str))
+    marker = git_boundary / ".git"
+    paths = {marker, *git_config_inputs}
+    paths.update(candidate_markers)
+    git_directory = _git_directory_from_marker(marker)
+    if git_directory is not None:
+        paths.update(
+            {
+                git_directory,
+                git_directory / "commondir",
+                git_directory / "config",
+                git_directory / "config.worktree",
+            }
+        )
+        common_directory = _git_common_directory(git_directory)
+        if common_directory is not None:
+            paths.update(
+                {
+                    common_directory,
+                    common_directory / "config",
+                    common_directory / "config.worktree",
+                }
+            )
+    home = Path(os.environ.get("HOME", str(Path.home()))).expanduser()
+    xdg_config_home = Path(
+        os.environ.get("XDG_CONFIG_HOME", str(home / ".config"))
+    ).expanduser()
+    paths.update({home / ".gitconfig", xdg_config_home / "git/config"})
+    return tuple(sorted((Path(path) for path in paths), key=str))
+
+
+def _git_directory_from_marker(marker: Path) -> Path | None:
+    """Resolve a directory marker or linked-worktree gitdir file lexically."""
+
+    if marker.is_dir():
+        return marker
+    if not marker.is_file() or marker.is_symlink():
+        return None
+    try:
+        marker_text = marker.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError):
+        return None
+    prefix = "gitdir:"
+    if not marker_text.lower().startswith(prefix):
+        return None
+    raw_git_directory = Path(marker_text[len(prefix) :].strip()).expanduser()
+    if not raw_git_directory.is_absolute():
+        raw_git_directory = marker.parent / raw_git_directory
+    return Path(os.path.abspath(raw_git_directory))
+
+
+def _git_common_directory(git_directory: Path) -> Path | None:
+    """Resolve the common Git directory used by linked worktrees."""
+
+    marker = git_directory / "commondir"
+    if not marker.is_file() or marker.is_symlink():
+        return git_directory
+    try:
+        raw_common_directory = Path(marker.read_text(encoding="utf-8").strip())
+    except (OSError, UnicodeError):
+        return None
+    if not raw_common_directory.is_absolute():
+        raw_common_directory = git_directory / raw_common_directory
+    return Path(os.path.abspath(raw_common_directory))
 
 
 def _inspect_canonical_rulespec_checkout_uncached(
@@ -450,6 +713,51 @@ def _git_origin_repo_name(root: str) -> str | None:
         return None
     name = remote.rsplit("/", 1)[-1]
     return name.removesuffix(".git") or None
+
+
+def _git_config_input_paths(root: str) -> tuple[Path, ...]:
+    """Return every file Git loaded while resolving repository configuration."""
+
+    try:
+        completed = subprocess.run(
+            [
+                "git",
+                "-C",
+                root,
+                "config",
+                "--show-origin",
+                "--name-only",
+                "--null",
+                "--list",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise _GitProbeError(
+            f"Could not inspect Git configuration inputs for {root}",
+            category=_git_probe_exception_category(exc),
+        ) from exc
+    if completed.returncode != 0:
+        raise _GitProbeError(
+            f"Could not inspect Git configuration inputs for {root}",
+            category="unavailable",
+        )
+    fields = completed.stdout.split("\0")
+    if fields and fields[-1] == "":
+        fields.pop()
+    origins = fields[::2]
+    inputs: set[Path] = set()
+    for origin in origins:
+        if not origin.startswith("file:"):
+            continue
+        raw_path = Path(origin.removeprefix("file:")).expanduser()
+        if not raw_path.is_absolute():
+            raw_path = Path(root) / raw_path
+        inputs.add(Path(os.path.abspath(raw_path)))
+    return tuple(sorted(inputs, key=str))
 
 
 def _git_probe_exception_category(exc: BaseException) -> str:

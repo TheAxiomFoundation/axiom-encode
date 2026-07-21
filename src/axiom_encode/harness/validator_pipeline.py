@@ -73,6 +73,9 @@ from axiom_encode.corpus_resolver import (
     resolve_local_corpus_source,
 )
 from axiom_encode.repo_routing import (
+    _path_identity_fingerprint,
+    _path_mutation_stamp,
+    _PathMutationStamp,
     _rulespec_routing_cache_scope,
     candidate_jurisdiction_content_dirs,
     canonical_rulespec_repo_name,
@@ -128,14 +131,41 @@ _AUTHORITATIVE_RULESPEC_DEPENDENCY_ROOTS: ContextVar[tuple[Path, ...]] = Context
 )
 
 
+@dataclass(frozen=True)
+class _CachedExplicitDirectory:
+    resolved: Path
+    path_identity: tuple[tuple[Path, tuple[int, int, int]], ...]
+
+
+@dataclass(frozen=True)
+class _CachedActiveCheckout:
+    active: Path
+    checkout: Path
+
+
+@dataclass(frozen=True)
+class _CachedSymlinkAudit:
+    directory_stamps: tuple[tuple[Path, _PathMutationStamp], ...]
+
+
+@dataclass(frozen=True)
+class _CachedTargetFile:
+    target_file: Path
+    content_root: Path
+    path_identity: tuple[tuple[Path, tuple[int, int, int]], ...]
+    file_stamp: _PathMutationStamp
+
+
 @dataclass
 class _RuleSpecResolutionCache:
     """Successful filesystem admissions retained for one validation operation."""
 
-    explicit_directories: dict[Path, Path] = field(default_factory=dict)
-    active_checkouts: dict[Path, Path] = field(default_factory=dict)
-    symlink_audits: set[Path] = field(default_factory=set)
-    target_files: dict[tuple[Any, ...], Path | None] = field(default_factory=dict)
+    explicit_directories: dict[Path, _CachedExplicitDirectory] = field(
+        default_factory=dict
+    )
+    active_checkouts: dict[Path, _CachedActiveCheckout] = field(default_factory=dict)
+    symlink_audits: dict[Path, _CachedSymlinkAudit] = field(default_factory=dict)
+    target_files: dict[tuple[Any, ...], _CachedTargetFile] = field(default_factory=dict)
 
 
 _RULESPEC_RESOLUTION_CACHE: ContextVar[_RuleSpecResolutionCache | None] = ContextVar(
@@ -20018,10 +20048,13 @@ def _validate_explicit_rulespec_directory(
     """Return one existing directory whose lexical path has no symlinks."""
 
     raw = Path(os.path.abspath(Path(root).expanduser()))
-    cache = _RULESPEC_RESOLUTION_CACHE.get()
-    if cache is not None and raw in cache.explicit_directories:
-        return cache.explicit_directories[raw]
     checked = _normalize_macos_system_path_alias(raw)
+    cache = _RULESPEC_RESOLUTION_CACHE.get()
+    cached = cache.explicit_directories.get(raw) if cache is not None else None
+    if cached is not None:
+        if _path_identity_fingerprint(checked) == cached.path_identity:
+            return cached.resolved
+        cache.explicit_directories.pop(raw, None)
     cursor = Path(checked.anchor)
     relative_parts = checked.parts[1:] if checked.is_absolute() else checked.parts
     for part in relative_parts:
@@ -20035,7 +20068,12 @@ def _validate_explicit_rulespec_directory(
     if not resolved.is_dir():
         raise UnsafeRulespecContextPath(f"{label} is not a directory: {raw}")
     if cache is not None:
-        cache.explicit_directories[raw] = resolved
+        path_identity = _path_identity_fingerprint(checked)
+        if path_identity is not None:
+            cache.explicit_directories[raw] = _CachedExplicitDirectory(
+                resolved=resolved,
+                path_identity=path_identity,
+            )
     return resolved
 
 
@@ -20067,8 +20105,22 @@ def _rulespec_checkout_root_for_active_path(path: Path) -> Path:
 
     cache = _RULESPEC_RESOLUTION_CACHE.get()
     cache_key = Path(os.path.abspath(Path(path).expanduser()))
-    if cache is not None and cache_key in cache.active_checkouts:
-        return cache.active_checkouts[cache_key]
+    cached = cache.active_checkouts.get(cache_key) if cache is not None else None
+    if cached is not None:
+        active = _validate_explicit_rulespec_directory(
+            path,
+            label="active RuleSpec root",
+        )
+        identity = canonical_rulespec_root_identity(active)
+        if active == cached.active and identity is not None:
+            checkout = active.parent
+            if checkout == cached.checkout:
+                _reject_rulespec_checkout_symlinks(
+                    checkout,
+                    label="active RuleSpec checkout",
+                )
+                return checkout
+        cache.active_checkouts.pop(cache_key, None)
 
     active = _validate_explicit_rulespec_directory(
         path,
@@ -20087,7 +20139,10 @@ def _rulespec_checkout_root_for_active_path(path: Path) -> Path:
         label="active RuleSpec checkout",
     )
     if cache is not None:
-        cache.active_checkouts[cache_key] = checkout
+        cache.active_checkouts[cache_key] = _CachedActiveCheckout(
+            active=active,
+            checkout=checkout,
+        )
     return checkout
 
 
@@ -20096,11 +20151,25 @@ def _reject_rulespec_checkout_symlinks(checkout: Path, *, label: str) -> None:
 
     cache = _RULESPEC_RESOLUTION_CACHE.get()
     cache_key = Path(checkout).resolve()
-    if cache is not None and cache_key in cache.symlink_audits:
-        return
+    cached = cache.symlink_audits.get(cache_key) if cache is not None else None
+    if cached is not None:
+        current_stamps = tuple(
+            (directory, _path_mutation_stamp(directory))
+            for directory, _stamp in cached.directory_stamps
+        )
+        if current_stamps == cached.directory_stamps:
+            return
+        cache.symlink_audits.pop(cache_key, None)
 
+    directory_stamps: list[tuple[Path, _PathMutationStamp]] = []
     for current, directory_names, file_names in os.walk(checkout, followlinks=False):
         current_path = Path(current)
+        current_stamp = _path_mutation_stamp(current_path)
+        if current_stamp is None:
+            raise UnsafeRulespecContextPath(
+                f"{label} changed during symlink audit: {current_path}"
+            )
+        directory_stamps.append((current_path, current_stamp))
         for name in (*directory_names, *file_names):
             candidate = current_path / name
             if candidate.is_symlink():
@@ -20108,7 +20177,17 @@ def _reject_rulespec_checkout_symlinks(checkout: Path, *, label: str) -> None:
                     f"{label} contains a symlink: {candidate}"
                 )
     if cache is not None:
-        cache.symlink_audits.add(cache_key)
+        stable_stamps = tuple(
+            (directory, _path_mutation_stamp(directory))
+            for directory, _stamp in directory_stamps
+        )
+        if stable_stamps != tuple(directory_stamps):
+            raise UnsafeRulespecContextPath(
+                f"{label} changed during symlink audit: {checkout}"
+            )
+        cache.symlink_audits[cache_key] = _CachedSymlinkAudit(
+            directory_stamps=stable_stamps,
+        )
 
 
 def _normalize_rulespec_dependency_roots(
@@ -20196,8 +20275,22 @@ def _resolve_rulespec_target_file(
     )
     cache = _RULESPEC_RESOLUTION_CACHE.get()
     cache_key = (target_ref, policy_root_key, dependency_roots)
-    if cache is not None and cache_key in cache.target_files:
-        return cache.target_files[cache_key]
+    cached = cache.target_files.get(cache_key) if cache is not None else None
+    if cached is not None:
+        current_identity = _path_identity_fingerprint(cached.target_file)
+        current_stamp = _path_mutation_stamp(cached.target_file)
+        if (
+            current_identity == cached.path_identity
+            and current_stamp == cached.file_stamp
+            and canonical_rulespec_repo_name(cached.content_root)
+            == target_ref.repo_name
+        ):
+            _reject_rulespec_checkout_symlinks(
+                cached.content_root.parent,
+                label="resolved RuleSpec checkout",
+            )
+            return cached.target_file
+        cache.target_files.pop(cache_key, None)
     for root in _candidate_rulespec_repo_roots(
         target_ref.repo_name,
         policy_repo_path,
@@ -20222,10 +20315,16 @@ def _resolve_rulespec_target_file(
             )
         resolved = validate_rulespec_context_file(target_file, root)
         if cache is not None:
-            cache.target_files[cache_key] = resolved
+            path_identity = _path_identity_fingerprint(resolved)
+            file_stamp = _path_mutation_stamp(resolved)
+            if path_identity is not None and file_stamp is not None:
+                cache.target_files[cache_key] = _CachedTargetFile(
+                    target_file=resolved,
+                    content_root=root,
+                    path_identity=path_identity,
+                    file_stamp=file_stamp,
+                )
         return resolved
-    if cache is not None:
-        cache.target_files[cache_key] = None
     return None
 
 

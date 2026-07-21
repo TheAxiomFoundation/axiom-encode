@@ -267,10 +267,93 @@ def test_routing_cache_reuses_git_identity_only_inside_bounded_scope(
         assert canonical_rulespec_root_identity(policy_root) == "rulespec-us/us"
         assert canonical_rulespec_root_identity(policy_root) == "rulespec-us/us"
 
-    assert len(git_calls) == 2
+    assert len(git_calls) == 3
 
     assert canonical_rulespec_root_identity(policy_root) == "rulespec-us/us"
-    assert len(git_calls) == 4
+    assert len(git_calls) == 5
+
+
+def test_routing_cache_invalidates_changed_git_origin_inside_scope(tmp_path):
+    checkout = tmp_path / "rulespec-us"
+    _init_checkout(checkout, "https://github.com/TheAxiomFoundation/rulespec-us.git")
+    policy_root = checkout / "us"
+    policy_root.mkdir()
+
+    with _rulespec_routing_cache_scope():
+        assert canonical_rulespec_root_identity(policy_root) == "rulespec-us/us"
+        subprocess.run(
+            [
+                "git",
+                "remote",
+                "set-url",
+                "origin",
+                "https://example.com/not-us.git",
+            ],
+            cwd=checkout,
+            check=True,
+            capture_output=True,
+        )
+        assert canonical_rulespec_root_identity(policy_root) is None
+
+
+def test_routing_cache_invalidates_linked_worktree_config_change(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init"], cwd=source, check=True, capture_output=True)
+    (source / "tracked").write_text("tracked\n", encoding="utf-8")
+    subprocess.run(["git", "add", "tracked"], cwd=source, check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=Axiom Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-m",
+            "initial",
+        ],
+        cwd=source,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        [
+            "git",
+            "remote",
+            "add",
+            "origin",
+            "https://github.com/TheAxiomFoundation/rulespec-us.git",
+        ],
+        cwd=source,
+        check=True,
+    )
+    checkout = tmp_path / "rulespec-us"
+    subprocess.run(
+        ["git", "worktree", "add", "-b", "test-worktree", str(checkout)],
+        cwd=source,
+        check=True,
+        capture_output=True,
+    )
+    policy_root = checkout / "us"
+    policy_root.mkdir()
+
+    assert (checkout / ".git").is_file()
+    with _rulespec_routing_cache_scope():
+        assert canonical_rulespec_root_identity(policy_root) == "rulespec-us/us"
+        subprocess.run(
+            [
+                "git",
+                "remote",
+                "set-url",
+                "origin",
+                "https://example.com/not-us.git",
+            ],
+            cwd=checkout,
+            check=True,
+            capture_output=True,
+        )
+        assert canonical_rulespec_root_identity(policy_root) is None
 
 
 def test_routing_cache_retries_rejected_checkout_identity(tmp_path):
