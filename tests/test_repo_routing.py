@@ -267,10 +267,10 @@ def test_routing_cache_reuses_git_identity_only_inside_bounded_scope(
         assert canonical_rulespec_root_identity(policy_root) == "rulespec-us/us"
         assert canonical_rulespec_root_identity(policy_root) == "rulespec-us/us"
 
-    assert len(git_calls) == 4
+    assert len(git_calls) == 6
 
     assert canonical_rulespec_root_identity(policy_root) == "rulespec-us/us"
-    assert len(git_calls) == 6
+    assert len(git_calls) == 8
 
 
 def test_routing_cache_invalidates_changed_git_origin_inside_scope(tmp_path):
@@ -372,6 +372,46 @@ def test_routing_cache_tracks_missing_conditional_git_include(tmp_path):
                 text=True,
             ).stdout.strip()
             == "https://example.com/not-us.git"
+        )
+        assert canonical_rulespec_root_identity(policy_root) is None
+        assert inspect_canonical_rulespec_checkout(
+            checkout, allow_composition_specs=True
+        ) == (None, "git-origin-name-mismatch")
+
+
+def test_routing_cache_tracks_missing_system_git_config(monkeypatch, tmp_path):
+    checkout = tmp_path / "rulespec-us"
+    _init_checkout(checkout, "https://github.com/TheAxiomFoundation/rulespec-us.git")
+    policy_root = checkout / "us"
+    policy_root.mkdir()
+    system_config = tmp_path / "future-system.conf"
+    original_run = subprocess.run
+
+    def system_config_run(command, *args, **kwargs):
+        if command[-2:] == ["var", "GIT_CONFIG_SYSTEM"]:
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout=f"{system_config}\n",
+                stderr="",
+            )
+        if command[-3:] == ["remote", "get-url", "origin"] and system_config.exists():
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout="https://example.com/not-us.git\n",
+                stderr="",
+            )
+        return original_run(command, *args, **kwargs)
+
+    monkeypatch.setattr("axiom_encode.repo_routing.subprocess.run", system_config_run)
+
+    with _rulespec_routing_cache_scope():
+        assert canonical_rulespec_root_identity(policy_root) == "rulespec-us/us"
+        system_config.write_text(
+            '[url "https://example.com/not-us.git"]\n'
+            "\tinsteadOf = https://github.com/TheAxiomFoundation/rulespec-us.git\n",
+            encoding="utf-8",
         )
         assert canonical_rulespec_root_identity(policy_root) is None
         assert inspect_canonical_rulespec_checkout(

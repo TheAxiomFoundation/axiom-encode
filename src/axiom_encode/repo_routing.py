@@ -777,6 +777,17 @@ def _git_config_input_paths(root: str) -> tuple[Path, ...]:
     so collect their resolved targets from the same bounded Git probe.
     """
 
+    custom_config_environment = {
+        name
+        for name in ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM")
+        if name in os.environ
+    }
+    if custom_config_environment:
+        raise _GitProbeError(
+            f"Custom Git configuration environment observed for {root}",
+            category="custom-config-environment",
+        )
+    system_config_inputs = _git_system_config_input_paths(root)
     try:
         completed = subprocess.run(
             [
@@ -809,17 +820,7 @@ def _git_config_input_paths(root: str) -> tuple[Path, ...]:
             f"Could not parse Git configuration inputs for {root}",
             category="invalid-output",
         )
-    custom_config_environment = {
-        name
-        for name in ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM")
-        if name in os.environ
-    }
-    if custom_config_environment:
-        raise _GitProbeError(
-            f"Custom Git configuration environment observed for {root}",
-            category="custom-config-environment",
-        )
-    inputs: set[Path] = set()
+    inputs = set(system_config_inputs)
     for origin, setting in zip(fields[::2], fields[1::2], strict=True):
         if not origin.startswith("file:"):
             raise _GitProbeError(
@@ -860,6 +861,37 @@ def _git_config_input_paths(root: str) -> tuple[Path, ...]:
                 category="input-limit",
             )
     return tuple(sorted(inputs, key=str))
+
+
+def _git_system_config_input_paths(root: str) -> tuple[Path, ...]:
+    """Return Git's platform-specific system config candidates, even if absent."""
+
+    try:
+        completed = subprocess.run(
+            ["git", "-C", root, "var", "GIT_CONFIG_SYSTEM"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise _GitProbeError(
+            f"Could not inspect Git system configuration inputs for {root}",
+            category=_git_probe_exception_category(exc),
+        ) from exc
+    raw_paths = completed.stdout.splitlines()
+    if completed.returncode != 0 or not raw_paths or len(raw_paths) > 16:
+        raise _GitProbeError(
+            f"Could not inspect Git system configuration inputs for {root}",
+            category="unavailable",
+        )
+    paths = tuple(_git_config_file_path(root, raw_path) for raw_path in raw_paths)
+    if any(path is None for path in paths):
+        raise _GitProbeError(
+            f"Could not resolve Git system configuration input for {root}",
+            category="invalid-config-path",
+        )
+    return tuple(path for path in paths if path is not None)
 
 
 def _git_config_file_path(base: str, raw_path: str) -> Path | None:
