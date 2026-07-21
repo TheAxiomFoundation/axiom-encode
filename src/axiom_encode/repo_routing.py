@@ -810,20 +810,42 @@ def _git_config_input_paths(root: str) -> tuple[Path, ...]:
             category="invalid-output",
         )
     inputs: set[Path] = set()
-    for origin, setting in zip(fields[::2], fields[1::2], strict=True):
-        origin_path = _git_config_file_path(root, origin.removeprefix("file:"))
-        if not origin.startswith("file:") or origin_path is None:
+    for environment_name in ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"):
+        raw_path = os.environ.get(environment_name)
+        if raw_path is None:
             continue
-        inputs.add(origin_path)
+        config_path = _git_config_file_path(root, raw_path)
+        if config_path is None:
+            raise _GitProbeError(
+                f"Could not resolve {environment_name} for {root}",
+                category="invalid-config-path",
+            )
+        inputs.add(config_path)
+    for origin, setting in zip(fields[::2], fields[1::2], strict=True):
         key, separator, value = setting.partition("\n")
         normalized_key = key.casefold()
-        if not separator or not (
+        is_include = separator and (
             normalized_key == "include.path"
             or (
                 normalized_key.startswith("includeif.")
                 and normalized_key.endswith(".path")
             )
-        ):
+        )
+        if not origin.startswith("file:"):
+            if is_include:
+                raise _GitProbeError(
+                    f"Non-file Git configuration include observed for {root}",
+                    category="non-file-include",
+                )
+            continue
+        origin_path = _git_config_file_path(root, origin.removeprefix("file:"))
+        if origin_path is None:
+            raise _GitProbeError(
+                f"Could not resolve Git configuration input for {root}",
+                category="invalid-config-path",
+            )
+        inputs.add(origin_path)
+        if not is_include:
             continue
         include_path = _git_config_file_path(
             str(origin_path.parent),
