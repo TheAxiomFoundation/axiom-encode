@@ -37939,3 +37939,18 @@ def test_overlay_validation_failures_keep_standalone_telemetry_when_no_issues():
 
     assert outcome["validation_failure_counts"] == {"ci:proof_atoms": 1}
     assert [item["gate"] for item in outcome["validation_failures"]] == ["ci"]
+
+
+def test_ci_entrypoint_is_registered():
+    result = subprocess.run(
+        [sys.executable, "-m", "axiom_encode.cli", "ci", "--help"],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+
+    assert result.returncode == 0
+    assert "--corpus-release-public-key" in result.stdout
+    assert "--allow-ref-mismatch" in result.stdout
+    assert "--allow-encoder-mismatch" in result.stdout
