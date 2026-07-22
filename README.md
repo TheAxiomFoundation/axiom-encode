@@ -2,11 +2,58 @@
 
 AI-assisted Axiom RuleSpec encoding infrastructure. This repo owns the automation layer for turning source legal text into jurisdiction-repo `*.yaml` RuleSpec artifacts and validating them with `axiom-rules-engine`.
 
+## What this does
+
+`axiom-encode` sits between the corpus and the jurisdiction rules repos in
+the Axiom pipeline:
+
+```
+axiom-corpus (signed source releases)
+  → axiom-encode (model generation + compile/proof/oracle gates)
+  → rulespec-* repos (RuleSpec YAML + companion tests + signed apply manifests)
+```
+
+Given a citation (for example `26 USC 32(a)(1)`), it resolves the exact
+provision text from the signed corpus release pinned by the target RuleSpec
+checkout, prompts a model to draft the RuleSpec encoding, and only applies
+output that passes the validation gates: RuleSpec compilation, proof-tree
+validation against release-bound source text, companion tests, and oracle
+comparisons where configured. Applies are recorded as signed manifests under
+the target repo's `.axiom/encoding-manifests/`.
+
+A checkout whose `.axiom/toolchain.toml` still declares the legacy
+commit-ref schema (a repo mid-migration to signed-release pins) fails
+current `axiom-encode` toolchain validation by design; the legacy file's
+`axiom_encode_version` field names the encoder release that matches it.
+
+## Who runs this
+
+The Foundation team, on its supervised encoding runtime: generation runs on
+operator-controlled compute, and the migrated jurisdiction repos require
+RuleSpec content changes to carry the signed encoding manifests this
+pipeline produces. The chartered admission model — where generation runs,
+what gets signed, and what CI is allowed to do — is
+[axiom-encode#1192](https://github.com/TheAxiomFoundation/axiom-encode/issues/1192).
+
+If you are not running the supervised pipeline, you generally do not need
+this repo:
+
+- **Use the encodings** — consume published RuleSpec from the `rulespec-*`
+  repos and the signed corpus releases they pin.
+- **Contribute sources** — scrapers and corpus ingest live in
+  [axiom-scrapers](https://github.com/TheAxiomFoundation/axiom-scrapers) and
+  [axiom-corpus](https://github.com/TheAxiomFoundation/axiom-corpus).
+- **Report problems** — a wrong or missing encoding is an issue on the
+  relevant `rulespec-*` repo; fixes route through the supervised pipeline.
+
 ## Installation
 
 ```bash
-pip install -e ".[dev]"
+uv sync
 ```
+
+Without [uv](https://docs.astral.sh/uv/), create and activate a virtualenv,
+then `pip install -e ".[dev]"`.
 
 ## Usage
 
