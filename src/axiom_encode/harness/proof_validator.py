@@ -547,24 +547,73 @@ def _proof_excerpt_subsection_scope_issues(
     label: str,
     field: str,
 ) -> list[str]:
-    """Reject an explicit top-level excerpt marker outside the rule citation."""
+    """Reject an explicit excerpt marker outside the rule citation."""
     if not isinstance(rule_source, str):
         return []
+    scope = _rule_source_subsection_scope(rule_source)
     declared = {
         match.group("marker")
         for match in re.finditer(r"\((?P<marker>[a-z])\)", rule_source)
     }
     excerpt_marker = re.match(r"^\s*\((?P<marker>[a-z])\)(?:\s|$)", evidence_text)
-    if not declared or excerpt_marker is None:
+    marker = excerpt_marker.group("marker") if excerpt_marker is not None else None
+    if declared and marker is not None and marker not in declared:
+        return [
+            "Proof source evidence not found: "
+            f"{label} `source.{field}` appears outside the rule's declared "
+            f"subsection scope `{rule_source}` (excerpt begins at `({marker})`)."
+        ]
+
+    numeric_marker = re.match(r"^\s*\((?P<marker>\d+)\)(?:\s|$)", evidence_text)
+    if numeric_marker is None or not scope:
         return []
-    marker = excerpt_marker.group("marker")
-    if marker in declared:
+    # A broad top-level citation, such as ``(f)``, admits all of its children.
+    # Only reject a numeric sibling when every declared top-level subsection is
+    # itself narrowed to explicit numeric children.
+    if any(children is None for children in scope.values()):
+        return []
+    numeric = numeric_marker.group("marker")
+    declared_numeric = {
+        child for children in scope.values() for child in (children or ())
+    }
+    if numeric in declared_numeric:
         return []
     return [
         "Proof source evidence not found: "
         f"{label} `source.{field}` appears outside the rule's declared "
-        f"subsection scope `{rule_source}` (excerpt begins at `({marker})`)."
+        f"subsection scope `{rule_source}` (excerpt begins at `({numeric})`)."
     ]
+
+
+def _rule_source_subsection_scope(
+    rule_source: str,
+) -> dict[str, frozenset[str] | None]:
+    """Parse top-level CFR markers and any explicit numeric child ranges."""
+    scope: dict[str, set[str] | None] = {}
+    for segment in str(rule_source).split(","):
+        top_match = re.search(r"\((?P<top>[a-z])\)", segment)
+        if top_match is None:
+            continue
+        top = top_match.group("top")
+        suffix = segment[top_match.end() :]
+        numeric = {
+            match.group("value") for match in re.finditer(r"\((?P<value>\d+)\)", suffix)
+        }
+        for match in re.finditer(r"\((?P<start>\d+)\)\s*-\s*\((?P<end>\d+)\)", suffix):
+            start = int(match.group("start"))
+            end = int(match.group("end"))
+            if start <= end and end - start <= 100:
+                numeric.update(str(value) for value in range(start, end + 1))
+        if not numeric:
+            scope[top] = None
+        elif scope.get(top, set()) is not None:
+            current = scope.setdefault(top, set())
+            assert isinstance(current, set)
+            current.update(numeric)
+    return {
+        top: None if children is None else frozenset(children)
+        for top, children in scope.items()
+    }
 
 
 def _validate_import_proof_atom(raw_import: Any, label: str) -> list[str]:

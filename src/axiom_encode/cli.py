@@ -190,6 +190,7 @@ from .harness.proof_validator import (
     MONEY_UNITS,
     MoneyAtomRatchet,
     ProofValidationResult,
+    _rule_source_subsection_scope,
     emit_money_atom_ratchet,
     evaluate_money_atoms,
     find_noncanonical_corpus_citation_path_issues,
@@ -28184,23 +28185,42 @@ def _declared_rule_subsection_source_text(
     *,
     rule_source: object,
 ) -> str | None:
-    """Limit repair candidates to explicit top-level rule-source subsections."""
+    """Limit repair candidates to explicit rule-source subsections."""
     if not isinstance(rule_source, str):
         return None
-    declared = {
-        match.group("marker")
-        for match in re.finditer(r"\((?P<marker>[a-z])\)", rule_source)
-    }
-    if not declared:
+    scope = _rule_source_subsection_scope(rule_source)
+    if not scope:
         return None
     source = str(source_text)
     markers = list(re.finditer(r"(?m)^[ \t]*\((?P<marker>[a-z])\)[ \t]+", source))
     blocks: list[str] = []
     for index, marker in enumerate(markers):
-        if marker.group("marker") not in declared:
+        top = marker.group("marker")
+        if top not in scope:
             continue
         end = markers[index + 1].start() if index + 1 < len(markers) else len(source)
-        blocks.append(source[marker.start() : end])
+        block = source[marker.start() : end]
+        children = scope[top]
+        if children is None:
+            blocks.append(block)
+            continue
+        child_markers = list(
+            re.finditer(r"(?m)^[ \t]*\((?P<marker>\d+)\)[ \t]+", block)
+        )
+        selected_children: list[str] = []
+        for child_index, child in enumerate(child_markers):
+            if child.group("marker") not in children:
+                continue
+            child_end = (
+                child_markers[child_index + 1].start()
+                if child_index + 1 < len(child_markers)
+                else len(block)
+            )
+            selected_children.append(block[child.start() : child_end])
+        if selected_children:
+            blocks.extend(selected_children)
+        elif not child_markers:
+            blocks.append(block)
     return "\n\n".join(blocks) or None
 
 
