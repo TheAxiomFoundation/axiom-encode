@@ -1924,7 +1924,11 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         if step.get("name") == "Finalize signed re-encode artifact checksums"
     )
     assert "if" not in checksum_step
-    assert 'sha256sum "$RUNNER_TEMP/targeted-reencode"/*' in checksum_step["run"]
+    checksum_command = checksum_step["run"]
+    assert 'artifact="$RUNNER_TEMP/targeted-reencode"' in checksum_command
+    assert 'cd "$artifact"' in checksum_command
+    assert "sha256sum * > SHA256SUMS" in checksum_command
+    assert 'sha256sum "$RUNNER_TEMP/targeted-reencode"/*' not in checksum_command
     upload_step = next(
         step for step in steps if step.get("name") == "Upload signed re-encode artifact"
     )

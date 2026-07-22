@@ -533,8 +533,11 @@ jobs:
       - name: Finalize signed re-encode artifact checksums
         run: |
           set -euo pipefail
-          sha256sum "$RUNNER_TEMP/targeted-reencode"/* \
-            > "$RUNNER_TEMP/targeted-reencode/SHA256SUMS"
+          artifact="$RUNNER_TEMP/targeted-reencode"
+          (
+            cd "$artifact"
+            sha256sum * > SHA256SUMS
+          )
 
       - name: Upload signed re-encode artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
