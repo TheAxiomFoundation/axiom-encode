@@ -7393,6 +7393,97 @@ must use a reasonable allocation method.
     assert repaired.endswith("must use a reasonable allocation method.")
 
 
+def test_closest_exact_source_excerpt_uses_direct_match_source_coordinates():
+    source_text = """(a) If household income is below the threshold and all documentation requirements are satisfied, the agency shall pay $500.
+(b) If fraud is found, the agency shall pay $500.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="the agency shall pay $500.",
+    )
+
+    assert repaired is not None
+    assert repaired.startswith("(a) If household income is below the threshold")
+    assert "fraud" not in repaired
+
+
+def test_closest_exact_source_excerpt_keeps_prior_sentence_condition():
+    source_text = """(a) This benefit is available only if household income is below the limit. The
+agency shall pay $500 per month.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="The agency shall pay $500 per month.",
+    )
+
+    assert repaired == source_text.strip()
+
+
+@pytest.mark.parametrize(
+    ("source_text", "excerpt"),
+    [
+        (
+            """(a) If the income test applies, the agency shall use
+1.5 percent of household income when calculating the benefit.
+""",
+            "1.5 percent of household income",
+        ),
+        (
+            """(a) If the renewal rule applies, coverage continues through
+2026. The agency shall then redetermine eligibility.
+""",
+            "2026. The agency shall then redetermine eligibility.",
+        ),
+        (
+            """(a) If the agency applies the monthly standard, it shall use
+80 hours as the divisor and account for changes occurring after
+2026 when calculating the benefit.
+""",
+            "80 hours as the divisor and account for changes occurring after",
+        ),
+    ],
+)
+def test_closest_exact_source_excerpt_keeps_numeric_wrapped_prose_condition(
+    source_text, excerpt
+):
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt=excerpt,
+    )
+
+    assert repaired == source_text.strip()
+
+
+def test_closest_exact_source_excerpt_keeps_indented_wrapped_cross_reference():
+    source_text = """(i) If the household meets the condition described in paragraph
+    (a)(1) of this section, the agency shall pay the benefit.
+(ii) Otherwise, no benefit is paid.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="the agency shall pay the benefit",
+    )
+
+    assert repaired is not None
+    assert repaired.startswith("(i) If the household meets the condition")
+    assert repaired.endswith("the agency shall pay the benefit.")
+
+
+def test_exact_source_excerpt_candidates_do_not_join_under_lead_in_provisions():
+    source_text = """(a)(1) Scope governed under
+(a)(2) The agency shall exclude gifts from income.
+"""
+
+    candidates = _exact_source_excerpt_candidates(source_text)
+
+    assert not any(
+        "Scope governed" in item and "exclude gifts" in item for item in candidates
+    )
+
+
 def test_closest_exact_source_excerpt_splits_long_line_without_splitting_citation():
     source_text = (
         "The threshold is defined under 29 U.S.C. 206. "
