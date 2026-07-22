@@ -129,9 +129,8 @@ def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     repo = tmp_path / "rulespec-us"
-    reviewed_ref = next(
-        ref for country, ref in REVIEWED_RULESPEC_REFS if country == "us"
-    )
+    reviewed_ref = "8645fb934cd02dbf730cf980507bbb2d07731bd1"
+    assert REVIEWED_RULESPEC_REFS == frozenset({("us", reviewed_ref)})
     monkeypatch.setattr(
         "scripts.prepare_signed_backfill._git",
         lambda _repo, *_args: f"{reviewed_ref}\n".encode(),
@@ -148,6 +147,25 @@ def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
 
     with pytest.raises(ValueError, match="artifact-only"):
         validate_rulespec_base(repo, "us", reviewed_ref, open_pr=True)
+
+
+def test_validate_rulespec_base_rejects_retired_reviewed_head(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "rulespec-us"
+    retired_ref = "991f5375b92dffca57b08069093c24a463365cbc"
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill._git",
+        lambda _repo, *_args: f"{retired_ref}\n".encode(),
+    )
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill.subprocess.run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+    )
+
+    with pytest.raises(ValueError, match="neither on main nor an approved"):
+        validate_rulespec_base(repo, "us", retired_ref, open_pr=False)
 
 
 def test_validate_rulespec_base_rejects_unreviewed_non_main_head(

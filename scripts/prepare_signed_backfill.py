@@ -19,7 +19,7 @@ REVIEWED_RULESPEC_REFS = frozenset(
     {
         (
             "us",
-            "52467ee7d99f4aa31882dfa7ec16835db2613eb3",
+            "8645fb934cd02dbf730cf980507bbb2d07731bd1",
         ),
     }
 )
@@ -53,24 +53,31 @@ def validate_rulespec_base(
     actual_ref = _git(repo, "rev-parse", "HEAD").decode().strip()
     if actual_ref != requested_ref:
         raise ValueError("rulespec checkout does not match the requested ref")
-    main_ancestor = subprocess.run(
-        [
-            "git",
-            "-C",
-            str(repo),
-            "merge-base",
-            "--is-ancestor",
-            "HEAD",
-            "refs/remotes/origin/main",
-        ],
-        check=False,
-    ).returncode == 0
+    main_ancestor = (
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repo),
+                "merge-base",
+                "--is-ancestor",
+                "HEAD",
+                "refs/remotes/origin/main",
+            ],
+            check=False,
+        ).returncode
+        == 0
+    )
     if main_ancestor:
         return "main"
     if (country, requested_ref) not in REVIEWED_RULESPEC_REFS:
-        raise ValueError("rulespec ref is neither on main nor an approved reviewed head")
+        raise ValueError(
+            "rulespec ref is neither on main nor an approved reviewed head"
+        )
     if open_pr:
-        raise ValueError("reviewed-head runs are artifact-only and cannot open a pull request")
+        raise ValueError(
+            "reviewed-head runs are artifact-only and cannot open a pull request"
+        )
     return "reviewed-head-artifact"
 
 
@@ -87,7 +94,9 @@ def _changed_paths(repo: Path) -> set[PurePosixPath]:
         entry = fields[index]
         status = entry[:2]
         if len(entry) < 4 or status[:1] in {b"R", b"C"} or status[1:] in {b"R", b"C"}:
-            raise ValueError("renamed/copied or malformed changed paths are not publishable")
+            raise ValueError(
+                "renamed/copied or malformed changed paths are not publishable"
+            )
         paths.add(PurePosixPath(entry[3:].decode("utf-8")))
         index += 1
     return paths
@@ -124,7 +133,9 @@ def authorized_changed_paths(repo: Path) -> set[PurePosixPath]:
         if path.is_relative_to(MANIFEST_ROOT) and path.suffix == ".json"
     }
     if not manifests:
-        raise ValueError("no changed signed apply manifest is available to authorize publication")
+        raise ValueError(
+            "no changed signed apply manifest is available to authorize publication"
+        )
 
     authorized = set(manifests)
     for relative in manifests:
@@ -136,16 +147,16 @@ def authorized_changed_paths(repo: Path) -> set[PurePosixPath]:
             raise ValueError(f"changed manifest has an unsupported schema: {relative}")
         applied_files = payload.get("applied_files")
         if not isinstance(applied_files, list) or not applied_files:
-            raise ValueError(f"changed manifest has no applied_files authorization: {relative}")
+            raise ValueError(
+                f"changed manifest has no applied_files authorization: {relative}"
+            )
         for index, entry in enumerate(applied_files):
             if not isinstance(entry, dict):
                 raise ValueError(f"{relative} applied_files[{index}] is malformed")
             label = f"{relative} applied_files[{index}].path"
             applied_path = _safe_relative_path(entry.get("path"), label=label)
             _validate_rulespec_path(repo, applied_path, label=label)
-            authorized.add(
-                applied_path
-            )
+            authorized.add(applied_path)
 
     unexpected = changed - authorized
     missing = authorized - changed
@@ -219,7 +230,12 @@ def main() -> None:
             )
         else:
             stage_authorized_changes(args.repo)
-    except (OSError, ValueError, json.JSONDecodeError, subprocess.CalledProcessError) as exc:
+    except (
+        OSError,
+        ValueError,
+        json.JSONDecodeError,
+        subprocess.CalledProcessError,
+    ) as exc:
         parser.exit(1, f"error: {exc}\n")
 
 
