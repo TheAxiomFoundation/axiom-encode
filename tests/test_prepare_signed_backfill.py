@@ -124,13 +124,26 @@ def test_validate_rulespec_base_accepts_main_ancestor(tmp_path: Path) -> None:
     assert validate_rulespec_base(repo, "us", base, open_pr=True) == "main"
 
 
+@pytest.mark.parametrize(
+    ("country", "reviewed_ref"),
+    [
+        ("us", "8645fb934cd02dbf730cf980507bbb2d07731bd1"),
+        ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
+    ],
+)
 def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    country: str,
+    reviewed_ref: str,
 ) -> None:
-    repo = tmp_path / "rulespec-us"
-    reviewed_ref = "8645fb934cd02dbf730cf980507bbb2d07731bd1"
-    assert REVIEWED_RULESPEC_REFS == frozenset({("us", reviewed_ref)})
+    repo = tmp_path / f"rulespec-{country}"
+    assert REVIEWED_RULESPEC_REFS == frozenset(
+        {
+            ("us", "8645fb934cd02dbf730cf980507bbb2d07731bd1"),
+            ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
+        }
+    )
     monkeypatch.setattr(
         "scripts.prepare_signed_backfill._git",
         lambda _repo, *_args: f"{reviewed_ref}\n".encode(),
@@ -141,12 +154,12 @@ def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
     )
 
     assert (
-        validate_rulespec_base(repo, "us", reviewed_ref, open_pr=False)
+        validate_rulespec_base(repo, country, reviewed_ref, open_pr=False)
         == "reviewed-head-artifact"
     )
 
     with pytest.raises(ValueError, match="artifact-only"):
-        validate_rulespec_base(repo, "us", reviewed_ref, open_pr=True)
+        validate_rulespec_base(repo, country, reviewed_ref, open_pr=True)
 
 
 def test_validate_rulespec_base_rejects_retired_reviewed_head(
