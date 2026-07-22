@@ -167,6 +167,7 @@ from axiom_encode.cli import (
     _stage_apply_overlay_dependency_root,
     _stage_apply_overlay_dependency_roots,
     _stamp_generated_source_attestation_for_apply,
+    _stamp_matching_supplemental_source_attestations,
     _suppress_rulespec_ancestor_targets_for_subsection_overlay,
     _translate_rulespec_engine_envelope_error,
     _try_repair_generated_aca_36b_b_premium_assistance_compat_for_apply,
@@ -33239,12 +33240,19 @@ rules: []
     ):
         output_root = tmp_path / "out"
         policy_repo = tmp_path / "rulespec-us" / "us"
-        generated = output_root / "codex-test-model" / "statutes/26/151.yaml"
+        generated = output_root / "openai-test-model" / "statutes/26/151.yaml"
         dependent = policy_repo / "statutes/26/63.yaml"
+        transitive_dependent = policy_repo / "policies/income_tax/final.yaml"
+        third_hop_dependent = policy_repo / "policies/income_tax/payable.yaml"
+        source_digest = "d" * 64
         generated.parent.mkdir(parents=True)
         dependent.parent.mkdir(parents=True)
+        transitive_dependent.parent.mkdir(parents=True)
         generated.write_text(
             """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/151
 rules:
   - name: section_151_exemption_deduction
     kind: parameter
@@ -33255,8 +33263,12 @@ rules:
           0
 """
         )
-        dependent.write_text(
-            """format: rulespec/v1
+        dependent.write_bytes(
+            f"""format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/151
+    source_sha256: {source_digest}
 imports:
   - us:statutes/26/151
 rules:
@@ -33278,11 +33290,96 @@ rules:
       - effective_from: '2026-01-01'
         formula: |-
           section_151_exemption_deduction
-"""
+""".replace("\n", "\r\n").encode("utf-8")
+        )
+        transitive_dependent.write_bytes(
+            f"""format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/151
+    source_sha256: {source_digest}
+imports:
+  - us:statutes/26/63
+rules:
+  - name: final_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/63#deductions_referred_to_in_subsection_b
+              output: deductions_referred_to_in_subsection_b
+              hash: sha256:old
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          deductions_referred_to_in_subsection_b
+""".replace("\n", "\r\n").encode("utf-8")
+        )
+        third_hop_dependent.write_bytes(
+            f"""format: rulespec/v1
+module:
+  description: Café raw-byte chain
+  source_verification:
+    corpus_citation_path: us/statute/26/151
+    source_sha256: {source_digest}
+imports:
+  - us:policies/income_tax/final
+rules:
+  - name: payable_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:policies/income_tax/final#final_deduction
+              output: final_deduction
+              hash: sha256:old
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          final_deduction
+""".replace("\n", "\r\n").encode("utf-8")
+        )
+        context_dir = output_root / "context"
+        context_dir.mkdir()
+        (context_dir / "source.txt").write_text("test source\n")
+        source_attestation = _complete_source_attestation(
+            "us/statute/26/151", source_sha256=source_digest
+        )
+        context_manifest = context_dir / "context-manifest.json"
+        context_manifest.write_text(
+            json.dumps(
+                {
+                    "source_text_file": "source.txt",
+                    "source_metadata": {
+                        "source_attestation": source_attestation,
+                    },
+                }
+            )
+            + "\n"
         )
         result = SimpleNamespace(
-            output_file=str(generated), runner="codex-test-model", backend="codex"
+            output_file=str(generated),
+            runner="openai-test-model",
+            backend="openai",
+            context_manifest_file=str(context_manifest),
+            source_attestation=source_attestation,
         )
+        local_corpus_release = _bind_test_corpus_release(
+            policy_repo, tmp_path / "axiom-corpus"
+        )
+        dependent_validations: dict[str, list[bytes]] = {}
 
         class FakePipeline:
             def __init__(self, **_kwargs):
@@ -33292,7 +33389,11 @@ rules:
                 assert skip_reviewers is True
                 if Path(path).name == "151.yaml":
                     return SimpleNamespace(all_passed=True, results={})
-                content = Path(path).read_text()
+                content_bytes = Path(path).read_bytes()
+                content = content_bytes.decode("utf-8")
+                dependent_validations.setdefault(Path(path).name, []).append(
+                    content_bytes
+                )
                 if "hash: sha256:old" in content:
                     return SimpleNamespace(
                         all_passed=False,
@@ -33310,22 +33411,82 @@ rules:
                     )
                 return SimpleNamespace(all_passed=True, results={})
 
-        with patch("axiom_encode.cli.ValidatorPipeline", FakePipeline):
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch("axiom_encode.cli._APPLY_OVERLAY_VALIDATION_REPAIR_LIMIT", 1),
+            patch.object(
+                Path,
+                "write_text",
+                side_effect=AssertionError("apply repair must use explicit bytes"),
+            ),
+        ):
             ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
                 result,
                 output_root=output_root,
                 policy_repo_path=policy_repo,
                 axiom_rules_path=tmp_path / "axiom-rules-engine",
-                local_corpus_release=_bind_test_corpus_release(
-                    policy_repo, tmp_path / "axiom-corpus"
-                ),
+                local_corpus_release=local_corpus_release,
             )
 
-        assert ok is True
+        assert ok is True, issues
         assert issues == []
         updated = supplemental[Path("statutes/26/63.yaml")]
         assert "hash: sha256:old" not in updated
         assert f"hash: sha256:{_sha256_file(generated)}" in updated
+        assert f"source_sha256: {'d' * 64}" in updated
+        assert dependent_validations["63.yaml"][-1] == updated.encode("utf-8")
+        transitive_updated = supplemental[Path("policies/income_tax/final.yaml")]
+        assert "hash: sha256:old" not in transitive_updated
+        assert (
+            "hash: sha256:"
+            f"{hashlib.sha256(updated.encode('utf-8')).hexdigest()}"
+            in transitive_updated
+        )
+        assert f"source_sha256: {'d' * 64}" in transitive_updated
+        assert dependent_validations["final.yaml"][-1] == transitive_updated.encode(
+            "utf-8"
+        )
+        third_hop_updated = supplemental[Path("policies/income_tax/payable.yaml")]
+        assert "hash: sha256:old" not in third_hop_updated
+        assert (
+            "hash: sha256:"
+            f"{hashlib.sha256(transitive_updated.encode('utf-8')).hexdigest()}"
+            in third_hop_updated
+        )
+        assert "Café raw-byte chain" in third_hop_updated
+        assert dependent_validations["payable.yaml"][-1] == third_hop_updated.encode(
+            "utf-8"
+        )
+
+    def test_supplemental_source_stamp_leaves_other_sources_fail_closed(self):
+        supplemental = {
+            Path("policies/income_tax/pipeline.yaml"): """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-nc/statute/105/105-153.7
+rules: []
+""",
+            Path("policies/income_tax/other.yaml"): """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-nc/statute/105/105-153.8
+rules: []
+""",
+        }
+        attestation = _complete_source_attestation(
+            "us-nc/statute/105/105-153.7", source_sha256="f" * 64
+        )
+
+        stamped = _stamp_matching_supplemental_source_attestations(
+            supplemental,
+            attestation=attestation,
+        )
+
+        assert (
+            f"source_sha256: {'f' * 64}"
+            in stamped[Path("policies/income_tax/pipeline.yaml")]
+        )
+        assert "source_sha256" not in stamped[Path("policies/income_tax/other.yaml")]
 
     def test_apply_overlay_validation_refreshes_dependent_hashes_after_target_repair(
         self, tmp_path
@@ -33746,8 +33907,9 @@ rules:
         repo = tmp_path / "rulespec-us" / "us-ny"
         target = repo / "regulations/18-nycrr/387/12/f/3/v/c.yaml"
         dependent = repo / "policies/otda/snap/fy-2026-benefit-calculation.yaml"
+        transitive_dependent = repo / "policies/otda/snap/final-benefit.yaml"
         unrelated = repo / "policies/otda/snap/other.yaml"
-        for path in (target, dependent, unrelated):
+        for path in (target, dependent, transitive_dependent, unrelated):
             path.parent.mkdir(parents=True, exist_ok=True)
         target.write_text("format: rulespec/v1\nrules: []\n")
         dependent.write_text(
@@ -33757,13 +33919,20 @@ imports:
 rules: []
 """
         )
+        transitive_dependent.write_text(
+            """format: rulespec/v1
+imports:
+  - us-ny:policies/otda/snap/fy-2026-benefit-calculation
+rules: []
+"""
+        )
         unrelated.write_text("format: rulespec/v1\nimports: []\nrules: []\n")
 
         dependents = _find_rulespec_dependents(
             repo, Path("regulations/18-nycrr/387/12/f/3/v/c.yaml")
         )
 
-        assert dependents == [dependent]
+        assert dependents == [dependent, transitive_dependent]
 
     def test_insert_false_input_default_uses_base_anchor(self):
         content = """- name: first_case

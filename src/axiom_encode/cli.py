@@ -37483,6 +37483,61 @@ def _supplemental_source_attestation_issues(
     return issues
 
 
+def _stamp_matching_supplemental_source_attestations(
+    supplemental_files: dict[Path, str],
+    *,
+    attestation: dict[str, object] | None,
+) -> dict[Path, str]:
+    """Bind modified RuleSpec dependents that cite the primary resolved source."""
+
+    if attestation is None:
+        return dict(supplemental_files)
+    source_sha256 = attestation.get("source_sha256")
+    if not isinstance(source_sha256, str) or not source_sha256:
+        return dict(supplemental_files)
+    attested_paths = {
+        str(attestation[field])
+        for field in (
+            "requested_corpus_citation_path",
+            "resolved_corpus_citation_path",
+        )
+        if isinstance(attestation.get(field), str) and attestation.get(field)
+    }
+
+    stamped = dict(supplemental_files)
+    for relative_path, content in sorted(
+        supplemental_files.items(), key=lambda item: item[0].as_posix()
+    ):
+        if relative_path.suffix != RULESPEC_FILE_SUFFIX or relative_path.name.endswith(
+            RULESPEC_TEST_FILE_SUFFIX
+        ):
+            continue
+        try:
+            payload = yaml.safe_load(content)
+        except (UnicodeError, yaml.YAMLError, ValueError):
+            continue
+        if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+            continue
+        module = payload.get("module")
+        verification = (
+            module.get("source_verification") if isinstance(module, dict) else None
+        )
+        if not isinstance(verification, dict):
+            continue
+        declared_paths = _source_verification_citation_paths(verification)
+        if not declared_paths or not set(declared_paths).issubset(attested_paths):
+            continue
+        if verification.get("source_sha256") == source_sha256:
+            continue
+        verification["source_sha256"] = source_sha256
+        stamped[relative_path] = yaml.safe_dump(
+            payload,
+            sort_keys=False,
+            allow_unicode=True,
+        )
+    return stamped
+
+
 _APPLY_VALIDATION_SNAPSHOT_ATTR = "_axiom_apply_validation_snapshot"
 
 
@@ -40698,7 +40753,7 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
         for path in changed_proof_hash_files:
             supplemental_files[
                 _relative_to_rulespec_apply_content_root(path, overlay_content_root)
-            ] = path.read_text()
+            ] = path.read_bytes().decode("utf-8")
         validations = _validate_overlay_files(
             pipeline,
             dependent_pipeline=dependent_pipeline,
@@ -40707,17 +40762,62 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
         )
         for _ in range(_APPLY_OVERLAY_VALIDATION_REPAIR_LIMIT):
             if all(validation.all_passed for _, validation in validations):
-                _record_successful_apply_validation(
-                    result,
-                    output_root=output_root,
-                    policy_repo_path=policy_repo_path,
-                    relative_output=relative_output,
-                    supplemental_files=supplemental_files,
-                    local_corpus_release=local_corpus_release,
-                    axiom_rules_path=axiom_rules_path,
-                    rulespec_dependency_roots=rulespec_dependency_roots,
+                stamped_supplemental_files = (
+                    _stamp_matching_supplemental_source_attestations(
+                        supplemental_files,
+                        attestation=_generated_result_source_attestation(result),
+                    )
                 )
-                return True, [], supplemental_files
+                if stamped_supplemental_files != supplemental_files:
+                    stamped_paths = {
+                        relative_path
+                        for relative_path, content in stamped_supplemental_files.items()
+                        if supplemental_files.get(relative_path) != content
+                    }
+                    supplemental_files = stamped_supplemental_files
+                    for relative_path in sorted(
+                        stamped_paths, key=lambda path: path.as_posix()
+                    ):
+                        content = supplemental_files[relative_path]
+                        overlay_path = (
+                            overlay_content_root
+                            / _canonical_apply_relative_path(relative_path)
+                        )
+                        if overlay_path.suffix != RULESPEC_FILE_SUFFIX:
+                            continue
+                        overlay_path.write_bytes(content.encode("utf-8"))
+                    for _cascade in range(len(dependents) + 1):
+                        changed_proof_hash_files = (
+                            _repair_dependent_proof_import_hashes(
+                                dependents=dependents,
+                            )
+                        )
+                        if not changed_proof_hash_files:
+                            break
+                        for path in changed_proof_hash_files:
+                            supplemental_files[
+                                _relative_to_rulespec_apply_content_root(
+                                    path, overlay_content_root
+                                )
+                            ] = path.read_bytes().decode("utf-8")
+                    validations = _validate_overlay_files(
+                        pipeline,
+                        dependent_pipeline=dependent_pipeline,
+                        overlay_target=overlay_target,
+                        dependents=dependents,
+                    )
+                if all(validation.all_passed for _, validation in validations):
+                    _record_successful_apply_validation(
+                        result,
+                        output_root=output_root,
+                        policy_repo_path=policy_repo_path,
+                        relative_output=relative_output,
+                        supplemental_files=supplemental_files,
+                        local_corpus_release=local_corpus_release,
+                        axiom_rules_path=axiom_rules_path,
+                        rulespec_dependency_roots=rulespec_dependency_roots,
+                    )
+                    return True, [], supplemental_files
             target_validation = next(
                 (
                     validation
@@ -40735,7 +40835,7 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
                         _relative_to_rulespec_apply_content_root(
                             path, overlay_content_root
                         )
-                    ] = path.read_text()
+                    ] = path.read_bytes().decode("utf-8")
                 validations = _validate_overlay_files(
                     pipeline,
                     dependent_pipeline=dependent_pipeline,
@@ -42803,8 +42903,8 @@ def _repair_dependent_proof_import_hashes(
             if content_root is None:
                 continue
             relative_dependent = dependent.relative_to(content_root)
-            content = dependent.read_text()
-        except (OSError, ValueError):
+            content = dependent.read_bytes().decode("utf-8")
+        except (OSError, UnicodeError, ValueError):
             continue
         target_base = (
             f"{content_root.name}:"
@@ -42818,7 +42918,7 @@ def _repair_dependent_proof_import_hashes(
         )
         if repair_count <= 0 or repaired == content:
             continue
-        dependent.write_text(repaired)
+        dependent.write_bytes(repaired.encode("utf-8"))
         changed.append(dependent)
     return changed
 
@@ -44064,11 +44164,10 @@ def _rulespec_test_path(path: Path) -> Path:
 def _find_rulespec_dependents(
     policy_repo_path: Path, relative_output: Path
 ) -> list[Path]:
-    """Find RuleSpec files that directly import the generated output."""
-    target = _relative_rulespec_import_target(relative_output)
+    """Find the transitive RuleSpec importer closure for the generated output."""
     jurisdiction = _repo_jurisdiction_prefix(policy_repo_path)
     content_root = _rulespec_apply_content_root(policy_repo_path, relative_output)
-    dependents: list[Path] = []
+    candidates: list[tuple[Path, Path]] = []
     for root in sorted(RULESPEC_ATOMIC_MODULE_ROOTS):
         root_path = content_root / root
         if not root_path.exists():
@@ -44080,12 +44179,26 @@ def _find_rulespec_dependents(
                 relative_candidate = candidate.relative_to(content_root)
             except ValueError:
                 continue
-            if relative_candidate == relative_output:
-                continue
-            if _rulespec_file_imports_target(
-                candidate, target=target, jurisdiction=jurisdiction
-            ):
-                dependents.append(candidate)
+            if relative_candidate != relative_output:
+                candidates.append((candidate, relative_candidate))
+
+    dependents: list[Path] = []
+    selected = {relative_output}
+    frontier = [relative_output]
+    while frontier:
+        next_frontier: list[Path] = []
+        for imported_path in frontier:
+            target = _relative_rulespec_import_target(imported_path)
+            for candidate, relative_candidate in candidates:
+                if relative_candidate in selected:
+                    continue
+                if _rulespec_file_imports_target(
+                    candidate, target=target, jurisdiction=jurisdiction
+                ):
+                    dependents.append(candidate)
+                    selected.add(relative_candidate)
+                    next_frontier.append(relative_candidate)
+        frontier = next_frontier
     return dependents
 
 
