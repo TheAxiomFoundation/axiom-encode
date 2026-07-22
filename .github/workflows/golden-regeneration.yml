@@ -109,6 +109,7 @@ jobs:
           TRUST_APPLY_ROOT: ${{ vars.AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY }}
           TRUST_EVAL_ROOT: ${{ vars.AXIOM_ENCODE_EVAL_SIGNING_PUBLIC_KEY }}
           TRUST_CORPUS_RELEASE_ROOT: ${{ vars.AXIOM_CORPUS_RELEASE_PUBLIC_KEY }}
+          TRUST_RETIRED_CORPUS_RELEASE_ROOT: ${{ vars.AXIOM_CORPUS_RELEASE_RETIRED_PUBLIC_KEY }}
         run: |
           CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-buildid=' \
             -o "$RUNNER_TEMP/axiom-encode-signing-supervisor" \
@@ -120,6 +121,7 @@ jobs:
             --site-packages "$RUNNER_TEMP/axiom-verification-site-packages" \
             --apply-root "$TRUST_APPLY_ROOT" --eval-root "$TRUST_EVAL_ROOT" \
             --corpus-release-root "$TRUST_CORPUS_RELEASE_ROOT" \
+            --retired-corpus-release-root "$TRUST_RETIRED_CORPUS_RELEASE_ROOT" \
             --git /usr/bin/git
           sudo chown -R 0:0 /opt/axiom-verification
           sudo chmod -R go-w /opt/axiom-verification

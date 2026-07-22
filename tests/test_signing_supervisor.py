@@ -198,6 +198,10 @@ def main():
             \"corpus_release\": b64encode(
                 broker.corpus_release_public_key_raw
             ).decode(\"ascii\"),
+            \"corpus_release_keys\": [
+                b64encode(public_key).decode(\"ascii\")
+                for public_key in broker.corpus_release_public_keys_raw
+            ],
         },
     }
     if os.environ.get("CODEX_HOME"):
@@ -426,22 +430,22 @@ def _trust_config(
     apply_public: str,
     eval_public: str,
     corpus_release_public: str | None = None,
+    corpus_release_public_keys: tuple[str, ...] | None = None,
 ) -> Path:
     if corpus_release_public is None:
         corpus_release_public, _private_key = _keypair(b"\x17" * 32)
     path = tmp_path.resolve() / "signing-trust-roots.json"
-    path.write_text(
-        json.dumps(
-            {
-                "schema": "axiom-encode/signing-trust-roots/v2",
-                "apply_ed25519_public_key": apply_public,
-                "eval_ed25519_public_key": eval_public,
-                "corpus_release_ed25519_public_key": corpus_release_public,
-            },
-            sort_keys=True,
-        )
-        + "\n"
-    )
+    payload = {
+        "schema": "axiom-encode/signing-trust-roots/v2",
+        "apply_ed25519_public_key": apply_public,
+        "eval_ed25519_public_key": eval_public,
+        "corpus_release_ed25519_public_key": corpus_release_public,
+    }
+    if corpus_release_public_keys is not None:
+        payload["schema"] = "axiom-encode/signing-trust-roots/v3"
+        payload.pop("corpus_release_ed25519_public_key")
+        payload["corpus_release_ed25519_public_keys"] = corpus_release_public_keys
+    path.write_text(json.dumps(payload, sort_keys=True) + "\n")
     path.chmod(0o600)
     return path
 
@@ -1267,17 +1271,90 @@ def test_verification_only_invocation_exposes_roots_without_signing_capability(
         "apply": apply_public,
         "eval": eval_public,
         "corpus_release": corpus_release_public,
+        "corpus_release_keys": [corpus_release_public],
     }
 
 
-def test_verification_only_supervisor_runs_public_guard_generated_with_signed_release(
+def test_v3_trust_config_exposes_ordered_corpus_release_keyring(
+    signing_supervisor: Path,
+    trusted_python_runtime: tuple[Path, Path, Path],
+    tmp_path: Path,
+) -> None:
+    apply_public, _apply_key = _keypair(b"\xab" * 32)
+    eval_public, _eval_key = _keypair(b"\xcd" * 32)
+    current_public, _current_key = _keypair(b"\x18" * 32)
+    retired_public, _retired_key = _keypair(b"\x17" * 32)
+    completed = _invoke(
+        signing_supervisor,
+        trusted_python_runtime,
+        _launcher(tmp_path, trusted_python_runtime),
+        _trust_config(
+            tmp_path,
+            apply_public,
+            eval_public,
+            corpus_release_public_keys=(current_public, retired_public),
+        ),
+        [],
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout)["roots"] == {
+        "apply": apply_public,
+        "eval": eval_public,
+        "corpus_release": current_public,
+        "corpus_release_keys": [current_public, retired_public],
+    }
+
+
+@pytest.mark.parametrize("mutation", ["empty", "malformed", "wrong_length", "conflict"])
+def test_v3_trust_config_rejects_invalid_corpus_release_keyrings(
+    signing_supervisor: Path,
+    trusted_python_runtime: tuple[Path, Path, Path],
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    apply_public, _apply_key = _keypair(b"\xab" * 32)
+    eval_public, _eval_key = _keypair(b"\xcd" * 32)
+    current_public, _current_key = _keypair(b"\x18" * 32)
+    other_public, _other_key = _keypair(b"\x19" * 32)
+    trust_config = _trust_config(
+        tmp_path,
+        apply_public,
+        eval_public,
+        corpus_release_public_keys=(current_public,),
+    )
+    payload = json.loads(trust_config.read_text())
+    if mutation == "empty":
+        payload["corpus_release_ed25519_public_keys"] = []
+    elif mutation == "malformed":
+        payload["corpus_release_ed25519_public_keys"] = ["not-base64!!"]
+    elif mutation == "wrong_length":
+        payload["corpus_release_ed25519_public_keys"] = [b64encode(b"short").decode()]
+    else:
+        payload["corpus_release_ed25519_public_key"] = other_public
+    trust_config.write_text(json.dumps(payload) + "\n")
+
+    completed = _invoke(
+        signing_supervisor,
+        trusted_python_runtime,
+        _launcher(tmp_path, trusted_python_runtime),
+        trust_config,
+        [],
+    )
+
+    assert completed.returncode == 2
+    assert "corpus release public key" in completed.stderr
+
+
+def test_verification_only_supervisor_accepts_retired_release_key_from_v3_keyring(
     signing_supervisor: Path,
     trusted_real_cli_runtime: tuple[Path, Path, Path],
     tmp_path: Path,
 ) -> None:
     apply_public, _apply_key = _keypair(b"\xab" * 32)
     eval_public, _eval_key = _keypair(b"\xcd" * 32)
-    corpus_release_public, _corpus_release_key = _keypair(b"\x17" * 32)
+    current_corpus_release_public, _current_corpus_release_key = _keypair(b"\x18" * 32)
+    retired_corpus_release_public, _retired_corpus_release_key = _keypair(b"\x17" * 32)
     rulespec_root, corpus_root = _write_signed_guard_fixture(
         tmp_path,
         trusted_real_cli_runtime[1],
@@ -1291,7 +1368,10 @@ def test_verification_only_supervisor_runs_public_guard_generated_with_signed_re
             tmp_path,
             apply_public,
             eval_public,
-            corpus_release_public,
+            corpus_release_public_keys=(
+                current_corpus_release_public,
+                retired_corpus_release_public,
+            ),
         ),
         [],
         command_args=(

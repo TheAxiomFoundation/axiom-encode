@@ -4,13 +4,143 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/binary"
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
 
 	"golang.org/x/sys/unix"
 )
+
+func encodedTestPublicKey(value byte) string {
+	return base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{value}, 32))
+}
+
+func parseTestTrustRoots(t *testing.T, payload map[string]any) ([]byte, []byte, [][]byte, error) {
+	t.Helper()
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return parseProtectedTrustRoots(raw, "/protected/signing-trust-roots.json")
+}
+
+func baseTrustRoots() map[string]any {
+	return map[string]any{
+		"schema":                            "axiom-encode/signing-trust-roots/v2",
+		"apply_ed25519_public_key":          encodedTestPublicKey(0xab),
+		"eval_ed25519_public_key":           encodedTestPublicKey(0xcd),
+		"corpus_release_ed25519_public_key": encodedTestPublicKey(0x17),
+	}
+}
+
+func TestLoadProtectedTrustRootsAcceptsV2AndV3Keyring(t *testing.T) {
+	v2 := baseTrustRoots()
+	apply, eval, corpusKeys, err := parseTestTrustRoots(t, v2)
+	if err != nil {
+		t.Fatalf("v2 trust roots were rejected: %v", err)
+	}
+	if len(apply) != 32 || len(eval) != 32 || len(corpusKeys) != 1 || len(corpusKeys[0]) != 32 {
+		t.Fatalf("v2 trust roots returned an invalid keyring: %#v", corpusKeys)
+	}
+	v2CorpusKey := append([]byte(nil), corpusKeys[0]...)
+
+	v3Single := baseTrustRoots()
+	v3Single["schema"] = "axiom-encode/signing-trust-roots/v3"
+	delete(v3Single, "corpus_release_ed25519_public_key")
+	v3Single["corpus_release_ed25519_public_keys"] = []string{
+		encodedTestPublicKey(0x17),
+	}
+	_, _, corpusKeys, err = parseTestTrustRoots(t, v3Single)
+	if err != nil {
+		t.Fatalf("single-key v3 trust roots were rejected: %v", err)
+	}
+	if len(corpusKeys) != 1 || !bytes.Equal(corpusKeys[0], v2CorpusKey) {
+		t.Fatalf("single-key v3 was not equivalent to v2: %#v", corpusKeys)
+	}
+
+	v3Consistent := baseTrustRoots()
+	v3Consistent["schema"] = "axiom-encode/signing-trust-roots/v3"
+	v3Consistent["corpus_release_ed25519_public_keys"] = []string{
+		encodedTestPublicKey(0x17),
+	}
+	if _, _, _, err = parseTestTrustRoots(t, v3Consistent); err != nil {
+		t.Fatalf("consistent singular/plural v3 trust roots were rejected: %v", err)
+	}
+
+	v3 := baseTrustRoots()
+	v3["schema"] = "axiom-encode/signing-trust-roots/v3"
+	delete(v3, "corpus_release_ed25519_public_key")
+	v3["corpus_release_ed25519_public_keys"] = []string{
+		encodedTestPublicKey(0x18),
+		encodedTestPublicKey(0x17),
+	}
+	_, _, corpusKeys, err = parseTestTrustRoots(t, v3)
+	if err != nil {
+		t.Fatalf("v3 trust roots were rejected: %v", err)
+	}
+	if len(corpusKeys) != 2 || corpusKeys[0][0] != 0x18 || corpusKeys[1][0] != 0x17 {
+		t.Fatalf("v3 trust roots lost keyring order: %#v", corpusKeys)
+	}
+}
+
+func TestLoadProtectedTrustRootsRejectsInvalidV3Keyrings(t *testing.T) {
+	for _, testCase := range []struct {
+		name   string
+		mutate func(map[string]any)
+		error  string
+	}{
+		{
+			name: "empty",
+			mutate: func(payload map[string]any) {
+				payload["corpus_release_ed25519_public_keys"] = []string{}
+			},
+			error: "must not be empty",
+		},
+		{
+			name: "malformed base64",
+			mutate: func(payload map[string]any) {
+				payload["corpus_release_ed25519_public_keys"] = []string{"not-base64!!"}
+			},
+			error: "base64-encoded raw bytes",
+		},
+		{
+			name: "wrong length",
+			mutate: func(payload map[string]any) {
+				payload["corpus_release_ed25519_public_keys"] = []string{base64.StdEncoding.EncodeToString([]byte("short"))}
+			},
+			error: "must contain 32 raw bytes",
+		},
+		{
+			name: "conflicting singular and plural",
+			mutate: func(payload map[string]any) {
+				payload["corpus_release_ed25519_public_key"] = encodedTestPublicKey(0x19)
+			},
+			error: "singular and plural corpus release public keys conflict",
+		},
+		{
+			name: "unknown schema",
+			mutate: func(payload map[string]any) {
+				payload["schema"] = "axiom-encode/signing-trust-roots/v999"
+			},
+			error: "schema is unsupported",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			payload := baseTrustRoots()
+			payload["schema"] = "axiom-encode/signing-trust-roots/v3"
+			payload["corpus_release_ed25519_public_keys"] = []string{encodedTestPublicKey(0x18)}
+			delete(payload, "corpus_release_ed25519_public_key")
+			testCase.mutate(payload)
+			_, _, _, err := parseTestTrustRoots(t, payload)
+			if err == nil || !strings.Contains(err.Error(), testCase.error) {
+				t.Fatalf("expected %q rejection, got %v", testCase.error, err)
+			}
+		})
+	}
+}
 
 func TestCredentialOutboxDestinationRejectsDevice(t *testing.T) {
 	fd, err := unix.Open("/dev", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
@@ -218,7 +348,7 @@ func TestBrokerInitializationRejectsEmptyOrExtraFields(t *testing.T) {
 func TestBrokerInitializationRequiresThreeDistinctRoots(t *testing.T) {
 	valid := decodedRequest(
 		t,
-		`{"version":4,"id":0,"op":"initialize","apply_public_key":"q6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6s=","eval_public_key":"zc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc0=","corpus_release_public_key":"FxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxc="}`,
+		`{"version":4,"id":0,"op":"initialize","apply_public_key":"q6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq6s=","eval_public_key":"zc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc0=","corpus_release_public_key":"FxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxc=","corpus_release_public_keys":["FxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxc="]}`,
 	)
 	if !valid.hasValidInitializationShape() {
 		t.Fatal("expected three distinct initialization roots to be valid")
@@ -228,6 +358,12 @@ func TestBrokerInitializationRequiresThreeDistinctRoots(t *testing.T) {
 	aliased.CorpusReleasePublicKey = append([]byte(nil), valid.ApplyPublicKey...)
 	if aliased.hasValidInitializationShape() {
 		t.Fatal("expected aliased corpus release root to be rejected")
+	}
+
+	conflicting := valid
+	conflicting.CorpusReleasePublicKeys = [][]byte{bytes.Repeat([]byte{0x18}, 32)}
+	if conflicting.hasValidInitializationShape() {
+		t.Fatal("expected conflicting corpus release keyring to be rejected")
 	}
 }
 
