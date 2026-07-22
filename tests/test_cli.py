@@ -7484,6 +7484,143 @@ def test_exact_source_excerpt_candidates_do_not_join_under_lead_in_provisions():
     )
 
 
+def test_exact_source_excerpt_candidates_do_not_join_under_body_provisions():
+    source_text = """(a)(1) General eligibility rule applies.
+(a)(2) Under this paragraph, the agency shall exclude gifts from income.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="the agency shall exclude gifts from income.",
+    )
+
+    assert repaired is not None
+    assert repaired.startswith("(a)(2) Under this paragraph")
+    assert "General eligibility" not in repaired
+
+
+def test_closest_exact_source_excerpt_promotes_fuzzy_match_to_marked_condition():
+    source_text = """(a) If household income is below the limit, eligibility is established. The agency shall pay $500 per month.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="agency payment equals $500 monthly",
+    )
+
+    assert repaired == source_text.strip()
+
+
+def test_closest_exact_source_excerpt_fails_closed_for_over_limit_condition():
+    source_text = (
+        "(a) If household income is below the limit, "
+        + ("all documentation requirements must be satisfied and " * 10)
+        + "eligibility is established. The agency shall pay $500 per month.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="The agency shall pay $500 per month.",
+    )
+
+    assert repaired is None
+
+
+@pytest.mark.parametrize(
+    "source_text",
+    [
+        """Household size Monthly benefit
+1 $291
+2 $535
+""",
+        """(a) Benefits are shown below:
+Size  Amount
+1  $291
+2  $535
+""",
+    ],
+)
+def test_closest_exact_source_excerpt_prefers_numeric_table_row(source_text):
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="2 $535",
+    )
+
+    assert repaired is not None
+    assert re.sub(r"\s+", " ", repaired).strip() == "2 $535"
+    assert repaired in source_text
+
+
+def test_exact_source_excerpt_candidates_keep_public_law_citation_together():
+    sentence = (
+        "The benefit was authorized by Pub. L. No. 117-2 and equals $500 per month."
+    )
+    source_text = sentence + " " + ("Administrative background applies. " * 20)
+
+    candidates = _exact_source_excerpt_candidates(source_text)
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="authorized by Pub. L. No. 117-2",
+    )
+
+    assert sentence in candidates
+    assert repaired == sentence
+
+
+def test_repair_generated_over_limit_marked_proof_excerpt_fails_closed(
+    tmp_path, monkeypatch
+):
+    source_text = (
+        "(a) If household income is below the limit, "
+        + ("all documentation requirements must be satisfied and " * 10)
+        + "eligibility is established. The agency shall pay $500 per month.\n"
+    )
+    output_root = tmp_path / "out"
+    rules_file = output_root / "model" / "regulations" / "435" / "552.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+rules:
+- name: benefit
+  kind: derived
+  entity: Person
+  dtype: Decimal
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/regulation/42/435/552
+          excerpt: agency payment equals $500 monthly
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 500
+"""
+    )
+    monkeypatch.setattr(
+        "axiom_encode.cli._local_source_text_for_corpus_path",
+        lambda citation_path, *, corpus_release: source_text,
+    )
+
+    repaired = _try_repair_generated_nonexact_proof_excerpts_for_apply(
+        SimpleNamespace(output_file=str(rules_file)),
+        output_root=output_root,
+        corpus_release=SimpleNamespace(name="test-release"),
+        issues=[
+            "Proof source evidence not found: rule `benefit` proof atom 0 "
+            "`source.excerpt` does not appear in `us/regulation/42/435/552`."
+        ],
+    )
+    validation = validate_rulespec_proofs(
+        rules_file.read_text(),
+        source_texts={"us/regulation/42/435/552": source_text},
+    )
+
+    assert repaired == []
+    assert not validation.passed
+
+
 def test_closest_exact_source_excerpt_splits_long_line_without_splitting_citation():
     source_text = (
         "The threshold is defined under 29 U.S.C. 206. "

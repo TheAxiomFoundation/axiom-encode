@@ -27580,23 +27580,27 @@ _SOURCE_CROSS_REFERENCE_LEAD_IN_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 _SOURCE_CROSS_REFERENCE_BODY_PATTERN = re.compile(
-    r"^(?:of|under|through|in|from)\s+(?:this|the|paragraph|section|subsection)\b",
+    r"^of\s+(?:this|the)\b",
     flags=re.IGNORECASE,
 )
 _SOURCE_SENTENCE_BOUNDARY_PATTERN = re.compile(r"[.!?](?=\s+[A-Z0-9(])")
 _SOURCE_ABBREVIATION_PATTERN = re.compile(
     r"\b(?:U\.S\.C|C\.F\.R|U\.S|e\.g|i\.e|No|Nos|Sec|Secs|Pt|Pts|"
-    r"Para|Paras|Subsec|Subsecs|Ch|Fig|Mr|Mrs|Ms|Dr|v)\.$",
+    r"Para|Paras|Subsec|Subsecs|Ch|Fig|Mr|Mrs|Ms|Dr|Pub|L|Rev|Proc|"
+    r"Reg|Stat|Art|v)\.$",
     flags=re.IGNORECASE,
 )
-_SOURCE_TABLE_ROW_PATTERN = re.compile(r"^(?:\$|.*(?:\t|\s{2,}|\|))")
+_SOURCE_TABLE_ROW_PATTERN = re.compile(
+    r"^(?:\$|[-+]?\d[\d,.]*\s+\$\s*\d|.*(?:\t|\s{2,}|\|))"
+)
 
 
 class _SourceExcerptCandidate(NamedTuple):
     text: str
     start: int
     end: int
-    is_marked_paragraph: bool
+    kind: str
+    marked_parent: tuple[int, int] | None
 
 
 def _try_repair_generated_nonexact_proof_excerpts_for_apply(
@@ -27717,14 +27721,12 @@ def _closest_exact_source_excerpt(*, source_text: str, excerpt: str) -> str | No
         ]
         if not enclosing:
             return None
-        marked_paragraphs = [
-            candidate for candidate in enclosing if candidate.is_marked_paragraph
+        table_rows = [
+            candidate for candidate in enclosing if candidate.kind == "table_row"
         ]
-        selected = min(
-            marked_paragraphs or enclosing,
-            key=lambda candidate: len(re.sub(r"\s+", " ", candidate.text)),
-        )
-        return selected.text
+        if table_rows:
+            return min(table_rows, key=lambda candidate: len(candidate.text)).text
+        return _governing_source_excerpt_candidate(enclosing, candidates)
 
     query_tokens = _proof_excerpt_match_tokens(query)
     query_numbers = set(extract_numbers_from_text(query))
@@ -27751,14 +27753,42 @@ def _closest_exact_source_excerpt(*, source_text: str, excerpt: str) -> str | No
         scored.append((score, candidate))
     if not scored:
         return None
-    return max(
+    selected = max(
         scored,
         key=lambda item: (
             item[0],
-            item[1].is_marked_paragraph,
+            item[1].kind == "paragraph",
             -len(re.sub(r"\s+", " ", item[1].text)),
         ),
-    )[1].text
+    )[1]
+    if selected.kind == "table_row":
+        return selected.text
+    return _governing_source_excerpt_candidate([selected], candidates)
+
+
+def _governing_source_excerpt_candidate(
+    selected: list[_SourceExcerptCandidate],
+    candidates: list[_SourceExcerptCandidate],
+) -> str | None:
+    marked_parent = next(
+        (candidate.marked_parent for candidate in selected if candidate.marked_parent),
+        None,
+    )
+    if marked_parent is not None:
+        governing = next(
+            (
+                candidate
+                for candidate in candidates
+                if candidate.kind == "paragraph"
+                and (candidate.start, candidate.end) == marked_parent
+            ),
+            None,
+        )
+        return governing.text if governing is not None else None
+    return min(
+        selected,
+        key=lambda candidate: len(re.sub(r"\s+", " ", candidate.text)),
+    ).text
 
 
 def _exact_source_excerpt_candidates(source_text: str) -> list[str]:
@@ -27775,7 +27805,11 @@ def _exact_source_excerpt_candidate_spans(
     seen: set[tuple[int, int]] = set()
 
     def add_candidate(
-        start: int, end: int, *, is_marked_paragraph: bool = False
+        start: int,
+        end: int,
+        *,
+        kind: str,
+        marked_parent: tuple[int, int] | None = None,
     ) -> None:
         while start < end and source_text[start].isspace():
             start += 1
@@ -27788,7 +27822,7 @@ def _exact_source_excerpt_candidate_spans(
             return
         seen.add(span)
         candidates.append(
-            _SourceExcerptCandidate(candidate, start, end, is_marked_paragraph)
+            _SourceExcerptCandidate(candidate, start, end, kind, marked_parent)
         )
 
     paragraph_lines: list[tuple[str, int, int]] = []
@@ -27803,23 +27837,41 @@ def _exact_source_excerpt_candidate_spans(
         is_marked_paragraph = bool(
             _SOURCE_PARAGRAPH_MARKER_PATTERN.match(collapsed_paragraph)
         )
+        trimmed_start = paragraph_start
+        trimmed_end = paragraph_end
+        while trimmed_start < trimmed_end and source_text[trimmed_start].isspace():
+            trimmed_start += 1
+        while trimmed_end > trimmed_start and source_text[trimmed_end - 1].isspace():
+            trimmed_end -= 1
+        marked_parent = (trimmed_start, trimmed_end) if is_marked_paragraph else None
         add_candidate(
             paragraph_start,
             paragraph_end,
-            is_marked_paragraph=is_marked_paragraph,
+            kind="paragraph",
+            marked_parent=marked_parent,
         )
 
         sentence_start = 0
         for match in _SOURCE_SENTENCE_BOUNDARY_PATTERN.finditer(paragraph):
             sentence_end = match.end()
-            prefix = paragraph[sentence_start:sentence_end].rstrip()
+            prefix = paragraph[
+                max(sentence_start, sentence_end - 48) : sentence_end
+            ].rstrip()
             if match.group() == "." and _SOURCE_ABBREVIATION_PATTERN.search(prefix):
                 continue
             add_candidate(
-                paragraph_start + sentence_start, paragraph_start + sentence_end
+                paragraph_start + sentence_start,
+                paragraph_start + sentence_end,
+                kind="sentence",
+                marked_parent=marked_parent,
             )
             sentence_start = sentence_end
-        add_candidate(paragraph_start + sentence_start, paragraph_end)
+        add_candidate(
+            paragraph_start + sentence_start,
+            paragraph_end,
+            kind="sentence",
+            marked_parent=marked_parent,
+        )
 
         table_rows = [
             (line, start, end)
@@ -27828,7 +27880,12 @@ def _exact_source_excerpt_candidate_spans(
         ]
         if len(table_rows) > 1:
             for _line, start, end in table_rows:
-                add_candidate(start, end)
+                add_candidate(
+                    start,
+                    end,
+                    kind="table_row",
+                    marked_parent=marked_parent,
+                )
         paragraph_lines.clear()
 
     offset = 0
@@ -27844,7 +27901,8 @@ def _exact_source_excerpt_candidate_spans(
         if paragraph_lines and marker_match is not None:
             previous_line = re.sub(r"\s+", " ", paragraph_lines[-1][0]).strip()
             body = marker_match.group("body")
-            is_wrapped_cross_reference = (
+            previous_is_open = re.search(r"[.;:!?]\s*$", previous_line) is None
+            is_wrapped_cross_reference = previous_is_open and (
                 _SOURCE_CROSS_REFERENCE_LEAD_IN_PATTERN.search(previous_line)
                 is not None
                 or _SOURCE_CROSS_REFERENCE_BODY_PATTERN.match(body) is not None
