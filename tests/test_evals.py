@@ -2908,8 +2908,12 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "For proration, average, ratio, or percentage tests" in prompt
     assert "use totals like 600" in prompt
     assert "Avoid exact equality boundaries for ratios or percentages" in prompt
-    assert "Do not assert raw `kind: parameter` rules directly" in prompt
-    assert "assert derived outputs that consume the parameters" in prompt
+    normalized_prompt = " ".join(prompt.split())
+    assert (
+        "If a module contains only parameters, emit one source-period snapshot "
+        "case that asserts every local parameter output directly." in normalized_prompt
+    )
+    assert "cover parameters through derived outputs" in normalized_prompt
     assert "modifier parameter stranded" in prompt
     assert "module.deferred_outputs[]" in prompt
     assert "source_values" in prompt
@@ -3041,7 +3045,8 @@ def test_build_eval_prompt_for_rate_only_source_id_limits_scope(tmp_path):
     assert "boundary must stay acyclic" in prompt
     assert "companion tests may assert" in prompt
     assert "canonical parameter output directly" in prompt
-    assert "Explicit rate-only source-boundary artifacts" in prompt
+    assert "Source-boundary artifacts that contain only scalar parameters" in prompt
+    assert "one source-period snapshot case" in prompt
 
 
 def test_target_source_scope_ignores_cross_references_before_structural_marker():
@@ -5620,7 +5625,13 @@ rules:
 
     def test_generated_eval_repairs_positive_judgment_companions(self, tmp_path):
         repo = _canonical_rulespec_content_root(tmp_path, "us-co")
-        rulespec_file = repo / "regulations" / "example.yaml"
+        dependency_content_root = _canonical_rulespec_content_root(tmp_path, "uk")
+        dependency_marker = dependency_content_root / "statutes/1/dependency.yaml"
+        dependency_marker.parent.mkdir(parents=True)
+        dependency_marker.write_text("format: rulespec/v1\nrules: []\n")
+        dependency_root = dependency_content_root.parent
+        relative_output = Path("regulations/example.yaml")
+        rulespec_file = tmp_path / "generated" / "openai" / relative_output
         rulespec_file.parent.mkdir(parents=True)
         rulespec_file.write_text(
             """format: rulespec/v1
@@ -5652,6 +5663,27 @@ rules:
             "`us-co:regulations/example#work_study_exemption` is not asserted "
             "as `holds` by the companion `.test.yaml` file."
         )
+        checked: dict[str, Path] = {}
+
+        def check_companion(
+            staged_test_file,
+            *,
+            root,
+            axiom_rules_path,
+            rulespec_dependency_roots=(),
+        ):
+            staged_rules_file = staged_test_file.with_name("example.yaml")
+            checked["rules"] = validator_pipeline._canonical_rulespec_compile_path(
+                staged_rules_file,
+                root,
+            )
+            checked["test"] = staged_test_file.resolve()
+            checked["root"] = root.resolve()
+            [staged_dependency_root] = rulespec_dependency_roots
+            checked["dependency"] = staged_dependency_root.resolve()
+            assert (staged_dependency_root / "uk/statutes/1/dependency.yaml").is_file()
+            return []
+
         with (
             patch.object(
                 ValidatorPipeline,
@@ -5668,7 +5700,7 @@ rules:
             ) as mock_ci,
             patch(
                 "axiom_encode.cli._rulespec_companion_test_failures",
-                return_value=[],
+                side_effect=check_companion,
             ),
         ):
             metrics = _evaluate_generated_artifact_with_repairs(
@@ -5680,6 +5712,7 @@ rules:
                 axiom_rules_path=Path("/tmp/axiom-rules-engine"),
                 source_text="Students in work study are exempt.",
                 skip_reviewers=True,
+                rulespec_dependency_roots=(dependency_root,),
             )
 
         repaired_tests = yaml.safe_load(
@@ -5687,6 +5720,12 @@ rules:
         )
         assert mock_ci.call_count == 2
         assert metrics.ci_pass
+        assert checked["rules"].is_relative_to(checked["root"])
+        assert checked["test"].is_relative_to(checked["root"])
+        assert checked["root"] != repo.resolve()
+        assert checked["dependency"] != dependency_root.resolve()
+        assert checked["dependency"].parent == checked["root"].parent.parent
+        assert not (repo / relative_output).exists()
         assert any(
             case.get("output", {}).get("us-co:regulations/example#work_study_exemption")
             == "holds"
@@ -16699,7 +16738,8 @@ rules: []
             "Every local executable `kind: derived` or `kind: derived_relation` rule"
             in prompt
         )
-        assert "Do not assert raw `kind: parameter` rules directly" in prompt
+        assert "source-period snapshot case" in prompt
+        assert "local parameter output directly" in prompt
         assert "Use `holds` and `not_holds` for actual `dtype: Judgment`" in prompt
         assert "Use YAML booleans `true` and `false` for local factual" in prompt
         assert (

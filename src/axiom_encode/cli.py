@@ -187,6 +187,7 @@ from .harness.policyengine_runtime import (
     PolicyEngineRuntimeError,
 )
 from .harness.proof_validator import (
+    MONEY_UNITS,
     MoneyAtomRatchet,
     ProofValidationResult,
     emit_money_atom_ratchet,
@@ -220,6 +221,7 @@ from .harness.validator_pipeline import (
     _rulespec_payload_from_file,
     _rulespec_public_item_keys,
     _rulespec_repo_prefix,
+    _rulespec_resolution_cache_scope,
     _rulespec_rule_formula_rule_records,
     _rulespec_target_is_descendant_of,
     extract_embedded_source_text,
@@ -2519,6 +2521,14 @@ def main():
 
 def cmd_validate(args):
     """Validate one or more RuleSpec YAML files in a single process."""
+
+    with _rulespec_resolution_cache_scope():
+        return _cmd_validate_with_resolution_cache(args)
+
+
+def _cmd_validate_with_resolution_cache(args):
+    """Validate files while sharing successful checkout admissions."""
+
     missing = [file for file in args.files if not file.exists()]
     if missing:
         for file in missing:
@@ -2910,6 +2920,27 @@ def _fingerprint_validation_waiver_modules(
     rulespec_dependency_roots: Sequence[Path] = (),
 ) -> list[dict[str, Any]]:
     """Execute validation and companions against one canonical checkout root."""
+
+    with _rulespec_resolution_cache_scope():
+        return _fingerprint_validation_waiver_modules_with_resolution_cache(
+            modules,
+            root=root,
+            corpus_path=corpus_path,
+            axiom_rules_path=axiom_rules_path,
+            rulespec_dependency_roots=rulespec_dependency_roots,
+        )
+
+
+def _fingerprint_validation_waiver_modules_with_resolution_cache(
+    modules: list[Path],
+    *,
+    root: Path,
+    corpus_path: Path,
+    axiom_rules_path: Path,
+    rulespec_dependency_roots: Sequence[Path] = (),
+) -> list[dict[str, Any]]:
+    """Fingerprint every module inside one bounded resolution-cache scope."""
+
     root = Path(root).resolve()
     if not root.is_dir():
         raise ValueError(f"RuleSpec repository root does not exist: {root}")
@@ -13301,12 +13332,14 @@ def _rulespec_companion_test_failures(
     *,
     root: Path,
     axiom_rules_path: Path,
+    rulespec_dependency_roots: Sequence[Path] = (),
 ) -> list[dict[str, str | None]]:
     pipeline = ValidatorPipeline(
         policy_repo_path=root,
         axiom_rules_path=axiom_rules_path,
         local_corpus_release=None,
         enable_oracles=False,
+        rulespec_dependency_roots=rulespec_dependency_roots,
     )
     binary = pipeline._axiom_rules_binary()
     rulespec_env = pipeline._rulespec_engine_env()
@@ -19366,20 +19399,18 @@ def _run_encode_attempt(
                     "  apply=auto_repaired_admin_agency_aggregate_entities:"
                     + ",".join(repaired_admin_aggregate_entities)
                 )
-            repaired_parameter_only_tests = (
-                _try_repair_generated_parameter_only_companion_tests_for_apply(
-                    result,
-                    output_root=args.output,
-                    policy_repo_path=policy_repo_path,
-                )
+            preserved_parameter_only_tests = _parameter_only_companion_snapshot_cases(
+                result,
+                output_root=args.output,
+                policy_repo_path=policy_repo_path,
             )
-            if repaired_parameter_only_tests:
-                outcome["auto_repaired_parameter_only_companion_tests"] = (
-                    repaired_parameter_only_tests
+            if preserved_parameter_only_tests:
+                outcome["preserved_parameter_only_companion_tests"] = (
+                    preserved_parameter_only_tests
                 )
                 print(
-                    "  apply=auto_repaired_parameter_only_companion_tests:"
-                    + ",".join(repaired_parameter_only_tests)
+                    "  apply=preserved_parameter_only_companion_tests:"
+                    + ",".join(preserved_parameter_only_tests)
                 )
             repaired_aca_36b_b_premium_assistance_compat = (
                 _try_repair_generated_aca_36b_b_premium_assistance_compat_for_apply(
@@ -20779,6 +20810,30 @@ def _run_encode_attempt(
                     if can_apply:
                         break
             if not can_apply:
+                repaired_units = _try_repair_generated_undeclared_money_units_for_apply(
+                    result,
+                    output_root=args.output,
+                    issues=apply_issues,
+                )
+                if repaired_units:
+                    outcome["auto_repaired_undeclared_money_units"] = repaired_units
+                    print(
+                        "  apply=auto_repaired_undeclared_money_units:"
+                        + ",".join(repaired_units)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
                 kind_normalization = (
                     _try_repair_generated_invalid_proof_atom_kinds_for_apply(
                         result,
@@ -20828,6 +20883,39 @@ def _run_encode_attempt(
                         )
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
+            if not can_apply:
+                repaired_excerpts: list[str] = []
+                while not can_apply:
+                    repaired_refs = (
+                        _try_repair_generated_nonexact_proof_excerpts_for_apply(
+                            result,
+                            output_root=args.output,
+                            corpus_release=corpus_release,
+                            issues=apply_issues,
+                        )
+                    )
+                    if not repaired_refs:
+                        break
+                    repaired_excerpts.extend(repaired_refs)
+                    outcome["auto_repaired_nonexact_proof_excerpts"] = repaired_excerpts
+                    print(
+                        "  apply=auto_repaired_nonexact_proof_excerpts:"
+                        + ",".join(repaired_refs)
+                    )
+                    can_apply, apply_issues, supplemental_files = (
+                        _validate_generated_encoding_in_policy_overlay(
+                            result,
+                            output_root=args.output,
+                            policy_repo_path=policy_repo_path,
+                            axiom_rules_path=axiom_rules_path,
+                            validate_dependents=not bool(
+                                getattr(args, "apply_target_only", False)
+                            ),
+                        )
+                    )
+                    outcome["overlay_validation_success"] = bool(can_apply)
+                if repaired_excerpts:
+                    outcome["auto_repaired_nonexact_proof_excerpts"] = repaired_excerpts
             if not can_apply:
                 repaired_hashes = _try_repair_generated_proof_import_hashes_for_apply(
                     result,
@@ -27396,6 +27484,461 @@ def _try_repair_generated_proof_import_hashes_for_apply(
     return [f"hash[{index}]" for index in range(repair_count)]
 
 
+_UNDECLARED_UNIT_ISSUE_PATTERN = re.compile(r"unit `(?P<unit>[^`]+)` was not declared")
+_CURRENCY_MINOR_UNITS = {unit.upper(): 2 for unit in MONEY_UNITS}
+_CURRENCY_MINOR_UNITS["JPY"] = 0
+
+
+def _try_repair_generated_undeclared_money_units_for_apply(
+    result,
+    *,
+    output_root: Path,
+    issues: list[str],
+) -> list[str]:
+    """Declare known currencies used by generated money rules."""
+    issue_units = {
+        match.group("unit")
+        for issue in issues
+        if (match := _UNDECLARED_UNIT_ISSUE_PATTERN.search(str(issue))) is not None
+    }
+    if not issue_units:
+        return []
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    if not rules_file.exists():
+        return []
+    try:
+        original_bytes = rules_file.read_bytes()
+        payload = yaml.safe_load(original_bytes) or {}
+    except (OSError, UnicodeError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return []
+    money_rule_units = {
+        str(rule.get("unit") or "").strip()
+        for rule in rules
+        if isinstance(rule, dict)
+        and str(rule.get("dtype") or "").strip().lower() in {"money", "currency"}
+        and str(rule.get("unit") or "").strip()
+    }
+    units = payload.get("units")
+    if units is None:
+        units = []
+        payload["units"] = units
+    if not isinstance(units, list):
+        return []
+    declared = {
+        str(unit.get("name") or "").strip() for unit in units if isinstance(unit, dict)
+    }
+
+    repaired = sorted(
+        unit
+        for unit in issue_units & money_rule_units
+        if unit not in declared and unit.upper() in _CURRENCY_MINOR_UNITS
+    )
+    if not repaired:
+        return []
+    for unit in repaired:
+        units.append(
+            {
+                "name": unit,
+                "kind": "currency",
+                "minor_units": _CURRENCY_MINOR_UNITS[unit.upper()],
+            }
+        )
+    if not _install_generated_yaml_payload(rules_file, payload):
+        return []
+    return repaired
+
+
+_NONEXACT_PROOF_EXCERPT_ISSUE_PATTERN = re.compile(
+    r"Proof source evidence not found: rule `(?P<rule>[^`]+)` proof atom "
+    r"(?P<atom>\d+) `source\.excerpt`"
+)
+_PROOF_EXCERPT_TOKEN_STOPWORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "by",
+        "for",
+        "from",
+        "in",
+        "is",
+        "of",
+        "on",
+        "or",
+        "that",
+        "the",
+        "to",
+        "with",
+        "your",
+    }
+)
+_SOURCE_PARAGRAPH_MARKER_PATTERN = re.compile(
+    r"^(?:(?:\((?:\d+|[A-Za-z]|[ivxlcdmIVXLCDM]{2,6})\))+|"
+    r"(?:\d+(?:\.\d+){2,}\.?|\d{1,3}\.|[A-Za-z]\.))\s+(?P<body>.*)"
+)
+_SOURCE_CROSS_REFERENCE_LEAD_IN_PATTERN = re.compile(
+    r"\b(?:paragraph|subparagraph|section|subsection|clause|item|"
+    r"described in|specified in)\s*$",
+    flags=re.IGNORECASE,
+)
+_SOURCE_CROSS_REFERENCE_BODY_PATTERN = re.compile(
+    r"^of\s+(?:this|the)\b",
+    flags=re.IGNORECASE,
+)
+_SOURCE_SENTENCE_BOUNDARY_PATTERN = re.compile(r"[.!?](?=\s+[A-Z0-9(])")
+_SOURCE_ABBREVIATION_PATTERN = re.compile(
+    r"\b(?:U\.S\.C|C\.F\.R|U\.S|e\.g|i\.e|No|Nos|Sec|Secs|Pt|Pts|"
+    r"Para|Paras|Subsec|Subsecs|Ch|Fig|Mr|Mrs|Ms|Dr|Pub|L|Rev|Proc|"
+    r"Reg|Stat|Art|v)\.$",
+    flags=re.IGNORECASE,
+)
+_SOURCE_TABLE_ROW_PATTERN = re.compile(
+    r"^(?:\$|[-+]?\d[\d,.]*\s+\$\s*\d|.*(?:\t|\s{2,}|\|))"
+)
+
+
+class _SourceExcerptCandidate(NamedTuple):
+    text: str
+    start: int
+    end: int
+    kind: str
+    marked_parent: tuple[int, int] | None
+
+
+def _try_repair_generated_nonexact_proof_excerpts_for_apply(
+    result,
+    *,
+    output_root: Path,
+    corpus_release: LocalCorpusRelease | None = None,
+    issues: list[str],
+) -> list[str]:
+    """Align near-match generated proof excerpts to their exact cited source text."""
+    targets = {
+        (match.group("rule"), int(match.group("atom")))
+        for issue in issues
+        if (match := _NONEXACT_PROOF_EXCERPT_ISSUE_PATTERN.search(str(issue)))
+        is not None
+    }
+    if not targets:
+        return []
+    try:
+        _relative_generated_output_path(result, output_root=output_root)
+    except RuntimeError:
+        return []
+
+    rules_file = Path(str(getattr(result, "output_file", "") or ""))
+    if not rules_file.exists():
+        return []
+    try:
+        original_bytes = rules_file.read_bytes()
+        content = original_bytes.decode("utf-8")
+        payload = yaml.safe_load(content) or {}
+    except (OSError, UnicodeError, yaml.YAMLError, ValueError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    embedded_source_text = extract_embedded_source_text(
+        content
+    ) or _extract_source_verification_text(content)
+    if not embedded_source_text and corpus_release is None:
+        return []
+
+    repaired: list[str] = []
+    cited_source_texts: dict[str, str | None] = {}
+    for rule in payload.get("rules") or []:
+        if not isinstance(rule, dict):
+            continue
+        rule_name = str(rule.get("name") or "").strip()
+        atoms = _proof_atoms_from_rule(rule)
+        if not isinstance(atoms, list):
+            continue
+        for atom_index, atom in enumerate(atoms):
+            if (rule_name, atom_index) not in targets or not isinstance(atom, dict):
+                continue
+            source = atom.get("source")
+            if not isinstance(source, dict):
+                continue
+            excerpt = source.get("excerpt")
+            if not isinstance(excerpt, str) or not excerpt.strip():
+                continue
+            source_text = embedded_source_text
+            corpus_citation_path = str(source.get("corpus_citation_path") or "").strip()
+            if corpus_release is not None and corpus_citation_path:
+                if corpus_citation_path not in cited_source_texts:
+                    cited_source_texts[corpus_citation_path] = (
+                        _local_source_text_for_corpus_path(
+                            corpus_citation_path,
+                            corpus_release=corpus_release,
+                        )
+                    )
+                source_text = cited_source_texts[corpus_citation_path] or source_text
+            if not source_text:
+                continue
+            exact_excerpt = _closest_exact_source_excerpt(
+                source_text=source_text,
+                excerpt=excerpt,
+            )
+            if exact_excerpt is None or exact_excerpt == excerpt:
+                continue
+            source["excerpt"] = exact_excerpt
+            repaired.append(f"{rule_name}[{atom_index}]")
+
+    if not repaired:
+        return []
+    if not _install_generated_yaml_payload(rules_file, payload):
+        return []
+    return repaired
+
+
+def _install_generated_yaml_payload(rules_file: Path, payload: dict) -> bool:
+    normalized = yaml.safe_dump(payload, sort_keys=False, allow_unicode=False).encode()
+    try:
+        _atomic_replace_bytes(
+            rules_file,
+            normalized,
+            mode=stat.S_IMODE(rules_file.stat().st_mode),
+        )
+    except (OSError, RuntimeError):
+        with contextlib.suppress(OSError):
+            return rules_file.read_bytes() == normalized
+        return False
+    return True
+
+
+def _closest_exact_source_excerpt(*, source_text: str, excerpt: str) -> str | None:
+    source = str(source_text)
+    query = re.sub(r"\s+", " ", str(excerpt)).strip()
+    if not source or not query:
+        return None
+
+    candidates = _exact_source_excerpt_candidate_spans(source)
+    whitespace_pattern = r"\s+".join(re.escape(part) for part in query.split())
+    direct_match = re.search(whitespace_pattern, source, flags=re.IGNORECASE)
+    if direct_match is not None:
+        enclosing = [
+            candidate
+            for candidate in candidates
+            if candidate.start <= direct_match.start()
+            and candidate.end >= direct_match.end()
+        ]
+        if not enclosing:
+            return None
+        table_rows = [
+            candidate for candidate in enclosing if candidate.kind == "table_row"
+        ]
+        if table_rows:
+            return min(table_rows, key=lambda candidate: len(candidate.text)).text
+        return _governing_source_excerpt_candidate(enclosing, candidates)
+
+    query_tokens = _proof_excerpt_match_tokens(query)
+    query_numbers = set(extract_numbers_from_text(query))
+    scored: list[tuple[float, _SourceExcerptCandidate]] = []
+    for candidate in candidates:
+        normalized_candidate = re.sub(r"\s+", " ", candidate.text).strip()
+        candidate_tokens = _proof_excerpt_match_tokens(candidate.text)
+        shared_tokens = query_tokens & candidate_tokens
+        candidate_numbers = set(extract_numbers_from_text(candidate.text))
+        shared_numbers = query_numbers & candidate_numbers
+        if query_numbers and not shared_numbers:
+            continue
+        if len(shared_tokens) < 2 and not (shared_numbers and shared_tokens):
+            continue
+        similarity = difflib.SequenceMatcher(
+            None,
+            query.casefold(),
+            normalized_candidate.casefold(),
+        ).ratio()
+        token_coverage = len(shared_tokens) / max(1, len(query_tokens))
+        if similarity < 0.55 and token_coverage < 0.6:
+            continue
+        score = similarity + (1.25 * token_coverage) + (0.1 * len(shared_numbers))
+        scored.append((score, candidate))
+    if not scored:
+        return None
+    selected = max(
+        scored,
+        key=lambda item: (
+            item[0],
+            item[1].kind == "paragraph",
+            -len(re.sub(r"\s+", " ", item[1].text)),
+        ),
+    )[1]
+    if selected.kind == "table_row":
+        return selected.text
+    return _governing_source_excerpt_candidate([selected], candidates)
+
+
+def _governing_source_excerpt_candidate(
+    selected: list[_SourceExcerptCandidate],
+    candidates: list[_SourceExcerptCandidate],
+) -> str | None:
+    marked_parent = next(
+        (candidate.marked_parent for candidate in selected if candidate.marked_parent),
+        None,
+    )
+    if marked_parent is not None:
+        governing = next(
+            (
+                candidate
+                for candidate in candidates
+                if candidate.kind == "paragraph"
+                and (candidate.start, candidate.end) == marked_parent
+            ),
+            None,
+        )
+        return governing.text if governing is not None else None
+    return min(
+        selected,
+        key=lambda candidate: len(re.sub(r"\s+", " ", candidate.text)),
+    ).text
+
+
+def _exact_source_excerpt_candidates(source_text: str) -> list[str]:
+    return [
+        candidate.text
+        for candidate in _exact_source_excerpt_candidate_spans(source_text)
+    ]
+
+
+def _exact_source_excerpt_candidate_spans(
+    source_text: str,
+) -> list[_SourceExcerptCandidate]:
+    candidates: list[_SourceExcerptCandidate] = []
+    seen: set[tuple[int, int]] = set()
+
+    def add_candidate(
+        start: int,
+        end: int,
+        *,
+        kind: str,
+        marked_parent: tuple[int, int] | None = None,
+    ) -> None:
+        while start < end and source_text[start].isspace():
+            start += 1
+        while end > start and source_text[end - 1].isspace():
+            end -= 1
+        candidate = source_text[start:end]
+        normalized = re.sub(r"\s+", " ", candidate)
+        span = (start, end)
+        if not candidate or len(normalized) > 500 or span in seen:
+            return
+        seen.add(span)
+        candidates.append(
+            _SourceExcerptCandidate(candidate, start, end, kind, marked_parent)
+        )
+
+    paragraph_lines: list[tuple[str, int, int]] = []
+
+    def flush_paragraph() -> None:
+        if not paragraph_lines:
+            return
+        paragraph_start = paragraph_lines[0][1]
+        paragraph_end = paragraph_lines[-1][2]
+        paragraph = source_text[paragraph_start:paragraph_end]
+        collapsed_paragraph = re.sub(r"\s+", " ", paragraph).strip()
+        is_marked_paragraph = bool(
+            _SOURCE_PARAGRAPH_MARKER_PATTERN.match(collapsed_paragraph)
+        )
+        trimmed_start = paragraph_start
+        trimmed_end = paragraph_end
+        while trimmed_start < trimmed_end and source_text[trimmed_start].isspace():
+            trimmed_start += 1
+        while trimmed_end > trimmed_start and source_text[trimmed_end - 1].isspace():
+            trimmed_end -= 1
+        marked_parent = (trimmed_start, trimmed_end) if is_marked_paragraph else None
+        add_candidate(
+            paragraph_start,
+            paragraph_end,
+            kind="paragraph",
+            marked_parent=marked_parent,
+        )
+
+        sentence_start = 0
+        for match in _SOURCE_SENTENCE_BOUNDARY_PATTERN.finditer(paragraph):
+            sentence_end = match.end()
+            prefix = paragraph[
+                max(sentence_start, sentence_end - 48) : sentence_end
+            ].rstrip()
+            if match.group() == "." and _SOURCE_ABBREVIATION_PATTERN.search(prefix):
+                continue
+            add_candidate(
+                paragraph_start + sentence_start,
+                paragraph_start + sentence_end,
+                kind="sentence",
+                marked_parent=marked_parent,
+            )
+            sentence_start = sentence_end
+        add_candidate(
+            paragraph_start + sentence_start,
+            paragraph_end,
+            kind="sentence",
+            marked_parent=marked_parent,
+        )
+
+        table_rows = [
+            (line, start, end)
+            for line, start, end in paragraph_lines
+            if line.strip() and _SOURCE_TABLE_ROW_PATTERN.match(line.strip())
+        ]
+        if len(table_rows) > 1:
+            for _line, start, end in table_rows:
+                add_candidate(
+                    start,
+                    end,
+                    kind="table_row",
+                    marked_parent=marked_parent,
+                )
+        paragraph_lines.clear()
+
+    offset = 0
+    for line in source_text.splitlines(keepends=True):
+        line_start = offset
+        line_end = offset + len(line)
+        offset = line_end
+        collapsed = re.sub(r"\s+", " ", line).strip()
+        if not collapsed:
+            flush_paragraph()
+            continue
+        marker_match = _SOURCE_PARAGRAPH_MARKER_PATTERN.match(collapsed)
+        if paragraph_lines and marker_match is not None:
+            previous_line = re.sub(r"\s+", " ", paragraph_lines[-1][0]).strip()
+            body = marker_match.group("body")
+            previous_is_open = re.search(r"[.;:!?]\s*$", previous_line) is None
+            is_wrapped_cross_reference = previous_is_open and (
+                _SOURCE_CROSS_REFERENCE_LEAD_IN_PATTERN.search(previous_line)
+                is not None
+                or _SOURCE_CROSS_REFERENCE_BODY_PATTERN.match(body) is not None
+            )
+            if not is_wrapped_cross_reference:
+                flush_paragraph()
+        paragraph_lines.append((line, line_start, line_end))
+    flush_paragraph()
+    return candidates
+
+
+def _proof_excerpt_match_tokens(value: str) -> set[str]:
+    return {
+        token
+        for token in re.findall(r"[a-z0-9]+", value.casefold())
+        if token not in _PROOF_EXCERPT_TOKEN_STOPWORDS and len(token) > 1
+    }
+
+
 class _ProofAtomKindRepair(NamedTuple):
     rule: str
     atom_index: int
@@ -27719,7 +28262,7 @@ def _normalize_invalid_proof_atom_kinds(
             if not isinstance(atom, dict):
                 continue
             kind = str(atom.get("kind") or "").strip()
-            if kind not in {"custom", "rate"}:
+            if kind not in {"custom", "rate", "threshold"}:
                 continue
             atom_node = atom_nodes[atom_index] if atom_index < len(atom_nodes) else None
             candidates.append(
@@ -27746,7 +28289,7 @@ def _normalize_invalid_proof_atom_kinds(
     for candidate in candidates:
         old_kind = str(candidate.atom.get("kind") or "").strip()
         derivation_nodes: tuple[object, ...] = ()
-        if old_kind == "rate":
+        if old_kind in {"rate", "threshold"}:
             new_kind, reason = "parameter", None
         else:
             derivation = _derived_custom_proof_atom_kind(candidate.rule, candidate.atom)
@@ -28538,13 +29081,13 @@ def _try_repair_generated_admin_agency_aggregate_entities_for_apply(
     return [str(record["output"]) for record in deferred_outputs]
 
 
-def _try_repair_generated_parameter_only_companion_tests_for_apply(
+def _parameter_only_companion_snapshot_cases(
     result,
     *,
     output_root: Path,
     policy_repo_path: Path,
 ) -> list[str]:
-    """Empty generated tests that only assert local parameter constants."""
+    """Identify valid snapshots that assert only a module's local parameters."""
     try:
         relative_output = _relative_generated_output_path(
             result,
@@ -28563,14 +29106,15 @@ def _try_repair_generated_parameter_only_companion_tests_for_apply(
         cases = _load_rulespec_test_cases(test_file)
     except (OSError, ValueError, yaml.YAMLError):
         return []
-    if not cases:
+    if len(cases) != 1:
         return []
 
     target_base = (
         f"{_repo_jurisdiction_prefix(policy_repo_path)}:"
         f"{_relative_rulespec_import_target(relative_output)}"
     )
-    repaired_cases: list[str] = []
+    snapshot_cases: list[str] = []
+    asserted_parameters: set[str] = set()
     for index, case in enumerate(cases, 1):
         if not isinstance(case, dict):
             return []
@@ -28581,13 +29125,14 @@ def _try_repair_generated_parameter_only_companion_tests_for_apply(
             key_text = str(key)
             if not key_text.startswith(f"{target_base}#"):
                 return []
-            if _rulespec_test_key_fragment(key_text) not in parameter_names:
+            parameter_name = _rulespec_test_key_fragment(key_text)
+            if parameter_name not in parameter_names:
                 return []
-        repaired_cases.append(str(case.get("name") or f"case_{index}"))
-    if not repaired_cases:
+            asserted_parameters.add(parameter_name)
+        snapshot_cases.append(str(case.get("name") or f"case_{index}"))
+    if asserted_parameters != parameter_names:
         return []
-    test_file.write_text("[]\n")
-    return repaired_cases
+    return snapshot_cases
 
 
 def _parameter_only_rule_names(rules_file: Path) -> set[str]:
@@ -32846,14 +33391,88 @@ def _try_repair_generated_judgment_positive_tests_for_apply(
 
     rules_file = Path(str(getattr(result, "output_file", "") or ""))
     test_file = _rulespec_test_path(rules_file)
-    return _append_generated_judgment_positive_tests_if_missing(
+    return _append_generated_judgment_positive_tests_in_overlay(
         rules_file=rules_file,
         test_file=test_file,
-        repo_path=policy_repo_path,
+        policy_repo_path=policy_repo_path,
         axiom_rules_path=axiom_rules_path,
         relative_output=relative_output,
         issues=issues,
     )
+
+
+def _append_generated_judgment_positive_tests_in_overlay(
+    *,
+    rules_file: Path,
+    test_file: Path,
+    policy_repo_path: Path,
+    axiom_rules_path: Path,
+    relative_output: Path,
+    issues: list[str],
+    rulespec_dependency_roots: Sequence[Path] = (),
+) -> list[str]:
+    """Validate generated Judgment tests in a canonical temporary checkout."""
+    if not _judgment_positive_output_targets_from_issues(issues):
+        return []
+    policy_content_root = _rulespec_apply_content_root(
+        policy_repo_path,
+        relative_output,
+    )
+    policy_checkout_path = _rulespec_apply_checkout_root(
+        policy_repo_path,
+        relative_output,
+    )
+    with tempfile.TemporaryDirectory() as tmpdir:
+        overlay_parent = Path(tmpdir).resolve(strict=True)
+        overlay_checkout = overlay_parent / policy_checkout_path.name
+        staged_dependency_roots = _stage_apply_overlay_dependency_roots(
+            overlay_parent=overlay_parent,
+            policy_repo_path=policy_checkout_path,
+            overlay_repo_name=policy_checkout_path.name,
+            rulespec_dependency_roots=rulespec_dependency_roots,
+        )
+        _stage_apply_overlay_dependency_root(
+            source=policy_checkout_path,
+            target=overlay_checkout,
+        )
+        overlay_content_root = overlay_checkout / policy_content_root.name
+        if canonical_rulespec_root_identity(overlay_content_root) is None:
+            raise ValueError(
+                "Judgment test repair overlay did not preserve the canonical "
+                f"RuleSpec jurisdiction root: {overlay_content_root}"
+            )
+        overlay_rules_file = overlay_content_root / relative_output
+        overlay_rules_file.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(rules_file, overlay_rules_file)
+        overlay_test_file = _rulespec_test_path(overlay_rules_file)
+
+        def check_generated_test(
+            generated_test_file: Path,
+            *,
+            root: Path,
+            axiom_rules_path: Path,
+        ) -> list[dict[str, str | None]]:
+            if Path(root).resolve() != Path(policy_repo_path).resolve():
+                raise ValueError(
+                    "Judgment test repair checker received an unexpected policy root"
+                )
+            shutil.copy2(generated_test_file, overlay_test_file)
+            return _rulespec_companion_test_failures(
+                overlay_test_file,
+                root=overlay_content_root,
+                axiom_rules_path=axiom_rules_path,
+                rulespec_dependency_roots=staged_dependency_roots,
+            )
+
+        return _append_generated_judgment_positive_tests_if_missing(
+            rules_file=rules_file,
+            test_file=test_file,
+            repo_path=policy_repo_path,
+            axiom_rules_path=axiom_rules_path,
+            relative_output=relative_output,
+            issues=issues,
+            test_failure_checker=check_generated_test,
+        )
 
 
 def _only_pending_judgment_positive_output_coverage_issues(
@@ -37105,6 +37724,61 @@ def _supplemental_source_attestation_issues(
     return issues
 
 
+def _stamp_matching_supplemental_source_attestations(
+    supplemental_files: dict[Path, str],
+    *,
+    attestation: dict[str, object] | None,
+) -> dict[Path, str]:
+    """Bind modified RuleSpec dependents that cite the primary resolved source."""
+
+    if attestation is None:
+        return dict(supplemental_files)
+    source_sha256 = attestation.get("source_sha256")
+    if not isinstance(source_sha256, str) or not source_sha256:
+        return dict(supplemental_files)
+    attested_paths = {
+        str(attestation[field])
+        for field in (
+            "requested_corpus_citation_path",
+            "resolved_corpus_citation_path",
+        )
+        if isinstance(attestation.get(field), str) and attestation.get(field)
+    }
+
+    stamped = dict(supplemental_files)
+    for relative_path, content in sorted(
+        supplemental_files.items(), key=lambda item: item[0].as_posix()
+    ):
+        if relative_path.suffix != RULESPEC_FILE_SUFFIX or relative_path.name.endswith(
+            RULESPEC_TEST_FILE_SUFFIX
+        ):
+            continue
+        try:
+            payload = yaml.safe_load(content)
+        except (UnicodeError, yaml.YAMLError, ValueError):
+            continue
+        if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+            continue
+        module = payload.get("module")
+        verification = (
+            module.get("source_verification") if isinstance(module, dict) else None
+        )
+        if not isinstance(verification, dict):
+            continue
+        declared_paths = _source_verification_citation_paths(verification)
+        if not declared_paths or not set(declared_paths).issubset(attested_paths):
+            continue
+        if verification.get("source_sha256") == source_sha256:
+            continue
+        verification["source_sha256"] = source_sha256
+        stamped[relative_path] = yaml.safe_dump(
+            payload,
+            sort_keys=False,
+            allow_unicode=True,
+        )
+    return stamped
+
+
 _APPLY_VALIDATION_SNAPSHOT_ATTR = "_axiom_apply_validation_snapshot"
 
 
@@ -40320,7 +40994,7 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
         for path in changed_proof_hash_files:
             supplemental_files[
                 _relative_to_rulespec_apply_content_root(path, overlay_content_root)
-            ] = path.read_text()
+            ] = path.read_bytes().decode("utf-8")
         validations = _validate_overlay_files(
             pipeline,
             dependent_pipeline=dependent_pipeline,
@@ -40329,17 +41003,62 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
         )
         for _ in range(_APPLY_OVERLAY_VALIDATION_REPAIR_LIMIT):
             if all(validation.all_passed for _, validation in validations):
-                _record_successful_apply_validation(
-                    result,
-                    output_root=output_root,
-                    policy_repo_path=policy_repo_path,
-                    relative_output=relative_output,
-                    supplemental_files=supplemental_files,
-                    local_corpus_release=local_corpus_release,
-                    axiom_rules_path=axiom_rules_path,
-                    rulespec_dependency_roots=rulespec_dependency_roots,
+                stamped_supplemental_files = (
+                    _stamp_matching_supplemental_source_attestations(
+                        supplemental_files,
+                        attestation=_generated_result_source_attestation(result),
+                    )
                 )
-                return True, [], supplemental_files
+                if stamped_supplemental_files != supplemental_files:
+                    stamped_paths = {
+                        relative_path
+                        for relative_path, content in stamped_supplemental_files.items()
+                        if supplemental_files.get(relative_path) != content
+                    }
+                    supplemental_files = stamped_supplemental_files
+                    for relative_path in sorted(
+                        stamped_paths, key=lambda path: path.as_posix()
+                    ):
+                        content = supplemental_files[relative_path]
+                        overlay_path = (
+                            overlay_content_root
+                            / _canonical_apply_relative_path(relative_path)
+                        )
+                        if overlay_path.suffix != RULESPEC_FILE_SUFFIX:
+                            continue
+                        overlay_path.write_bytes(content.encode("utf-8"))
+                    for _cascade in range(len(dependents) + 1):
+                        changed_proof_hash_files = (
+                            _repair_dependent_proof_import_hashes(
+                                dependents=dependents,
+                            )
+                        )
+                        if not changed_proof_hash_files:
+                            break
+                        for path in changed_proof_hash_files:
+                            supplemental_files[
+                                _relative_to_rulespec_apply_content_root(
+                                    path, overlay_content_root
+                                )
+                            ] = path.read_bytes().decode("utf-8")
+                    validations = _validate_overlay_files(
+                        pipeline,
+                        dependent_pipeline=dependent_pipeline,
+                        overlay_target=overlay_target,
+                        dependents=dependents,
+                    )
+                if all(validation.all_passed for _, validation in validations):
+                    _record_successful_apply_validation(
+                        result,
+                        output_root=output_root,
+                        policy_repo_path=policy_repo_path,
+                        relative_output=relative_output,
+                        supplemental_files=supplemental_files,
+                        local_corpus_release=local_corpus_release,
+                        axiom_rules_path=axiom_rules_path,
+                        rulespec_dependency_roots=rulespec_dependency_roots,
+                    )
+                    return True, [], supplemental_files
             target_validation = next(
                 (
                     validation
@@ -40357,7 +41076,7 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
                         _relative_to_rulespec_apply_content_root(
                             path, overlay_content_root
                         )
-                    ] = path.read_text()
+                    ] = path.read_bytes().decode("utf-8")
                 validations = _validate_overlay_files(
                     pipeline,
                     dependent_pipeline=dependent_pipeline,
@@ -42425,8 +43144,8 @@ def _repair_dependent_proof_import_hashes(
             if content_root is None:
                 continue
             relative_dependent = dependent.relative_to(content_root)
-            content = dependent.read_text()
-        except (OSError, ValueError):
+            content = dependent.read_bytes().decode("utf-8")
+        except (OSError, UnicodeError, ValueError):
             continue
         target_base = (
             f"{content_root.name}:"
@@ -42440,7 +43159,7 @@ def _repair_dependent_proof_import_hashes(
         )
         if repair_count <= 0 or repaired == content:
             continue
-        dependent.write_text(repaired)
+        dependent.write_bytes(repaired.encode("utf-8"))
         changed.append(dependent)
     return changed
 
@@ -43686,11 +44405,10 @@ def _rulespec_test_path(path: Path) -> Path:
 def _find_rulespec_dependents(
     policy_repo_path: Path, relative_output: Path
 ) -> list[Path]:
-    """Find RuleSpec files that directly import the generated output."""
-    target = _relative_rulespec_import_target(relative_output)
+    """Find the transitive RuleSpec importer closure for the generated output."""
     jurisdiction = _repo_jurisdiction_prefix(policy_repo_path)
     content_root = _rulespec_apply_content_root(policy_repo_path, relative_output)
-    dependents: list[Path] = []
+    candidates: list[tuple[Path, Path]] = []
     for root in sorted(RULESPEC_ATOMIC_MODULE_ROOTS):
         root_path = content_root / root
         if not root_path.exists():
@@ -43702,12 +44420,26 @@ def _find_rulespec_dependents(
                 relative_candidate = candidate.relative_to(content_root)
             except ValueError:
                 continue
-            if relative_candidate == relative_output:
-                continue
-            if _rulespec_file_imports_target(
-                candidate, target=target, jurisdiction=jurisdiction
-            ):
-                dependents.append(candidate)
+            if relative_candidate != relative_output:
+                candidates.append((candidate, relative_candidate))
+
+    dependents: list[Path] = []
+    selected = {relative_output}
+    frontier = [relative_output]
+    while frontier:
+        next_frontier: list[Path] = []
+        for imported_path in frontier:
+            target = _relative_rulespec_import_target(imported_path)
+            for candidate, relative_candidate in candidates:
+                if relative_candidate in selected:
+                    continue
+                if _rulespec_file_imports_target(
+                    candidate, target=target, jurisdiction=jurisdiction
+                ):
+                    dependents.append(candidate)
+                    selected.add(relative_candidate)
+                    next_frontier.append(relative_candidate)
+        frontier = next_frontier
     return dependents
 
 

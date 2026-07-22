@@ -7,9 +7,11 @@ from pathlib import Path
 import pytest
 
 from scripts.prepare_signed_backfill import (
+    REVIEWED_RULESPEC_REFS,
     branch_name,
     stage_authorized_changes,
     validate_country,
+    validate_rulespec_base,
 )
 
 
@@ -32,6 +34,13 @@ def _repo(tmp_path: Path) -> Path:
     _git(repo, "add", "README.md")
     _git(repo, "commit", "-m", "base")
     return repo
+
+
+def _add_origin_main(repo: Path) -> str:
+    base = _git(repo, "rev-parse", "HEAD")
+    _git(repo, "remote", "add", "origin", str(repo))
+    _git(repo, "update-ref", "refs/remotes/origin/main", base)
+    return base
 
 
 def _write_signed_change(repo: Path) -> tuple[Path, Path]:
@@ -106,3 +115,66 @@ def test_rerun_attempt_uses_recoverable_distinct_branch() -> None:
     assert first == "axiom/signed-backfill-us-12345-1"
     assert rerun == "axiom/signed-backfill-us-12345-2"
     assert rerun != first
+
+
+def test_validate_rulespec_base_accepts_main_ancestor(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    base = _add_origin_main(repo)
+
+    assert validate_rulespec_base(repo, "us", base, open_pr=True) == "main"
+
+
+def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "rulespec-us"
+    reviewed_ref = "8645fb934cd02dbf730cf980507bbb2d07731bd1"
+    assert REVIEWED_RULESPEC_REFS == frozenset({("us", reviewed_ref)})
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill._git",
+        lambda _repo, *_args: f"{reviewed_ref}\n".encode(),
+    )
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill.subprocess.run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+    )
+
+    assert (
+        validate_rulespec_base(repo, "us", reviewed_ref, open_pr=False)
+        == "reviewed-head-artifact"
+    )
+
+    with pytest.raises(ValueError, match="artifact-only"):
+        validate_rulespec_base(repo, "us", reviewed_ref, open_pr=True)
+
+
+def test_validate_rulespec_base_rejects_retired_reviewed_head(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "rulespec-us"
+    retired_ref = "991f5375b92dffca57b08069093c24a463365cbc"
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill._git",
+        lambda _repo, *_args: f"{retired_ref}\n".encode(),
+    )
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill.subprocess.run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+    )
+
+    with pytest.raises(ValueError, match="neither on main nor an approved"):
+        validate_rulespec_base(repo, "us", retired_ref, open_pr=False)
+
+
+def test_validate_rulespec_base_rejects_unreviewed_non_main_head(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    _add_origin_main(repo)
+    _git(repo, "commit", "--allow-empty", "-m", "unreviewed")
+    head = _git(repo, "rev-parse", "HEAD")
+
+    with pytest.raises(ValueError, match="neither on main nor an approved"):
+        validate_rulespec_base(repo, "us", head, open_pr=False)

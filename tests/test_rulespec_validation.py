@@ -1002,6 +1002,172 @@ def test_rulespec_target_resolution_ignores_cwd_and_sibling_checkouts(
     )
 
 
+def test_rulespec_resolution_cache_audits_checkout_once_per_scope(
+    monkeypatch,
+    tmp_path,
+):
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us")
+    original_walk = os.walk
+    walked_roots = []
+
+    def counting_walk(root, *args, **kwargs):
+        walked_roots.append(Path(root))
+        return original_walk(root, *args, **kwargs)
+
+    monkeypatch.setattr(validator_pipeline.os, "walk", counting_walk)
+
+    with validator_pipeline._rulespec_resolution_cache_scope():
+        assert (
+            validator_pipeline._rulespec_checkout_root_for_active_path(policy_repo)
+            == policy_repo.parent
+        )
+        assert (
+            validator_pipeline._rulespec_checkout_root_for_active_path(policy_repo)
+            == policy_repo.parent
+        )
+
+    assert walked_roots == [policy_repo.parent]
+
+    validator_pipeline._rulespec_checkout_root_for_active_path(policy_repo)
+    assert walked_roots == [policy_repo.parent, policy_repo.parent]
+
+
+def test_rulespec_resolution_cache_retries_rejected_symlink_audit(tmp_path):
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    unsafe = policy_repo / "unsafe"
+    unsafe.symlink_to(outside, target_is_directory=True)
+
+    with validator_pipeline._rulespec_resolution_cache_scope():
+        with pytest.raises(
+            validator_pipeline.UnsafeRulespecContextPath,
+            match="contains a symlink",
+        ):
+            validator_pipeline._rulespec_checkout_root_for_active_path(policy_repo)
+        unsafe.unlink()
+        assert (
+            validator_pipeline._rulespec_checkout_root_for_active_path(policy_repo)
+            == policy_repo.parent
+        )
+
+
+@pytest.mark.parametrize("replace_existing", [False, True])
+def test_rulespec_resolution_cache_invalidates_added_or_replaced_symlink(
+    tmp_path,
+    replace_existing,
+):
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us")
+    nested = policy_repo / "statutes/1"
+    nested.mkdir(parents=True)
+    candidate = nested / "unsafe.yaml"
+    if replace_existing:
+        candidate.write_text("format: rulespec/v1\nrules: []\n", encoding="utf-8")
+    outside = tmp_path / "outside.yaml"
+    outside.write_text("outside\n", encoding="utf-8")
+
+    with validator_pipeline._rulespec_resolution_cache_scope():
+        assert (
+            validator_pipeline._rulespec_checkout_root_for_active_path(policy_repo)
+            == policy_repo.parent
+        )
+        if replace_existing:
+            candidate.unlink()
+        candidate.symlink_to(outside)
+        with pytest.raises(
+            validator_pipeline.UnsafeRulespecContextPath,
+            match="contains a symlink",
+        ):
+            validator_pipeline._rulespec_checkout_root_for_active_path(policy_repo)
+
+
+def test_rulespec_resolution_cache_reuses_target_lookup_inside_scope(tmp_path):
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us")
+    target = policy_repo / "statutes/1/target.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text("format: rulespec/v1\nrules: []\n")
+    target_ref = validator_pipeline._parse_rulespec_target("us:statutes/1/target")
+
+    assert target_ref is not None
+    with patch.object(
+        validator_pipeline,
+        "_candidate_rulespec_repo_roots",
+        wraps=validator_pipeline._candidate_rulespec_repo_roots,
+    ) as candidates:
+        with validator_pipeline._rulespec_resolution_cache_scope():
+            assert (
+                validator_pipeline._resolve_rulespec_target_file(
+                    target_ref,
+                    policy_repo,
+                )
+                == target
+            )
+            assert (
+                validator_pipeline._resolve_rulespec_target_file(
+                    target_ref,
+                    policy_repo,
+                )
+                == target
+            )
+
+    candidates.assert_called_once()
+
+
+def test_rulespec_resolution_cache_does_not_cache_missing_target(tmp_path):
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us")
+    target = policy_repo / "statutes/1/target.yaml"
+    target_ref = validator_pipeline._parse_rulespec_target("us:statutes/1/target")
+
+    assert target_ref is not None
+    with validator_pipeline._rulespec_resolution_cache_scope():
+        assert (
+            validator_pipeline._resolve_rulespec_target_file(target_ref, policy_repo)
+            is None
+        )
+        target.parent.mkdir(parents=True)
+        target.write_text("format: rulespec/v1\nrules: []\n", encoding="utf-8")
+        assert (
+            validator_pipeline._resolve_rulespec_target_file(target_ref, policy_repo)
+            == target
+        )
+
+
+def test_rulespec_resolution_cache_invalidates_changed_target_file(tmp_path):
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us")
+    target = policy_repo / "statutes/1/target.yaml"
+    target.parent.mkdir(parents=True)
+    target.write_text("format: rulespec/v1\nrules: []\n", encoding="utf-8")
+    target_ref = validator_pipeline._parse_rulespec_target("us:statutes/1/target")
+
+    assert target_ref is not None
+    with patch.object(
+        validator_pipeline,
+        "_candidate_rulespec_repo_roots",
+        wraps=validator_pipeline._candidate_rulespec_repo_roots,
+    ) as candidates:
+        with validator_pipeline._rulespec_resolution_cache_scope():
+            assert (
+                validator_pipeline._resolve_rulespec_target_file(
+                    target_ref,
+                    policy_repo,
+                )
+                == target
+            )
+            target.write_text(
+                "format: rulespec/v1\nmodule:\n  name: changed\nrules: []\n",
+                encoding="utf-8",
+            )
+            assert (
+                validator_pipeline._resolve_rulespec_target_file(
+                    target_ref,
+                    policy_repo,
+                )
+                == target
+            )
+
+    assert candidates.call_count == 2
+
+
 def test_rulespec_target_resolution_rejects_workspace_dependency_root(tmp_path):
     workspace = tmp_path / "dependencies"
     target = workspace / "rulespec-us" / "us" / "statutes/1/target.yaml"
@@ -7369,6 +7535,77 @@ def test_numeric_extraction_handles_uganda_shilling_suffix():
     # A spaced "=" is a real equation and stays untouched.
     eq = extract_numbers_from_text("where x = 5 and y = 7")
     assert 5.0 in eq and 7.0 in eq
+
+
+def test_numeric_extraction_keeps_official_form_arithmetic_operands():
+    source_text = (
+        "multiplied by $62 = ^\n"
+        "divided by 365 = ^\n"
+        "× $11,000 =\n"
+        "x 11000 =\n"
+        "× 2/3 =\n"
+        "2/3\n"
+    )
+
+    numbers = extract_numbers_from_text(source_text)
+    assert {62.0, 365.0, 11_000.0} <= numbers
+    assert any(math.isclose(value, 2 / 3) for value in numbers)
+    occurrences = extract_numeric_occurrences_from_text(source_text)
+    assert 62.0 in occurrences
+    assert 365.0 in occurrences
+    assert 11_000.0 in occurrences
+    assert any(math.isclose(value, 2 / 3) for value in occurrences)
+    assert 202.0 not in extract_numbers_from_text("tax 2025 and Box 2025")
+
+
+def test_numeric_extraction_still_ignores_bare_table_key_assignments():
+    assert 62.0 not in extract_numbers_from_text("62 = table row")
+
+
+def test_numeric_extraction_expands_bounded_official_month_ranges():
+    source_text = (
+        "The monthly proration table gives line B maximum earnings. "
+        "For 1 through 12 months, line B is $5,941.67."
+    )
+
+    assert set(range(1, 13)) <= extract_numbers_from_text(source_text)
+    assert set(range(1, 13)) <= set(extract_numeric_occurrences_from_text(source_text))
+    assert 13.0 not in extract_numbers_from_text(
+        "The monthly proration table gives line B. For 1 through 25 months, line B"
+    )
+    assert 7.0 not in extract_numbers_from_text(
+        "Benefits are payable within 1 through 12 months."
+    )
+
+
+def test_numeric_extraction_accepts_contextual_ascii_factors():
+    source_text = (
+        "The relevant factors are 1 1/2 (Class 54) and 7/8 (Class 55). "
+        "Multiply by 2 1/3 times the net addition and 1/2 for RIIP."
+    )
+
+    expected = {1.5, 0.875, 2 + 1 / 3, 0.5}
+    assert expected <= extract_numbers_from_text(source_text)
+    occurrences = extract_numeric_occurrences_from_text(source_text)
+    assert all(
+        any(math.isclose(actual, value) for actual in occurrences) for value in expected
+    )
+    assert 0.875 not in extract_numbers_from_text("See sections 7/8 and 10.")
+
+
+def test_numeric_extraction_accepts_fixed_width_form_cents_cells():
+    source_text = "000 00\n\n196 50\n\n=\nAmount from line 83"
+
+    numbers = extract_numbers_from_text(source_text)
+    assert 196.5 in numbers
+    assert 196.0 not in numbers
+    assert 50.0 not in numbers
+    occurrences = extract_numeric_occurrences_from_text(source_text)
+    assert 196.5 in occurrences
+    assert 196.0 not in occurrences
+    assert 50.0 not in occurrences
+    assert 196.5 not in extract_numbers_from_text("The values are 196 50 people")
+    assert 196.5 not in extract_numbers_from_text("196 50\n\n\n\n=")
 
 
 @pytest.mark.parametrize(
@@ -21232,6 +21469,34 @@ rules:
     versions:
       - effective_from: '2026-01-01'
         formula: sum_where(member_of_tax_unit, covered_wages, member_has_wages)
+"""
+
+    assert find_person_scoped_definition_unit_issues(content) == []
+
+
+def test_person_scoped_definition_unit_accepts_explicit_family_source_scope():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    The term net earnings means remuneration paid to an individual. Separate
+    benefit guidance bases the payment on adjusted family net income.
+rules:
+  - name: benefit_adjusted_family_net_income
+    kind: derived
+    entity: Family
+    dtype: Money
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: definition
+            source:
+              corpus_citation_path: ca/policy/example
+              excerpt: adjusted family net income
+    versions:
+      - effective_from: '2026-01-01'
+        formula: max(0, adjusted_family_net_income)
 """
 
     assert find_person_scoped_definition_unit_issues(content) == []

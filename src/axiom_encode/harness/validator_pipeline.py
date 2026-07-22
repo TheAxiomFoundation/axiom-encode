@@ -73,6 +73,10 @@ from axiom_encode.corpus_resolver import (
     resolve_local_corpus_source,
 )
 from axiom_encode.repo_routing import (
+    _path_identity_fingerprint,
+    _path_mutation_stamp,
+    _PathMutationStamp,
+    _rulespec_routing_cache_scope,
     candidate_jurisdiction_content_dirs,
     canonical_rulespec_repo_name,
     canonical_rulespec_root_identity,
@@ -125,6 +129,66 @@ _AUTHORITATIVE_RULESPEC_DEPENDENCY_ROOTS: ContextVar[tuple[Path, ...]] = Context
     "axiom_authoritative_rulespec_dependency_roots",
     default=(),
 )
+
+
+@dataclass(frozen=True)
+class _CachedExplicitDirectory:
+    resolved: Path
+    path_identity: tuple[tuple[Path, tuple[int, int, int]], ...]
+
+
+@dataclass(frozen=True)
+class _CachedActiveCheckout:
+    active: Path
+    checkout: Path
+
+
+@dataclass(frozen=True)
+class _CachedSymlinkAudit:
+    directory_stamps: tuple[tuple[Path, _PathMutationStamp], ...]
+
+
+@dataclass(frozen=True)
+class _CachedTargetFile:
+    target_file: Path
+    content_root: Path
+    path_identity: tuple[tuple[Path, tuple[int, int, int]], ...]
+    file_stamp: _PathMutationStamp
+
+
+@dataclass
+class _RuleSpecResolutionCache:
+    """Successful filesystem admissions retained for one validation operation."""
+
+    explicit_directories: dict[Path, _CachedExplicitDirectory] = field(
+        default_factory=dict
+    )
+    active_checkouts: dict[Path, _CachedActiveCheckout] = field(default_factory=dict)
+    symlink_audits: dict[Path, _CachedSymlinkAudit] = field(default_factory=dict)
+    target_files: dict[tuple[Any, ...], _CachedTargetFile] = field(default_factory=dict)
+
+
+_RULESPEC_RESOLUTION_CACHE: ContextVar[_RuleSpecResolutionCache | None] = ContextVar(
+    "axiom_rulespec_resolution_cache",
+    default=None,
+)
+
+
+@contextlib.contextmanager
+def _rulespec_resolution_cache_scope() -> Iterator[_RuleSpecResolutionCache]:
+    """Bound RuleSpec path and identity caches to one explicit operation."""
+
+    current = _RULESPEC_RESOLUTION_CACHE.get()
+    if current is not None:
+        yield current
+        return
+    cache = _RuleSpecResolutionCache()
+    with _rulespec_routing_cache_scope():
+        token = _RULESPEC_RESOLUTION_CACHE.set(cache)
+        try:
+            yield cache
+        finally:
+            _RULESPEC_RESOLUTION_CACHE.reset(token)
 
 
 @contextlib.contextmanager
@@ -1264,6 +1328,38 @@ _SUBPOUND_MONEY_PATTERN = re.compile(
     r"(\d+(?:\.\d+)?)\s*(?:pence|penny)\b", re.IGNORECASE
 )
 _TABLE_KEY_ASSIGNMENT_PATTERN = re.compile(r"\b\d+(?=\s*=)")
+_FORM_ARITHMETIC_OPERAND_PATTERN = re.compile(
+    r"(?:\b(?:multiplied|divided)\s+by\b|(?<!\w)[x×÷](?!\w))\s*"
+    r"(?:[$£€]\s*)?"
+    r"(?P<number>-?(?:\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?))(?![\d,])"
+    r"(?:\s*(?P<percent>%))?",
+    re.IGNORECASE,
+)
+_FORM_ARITHMETIC_FRACTION_PATTERN = re.compile(
+    r"(?:\b(?:multiplied|divided)\s+by\b|(?<!\w)[x×÷](?!\w))\s*"
+    r"(?P<numerator>\d+)\s*/\s*(?P<denominator>\d+)",
+    re.IGNORECASE,
+)
+_STANDALONE_FORM_FRACTION_PATTERN = re.compile(
+    r"(?m)^\s*(?P<numerator>\d+)\s*/\s*(?P<denominator>\d+)\s*$"
+)
+_CONTEXTUAL_ASCII_FRACTION_PATTERN = re.compile(
+    r"(?<![\d./])"
+    r"(?:(?P<whole>\d+)\s+)?"
+    r"(?P<numerator>\d+)\s*/\s*(?P<denominator>\d+)"
+    r"(?=\s*(?:times?\b|\(\s*Class\b|for\s+(?:property|RIIP|ZEV|Class)\b))",
+    re.IGNORECASE,
+)
+_SMALL_MONTH_RANGE_PATTERN = re.compile(
+    r"\b(?P<start>\d{1,2})\s+(?:through|to)\s+"
+    r"(?P<end>\d{1,2})\s+months?\b",
+    re.IGNORECASE,
+)
+_FORM_IMPLIED_CENTS_PATTERN = re.compile(
+    r"(?m)^[ \t]*(?P<dollars>\d{1,3}(?:[ ,]\d{3})*)[ \t]+"
+    r"(?P<cents>\d{2})[ \t]*$"
+    r"(?=(?:[ \t]*\r?\n){1,3}[ \t]*=)",
+)
 _TABLE_ROW_LABEL_PATTERN = re.compile(
     r"\b(?:size|household size|unit size)\s+\d+(?:\s+or\s+more)?(?=\s*:)",
     re.IGNORECASE,
@@ -3584,9 +3680,13 @@ def _call_body_contains_any(
 
 def extract_numbers_from_text(text: str) -> set[float]:
     """Extract numeric values from embedded statute text."""
-    original_text = text
+    implied_cents_matches = _iter_form_implied_cents_matches(text)
+    original_text = _FORM_IMPLIED_CENTS_PATTERN.sub(
+        lambda match: " " * len(match.group(0)),
+        text,
+    )
     two_line_table_occurrences = _extract_two_line_table_value_occurrences(text)
-    text = _clean_source_text_for_numeric_extraction(text)
+    text = _clean_source_text_for_numeric_extraction(original_text)
     schedule_occurrences, text = _extract_collapsed_schedule_row_occurrences(text)
     numbers = set()
     occupied_spans: list[tuple[int, int]] = []
@@ -3616,6 +3716,10 @@ def extract_numbers_from_text(text: str) -> set[float]:
     numbers.update(_extract_dotted_date_year_values(original_text))
     numbers.update(_extract_centime_unit_values(original_text))
     numbers.update(_extract_annual_context_values(original_text))
+    numbers.update(_extract_form_arithmetic_operand_values(original_text))
+    numbers.update(_extract_contextual_ascii_fraction_values(original_text))
+    numbers.update(_extract_small_month_range_values(original_text))
+    numbers.update(value for _, value in implied_cents_matches)
     numbers.update(_extract_vehicle_tax_fiscal_power_table_values(original_text))
 
     for match in GLUED_UNIT_NUMBER_PATTERN.finditer(text):
@@ -4147,6 +4251,77 @@ def _extract_annual_context_values(text: str) -> set[float]:
     return set()
 
 
+def _extract_form_arithmetic_operand_values(text: str) -> list[float]:
+    """Extract operands printed in official form calculation cells."""
+
+    values: list[float] = []
+    fraction_spans: list[tuple[int, int]] = []
+    for match in (
+        *_FORM_ARITHMETIC_FRACTION_PATTERN.finditer(text),
+        *_STANDALONE_FORM_FRACTION_PATTERN.finditer(text),
+    ):
+        with contextlib.suppress(ValueError, ZeroDivisionError):
+            denominator = float(match.group("denominator"))
+            values.append(float(match.group("numerator")) / denominator)
+            fraction_spans.append(match.span())
+    for match in _FORM_ARITHMETIC_OPERAND_PATTERN.finditer(text):
+        if _span_overlaps(match.span(), fraction_spans):
+            continue
+        with contextlib.suppress(ValueError):
+            value = float(match.group("number").replace(",", ""))
+            values.append(value / 100 if match.group("percent") else value)
+    return values
+
+
+def _extract_contextual_ascii_fraction_values(text: str) -> list[float]:
+    """Extract source-stated factors such as ``1 1/2`` and ``7/8 times``."""
+
+    values: list[float] = []
+    for match in _CONTEXTUAL_ASCII_FRACTION_PATTERN.finditer(text):
+        with contextlib.suppress(ValueError, ZeroDivisionError):
+            whole = float(match.group("whole") or 0)
+            numerator = float(match.group("numerator"))
+            denominator = float(match.group("denominator"))
+            values.append(whole + numerator / denominator)
+    return values
+
+
+def _extract_small_month_range_values(text: str) -> list[float]:
+    """Expand bounded month-count ranges explicitly stated by official tables."""
+
+    values: list[float] = []
+    for match in _SMALL_MONTH_RANGE_PATTERN.finditer(text):
+        start = int(match.group("start"))
+        end = int(match.group("end"))
+        preceding_context = text[max(0, match.start() - 500) : match.start()]
+        row_context = text[match.start() : match.end() + 80]
+        if (
+            0 <= start <= end <= 24
+            and re.search(
+                r"\bmonthly\s+proration\s+table\b",
+                preceding_context,
+                re.IGNORECASE,
+            )
+            and re.search(r"\bline\s+[A-E]\b", row_context, re.IGNORECASE)
+        ):
+            values.extend(float(value) for value in range(start, end + 1))
+    return values
+
+
+def _iter_form_implied_cents_matches(
+    text: str,
+) -> list[tuple[tuple[int, int], float]]:
+    """Match fixed-width form amounts whose decimal separator is omitted."""
+
+    matches: list[tuple[tuple[int, int], float]] = []
+    for match in _FORM_IMPLIED_CENTS_PATTERN.finditer(text):
+        with contextlib.suppress(ValueError):
+            dollars = float(match.group("dollars").replace(",", "").replace(" ", ""))
+            cents = float(match.group("cents"))
+            matches.append((match.span(), dollars + cents / 100))
+    return matches
+
+
 def _extract_vehicle_tax_fiscal_power_table_values(text: str) -> set[float]:
     values: set[float] = set()
     lowered = text.lower()
@@ -4669,15 +4844,20 @@ def _extract_two_line_table_value_occurrences(text: str) -> list[float]:
 
 def extract_numeric_occurrences_from_text(text: str) -> list[float]:
     """Extract substantive numeric occurrences from source text, preserving repeats."""
-    raw_text = text
+    implied_cents_matches = _iter_form_implied_cents_matches(text)
+    raw_text = _FORM_IMPLIED_CENTS_PATTERN.sub(
+        lambda match: " " * len(match.group(0)),
+        text,
+    )
     two_line_table_occurrences = _extract_two_line_table_value_occurrences(text)
-    cleaned = _clean_source_text_for_numeric_extraction(text)
+    cleaned = _clean_source_text_for_numeric_extraction(raw_text)
     collapsed_schedule_occurrences, cleaned = (
         _extract_collapsed_schedule_row_occurrences(cleaned)
     )
 
     occurrences: list[float] = list(two_line_table_occurrences)
     occurrences.extend(collapsed_schedule_occurrences)
+    occurrences.extend(value for _, value in implied_cents_matches)
     spans: list[tuple[int, int]] = []
     cleaned_money_values: list[float] = []
     for span, value in _iter_belgian_numeric_range_endpoint_matches(cleaned):
@@ -4709,6 +4889,9 @@ def extract_numeric_occurrences_from_text(text: str) -> list[float]:
     occurrences.extend(_extract_year_duration_month_values(raw_text))
     occurrences.extend(_extract_dotted_date_year_values(raw_text))
     occurrences.extend(_extract_centime_unit_values(raw_text))
+    occurrences.extend(_extract_form_arithmetic_operand_values(raw_text))
+    occurrences.extend(_extract_contextual_ascii_fraction_values(raw_text))
+    occurrences.extend(_extract_small_month_range_values(raw_text))
 
     for span, value in _iter_normalized_special_numeric_matches(cleaned):
         if _span_overlaps(span, spans):
@@ -10237,7 +10420,21 @@ def find_person_scoped_definition_unit_issues(content: str) -> list[str]:
         entity = str(rule.get("entity") or "").strip()
         if entity.lower() not in _UNIT_SCOPED_ENTITY_NAMES:
             continue
-        scoped_source_text = " ".join(_rule_proof_source_excerpts(rule))
+        proof_source_excerpts = _rule_proof_source_excerpts(rule)
+        source_scope_record = (
+            _rule_source_scope(rule, source_text) if proof_source_excerpts else None
+        )
+        if source_scope_record is not None:
+            source_scope, source_unit_entity = source_scope_record
+            if source_scope == _SOURCE_SCOPE_UNIT and (
+                source_unit_entity is None
+                or _unit_entities_are_equivalent(
+                    entity.lower(),
+                    source_unit_entity,
+                )
+            ):
+                continue
+        scoped_source_text = " ".join(proof_source_excerpts)
         if not scoped_source_text:
             scoped_source_text = _source_text_for_rule_source(source_text, rule_source)
         if (
@@ -19866,6 +20063,12 @@ def _validate_explicit_rulespec_directory(
 
     raw = Path(os.path.abspath(Path(root).expanduser()))
     checked = _normalize_macos_system_path_alias(raw)
+    cache = _RULESPEC_RESOLUTION_CACHE.get()
+    cached = cache.explicit_directories.get(raw) if cache is not None else None
+    if cached is not None:
+        if _path_identity_fingerprint(checked) == cached.path_identity:
+            return cached.resolved
+        cache.explicit_directories.pop(raw, None)
     cursor = Path(checked.anchor)
     relative_parts = checked.parts[1:] if checked.is_absolute() else checked.parts
     for part in relative_parts:
@@ -19878,6 +20081,13 @@ def _validate_explicit_rulespec_directory(
         raise UnsafeRulespecContextPath(f"{label} does not exist: {raw}") from exc
     if not resolved.is_dir():
         raise UnsafeRulespecContextPath(f"{label} is not a directory: {raw}")
+    if cache is not None:
+        path_identity = _path_identity_fingerprint(checked)
+        if path_identity is not None:
+            cache.explicit_directories[raw] = _CachedExplicitDirectory(
+                resolved=resolved,
+                path_identity=path_identity,
+            )
     return resolved
 
 
@@ -19907,6 +20117,25 @@ def _normalize_macos_system_path_alias(path: Path) -> Path:
 def _rulespec_checkout_root_for_active_path(path: Path) -> Path:
     """Return the direct country checkout for one explicit content root."""
 
+    cache = _RULESPEC_RESOLUTION_CACHE.get()
+    cache_key = Path(os.path.abspath(Path(path).expanduser()))
+    cached = cache.active_checkouts.get(cache_key) if cache is not None else None
+    if cached is not None:
+        active = _validate_explicit_rulespec_directory(
+            path,
+            label="active RuleSpec root",
+        )
+        identity = canonical_rulespec_root_identity(active)
+        if active == cached.active and identity is not None:
+            checkout = active.parent
+            if checkout == cached.checkout:
+                _reject_rulespec_checkout_symlinks(
+                    checkout,
+                    label="active RuleSpec checkout",
+                )
+                return checkout
+        cache.active_checkouts.pop(cache_key, None)
+
     active = _validate_explicit_rulespec_directory(
         path,
         label="active RuleSpec root",
@@ -19923,20 +20152,56 @@ def _rulespec_checkout_root_for_active_path(path: Path) -> Path:
         checkout,
         label="active RuleSpec checkout",
     )
+    if cache is not None:
+        cache.active_checkouts[cache_key] = _CachedActiveCheckout(
+            active=active,
+            checkout=checkout,
+        )
     return checkout
 
 
 def _reject_rulespec_checkout_symlinks(checkout: Path, *, label: str) -> None:
     """Reject every symlink beneath a checkout exposed to the RuleSpec engine."""
 
+    cache = _RULESPEC_RESOLUTION_CACHE.get()
+    cache_key = Path(checkout).resolve()
+    cached = cache.symlink_audits.get(cache_key) if cache is not None else None
+    if cached is not None:
+        current_stamps = tuple(
+            (directory, _path_mutation_stamp(directory))
+            for directory, _stamp in cached.directory_stamps
+        )
+        if current_stamps == cached.directory_stamps:
+            return
+        cache.symlink_audits.pop(cache_key, None)
+
+    directory_stamps: list[tuple[Path, _PathMutationStamp]] = []
     for current, directory_names, file_names in os.walk(checkout, followlinks=False):
         current_path = Path(current)
+        current_stamp = _path_mutation_stamp(current_path)
+        if current_stamp is None:
+            raise UnsafeRulespecContextPath(
+                f"{label} changed during symlink audit: {current_path}"
+            )
+        directory_stamps.append((current_path, current_stamp))
         for name in (*directory_names, *file_names):
             candidate = current_path / name
             if candidate.is_symlink():
                 raise UnsafeRulespecContextPath(
                     f"{label} contains a symlink: {candidate}"
                 )
+    if cache is not None:
+        stable_stamps = tuple(
+            (directory, _path_mutation_stamp(directory))
+            for directory, _stamp in directory_stamps
+        )
+        if stable_stamps != tuple(directory_stamps):
+            raise UnsafeRulespecContextPath(
+                f"{label} changed during symlink audit: {checkout}"
+            )
+        cache.symlink_audits[cache_key] = _CachedSymlinkAudit(
+            directory_stamps=stable_stamps,
+        )
 
 
 def _normalize_rulespec_dependency_roots(
@@ -20016,11 +20281,35 @@ def _resolve_rulespec_target_file(
     rulespec_dependency_roots: Iterable[Path] | None = None,
 ) -> Path | None:
     """Resolve a canonical target only through caller-authorized checkouts."""
+    dependency_roots = _effective_rulespec_dependency_roots(rulespec_dependency_roots)
+    policy_root_key = (
+        Path(os.path.abspath(Path(policy_repo_path).expanduser()))
+        if policy_repo_path is not None
+        else None
+    )
+    cache = _RULESPEC_RESOLUTION_CACHE.get()
+    cache_key = (target_ref, policy_root_key, dependency_roots)
+    cached = cache.target_files.get(cache_key) if cache is not None else None
+    if cached is not None:
+        current_identity = _path_identity_fingerprint(cached.target_file)
+        current_stamp = _path_mutation_stamp(cached.target_file)
+        if (
+            current_identity == cached.path_identity
+            and current_stamp == cached.file_stamp
+            and canonical_rulespec_repo_name(cached.content_root)
+            == target_ref.repo_name
+        ):
+            _reject_rulespec_checkout_symlinks(
+                cached.content_root.parent,
+                label="resolved RuleSpec checkout",
+            )
+            return cached.target_file
+        cache.target_files.pop(cache_key, None)
     for root in _candidate_rulespec_repo_roots(
         target_ref.repo_name,
         policy_repo_path,
         prefix=target_ref.prefix,
-        rulespec_dependency_roots=rulespec_dependency_roots,
+        rulespec_dependency_roots=dependency_roots,
     ):
         if not root.is_dir():
             continue
@@ -20038,7 +20327,18 @@ def _resolve_rulespec_target_file(
             raise UnsafeRulespecContextPath(
                 f"Resolved RuleSpec target is a symlink: {target_file}"
             )
-        return validate_rulespec_context_file(target_file, root)
+        resolved = validate_rulespec_context_file(target_file, root)
+        if cache is not None:
+            path_identity = _path_identity_fingerprint(resolved)
+            file_stamp = _path_mutation_stamp(resolved)
+            if path_identity is not None and file_stamp is not None:
+                cache.target_files[cache_key] = _CachedTargetFile(
+                    target_file=resolved,
+                    content_root=root,
+                    path_identity=path_identity,
+                    file_stamp=file_stamp,
+                )
+        return resolved
     return None
 
 
@@ -21001,7 +21301,10 @@ class ValidatorPipeline:
     ) -> PipelineResult:
         """Run validation with the caller-authorized dependency roots bound."""
 
-        with _authoritative_rulespec_dependency_scope(self.rulespec_dependency_roots):
+        with (
+            _rulespec_resolution_cache_scope(),
+            _authoritative_rulespec_dependency_scope(self.rulespec_dependency_roots),
+        ):
             return self._validate_with_authoritative_roots(
                 rulespec_file,
                 skip_reviewers=skip_reviewers,

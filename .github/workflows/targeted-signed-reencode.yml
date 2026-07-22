@@ -13,7 +13,7 @@ on:
         default: us
         type: string
       rulespec_ref:
-        description: Immutable rulespec-<country> commit SHA on main to re-encode
+        description: Immutable main SHA, or an allowlisted reviewed SHA for artifact-only runs
         required: true
         type: string
       corpus_ref:
@@ -98,6 +98,7 @@ jobs:
           COUNTRY: ${{ inputs.country }}
           RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
           RULESPEC_REF: ${{ inputs.rulespec_ref }}
+          OPEN_PR: ${{ inputs.open_pr }}
           CORPUS_REF: ${{ inputs.corpus_ref }}
           RULES_ENGINE_REF: ${{ inputs.rules_engine_ref }}
         run: |
@@ -127,8 +128,9 @@ jobs:
           verify_checkout axiom-rules-engine "$RULES_ENGINE_REF" axiom-rules-engine
           test "$(git -C "$RULESPEC_CHECKOUT" remote get-url origin)" = \
             "https://github.com/TheAxiomFoundation/rulespec-$COUNTRY"
-          git -C "$RULESPEC_CHECKOUT" merge-base --is-ancestor \
-            HEAD refs/remotes/origin/main
+          python axiom-encode/scripts/prepare_signed_backfill.py \
+            validate-rulespec-base "$RULESPEC_CHECKOUT" "$COUNTRY" \
+            "$RULESPEC_REF" "$OPEN_PR"
           git -C axiom-corpus merge-base --is-ancestor HEAD refs/remotes/origin/main
           git -C axiom-rules-engine merge-base --is-ancestor HEAD refs/remotes/origin/main
 
@@ -531,8 +533,11 @@ jobs:
       - name: Finalize signed re-encode artifact checksums
         run: |
           set -euo pipefail
-          sha256sum "$RUNNER_TEMP/targeted-reencode"/* \
-            > "$RUNNER_TEMP/targeted-reencode/SHA256SUMS"
+          artifact="$RUNNER_TEMP/targeted-reencode"
+          (
+            cd "$artifact"
+            sha256sum * > SHA256SUMS
+          )
 
       - name: Upload signed re-encode artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

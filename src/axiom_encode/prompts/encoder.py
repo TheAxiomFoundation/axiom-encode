@@ -927,10 +927,11 @@ _TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when
 - Every local executable `kind: derived` or `kind: derived_relation` rule must
   appear at least once under an `output:` block in the companion `.test.yaml`;
   do not leave helper derived rules unasserted.
-- Do not assert raw `kind: parameter` rules directly in companion test
-  `output:` blocks. Cover parameters through derived outputs that consume them.
-  If a module only contains parameters and has no derived output to assert,
-  leave the companion test file empty.
+- In modules with executable derived outputs, do not assert raw
+  `kind: parameter` rules directly in companion test `output:` blocks; cover
+  parameters through derived outputs that consume them. If a module contains
+  only parameters, emit one source-period snapshot case that asserts every
+  local parameter output directly.
 - Never emit a concrete test case with `output: {}` or an empty `output` map.
   If no executable output can be asserted, leave the test file empty instead of
   adding placeholder cases.
@@ -1361,9 +1362,10 @@ _SELF_CHECK = """- Before finalizing, do this self-check:
   2. Test input inventory: for every local factual identifier referenced by a
      local derived formula, every companion test case assigns the corresponding
      `#input.<fact>` explicitly, including false facts. Do not rely on implicit
-     defaults. Do not assert raw `kind: parameter` rules directly in companion
-     test `output:` blocks; assert derived outputs that consume the parameters
-     instead. If a local amount formula has a branch returning 0, include a
+     defaults. A parameter-only module may use one source-period snapshot case
+     that asserts every local parameter output directly. For other modules,
+     assert derived outputs that consume parameters instead. If a local amount
+     formula has a branch returning 0, include a
      companion case that asserts that local output is 0.
      For imported modules, only assign imported `#input` or `#relation` keys
      that exist in the current imported RuleSpec context. Do not preserve stale

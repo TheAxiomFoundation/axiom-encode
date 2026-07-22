@@ -40,6 +40,7 @@ from axiom_encode.cli import (
     _append_exception_positive_companion_tests_if_missing,
     _append_generated_derived_output_tests_if_missing,
     _append_generated_judgment_positive_tests_if_missing,
+    _append_generated_judgment_positive_tests_in_overlay,
     _append_generated_zero_branch_tests_if_missing,
     _applied_encoding_manifest_path,
     _applied_encoding_manifest_signature_issue,
@@ -49,7 +50,9 @@ from axiom_encode.cli import (
     _apply_generated_encoding_result,
     _build_eval_suite_payload,
     _build_eval_suite_report,
+    _canonical_rulespec_compile_path,
     _changed_manifest_group_files,
+    _closest_exact_source_excerpt,
     _collapse_additive_versioned_derived_formulas,
     _complete_missing_dependent_test_inputs,
     _complete_missing_imported_test_inputs,
@@ -62,6 +65,7 @@ from axiom_encode.cli import (
     _ensure_rulespec_import,
     _eval_suite_json_sha256,
     _eval_suite_summary_payload,
+    _exact_source_excerpt_candidates,
     _exclusive_apply_transaction_lock,
     _execute_rulespec_test_file,
     _expected_proof_import_hash,
@@ -83,6 +87,7 @@ from axiom_encode.cli import (
     _normalize_invalid_proof_atom_kinds,
     _normalize_invalid_proof_atom_kinds_file,
     _normalize_top_level_parameter_values_to_versions,
+    _parameter_only_companion_snapshot_cases,
     _parse_child_fragment_reencoding_issue,
     _parse_child_numeric_reencoding_issue,
     _person_scoped_definition_issue_names,
@@ -165,6 +170,7 @@ from axiom_encode.cli import (
     _stage_apply_overlay_dependency_root,
     _stage_apply_overlay_dependency_roots,
     _stamp_generated_source_attestation_for_apply,
+    _stamp_matching_supplemental_source_attestations,
     _suppress_rulespec_ancestor_targets_for_subsection_overlay,
     _translate_rulespec_engine_envelope_error,
     _try_repair_generated_aca_36b_b_premium_assistance_compat_for_apply,
@@ -183,20 +189,22 @@ from axiom_encode.cli import (
     _try_repair_generated_invalid_source_relation_types_for_apply,
     _try_repair_generated_judgment_conditionals_for_apply,
     _try_repair_generated_judgment_numeric_comparisons_for_apply,
+    _try_repair_generated_judgment_positive_tests_for_apply,
     _try_repair_generated_missing_data_relations_for_apply,
     _try_repair_generated_missing_deferred_outputs_for_apply,
     _try_repair_generated_missing_same_section_subsection_imports_for_apply,
     _try_repair_generated_mixed_missing_deferred_outputs_for_apply,
     _try_repair_generated_negated_comparisons_for_apply,
     _try_repair_generated_negated_sum_where_predicates_for_apply,
+    _try_repair_generated_nonexact_proof_excerpts_for_apply,
     _try_repair_generated_nonoperative_source_coverage_for_apply,
-    _try_repair_generated_parameter_only_companion_tests_for_apply,
     _try_repair_generated_scalar_relation_rows_for_apply,
     _try_repair_generated_section_1401_b_1_self_employment_income_for_apply,
     _try_repair_generated_source_child_corpus_paths_for_apply,
     _try_repair_generated_source_relation_delegations_for_apply,
     _try_repair_generated_source_table_band_scalars_for_apply,
     _try_repair_generated_test_input_assignments_for_apply,
+    _try_repair_generated_undeclared_money_units_for_apply,
     _try_repair_generated_unreferenced_percent_label_parameters_for_apply,
     _try_repair_generated_unresolved_local_test_outputs_for_apply,
     _try_repair_generated_unsafe_formula_outputs_for_apply,
@@ -277,6 +285,7 @@ from axiom_encode.harness.evals import (
     summarize_readiness,
 )
 from axiom_encode.harness.policyengine_runtime import PolicyEngineRuntimeError
+from axiom_encode.harness.proof_validator import validate_rulespec_proofs
 from axiom_encode.harness.validator_pipeline import (
     _authoritative_rulespec_dependency_scope,
 )
@@ -4452,6 +4461,67 @@ class TestCmdValidate:
         captured = capsys.readouterr()
         assert "PASSED" in captured.out
 
+    def test_validate_command_reuses_nested_pipeline_admissions(self, tmp_path):
+        import axiom_encode.cli as cli_module
+        from axiom_encode.harness import validator_pipeline
+
+        modules = [self._module(tmp_path, f"cached-{index}.yaml") for index in range(2)]
+        for module in modules:
+            module.write_text("format: rulespec/v1\nrules: []\n", encoding="utf-8")
+        args = SimpleNamespace(
+            files=modules,
+            corpus_path=self.corpus_path,
+            axiom_rules_path=self.axiom_rules_path,
+            rulespec_dependency_root=[],
+            json=False,
+            skip_reviewers=True,
+            oracle=None,
+            min_match=0.95,
+            require_oracle_classification=False,
+        )
+        walked_roots = []
+        original_walk = os.walk
+
+        def counting_walk(root, *walk_args, **walk_kwargs):
+            walked_roots.append(Path(root))
+            return original_walk(root, *walk_args, **walk_kwargs)
+
+        class AdmissionPipeline(validator_pipeline.ValidatorPipeline):
+            def _validate_with_authoritative_roots(
+                self,
+                rulespec_file,
+                skip_reviewers=False,
+            ):
+                validator_pipeline._rulespec_checkout_root_for_active_path(
+                    self.policy_repo_path
+                )
+                return SimpleNamespace(file=rulespec_file, skipped=skip_reviewers)
+
+        def validate_one(
+            validate_args,
+            pipeline,
+            rulespec_file,
+            *,
+            policyengine_runtime,
+        ):
+            assert policyengine_runtime is None
+            pipeline.validate(
+                rulespec_file,
+                skip_reviewers=validate_args.skip_reviewers,
+            )
+            return True, None
+
+        with (
+            patch.object(cli_module, "ValidatorPipeline", AdmissionPipeline),
+            patch.object(cli_module, "_validate_one", side_effect=validate_one),
+            patch.object(validator_pipeline.os, "walk", side_effect=counting_walk),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_validate(args)
+
+        assert exc_info.value.code == 0
+        assert walked_roots == [tmp_path / "rulespec-us"]
+
     def test_validate_real_pipeline_compiles_from_exact_content_root(
         self, capsys, tmp_path
     ):
@@ -6667,6 +6737,19 @@ rules:
     versions:
       - effective_from: '2026-01-01'
         formula: 0.006
+  - name: legacy_threshold
+    kind: parameter
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: threshold  # generated synonym
+            source:
+              corpus_citation_path: us/statute/26/1
+              excerpt: income exceeds 50000
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 50000
 """.replace("\n", "\r\n")
         expected = (
             original.replace(
@@ -6685,6 +6768,10 @@ rules:
                 "kind: rate  # existing compatibility repair",
                 "kind: parameter  # existing compatibility repair",
             )
+            .replace(
+                "kind: threshold  # generated synonym",
+                "kind: parameter  # generated synonym",
+            )
         )
 
         result = _normalize_invalid_proof_atom_kinds(original)
@@ -6698,6 +6785,7 @@ rules:
             ("indexed_parameter", "custom", "parameter_table"),
             ("derived_formula", "custom", "formula"),
             ("legacy_rate", "rate", "parameter"),
+            ("legacy_threshold", "threshold", "parameter"),
         ]
         assert [
             (issue.rule, issue.atom_index, issue.reason)
@@ -7010,6 +7098,623 @@ rules:
             "Proof atom kind normalization error: RuleSpec jurisdiction root "
             "must not be a symlink:" in capsys.readouterr().err
         )
+
+
+def test_closest_exact_source_excerpt_aligns_numeric_paraphrase():
+    source_text = """Single individuals or single parent families
+$267 with no children
+$441 with 1 child
+$533 with 2 children
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="maximum payment of $533 for 2 children",
+    )
+
+    assert repaired == "$533 with 2 children"
+
+
+def test_closest_exact_source_excerpt_rejects_unrelated_numeric_text():
+    repaired = _closest_exact_source_excerpt(
+        source_text="The annual amount is $533 with 2 children.",
+        excerpt="The reduction rate is 5 percent.",
+    )
+
+    assert repaired is None
+
+
+def test_repair_generated_undeclared_money_unit(tmp_path):
+    output_root = tmp_path / "out"
+    rules_file = output_root / "model" / "policies" / "benefit.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+rules:
+- name: annual_benefit
+  kind: derived
+  entity: Family
+  dtype: Money
+  unit: CAD
+  versions:
+  - effective_from: '2026-01-01'
+    formula: gross_benefit
+"""
+    )
+    result = SimpleNamespace(output_file=str(rules_file))
+
+    repaired = _try_repair_generated_undeclared_money_units_for_apply(
+        result,
+        output_root=output_root,
+        issues=["Test case `example` execution failed: unit `CAD` was not declared"],
+    )
+
+    assert repaired == ["CAD"]
+    payload = yaml.safe_load(rules_file.read_text())
+    assert payload["units"] == [{"name": "CAD", "kind": "currency", "minor_units": 2}]
+
+
+def test_repair_generated_nonexact_proof_excerpt(tmp_path):
+    output_root = tmp_path / "out"
+    rules_file = output_root / "model" / "policies" / "benefit.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: |-
+    Single individuals or single parent families
+    $267 with no children
+    $533 with 2 children
+rules:
+- name: additional_child_amount
+  kind: parameter
+  dtype: Money
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: ca/policy/example
+          excerpt: maximum payment of $533 for 2 children
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 533
+"""
+    )
+    result = SimpleNamespace(output_file=str(rules_file))
+
+    repaired = _try_repair_generated_nonexact_proof_excerpts_for_apply(
+        result,
+        output_root=output_root,
+        issues=[
+            "Proof source evidence not found: rule `additional_child_amount` "
+            "proof atom 0 `source.excerpt` does not appear in `ca/policy/example`."
+        ],
+    )
+
+    assert repaired == ["additional_child_amount[0]"]
+    payload = yaml.safe_load(rules_file.read_text())
+    assert payload["rules"][0]["metadata"]["proof"]["atoms"][0]["source"] == {
+        "corpus_citation_path": "ca/policy/example",
+        "excerpt": "$533 with 2 children",
+    }
+
+
+def test_repair_generated_nonexact_proof_excerpt_uses_child_citation(
+    tmp_path, monkeypatch
+):
+    output_root = tmp_path / "out"
+    rules_file = output_root / "model" / "policies" / "benefit.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: Parent source does not contain the Alberta amount.
+rules:
+- name: alberta_age_amount
+  kind: parameter
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: ca/policy/example/alberta
+          excerpt: maximum age amount of $6,100
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 6100
+"""
+    )
+    requested_paths = []
+
+    def source_text(citation_path, *, corpus_release):
+        requested_paths.append((citation_path, corpus_release))
+        return "The maximum amount for age is $6,100."
+
+    monkeypatch.setattr(
+        "axiom_encode.cli._local_source_text_for_corpus_path",
+        source_text,
+    )
+    corpus_release = SimpleNamespace(name="test-release")
+
+    repaired = _try_repair_generated_nonexact_proof_excerpts_for_apply(
+        SimpleNamespace(output_file=str(rules_file)),
+        output_root=output_root,
+        corpus_release=corpus_release,
+        issues=[
+            "Proof source evidence not found: rule `alberta_age_amount` proof atom "
+            "0 `source.excerpt` does not appear in `ca/policy/example/alberta`."
+        ],
+    )
+
+    assert repaired == ["alberta_age_amount[0]"]
+    assert requested_paths == [("ca/policy/example/alberta", corpus_release)]
+    payload = yaml.safe_load(rules_file.read_text())
+    assert (
+        payload["rules"][0]["metadata"]["proof"]["atoms"][0]["source"]["excerpt"]
+        == "The maximum amount for age is $6,100."
+    )
+
+
+def test_closest_exact_source_excerpt_reflows_wrapped_regulatory_paragraph():
+    source_text = """    (i) If the monthly income is less than the applicable Federal
+minimum wage requirement under 29 U.S.C. 206(a)(1)(C) multiplied by 80
+hours, and the agency does not have documentation regarding the number
+of hours worked, the agency may calculate the hours for work under
+paragraph (a)(1) of this section based on the monthly income as
+determined under paragraph (f)(2) of this section provided that the
+agency must use a reasonable method to allocate work hours between
+members of the household.
+    (ii) If the agency uses the option under paragraph (e)(2)(i) of
+this section, the agency must calculate the hours for work by dividing
+the monthly income as determined under paragraph (f)(2) of this section
+by the applicable Federal minimum wage requirement under 29 U.S.C.
+206(a)(1)(C).
+"""
+
+    first = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="may calculate the hours for work based on the monthly income",
+    )
+    second = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt=(
+            "calculate the hours for work by dividing the monthly income by the "
+            "applicable Federal minimum wage requirement"
+        ),
+    )
+
+    assert first is not None
+    assert first in source_text
+    assert first.startswith("(i) If the monthly income")
+    assert first.endswith("members of the household.")
+    normalized_first = re.sub(r"\s+", " ", first)
+    assert "may calculate the hours for work" in normalized_first
+    assert "based on the monthly income" in normalized_first
+    assert second is not None
+    assert second in source_text
+    assert second.startswith("(ii) If the agency uses the option")
+    assert second.endswith("206(a)(1)(C).")
+    normalized_second = re.sub(r"\s+", " ", second)
+    assert "dividing the monthly income" in normalized_second
+    assert "applicable Federal minimum wage requirement" in normalized_second
+
+
+@pytest.mark.parametrize(
+    "source_text",
+    [
+        """(a)(1) The agency shall use gross income when determining eligibility.
+(a)(2) The agency shall exclude gifts from gross income.
+""",
+        """1. The agency shall use gross income when determining eligibility.
+2. The agency shall exclude gifts from gross income.
+""",
+        """4.407.1 The agency shall use gross income when determining eligibility.
+4.407.2 The agency shall exclude gifts from gross income.
+""",
+    ],
+)
+def test_closest_exact_source_excerpt_does_not_join_distinct_provisions(source_text):
+    candidates = _exact_source_excerpt_candidates(source_text)
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="exclude gifts when determining eligibility",
+    )
+
+    assert not any(
+        "use gross income" in candidate and "exclude gifts" in candidate
+        for candidate in candidates
+    )
+    assert repaired is None or repaired in source_text
+    assert repaired is None or "\n" not in repaired
+    cross_provision_query = re.sub(r"\s+", " ", source_text).strip()
+    assert (
+        _closest_exact_source_excerpt(
+            source_text=source_text,
+            excerpt=cross_provision_query,
+        )
+        is None
+    )
+
+
+def test_closest_exact_source_excerpt_keeps_parenthetical_continuation():
+    source_text = """The agency shall include all income received by the household
+(except) excluded income when determining eligibility.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="include all income except excluded income when determining eligibility",
+    )
+
+    assert repaired is not None
+    assert repaired in source_text
+    assert repaired.startswith("The agency shall include all income")
+    assert repaired.endswith("when determining eligibility.")
+
+
+def test_closest_exact_source_excerpt_keeps_wrapped_cross_reference_in_condition():
+    source_text = """(i) If the household meets the income condition described in paragraph
+(a)(1) of this section, the agency may calculate work hours by dividing
+monthly income by the applicable minimum wage.
+(ii) Otherwise, the agency must verify hours directly.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="calculate work hours by dividing monthly income by minimum wage",
+    )
+
+    assert repaired is not None
+    assert repaired in source_text
+    assert repaired.startswith("(i) If the household meets the income condition")
+    assert repaired.endswith("monthly income by the applicable minimum wage.")
+
+
+def test_closest_exact_source_excerpt_expands_direct_wrapped_match_to_condition():
+    source_text = """(i) If household income is below the threshold and the agency lacks documentation,
+the agency may calculate the hours based on monthly income, provided that the agency
+must use a reasonable allocation method.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt=(
+            "the agency may calculate the hours based on monthly income, provided "
+            "that the agency must use a reasonable allocation method."
+        ),
+    )
+
+    assert repaired is not None
+    assert repaired in source_text
+    assert repaired.startswith("(i) If household income is below the threshold")
+    assert repaired.endswith("must use a reasonable allocation method.")
+
+
+def test_closest_exact_source_excerpt_uses_direct_match_source_coordinates():
+    source_text = """(a) If household income is below the threshold and all documentation requirements are satisfied, the agency shall pay $500.
+(b) If fraud is found, the agency shall pay $500.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="the agency shall pay $500.",
+    )
+
+    assert repaired is not None
+    assert repaired.startswith("(a) If household income is below the threshold")
+    assert "fraud" not in repaired
+
+
+def test_closest_exact_source_excerpt_keeps_prior_sentence_condition():
+    source_text = """(a) This benefit is available only if household income is below the limit. The
+agency shall pay $500 per month.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="The agency shall pay $500 per month.",
+    )
+
+    assert repaired == source_text.strip()
+
+
+@pytest.mark.parametrize(
+    ("source_text", "excerpt"),
+    [
+        (
+            """(a) If the income test applies, the agency shall use
+1.5 percent of household income when calculating the benefit.
+""",
+            "1.5 percent of household income",
+        ),
+        (
+            """(a) If the renewal rule applies, coverage continues through
+2026. The agency shall then redetermine eligibility.
+""",
+            "2026. The agency shall then redetermine eligibility.",
+        ),
+        (
+            """(a) If the agency applies the monthly standard, it shall use
+80 hours as the divisor and account for changes occurring after
+2026 when calculating the benefit.
+""",
+            "80 hours as the divisor and account for changes occurring after",
+        ),
+    ],
+)
+def test_closest_exact_source_excerpt_keeps_numeric_wrapped_prose_condition(
+    source_text, excerpt
+):
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt=excerpt,
+    )
+
+    assert repaired == source_text.strip()
+
+
+def test_closest_exact_source_excerpt_keeps_indented_wrapped_cross_reference():
+    source_text = """(i) If the household meets the condition described in paragraph
+    (a)(1) of this section, the agency shall pay the benefit.
+(ii) Otherwise, no benefit is paid.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="the agency shall pay the benefit",
+    )
+
+    assert repaired is not None
+    assert repaired.startswith("(i) If the household meets the condition")
+    assert repaired.endswith("the agency shall pay the benefit.")
+
+
+def test_exact_source_excerpt_candidates_do_not_join_under_lead_in_provisions():
+    source_text = """(a)(1) Scope governed under
+(a)(2) The agency shall exclude gifts from income.
+"""
+
+    candidates = _exact_source_excerpt_candidates(source_text)
+
+    assert not any(
+        "Scope governed" in item and "exclude gifts" in item for item in candidates
+    )
+
+
+def test_exact_source_excerpt_candidates_do_not_join_under_body_provisions():
+    source_text = """(a)(1) General eligibility rule applies.
+(a)(2) Under this paragraph, the agency shall exclude gifts from income.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="the agency shall exclude gifts from income.",
+    )
+
+    assert repaired is not None
+    assert repaired.startswith("(a)(2) Under this paragraph")
+    assert "General eligibility" not in repaired
+
+
+def test_closest_exact_source_excerpt_promotes_fuzzy_match_to_marked_condition():
+    source_text = """(a) If household income is below the limit, eligibility is established. The agency shall pay $500 per month.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="agency payment equals $500 monthly",
+    )
+
+    assert repaired == source_text.strip()
+
+
+def test_closest_exact_source_excerpt_fails_closed_for_over_limit_condition():
+    source_text = (
+        "(a) If household income is below the limit, "
+        + ("all documentation requirements must be satisfied and " * 10)
+        + "eligibility is established. The agency shall pay $500 per month.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="The agency shall pay $500 per month.",
+    )
+
+    assert repaired is None
+
+
+@pytest.mark.parametrize(
+    "source_text",
+    [
+        """Household size Monthly benefit
+1 $291
+2 $535
+""",
+        """(a) Benefits are shown below:
+Size  Amount
+1  $291
+2  $535
+""",
+    ],
+)
+def test_closest_exact_source_excerpt_prefers_numeric_table_row(source_text):
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="2 $535",
+    )
+
+    assert repaired is not None
+    assert re.sub(r"\s+", " ", repaired).strip() == "2 $535"
+    assert repaired in source_text
+
+
+def test_exact_source_excerpt_candidates_keep_public_law_citation_together():
+    sentence = (
+        "The benefit was authorized by Pub. L. No. 117-2 and equals $500 per month."
+    )
+    source_text = sentence + " " + ("Administrative background applies. " * 20)
+
+    candidates = _exact_source_excerpt_candidates(source_text)
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="authorized by Pub. L. No. 117-2",
+    )
+
+    assert sentence in candidates
+    assert repaired == sentence
+
+
+def test_repair_generated_over_limit_marked_proof_excerpt_fails_closed(
+    tmp_path, monkeypatch
+):
+    source_text = (
+        "(a) If household income is below the limit, "
+        + ("all documentation requirements must be satisfied and " * 10)
+        + "eligibility is established. The agency shall pay $500 per month.\n"
+    )
+    output_root = tmp_path / "out"
+    rules_file = output_root / "model" / "regulations" / "435" / "552.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+rules:
+- name: benefit
+  kind: derived
+  entity: Person
+  dtype: Decimal
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/regulation/42/435/552
+          excerpt: agency payment equals $500 monthly
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 500
+"""
+    )
+    monkeypatch.setattr(
+        "axiom_encode.cli._local_source_text_for_corpus_path",
+        lambda citation_path, *, corpus_release: source_text,
+    )
+
+    repaired = _try_repair_generated_nonexact_proof_excerpts_for_apply(
+        SimpleNamespace(output_file=str(rules_file)),
+        output_root=output_root,
+        corpus_release=SimpleNamespace(name="test-release"),
+        issues=[
+            "Proof source evidence not found: rule `benefit` proof atom 0 "
+            "`source.excerpt` does not appear in `us/regulation/42/435/552`."
+        ],
+    )
+    validation = validate_rulespec_proofs(
+        rules_file.read_text(),
+        source_texts={"us/regulation/42/435/552": source_text},
+    )
+
+    assert repaired == []
+    assert not validation.passed
+
+
+def test_closest_exact_source_excerpt_splits_long_line_without_splitting_citation():
+    source_text = (
+        "The threshold is defined under 29 U.S.C. 206. "
+        + ("Background sentence. " * 30)
+        + "The monthly benefit is $500 per month."
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="monthly benefit amount of $500",
+    )
+
+    assert repaired == "The monthly benefit is $500 per month."
+
+
+@pytest.mark.parametrize(
+    "citation",
+    [
+        "42 C.F.R. pt. 435",
+        "42 C.F.R. para. 435",
+        "the eligibility rule, e.g. Families with dependent children",
+        "the eligibility rule, i.e. Families with dependent children",
+    ],
+)
+def test_exact_source_excerpt_candidates_do_not_split_legal_abbreviations(citation):
+    first_sentence = f"The agency applies {citation} when determining eligibility."
+    source_text = (
+        first_sentence
+        + " "
+        + ("Administrative background applies. " * 20)
+        + "The monthly benefit is $500 per month."
+    )
+
+    candidates = _exact_source_excerpt_candidates(source_text)
+
+    assert first_sentence in candidates
+
+
+def test_repair_generated_wrapped_proof_excerpt_passes_literal_validation(
+    tmp_path, monkeypatch
+):
+    source_text = """(ii) If the agency uses the option under paragraph (e)(2)(i) of
+this section, the agency must calculate the hours for work by dividing
+the monthly income as determined under paragraph (f)(2) of this section
+by the applicable Federal minimum wage requirement under 29 U.S.C.
+206(a)(1)(C).
+"""
+    output_root = tmp_path / "out"
+    rules_file = output_root / "model" / "regulations" / "435" / "552.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+rules:
+- name: work_hours
+  kind: derived
+  entity: Person
+  dtype: Decimal
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/regulation/42/435/552
+          excerpt: calculate work hours by dividing monthly income by minimum wage
+  versions:
+  - effective_from: '2026-01-01'
+    formula: monthly_income / minimum_wage
+"""
+    )
+    monkeypatch.setattr(
+        "axiom_encode.cli._local_source_text_for_corpus_path",
+        lambda citation_path, *, corpus_release: source_text,
+    )
+
+    repaired = _try_repair_generated_nonexact_proof_excerpts_for_apply(
+        SimpleNamespace(output_file=str(rules_file)),
+        output_root=output_root,
+        corpus_release=SimpleNamespace(name="test-release"),
+        issues=[
+            "Proof source evidence not found: rule `work_hours` proof atom 0 "
+            "`source.excerpt` does not appear in `us/regulation/42/435/552`."
+        ],
+    )
+
+    assert repaired == ["work_hours[0]"]
+    payload = yaml.safe_load(rules_file.read_text())
+    excerpt = payload["rules"][0]["metadata"]["proof"]["atoms"][0]["source"]["excerpt"]
+    assert excerpt in source_text
+    validation = validate_rulespec_proofs(
+        rules_file.read_text(),
+        source_texts={"us/regulation/42/435/552": source_text},
+    )
+    assert validation.passed, validation.issues
 
 
 class TestCmdInventory:
@@ -7666,6 +8371,10 @@ class TestCmdEncode:
             patch(
                 "axiom_encode.cli._git_checkout_execution_identity",
                 side_effect=test_git_checkout_identity,
+            ),
+            patch(
+                "axiom_encode.cli._rulespec_companion_test_failures",
+                return_value=[],
             ),
         ):
             from axiom_encode.toolchain import (
@@ -15065,6 +15774,92 @@ rules:
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
 
+    def test_encode_apply_converges_nonexact_proof_excerpt_repairs(
+        self, capsys, tmp_path
+    ):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        output_file = (
+            tmp_path / "out" / "codex-test-model" / "policies" / "benefit.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: |-
+    $533 with 2 children
+    $267 with no children
+rules:
+- name: two_children
+  kind: parameter
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: ca/policy/example
+          excerpt: maximum payment of $533 for 2 children
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 533
+- name: no_children
+  kind: parameter
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: ca/policy/example
+          excerpt: maximum payment of $267 for no children
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 267
+"""
+        )
+        result.output_file = str(output_file)
+        first_issue = (
+            "Proof source evidence not found: rule `two_children` proof atom 0 "
+            "`source.excerpt` does not appear in `ca/policy/example`."
+        )
+        second_issue = (
+            "Proof source evidence not found: rule `no_children` proof atom 0 "
+            "`source.excerpt` does not appear in `ca/policy/example`."
+        )
+        applied_file = args.policy_repo_path / "us/policies/benefit.yaml"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[
+                    (False, [first_issue], {}),
+                    (False, [second_issue], {}),
+                    (True, [], {}),
+                ],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        assert mock_overlay.call_count == 3
+        mock_apply.assert_called_once()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_nonexact_proof_excerpts"] == [
+            "two_children[0]",
+            "no_children[0]",
+        ]
+        assert run.outcome["overlay_validation_success"] is True
+
     def test_encode_apply_repairs_generated_proof_import_hashes(self, capsys, tmp_path):
         args = self._make_args(tmp_path, backend="codex", sync=False)
         args.apply = True
@@ -20083,6 +20878,108 @@ rules:
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
 
+    def test_apply_judgment_positive_repair_checks_generated_pair_in_overlay(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        runner = "openai-gpt-5.6-terra"
+        relative_output = Path(
+            "regulations/dir-1021-2024/vat-electricity-water-exemption-directive.yaml"
+        )
+        rules_file = output_root / runner / relative_output
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: electricity_and_water_supply_is_exempt
+    kind: derived
+    dtype: Judgment
+    versions:
+      - effective_from: '2026-01-01'
+        formula: receives_electricity and receives_water
+"""
+        )
+        test_file = rules_file.with_name(
+            "vat-electricity-water-exemption-directive.test.yaml"
+        )
+        test_file.write_text("[]\n")
+        policy_repo = _canonical_rulespec_content_root(tmp_path, "et")
+        result = SimpleNamespace(runner=runner, output_file=str(rules_file))
+        target = (
+            "et:regulations/dir-1021-2024/"
+            "vat-electricity-water-exemption-directive"
+            "#electricity_and_water_supply_is_exempt"
+        )
+        checked: dict[str, Path] = {}
+
+        with pytest.raises(UnsafeRulespecContextPath):
+            _canonical_rulespec_compile_path(rules_file, policy_repo)
+
+        def check_companion(
+            staged_test_file,
+            *,
+            root,
+            axiom_rules_path,
+            rulespec_dependency_roots=(),
+        ):
+            assert rulespec_dependency_roots == ()
+            staged_rules_file = staged_test_file.with_name(
+                "vat-electricity-water-exemption-directive.yaml"
+            )
+            checked["rules"] = _canonical_rulespec_compile_path(
+                staged_rules_file,
+                root,
+            )
+            checked["test"] = staged_test_file.resolve()
+            checked["root"] = root.resolve()
+            [case] = yaml.safe_load(staged_test_file.read_text())
+            assert case["output"] == {target: "holds"}
+            return []
+
+        with patch(
+            "axiom_encode.cli._rulespec_companion_test_failures",
+            side_effect=check_companion,
+        ):
+            repaired = _try_repair_generated_judgment_positive_tests_for_apply(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+                issues=[
+                    "Judgment rule missing positive companion output coverage: "
+                    f"`{target}` is not asserted as `holds` by the companion "
+                    "`.test.yaml` file."
+                ],
+            )
+
+        assert repaired == ["auto_positive_electricity_and_water_supply_is_exempt"]
+        assert checked["rules"].is_relative_to(checked["root"])
+        assert checked["test"].is_relative_to(checked["root"])
+        assert checked["root"] != policy_repo.resolve()
+        assert not (policy_repo / relative_output).exists()
+        [case] = yaml.safe_load(test_file.read_text())
+        assert case["input"] == {
+            "et:regulations/dir-1021-2024/"
+            "vat-electricity-water-exemption-directive#input.receives_electricity": True,
+            "et:regulations/dir-1021-2024/"
+            "vat-electricity-water-exemption-directive#input.receives_water": True,
+        }
+        assert case["output"] == {target: "holds"}
+
+    def test_judgment_positive_overlay_skips_unrelated_companion_issues(self, tmp_path):
+        with patch("axiom_encode.cli._stage_apply_overlay_dependency_root") as stage:
+            repaired = _append_generated_judgment_positive_tests_in_overlay(
+                rules_file=tmp_path / "generated/example.yaml",
+                test_file=tmp_path / "generated/example.test.yaml",
+                policy_repo_path=tmp_path / "rulespec-us/us",
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+                relative_output=Path("regulations/example.yaml"),
+                issues=["Derived rule missing companion output coverage: example"],
+            )
+
+        assert repaired == []
+        stage.assert_not_called()
+
     def test_imported_output_repair_satisfies_positive_judgment_composition(
         self, tmp_path
     ):
@@ -24532,9 +25429,7 @@ rules:
         assert payload["rules"] == []
         assert yaml.safe_load(test_file.read_text()) == []
 
-    def test_parameter_only_companion_test_repair_empties_parameter_outputs(
-        self, tmp_path
-    ):
+    def test_parameter_only_companion_snapshot_is_preserved(self, tmp_path):
         output_root = tmp_path / "out"
         rules_file = output_root / "codex-gpt-5.5" / "regulations/7-cfr/275/23/e/1.yaml"
         rules_file.parent.mkdir(parents=True)
@@ -24576,14 +25471,70 @@ rules:
             output_file=str(rules_file),
         )
 
-        repaired = _try_repair_generated_parameter_only_companion_tests_for_apply(
+        snapshot_cases = _parameter_only_companion_snapshot_cases(
             result,
             output_root=output_root,
             policy_repo_path=policy_repo,
         )
 
-        assert repaired == ["liability_percentage_caps"]
-        assert yaml.safe_load(test_file.read_text()) == []
+        assert snapshot_cases == ["liability_percentage_caps"]
+        assert yaml.safe_load(test_file.read_text()) == [
+            {
+                "name": "liability_percentage_caps",
+                "period": 2026,
+                "input": {},
+                "output": {
+                    "us:regulations/7-cfr/275/23/e/1#program_administration_investment_liability_cap_rate": 0.5,
+                    "us:regulations/7-cfr/275/23/e/1#at_risk_repayment_liability_cap_rate": 0.5,
+                },
+            }
+        ]
+
+    def test_parameter_only_partial_companion_is_not_complete_snapshot(self, tmp_path):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "codex-gpt-5.5" / "policies/rates.yaml"
+        rules_file.parent.mkdir(parents=True)
+        test_file = rules_file.with_suffix(".test.yaml")
+        policy_repo = _canonical_rulespec_content_root(tmp_path)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: first_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.1
+  - name: second_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.2
+"""
+        )
+        test_file.write_text(
+            """- name: incomplete_snapshot
+  period: 2026
+  input: {}
+  output:
+    us:policies/rates#first_rate: 0.1
+"""
+        )
+        original = test_file.read_text()
+        result = SimpleNamespace(
+            runner="codex-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        snapshot_cases = _parameter_only_companion_snapshot_cases(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+        )
+
+        assert snapshot_cases == []
+        assert test_file.read_text() == original
 
     def test_missing_deferred_output_repair_adds_definition_target(self, tmp_path):
         output_root = tmp_path / "out"
@@ -32912,12 +33863,19 @@ rules: []
     ):
         output_root = tmp_path / "out"
         policy_repo = tmp_path / "rulespec-us" / "us"
-        generated = output_root / "codex-test-model" / "statutes/26/151.yaml"
+        generated = output_root / "openai-test-model" / "statutes/26/151.yaml"
         dependent = policy_repo / "statutes/26/63.yaml"
+        transitive_dependent = policy_repo / "policies/income_tax/final.yaml"
+        third_hop_dependent = policy_repo / "policies/income_tax/payable.yaml"
+        source_digest = "d" * 64
         generated.parent.mkdir(parents=True)
         dependent.parent.mkdir(parents=True)
+        transitive_dependent.parent.mkdir(parents=True)
         generated.write_text(
             """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/151
 rules:
   - name: section_151_exemption_deduction
     kind: parameter
@@ -32928,8 +33886,12 @@ rules:
           0
 """
         )
-        dependent.write_text(
-            """format: rulespec/v1
+        dependent.write_bytes(
+            f"""format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/151
+    source_sha256: {source_digest}
 imports:
   - us:statutes/26/151
 rules:
@@ -32951,11 +33913,96 @@ rules:
       - effective_from: '2026-01-01'
         formula: |-
           section_151_exemption_deduction
-"""
+""".replace("\n", "\r\n").encode("utf-8")
+        )
+        transitive_dependent.write_bytes(
+            f"""format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/151
+    source_sha256: {source_digest}
+imports:
+  - us:statutes/26/63
+rules:
+  - name: final_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/63#deductions_referred_to_in_subsection_b
+              output: deductions_referred_to_in_subsection_b
+              hash: sha256:old
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          deductions_referred_to_in_subsection_b
+""".replace("\n", "\r\n").encode("utf-8")
+        )
+        third_hop_dependent.write_bytes(
+            f"""format: rulespec/v1
+module:
+  description: Café raw-byte chain
+  source_verification:
+    corpus_citation_path: us/statute/26/151
+    source_sha256: {source_digest}
+imports:
+  - us:policies/income_tax/final
+rules:
+  - name: payable_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:policies/income_tax/final#final_deduction
+              output: final_deduction
+              hash: sha256:old
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          final_deduction
+""".replace("\n", "\r\n").encode("utf-8")
+        )
+        context_dir = output_root / "context"
+        context_dir.mkdir()
+        (context_dir / "source.txt").write_text("test source\n")
+        source_attestation = _complete_source_attestation(
+            "us/statute/26/151", source_sha256=source_digest
+        )
+        context_manifest = context_dir / "context-manifest.json"
+        context_manifest.write_text(
+            json.dumps(
+                {
+                    "source_text_file": "source.txt",
+                    "source_metadata": {
+                        "source_attestation": source_attestation,
+                    },
+                }
+            )
+            + "\n"
         )
         result = SimpleNamespace(
-            output_file=str(generated), runner="codex-test-model", backend="codex"
+            output_file=str(generated),
+            runner="openai-test-model",
+            backend="openai",
+            context_manifest_file=str(context_manifest),
+            source_attestation=source_attestation,
         )
+        local_corpus_release = _bind_test_corpus_release(
+            policy_repo, tmp_path / "axiom-corpus"
+        )
+        dependent_validations: dict[str, list[bytes]] = {}
 
         class FakePipeline:
             def __init__(self, **_kwargs):
@@ -32965,7 +34012,11 @@ rules:
                 assert skip_reviewers is True
                 if Path(path).name == "151.yaml":
                     return SimpleNamespace(all_passed=True, results={})
-                content = Path(path).read_text()
+                content_bytes = Path(path).read_bytes()
+                content = content_bytes.decode("utf-8")
+                dependent_validations.setdefault(Path(path).name, []).append(
+                    content_bytes
+                )
                 if "hash: sha256:old" in content:
                     return SimpleNamespace(
                         all_passed=False,
@@ -32983,22 +34034,82 @@ rules:
                     )
                 return SimpleNamespace(all_passed=True, results={})
 
-        with patch("axiom_encode.cli.ValidatorPipeline", FakePipeline):
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch("axiom_encode.cli._APPLY_OVERLAY_VALIDATION_REPAIR_LIMIT", 1),
+            patch.object(
+                Path,
+                "write_text",
+                side_effect=AssertionError("apply repair must use explicit bytes"),
+            ),
+        ):
             ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
                 result,
                 output_root=output_root,
                 policy_repo_path=policy_repo,
                 axiom_rules_path=tmp_path / "axiom-rules-engine",
-                local_corpus_release=_bind_test_corpus_release(
-                    policy_repo, tmp_path / "axiom-corpus"
-                ),
+                local_corpus_release=local_corpus_release,
             )
 
-        assert ok is True
+        assert ok is True, issues
         assert issues == []
         updated = supplemental[Path("statutes/26/63.yaml")]
         assert "hash: sha256:old" not in updated
         assert f"hash: sha256:{_sha256_file(generated)}" in updated
+        assert f"source_sha256: {'d' * 64}" in updated
+        assert dependent_validations["63.yaml"][-1] == updated.encode("utf-8")
+        transitive_updated = supplemental[Path("policies/income_tax/final.yaml")]
+        assert "hash: sha256:old" not in transitive_updated
+        assert (
+            "hash: sha256:"
+            f"{hashlib.sha256(updated.encode('utf-8')).hexdigest()}"
+            in transitive_updated
+        )
+        assert f"source_sha256: {'d' * 64}" in transitive_updated
+        assert dependent_validations["final.yaml"][-1] == transitive_updated.encode(
+            "utf-8"
+        )
+        third_hop_updated = supplemental[Path("policies/income_tax/payable.yaml")]
+        assert "hash: sha256:old" not in third_hop_updated
+        assert (
+            "hash: sha256:"
+            f"{hashlib.sha256(transitive_updated.encode('utf-8')).hexdigest()}"
+            in third_hop_updated
+        )
+        assert "Café raw-byte chain" in third_hop_updated
+        assert dependent_validations["payable.yaml"][-1] == third_hop_updated.encode(
+            "utf-8"
+        )
+
+    def test_supplemental_source_stamp_leaves_other_sources_fail_closed(self):
+        supplemental = {
+            Path("policies/income_tax/pipeline.yaml"): """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-nc/statute/105/105-153.7
+rules: []
+""",
+            Path("policies/income_tax/other.yaml"): """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-nc/statute/105/105-153.8
+rules: []
+""",
+        }
+        attestation = _complete_source_attestation(
+            "us-nc/statute/105/105-153.7", source_sha256="f" * 64
+        )
+
+        stamped = _stamp_matching_supplemental_source_attestations(
+            supplemental,
+            attestation=attestation,
+        )
+
+        assert (
+            f"source_sha256: {'f' * 64}"
+            in stamped[Path("policies/income_tax/pipeline.yaml")]
+        )
+        assert "source_sha256" not in stamped[Path("policies/income_tax/other.yaml")]
 
     def test_apply_overlay_validation_refreshes_dependent_hashes_after_target_repair(
         self, tmp_path
@@ -33419,8 +34530,9 @@ rules:
         repo = tmp_path / "rulespec-us" / "us-ny"
         target = repo / "regulations/18-nycrr/387/12/f/3/v/c.yaml"
         dependent = repo / "policies/otda/snap/fy-2026-benefit-calculation.yaml"
+        transitive_dependent = repo / "policies/otda/snap/final-benefit.yaml"
         unrelated = repo / "policies/otda/snap/other.yaml"
-        for path in (target, dependent, unrelated):
+        for path in (target, dependent, transitive_dependent, unrelated):
             path.parent.mkdir(parents=True, exist_ok=True)
         target.write_text("format: rulespec/v1\nrules: []\n")
         dependent.write_text(
@@ -33430,13 +34542,20 @@ imports:
 rules: []
 """
         )
+        transitive_dependent.write_text(
+            """format: rulespec/v1
+imports:
+  - us-ny:policies/otda/snap/fy-2026-benefit-calculation
+rules: []
+"""
+        )
         unrelated.write_text("format: rulespec/v1\nimports: []\nrules: []\n")
 
         dependents = _find_rulespec_dependents(
             repo, Path("regulations/18-nycrr/387/12/f/3/v/c.yaml")
         )
 
-        assert dependents == [dependent]
+        assert dependents == [dependent, transitive_dependent]
 
     def test_insert_false_input_default_uses_base_anchor(self):
         content = """- name: first_case
