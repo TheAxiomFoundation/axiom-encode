@@ -1,0 +1,654 @@
+name: Signed apply (Path R)
+
+# Regenerates already-reviewed encode-wave content under the production
+# apply-signer (axiom-encode#1135) so every merged byte is generator-produced
+# with a broker-signed apply manifest — the Path R decision on encode#1147.
+#
+#   * Called only by each rules repository's main-branch workflow_dispatch.
+#     Input = explicit citation paths; each matrix job
+#     runs `encode <citation> --apply` inside the trusted supervisor with the
+#     leaf signer attached (key never on disk, never inherited by children).
+#   * The job runs the local gate battery fail-closed, pushes signed/<slug>,
+#     and opens a PR for DIFF RE-REVIEW against the held reviewed wave PR.
+#     It NEVER auto-merges and never bypasses red — the repository's required
+#     validate check on the PR is the authoritative gate.
+#   * The signer refuses to operate outside GitHub Actions by construction
+#     (context binding: repository + workflow ref + event name).
+
+on:
+  workflow_call:
+    inputs:
+      citations:
+        description: "Citation paths to re-encode (comma- or newline-separated)."
+        required: true
+        type: string
+      limit:
+        description: "Max citations this run."
+        required: false
+        type: string
+        default: "12"
+    secrets:
+      openai-api-key:
+        description: "OpenAI model credential, explicitly passed by the caller."
+        required: true
+      apply-signing-key:
+        description: "Production apply-signing key, explicitly passed by the caller."
+        required: true
+      app-private-key:
+        description: "GitHub App private key used only by the open_pr job."
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: signed-apply
+  cancel-in-progress: false
+
+env:
+  # One coherent axiom-encode ref provides the supervisor, the leaf signer,
+  # and the generating encoder (the #1135 signer does not exist at the old
+  # wave pin 185b2457). The validate workflow's encode-ref is bumped to the
+  # same sha in this PR so the signed PRs' CI verifies manifests with the
+  # same encoder generation that produced them.
+  AXIOM_ENCODE_REF: aff8d708a76e17957c1d237d2ad86cbff7620c76
+  AXIOM_RULES_ENGINE_REF: 05eac9d2f89dabe5c6673176260762cef3a58f47
+
+jobs:
+  dispatch:
+    # Hard no-op unless dispatched from the protected default branch. Belt to
+    # the `signing` environment's branch policy (the actual secret gate) below.
+    if: ${{ github.ref_name == github.event.repository.default_branch }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.compute.outputs.matrix }}
+      count: ${{ steps.compute.outputs.count }}
+    steps:
+      - name: Compute citation matrix
+        id: compute
+        shell: bash
+        env:
+          CITATIONS: ${{ inputs.citations }}
+          LIMIT: ${{ inputs.limit || '12' }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os, re
+          raw = os.environ["CITATIONS"]
+          limit = int(os.environ["LIMIT"])
+          cites = [c.strip() for c in re.split(r"[,\n]", raw) if c.strip()]
+          cites = cites[:limit]
+          if not cites:
+              raise SystemExit("no citations supplied")
+          include = [
+              {"citation": c, "slug": re.sub(r"[^a-z0-9]+", "-", c.lower()).strip("-")}
+              for c in cites
+          ]
+          print(f"matrix={json.dumps({'include': include})}")
+          print(f"count={len(include)}")
+          PY
+
+  encode:
+    needs: dispatch
+    if: ${{ needs.dispatch.outputs.count != '0' }}
+    runs-on: ubuntu-latest
+    # Builds ~10 min + one supervised generation ~10-25 min; a hang must not
+    # ride the 6 h default (first dispatch sat 45 min in a silent copytree).
+    timeout-minutes: 90
+    environment: signing
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        item: ${{ fromJSON(needs.dispatch.outputs.matrix).include }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout rules repository (leaf dir must equal the repo name)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Pin to the protected default branch: workflow_dispatch can fire from
+          # ANY ref, and an attacker-controlled ref could carry pre-committed
+          # .github/scripts changes the content allowlist never inspects. Anchor
+          # generation to main so only encoder-produced (allowlisted) content
+          # can enter the signed branch.
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          # Do NOT persist the token into the workspace .git/config: the
+          # supervised encoder is pointed at a mirror of this tree and must
+          # never have a filesystem path to credential material. Push auth is
+          # supplied per-invocation via an env-only credential helper below.
+          persist-credentials: false
+
+      - name: Guard workspace name
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(basename "$GITHUB_WORKSPACE")" = "${{ github.event.repository.name }}"
+
+      - name: Resolve pinned refs and release binding
+        id: pins
+        shell: bash
+        run: |
+          set -euo pipefail
+          corpus_ref="$(grep -E '^\s*axiom-corpus-ref:' .github/workflows/repository-checks.yml | awk '{print $2}')"
+          test -n "$corpus_ref"
+          echo "corpus_ref=$corpus_ref" >> "$GITHUB_OUTPUT"
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import tomllib
+          t = tomllib.loads(open(".axiom/toolchain.toml").read())["toolchain"]
+          print(f"release={t['axiom_corpus_release']}")
+          print(f"release_sha={t['axiom_corpus_release_content_sha256']}")
+          PY
+
+      - name: Checkout axiom-encode (signer + encoder, one coherent ref)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: TheAxiomFoundation/axiom-encode
+          ref: ${{ env.AXIOM_ENCODE_REF }}
+          path: _axiom/axiom-encode
+          # Full history: the provisioner's version-bump invariant walks the
+          # attested commit's ancestry and fails closed on a shallow clone.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout axiom-rules-engine (pinned)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: TheAxiomFoundation/axiom-rules-engine
+          ref: ${{ env.AXIOM_RULES_ENGINE_REF }}
+          path: _axiom/axiom-rules-engine
+          persist-credentials: false
+
+      - name: Checkout axiom-corpus (validate-pinned ref)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: TheAxiomFoundation/axiom-corpus
+          ref: ${{ steps.pins.outputs.corpus_ref }}
+          path: _axiom/axiom-corpus
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: 1.26.1
+          cache: false
+
+      - name: Set up Python
+        id: py
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.14"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+
+      - name: Cache engine build
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: _axiom/axiom-rules-engine
+
+      - name: Build engine
+        working-directory: _axiom/axiom-rules-engine
+        run: cargo build --release
+
+      - name: Build supervisor and apply-signer (production kind)
+        working-directory: _axiom/axiom-encode
+        run: |
+          set -euo pipefail
+          CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-buildid=' \
+            -o "$RUNNER_TEMP/axiom-encode-signing-supervisor" ./cmd/axiom-encode-signing-supervisor
+          CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-buildid=' \
+            -o "$RUNNER_TEMP/axiom-encode-apply-signer" ./cmd/axiom-encode-apply-signer
+          test "$("$RUNNER_TEMP/axiom-encode-apply-signer" --build-kind)" = production
+
+      - name: Provision root-owned trusted runtime
+        working-directory: _axiom/axiom-encode
+        env:
+          APPLY_ROOT: ${{ vars.AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY }}
+          EVAL_ROOT: ${{ vars.AXIOM_ENCODE_EVAL_SIGNING_PUBLIC_KEY }}
+          CORPUS_ROOT: ${{ vars.AXIOM_CORPUS_RELEASE_PUBLIC_KEY }}
+          PYBIN: ${{ steps.py.outputs.python-path }}
+        run: |
+          set -euo pipefail
+          # sudo resets PATH (secure_path), so a bare `python` under sudo is the
+          # SYSTEM interpreter — whose sys.base_prefix (/usr) the provisioner
+          # would copy as the runtime. Every call uses the action's resolved
+          # interpreter, and the provisioner itself refuses non-toolcache
+          # prefixes, relocates copied ELF rpaths off the user-writable
+          # toolcache, and proves the runtime self-contained before returning.
+          case "$PYBIN" in
+            "$RUNNER_TOOL_CACHE"/Python/*) ;;
+            *) echo "resolved interpreter is not the toolcache python: $PYBIN"; exit 1 ;;
+          esac
+          sudo apt-get -yq install patchelf || { sudo apt-get -yq update && sudo apt-get -yq install patchelf; }
+          "$PYBIN" -m pip install --quiet --upgrade pip
+          "$PYBIN" -m pip install --quiet -e .
+          staged="$RUNNER_TEMP/site-packages"
+          rm -rf "$staged"
+          "$PYBIN" -m pip install --quiet --target "$staged" .
+          sudo rm -rf /opt/axiom-verification
+          sudo "$PYBIN" -I -S scripts/provision_verification_supervisor.py \
+            --destination /opt/axiom-verification \
+            --supervisor "$RUNNER_TEMP/axiom-encode-signing-supervisor" \
+            --site-packages "$staged" \
+            --apply-root "$APPLY_ROOT" \
+            --eval-root "$EVAL_ROOT" \
+            --corpus-release-root "$CORPUS_ROOT" \
+            --require-prefix-under "$RUNNER_TOOL_CACHE/Python" \
+            --patchelf /usr/bin/patchelf \
+            --git /usr/bin/git \
+            --encoder-origin-repository github.com/TheAxiomFoundation/axiom-encode \
+            --encoder-commit "$AXIOM_ENCODE_REF" \
+            --encoder-git-root "$GITHUB_WORKSPACE/_axiom/axiom-encode"
+          sudo chown -R 0:0 /opt/axiom-verification
+          sudo chmod -R go-w /opt/axiom-verification
+          # The supervisor validates its executable's ANCESTORS are root-owned
+          # and not group/other-writable. GitHub's runner image ships /opt itself
+          # group-writable (root-owned), so tighten that one directory to satisfy
+          # the ancestor walk (/ is already root:root 0755; toolcache reads under
+          # /opt are read/execute and unaffected by clearing the write bits).
+          sudo chown 0:0 /opt
+          sudo chmod go-w /opt
+          # Fail closed here if the ancestor is still not root-owned or carries
+          # any group/other-write bit, rather than deep inside the signer.
+          # `find -perm /022` prints the path iff group- OR other-write is set.
+          test "$(stat -c '%u' /opt)" = "0"
+          test -z "$(find /opt -maxdepth 0 -perm /022)"
+          ver="$("$PYBIN" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
+          test -d "/opt/axiom-verification/python/lib/python${ver}"
+          echo "python${ver}" > "$RUNNER_TEMP/pyseg"
+
+      - name: Fetch and verify the signed release object
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="${{ steps.pins.outputs.release }}"
+          sha="${{ steps.pins.outputs.release_sha }}"
+          dest="_axiom/axiom-corpus/releases/$name"
+          mkdir -p "$dest"
+          curl -fsS "https://pub-a8952f8657fc49fda358146ac001366c.r2.dev/releases/$name/$sha.json" \
+            -o "$dest/$sha.json"
+          python3 - "$dest/$sha.json" "$sha" <<'PY'
+          import hashlib, json, sys
+          obj = json.load(open(sys.argv[1]))
+          canon = json.dumps(obj["content"], sort_keys=True, separators=(",", ":")).encode()
+          assert hashlib.sha256(canon).hexdigest() == sys.argv[2], "release content hash mismatch"
+          PY
+
+      - name: Build the .git-free generation mirror (no secrets in this step)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Mirror prep runs BEFORE and WITHOUT the signing key in env, so no
+          # coreutils invocation ever inherits it. The encoder runs as this user
+          # with a filesystem path to whatever we hand it, so it must never be
+          # pointed at a checkout carrying credential material or git metadata
+          # (the supervised toolchain also rejects a .git-bearing policy-repo).
+          genroot="$RUNNER_TEMP/genroot/${{ github.event.repository.name }}"
+          rm -rf "$RUNNER_TEMP/genroot"
+          mkdir -p "$genroot"
+          rsync -a --exclude '.git' --exclude '_axiom' "$GITHUB_WORKSPACE"/ "$genroot"/
+
+      - name: Signed re-encode under supervisor + leaf signer
+        shell: bash
+        env:
+          # The signing key is scoped to ONLY this step (which does nothing but
+          # exec the launcher); the launcher clears it from env before spawning
+          # the supervised encoder. No other command inherits it.
+          AXIOM_ENCODE_APPLY_SIGNING_KEY: ${{ secrets['apply-signing-key'] }}
+          OPENAI_API_KEY: ${{ secrets['openai-api-key'] }}
+          CITATION: ${{ matrix.item.citation }}
+        run: |
+          set -euo pipefail
+          # Builtin read + pure assignment only — no subprocess is forked while
+          # the signing key is in this step's environment; then exec the launcher
+          # (which unsets the key before spawning any child).
+          read -r pyseg < "$RUNNER_TEMP/pyseg"
+          genroot="$RUNNER_TEMP/genroot/${{ github.event.repository.name }}"
+          exec "$RUNNER_TEMP/axiom-encode-apply-signer" run \
+            --scope apply_ed25519 \
+            --key-env AXIOM_ENCODE_APPLY_SIGNING_KEY \
+            --supervisor /opt/axiom-verification/axiom-encode-signing-supervisor \
+            --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
+            --trusted-python-runtime-root /opt/axiom-verification/python \
+            --trusted-python-import-root "/opt/axiom-verification/python/lib/$pyseg/site-packages" \
+            --trusted-python-package-root "/opt/axiom-verification/python/lib/$pyseg/site-packages/axiom_encode" \
+            --expected-github-repository "$GITHUB_REPOSITORY" \
+            --allowed-workflow-ref "${{ github.repository }}/.github/workflows/signed-apply.yml@refs/heads/${{ github.event.repository.default_branch }}" \
+            --allowed-event-name workflow_dispatch \
+            -- /opt/axiom-verification/axiom-encode encode "$CITATION" \
+            --apply \
+            --backend openai \
+            --corpus-path "$GITHUB_WORKSPACE/_axiom/axiom-corpus" \
+            --axiom-rules-engine-path "$GITHUB_WORKSPACE/_axiom/axiom-rules-engine" \
+            --policy-repo-path "$genroot" \
+            --mode cold --no-sync --skip-reviewers \
+            --db "$RUNNER_TEMP/enc.db"
+
+      - name: Gate battery on the generated mirror (fail-closed pre-check)
+        shell: bash
+        run: |
+          set -euo pipefail
+          read -r pyseg < "$RUNNER_TEMP/pyseg"
+          genroot="$RUNNER_TEMP/genroot/${{ github.event.repository.name }}"
+          supervise() {
+            /opt/axiom-verification/axiom-encode-signing-supervisor \
+              --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
+              --trusted-python-runtime-root /opt/axiom-verification/python \
+              --trusted-python-import-root "/opt/axiom-verification/python/lib/$pyseg/site-packages" \
+              --trusted-python-package-root "/opt/axiom-verification/python/lib/$pyseg/site-packages/axiom_encode" \
+              -- /opt/axiom-verification/axiom-encode "$@"
+          }
+          jur="$(cd "$genroot" && ls -d */ | grep -vE '^(tests|data|bulk|docs)/' | grep -E '^[a-z]{2}(-[a-z0-9-]+)*/' | head -1 | tr -d '/')"
+
+          # validate AND proof-validate were both hard-cut to explicit RuleSpec
+          # file paths (the --root tree form was removed in the named-corpus
+          # cut). Select atomic RuleSpec modules under the jurisdiction's
+          # canonical content roots (statutes/ regulations/ policies/
+          # legislation/), excluding *.test.* and composition specs under
+          # programs/, and skip ACTIVE validation waivers. Both gates take the
+          # SAME waiver-filtered set as absolute paths, matching the org
+          # validate-rulespec recipe (a waived module otherwise passes validate
+          # and then hard-fails proof validation on the same declared gap).
+          gate_tmp="$(mktemp -d "$RUNNER_TEMP/proof-gate.XXXXXX")"
+          trap 'rm -rf "$gate_tmp"' EXIT
+
+          (
+            cd "$genroot"
+            find "$jur" -type f \( -name "*.yaml" -o -name "*.yml" \) \
+              ! -name "*.test.yaml" ! -name "*.test.yml" \
+              ! -path "*/programs/*" -print0
+          ) > "$gate_tmp/candidates"
+
+          # Only consult waivers when the file exists: the CLI's waiver loader
+          # fails closed on a missing file, so an unconditional call would abort
+          # this gate on a clean mirror that declares no gaps. A malformed
+          # present file still fails loudly here (desired).
+          : > "$gate_tmp/active-waivers"
+          if [ -f "$genroot/known-validation-gaps.yaml" ]; then
+            supervise validation-waivers active-paths \
+              --root "$genroot" > "$gate_tmp/active-waivers"
+          fi
+
+          mapfile -d '' -t candidates < "$gate_tmp/candidates"
+          mapfile -t active_waivers < "$gate_tmp/active-waivers"
+
+          specs=()
+          for rel in "${candidates[@]}"; do
+            [ -n "$rel" ] || continue
+            case "$rel" in
+              */statutes/*|*/regulations/*|*/policies/*|*/legislation/*) ;;
+              *) continue ;;
+            esac
+            waived=false
+            for waiver_path in "${active_waivers[@]}"; do
+              if [[ "$rel" == "$waiver_path" ]]; then
+                waived=true
+                break
+              fi
+            done
+            if [[ "$waived" == false ]]; then
+              specs+=("$genroot/$rel")
+            fi
+          done
+
+          if (( ${#specs[@]} == 0 )); then
+            echo "::error::gate battery selected no unwaived RuleSpec modules"
+            exit 1
+          fi
+
+          # Both gates take explicit module paths. validate reuses one registry
+          # load across files; proof-validate checks proof trees without
+          # reviewers or oracles.
+          supervise validate "${specs[@]}" \
+            --corpus-path "$GITHUB_WORKSPACE/_axiom/axiom-corpus" \
+            --axiom-rules-engine-path "$GITHUB_WORKSPACE/_axiom/axiom-rules-engine" \
+            --skip-reviewers
+          supervise proof-validate "${specs[@]}" \
+            --corpus-path "$GITHUB_WORKSPACE/_axiom/axiom-corpus"
+
+      - name: Stage the allowlisted generated content for the push job
+        shell: bash
+        run: |
+          set -euo pipefail
+          genroot="$RUNNER_TEMP/genroot/${{ github.event.repository.name }}"
+          out="$RUNNER_TEMP/signed-content"
+          rm -rf "$out"; mkdir -p "$out"
+          # `encode --apply` may legitimately touch ONLY these content classes.
+          # Copy nothing else into the artifact: never .github, scripts, _axiom,
+          # .git, symlinks, or any path outside this allowlist. This is the first
+          # of two independent allowlist gates (the push job re-checks) so a
+          # generation bug/compromise cannot smuggle an executable surface (e.g.
+          # a workflow file) into the signed branch.
+          jurs="$(cd "$genroot" && ls -d */ 2>/dev/null | grep -E '^[a-z]{2}(-[a-z0-9-]+)*/' | tr -d '/')"
+          allow=()
+          for j in $jurs; do allow+=("$j"); done
+          for p in .axiom/encoding-manifests docs data/coverage \
+                   known-validation-gaps.yaml known-missing-money-atoms.yaml \
+                   oracle-coverage-pending.yaml; do
+            [ -e "$genroot/$p" ] && allow+=("$p")
+          done
+          for p in "${allow[@]}"; do
+            # Refuse symlinks anywhere in a staged path.
+            if find "$genroot/$p" -type l | grep -q .; then
+              echo "::error::symlink in generated path $p — refusing to stage"; exit 1
+            fi
+            mkdir -p "$out/$(dirname "$p")"
+            cp -a "$genroot/$p" "$out/$p"
+          done
+          echo "$jurs" > "$out/.signed-jurisdictions"
+          # Record the exact source commit this generation ran against so the
+          # push job can pin its base to it (defends against main advancing
+          # between the two jobs; see the sol-review finding on PR #21).
+          git -C "$GITHUB_WORKSPACE" rev-parse HEAD > "$out/.signed-source-sha"
+          ls -R "$out" | head -40
+
+      - name: Upload signed content artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: signed-${{ matrix.item.slug }}
+          path: ${{ runner.temp }}/signed-content
+          include-hidden-files: true
+          retention-days: 1
+
+  open_pr:
+    needs: [dispatch, encode]
+    # A failed encode item must not suppress successful siblings. Do not use
+    # always(): cancellation must still stop every push-capable matrix item.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: signing
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        # dispatch is intentionally skipped off the default branch. Preserve
+        # that main-only no-op without asking fromJSON to parse an empty output.
+        item: ${{ fromJSON(needs.dispatch.outputs.matrix || '{"include":[]}').include }}
+    permissions:
+      # Needed only to distinguish an absent failed-encode artifact from a real
+      # download error; the latter must remain a hard failure.
+      actions: read
+      contents: read
+    steps:
+      # This job mints a repo-scoped App token and NEVER references the
+      # model/signing keys. The encode job references the model/signing keys
+      # and NEVER the App private key or minted push token.
+      # They share exactly one thing: a content-only, twice-allowlisted artifact.
+      - name: Download signed content artifact
+        id: download
+        # A missing artifact means only this matrix item's encode failed. Let
+        # successful siblings continue; every later error remains fail-closed.
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: signed-${{ matrix.item.slug }}
+          path: ${{ runner.temp }}/signed-content
+
+      - name: Classify a failed artifact download
+        if: ${{ steps.download.outcome == 'failure' }}
+        shell: bash
+        env:
+          ARTIFACT_NAME: signed-${{ matrix.item.slug }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          artifact_exists=false
+          artifact_names="$RUNNER_TEMP/run-artifact-names"
+          gh api --paginate \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?per_page=100" \
+            --jq '.artifacts[] | select(.expired == false) | .name' \
+            > "$artifact_names"
+          while IFS= read -r artifact_name; do
+            if [ "$artifact_name" = "$ARTIFACT_NAME" ]; then
+              artifact_exists=true
+              break
+            fi
+          done < "$artifact_names"
+          if [ "$artifact_exists" = true ]; then
+            echo "::error::Artifact $ARTIFACT_NAME exists, but its download failed"
+            exit 1
+          fi
+          echo "::notice::No signed artifact exists for ${{ matrix.item.citation }}; its encode item did not complete successfully, so no branch or PR will be created."
+          exit 0
+
+      - name: Mint a single-repository GitHub App token
+        if: ${{ steps.download.outcome == 'success' }}
+        id: app-token
+        # owner + repositories deliberately narrows the installation token to
+        # this one caller repository, never the App's full installation.
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.AXIOM_SIGNED_APPLY_APP_ID }}
+          private-key: ${{ secrets['app-private-key'] }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+
+      - name: Checkout rules repository
+        if: ${{ steps.download.outcome == 'success' }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Base the signed branch on the protected default branch, never the
+          # dispatch ref (which could carry attacker-precommitted content).
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Materialize under an independent allowlist
+        if: ${{ steps.download.outcome == 'success' }}
+        shell: bash
+        env:
+          SLUG: ${{ matrix.item.slug }}
+        run: |
+          set -euo pipefail
+          src="$RUNNER_TEMP/signed-content"
+          # Re-verify the artifact carries only content classes — the second,
+          # independent gate. Reject any .github, scripts, workflow file, symlink,
+          # or path traversal regardless of what the upstream job staged.
+          while IFS= read -r -d '' f; do
+            rel="${f#"$src"/}"
+            case "$rel" in
+              .signed-jurisdictions|.signed-source-sha) continue ;;
+              .github/*|*/.github/*|scripts/*|*/scripts/*|_axiom/*|*/_axiom/*)
+                echo "::error::disallowed path in artifact: $rel"; exit 1 ;;
+              .git/*|*/.git/*|*/.git|.git)
+                echo "::error::embedded git path in artifact: $rel"; exit 1 ;;
+            esac
+            case "$rel" in *..*) echo "::error::path traversal: $rel"; exit 1 ;; esac
+            # Under data/, admit ONLY data/coverage/** (matches the producer
+            # staging allowlist and the git-add pathspecs — never bare data/**).
+            case "$rel" in
+              data/coverage/*) continue ;;
+              data/*) echo "::error::data path outside data/coverage: $rel"; exit 1 ;;
+            esac
+            first="${rel%%/*}"
+            case "$first" in
+              .axiom|docs|known-validation-gaps.yaml|known-missing-money-atoms.yaml|oracle-coverage-pending.yaml) : ;;
+              *)
+                echo "$first" | grep -qE '^[a-z]{2}(-[a-z0-9-]+)*$' \
+                  || { echo "::error::path outside content allowlist: $rel"; exit 1; } ;;
+            esac
+          done < <(find "$src" -type f -print0)
+          if find "$src" -type l | grep -q .; then echo "::error::symlink in artifact"; exit 1; fi
+          # Under .axiom, permit ONLY encoding-manifests (never toolchain.toml,
+          # never workflow-adjacent config).
+          if find "$src/.axiom" -type f 2>/dev/null | grep -vE '/.axiom/encoding-manifests/' | grep -q .; then
+            echo "::error::.axiom artifact content outside encoding-manifests"; exit 1
+          fi
+          # Pin the workspace to the encode job's exact source commit before
+          # overlaying content: the default branch may have advanced between
+          # the encode and push jobs, and rsyncing an older jurisdiction tree
+          # over newer main would stage unrelated reversions on allowed paths
+          # that every downstream gate accepts (sol adversarial-review finding,
+          # PR #21). Branching from the encode-time SHA makes the signed
+          # branch's diff exactly the encoder's delta.
+          src_sha="$(tr -d '[:space:]' < "$src/.signed-source-sha")"
+          echo "$src_sha" | grep -qE '^[0-9a-f]{40}$' \
+            || { echo "::error::invalid .signed-source-sha in artifact"; exit 1; }
+          git cat-file -e "$src_sha^{commit}" \
+            || { echo "::error::artifact source sha $src_sha not in fetched history"; exit 1; }
+          git checkout --detach --quiet "$src_sha"
+          rsync -a "$src"/ "$GITHUB_WORKSPACE"/ --exclude '.signed-jurisdictions' --exclude '.signed-source-sha'
+
+      - name: Commit, push, and open the re-review PR
+        if: ${{ steps.download.outcome == 'success' }}
+        shell: bash
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          CITATION: ${{ matrix.item.citation }}
+          SLUG: ${{ matrix.item.slug }}
+        run: |
+          set -euo pipefail
+          git config user.name "axiom-signed-apply"
+          git config user.email "hello@axiom-foundation.org"
+          git config credential.helper '!f() { echo "username=x-access-token"; echo "password=${APP_TOKEN}"; }; f'
+          branch="signed/$SLUG"
+          git checkout -b "$branch"
+          # Stage only the content-allowlisted paths, never `-A`: .github and any
+          # other tree stays exactly as origin/main has it. `git add` fails fast
+          # on a pathspec that matches nothing (e.g. a mirror with no docs/),
+          # staging NOTHING and masking it under `|| true` — so add the
+          # jurisdiction glob (always present post-gate: the tracked .gitkeep
+          # under each content root matches it) plus only the optional meta
+          # paths that actually exist.
+          add_paths=(':(glob)*/**')
+          for p in .axiom/encoding-manifests docs data/coverage \
+                   known-validation-gaps.yaml known-missing-money-atoms.yaml \
+                   oracle-coverage-pending.yaml; do
+            [ -e "$p" ] && add_paths+=("$p")
+          done
+          git add -- "${add_paths[@]}"
+          git reset -q -- .github _axiom scripts 2>/dev/null || true
+          git diff --cached --quiet && { echo "::error::no signed content to commit"; exit 1; }
+          # Fail closed if any protected surface or embedded-repo path sneaked in.
+          if git diff --cached --name-only | grep -qE '(^|/)(\.github|scripts|_axiom|\.git)(/|$)'; then
+            echo "::error::refusing to commit protected-surface or embedded-git path"; exit 1
+          fi
+          # Fail closed on gitlinks (mode 160000 submodule entries) — an embedded
+          # repo the name-based checks above cannot see as a file.
+          if git ls-files --cached --stage | awk '$1 == "160000"' | grep -q .; then
+            echo "::error::refusing to commit a gitlink / embedded repository"; exit 1
+          fi
+          git commit \
+            -m "Signed re-encode: $CITATION" \
+            -m "Produced by axiom-encode encode --apply (backend openai) under the production supervisor + apply-signer (encode#1135) - Path R on encode#1147. For diff re-review against the held reviewed wave PR." \
+            -m "Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
+          git push -u origin "$branch"
+          printf '%s\n\n%s\n' "Path R regeneration of \`$CITATION\` under the production apply-signer (encode#1147 / #1135). Re-review required: diff this against the corresponding held reviewed wave PR before merging; the reviewed branch is the reference for intent (verbatim excerpts, effective dates). Never merge red." "Generated with Claude Code" > "$RUNNER_TEMP/pr-body.md"
+          default_branch="${{ github.event.repository.default_branch }}"
+          gh pr create --head "$branch" --base "$default_branch" \
+            --title "Signed re-encode: $CITATION" \
+            --label signed-apply \
+            --body-file "$RUNNER_TEMP/pr-body.md" || true
+          # Fail closed unless an OPEN re-review PR now exists for THIS head,
+          # based on the default branch (a closed/merged/wrong-base PR is not
+          # acceptable as the required re-review artifact).
+          state="$(gh pr view "$branch" --json state,baseRefName,headRefName \
+            -q '.state + " " + .baseRefName + " " + .headRefName' 2>/dev/null || echo none)"
+          if [ "$state" != "OPEN $default_branch $branch" ]; then
+            echo "::error::no OPEN re-review PR on $default_branch for $branch (got: $state)"; exit 1
+          fi
