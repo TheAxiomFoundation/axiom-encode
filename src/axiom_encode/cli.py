@@ -19382,20 +19382,18 @@ def _run_encode_attempt(
                     "  apply=auto_repaired_admin_agency_aggregate_entities:"
                     + ",".join(repaired_admin_aggregate_entities)
                 )
-            repaired_parameter_only_tests = (
-                _try_repair_generated_parameter_only_companion_tests_for_apply(
-                    result,
-                    output_root=args.output,
-                    policy_repo_path=policy_repo_path,
-                )
+            preserved_parameter_only_tests = _parameter_only_companion_snapshot_cases(
+                result,
+                output_root=args.output,
+                policy_repo_path=policy_repo_path,
             )
-            if repaired_parameter_only_tests:
-                outcome["auto_repaired_parameter_only_companion_tests"] = (
-                    repaired_parameter_only_tests
+            if preserved_parameter_only_tests:
+                outcome["preserved_parameter_only_companion_tests"] = (
+                    preserved_parameter_only_tests
                 )
                 print(
-                    "  apply=auto_repaired_parameter_only_companion_tests:"
-                    + ",".join(repaired_parameter_only_tests)
+                    "  apply=preserved_parameter_only_companion_tests:"
+                    + ",".join(preserved_parameter_only_tests)
                 )
             repaired_aca_36b_b_premium_assistance_compat = (
                 _try_repair_generated_aca_36b_b_premium_assistance_compat_for_apply(
@@ -28880,13 +28878,13 @@ def _try_repair_generated_admin_agency_aggregate_entities_for_apply(
     return [str(record["output"]) for record in deferred_outputs]
 
 
-def _try_repair_generated_parameter_only_companion_tests_for_apply(
+def _parameter_only_companion_snapshot_cases(
     result,
     *,
     output_root: Path,
     policy_repo_path: Path,
 ) -> list[str]:
-    """Empty generated tests that only assert local parameter constants."""
+    """Identify valid snapshots that assert only a module's local parameters."""
     try:
         relative_output = _relative_generated_output_path(
             result,
@@ -28905,14 +28903,15 @@ def _try_repair_generated_parameter_only_companion_tests_for_apply(
         cases = _load_rulespec_test_cases(test_file)
     except (OSError, ValueError, yaml.YAMLError):
         return []
-    if not cases:
+    if len(cases) != 1:
         return []
 
     target_base = (
         f"{_repo_jurisdiction_prefix(policy_repo_path)}:"
         f"{_relative_rulespec_import_target(relative_output)}"
     )
-    repaired_cases: list[str] = []
+    snapshot_cases: list[str] = []
+    asserted_parameters: set[str] = set()
     for index, case in enumerate(cases, 1):
         if not isinstance(case, dict):
             return []
@@ -28923,13 +28922,14 @@ def _try_repair_generated_parameter_only_companion_tests_for_apply(
             key_text = str(key)
             if not key_text.startswith(f"{target_base}#"):
                 return []
-            if _rulespec_test_key_fragment(key_text) not in parameter_names:
+            parameter_name = _rulespec_test_key_fragment(key_text)
+            if parameter_name not in parameter_names:
                 return []
-        repaired_cases.append(str(case.get("name") or f"case_{index}"))
-    if not repaired_cases:
+            asserted_parameters.add(parameter_name)
+        snapshot_cases.append(str(case.get("name") or f"case_{index}"))
+    if asserted_parameters != parameter_names:
         return []
-    test_file.write_text("[]\n")
-    return repaired_cases
+    return snapshot_cases
 
 
 def _parameter_only_rule_names(rules_file: Path) -> set[str]:
