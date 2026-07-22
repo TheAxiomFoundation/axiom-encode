@@ -86,6 +86,7 @@ from axiom_encode.cli import (
     _normalize_invalid_proof_atom_kinds,
     _normalize_invalid_proof_atom_kinds_file,
     _normalize_top_level_parameter_values_to_versions,
+    _parameter_only_companion_snapshot_cases,
     _parse_child_fragment_reencoding_issue,
     _parse_child_numeric_reencoding_issue,
     _person_scoped_definition_issue_names,
@@ -196,7 +197,6 @@ from axiom_encode.cli import (
     _try_repair_generated_negated_sum_where_predicates_for_apply,
     _try_repair_generated_nonexact_proof_excerpts_for_apply,
     _try_repair_generated_nonoperative_source_coverage_for_apply,
-    _try_repair_generated_parameter_only_companion_tests_for_apply,
     _try_repair_generated_scalar_relation_rows_for_apply,
     _try_repair_generated_section_1401_b_1_self_employment_income_for_apply,
     _try_repair_generated_source_child_corpus_paths_for_apply,
@@ -24968,9 +24968,7 @@ rules:
         assert payload["rules"] == []
         assert yaml.safe_load(test_file.read_text()) == []
 
-    def test_parameter_only_companion_test_repair_empties_parameter_outputs(
-        self, tmp_path
-    ):
+    def test_parameter_only_companion_snapshot_is_preserved(self, tmp_path):
         output_root = tmp_path / "out"
         rules_file = output_root / "codex-gpt-5.5" / "regulations/7-cfr/275/23/e/1.yaml"
         rules_file.parent.mkdir(parents=True)
@@ -25012,14 +25010,70 @@ rules:
             output_file=str(rules_file),
         )
 
-        repaired = _try_repair_generated_parameter_only_companion_tests_for_apply(
+        snapshot_cases = _parameter_only_companion_snapshot_cases(
             result,
             output_root=output_root,
             policy_repo_path=policy_repo,
         )
 
-        assert repaired == ["liability_percentage_caps"]
-        assert yaml.safe_load(test_file.read_text()) == []
+        assert snapshot_cases == ["liability_percentage_caps"]
+        assert yaml.safe_load(test_file.read_text()) == [
+            {
+                "name": "liability_percentage_caps",
+                "period": 2026,
+                "input": {},
+                "output": {
+                    "us:regulations/7-cfr/275/23/e/1#program_administration_investment_liability_cap_rate": 0.5,
+                    "us:regulations/7-cfr/275/23/e/1#at_risk_repayment_liability_cap_rate": 0.5,
+                },
+            }
+        ]
+
+    def test_parameter_only_partial_companion_is_not_complete_snapshot(self, tmp_path):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "codex-gpt-5.5" / "policies/rates.yaml"
+        rules_file.parent.mkdir(parents=True)
+        test_file = rules_file.with_suffix(".test.yaml")
+        policy_repo = _canonical_rulespec_content_root(tmp_path)
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: first_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.1
+  - name: second_rate
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0.2
+"""
+        )
+        test_file.write_text(
+            """- name: incomplete_snapshot
+  period: 2026
+  input: {}
+  output:
+    us:policies/rates#first_rate: 0.1
+"""
+        )
+        original = test_file.read_text()
+        result = SimpleNamespace(
+            runner="codex-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        snapshot_cases = _parameter_only_companion_snapshot_cases(
+            result,
+            output_root=output_root,
+            policy_repo_path=policy_repo,
+        )
+
+        assert snapshot_cases == []
+        assert test_file.read_text() == original
 
     def test_missing_deferred_output_repair_adds_definition_target(self, tmp_path):
         output_root = tmp_path / "out"

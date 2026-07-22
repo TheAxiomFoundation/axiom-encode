@@ -2908,8 +2908,13 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "For proration, average, ratio, or percentage tests" in prompt
     assert "use totals like 600" in prompt
     assert "Avoid exact equality boundaries for ratios or percentages" in prompt
-    assert "Do not assert raw `kind: parameter` rules directly" in prompt
-    assert "assert derived outputs that consume the parameters" in prompt
+    normalized_prompt = " ".join(prompt.split())
+    assert (
+        "If a module contains only parameters, emit one source-period snapshot "
+        "case that asserts every local parameter output directly."
+        in normalized_prompt
+    )
+    assert "cover parameters through derived outputs" in normalized_prompt
     assert "modifier parameter stranded" in prompt
     assert "module.deferred_outputs[]" in prompt
     assert "source_values" in prompt
@@ -3041,7 +3046,8 @@ def test_build_eval_prompt_for_rate_only_source_id_limits_scope(tmp_path):
     assert "boundary must stay acyclic" in prompt
     assert "companion tests may assert" in prompt
     assert "canonical parameter output directly" in prompt
-    assert "Explicit rate-only source-boundary artifacts" in prompt
+    assert "Source-boundary artifacts that contain only scalar parameters" in prompt
+    assert "one source-period snapshot case" in prompt
 
 
 def test_target_source_scope_ignores_cross_references_before_structural_marker():
@@ -16733,7 +16739,8 @@ rules: []
             "Every local executable `kind: derived` or `kind: derived_relation` rule"
             in prompt
         )
-        assert "Do not assert raw `kind: parameter` rules directly" in prompt
+        assert "source-period snapshot case" in prompt
+        assert "local parameter output directly" in prompt
         assert "Use `holds` and `not_holds` for actual `dtype: Judgment`" in prompt
         assert "Use YAML booleans `true` and `false` for local factual" in prompt
         assert (
