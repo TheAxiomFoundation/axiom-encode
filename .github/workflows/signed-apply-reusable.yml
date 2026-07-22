@@ -51,7 +51,7 @@ env:
   # wave pin 185b2457). The validate workflow's encode-ref is bumped to the
   # same sha in this PR so the signed PRs' CI verifies manifests with the
   # same encoder generation that produced them.
-  AXIOM_ENCODE_REF: aff8d708a76e17957c1d237d2ad86cbff7620c76
+  AXIOM_ENCODE_REF: b9d376684cfb5e86202daa3451b8fc716703ed19
   AXIOM_RULES_ENGINE_REF: 05eac9d2f89dabe5c6673176260762cef3a58f47
 
 jobs:
@@ -209,6 +209,7 @@ jobs:
           APPLY_ROOT: ${{ vars.AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY }}
           EVAL_ROOT: ${{ vars.AXIOM_ENCODE_EVAL_SIGNING_PUBLIC_KEY }}
           CORPUS_ROOT: ${{ vars.AXIOM_CORPUS_RELEASE_PUBLIC_KEY }}
+          RETIRED_CORPUS_ROOT: ${{ vars.AXIOM_CORPUS_RELEASE_RETIRED_PUBLIC_KEY }}
           PYBIN: ${{ steps.py.outputs.python-path }}
         run: |
           set -euo pipefail
@@ -236,6 +237,7 @@ jobs:
             --apply-root "$APPLY_ROOT" \
             --eval-root "$EVAL_ROOT" \
             --corpus-release-root "$CORPUS_ROOT" \
+            --retired-corpus-release-root "$RETIRED_CORPUS_ROOT" \
             --require-prefix-under "$RUNNER_TOOL_CACHE/Python" \
             --patchelf /usr/bin/patchelf \
             --git /usr/bin/git \
