@@ -16732,7 +16732,7 @@ def guard_generated_change_issues(
         ]
     try:
         load_rulespec_toolchain(repo_path)
-        verify_rulespec_validation_waiver_set(repo_path)
+        current_waiver_set_sha256 = verify_rulespec_validation_waiver_set(repo_path)
         local_corpus_release = load_rulespec_local_corpus_release(
             repo_path,
             Path(corpus_path),
@@ -16787,6 +16787,18 @@ def guard_generated_change_issues(
     if not protected:
         return []
 
+    expected_manifest_waiver_set_sha256, waiver_transition_issues = (
+        _guard_manifest_waiver_set_identity(
+            repo_path,
+            base_ref=base_ref,
+            changed=changed,
+            protected=protected,
+            current_waiver_set_sha256=current_waiver_set_sha256,
+        )
+    )
+    if waiver_transition_issues:
+        return waiver_transition_issues
+
     manifest_paths = (
         _all_applied_encoding_manifest_paths(repo_path, roots=roots)
         if all_files
@@ -16830,6 +16842,7 @@ def guard_generated_change_issues(
         roots=roots,
         local_corpus_release=local_corpus_release,
         expected_encoder_identity=expected_encoder_identity,
+        expected_waiver_set_sha256=expected_manifest_waiver_set_sha256,
     )
     if manifest_issues:
         return manifest_issues
@@ -16872,6 +16885,7 @@ def guard_generated_change_issues(
             roots=roots,
             local_corpus_release=local_corpus_release,
             expected_encoder_identity=expected_encoder_identity,
+            expected_waiver_set_sha256=expected_manifest_waiver_set_sha256,
         )
     )
 
@@ -16883,6 +16897,123 @@ def guard_generated_change_issues(
     return issues
 
 
+def _guard_manifest_waiver_set_identity(
+    repo_path: Path,
+    *,
+    base_ref: str | None,
+    changed: list[str],
+    protected: list[str],
+    current_waiver_set_sha256: str,
+) -> tuple[str, list[str]]:
+    """Resolve the waiver identity a changed apply manifest must carry.
+
+    Model manifests bind the policy state immediately before apply. A pull
+    request may then retire active waivers made obsolete by those generated
+    files, but only as an exact decrement from the protected base.
+    """
+
+    waiver_path = _validation_waivers.DEFAULT_WAIVER_PATH
+    toolchain_path = ".axiom/toolchain.toml"
+    changed_set = {Path(path).as_posix() for path in changed}
+    metadata_changes = changed_set & {waiver_path, toolchain_path}
+    if waiver_path not in metadata_changes:
+        return current_waiver_set_sha256, []
+
+    prefix = "RuleSpec post-apply waiver retirement is invalid: "
+    if metadata_changes != {waiver_path, toolchain_path}:
+        return current_waiver_set_sha256, [
+            prefix
+            + f"{waiver_path} and {toolchain_path} must change together"
+        ]
+    if base_ref is None:
+        return current_waiver_set_sha256, [
+            prefix + "a protected base ref is required"
+        ]
+
+    base_bytes = _git_show_bytes(repo_path, base_ref, waiver_path)
+    if base_bytes is None:
+        return current_waiver_set_sha256, [
+            prefix + f"cannot read {waiver_path} from protected base {base_ref}"
+        ]
+    base_sha256 = hashlib.sha256(base_bytes).hexdigest()
+    if base_sha256 == current_waiver_set_sha256:
+        return current_waiver_set_sha256, [
+            prefix + "the waiver set did not remove any protected-base entry"
+        ]
+
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".yaml") as base_file:
+            base_file.write(base_bytes)
+            base_file.flush()
+            base_waivers = _validation_waivers.load_validation_waivers(
+                base_file.name,
+                repo_root=repo_path,
+                allow_expired=True,
+                require_paths=False,
+            )
+        head_waivers = _validation_waivers.load_validation_waivers(
+            repo_path / waiver_path,
+            repo_root=repo_path,
+        )
+    except _validation_waivers.ValidationWaiverError as exc:
+        return current_waiver_set_sha256, [prefix + str(exc)]
+
+    transition_issues = _validation_waivers.protected_base_transition_issues(
+        base_waivers,
+        head_waivers,
+        changed_paths=changed_set,
+        waiver_path=waiver_path,
+    )
+    if transition_issues:
+        return current_waiver_set_sha256, [
+            prefix + issue for issue in transition_issues
+        ]
+
+    base_entries = dict(base_waivers.entries)
+    head_entries = dict(head_waivers.entries)
+    added = sorted(set(head_entries) - set(base_entries))
+    if added:
+        return current_waiver_set_sha256, [
+            prefix + "new waiver entries are not allowed: " + ", ".join(added)
+        ]
+    changed_entries = sorted(
+        path
+        for path in set(base_entries) & set(head_entries)
+        if base_entries[path] != head_entries[path]
+    )
+    if changed_entries:
+        return current_waiver_set_sha256, [
+            prefix
+            + "retained waiver entries must remain exactly unchanged: "
+            + ", ".join(changed_entries)
+        ]
+
+    removed = sorted(set(base_entries) - set(head_entries))
+    if not removed:
+        return current_waiver_set_sha256, [
+            prefix + "the waiver set did not remove any protected-base entry"
+        ]
+    invalid_states = [
+        path
+        for path in removed
+        if base_entries[path].active is None or base_entries[path].pending is not None
+    ]
+    if invalid_states:
+        return current_waiver_set_sha256, [
+            prefix
+            + "only active entries without pending state may be removed: "
+            + ", ".join(invalid_states)
+        ]
+    unrelated = sorted(set(removed) - set(protected))
+    if unrelated:
+        return current_waiver_set_sha256, [
+            prefix
+            + "removed entries must name changed protected RuleSpec modules: "
+            + ", ".join(unrelated)
+        ]
+    return base_sha256, []
+
+
 def _generated_provenance_gate_issues(
     repo_path: Path,
     *,
@@ -16891,6 +17022,7 @@ def _generated_provenance_gate_issues(
     roots: tuple[str, ...],
     local_corpus_release: LocalCorpusRelease,
     expected_encoder_identity: Mapping[str, str],
+    expected_waiver_set_sha256: str,
 ) -> list[str]:
     """Reject protected files authorized only by manual attestations."""
 
@@ -16900,6 +17032,7 @@ def _generated_provenance_gate_issues(
         roots=roots,
         local_corpus_release=local_corpus_release,
         expected_encoder_identity=expected_encoder_identity,
+        expected_waiver_set_sha256=expected_waiver_set_sha256,
     )
     issues: list[str] = []
     for path in protected:
@@ -17096,6 +17229,7 @@ def _manifest_coverage_by_file(
     roots: tuple[str, ...] = tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS)),
     local_corpus_release: LocalCorpusRelease | None = None,
     expected_encoder_identity: Mapping[str, str] | None = None,
+    expected_waiver_set_sha256: str | None = None,
 ) -> dict[str, list[dict[str, object]]]:
     """Map each non-deleted covered file to a list of covering-manifest records.
 
@@ -17118,6 +17252,7 @@ def _manifest_coverage_by_file(
                 roots=roots,
                 local_corpus_release=local_corpus_release,
                 expected_encoder_identity=expected_encoder_identity,
+                expected_waiver_set_sha256=expected_waiver_set_sha256,
             )
         )
         if issues or payload is None or root_prefix is None:
@@ -18189,6 +18324,7 @@ def _load_applied_encoding_manifest_entries(
     roots: tuple[str, ...] = tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS)),
     local_corpus_release: LocalCorpusRelease | None = None,
     expected_encoder_identity: Mapping[str, str] | None = None,
+    expected_waiver_set_sha256: str | None = None,
 ) -> tuple[dict[str, set[str]], list[str]]:
     entries: dict[str, set[str]] = defaultdict(set)
     issues: list[str] = []
@@ -18204,10 +18340,13 @@ def _load_applied_encoding_manifest_entries(
                 "trust config is required to verify encoder apply manifests"
             ],
         )
-    try:
-        expected_waiver_set_sha256 = verify_rulespec_validation_waiver_set(repo_path)
-    except ValueError as exc:
-        return entries, [f"RuleSpec waiver-set binding is invalid: {exc}"]
+    if expected_waiver_set_sha256 is None:
+        try:
+            expected_waiver_set_sha256 = verify_rulespec_validation_waiver_set(
+                repo_path
+            )
+        except ValueError as exc:
+            return entries, [f"RuleSpec waiver-set binding is invalid: {exc}"]
     if expected_encoder_identity is None:
         try:
             expected_encoder_identity = _current_guard_encoder_execution_identity()
@@ -18588,6 +18727,17 @@ def _git_show_text(repo: Path, ref: str, path: str) -> str | None:
             capture_output=True,
             check=True,
             text=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+
+def _git_show_bytes(repo: Path, ref: str, path: str) -> bytes | None:
+    try:
+        return subprocess.run(
+            ["git", "-C", str(repo), "show", f"{ref}:{path}"],
+            capture_output=True,
+            check=True,
         ).stdout
     except (OSError, subprocess.CalledProcessError):
         return None
