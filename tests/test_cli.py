@@ -65,6 +65,7 @@ from axiom_encode.cli import (
     _ensure_rulespec_import,
     _eval_suite_json_sha256,
     _eval_suite_summary_payload,
+    _exact_source_excerpt_candidates,
     _exclusive_apply_transaction_lock,
     _execute_rulespec_test_file,
     _expected_proof_import_hash,
@@ -284,6 +285,7 @@ from axiom_encode.harness.evals import (
     summarize_readiness,
 )
 from axiom_encode.harness.policyengine_runtime import PolicyEngineRuntimeError
+from axiom_encode.harness.proof_validator import validate_rulespec_proofs
 from axiom_encode.harness.validator_pipeline import (
     _authoritative_rulespec_dependency_scope,
 )
@@ -7254,6 +7256,237 @@ rules:
         payload["rules"][0]["metadata"]["proof"]["atoms"][0]["source"]["excerpt"]
         == "The maximum amount for age is $6,100."
     )
+
+
+def test_closest_exact_source_excerpt_reflows_wrapped_regulatory_paragraph():
+    source_text = """    (i) If the monthly income is less than the applicable Federal
+minimum wage requirement under 29 U.S.C. 206(a)(1)(C) multiplied by 80
+hours, and the agency does not have documentation regarding the number
+of hours worked, the agency may calculate the hours for work under
+paragraph (a)(1) of this section based on the monthly income as
+determined under paragraph (f)(2) of this section provided that the
+agency must use a reasonable method to allocate work hours between
+members of the household.
+    (ii) If the agency uses the option under paragraph (e)(2)(i) of
+this section, the agency must calculate the hours for work by dividing
+the monthly income as determined under paragraph (f)(2) of this section
+by the applicable Federal minimum wage requirement under 29 U.S.C.
+206(a)(1)(C).
+"""
+
+    first = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="may calculate the hours for work based on the monthly income",
+    )
+    second = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt=(
+            "calculate the hours for work by dividing the monthly income by the "
+            "applicable Federal minimum wage requirement"
+        ),
+    )
+
+    assert first is not None
+    assert first in source_text
+    assert first.startswith("(i) If the monthly income")
+    assert first.endswith("members of the household.")
+    normalized_first = re.sub(r"\s+", " ", first)
+    assert "may calculate the hours for work" in normalized_first
+    assert "based on the monthly income" in normalized_first
+    assert second is not None
+    assert second in source_text
+    assert second.startswith("(ii) If the agency uses the option")
+    assert second.endswith("206(a)(1)(C).")
+    normalized_second = re.sub(r"\s+", " ", second)
+    assert "dividing the monthly income" in normalized_second
+    assert "applicable Federal minimum wage requirement" in normalized_second
+
+
+@pytest.mark.parametrize(
+    "source_text",
+    [
+        """(a)(1) The agency shall use gross income when determining eligibility.
+(a)(2) The agency shall exclude gifts from gross income.
+""",
+        """1. The agency shall use gross income when determining eligibility.
+2. The agency shall exclude gifts from gross income.
+""",
+        """4.407.1 The agency shall use gross income when determining eligibility.
+4.407.2 The agency shall exclude gifts from gross income.
+""",
+    ],
+)
+def test_closest_exact_source_excerpt_does_not_join_distinct_provisions(source_text):
+    candidates = _exact_source_excerpt_candidates(source_text)
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="exclude gifts when determining eligibility",
+    )
+
+    assert not any(
+        "use gross income" in candidate and "exclude gifts" in candidate
+        for candidate in candidates
+    )
+    assert repaired is None or repaired in source_text
+    assert repaired is None or "\n" not in repaired
+    cross_provision_query = re.sub(r"\s+", " ", source_text).strip()
+    assert (
+        _closest_exact_source_excerpt(
+            source_text=source_text,
+            excerpt=cross_provision_query,
+        )
+        is None
+    )
+
+
+def test_closest_exact_source_excerpt_keeps_parenthetical_continuation():
+    source_text = """The agency shall include all income received by the household
+(except) excluded income when determining eligibility.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="include all income except excluded income when determining eligibility",
+    )
+
+    assert repaired is not None
+    assert repaired in source_text
+    assert repaired.startswith("The agency shall include all income")
+    assert repaired.endswith("when determining eligibility.")
+
+
+def test_closest_exact_source_excerpt_keeps_wrapped_cross_reference_in_condition():
+    source_text = """(i) If the household meets the income condition described in paragraph
+(a)(1) of this section, the agency may calculate work hours by dividing
+monthly income by the applicable minimum wage.
+(ii) Otherwise, the agency must verify hours directly.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="calculate work hours by dividing monthly income by minimum wage",
+    )
+
+    assert repaired is not None
+    assert repaired in source_text
+    assert repaired.startswith("(i) If the household meets the income condition")
+    assert repaired.endswith("monthly income by the applicable minimum wage.")
+
+
+def test_closest_exact_source_excerpt_expands_direct_wrapped_match_to_condition():
+    source_text = """(i) If household income is below the threshold and the agency lacks documentation,
+the agency may calculate the hours based on monthly income, provided that the agency
+must use a reasonable allocation method.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt=(
+            "the agency may calculate the hours based on monthly income, provided "
+            "that the agency must use a reasonable allocation method."
+        ),
+    )
+
+    assert repaired is not None
+    assert repaired in source_text
+    assert repaired.startswith("(i) If household income is below the threshold")
+    assert repaired.endswith("must use a reasonable allocation method.")
+
+
+def test_closest_exact_source_excerpt_splits_long_line_without_splitting_citation():
+    source_text = (
+        "The threshold is defined under 29 U.S.C. 206. "
+        + ("Background sentence. " * 30)
+        + "The monthly benefit is $500 per month."
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="monthly benefit amount of $500",
+    )
+
+    assert repaired == "The monthly benefit is $500 per month."
+
+
+@pytest.mark.parametrize(
+    "citation",
+    [
+        "42 C.F.R. pt. 435",
+        "42 C.F.R. para. 435",
+        "the eligibility rule, e.g. Families with dependent children",
+        "the eligibility rule, i.e. Families with dependent children",
+    ],
+)
+def test_exact_source_excerpt_candidates_do_not_split_legal_abbreviations(citation):
+    first_sentence = f"The agency applies {citation} when determining eligibility."
+    source_text = (
+        first_sentence
+        + " "
+        + ("Administrative background applies. " * 20)
+        + "The monthly benefit is $500 per month."
+    )
+
+    candidates = _exact_source_excerpt_candidates(source_text)
+
+    assert first_sentence in candidates
+
+
+def test_repair_generated_wrapped_proof_excerpt_passes_literal_validation(
+    tmp_path, monkeypatch
+):
+    source_text = """(ii) If the agency uses the option under paragraph (e)(2)(i) of
+this section, the agency must calculate the hours for work by dividing
+the monthly income as determined under paragraph (f)(2) of this section
+by the applicable Federal minimum wage requirement under 29 U.S.C.
+206(a)(1)(C).
+"""
+    output_root = tmp_path / "out"
+    rules_file = output_root / "model" / "regulations" / "435" / "552.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+rules:
+- name: work_hours
+  kind: derived
+  entity: Person
+  dtype: Decimal
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/regulation/42/435/552
+          excerpt: calculate work hours by dividing monthly income by minimum wage
+  versions:
+  - effective_from: '2026-01-01'
+    formula: monthly_income / minimum_wage
+"""
+    )
+    monkeypatch.setattr(
+        "axiom_encode.cli._local_source_text_for_corpus_path",
+        lambda citation_path, *, corpus_release: source_text,
+    )
+
+    repaired = _try_repair_generated_nonexact_proof_excerpts_for_apply(
+        SimpleNamespace(output_file=str(rules_file)),
+        output_root=output_root,
+        corpus_release=SimpleNamespace(name="test-release"),
+        issues=[
+            "Proof source evidence not found: rule `work_hours` proof atom 0 "
+            "`source.excerpt` does not appear in `us/regulation/42/435/552`."
+        ],
+    )
+
+    assert repaired == ["work_hours[0]"]
+    payload = yaml.safe_load(rules_file.read_text())
+    excerpt = payload["rules"][0]["metadata"]["proof"]["atoms"][0]["source"]["excerpt"]
+    assert excerpt in source_text
+    validation = validate_rulespec_proofs(
+        rules_file.read_text(),
+        source_texts={"us/regulation/42/435/552": source_text},
+    )
+    assert validation.passed, validation.issues
 
 
 class TestCmdInventory:
