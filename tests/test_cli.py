@@ -15312,6 +15312,92 @@ rules:
         assert run.outcome["overlay_validation_success"] is True
         assert run.outcome["status"] == "apply_applied"
 
+    def test_encode_apply_converges_nonexact_proof_excerpt_repairs(
+        self, capsys, tmp_path
+    ):
+        args = self._make_args(tmp_path, backend="codex", sync=False)
+        args.apply = True
+        result = self._make_eval_result(False)
+        result.error = "Generated RuleSpec failed CI validation"
+        output_file = (
+            tmp_path / "out" / "codex-test-model" / "policies" / "benefit.yaml"
+        )
+        output_file.parent.mkdir(parents=True)
+        output_file.write_text(
+            """format: rulespec/v1
+module:
+  summary: |-
+    $533 with 2 children
+    $267 with no children
+rules:
+- name: two_children
+  kind: parameter
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: ca/policy/example
+          excerpt: maximum payment of $533 for 2 children
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 533
+- name: no_children
+  kind: parameter
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: ca/policy/example
+          excerpt: maximum payment of $267 for no children
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 267
+"""
+        )
+        result.output_file = str(output_file)
+        first_issue = (
+            "Proof source evidence not found: rule `two_children` proof atom 0 "
+            "`source.excerpt` does not appear in `ca/policy/example`."
+        )
+        second_issue = (
+            "Proof source evidence not found: rule `no_children` proof atom 0 "
+            "`source.excerpt` does not appear in `ca/policy/example`."
+        )
+        applied_file = args.policy_repo_path / "us/policies/benefit.yaml"
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                side_effect=[
+                    (False, [first_issue], {}),
+                    (False, [second_issue], {}),
+                    (True, [], {}),
+                ],
+            ) as mock_overlay,
+            patch(
+                "axiom_encode.cli._apply_generated_encoding_result",
+                return_value=[applied_file],
+            ) as mock_apply,
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        assert mock_overlay.call_count == 3
+        mock_apply.assert_called_once()
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["auto_repaired_nonexact_proof_excerpts"] == [
+            "two_children[0]",
+            "no_children[0]",
+        ]
+        assert run.outcome["overlay_validation_success"] is True
+
     def test_encode_apply_repairs_generated_proof_import_hashes(self, capsys, tmp_path):
         args = self._make_args(tmp_path, backend="codex", sync=False)
         args.apply = True
