@@ -370,6 +370,7 @@ def _validate_proof_atom(
                 source=atom.get("source"),
                 label=label,
                 kind=kind,
+                rule_source=rule.get("source"),
                 source_texts=source_texts,
             )
         )
@@ -456,6 +457,7 @@ def _validate_source_proof_atom(
     source: Any,
     label: str,
     kind: str,
+    rule_source: Any,
     source_texts: Mapping[str, str | None] | None,
 ) -> list[str]:
     if not isinstance(source, dict):
@@ -488,6 +490,15 @@ def _validate_source_proof_atom(
                         "Proof source evidence not found: "
                         f"{label} `source.{field}` does not appear in "
                         f"`{citation_path}`."
+                    )
+                else:
+                    issues.extend(
+                        _proof_excerpt_subsection_scope_issues(
+                            evidence_text=evidence_text,
+                            rule_source=rule_source,
+                            label=label,
+                            field=field,
+                        )
                     )
 
     table = source.get("table")
@@ -527,6 +538,33 @@ def _validate_source_proof_atom(
             )
 
     return issues
+
+
+def _proof_excerpt_subsection_scope_issues(
+    *,
+    evidence_text: str,
+    rule_source: Any,
+    label: str,
+    field: str,
+) -> list[str]:
+    """Reject an explicit top-level excerpt marker outside the rule citation."""
+    if not isinstance(rule_source, str):
+        return []
+    declared = {
+        match.group("marker")
+        for match in re.finditer(r"\((?P<marker>[a-z])\)", rule_source)
+    }
+    excerpt_marker = re.match(r"^\s*\((?P<marker>[a-z])\)(?:\s|$)", evidence_text)
+    if not declared or excerpt_marker is None:
+        return []
+    marker = excerpt_marker.group("marker")
+    if marker in declared:
+        return []
+    return [
+        "Proof source evidence not found: "
+        f"{label} `source.{field}` appears outside the rule's declared "
+        f"subsection scope `{rule_source}` (excerpt begins at `({marker})`)."
+    ]
 
 
 def _validate_import_proof_atom(raw_import: Any, label: str) -> list[str]:

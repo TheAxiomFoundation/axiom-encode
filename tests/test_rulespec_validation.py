@@ -9436,6 +9436,44 @@ def test_rulespec_proof_validator_rejects_direct_source_evidence_mismatch():
     assert any("source.quote" in issue for issue in result.issues)
 
 
+def test_rulespec_proof_validator_rejects_excerpt_from_wrong_rule_subsection():
+    excerpt = (
+        "(g) Average monthly income for seasonal workers. (1) An applicable "
+        "individual demonstrates community engagement based on six-month income."
+    )
+    content = f"""format: rulespec/v1
+rules:
+  - name: monthly_income_threshold_for_community_engagement
+    kind: derived
+    dtype: Money
+    source: 42 CFR 435.552(a)(6), (f)(1)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/regulation/42/435/552
+              excerpt: {excerpt!r}
+    versions:
+      - effective_from: '2026-01-01'
+        formula: minimum_wage * 80
+"""
+
+    result = validate_rulespec_proofs(
+        content,
+        source_texts={"us/regulation/42/435/552": excerpt},
+    )
+
+    assert result.passed is False
+    assert any(
+        "outside the rule's declared subsection scope" in issue
+        and "(g)" in issue
+        and "(f)(1)" in issue
+        for issue in result.issues
+    )
+
+
 def _anchor_probe_content(atom_path: str, *, version: str) -> str:
     """A single money parameter with a table version and one proof atom.
 
