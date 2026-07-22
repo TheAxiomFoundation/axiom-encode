@@ -42903,8 +42903,8 @@ def _repair_dependent_proof_import_hashes(
             if content_root is None:
                 continue
             relative_dependent = dependent.relative_to(content_root)
-            content = dependent.read_text()
-        except (OSError, ValueError):
+            content = dependent.read_bytes().decode("utf-8")
+        except (OSError, UnicodeError, ValueError):
             continue
         target_base = (
             f"{content_root.name}:"
@@ -42918,7 +42918,7 @@ def _repair_dependent_proof_import_hashes(
         )
         if repair_count <= 0 or repaired == content:
             continue
-        dependent.write_text(repaired)
+        dependent.write_bytes(repaired.encode("utf-8"))
         changed.append(dependent)
     return changed
 

@@ -33243,6 +33243,7 @@ rules: []
         generated = output_root / "openai-test-model" / "statutes/26/151.yaml"
         dependent = policy_repo / "statutes/26/63.yaml"
         transitive_dependent = policy_repo / "policies/income_tax/final.yaml"
+        third_hop_dependent = policy_repo / "policies/income_tax/payable.yaml"
         generated.parent.mkdir(parents=True)
         dependent.parent.mkdir(parents=True)
         transitive_dependent.parent.mkdir(parents=True)
@@ -33317,6 +33318,35 @@ rules:
           deductions_referred_to_in_subsection_b
 """
         )
+        third_hop_dependent.write_bytes(
+            """format: rulespec/v1
+module:
+  description: Café raw-byte chain
+  source_verification:
+    corpus_citation_path: us/statute/26/151
+imports:
+  - us:policies/income_tax/final
+rules:
+  - name: payable_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:policies/income_tax/final#final_deduction
+              output: final_deduction
+              hash: sha256:old
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          final_deduction
+""".encode("utf-8")
+        )
         context_dir = output_root / "context"
         context_dir.mkdir()
         (context_dir / "source.txt").write_text("test source\n")
@@ -33341,6 +33371,9 @@ rules:
             backend="openai",
             context_manifest_file=str(context_manifest),
             source_attestation=source_attestation,
+        )
+        local_corpus_release = _bind_test_corpus_release(
+            policy_repo, tmp_path / "axiom-corpus"
         )
         dependent_validations: dict[str, list[bytes]] = {}
 
@@ -33377,15 +33410,18 @@ rules:
         with (
             patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
             patch("axiom_encode.cli._APPLY_OVERLAY_VALIDATION_REPAIR_LIMIT", 1),
+            patch.object(
+                Path,
+                "write_text",
+                side_effect=AssertionError("apply repair must use explicit bytes"),
+            ),
         ):
             ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
                 result,
                 output_root=output_root,
                 policy_repo_path=policy_repo,
                 axiom_rules_path=tmp_path / "axiom-rules-engine",
-                local_corpus_release=_bind_test_corpus_release(
-                    policy_repo, tmp_path / "axiom-corpus"
-                ),
+                local_corpus_release=local_corpus_release,
             )
 
         assert ok is True, issues
@@ -33404,6 +33440,17 @@ rules:
         )
         assert f"source_sha256: {'d' * 64}" in transitive_updated
         assert dependent_validations["final.yaml"][-1] == transitive_updated.encode(
+            "utf-8"
+        )
+        third_hop_updated = supplemental[Path("policies/income_tax/payable.yaml")]
+        assert "hash: sha256:old" not in third_hop_updated
+        assert (
+            "hash: sha256:"
+            f"{hashlib.sha256(transitive_updated.encode('utf-8')).hexdigest()}"
+            in third_hop_updated
+        )
+        assert "Café raw-byte chain" in third_hop_updated
+        assert dependent_validations["payable.yaml"][-1] == third_hop_updated.encode(
             "utf-8"
         )
 
