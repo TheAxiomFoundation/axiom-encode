@@ -9611,6 +9611,74 @@ rules:
     assert validation.passed, validation.issues
 
 
+def test_repair_generated_proof_excerpt_from_wrong_declared_subsection(
+    tmp_path, monkeypatch
+):
+    correct_excerpt = (
+        "(f) Monthly income. (1) An applicable individual demonstrates community "
+        "engagement for a month if the individual has a monthly income that is not "
+        "less than the applicable Federal minimum wage requirement under 29 U.S.C. "
+        "206(a)(1)(C) multiplied by 80 hours."
+    )
+    wrong_excerpt = (
+        "(g) Average monthly income for seasonal workers. (1) An applicable "
+        "individual demonstrates community engagement for a month if the individual "
+        "is a seasonal worker and had an average monthly income over the preceding "
+        "six months that is not less than the applicable Federal minimum wage "
+        "requirement multiplied by 80 hours."
+    )
+    source_text = f"{correct_excerpt}\n{wrong_excerpt}\n"
+    output_root = tmp_path / "out"
+    rules_file = output_root / "model" / "regulations" / "435" / "552.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        f"""format: rulespec/v1
+rules:
+- name: monthly_income_threshold_for_community_engagement
+  kind: derived
+  entity: Person
+  dtype: Money
+  period: Month
+  source: 42 CFR 435.552(a)(6), (f)(1)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/regulation/42/435/552
+          excerpt: {wrong_excerpt!r}
+  versions:
+  - effective_from: '0001-01-01'
+    formula: applicable_federal_minimum_wage_requirement * 80
+"""
+    )
+    monkeypatch.setattr(
+        "axiom_encode.cli._local_source_text_for_corpus_path",
+        lambda citation_path, *, corpus_release: source_text,
+    )
+
+    repaired = _try_repair_generated_nonexact_proof_excerpts_for_apply(
+        SimpleNamespace(output_file=str(rules_file)),
+        output_root=output_root,
+        corpus_release=SimpleNamespace(name="test-release"),
+        issues=[
+            "Proof source evidence not found: rule "
+            "`monthly_income_threshold_for_community_engagement` proof atom 0 "
+            "`source.excerpt` appears outside the rule's declared subsection scope "
+            "`42 CFR 435.552(a)(6), (f)(1)` (excerpt begins at `(g)`)."
+        ],
+    )
+
+    payload = yaml.safe_load(rules_file.read_text())
+    repaired_excerpt = payload["rules"][0]["metadata"]["proof"]["atoms"][0]["source"][
+        "excerpt"
+    ]
+    assert repaired == ["monthly_income_threshold_for_community_engagement[0]"]
+    assert repaired_excerpt == correct_excerpt
+    assert repaired_excerpt in source_text
+
+
 class TestCmdInventory:
     def test_inventory_counts_rulespec_files_and_kinds(self, capsys, tmp_path):
         statute_file = (
@@ -23681,6 +23749,11 @@ rules:
 
         assert repaired == ["auto_output_snap_standard_utility_allowance_state_value"]
         test_payload = yaml.safe_load(test_file.read_text())
+        assert test_payload[0]["period"] == {
+            "period_kind": "month",
+            "start": "2026-01-01",
+            "end": "2026-01-31",
+        }
         assert test_payload[0]["input"] == {
             "us-tn:regulations/1240-01/04/27/block-1#input.household_member_count": 1
         }
@@ -24128,6 +24201,11 @@ rules:
         assert repaired == ["auto_positive_magi_income_determination_parent_applies"]
         test_payload = yaml.safe_load(test_file.read_text())
         synthesized = test_payload[1]
+        assert synthesized["period"] == {
+            "period_kind": "month",
+            "start": "2026-01-01",
+            "end": "2026-01-31",
+        }
         assert synthesized["input"] == {
             "us:statutes/42/1396a/e/14#input.income_determination_required_under_state_plan_or_waiver": True
         }

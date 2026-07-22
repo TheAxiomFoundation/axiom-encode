@@ -13296,6 +13296,56 @@ def _oracle_parameter_test_period(
     }
 
 
+def _generated_test_period_for_rule(
+    rule: dict[str, object] | None,
+) -> dict[str, str]:
+    """Return a generated companion-test period matching the target rule."""
+    period_kind = str((rule or {}).get("period") or "Year").strip().lower()
+    effective_from: str | None = None
+    versions = (rule or {}).get("versions")
+    if isinstance(versions, list):
+        valid_dates: list[date] = []
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            raw_effective_from = str(version.get("effective_from") or "").strip()
+            with contextlib.suppress(ValueError):
+                candidate = date.fromisoformat(raw_effective_from)
+                if candidate.year >= 1900:
+                    valid_dates.append(candidate)
+        if valid_dates:
+            effective_from = max(valid_dates).isoformat()
+
+    start = date.fromisoformat(effective_from or "2026-01-01")
+    if period_kind == "month":
+        if start.day != 1:
+            start = date(
+                start.year + (1 if start.month == 12 else 0),
+                1 if start.month == 12 else start.month + 1,
+                1,
+            )
+        return {
+            "period_kind": "month",
+            "start": start.isoformat(),
+            "end": date(
+                start.year,
+                start.month,
+                monthrange(start.year, start.month)[1],
+            ).isoformat(),
+        }
+    if period_kind == "day":
+        return {
+            "period_kind": "day",
+            "start": start.isoformat(),
+            "end": start.isoformat(),
+        }
+    return {
+        "period_kind": "tax_year",
+        "start": f"{start.year:04d}-01-01",
+        "end": f"{start.year:04d}-12-31",
+    }
+
+
 def _scalar_formula_value(formula: object) -> int | float | str | bool | None:
     if isinstance(formula, (int, float, bool)):
         return formula
@@ -13857,12 +13907,12 @@ def _append_generic_zero_branch_tests_if_missing(
     rules = rules_payload.get("rules")
     if not isinstance(rules, list):
         return []
-    rule_names = {
-        str(rule.get("name") or "").strip()
+    rules_by_name = {
+        name: rule
         for rule in rules
         if isinstance(rule, dict)
         and str(rule.get("kind") or "").strip().lower() in {"derived", "parameter"}
-        and str(rule.get("name") or "").strip()
+        and (name := str(rule.get("name") or "").strip())
     }
     target_base = _rulespec_anchor_base_for_output(repo_path, relative_output)
     factual_inputs = _local_factual_input_names_from_rules_content(rules_content)
@@ -13881,7 +13931,7 @@ def _append_generic_zero_branch_tests_if_missing(
         if isinstance(test_case, dict)
     }
     for output_name in output_names:
-        if output_name not in rule_names:
+        if output_name not in rules_by_name:
             continue
         if valid_output_names is not None and output_name not in valid_output_names:
             continue
@@ -13903,11 +13953,9 @@ def _append_generic_zero_branch_tests_if_missing(
         test_payload.append(
             {
                 "name": case_name,
-                "period": {
-                    "period_kind": "tax_year",
-                    "start": "2026-01-01",
-                    "end": "2026-12-31",
-                },
+                "period": _generated_test_period_for_rule(
+                    rules_by_name.get(output_name)
+                ),
                 "input": case_inputs,
                 "output": {target: 0},
             }
@@ -14263,11 +14311,7 @@ def _append_generated_derived_output_tests_if_missing(
         test_payload.append(
             {
                 "name": case_name,
-                "period": {
-                    "period_kind": "tax_year",
-                    "start": "2026-01-01",
-                    "end": "2026-12-31",
-                },
+                "period": _generated_test_period_for_rule(rule),
                 "input": dict(input_defaults),
                 "output": {
                     target: _default_generated_test_output_value(
@@ -14479,11 +14523,7 @@ def _build_generated_positive_judgment_case(
 
     return {
         "name": case_name,
-        "period": {
-            "period_kind": "tax_year",
-            "start": "2026-01-01",
-            "end": "2026-12-31",
-        },
+        "period": _generated_test_period_for_rule(rule),
         "input": inputs,
         "output": {target: "holds"},
     }
@@ -28050,12 +28090,16 @@ def _try_repair_generated_nonexact_proof_excerpts_for_apply(
     issues: list[str],
 ) -> list[str]:
     """Align near-match generated proof excerpts to their exact cited source text."""
-    targets = {
-        (match.group("rule"), int(match.group("atom")))
-        for issue in issues
-        if (match := _NONEXACT_PROOF_EXCERPT_ISSUE_PATTERN.search(str(issue)))
-        is not None
-    }
+    targets: dict[tuple[str, int], bool] = {}
+    for issue in issues:
+        issue_text = str(issue)
+        match = _NONEXACT_PROOF_EXCERPT_ISSUE_PATTERN.search(issue_text)
+        if match is None:
+            continue
+        target = (match.group("rule"), int(match.group("atom")))
+        targets[target] = targets.get(target, False) or (
+            "outside the rule's declared subsection scope" in issue_text
+        )
     if not targets:
         return []
     try:
@@ -28090,7 +28134,8 @@ def _try_repair_generated_nonexact_proof_excerpts_for_apply(
         if not isinstance(atoms, list):
             continue
         for atom_index, atom in enumerate(atoms):
-            if (rule_name, atom_index) not in targets or not isinstance(atom, dict):
+            target = (rule_name, atom_index)
+            if target not in targets or not isinstance(atom, dict):
                 continue
             source = atom.get("source")
             if not isinstance(source, dict):
@@ -28111,6 +28156,13 @@ def _try_repair_generated_nonexact_proof_excerpts_for_apply(
                 source_text = cited_source_texts[corpus_citation_path] or source_text
             if not source_text:
                 continue
+            if targets[target]:
+                source_text = _declared_rule_subsection_source_text(
+                    source_text,
+                    rule_source=rule.get("source"),
+                )
+                if not source_text:
+                    continue
             exact_excerpt = _closest_exact_source_excerpt(
                 source_text=source_text,
                 excerpt=excerpt,
@@ -28125,6 +28177,31 @@ def _try_repair_generated_nonexact_proof_excerpts_for_apply(
     if not _install_generated_yaml_payload(rules_file, payload):
         return []
     return repaired
+
+
+def _declared_rule_subsection_source_text(
+    source_text: str,
+    *,
+    rule_source: object,
+) -> str | None:
+    """Limit repair candidates to explicit top-level rule-source subsections."""
+    if not isinstance(rule_source, str):
+        return None
+    declared = {
+        match.group("marker")
+        for match in re.finditer(r"\((?P<marker>[a-z])\)", rule_source)
+    }
+    if not declared:
+        return None
+    source = str(source_text)
+    markers = list(re.finditer(r"(?m)^[ \t]*\((?P<marker>[a-z])\)[ \t]+", source))
+    blocks: list[str] = []
+    for index, marker in enumerate(markers):
+        if marker.group("marker") not in declared:
+            continue
+        end = markers[index + 1].start() if index + 1 < len(markers) else len(source)
+        blocks.append(source[marker.start() : end])
+    return "\n\n".join(blocks) or None
 
 
 def _install_generated_yaml_payload(rules_file: Path, payload: dict) -> bool:
