@@ -4,6 +4,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from scripts.provision_verification_supervisor import _signing_trust_roots_payload
+
 
 def test_provision_replaces_base_runtime_site_packages(tmp_path: Path) -> None:
     git = shutil.which("git")
@@ -109,3 +111,21 @@ def test_provision_replaces_base_runtime_site_packages(tmp_path: Path) -> None:
         for pattern in forbidden_patterns
         for path in destination.rglob(pattern)
     )
+
+
+def test_provision_writes_v3_corpus_release_keyring() -> None:
+    assert _signing_trust_roots_payload(
+        "apply",
+        "eval",
+        "current",
+        ("retired-one", "retired-two"),
+    ) == {
+        "schema": "axiom-encode/signing-trust-roots/v3",
+        "apply_ed25519_public_key": "apply",
+        "eval_ed25519_public_key": "eval",
+        "corpus_release_ed25519_public_keys": [
+            "current",
+            "retired-one",
+            "retired-two",
+        ],
+    }

@@ -255,15 +255,19 @@ def load_rulespec_local_corpus_release(
             "A protected signing broker is required to verify the pinned "
             "corpus release object"
         ) from exc
-    public_key_raw = broker.corpus_release_public_key_raw
-    if public_key_raw is None or len(public_key_raw) != 32:
+    public_keys_raw = broker.corpus_release_public_keys_raw
+    if not public_keys_raw or any(
+        len(public_key) != 32 for public_key in public_keys_raw
+    ):
         raise RuleSpecToolchainError(
-            "The protected signing broker has no valid corpus release public key"
+            "The protected signing broker has no valid corpus release public keyring"
         )
-    public_key = b64encode(public_key_raw).decode("ascii")
+    public_keys = tuple(
+        b64encode(public_key).decode("ascii") for public_key in public_keys_raw
+    )
     return LocalCorpusRelease(
         corpus_root,
         toolchain.corpus_release,
         toolchain.corpus_release_content_sha256,
-        public_key,
+        public_keys,
     )

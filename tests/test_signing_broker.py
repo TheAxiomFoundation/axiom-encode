@@ -70,6 +70,7 @@ def test_typed_apply_and_eval_operations() -> None:
     )
     assert broker.capabilities == frozenset({"apply_ed25519", "eval_ed25519"})
     assert broker.corpus_release_public_key_raw == b"\x17" * 32
+    assert broker.corpus_release_public_keys_raw == (b"\x17" * 32,)
 
 
 def test_apply_and_eval_signatures_are_not_cross_usable_even_with_one_test_key() -> (

@@ -1451,6 +1451,28 @@ def _verify_and_export_encoder_snapshot(
     return declared_version, package
 
 
+def _signing_trust_roots_payload(
+    apply_root: str,
+    eval_root: str,
+    corpus_release_root: str,
+    retired_corpus_release_roots: tuple[str, ...] = (),
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "schema": "axiom-encode/signing-trust-roots/v2",
+        "apply_ed25519_public_key": apply_root,
+        "eval_ed25519_public_key": eval_root,
+        "corpus_release_ed25519_public_key": corpus_release_root,
+    }
+    if retired_corpus_release_roots:
+        payload["schema"] = "axiom-encode/signing-trust-roots/v3"
+        payload.pop("corpus_release_ed25519_public_key")
+        payload["corpus_release_ed25519_public_keys"] = [
+            corpus_release_root,
+            *retired_corpus_release_roots,
+        ]
+    return payload
+
+
 def provision(
     destination: Path,
     supervisor: Path,
@@ -1467,7 +1489,12 @@ def provision(
     encoder_git_root: Path | None = None,
     codex_cli_archive: Path | None = None,
     install_pinned_codex_cli: bool = False,
+    retired_corpus_release_roots: tuple[str, ...] = (),
 ) -> None:
+    if any(not root.strip() for root in retired_corpus_release_roots):
+        raise SystemExit(
+            "refusing to provision: retired corpus release roots must not be empty"
+        )
     encoder_attestation_args = (
         encoder_origin_repository,
         encoder_commit,
@@ -1540,18 +1567,13 @@ def provision(
         )
         launcher.chmod(0o755)
         trust = destination / "signing-trust-roots.json"
-        trust.write_text(
-            json.dumps(
-                {
-                    "schema": "axiom-encode/signing-trust-roots/v2",
-                    "apply_ed25519_public_key": apply_root,
-                    "eval_ed25519_public_key": eval_root,
-                    "corpus_release_ed25519_public_key": corpus_release_root,
-                },
-                sort_keys=True,
-            )
-            + "\n"
+        trust_payload = _signing_trust_roots_payload(
+            apply_root,
+            eval_root,
+            corpus_release_root,
+            retired_corpus_release_roots,
         )
+        trust.write_text(json.dumps(trust_payload, sort_keys=True) + "\n")
         trust.chmod(0o644)
         if provision_encoder:
             assert encoder_origin_repository is not None
@@ -1581,6 +1603,12 @@ if __name__ == "__main__":
     parser.add_argument("--apply-root", required=True)
     parser.add_argument("--eval-root", required=True)
     parser.add_argument("--corpus-release-root", required=True)
+    parser.add_argument(
+        "--retired-corpus-release-root",
+        action="append",
+        default=[],
+        help="Retired verification-only corpus release root; repeat for each key.",
+    )
     parser.add_argument(
         "--install-pinned-codex-cli",
         action="store_true",
@@ -1659,4 +1687,5 @@ if __name__ == "__main__":
         if args.codex_cli_archive is not None
         else None,
         args.install_pinned_codex_cli,
+        tuple(args.retired_corpus_release_root),
     )

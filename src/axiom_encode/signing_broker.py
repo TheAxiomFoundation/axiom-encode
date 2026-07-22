@@ -94,6 +94,9 @@ class SigningBroker(Protocol):
     @property
     def corpus_release_public_key_raw(self) -> bytes | None: ...
 
+    @property
+    def corpus_release_public_keys_raw(self) -> tuple[bytes, ...]: ...
+
     def apply_ed25519_sign(self, payload: bytes) -> bytes: ...
 
     def eval_ed25519_sign(self, payload: bytes) -> bytes: ...
@@ -107,6 +110,7 @@ class BrokerStatus:
     apply_public_key_raw: bytes | None
     eval_public_key_raw: bytes | None
     corpus_release_public_key_raw: bytes | None
+    corpus_release_public_keys_raw: tuple[bytes, ...]
 
 
 def scrub_private_signing_environment(
@@ -176,11 +180,16 @@ class SigningBrokerClient:
         self._closed = False
         os.set_inheritable(self._connection.fileno(), False)
         status = self._request("status")
-        if set(status) != {
+        legacy_status_fields = {
             "capabilities",
             "apply_public_key",
             "eval_public_key",
             "corpus_release_public_key",
+        }
+        status_fields = set(status)
+        if status_fields not in {
+            frozenset(legacy_status_fields),
+            frozenset({*legacy_status_fields, "corpus_release_public_keys"}),
         }:
             raise SigningBrokerError("Signing broker returned malformed status")
         raw_capabilities = status.get("capabilities")
@@ -204,21 +213,52 @@ class SigningBrokerClient:
             status.get("corpus_release_public_key"),
             label="corpus release",
         )
+        encoded_corpus_release_public_keys = status.get("corpus_release_public_keys")
+        if "corpus_release_public_keys" not in status:
+            corpus_release_public_keys_raw = (
+                (corpus_release_public_key_raw,)
+                if corpus_release_public_key_raw is not None
+                else ()
+            )
+        elif not isinstance(encoded_corpus_release_public_keys, list) or not (
+            encoded_corpus_release_public_keys
+        ):
+            raise SigningBrokerError(
+                "Signing broker returned a malformed corpus release public keyring"
+            )
+        else:
+            corpus_release_public_keys_raw = tuple(
+                self._decode_required_status_public_key(
+                    encoded_public,
+                    label="corpus release",
+                )
+                for encoded_public in encoded_corpus_release_public_keys
+            )
+        if (
+            not corpus_release_public_keys_raw
+            or corpus_release_public_keys_raw[0] != corpus_release_public_key_raw
+        ):
+            raise SigningBrokerError(
+                "Signing broker returned a conflicting corpus release public keyring"
+            )
         protected_roots = {
             apply_public_key_raw,
             eval_public_key_raw,
-            corpus_release_public_key_raw,
+            *corpus_release_public_keys_raw,
         }
-        if None in protected_roots or len(protected_roots) != 3:
+        if None in protected_roots or len(protected_roots) != (
+            2 + len(corpus_release_public_keys_raw)
+        ):
             raise SigningBrokerError(
-                "Signing broker must expose three distinct protected apply, eval, "
-                "and corpus release trust roots"
+                "Signing broker must expose distinct protected apply, eval, and "
+                "corpus release trust roots"
             )
         self._status = BrokerStatus(
             frozenset(raw_capabilities),
             apply_public_key_raw,
             eval_public_key_raw,
             corpus_release_public_key_raw,
+            corpus_release_public_keys_raw,
         )
 
     @staticmethod
@@ -248,6 +288,17 @@ class SigningBrokerClient:
                 f"Signing broker returned a malformed {label} public key"
             )
 
+    @classmethod
+    def _decode_required_status_public_key(
+        cls, encoded_public: object, *, label: str
+    ) -> bytes:
+        public_key = cls._decode_status_public_key(encoded_public, label=label)
+        if public_key is None:
+            raise SigningBrokerError(
+                f"Signing broker returned a malformed {label} public key"
+            )
+        return public_key
+
     @property
     def capabilities(self) -> frozenset[str]:
         return self._status.capabilities
@@ -263,6 +314,10 @@ class SigningBrokerClient:
     @property
     def corpus_release_public_key_raw(self) -> bytes | None:
         return self._status.corpus_release_public_key_raw
+
+    @property
+    def corpus_release_public_keys_raw(self) -> tuple[bytes, ...]:
+        return self._status.corpus_release_public_keys_raw
 
     @property
     def broker_pid(self) -> int | None:

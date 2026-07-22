@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import logging
 import re
 from base64 import b64decode
 from binascii import Error as BinasciiError
@@ -15,6 +16,8 @@ from typing import Any
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+logger = logging.getLogger(__name__)
 
 RELEASE_OBJECT_SCHEMA_V2 = "axiom-corpus/release-object/v2"
 RELEASE_OBJECT_SCHEMA_VERSION = "axiom-corpus/release-object/v3"
@@ -94,7 +97,7 @@ def canonical_release_object_bytes(payload: Mapping[str, Any]) -> bytes:
 def verify_release_object(
     payload: Mapping[str, Any],
     *,
-    public_key: str,
+    public_key: str | Sequence[str],
 ) -> VerifiedCorpusReleaseObject:
     """Verify a supported canonical axiom-corpus contract and signature."""
 
@@ -126,14 +129,33 @@ def verify_release_object(
         ) from exc
     if len(raw_signature) != 64:
         raise CorpusReleaseObjectError("release object signature has invalid length")
-    try:
-        _load_ed25519_public_key(public_key).verify(
-            raw_signature,
-            canonical_release_object_bytes(materialized),
-        )
-    except InvalidSignature as exc:
-        raise CorpusReleaseObjectError("release object signature is invalid") from exc
+    public_keys = _release_public_keyring(public_key)
+    loaded_public_keys = tuple(_load_ed25519_public_key(key) for key in public_keys)
+    canonical = canonical_release_object_bytes(materialized)
+    for key_index, loaded_public_key in enumerate(loaded_public_keys):
+        try:
+            loaded_public_key.verify(raw_signature, canonical)
+        except InvalidSignature:
+            continue
+        logger.debug("release object signature verified with key index %d", key_index)
+        break
+    else:
+        raise CorpusReleaseObjectError("release object signature is invalid")
     return verified
+
+
+def _release_public_keyring(public_key: str | Sequence[str]) -> tuple[str, ...]:
+    """Normalize one legacy public key or an ordered verification keyring."""
+
+    if isinstance(public_key, str):
+        return (public_key,)
+    if not isinstance(public_key, Sequence) or not public_key:
+        raise CorpusReleaseObjectError("release public keyring must not be empty")
+    if any(not isinstance(key, str) for key in public_key):
+        raise CorpusReleaseObjectError(
+            "release public keyring must contain only encoded public keys"
+        )
+    return tuple(public_key)
 
 
 def _validate_unsigned_release_object(
