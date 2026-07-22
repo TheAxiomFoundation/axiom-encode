@@ -20871,6 +20871,7 @@ def _run_encode_attempt(
                     _try_repair_generated_nonexact_proof_excerpts_for_apply(
                         result,
                         output_root=args.output,
+                        corpus_release=corpus_release,
                         issues=apply_issues,
                     )
                 )
@@ -27569,9 +27570,10 @@ def _try_repair_generated_nonexact_proof_excerpts_for_apply(
     result,
     *,
     output_root: Path,
+    corpus_release: LocalCorpusRelease | None = None,
     issues: list[str],
 ) -> list[str]:
-    """Align near-match generated proof excerpts to exact embedded source text."""
+    """Align near-match generated proof excerpts to their exact cited source text."""
     targets = {
         (match.group("rule"), int(match.group("atom")))
         for issue in issues
@@ -27596,13 +27598,14 @@ def _try_repair_generated_nonexact_proof_excerpts_for_apply(
         return []
     if not isinstance(payload, dict):
         return []
-    source_text = extract_embedded_source_text(
+    embedded_source_text = extract_embedded_source_text(
         content
     ) or _extract_source_verification_text(content)
-    if not source_text:
+    if not embedded_source_text and corpus_release is None:
         return []
 
     repaired: list[str] = []
+    cited_source_texts: dict[str, str | None] = {}
     for rule in payload.get("rules") or []:
         if not isinstance(rule, dict):
             continue
@@ -27618,6 +27621,19 @@ def _try_repair_generated_nonexact_proof_excerpts_for_apply(
                 continue
             excerpt = source.get("excerpt")
             if not isinstance(excerpt, str) or not excerpt.strip():
+                continue
+            source_text = embedded_source_text
+            corpus_citation_path = str(source.get("corpus_citation_path") or "").strip()
+            if corpus_release is not None and corpus_citation_path:
+                if corpus_citation_path not in cited_source_texts:
+                    cited_source_texts[corpus_citation_path] = (
+                        _local_source_text_for_corpus_path(
+                            corpus_citation_path,
+                            corpus_release=corpus_release,
+                        )
+                    )
+                source_text = cited_source_texts[corpus_citation_path] or source_text
+            if not source_text:
                 continue
             exact_excerpt = _closest_exact_source_excerpt(
                 source_text=source_text,

@@ -7197,6 +7197,63 @@ rules:
     }
 
 
+def test_repair_generated_nonexact_proof_excerpt_uses_child_citation(
+    tmp_path, monkeypatch
+):
+    output_root = tmp_path / "out"
+    rules_file = output_root / "model" / "policies" / "benefit.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  summary: Parent source does not contain the Alberta amount.
+rules:
+- name: alberta_age_amount
+  kind: parameter
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: ca/policy/example/alberta
+          excerpt: maximum age amount of $6,100
+  versions:
+  - effective_from: '2026-01-01'
+    formula: 6100
+"""
+    )
+    requested_paths = []
+
+    def source_text(citation_path, *, corpus_release):
+        requested_paths.append((citation_path, corpus_release))
+        return "The maximum amount for age is $6,100."
+
+    monkeypatch.setattr(
+        "axiom_encode.cli._local_source_text_for_corpus_path",
+        source_text,
+    )
+    corpus_release = SimpleNamespace(name="test-release")
+
+    repaired = _try_repair_generated_nonexact_proof_excerpts_for_apply(
+        SimpleNamespace(output_file=str(rules_file)),
+        output_root=output_root,
+        corpus_release=corpus_release,
+        issues=[
+            "Proof source evidence not found: rule `alberta_age_amount` proof atom "
+            "0 `source.excerpt` does not appear in `ca/policy/example/alberta`."
+        ],
+    )
+
+    assert repaired == ["alberta_age_amount[0]"]
+    assert requested_paths == [("ca/policy/example/alberta", corpus_release)]
+    payload = yaml.safe_load(rules_file.read_text())
+    assert (
+        payload["rules"][0]["metadata"]["proof"]["atoms"][0]["source"]["excerpt"]
+        == "The maximum amount for age is $6,100."
+    )
+
+
 class TestCmdInventory:
     def test_inventory_counts_rulespec_files_and_kinds(self, capsys, tmp_path):
         statute_file = (
