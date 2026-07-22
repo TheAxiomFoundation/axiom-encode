@@ -33244,6 +33244,7 @@ rules: []
         dependent = policy_repo / "statutes/26/63.yaml"
         transitive_dependent = policy_repo / "policies/income_tax/final.yaml"
         third_hop_dependent = policy_repo / "policies/income_tax/payable.yaml"
+        source_digest = "d" * 64
         generated.parent.mkdir(parents=True)
         dependent.parent.mkdir(parents=True)
         transitive_dependent.parent.mkdir(parents=True)
@@ -33262,11 +33263,12 @@ rules:
           0
 """
         )
-        dependent.write_text(
-            """format: rulespec/v1
+        dependent.write_bytes(
+            f"""format: rulespec/v1
 module:
   source_verification:
     corpus_citation_path: us/statute/26/151
+    source_sha256: {source_digest}
 imports:
   - us:statutes/26/151
 rules:
@@ -33288,13 +33290,14 @@ rules:
       - effective_from: '2026-01-01'
         formula: |-
           section_151_exemption_deduction
-"""
+""".replace("\n", "\r\n").encode("utf-8")
         )
-        transitive_dependent.write_text(
-            """format: rulespec/v1
+        transitive_dependent.write_bytes(
+            f"""format: rulespec/v1
 module:
   source_verification:
     corpus_citation_path: us/statute/26/151
+    source_sha256: {source_digest}
 imports:
   - us:statutes/26/63
 rules:
@@ -33316,14 +33319,15 @@ rules:
       - effective_from: '2026-01-01'
         formula: |-
           deductions_referred_to_in_subsection_b
-"""
+""".replace("\n", "\r\n").encode("utf-8")
         )
         third_hop_dependent.write_bytes(
-            """format: rulespec/v1
+            f"""format: rulespec/v1
 module:
   description: Café raw-byte chain
   source_verification:
     corpus_citation_path: us/statute/26/151
+    source_sha256: {source_digest}
 imports:
   - us:policies/income_tax/final
 rules:
@@ -33345,13 +33349,13 @@ rules:
       - effective_from: '2026-01-01'
         formula: |-
           final_deduction
-""".encode("utf-8")
+""".replace("\n", "\r\n").encode("utf-8")
         )
         context_dir = output_root / "context"
         context_dir.mkdir()
         (context_dir / "source.txt").write_text("test source\n")
         source_attestation = _complete_source_attestation(
-            "us/statute/26/151", source_sha256="d" * 64
+            "us/statute/26/151", source_sha256=source_digest
         )
         context_manifest = context_dir / "context-manifest.json"
         context_manifest.write_text(

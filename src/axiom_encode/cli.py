@@ -40753,7 +40753,7 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
         for path in changed_proof_hash_files:
             supplemental_files[
                 _relative_to_rulespec_apply_content_root(path, overlay_content_root)
-            ] = path.read_text()
+            ] = path.read_bytes().decode("utf-8")
         validations = _validate_overlay_files(
             pipeline,
             dependent_pipeline=dependent_pipeline,
@@ -40799,7 +40799,7 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
                                 _relative_to_rulespec_apply_content_root(
                                     path, overlay_content_root
                                 )
-                            ] = path.read_text()
+                            ] = path.read_bytes().decode("utf-8")
                     validations = _validate_overlay_files(
                         pipeline,
                         dependent_pipeline=dependent_pipeline,
@@ -40835,7 +40835,7 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
                         _relative_to_rulespec_apply_content_root(
                             path, overlay_content_root
                         )
-                    ] = path.read_text()
+                    ] = path.read_bytes().decode("utf-8")
                 validations = _validate_overlay_files(
                     pipeline,
                     dependent_pipeline=dependent_pipeline,
