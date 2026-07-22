@@ -37483,6 +37483,61 @@ def _supplemental_source_attestation_issues(
     return issues
 
 
+def _stamp_matching_supplemental_source_attestations(
+    supplemental_files: dict[Path, str],
+    *,
+    attestation: dict[str, object] | None,
+) -> dict[Path, str]:
+    """Bind modified RuleSpec dependents that cite the primary resolved source."""
+
+    if attestation is None:
+        return dict(supplemental_files)
+    source_sha256 = attestation.get("source_sha256")
+    if not isinstance(source_sha256, str) or not source_sha256:
+        return dict(supplemental_files)
+    attested_paths = {
+        str(attestation[field])
+        for field in (
+            "requested_corpus_citation_path",
+            "resolved_corpus_citation_path",
+        )
+        if isinstance(attestation.get(field), str) and attestation.get(field)
+    }
+
+    stamped = dict(supplemental_files)
+    for relative_path, content in sorted(
+        supplemental_files.items(), key=lambda item: item[0].as_posix()
+    ):
+        if relative_path.suffix != RULESPEC_FILE_SUFFIX or relative_path.name.endswith(
+            RULESPEC_TEST_FILE_SUFFIX
+        ):
+            continue
+        try:
+            payload = yaml.safe_load(content)
+        except (UnicodeError, yaml.YAMLError, ValueError):
+            continue
+        if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
+            continue
+        module = payload.get("module")
+        verification = (
+            module.get("source_verification") if isinstance(module, dict) else None
+        )
+        if not isinstance(verification, dict):
+            continue
+        declared_paths = _source_verification_citation_paths(verification)
+        if not declared_paths or not set(declared_paths).issubset(attested_paths):
+            continue
+        if verification.get("source_sha256") == source_sha256:
+            continue
+        verification["source_sha256"] = source_sha256
+        stamped[relative_path] = yaml.safe_dump(
+            payload,
+            sort_keys=False,
+            allow_unicode=True,
+        )
+    return stamped
+
+
 _APPLY_VALIDATION_SNAPSHOT_ATTR = "_axiom_apply_validation_snapshot"
 
 
@@ -40707,6 +40762,29 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
         )
         for _ in range(_APPLY_OVERLAY_VALIDATION_REPAIR_LIMIT):
             if all(validation.all_passed for _, validation in validations):
+                stamped_supplemental_files = (
+                    _stamp_matching_supplemental_source_attestations(
+                        supplemental_files,
+                        attestation=_generated_result_source_attestation(result),
+                    )
+                )
+                if stamped_supplemental_files != supplemental_files:
+                    supplemental_files = stamped_supplemental_files
+                    for relative_path, content in supplemental_files.items():
+                        overlay_path = (
+                            overlay_content_root
+                            / _canonical_apply_relative_path(relative_path)
+                        )
+                        if overlay_path.suffix != RULESPEC_FILE_SUFFIX:
+                            continue
+                        overlay_path.write_text(content)
+                    validations = _validate_overlay_files(
+                        pipeline,
+                        dependent_pipeline=dependent_pipeline,
+                        overlay_target=overlay_target,
+                        dependents=dependents,
+                    )
+                    continue
                 _record_successful_apply_validation(
                     result,
                     output_root=output_root,

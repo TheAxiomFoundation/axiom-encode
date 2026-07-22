@@ -167,6 +167,7 @@ from axiom_encode.cli import (
     _stage_apply_overlay_dependency_root,
     _stage_apply_overlay_dependency_roots,
     _stamp_generated_source_attestation_for_apply,
+    _stamp_matching_supplemental_source_attestations,
     _suppress_rulespec_ancestor_targets_for_subsection_overlay,
     _translate_rulespec_engine_envelope_error,
     _try_repair_generated_aca_36b_b_premium_assistance_compat_for_apply,
@@ -33239,12 +33240,15 @@ rules: []
     ):
         output_root = tmp_path / "out"
         policy_repo = tmp_path / "rulespec-us" / "us"
-        generated = output_root / "codex-test-model" / "statutes/26/151.yaml"
+        generated = output_root / "openai-test-model" / "statutes/26/151.yaml"
         dependent = policy_repo / "statutes/26/63.yaml"
         generated.parent.mkdir(parents=True)
         dependent.parent.mkdir(parents=True)
         generated.write_text(
             """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/151
 rules:
   - name: section_151_exemption_deduction
     kind: parameter
@@ -33257,6 +33261,9 @@ rules:
         )
         dependent.write_text(
             """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/151
 imports:
   - us:statutes/26/151
 rules:
@@ -33280,9 +33287,32 @@ rules:
           section_151_exemption_deduction
 """
         )
-        result = SimpleNamespace(
-            output_file=str(generated), runner="codex-test-model", backend="codex"
+        context_dir = output_root / "context"
+        context_dir.mkdir()
+        (context_dir / "source.txt").write_text("test source\n")
+        source_attestation = _complete_source_attestation(
+            "us/statute/26/151", source_sha256="d" * 64
         )
+        context_manifest = context_dir / "context-manifest.json"
+        context_manifest.write_text(
+            json.dumps(
+                {
+                    "source_text_file": "source.txt",
+                    "source_metadata": {
+                        "source_attestation": source_attestation,
+                    },
+                }
+            )
+            + "\n"
+        )
+        result = SimpleNamespace(
+            output_file=str(generated),
+            runner="openai-test-model",
+            backend="openai",
+            context_manifest_file=str(context_manifest),
+            source_attestation=source_attestation,
+        )
+        dependent_validations: list[str] = []
 
         class FakePipeline:
             def __init__(self, **_kwargs):
@@ -33293,6 +33323,7 @@ rules:
                 if Path(path).name == "151.yaml":
                     return SimpleNamespace(all_passed=True, results={})
                 content = Path(path).read_text()
+                dependent_validations.append(content)
                 if "hash: sha256:old" in content:
                     return SimpleNamespace(
                         all_passed=False,
@@ -33321,11 +33352,43 @@ rules:
                 ),
             )
 
-        assert ok is True
+        assert ok is True, issues
         assert issues == []
         updated = supplemental[Path("statutes/26/63.yaml")]
         assert "hash: sha256:old" not in updated
         assert f"hash: sha256:{_sha256_file(generated)}" in updated
+        assert f"source_sha256: {'d' * 64}" in updated
+        assert dependent_validations[-1] == updated
+
+    def test_supplemental_source_stamp_leaves_other_sources_fail_closed(self):
+        supplemental = {
+            Path("policies/income_tax/pipeline.yaml"): """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-nc/statute/105/105-153.7
+rules: []
+""",
+            Path("policies/income_tax/other.yaml"): """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us-nc/statute/105/105-153.8
+rules: []
+""",
+        }
+        attestation = _complete_source_attestation(
+            "us-nc/statute/105/105-153.7", source_sha256="f" * 64
+        )
+
+        stamped = _stamp_matching_supplemental_source_attestations(
+            supplemental,
+            attestation=attestation,
+        )
+
+        assert (
+            f"source_sha256: {'f' * 64}"
+            in stamped[Path("policies/income_tax/pipeline.yaml")]
+        )
+        assert "source_sha256" not in stamped[Path("policies/income_tax/other.yaml")]
 
     def test_apply_overlay_validation_refreshes_dependent_hashes_after_target_repair(
         self, tmp_path
