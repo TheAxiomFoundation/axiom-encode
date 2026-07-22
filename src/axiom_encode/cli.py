@@ -20867,19 +20867,23 @@ def _run_encode_attempt(
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
             if not can_apply:
-                repaired_excerpts = (
-                    _try_repair_generated_nonexact_proof_excerpts_for_apply(
-                        result,
-                        output_root=args.output,
-                        corpus_release=corpus_release,
-                        issues=apply_issues,
+                repaired_excerpts: list[str] = []
+                while not can_apply:
+                    repaired_refs = (
+                        _try_repair_generated_nonexact_proof_excerpts_for_apply(
+                            result,
+                            output_root=args.output,
+                            corpus_release=corpus_release,
+                            issues=apply_issues,
+                        )
                     )
-                )
-                if repaired_excerpts:
+                    if not repaired_refs:
+                        break
+                    repaired_excerpts.extend(repaired_refs)
                     outcome["auto_repaired_nonexact_proof_excerpts"] = repaired_excerpts
                     print(
                         "  apply=auto_repaired_nonexact_proof_excerpts:"
-                        + ",".join(repaired_excerpts)
+                        + ",".join(repaired_refs)
                     )
                     can_apply, apply_issues, supplemental_files = (
                         _validate_generated_encoding_in_policy_overlay(
@@ -20893,6 +20897,8 @@ def _run_encode_attempt(
                         )
                     )
                     outcome["overlay_validation_success"] = bool(can_apply)
+                if repaired_excerpts:
+                    outcome["auto_repaired_nonexact_proof_excerpts"] = repaired_excerpts
             if not can_apply:
                 repaired_hashes = _try_repair_generated_proof_import_hashes_for_apply(
                     result,
