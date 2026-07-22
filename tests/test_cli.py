@@ -80,6 +80,7 @@ from axiom_encode.cli import (
     _insert_false_input_default,
     _install_apply_transaction,
     _install_eval_suite_revalidation_transaction,
+    _latest_axiom_encode_version_commit,
     _load_verified_applied_encoding_manifest_payload,
     _local_factual_input_names_from_rules_content,
     _looks_like_absolute_rulespec_output_target,
@@ -160,6 +161,7 @@ from axiom_encode.cli import (
     _rulespec_file_for_absolute_module_ref,
     _rulespec_module_source_path,
     _rulespec_scalar_matches,
+    _safe_wrapped_direct_source_match,
     _sha256_file,
     _sha256_text,
     _sign_applied_encoding_manifest,
@@ -758,6 +760,51 @@ def test_current_encoder_affecting_changes_are_behind_version_bump():
     provenance = _require_axiom_encode_version_provenance(repo)
 
     assert provenance["version"] == AXIOM_ENCODE_TEST_VERSION
+
+
+def test_latest_encoder_version_commit_matches_merge_checkout_version(tmp_path):
+    repo = tmp_path / "axiom-encode"
+    base_commit = _init_encoder_identity_checkout(repo, version="0.2.1320")
+
+    def bump_version(old: str, new: str) -> None:
+        for relative in (
+            "pyproject.toml",
+            "src/axiom_encode/__init__.py",
+            "uv.lock",
+        ):
+            path = repo / relative
+            path.write_text(path.read_text().replace(old, new))
+
+    _git(repo, "checkout", "-b", "feature", base_commit)
+    bump_version("0.2.1320", "0.2.1322")
+    (repo / "src/axiom_encode/cli.py").write_text(
+        (repo / "src/axiom_encode/cli.py").read_text() + "\n# feature change\n"
+    )
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "feature version bump")
+    feature_commit = _git(repo, "rev-parse", "HEAD").stdout.strip()
+
+    _git(repo, "checkout", "-b", "base-line", base_commit)
+    bump_version("0.2.1320", "0.2.1321")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "base version bump")
+    base_line_commit = _git(repo, "rev-parse", "HEAD").stdout.strip()
+
+    feature_tree = _git(repo, "rev-parse", f"{feature_commit}^{{tree}}").stdout.strip()
+    merge_commit = _git(
+        repo,
+        "commit-tree",
+        feature_tree,
+        "-p",
+        base_line_commit,
+        "-p",
+        feature_commit,
+        "-m",
+        "synthetic pull request merge",
+    ).stdout.strip()
+    _git(repo, "checkout", "--detach", merge_commit)
+
+    assert _latest_axiom_encode_version_commit(repo) == feature_commit
 
 
 def test_colorado_snap_ecps_uses_absolute_member_relation_only():
@@ -7422,6 +7469,227 @@ agency shall pay $500 per month.
 
 
 @pytest.mark.parametrize(
+    "excerpt",
+    [
+        "The agency shall pay $500 per month.",
+        "The agency shall pay $500",
+    ],
+)
+def test_closest_exact_source_excerpt_rejects_fragment_of_oversized_marked_paragraph(
+    excerpt,
+):
+    source_text = (
+        "(a) This benefit is available only if "
+        + ("household eligibility context remains satisfied and " * 10)
+        + "household income is below the limit. The agency shall\n"
+        + "pay $500 per month.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt=excerpt,
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_rejects_wrapped_fragment_after_same_line_condition():
+    source_text = (
+        "(a) If household income is below the limit, "
+        + ("all documentation requirements must be satisfied and " * 10)
+        + "the agency shall\npay $500 per month.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="the agency shall pay $500 per month.",
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_rejects_fragment_after_so_long_as_condition():
+    source_text = (
+        "(a) So long as household income is below the limit, "
+        + ("all documentation requirements must be satisfied and " * 10)
+        + "the agency shall\npay $500 per month.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="the agency shall pay $500 per month.",
+    )
+
+    assert repaired is None
+
+
+@pytest.mark.parametrize("condition_lead", ["As long as", "Provided"])
+def test_closest_exact_source_excerpt_rejects_other_legal_condition_leads(
+    condition_lead,
+):
+    source_text = (
+        f"(a) {condition_lead} the household income is below the limit, "
+        + ("all documentation requirements must be satisfied and " * 10)
+        + "the agency shall\npay $500 per month.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="the agency shall pay $500 per month.",
+    )
+
+    assert repaired is None
+
+
+@pytest.mark.parametrize(
+    "condition_lead",
+    [
+        "On condition that",
+        "On the condition that",
+        "Conditioned on",
+        "Conditional upon",
+        "Contingent upon",
+        "In case",
+        "Except that",
+    ],
+)
+def test_closest_exact_source_excerpt_rejects_additional_legal_conditions(
+    condition_lead,
+):
+    source_text = (
+        f"(a) {condition_lead} household income is below the limit, "
+        + ("all documentation requirements must be satisfied and " * 10)
+        + "the agency shall\npay $500 per month.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="the agency shall pay $500 per month.",
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_keeps_condition_across_wrapped_cross_reference():
+    source_text = (
+        "(a) If household income is below the limit, "
+        + ("all documentation requirements remain satisfied and " * 11)
+        + "the authority provided under\n(a)(1)\nof this section the agency shall\n"
+        + "pay $500 per month.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="of this section the agency shall pay $500 per month.",
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_uses_current_line_provision_boundary():
+    source_text = (
+        "(a) If household income is below the limit, eligibility applies.\n"
+        "(b) "
+        + ("Administrative background and program context " * 14)
+        + "The agency shall\npay $500 per month.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="The agency shall pay $500 per month.",
+    )
+
+    assert repaired == "The agency shall\npay $500 per month."
+
+
+def test_closest_exact_source_excerpt_uses_standalone_decimal_provision_boundary():
+    source_text = (
+        "1.1 If household income is below the limit, eligibility applies.\n"
+        "1.2\n"
+        + ("Administrative background and program context " * 14)
+        + "The agency shall\npay $500 per month.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="The agency shall pay $500 per month.",
+    )
+
+    assert repaired == "The agency shall\npay $500 per month."
+
+
+def test_closest_exact_source_excerpt_rejects_fragment_after_prior_line_condition():
+    source_text = (
+        "(a) If household income is below the limit,\n"
+        + "all documentation requirements remain satisfied and " * 12
+        + "the agency shall\npay $500 per month.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="the agency shall pay $500 per month.",
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_rejects_enclosed_fragment_after_condition():
+    source_text = (
+        "(a) "
+        + "Administrative background applies. " * 18
+        + "If household income is below the limit,\n"
+        + "the agency shall\npay $500 per month.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="the agency shall pay $500 per month.",
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_rejects_fragment_after_when_condition():
+    source_text = (
+        "(a) Eligibility exists when household income is below the limit. "
+        + "Administrative requirements apply. " * 16
+        + "The agency shall\npay $500 per month.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="The agency shall pay $500 per month.",
+    )
+
+    assert repaired is None
+
+
+@pytest.mark.parametrize(
+    "condition",
+    [
+        "Where household income is below the limit, ",
+        "Whenever household income is below the limit, ",
+        "In the event that household income is below the limit, ",
+        "Provided, however, that household income is below the limit, ",
+    ],
+)
+def test_closest_exact_source_excerpt_rejects_common_legal_condition(condition):
+    source_text = (
+        "(a) "
+        + condition
+        + "all documentation requirements must be satisfied and " * 12
+        + "the agency shall\npay $500 per month.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="the agency shall pay $500 per month.",
+    )
+
+    assert repaired is None
+
+
+@pytest.mark.parametrize(
     ("source_text", "excerpt"),
     [
         (
@@ -7456,6 +7724,204 @@ def test_closest_exact_source_excerpt_keeps_numeric_wrapped_prose_condition(
     assert repaired == source_text.strip()
 
 
+@pytest.mark.parametrize(
+    ("source_text", "excerpt"),
+    [
+        (
+            """(a) If the staffing cap applies, the agency shall not exceed
+1.5 FTE positions when calculating staffing.
+""",
+            "1.5 FTE positions when calculating staffing.",
+        ),
+        (
+            """(a) If the income test applies, the agency shall use
+1.5
+percent of household income when calculating the benefit.
+""",
+            "1.5 percent of household income",
+        ),
+        (
+            """(a) If the staffing cap applies, the agency shall not exceed
+1.5
+FTE
+positions when calculating staffing.
+""",
+            "shall not exceed 1.5 FTE positions",
+        ),
+        (
+            """(a) The applicable rate is
+1.5 percent of household income.
+""",
+            "the applicable rate is 1.5 percent of household income.",
+        ),
+        (
+            """(a) The shipment allowance is
+1.5 kilograms per household.
+""",
+            "the shipment allowance is 1.5 kilograms per household.",
+        ),
+        (
+            """(a) The shipment allowance is
+1.5 kg per household.
+""",
+            "the shipment allowance is 1.5 kg per household.",
+        ),
+        (
+            """(a) The conversion amount is
+1.5 USD per unit.
+""",
+            "the conversion amount is 1.5 USD per unit.",
+        ),
+        (
+            """(a) The allowance equals
+1.5 units per household.
+""",
+            "the allowance equals 1.5 units per household.",
+        ),
+        (
+            """(a) The area equals
+1.5 square feet.
+""",
+            "the area equals 1.5 square feet.",
+        ),
+        (
+            """(a) The threshold equals
+1.5 degrees Celsius.
+""",
+            "the threshold equals 1.5 degrees Celsius.",
+        ),
+        (
+            """(a) The capacity is
+1.5 kW per unit.
+""",
+            "the capacity is 1.5 kW per unit.",
+        ),
+        (
+            """(a) The threshold is
+1.5 \N{DEGREE SIGN}C above baseline.
+""",
+            "the threshold is 1.5 \N{DEGREE SIGN}C above baseline.",
+        ),
+        (
+            """(a) The permitted range is between
+1.5 hours and 2 hours.
+""",
+            "the permitted range is between 1.5 hours and 2 hours.",
+        ),
+        (
+            """(a) The service must last at least
+1.5 hours before eligibility.
+""",
+            "the service must last at least 1.5 hours before eligibility.",
+        ),
+        (
+            """(a) Staffing is
+1.5 full-time equivalent positions.
+""",
+            "staffing is 1.5 full-time equivalent positions.",
+        ),
+    ],
+)
+def test_closest_exact_source_excerpt_keeps_decimal_quantity_condition(
+    source_text,
+    excerpt,
+):
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt=excerpt,
+    )
+
+    assert repaired == source_text.strip()
+
+
+@pytest.mark.parametrize("lead_in", ["is exactly", "is:"])
+def test_closest_exact_source_excerpt_keeps_decimal_after_common_lead_in(lead_in):
+    source_text = f"""(a) If household income is below the limit, the rate {lead_in}
+1.5 percent of household
+income.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="1.5 percent of household income.",
+    )
+
+    assert repaired == source_text.strip()
+
+
+@pytest.mark.parametrize("lead_in", ["receive", "employs", "contains"])
+def test_closest_exact_source_excerpt_keeps_decimal_quantity_after_open_prose(
+    lead_in,
+):
+    source_text = f"""(a) If the household is eligible, it {lead_in}
+1.5 million dollars annually.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="1.5 million dollars annually.",
+    )
+
+    assert repaired == source_text.strip()
+
+
+def test_closest_exact_source_excerpt_rejects_decimal_provision_after_open_prose():
+    source_text = """1.4 Eligibility applies to the household under
+1.5 days for processing are permitted by the agency.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="Eligibility applies to the household under 1.5 days for processing",
+    )
+
+    assert repaired is None
+
+
+@pytest.mark.parametrize("abbreviation", ["No.", "Mr.", "Dr."])
+def test_closest_exact_source_excerpt_keeps_leading_abbreviation_in_condition(
+    abbreviation,
+):
+    source_text = f"""(a) If the applicant is eligible, the application identifies
+{abbreviation} 5 as the recipient of the monthly payment.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt=f"{abbreviation} 5 as the recipient of the monthly payment.",
+    )
+
+    assert repaired == source_text.strip()
+
+
+def test_closest_exact_source_excerpt_splits_before_inline_provision_marker():
+    source_text = "Eligibility applies. (a) The agency shall pay $500 per month."
+
+    candidates = _exact_source_excerpt_candidates(source_text)
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="(a) The agency shall pay $500 per month.",
+    )
+
+    assert "(a) The agency shall pay $500 per month." in candidates
+    assert repaired == "(a) The agency shall pay $500 per month."
+
+
+def test_closest_exact_source_excerpt_seeds_bare_decimal_continuation():
+    source_text = (
+        "(a) "
+        + "Administrative background and eligibility context " * 12
+        + "the agency shall not exceed\n1.5\nFTE\npositions when calculating staffing.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="1.5 FTE positions",
+    )
+
+    assert repaired == "1.5\nFTE\npositions"
+
+
 def test_closest_exact_source_excerpt_keeps_indented_wrapped_cross_reference():
     source_text = """(i) If the household meets the condition described in paragraph
     (a)(1) of this section, the agency shall pay the benefit.
@@ -7470,6 +7936,151 @@ def test_closest_exact_source_excerpt_keeps_indented_wrapped_cross_reference():
     assert repaired is not None
     assert repaired.startswith("(i) If the household meets the condition")
     assert repaired.endswith("the agency shall pay the benefit.")
+
+
+def test_closest_exact_source_excerpt_keeps_described_under_cross_reference():
+    source_text = """(i) If the household meets the condition described under
+(a)(1) of the State plan, the agency shall pay the benefit.
+(ii) Otherwise, no benefit is paid.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="the agency shall pay the benefit",
+    )
+
+    assert repaired == (
+        "(i) If the household meets the condition described under\n"
+        "(a)(1) of the State plan, the agency shall pay the benefit."
+    )
+
+
+@pytest.mark.parametrize("lead_in", ["provided under", "qualifies under"])
+@pytest.mark.parametrize(
+    "program_reference",
+    [
+        "of the State plan",
+        "of the approved State plan",
+        "of the applicable waiver",
+        "of the Medicaid program",
+    ],
+)
+def test_closest_exact_source_excerpt_keeps_state_plan_cross_reference(
+    lead_in,
+    program_reference,
+):
+    source_text = f"""(i) If the household {lead_in}
+(a)(1) {program_reference}, the agency shall pay the benefit.
+(ii) Otherwise, no benefit is paid.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="the agency shall pay the benefit",
+    )
+
+    assert repaired == (
+        f"(i) If the household {lead_in}\n"
+        f"(a)(1) {program_reference}, the agency shall pay the benefit."
+    )
+
+
+def test_closest_exact_source_excerpt_uses_full_line_for_wrapped_cross_reference():
+    source_text = """(a) The eligibility scope is described under
+(a)(1) eligibility applies to the household, and the agency shall pay the benefit.
+"""
+
+    direct_match = re.search(
+        r"under\s+\(a\)\(1\) eligibility applies to the household, "
+        r"and the agency shall pay the benefit\.",
+        source_text,
+    )
+
+    assert direct_match is not None
+    assert _safe_wrapped_direct_source_match(source_text, direct_match) == (
+        "under\n(a)(1) eligibility applies to the household, "
+        "and the agency shall pay the benefit."
+    )
+
+
+def test_closest_exact_source_excerpt_keeps_wrapped_cfr_part_citation():
+    source_text = """(i) If the household meets the rule in 42 C.F.R.
+pt. 435, the agency shall pay the benefit.
+(ii) Otherwise, no benefit is paid.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="the agency shall pay the benefit",
+    )
+
+    assert repaired == (
+        "(i) If the household meets the rule in 42 C.F.R.\n"
+        "pt. 435, the agency shall pay the benefit."
+    )
+
+
+@pytest.mark.parametrize("reference", ["ch. IV", "subpt. A", "no. 5"])
+def test_closest_exact_source_excerpt_keeps_other_wrapped_cfr_references(reference):
+    source_text = f"""(i) If the household meets the rule in 42 C.F.R.
+{reference}, the agency shall pay the benefit.
+(ii) Otherwise, no benefit is paid.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="the agency shall pay the benefit",
+    )
+
+    assert repaired == (
+        "(i) If the household meets the rule in 42 C.F.R.\n"
+        f"{reference}, the agency shall pay the benefit."
+    )
+
+
+def test_closest_exact_source_excerpt_fails_closed_after_except_as_provided_condition():
+    source_text = (
+        "(a) Except as provided in subsection (b), "
+        + "all documentation requirements remain satisfied and " * 11
+        + "the agency shall\npay $500 per month.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="the agency shall pay $500 per month.",
+    )
+
+    assert repaired is None
+
+
+@pytest.mark.parametrize(
+    "condition",
+    [
+        "Notwithstanding subsection (b),",
+        "To the extent that household income is below the limit,",
+        "Upon a finding that household income is below the limit,",
+        "Except as required by subsection (b),",
+        "Subject, however, to subsection (b),",
+        "Provided further that household income is below the limit,",
+        "After the Secretary determines eligibility,",
+        "During any period in which household income is below the limit,",
+    ],
+)
+def test_closest_exact_source_excerpt_fails_closed_after_additional_governing_clause(
+    condition,
+):
+    source_text = (
+        f"(a) {condition} "
+        + "all documentation requirements remain satisfied and " * 11
+        + "the agency shall\npay $500 per month.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="the agency shall pay $500 per month.",
+    )
+
+    assert repaired is None
 
 
 def test_exact_source_excerpt_candidates_do_not_join_under_lead_in_provisions():
@@ -7521,6 +8132,1229 @@ def test_closest_exact_source_excerpt_fails_closed_for_over_limit_condition():
     repaired = _closest_exact_source_excerpt(
         source_text=source_text,
         excerpt="The agency shall pay $500 per month.",
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_repairs_wrapped_match_in_long_paragraph():
+    source_text = (
+        "(i) The applicable individual receives "
+        + "inpatient and other listed medical services " * 12
+        + "for \nindividuals under the age of 21 without regard to setting; or\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="for individuals under the age of 21",
+    )
+
+    assert repaired == "for \nindividuals under the age of 21"
+
+
+def test_closest_exact_source_excerpt_keeps_wrapped_cross_reference_in_long_paragraph():
+    source_text = (
+        "(i) The applicable individual satisfies "
+        + "all other eligibility requirements and " * 14
+        + "the condition described in paragraph\n"
+        + "(a)(1) of this section before receiving the benefit.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="described in paragraph (a)(1) of this section",
+    )
+
+    assert repaired == "described in paragraph\n(a)(1) of this section"
+
+
+def test_closest_exact_source_excerpt_rejects_wrapped_match_across_blank_line():
+    source_text = "first eligibility condition\n\nsecond eligibility condition\n"
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="first eligibility condition second eligibility condition",
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_rejects_match_ending_at_new_marker():
+    source_text = """(a) Eligibility applies to
+(b) The agency excludes gifts from income.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="applies to (b)",
+    )
+
+    assert repaired is None
+
+
+@pytest.mark.parametrize("marker", ["2)", "-", "*", "\N{BULLET}"])
+def test_closest_exact_source_excerpt_rejects_list_item_boundary(marker):
+    source_text = (
+        "1) "
+        + "Administrative background and eligibility context " * 12
+        + f"eligibility applies\n{marker} The agency excludes gifts from income.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt=f"eligibility applies {marker} The agency excludes gifts",
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_rejects_standalone_heading_boundary():
+    source_text = (
+        "(a) "
+        + "Administrative background and eligibility context " * 12
+        + "eligibility applies\nEXCLUSIONS\nThe agency excludes gifts from income.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="eligibility applies EXCLUSIONS The agency excludes gifts",
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_rejects_title_case_heading_boundary():
+    source_text = (
+        "(a) "
+        + "Administrative background and eligibility context " * 12
+        + "eligibility applies\nGeneral Exclusions\nThe agency excludes gifts.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="eligibility applies General Exclusions The agency excludes gifts.",
+    )
+
+    assert repaired is None
+
+
+@pytest.mark.parametrize("heading", ["Exclusions", "EXCLUSIONS:"])
+def test_closest_exact_source_excerpt_rejects_punctuated_or_single_word_heading(
+    heading,
+):
+    source_text = (
+        "(a) "
+        + "Administrative background and eligibility context " * 12
+        + f"eligibility applies\n{heading}\nThe agency excludes gifts.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt=f"eligibility applies {heading} The agency excludes gifts.",
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_keeps_wrapped_title_case_legal_term():
+    source_text = """(a) The agency shall use the
+Federal Poverty Level
+when determining eligibility.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="eligibility uses the federal poverty level",
+    )
+
+    assert repaired == source_text.strip()
+
+
+def test_closest_exact_source_excerpt_keeps_wrapped_all_caps_legal_term():
+    source_text = """(a) The agency shall use the
+FEDERAL POVERTY LEVEL
+when determining eligibility.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="eligibility uses the federal poverty level",
+    )
+
+    assert repaired == source_text.strip()
+
+
+@pytest.mark.parametrize(
+    "lead_in", ["shall apply", "calculates benefits using", "covers"]
+)
+def test_closest_exact_source_excerpt_keeps_wrapped_title_term_after_verb(lead_in):
+    source_text = f"""(a) If household income is below the limit, the agency {lead_in}
+Standard Benefit Amount
+To every qualifying
+household.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="To every qualifying household.",
+    )
+
+    assert repaired == source_text.strip()
+
+
+def test_closest_exact_source_excerpt_rejects_standalone_new_marker():
+    source_text = """(a) Eligibility applies to
+(b)
+The agency excludes gifts from income.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="applies to (b)",
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_keeps_standalone_cross_reference_marker():
+    source_text = (
+        "(i) "
+        + "Administrative background and eligibility context " * 12
+        + "described in paragraph\n(a)(1)\nof this section.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="described in paragraph (a)(1)",
+    )
+
+    assert repaired == "described in paragraph\n(a)(1)"
+
+
+def test_closest_exact_source_excerpt_keeps_bare_marker_followed_by_cross_reference():
+    source_text = (
+        "(i) "
+        + "Administrative background and eligibility context " * 12
+        + "provided under\n(a)(1)\nof this section.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="provided under (a)(1) of this section",
+    )
+
+    assert repaired == "provided under\n(a)(1)\nof this section"
+
+
+def test_closest_exact_source_excerpt_keeps_bare_marker_followed_by_act_reference():
+    source_text = (
+        "(i) "
+        + "Administrative background and eligibility context " * 12
+        + "provided under\n(a)(1)\nof this Act before payment.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="provided under (a)(1) of this Act",
+    )
+
+    assert repaired == "provided under\n(a)(1)\nof this Act"
+
+
+@pytest.mark.parametrize(
+    ("following", "excerpt"),
+    [
+        (
+            "of the Social Security Act before payment.",
+            "described under (a)(1) of the Social Security Act",
+        ),
+        (
+            "of title XIX of the Social Security Act.",
+            "described under (a)(1) of title XIX",
+        ),
+    ],
+)
+def test_closest_exact_source_excerpt_keeps_bare_named_act_reference(
+    following,
+    excerpt,
+):
+    source_text = (
+        "(i) "
+        + "Administrative background and eligibility context " * 12
+        + f"described under\n(a)(1)\n{following}\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt=excerpt,
+    )
+
+    assert repaired is not None
+    assert repaired in source_text
+    assert "described under\n(a)(1)" in repaired
+
+
+def test_closest_exact_source_excerpt_keeps_bare_marker_followed_by_subpart_reference():
+    source_text = (
+        "(i) "
+        + "Administrative background and eligibility context " * 12
+        + "provided under\n(a)(1)\nof this subpart before payment.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="provided under (a)(1) of this subpart",
+    )
+
+    assert repaired == "provided under\n(a)(1)\nof this subpart"
+
+
+def test_closest_exact_source_excerpt_rejects_bare_marker_before_ordinary_prose():
+    source_text = """(a)(1) General amount applies to
+(a)(2)
+Of this amount, $100 shall be excluded.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="General amount applies to (a)(2) Of this amount",
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_rejects_two_level_provision_boundary():
+    source_text = (
+        "(a) "
+        + "Administrative background and eligibility context " * 12
+        + "eligibility applies to\n1.2 The agency excludes gifts from income.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="eligibility applies to 1.2 The agency excludes gifts",
+    )
+
+    assert repaired is None
+
+
+@pytest.mark.parametrize(
+    "marker",
+    [
+        "1.2. The agency excludes gifts from income.",
+        "1.2 (a) The agency excludes gifts from income.",
+        "1.2 \N{LEFT DOUBLE QUOTATION MARK}Income\N{RIGHT DOUBLE QUOTATION MARK} means all receipts.",
+    ],
+)
+def test_closest_exact_source_excerpt_rejects_common_two_level_markers(marker):
+    source_text = (
+        "(a) "
+        + "Administrative background and eligibility context " * 12
+        + f"eligibility applies to\n{marker}\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt=f"eligibility applies to {marker[:-1]}",
+    )
+
+    assert repaired is None
+
+
+@pytest.mark.parametrize(
+    "lead_in",
+    [
+        "the preceding requirement is governed under",
+        "the chapter consists of",
+        "the agency must use",
+    ],
+)
+def test_closest_exact_source_excerpt_checks_body_before_decimal_suppression(
+    lead_in,
+):
+    source_text = (
+        "(a) "
+        + "Administrative background and eligibility context " * 12
+        + f"{lead_in}\n1.2 The agency excludes gifts from income.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt=f"{lead_in} 1.2 The agency excludes gifts",
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_rejects_parenthesized_two_level_marker():
+    source_text = (
+        "(a) "
+        + "Administrative background and eligibility context " * 12
+        + "eligibility applies to\n1.2(a) The agency excludes gifts.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="eligibility applies to 1.2(a) The agency excludes gifts",
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_rejects_parenthesized_three_level_marker():
+    source_text = (
+        "4.407.0 "
+        + "Administrative background and eligibility context " * 12
+        + "eligibility applies\n4.407.1(a) The agency excludes gifts.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="eligibility applies 4.407.1(a) The agency excludes gifts.",
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_rejects_bare_two_level_provision_boundary():
+    source_text = (
+        "(a) "
+        + "Administrative background and eligibility context " * 12
+        + "eligibility applies to\n1.2\nThe agency excludes gifts from income.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="eligibility applies to 1.2 The agency excludes gifts",
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_rejects_parenthesized_bare_two_level_boundary():
+    source_text = """1.1 Eligibility applies
+1.2(a)
+The agency excludes gifts from income.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="Eligibility applies 1.2(a) The agency excludes gifts",
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_keeps_lowercase_unit_after_parenthetical_marker():
+    source_text = """(a)(1) Eligibility
+(a)(2)
+hours of service are counted.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="hours of service are counted.",
+    )
+
+    assert repaired == "(a)(2)\nhours of service are counted."
+
+
+@pytest.mark.parametrize(
+    "source_text",
+    [
+        "1.1 eligibility\n1.2 the agency excludes gifts from income.\n",
+        "1.1 Eligibility applies\n1.2(a)\nthe agency excludes gifts from income.\n",
+        "1.1 ELIGIBILITY\n1.2 INCOME LIMITS\nThe agency excludes gifts from income.\n",
+        "1.4 Eligibility\n1.5 Hours of service. The agency excludes gifts from income.\n",
+    ],
+)
+def test_closest_exact_source_excerpt_rejects_lowercase_two_level_boundary(
+    source_text,
+):
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="the agency excludes gifts from income.",
+    )
+
+    assert repaired is not None
+    assert "the agency excludes gifts from income." in repaired.casefold()
+    assert "1.1" not in repaired
+
+
+def test_closest_exact_source_excerpt_keeps_two_level_governing_condition():
+    source_text = """1. Introduction.
+1.2 If household income is low. The agency shall pay $500.
+2. Other rule.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="The agency shall pay $500.",
+    )
+
+    assert repaired == "1.2 If household income is low. The agency shall pay $500."
+
+
+def test_closest_exact_source_excerpt_rejects_wrapped_sentence_boundary():
+    source_text = (
+        "(a) If household income is below the limit, "
+        + "all documentation requirements must be satisfied and " * 10
+        + "eligibility is established.\nThe agency shall pay $500 per month.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="eligibility is established. The agency shall pay $500 per month.",
+    )
+
+    assert repaired is None
+
+
+@pytest.mark.parametrize(
+    "closing",
+    [")", '"', "']", "\N{RIGHT DOUBLE QUOTATION MARK}", "[1]", " (citation)"],
+)
+def test_closest_exact_source_excerpt_rejects_closed_sentence_boundary(closing):
+    source_text = (
+        "(a) "
+        + "Administrative background and eligibility context " * 12
+        + f"eligibility is established.{closing}\n"
+        + "The agency shall pay $500 per month.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt=f"eligibility is established.{closing} The agency shall pay $500",
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_rejects_inline_closed_sentence_boundary():
+    source_text = (
+        "(a) "
+        + "Administrative background and eligibility context " * 12
+        + "Eligibility is established.\N{RIGHT DOUBLE QUOTATION MARK} The agency shall\n"
+        + "pay $500 per month.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt=(
+            "Eligibility is established.\N{RIGHT DOUBLE QUOTATION MARK} "
+            "The agency shall pay $500"
+        ),
+    )
+
+    assert repaired is None
+
+
+@pytest.mark.parametrize(
+    "opening",
+    ['"', "'", "\N{LEFT SINGLE QUOTATION MARK}", "\N{LEFT DOUBLE QUOTATION MARK}", "["],
+)
+def test_closest_exact_source_excerpt_rejects_sentence_before_opening_quote(opening):
+    source_text = (
+        "(a) "
+        + "Administrative background and eligibility context " * 12
+        + f"Eligibility is established. {opening}The agency shall\n"
+        + "pay $500 per month.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt=f"Eligibility is established. {opening}The agency shall pay $500",
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_rejects_sentence_after_appendix_letter():
+    source_text = (
+        "(a) "
+        + "Administrative background and eligibility context " * 12
+        + "Requirements are listed in appendix L. The agency shall\n"
+        + "pay $500 per month.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="appendix L. The agency shall pay $500 per month.",
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_rejects_sentence_after_us_abbreviation():
+    source_text = (
+        "(a) "
+        + "Administrative background and eligibility context " * 12
+        + "Applicants reside in the U.S. The agency shall\n"
+        + "pay $500 per month.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="U.S. The agency shall pay $500 per month.",
+    )
+
+    assert repaired is None
+
+
+@pytest.mark.parametrize(
+    "continuation",
+    [
+        "Virgin Islands",
+        "Armed Forces",
+        "Attorney General",
+        "Secretary",
+        "Bureau",
+        "Congress",
+        "mail",
+    ],
+)
+def test_closest_exact_source_excerpt_keeps_wrapped_us_term(continuation):
+    source_text = f"""(a) If the applicant is served through the U.S.
+{continuation}, the agency shall pay the benefit.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="the agency shall pay the benefit",
+    )
+
+    assert repaired == source_text.strip()
+
+
+def test_closest_exact_source_excerpt_rejects_roman_letter_word_after_sentence():
+    source_text = (
+        "(a) "
+        + "Administrative background and eligibility context " * 12
+        + "The applicable rule appears in the Reg.\n"
+        + "Civil penalties apply. The agency shall pay the benefit.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="Reg. Civil penalties apply. The agency shall pay the benefit.",
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_rejects_adjacent_table_rows():
+    source_text = "\n".join(f"row {index}  ${index * 100}" for index in range(1, 50))
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="row 20 $2000 row 21 $2100",
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_rejects_prose_to_first_table_row():
+    source_text = (
+        "(a) "
+        + "Administrative background and eligibility context " * 12
+        + "benefits are\n1  $291\n2  $535\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="benefits are 1 $291",
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_rejects_prose_to_single_numeric_table_row():
+    source_text = (
+        "(a) "
+        + "Administrative background and eligibility context " * 12
+        + "benefits are\n1 $291\n"
+    )
+
+    spanning = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="benefits are 1 $291",
+    )
+    row = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="1 $291",
+    )
+
+    assert spanning is None
+    assert row == "1 $291"
+
+
+def test_closest_exact_source_excerpt_rejects_table_row_to_prose():
+    source_text = (
+        "(a) "
+        + "Administrative background and eligibility context " * 12
+        + "benefits are\n1 $291\nThe agency excludes gifts.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="1 $291 The agency excludes gifts",
+    )
+
+    assert repaired is None
+
+
+@pytest.mark.parametrize(
+    ("separator", "excerpt"),
+    [
+        ("  ", "Description The agency excludes gifts"),
+        ("  ", "Category Description The agency excludes gifts"),
+        ("\t", "Description The agency excludes gifts"),
+        (" | ", "Description The agency excludes gifts"),
+        ("| ", "Description The agency excludes gifts"),
+    ],
+)
+def test_closest_exact_source_excerpt_rejects_single_table_header_to_prose(
+    separator,
+    excerpt,
+):
+    source_text = (
+        "(a) "
+        + "Administrative background and eligibility context " * 12
+        + f"Category{separator}Description\nThe agency excludes gifts.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt=excerpt,
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_keeps_wrapped_legal_abbreviation():
+    source_text = (
+        "(a) "
+        + "Administrative background and eligibility context " * 12
+        + "the rule is defined under 29 U.S.C.\n206(a)(1)(C) for every household.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="defined under 29 U.S.C. 206(a)(1)(C)",
+    )
+
+    assert repaired == "defined under 29 U.S.C.\n206(a)(1)(C)"
+
+
+def test_closest_exact_source_excerpt_keeps_wrapped_cfr_citation():
+    source_text = """(a) The eligibility rule is defined under 42 C.F.R.
+435.119(a) for applicable households.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="defined under 42 C.F.R. 435.119(a)",
+    )
+
+    assert repaired == source_text.strip()
+
+
+def test_closest_exact_source_excerpt_keeps_section_symbol_cfr_citation_wrap():
+    section = "\N{SECTION SIGN}"
+    source_text = f"""(a) The eligibility rule is defined under 42 C.F.R. {section}
+435.119(a) for applicable households.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt=f"defined under 42 C.F.R. {section} 435.119(a)",
+    )
+
+    assert repaired == source_text.strip()
+
+
+@pytest.mark.parametrize("reference", ["435.119(a)", "\N{SECTION SIGN} 435.119(a)"])
+def test_closest_exact_source_excerpt_keeps_bare_wrapped_cfr_reference(reference):
+    source_text = f"""(i) If the household meets the rule in 42 C.F.R.
+{reference}
+that applies, the agency shall pay the benefit.
+(ii) Otherwise, no benefit is paid.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="the agency shall pay the benefit",
+    )
+
+    assert repaired == (
+        "(i) If the household meets the rule in 42 C.F.R.\n"
+        f"{reference}\n"
+        "that applies, the agency shall pay the benefit."
+    )
+
+
+def test_closest_exact_source_excerpt_keeps_conditional_section_reference():
+    source_text = """(i) If the requirements under
+\N{SECTION SIGN} 435.119(a) apply to the household, the agency shall pay the benefit.
+(ii) Otherwise, no benefit is paid.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="the agency shall pay the benefit",
+    )
+
+    assert repaired == (
+        "(i) If the requirements under\n"
+        "\N{SECTION SIGN} 435.119(a) apply to the household, "
+        "the agency shall pay the benefit."
+    )
+
+
+@pytest.mark.parametrize(
+    ("source_text", "excerpt"),
+    [
+        (
+            "(a) The benefit was authorized by Pub.\nL. No. 117-2 for 2026.\n",
+            "authorized by Pub. L. No. 117-2",
+        ),
+        (
+            "(a) The procedure is described in Rev.\nProc. 2026-1 for applicants.\n",
+            "described in Rev. Proc. 2026-1",
+        ),
+        (
+            "(a) The eligibility rule is defined under 42 C.F.R.\n"
+            "\N{SECTION SIGN} 435.119(a) for applicable households.\n",
+            "defined under 42 C.F.R. \N{SECTION SIGN} 435.119(a)",
+        ),
+    ],
+)
+def test_closest_exact_source_excerpt_keeps_split_legal_abbreviation_sequence(
+    source_text,
+    excerpt,
+):
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt=excerpt,
+    )
+
+    assert repaired == source_text.strip()
+
+
+@pytest.mark.parametrize(
+    "reference_body",
+    ["of the SOCIAL SECURITY ACT", "of Title XIX"],
+)
+def test_closest_exact_source_excerpt_keeps_cased_named_cross_reference(
+    reference_body,
+):
+    source_text = (
+        "(i) "
+        + "Administrative background and eligibility context " * 12
+        + "described under\n(a)(1)\n"
+        + f"{reference_body} before payment.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt=f"described under (a)(1) {reference_body}",
+    )
+
+    assert repaired == f"described under\n(a)(1)\n{reference_body}"
+
+
+def test_closest_exact_source_excerpt_rejects_sentence_after_legal_abbreviation():
+    source_text = (
+        "(a) "
+        + "Administrative background and eligibility context " * 12
+        + "the rule is governed by 29 U.S.C.\nThe agency shall pay $500.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="29 U.S.C. The agency shall pay $500.",
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_keeps_double_spaced_wrapped_prose():
+    source_text = (
+        "(a) "
+        + "Administrative background applies.  " * 20
+        + "the agency shall\npay $500 per month.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="the agency shall pay $500 per month.",
+    )
+
+    assert repaired == "the agency shall\npay $500 per month."
+
+
+def test_closest_exact_source_excerpt_keeps_wrapped_currency_prose():
+    source_text = (
+        "(a) "
+        + "Administrative background and eligibility context " * 12
+        + "the agency shall pay\n$500 per month to each household.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="shall pay $500 per month",
+    )
+
+    assert repaired == "shall pay\n$500 per month"
+
+
+def test_closest_exact_source_excerpt_keeps_multiline_wrapped_currency_prose():
+    source_text = (
+        "(a) "
+        + "Administrative background and eligibility context " * 12
+        + "the agency shall pay\n$500 per month to\neach qualifying household.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="shall pay $500 per month to each qualifying household",
+    )
+
+    assert repaired == "shall pay\n$500 per month to\neach qualifying household"
+
+
+def test_closest_exact_source_excerpt_rejects_second_currency_wrap():
+    source_text = (
+        "(a) "
+        + "Administrative background and eligibility context " * 12
+        + "the agency shall pay\n$500 per month to\neach household under the program\n"
+        + "benefits are\n$291\nfor category one\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt=(
+            "shall pay $500 per month to each household under the program "
+            "benefits are $291 for category one"
+        ),
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_rejects_isolated_dollar_row():
+    source_text = (
+        "(a) "
+        + "Administrative background and eligibility context " * 12
+        + "benefit schedule follows\n$291\nDetails follow.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="benefit schedule follows $291",
+    )
+
+    assert repaired is None
+
+
+@pytest.mark.parametrize(
+    "lead_in",
+    [
+        "the benefit amount is",
+        "the benefit equals",
+        "the benefit shall not exceed",
+        "the benefit may be up to",
+    ],
+)
+def test_closest_exact_source_excerpt_keeps_wrapped_currency_amount(lead_in):
+    source_text = (
+        "(a) "
+        + "Administrative background and eligibility context " * 12
+        + f"{lead_in}\n$500 per month.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt=f"{lead_in} $500 per month",
+    )
+
+    assert repaired == f"{lead_in}\n$500 per month"
+
+
+def test_closest_exact_source_excerpt_keeps_solitary_wrapped_amount_with_condition():
+    source_text = """(a) If household income is below the limit, the benefit shall be
+$500 per month.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="payment of $500 per month",
+    )
+
+    assert repaired == source_text.strip()
+
+
+def test_closest_exact_source_excerpt_rejects_wrapped_currency_table_rows():
+    source_text = (
+        "(a) "
+        + "Administrative background and eligibility context " * 12
+        + "benefits are\n$291\n$535\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="benefits are $291",
+    )
+
+    assert repaired is None
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    ["applies to every applicant.\n", ""],
+)
+def test_closest_exact_source_excerpt_keeps_standalone_lead_in_cross_reference(
+    suffix,
+):
+    source_text = (
+        "(i) "
+        + "Administrative background and eligibility context " * 12
+        + "described in paragraph\n(a)(1)\n"
+        + suffix
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="described in paragraph (a)(1)",
+    )
+
+    assert repaired == "described in paragraph\n(a)(1)"
+
+
+@pytest.mark.parametrize(
+    "lead_in", ["under", "pursuant to", "required by", "set forth in"]
+)
+def test_closest_exact_source_excerpt_rejects_ambiguous_bare_reference_lead_in(
+    lead_in,
+):
+    source_text = f"""(a)(1) Scope governed {lead_in}
+(a)(2)
+The agency shall exclude gifts from income.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt=f"Scope governed {lead_in} (a)(2) The agency shall exclude gifts",
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_repairs_orphaned_wrapped_sentence():
+    source_text = (
+        "(a) "
+        + "Administrative background and eligibility context. " * 12
+        + "The agency shall\npay $500 per month.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="The agency shall pay $500 per month.",
+    )
+
+    assert repaired == "The agency shall\npay $500 per month."
+
+
+def test_closest_exact_source_excerpt_rejects_internal_sentence_boundary_before_wrap():
+    source_text = (
+        "(a) "
+        + "Administrative background and eligibility context " * 12
+        + "eligibility is established. The agency shall\npay $500 per month.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="eligibility is established. The agency shall pay $500",
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_rejects_sentence_after_inline_legal_citation():
+    source_text = (
+        "(a) "
+        + "Administrative background applies. " * 20
+        + "The rule is governed by 29 U.S.C. The agency shall\n"
+        + "pay $500 per month.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="29 U.S.C. The agency shall pay $500",
+    )
+
+    assert repaired is None
+
+
+@pytest.mark.parametrize("heading", ["General Exclusions", "Income or Resources"])
+def test_closest_exact_source_excerpt_rejects_structural_first_line_before_wrap(
+    heading,
+):
+    source_text = (
+        "(a) "
+        + "Administrative background and eligibility context. " * 12
+        + f"\n{heading}\nThe agency excludes gifts.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt=f"{heading} The agency excludes gifts",
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_rejects_heading_suffix_before_wrap():
+    source_text = (
+        "(a) "
+        + "Administrative background and eligibility context. " * 12
+        + "\nGeneral Exclusions\nThe agency excludes gifts from income.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="Exclusions The agency excludes gifts",
+    )
+
+    assert repaired is None
+
+
+@pytest.mark.parametrize(
+    "heading",
+    [
+        "Subpart A\N{EM DASH}General Provisions",
+        "SECTION 435.1\N{EM DASH}SCOPE",
+        "Sec. 435.1 Scope",
+    ],
+)
+def test_closest_exact_source_excerpt_rejects_regulation_heading_before_wrap(
+    heading,
+):
+    source_text = f"""(a) Administrative background applies.
+{heading}
+The agency excludes gifts from income.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt=f"{heading} The agency excludes gifts from income.",
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_keeps_wrapped_lowercase_section_reference():
+    source_text = """(a) If the household incurs medical expenses as defined in
+section 213(d) of the Internal Revenue Code, the agency shall pay the benefit.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="the agency shall pay the benefit",
+    )
+
+    assert repaired == source_text.strip()
+
+
+@pytest.mark.parametrize(
+    "abbreviation",
+    ["St. Louis County", "Ft. Worth", "Mt. Vernon", "Rt. 5", "Id. at 5", "Ex. B"],
+)
+def test_closest_exact_source_excerpt_keeps_wrapped_two_letter_abbreviation(
+    abbreviation,
+):
+    source_text = f"""(a) If the applicant resides in
+{abbreviation}, the agency shall pay the benefit.
+"""
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="the agency shall pay the benefit",
+    )
+
+    assert repaired == source_text.strip()
+
+
+@pytest.mark.parametrize(
+    ("marker", "marker_body"),
+    [
+        ("(aa)", "\nThe agency excludes gifts from income."),
+        ("(bb)", " The agency excludes gifts from income."),
+        ("(AA)", " The agency excludes gifts from income."),
+    ],
+)
+def test_closest_exact_source_excerpt_rejects_double_letter_marker_boundary(
+    marker,
+    marker_body,
+):
+    source_text = (
+        "(a) "
+        + "Administrative background and eligibility context " * 12
+        + f"eligibility applies\n{marker}{marker_body}\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt=f"eligibility applies {marker} The agency excludes gifts",
+    )
+
+    assert repaired is None
+
+
+@pytest.mark.parametrize("marker", ["II)", "IV)", "AA)", "1000)"])
+def test_closest_exact_source_excerpt_rejects_multichar_list_marker_boundary(marker):
+    source_text = (
+        "(a) "
+        + "Administrative background and eligibility context " * 12
+        + f"eligibility applies\n{marker} The agency shall\npay $500 per month.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt=f"eligibility applies {marker} The agency shall pay $500",
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_rejects_uppercase_roman_dot_marker_boundary():
+    source_text = (
+        "(a) "
+        + "Administrative background and eligibility context " * 12
+        + "eligibility applies\nV. The agency shall\npay $500 per month.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt="eligibility applies V. The agency shall pay $500",
+    )
+
+    assert repaired is None
+
+
+def test_closest_exact_source_excerpt_rejects_section_symbol_marker_boundary():
+    source_text = (
+        "(a) "
+        + "Administrative background and eligibility context " * 12
+        + "eligibility applies\n"
+        + "\N{SECTION SIGN} 435.1 Scope\nThe agency shall\npay $500 per month.\n"
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt=(
+            "eligibility applies \N{SECTION SIGN} 435.1 Scope The agency shall pay $500"
+        ),
     )
 
     assert repaired is None
@@ -7619,6 +9453,66 @@ rules:
 
     assert repaired == []
     assert not validation.passed
+
+
+def test_repair_generated_wrapped_proof_excerpt_in_over_limit_paragraph(
+    tmp_path, monkeypatch
+):
+    source_text = (
+        "(i) The applicable individual receives "
+        + "inpatient and other listed medical services " * 12
+        + "for \nindividuals under the age of 21 without regard to setting; or\n"
+    )
+    output_root = tmp_path / "out"
+    rules_file = output_root / "model" / "regulations" / "435" / "555.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+rules:
+- name: inpatient_psychiatric_service_under_age_limit
+  kind: parameter
+  entity: Person
+  dtype: Boolean
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: parameter
+        source:
+          corpus_citation_path: us/regulation/42/435/555
+          excerpt: for individuals under the age of 21
+  versions:
+  - effective_from: '2026-01-01'
+    formula: true
+"""
+    )
+    monkeypatch.setattr(
+        "axiom_encode.cli._local_source_text_for_corpus_path",
+        lambda citation_path, *, corpus_release: source_text,
+    )
+
+    repaired = _try_repair_generated_nonexact_proof_excerpts_for_apply(
+        SimpleNamespace(output_file=str(rules_file)),
+        output_root=output_root,
+        corpus_release=SimpleNamespace(name="test-release"),
+        issues=[
+            "Proof source evidence not found: rule "
+            "`inpatient_psychiatric_service_under_age_limit` proof atom 0 "
+            "`source.excerpt` does not appear in `us/regulation/42/435/555`."
+        ],
+    )
+    payload = yaml.safe_load(rules_file.read_text())
+    exact_excerpt = payload["rules"][0]["metadata"]["proof"]["atoms"][0]["source"][
+        "excerpt"
+    ]
+    validation = validate_rulespec_proofs(
+        rules_file.read_text(),
+        source_texts={"us/regulation/42/435/555": source_text},
+    )
+
+    assert repaired == ["inpatient_psychiatric_service_under_age_limit[0]"]
+    assert exact_excerpt == "for \nindividuals under the age of 21"
+    assert validation.passed
 
 
 def test_closest_exact_source_excerpt_splits_long_line_without_splitting_citation():

@@ -18528,6 +18528,11 @@ def _require_axiom_encode_version_provenance(
 
 
 def _latest_axiom_encode_version_commit(repo: Path) -> str | None:
+    head_versions = _axiom_encode_versions_at_ref(repo, "HEAD")
+    head_version = head_versions.get("pyproject")
+    if not head_version:
+        return None
+    fallback_commit = None
     commits = _git_name_only(
         repo,
         "log",
@@ -18541,11 +18546,17 @@ def _latest_axiom_encode_version_commit(repo: Path) -> str | None:
             continue
         parent = _git_first_parent(repo, commit)
         if parent is None:
+            increased = True
+        else:
+            previous = _axiom_encode_versions_at_ref(repo, parent)
+            increased = _axiom_encode_version_increased(current, previous)
+        if not increased:
+            continue
+        if fallback_commit is None:
+            fallback_commit = commit
+        if current.get("pyproject") == head_version:
             return commit
-        previous = _axiom_encode_versions_at_ref(repo, parent)
-        if _axiom_encode_version_increased(current, previous):
-            return commit
-    return None
+    return fallback_commit
 
 
 def _axiom_encode_version_increased(
@@ -27588,19 +27599,89 @@ _PROOF_EXCERPT_TOKEN_STOPWORDS = frozenset(
     }
 )
 _SOURCE_PARAGRAPH_MARKER_PATTERN = re.compile(
-    r"^(?:(?:\((?:\d+|[A-Za-z]|[ivxlcdmIVXLCDM]{2,6})\))+|"
-    r"(?:\d+(?:\.\d+){2,}\.?|\d{1,3}\.|[A-Za-z]\.))\s+(?P<body>.*)"
+    r"^(?:(?:\((?:\d+|[A-Za-z]{1,2}|[ivxlcdmIVXLCDM]{2,6})\))+|"
+    r"(?:\d+(?:\.\d+){2,}(?:\([A-Za-z0-9]+\))*\.?|"
+    r"(?:\d{1,3}[.]|\d{1,6}[)])|"
+    r"(?:[A-Za-z]{1,2}|[ivxlcdmIVXLCDM]{2,6})[.)]|"
+    r"\u00a7+\s*\d+(?:\.\d+)*(?:\([A-Za-z0-9]+\))*|"
+    r"[-*]|\u2022))\s+(?P<body>.*)"
+)
+_SOURCE_BARE_PARAGRAPH_MARKER_PATTERN = re.compile(
+    r"^(?:(?:\((?:\d+|[A-Za-z]{1,2}|[ivxlcdmIVXLCDM]{2,6})\))+|"
+    r"(?:\d+(?:\.\d+)+(?:\([A-Za-z0-9]+\))*\.?|"
+    r"(?:\d{1,3}[.]|\d{1,6}[)])|"
+    r"(?:[A-Za-z]{1,2}|[ivxlcdmIVXLCDM]{2,6})[.)]|"
+    r"\u00a7+\s*\d+(?:\.\d+)*(?:\([A-Za-z0-9]+\))*|[-*]|\u2022))$"
+)
+_SOURCE_BARE_DECIMAL_QUANTITY_PATTERN = re.compile(r"^\d+\.\d+$")
+_SOURCE_LEADING_ABBREVIATION_PATTERN = re.compile(
+    r"^(?:(?i:No|Nos|Mr|Mrs|Ms|Dr|Pt|Pts|Ch|Fig|Reg|Art|St|Ft|Mt|Rt|Id|Ex)\."
+    r"|v\.)\s"
+)
+_SOURCE_TWO_LEVEL_PARAGRAPH_MARKER_PATTERN = re.compile(
+    r"^\d+\.\d+(?:\([A-Za-z0-9]+\))*\.?\s+(?P<body>.+)"
+)
+_SOURCE_QUANTITY_BODY_PATTERN = re.compile(
+    r"^(?:%|percent(?:age)?\b|basis points?\b|fte\b|seconds?\b|minutes?\b|"
+    r"hours?\b|days?\b|weeks?\b|months?\b|years?\b|grams?\b|kilograms?\b|"
+    r"milligrams?\b|pounds?\b|ounces?\b|tons?\b|meters?\b|kilometers?\b|"
+    r"feet\b|foot\b|inches?\b|miles?\b|acres?\b|gallons?\b|liters?\b|"
+    r"litres?\b|watts?\b|kilowatts?\b|bytes?\b|dollars?\b|cents?\b|"
+    r"times?\b|units?\b|square (?:feet|foot|inches|meters|kilometers)\b|"
+    r"full-time equivalents?\b|"
+    r"degrees? (?:[Cc]elsius|[Ff]ahrenheit)\b|million\b|billion\b|"
+    r"federal poverty\b|"
+    r"poverty (?:level|guideline)s?\b|FTE\b|USD\b|CAD\b|EUR\b|GBP\b|KG\b|"
+    r"KM\b|LB\b|OZ\b|W\b|KW\b|KWH\b|MB\b|GB\b|TB\b|kg\b|km\b|lb\b|"
+    r"oz\b|w\b|kw\b|kwh\b|mb\b|gb\b|tb\b|kW\b|kWh\b|mL\b|dB\b|"
+    r"\u00b0[CF]\b)"
+)
+_SOURCE_QUANTITY_LEAD_IN_PATTERN = re.compile(
+    r"\b(?:at least|at most|no more than|not less than|not more than|be|is|are|"
+    r"was|were|equals?|equal to|exactly|set at|fixed at|totals?|uses?|using|"
+    r"used|exceeds?|receives?|received|employs?|employed|contains?|contained|"
+    r"requires?|required|"
+    r"exceed|of|at|to|through|than|by|from|between|approximately|about)\s*$",
+    flags=re.IGNORECASE,
 )
 _SOURCE_CROSS_REFERENCE_LEAD_IN_PATTERN = re.compile(
     r"\b(?:paragraph|subparagraph|section|subsection|clause|item|"
-    r"described in|specified in)\s*$",
+    r"described (?:in|under)|specified in)\s*$",
     flags=re.IGNORECASE,
 )
 _SOURCE_CROSS_REFERENCE_BODY_PATTERN = re.compile(
-    r"^of\s+(?:this|the)\b",
+    r"^of\s+(?:this|the)\s+(?:section|paragraph|subparagraph|subsection|"
+    r"clause|item|part|subpart|chapter|title|act|code|regulation|rule|"
+    r"state plan|plan|program|agreement|waiver)\b",
     flags=re.IGNORECASE,
 )
-_SOURCE_SENTENCE_BOUNDARY_PATTERN = re.compile(r"[.!?](?=\s+[A-Z0-9(])")
+_SOURCE_NAMED_CROSS_REFERENCE_BODY_PATTERN = re.compile(
+    r"^of\s+(?:the\s+(?:[A-Z][A-Za-z0-9'/-]*\s+){1,8}"
+    r"(?:Act|Code|Constitution|Statute|Regulations?)|"
+    r"(?:title|chapter|part|subpart)\s+[A-Z0-9IVXLCDM-]+)\b",
+    flags=re.IGNORECASE,
+)
+_SOURCE_MODIFIED_PROGRAM_CROSS_REFERENCE_BODY_PATTERN = re.compile(
+    r"^of\s+(?:this|the)\s+(?:[A-Za-z][A-Za-z0-9'/-]*\s+){0,6}"
+    r"(?:plan|program|agreement|waiver)\b",
+    flags=re.IGNORECASE,
+)
+_SOURCE_CLOSING_PUNCTUATION = r"""["')\]\u2019\u201d]"""
+_SOURCE_TRAILING_SENTENCE_MARK = (
+    rf"(?:{_SOURCE_CLOSING_PUNCTUATION}+|\[[^\]\r\n]{{1,20}}\]|"
+    r"\((?!\s*(?:\d+|[A-Za-z]{1,2}|[ivxlcdmIVXLCDM]{2,6})\s*\))"
+    r"[^()\r\n]{1,20}\))"
+)
+_SOURCE_TERMINAL_PUNCTUATION_PATTERN = re.compile(
+    rf"[.;:!?](?:\s*{_SOURCE_TRAILING_SENTENCE_MARK})*\s*$"
+)
+_SOURCE_SENTENCE_END_PATTERN = re.compile(
+    rf"[.!?](?:\s*{_SOURCE_TRAILING_SENTENCE_MARK})*\s*$"
+)
+_SOURCE_SENTENCE_BOUNDARY_PATTERN = re.compile(
+    rf"""[.!?](?:\s*{_SOURCE_TRAILING_SENTENCE_MARK})*"""
+    r"""(?=\s+(?:[A-Z0-9(\[]|["'\u2018\u201c]))"""
+)
 _SOURCE_ABBREVIATION_PATTERN = re.compile(
     r"\b(?:U\.S\.C|C\.F\.R|U\.S|e\.g|i\.e|No|Nos|Sec|Secs|Pt|Pts|"
     r"Para|Paras|Subsec|Subsecs|Ch|Fig|Mr|Mrs|Ms|Dr|Pub|L|Rev|Proc|"
@@ -27610,6 +27691,347 @@ _SOURCE_ABBREVIATION_PATTERN = re.compile(
 _SOURCE_TABLE_ROW_PATTERN = re.compile(
     r"^(?:\$|[-+]?\d[\d,.]*\s+\$\s*\d|.*(?:\t|\s{2,}|\|))"
 )
+_SOURCE_TABULAR_AMOUNT_ROW_PATTERN = re.compile(r"^[-+]?\d[\d,.]*\s+\$\s*\d")
+_SOURCE_STANDALONE_HEADING_PATTERN = re.compile(r"^[A-Z][A-Z0-9 &/',()\-]{2,}:?$")
+_SOURCE_STRUCTURAL_HEADING_PATTERN = re.compile(
+    r"^(?:(?:Part|Subpart|Chapter|Title)\s+[A-Z0-9IVXLCDM-]+"
+    r"\s*[\u2013\u2014-]\s*[A-Z]\S*(?:\s+.*)?|"
+    r"SECTION\s+\d+(?:\.\d+)*(?:\([A-Za-z0-9]+\))*"
+    r"\s*[\u2013\u2014-]\s*[A-Z]\S*(?:\s+.*)?|"
+    r"Sec\.\s+\d+(?:\.\d+)*(?:\([A-Za-z0-9]+\))*"
+    r"\s+[A-Z]\S*(?:\s+.*)?)$"
+)
+_SOURCE_TITLE_CASE_HEADING_PATTERN = re.compile(
+    r"^[A-Z][A-Za-z0-9'/-]*(?:\s+(?:[A-Z][A-Za-z0-9'/-]*|of|and|or|the|for|"
+    r"to|in|on|under)){0,9}:?$"
+)
+_SOURCE_CURRENCY_LEAD_IN_PATTERN = re.compile(
+    r"\b(?:pay|pays|paid|paying|set at|fixed at|is|are|be|equals?|totals?|"
+    r"limited to|exceeds?|not exceed|no more than|not more than|up to)\s*$",
+    flags=re.IGNORECASE,
+)
+_SOURCE_LEGAL_CITATION_ABBREVIATION_PATTERN = re.compile(
+    r"\b(?:U\.S\.C|C\.F\.R)\.(?:\s*\u00a7+)?$",
+    flags=re.IGNORECASE,
+)
+_SOURCE_LEGAL_CITATION_CONTINUATION_PATTERN = re.compile(
+    r"^(?:\u00a7+\s*)?(?:(?:pt|part)\.?\s+\d+(?:\.\d+)*|"
+    r"(?:ch|chapter)\.?\s+[IVXLCDM0-9]+|subpt\.?\s+[A-Z0-9]+|"
+    r"no\.?\s+\d+|\d+(?:\.\d+)*(?:\([A-Za-z0-9]+\))*)"
+    r"(?=\s|[,;)]|$)",
+    flags=re.IGNORECASE,
+)
+_SOURCE_TITLE_TERM_LEAD_IN_PATTERN = re.compile(
+    r"\b(?:a|an|the|of|in|on|at|to|for|from|by|with|under|as|use|using|"
+    r"including|called|known as|defined as|based on|"
+    r"covers?|"
+    r"(?:shall|must|may|will|to)\s+(?:use|apply|include))\s*$",
+    flags=re.IGNORECASE,
+)
+_SOURCE_TITLE_TERM_FOLLOWING_CONTINUATION_PATTERN = re.compile(
+    r"^(?:to|for|of|under|when|in|on|by|with|as)\b",
+    flags=re.IGNORECASE,
+)
+_SOURCE_PRIOR_CONDITION_PATTERN = re.compile(
+    r"\b(?:provided\s+further\s+that|"
+    r"provided(?:\s*,?\s*however\s*,?)?(?:\s+that|\s+(?=(?:the|a|an|"
+    r"such|each|every|any|no|household|individual|applicant|person|recipient|"
+    r"income|eligibility)\b))|in the event that|on (?:the )?condition that|"
+    r"conditioned on|conditional upon|contingent upon|in case|except that|"
+    r"except as (?:otherwise\s+)?provided|"
+    r"except as (?:required|permitted|authorized|specified) by|"
+    r"notwithstanding|to the extent that|during any period in which|"
+    r"after [^,.;:\r\n]{1,80}\b(?:determines?|finds?|establishes?|verifies?)|"
+    r"upon (?:a\s+)?(?:finding|determination) that|"
+    r"as long as|so long as|only if|"
+    r"subject(?:\s*,\s*however\s*,)?\s+to|unless|except when|whenever|"
+    r"where|if|when)\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _is_wrapped_currency_continuation(previous_line: str, current_line: str) -> bool:
+    previous = re.sub(r"\s+", " ", previous_line).strip()
+    current = re.sub(r"\s+", " ", current_line).strip()
+    return (
+        _SOURCE_CURRENCY_LEAD_IN_PATTERN.search(previous) is not None
+        and re.match(r"^\$\s*\d", current) is not None
+    )
+
+
+def _is_standalone_source_heading(
+    value: str,
+    *,
+    previous_line: str = "",
+    following_line: str = "",
+) -> bool:
+    heading = re.sub(r"\s+", " ", value).strip()
+    if _SOURCE_STRUCTURAL_HEADING_PATTERN.match(heading) is not None:
+        return True
+    is_heading_form = (
+        _SOURCE_STANDALONE_HEADING_PATTERN.match(heading) is not None
+        or _SOURCE_TITLE_CASE_HEADING_PATTERN.match(heading) is not None
+    )
+    if not is_heading_form:
+        return False
+    if heading.endswith(":"):
+        return True
+
+    previous = re.sub(r"\s+", " ", previous_line).strip()
+    following = re.sub(r"\s+", " ", following_line).strip()
+    return not (
+        previous
+        and _SOURCE_TERMINAL_PUNCTUATION_PATTERN.search(previous) is None
+        and (
+            _SOURCE_TITLE_TERM_LEAD_IN_PATTERN.search(previous) is not None
+            or (following and re.match(r"^[a-z]", following) is not None)
+            or _SOURCE_TITLE_TERM_FOLLOWING_CONTINUATION_PATTERN.match(following)
+            is not None
+        )
+    )
+
+
+def _is_wrapped_legal_citation_continuation(
+    previous_line: str,
+    current_line: str,
+) -> bool:
+    previous = re.sub(r"\s+", " ", previous_line).strip()
+    current = re.sub(r"\s+", " ", current_line).strip()
+    return (
+        _SOURCE_LEGAL_CITATION_ABBREVIATION_PATTERN.search(previous) is not None
+        and _SOURCE_LEGAL_CITATION_CONTINUATION_PATTERN.match(current) is not None
+    )
+
+
+def _has_source_sentence_boundary(value: str) -> bool:
+    for match in _SOURCE_SENTENCE_BOUNDARY_PATTERN.finditer(value):
+        prefix = value[max(0, match.end() - 48) : match.end()].rstrip()
+        continuation = value[match.end() :].lstrip()
+        if value[match.start()] == "." and _is_source_abbreviation_continuation(
+            prefix,
+            continuation,
+        ):
+            continue
+        return True
+    return False
+
+
+def _is_source_abbreviation_continuation(prefix: str, continuation: str) -> bool:
+    if _SOURCE_LEGAL_CITATION_ABBREVIATION_PATTERN.search(prefix):
+        return (
+            _SOURCE_LEGAL_CITATION_CONTINUATION_PATTERN.match(continuation) is not None
+        )
+    abbreviation = _SOURCE_ABBREVIATION_PATTERN.search(prefix)
+    if abbreviation is None:
+        return False
+    token = abbreviation.group().casefold()
+    if token in {"e.g.", "i.e.", "mr.", "mrs.", "ms.", "dr.", "v."}:
+        return True
+    if token == "u.s.":
+        return (
+            re.match(
+                r"^(?:Department|Code|Constitution|Government|Supreme|District|"
+                r"Treasury|Postal|Virgin Islands|Armed Forces|Attorney(?: General)?|"
+                r"Secretary|Bureau|Congress|mail|citizens?|nationals?|"
+                r"territor(?:y|ies)|persons?|dollars?)\b",
+                continuation,
+                flags=re.IGNORECASE,
+            )
+            is not None
+        )
+    if token == "pub.":
+        return re.match(r"^L\.\s", continuation, flags=re.IGNORECASE) is not None
+    if token == "rev.":
+        return re.match(r"^Proc\.\s", continuation, flags=re.IGNORECASE) is not None
+    if token == "l.":
+        return (
+            re.search(r"\bPub\.\s+L\.$", prefix, flags=re.IGNORECASE) is not None
+            or re.match(r"^(?:No\.\s*)?\d", continuation, flags=re.IGNORECASE)
+            is not None
+        )
+    return (
+        re.match(r"^(?:No\.\s*)?\d", continuation, flags=re.IGNORECASE) is not None
+        or re.match(r"^(?:No\.\s*)?[IVXLCDM]+\b", continuation) is not None
+    )
+
+
+def _is_wrapped_source_cross_reference(
+    previous_line: str,
+    marker_body: str,
+    current_line: str = "",
+) -> bool:
+    previous = re.sub(r"\s+", " ", previous_line).strip()
+    previous_is_open = _SOURCE_TERMINAL_PUNCTUATION_PATTERN.search(previous) is None
+    return previous_is_open and (
+        _SOURCE_CROSS_REFERENCE_LEAD_IN_PATTERN.search(previous) is not None
+        or _SOURCE_CROSS_REFERENCE_BODY_PATTERN.match(marker_body) is not None
+        or _SOURCE_NAMED_CROSS_REFERENCE_BODY_PATTERN.match(marker_body) is not None
+        or _SOURCE_MODIFIED_PROGRAM_CROSS_REFERENCE_BODY_PATTERN.match(marker_body)
+        is not None
+        or _is_explicit_section_cross_reference(previous, current_line)
+    )
+
+
+def _is_explicit_section_cross_reference(previous_line: str, current_line: str) -> bool:
+    previous = re.sub(r"\s+", " ", previous_line).strip()
+    current = re.sub(r"\s+", " ", current_line).strip()
+    return current.startswith("\N{SECTION SIGN}") and (
+        re.search(
+            r"\b(?:under|pursuant to|required by|set forth in)\s*$",
+            previous,
+            flags=re.IGNORECASE,
+        )
+        is not None
+    )
+
+
+def _is_wrapped_bare_source_cross_reference(
+    previous_line: str,
+    following_line: str,
+    current_line: str = "",
+) -> bool:
+    previous = re.sub(r"\s+", " ", previous_line).strip()
+    following = re.sub(r"\s+", " ", following_line).strip()
+    current = re.sub(r"\s+", " ", current_line).strip()
+    previous_is_open = _SOURCE_TERMINAL_PUNCTUATION_PATTERN.search(previous) is None
+    return previous_is_open and (
+        _SOURCE_CROSS_REFERENCE_LEAD_IN_PATTERN.search(previous) is not None
+        or _SOURCE_CROSS_REFERENCE_BODY_PATTERN.match(following) is not None
+        or _SOURCE_NAMED_CROSS_REFERENCE_BODY_PATTERN.match(following) is not None
+        or _SOURCE_MODIFIED_PROGRAM_CROSS_REFERENCE_BODY_PATTERN.match(following)
+        is not None
+        or _is_explicit_section_cross_reference(previous, current)
+    )
+
+
+def _source_paragraph_marker_match(value: str) -> re.Match[str] | None:
+    if _SOURCE_LEADING_ABBREVIATION_PATTERN.match(value):
+        return None
+    return _SOURCE_PARAGRAPH_MARKER_PATTERN.match(
+        value
+    ) or _SOURCE_TWO_LEVEL_PARAGRAPH_MARKER_PATTERN.match(value)
+
+
+def _source_line_paragraph_marker_match(
+    value: str,
+    *,
+    previous_line: str,
+) -> re.Match[str] | None:
+    if _is_wrapped_legal_citation_continuation(
+        previous_line,
+        value,
+    ) or _is_source_abbreviation_continuation(previous_line, value):
+        return None
+    if _SOURCE_BARE_PARAGRAPH_MARKER_PATTERN.fullmatch(value):
+        return None
+    primary_match = _SOURCE_PARAGRAPH_MARKER_PATTERN.match(value)
+    if primary_match is not None:
+        if _SOURCE_LEADING_ABBREVIATION_PATTERN.match(value):
+            return None
+        return primary_match
+    two_level_match = _SOURCE_TWO_LEVEL_PARAGRAPH_MARKER_PATTERN.match(value)
+    if two_level_match is None:
+        return None
+    if _is_decimal_quantity_continuation(
+        previous_line,
+        two_level_match.group("body"),
+    ):
+        return None
+    return two_level_match
+
+
+def _is_decimal_quantity_continuation(
+    previous_line: str,
+    quantity_body: str,
+) -> bool:
+    previous = re.sub(r"\s+", " ", previous_line).strip()
+    body = re.sub(r"\s+", " ", quantity_body).strip()
+    lead_in = previous[:-1].rstrip() if previous.endswith(":") else previous
+    return (
+        bool(previous)
+        and (
+            _SOURCE_TERMINAL_PUNCTUATION_PATTERN.search(previous) is None
+            or previous.endswith(":")
+        )
+        and _SOURCE_QUANTITY_BODY_PATTERN.match(body) is not None
+        and _SOURCE_QUANTITY_LEAD_IN_PATTERN.search(lead_in) is not None
+    )
+
+
+def _is_bare_decimal_continuation(
+    previous_line: str,
+    following_line: str,
+) -> bool:
+    return _is_decimal_quantity_continuation(previous_line, following_line)
+
+
+def _source_context_before_match(source: str, position: int) -> str:
+    """Return the current structural paragraph prefix before a direct match."""
+    current_line_end = source.find("\n", position)
+    if current_line_end < 0:
+        current_line_end = len(source)
+    match_line_suffix = source[position:current_line_end]
+    context_start = 0
+    for blank_boundary in re.finditer(r"\r?\n[ \t]*\r?\n", source[:position]):
+        context_start = blank_boundary.end()
+
+    context_lines = source[context_start:position].splitlines(keepends=True)
+    previous_line = ""
+    cursor = context_start
+    for index, line in enumerate(context_lines):
+        collapsed = re.sub(r"\s+", " ", line).strip()
+        if collapsed:
+            following_line = (
+                context_lines[index + 1]
+                if index + 1 < len(context_lines)
+                else match_line_suffix
+            )
+            marker_match = _source_line_paragraph_marker_match(
+                collapsed,
+                previous_line=previous_line,
+            )
+            bare_marker = _SOURCE_BARE_PARAGRAPH_MARKER_PATTERN.match(collapsed)
+            bare_decimal_is_quantity = _SOURCE_BARE_DECIMAL_QUANTITY_PATTERN.match(
+                collapsed
+            ) is not None and _is_bare_decimal_continuation(
+                previous_line, following_line
+            )
+            if (
+                (
+                    marker_match is not None
+                    and not _is_wrapped_source_cross_reference(
+                        previous_line,
+                        marker_match.group("body"),
+                        collapsed,
+                    )
+                )
+                or (
+                    bare_marker is not None
+                    and not bare_decimal_is_quantity
+                    and not _is_wrapped_legal_citation_continuation(
+                        previous_line,
+                        collapsed,
+                    )
+                    and not _is_source_abbreviation_continuation(
+                        previous_line,
+                        collapsed,
+                    )
+                    and not _is_wrapped_bare_source_cross_reference(
+                        previous_line,
+                        following_line,
+                        collapsed,
+                    )
+                )
+                or _is_standalone_source_heading(
+                    collapsed,
+                    previous_line=previous_line,
+                    following_line=following_line,
+                )
+            ):
+                context_start = cursor
+            previous_line = line
+        cursor += len(line)
+    return source[context_start:position]
 
 
 class _SourceExcerptCandidate(NamedTuple):
@@ -27737,13 +28159,25 @@ def _closest_exact_source_excerpt(*, source_text: str, excerpt: str) -> str | No
             and candidate.end >= direct_match.end()
         ]
         if not enclosing:
-            return None
+            return _safe_wrapped_direct_source_match(source, direct_match)
         table_rows = [
             candidate for candidate in enclosing if candidate.kind == "table_row"
         ]
         if table_rows:
             return min(table_rows, key=lambda candidate: len(candidate.text)).text
-        return _governing_source_excerpt_candidate(enclosing, candidates)
+        governing = _governing_source_excerpt_candidate(enclosing, candidates)
+        if governing is not None:
+            return governing
+        if any(
+            candidate.marked_parent is not None
+            and _SOURCE_PRIOR_CONDITION_PATTERN.search(
+                source[candidate.marked_parent[0] : direct_match.start()]
+            )
+            is not None
+            for candidate in enclosing
+        ):
+            return None
+        return _safe_wrapped_direct_source_match(source, direct_match)
 
     query_tokens = _proof_excerpt_match_tokens(query)
     query_numbers = set(extract_numbers_from_text(query))
@@ -27781,6 +28215,209 @@ def _closest_exact_source_excerpt(*, source_text: str, excerpt: str) -> str | No
     if selected.kind == "table_row":
         return selected.text
     return _governing_source_excerpt_candidate([selected], candidates)
+
+
+def _safe_wrapped_direct_source_match(
+    source: str,
+    direct_match: re.Match[str],
+) -> str | None:
+    raw_match = source[direct_match.start() : direct_match.end()]
+    raw_lines = raw_match.splitlines(keepends=True)
+    if len(raw_lines) < 2 or len(re.sub(r"\s+", " ", raw_match)) > 500:
+        return None
+
+    source_line_start = direct_match.start()
+    first_complete_line_start = source.rfind("\n", 0, direct_match.start()) + 1
+    first_complete_line_end = source.find("\n", direct_match.start())
+    if first_complete_line_end < 0:
+        first_complete_line_end = len(source)
+    first_complete_line = source[
+        first_complete_line_start:first_complete_line_end
+    ].strip()
+    first_line_prefix = source[first_complete_line_start : direct_match.start()]
+    if (
+        _SOURCE_PRIOR_CONDITION_PATTERN.search(
+            _source_context_before_match(source, direct_match.start())
+        )
+        is not None
+    ):
+        return None
+    preceding_line_end = max(0, first_complete_line_start - 1)
+    preceding_line_start = source.rfind("\n", 0, preceding_line_end) + 1
+    preceding_line = source[preceding_line_start:preceding_line_end]
+    first_following_line = re.sub(r"\s+", " ", raw_lines[1]).strip()
+    match_starts_at_line_content = not first_line_prefix.strip()
+    continued_bare_decimal = _SOURCE_BARE_DECIMAL_QUANTITY_PATTERN.match(
+        first_complete_line
+    ) is not None and _is_bare_decimal_continuation(
+        preceding_line, first_following_line
+    )
+    if _is_standalone_source_heading(
+        first_complete_line,
+        previous_line=preceding_line,
+        following_line=first_following_line,
+    ):
+        return None
+    if re.search(
+        r"(?:\t|\|[ \t]*|[^\s.!?][ \t]{2,})$",
+        first_line_prefix,
+    ):
+        return None
+    if match_starts_at_line_content:
+        first_marker_match = _source_line_paragraph_marker_match(
+            first_complete_line,
+            previous_line=preceding_line,
+        )
+        if first_marker_match is not None and not _is_wrapped_source_cross_reference(
+            preceding_line,
+            first_marker_match.group("body"),
+            first_complete_line,
+        ):
+            return None
+        if (
+            first_marker_match is None
+            and _SOURCE_BARE_PARAGRAPH_MARKER_PATTERN.match(first_complete_line)
+            is not None
+            and not continued_bare_decimal
+            and not _is_wrapped_legal_citation_continuation(
+                preceding_line,
+                first_complete_line,
+            )
+            and not _is_source_abbreviation_continuation(
+                preceding_line,
+                first_complete_line,
+            )
+            and not _is_wrapped_bare_source_cross_reference(
+                preceding_line,
+                first_following_line,
+                first_complete_line,
+            )
+        ):
+            return None
+        if (
+            _SOURCE_TABULAR_AMOUNT_ROW_PATTERN.match(first_complete_line) is not None
+            or re.match(r"^\$\s*\d", first_complete_line) is not None
+        ):
+            return None
+        if _SOURCE_TABLE_ROW_PATTERN.match(first_complete_line) and (
+            _SOURCE_TABLE_ROW_PATTERN.match(preceding_line.strip())
+            or _SOURCE_TABLE_ROW_PATTERN.match(first_following_line)
+        ):
+            return None
+    continued_wrapped_currency = False
+    for index in range(1, len(raw_lines)):
+        source_line_start += len(raw_lines[index - 1])
+        raw_line = raw_lines[index].rstrip("\r\n")
+        if not raw_line.strip():
+            return None
+        source_line_end = source.find("\n", source_line_start)
+        if source_line_end < 0:
+            source_line_end = len(source)
+        complete_line = source[source_line_start:source_line_end].strip()
+        previous_line = re.sub(r"\s+", " ", raw_lines[index - 1]).strip()
+        if _has_source_sentence_boundary(previous_line):
+            return None
+        if _SOURCE_SENTENCE_END_PATTERN.search(previous_line) is not None and not (
+            _is_source_abbreviation_continuation(previous_line, complete_line)
+        ):
+            return None
+        previous_line_start = source.rfind("\n", 0, max(0, source_line_start - 1)) + 1
+        previous_complete_line = source[
+            previous_line_start : max(previous_line_start, source_line_start - 1)
+        ].strip()
+        following_line_start = source_line_end + 1
+        following_line_end = source.find("\n", following_line_start)
+        if following_line_end < 0:
+            following_line_end = len(source)
+        following_line = source[following_line_start:following_line_end]
+        previous_is_table_row = _SOURCE_TABLE_ROW_PATTERN.match(previous_complete_line)
+        previous_match_fragment_is_table_row = _SOURCE_TABLE_ROW_PATTERN.match(
+            raw_lines[index - 1].strip()
+        )
+        current_is_table_row = _SOURCE_TABLE_ROW_PATTERN.match(complete_line)
+        following_is_table_row = _SOURCE_TABLE_ROW_PATTERN.match(following_line.strip())
+        is_wrapped_currency = (
+            _is_wrapped_currency_continuation(
+                previous_complete_line,
+                complete_line,
+            )
+            and following_is_table_row is None
+        )
+        current_is_dollar_amount = re.match(r"^\$\s*\d", complete_line) is not None
+        if current_is_dollar_amount and (
+            not is_wrapped_currency or continued_wrapped_currency
+        ):
+            return None
+        if _SOURCE_TABULAR_AMOUNT_ROW_PATTERN.match(complete_line) is not None:
+            return None
+        if _is_standalone_source_heading(
+            complete_line,
+            previous_line=previous_complete_line,
+            following_line=following_line,
+        ) and not (
+            continued_bare_decimal
+            and _SOURCE_QUANTITY_BODY_PATTERN.match(complete_line) is not None
+        ):
+            return None
+        if (
+            current_is_table_row
+            and not is_wrapped_currency
+            and (previous_is_table_row or following_is_table_row)
+        ):
+            return None
+        if (
+            previous_match_fragment_is_table_row
+            and current_is_table_row is None
+            and not (is_wrapped_currency or continued_wrapped_currency)
+        ):
+            return None
+        previous_is_amount_row = (
+            _SOURCE_TABULAR_AMOUNT_ROW_PATTERN.match(previous_complete_line) is not None
+            or re.match(r"^\$\s*\d", previous_complete_line) is not None
+        )
+        if previous_is_amount_row and not (
+            is_wrapped_currency or continued_wrapped_currency
+        ):
+            return None
+        marker_match = _source_line_paragraph_marker_match(
+            complete_line,
+            previous_line=previous_complete_line,
+        )
+        if marker_match is not None and not _is_wrapped_source_cross_reference(
+            previous_complete_line,
+            marker_match.group("body"),
+            complete_line,
+        ):
+            return None
+        if (
+            marker_match is None
+            and _SOURCE_BARE_PARAGRAPH_MARKER_PATTERN.match(complete_line) is not None
+        ):
+            if _is_wrapped_legal_citation_continuation(
+                previous_complete_line,
+                complete_line,
+            ) or _is_source_abbreviation_continuation(
+                previous_complete_line,
+                complete_line,
+            ):
+                continue
+            if _SOURCE_BARE_DECIMAL_QUANTITY_PATTERN.match(
+                complete_line
+            ) is not None and _is_bare_decimal_continuation(
+                previous_complete_line,
+                following_line,
+            ):
+                continued_bare_decimal = True
+                continue
+            if not _is_wrapped_bare_source_cross_reference(
+                previous_complete_line,
+                following_line,
+                complete_line,
+            ):
+                return None
+        continued_bare_decimal = False
+        continued_wrapped_currency = continued_wrapped_currency or is_wrapped_currency
+    return raw_match
 
 
 def _governing_source_excerpt_candidate(
@@ -27851,8 +28488,8 @@ def _exact_source_excerpt_candidate_spans(
         paragraph_end = paragraph_lines[-1][2]
         paragraph = source_text[paragraph_start:paragraph_end]
         collapsed_paragraph = re.sub(r"\s+", " ", paragraph).strip()
-        is_marked_paragraph = bool(
-            _SOURCE_PARAGRAPH_MARKER_PATTERN.match(collapsed_paragraph)
+        is_marked_paragraph = (
+            _source_paragraph_marker_match(collapsed_paragraph) is not None
         )
         trimmed_start = paragraph_start
         trimmed_end = paragraph_end
@@ -27874,7 +28511,11 @@ def _exact_source_excerpt_candidate_spans(
             prefix = paragraph[
                 max(sentence_start, sentence_end - 48) : sentence_end
             ].rstrip()
-            if match.group() == "." and _SOURCE_ABBREVIATION_PATTERN.search(prefix):
+            continuation = paragraph[sentence_end:].lstrip()
+            if paragraph[match.start()] == "." and _is_source_abbreviation_continuation(
+                prefix,
+                continuation,
+            ):
                 continue
             add_candidate(
                 paragraph_start + sentence_start,
@@ -27890,11 +28531,23 @@ def _exact_source_excerpt_candidate_spans(
             marked_parent=marked_parent,
         )
 
-        table_rows = [
-            (line, start, end)
-            for line, start, end in paragraph_lines
-            if line.strip() and _SOURCE_TABLE_ROW_PATTERN.match(line.strip())
-        ]
+        table_rows = []
+        for index, (line, start, end) in enumerate(paragraph_lines):
+            previous_line = paragraph_lines[index - 1][0] if index else ""
+            next_line = (
+                paragraph_lines[index + 1][0]
+                if index + 1 < len(paragraph_lines)
+                else ""
+            )
+            if (
+                line.strip()
+                and _SOURCE_TABLE_ROW_PATTERN.match(line.strip())
+                and not (
+                    _is_wrapped_currency_continuation(previous_line, line)
+                    and _SOURCE_TABLE_ROW_PATTERN.match(next_line.strip()) is None
+                )
+            ):
+                table_rows.append((line, start, end))
         if len(table_rows) > 1:
             for _line, start, end in table_rows:
                 add_candidate(
@@ -27903,28 +28556,84 @@ def _exact_source_excerpt_candidate_spans(
                     kind="table_row",
                     marked_parent=marked_parent,
                 )
+        elif table_rows and _SOURCE_TABULAR_AMOUNT_ROW_PATTERN.match(
+            table_rows[0][0].strip()
+        ):
+            _line, start, end = table_rows[0]
+            add_candidate(
+                start,
+                end,
+                kind="table_row",
+                marked_parent=marked_parent,
+            )
         paragraph_lines.clear()
 
+    source_lines: list[tuple[str, int, int]] = []
     offset = 0
     for line in source_text.splitlines(keepends=True):
         line_start = offset
         line_end = offset + len(line)
         offset = line_end
+        source_lines.append((line, line_start, line_end))
+
+    for index, (line, line_start, line_end) in enumerate(source_lines):
         collapsed = re.sub(r"\s+", " ", line).strip()
         if not collapsed:
             flush_paragraph()
             continue
-        marker_match = _SOURCE_PARAGRAPH_MARKER_PATTERN.match(collapsed)
-        if paragraph_lines and marker_match is not None:
-            previous_line = re.sub(r"\s+", " ", paragraph_lines[-1][0]).strip()
-            body = marker_match.group("body")
-            previous_is_open = re.search(r"[.;:!?]\s*$", previous_line) is None
-            is_wrapped_cross_reference = previous_is_open and (
-                _SOURCE_CROSS_REFERENCE_LEAD_IN_PATTERN.search(previous_line)
-                is not None
-                or _SOURCE_CROSS_REFERENCE_BODY_PATTERN.match(body) is not None
+        previous_source_line = source_lines[index - 1][0] if index else ""
+        following_line = (
+            source_lines[index + 1][0] if index + 1 < len(source_lines) else ""
+        )
+        is_wrapped_quantity_unit = (
+            len(paragraph_lines) >= 2
+            and _SOURCE_BARE_DECIMAL_QUANTITY_PATTERN.match(
+                re.sub(r"\s+", " ", paragraph_lines[-1][0]).strip()
             )
-            if not is_wrapped_cross_reference:
+            is not None
+            and _is_decimal_quantity_continuation(
+                paragraph_lines[-2][0],
+                collapsed,
+            )
+        )
+        if (
+            _is_standalone_source_heading(
+                collapsed,
+                previous_line=previous_source_line,
+                following_line=following_line,
+            )
+            and not is_wrapped_quantity_unit
+        ):
+            flush_paragraph()
+            paragraph_lines.append((line, line_start, line_end))
+            flush_paragraph()
+            continue
+        previous_line = paragraph_lines[-1][0] if paragraph_lines else ""
+        marker_match = _source_line_paragraph_marker_match(
+            collapsed,
+            previous_line=previous_line,
+        )
+        bare_marker_match = _SOURCE_BARE_PARAGRAPH_MARKER_PATTERN.match(collapsed)
+        if bare_marker_match is not None and (
+            _is_wrapped_legal_citation_continuation(previous_line, collapsed)
+            or _is_source_abbreviation_continuation(previous_line, collapsed)
+        ):
+            bare_marker_match = None
+        if (
+            bare_marker_match is not None
+            and _SOURCE_BARE_DECIMAL_QUANTITY_PATTERN.match(collapsed) is not None
+            and _is_bare_decimal_continuation(previous_line, following_line)
+        ):
+            bare_marker_match = None
+        if paragraph_lines and marker_match is not None:
+            if not _is_wrapped_source_cross_reference(
+                paragraph_lines[-1][0], marker_match.group("body"), collapsed
+            ):
+                flush_paragraph()
+        elif paragraph_lines and bare_marker_match is not None:
+            if not _is_wrapped_bare_source_cross_reference(
+                paragraph_lines[-1][0], following_line, collapsed
+            ):
                 flush_paragraph()
         paragraph_lines.append((line, line_start, line_end))
     flush_paragraph()
