@@ -33242,8 +33242,10 @@ rules: []
         policy_repo = tmp_path / "rulespec-us" / "us"
         generated = output_root / "openai-test-model" / "statutes/26/151.yaml"
         dependent = policy_repo / "statutes/26/63.yaml"
+        transitive_dependent = policy_repo / "policies/income_tax/final.yaml"
         generated.parent.mkdir(parents=True)
         dependent.parent.mkdir(parents=True)
+        transitive_dependent.parent.mkdir(parents=True)
         generated.write_text(
             """format: rulespec/v1
 module:
@@ -33287,6 +33289,34 @@ rules:
           section_151_exemption_deduction
 """
         )
+        transitive_dependent.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/26/151
+imports:
+  - us:statutes/26/63
+rules:
+  - name: final_deduction
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us:statutes/26/63#deductions_referred_to_in_subsection_b
+              output: deductions_referred_to_in_subsection_b
+              hash: sha256:old
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          deductions_referred_to_in_subsection_b
+"""
+        )
         context_dir = output_root / "context"
         context_dir.mkdir()
         (context_dir / "source.txt").write_text("test source\n")
@@ -33312,7 +33342,7 @@ rules:
             context_manifest_file=str(context_manifest),
             source_attestation=source_attestation,
         )
-        dependent_validations: list[str] = []
+        dependent_validations: dict[str, list[bytes]] = {}
 
         class FakePipeline:
             def __init__(self, **_kwargs):
@@ -33322,8 +33352,11 @@ rules:
                 assert skip_reviewers is True
                 if Path(path).name == "151.yaml":
                     return SimpleNamespace(all_passed=True, results={})
-                content = Path(path).read_text()
-                dependent_validations.append(content)
+                content_bytes = Path(path).read_bytes()
+                content = content_bytes.decode("utf-8")
+                dependent_validations.setdefault(Path(path).name, []).append(
+                    content_bytes
+                )
                 if "hash: sha256:old" in content:
                     return SimpleNamespace(
                         all_passed=False,
@@ -33341,7 +33374,10 @@ rules:
                     )
                 return SimpleNamespace(all_passed=True, results={})
 
-        with patch("axiom_encode.cli.ValidatorPipeline", FakePipeline):
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch("axiom_encode.cli._APPLY_OVERLAY_VALIDATION_REPAIR_LIMIT", 1),
+        ):
             ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
                 result,
                 output_root=output_root,
@@ -33358,7 +33394,18 @@ rules:
         assert "hash: sha256:old" not in updated
         assert f"hash: sha256:{_sha256_file(generated)}" in updated
         assert f"source_sha256: {'d' * 64}" in updated
-        assert dependent_validations[-1] == updated
+        assert dependent_validations["63.yaml"][-1] == updated.encode("utf-8")
+        transitive_updated = supplemental[Path("policies/income_tax/final.yaml")]
+        assert "hash: sha256:old" not in transitive_updated
+        assert (
+            "hash: sha256:"
+            f"{hashlib.sha256(updated.encode('utf-8')).hexdigest()}"
+            in transitive_updated
+        )
+        assert f"source_sha256: {'d' * 64}" in transitive_updated
+        assert dependent_validations["final.yaml"][-1] == transitive_updated.encode(
+            "utf-8"
+        )
 
     def test_supplemental_source_stamp_leaves_other_sources_fail_closed(self):
         supplemental = {
@@ -33809,8 +33856,9 @@ rules:
         repo = tmp_path / "rulespec-us" / "us-ny"
         target = repo / "regulations/18-nycrr/387/12/f/3/v/c.yaml"
         dependent = repo / "policies/otda/snap/fy-2026-benefit-calculation.yaml"
+        transitive_dependent = repo / "policies/otda/snap/final-benefit.yaml"
         unrelated = repo / "policies/otda/snap/other.yaml"
-        for path in (target, dependent, unrelated):
+        for path in (target, dependent, transitive_dependent, unrelated):
             path.parent.mkdir(parents=True, exist_ok=True)
         target.write_text("format: rulespec/v1\nrules: []\n")
         dependent.write_text(
@@ -33820,13 +33868,20 @@ imports:
 rules: []
 """
         )
+        transitive_dependent.write_text(
+            """format: rulespec/v1
+imports:
+  - us-ny:policies/otda/snap/fy-2026-benefit-calculation
+rules: []
+"""
+        )
         unrelated.write_text("format: rulespec/v1\nimports: []\nrules: []\n")
 
         dependents = _find_rulespec_dependents(
             repo, Path("regulations/18-nycrr/387/12/f/3/v/c.yaml")
         )
 
-        assert dependents == [dependent]
+        assert dependents == [dependent, transitive_dependent]
 
     def test_insert_false_input_default_uses_base_anchor(self):
         content = """- name: first_case
