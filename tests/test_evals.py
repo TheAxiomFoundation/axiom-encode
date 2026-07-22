@@ -2911,8 +2911,7 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     normalized_prompt = " ".join(prompt.split())
     assert (
         "If a module contains only parameters, emit one source-period snapshot "
-        "case that asserts every local parameter output directly."
-        in normalized_prompt
+        "case that asserts every local parameter output directly." in normalized_prompt
     )
     assert "cover parameters through derived outputs" in normalized_prompt
     assert "modifier parameter stranded" in prompt
