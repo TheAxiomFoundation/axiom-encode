@@ -1742,6 +1742,8 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert set(trigger) == {"workflow_dispatch"}
     assert workflow["permissions"] == {"contents": "read"}
     inputs = trigger["workflow_dispatch"]["inputs"]
+    assert "allowlisted reviewed SHA" in inputs["rulespec_ref"]["description"]
+    assert "artifact-only" in inputs["rulespec_ref"]["description"]
     assert inputs["country"] == {
         "description": "Canonical RuleSpec country checkout (for rulespec-<country>)",
         "required": True,
@@ -1781,6 +1783,9 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert "^[0-9a-f]{40}$" in identity_command
     assert "rev-parse HEAD" in identity_command
     assert "merge-base --is-ancestor" in identity_command
+    assert "validate-rulespec-base" in identity_command
+    assert '"$RULESPEC_REF" "$OPEN_PR"' in identity_command
+    assert identity_step["env"]["OPEN_PR"] == "${{ inputs.open_pr }}"
     assert '"https://github.com/TheAxiomFoundation/rulespec-$COUNTRY"' in (
         identity_command
     )
