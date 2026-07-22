@@ -27570,6 +27570,37 @@ _PROOF_EXCERPT_TOKEN_STOPWORDS = frozenset(
         "your",
     }
 )
+_SOURCE_PARAGRAPH_MARKER_PATTERN = re.compile(
+    r"^(?:(?:\((?:\d+|[A-Za-z]|[ivxlcdmIVXLCDM]{2,6})\))+|"
+    r"(?:\d+(?:\.\d+){2,}\.?|\d{1,3}\.|[A-Za-z]\.))\s+(?P<body>.*)"
+)
+_SOURCE_CROSS_REFERENCE_LEAD_IN_PATTERN = re.compile(
+    r"\b(?:paragraph|subparagraph|section|subsection|clause|item|"
+    r"described in|specified in)\s*$",
+    flags=re.IGNORECASE,
+)
+_SOURCE_CROSS_REFERENCE_BODY_PATTERN = re.compile(
+    r"^of\s+(?:this|the)\b",
+    flags=re.IGNORECASE,
+)
+_SOURCE_SENTENCE_BOUNDARY_PATTERN = re.compile(r"[.!?](?=\s+[A-Z0-9(])")
+_SOURCE_ABBREVIATION_PATTERN = re.compile(
+    r"\b(?:U\.S\.C|C\.F\.R|U\.S|e\.g|i\.e|No|Nos|Sec|Secs|Pt|Pts|"
+    r"Para|Paras|Subsec|Subsecs|Ch|Fig|Mr|Mrs|Ms|Dr|Pub|L|Rev|Proc|"
+    r"Reg|Stat|Art|v)\.$",
+    flags=re.IGNORECASE,
+)
+_SOURCE_TABLE_ROW_PATTERN = re.compile(
+    r"^(?:\$|[-+]?\d[\d,.]*\s+\$\s*\d|.*(?:\t|\s{2,}|\|))"
+)
+
+
+class _SourceExcerptCandidate(NamedTuple):
+    text: str
+    start: int
+    end: int
+    kind: str
+    marked_parent: tuple[int, int] | None
 
 
 def _try_repair_generated_nonexact_proof_excerpts_for_apply(
@@ -27678,19 +27709,33 @@ def _closest_exact_source_excerpt(*, source_text: str, excerpt: str) -> str | No
     if not source or not query:
         return None
 
+    candidates = _exact_source_excerpt_candidate_spans(source)
     whitespace_pattern = r"\s+".join(re.escape(part) for part in query.split())
     direct_match = re.search(whitespace_pattern, source, flags=re.IGNORECASE)
     if direct_match is not None:
-        return source[direct_match.start() : direct_match.end()].strip()
+        enclosing = [
+            candidate
+            for candidate in candidates
+            if candidate.start <= direct_match.start()
+            and candidate.end >= direct_match.end()
+        ]
+        if not enclosing:
+            return None
+        table_rows = [
+            candidate for candidate in enclosing if candidate.kind == "table_row"
+        ]
+        if table_rows:
+            return min(table_rows, key=lambda candidate: len(candidate.text)).text
+        return _governing_source_excerpt_candidate(enclosing, candidates)
 
     query_tokens = _proof_excerpt_match_tokens(query)
     query_numbers = set(extract_numbers_from_text(query))
-    candidates = _exact_source_excerpt_candidates(source)
-    scored: list[tuple[float, str]] = []
+    scored: list[tuple[float, _SourceExcerptCandidate]] = []
     for candidate in candidates:
-        candidate_tokens = _proof_excerpt_match_tokens(candidate)
+        normalized_candidate = re.sub(r"\s+", " ", candidate.text).strip()
+        candidate_tokens = _proof_excerpt_match_tokens(candidate.text)
         shared_tokens = query_tokens & candidate_tokens
-        candidate_numbers = set(extract_numbers_from_text(candidate))
+        candidate_numbers = set(extract_numbers_from_text(candidate.text))
         shared_numbers = query_numbers & candidate_numbers
         if query_numbers and not shared_numbers:
             continue
@@ -27699,32 +27744,173 @@ def _closest_exact_source_excerpt(*, source_text: str, excerpt: str) -> str | No
         similarity = difflib.SequenceMatcher(
             None,
             query.casefold(),
-            candidate.casefold(),
+            normalized_candidate.casefold(),
         ).ratio()
         token_coverage = len(shared_tokens) / max(1, len(query_tokens))
         if similarity < 0.55 and token_coverage < 0.6:
             continue
-        score = similarity + (0.25 * token_coverage) + (0.1 * len(shared_numbers))
+        score = similarity + (1.25 * token_coverage) + (0.1 * len(shared_numbers))
         scored.append((score, candidate))
     if not scored:
         return None
-    return max(scored, key=lambda item: (item[0], -len(item[1])))[1]
+    selected = max(
+        scored,
+        key=lambda item: (
+            item[0],
+            item[1].kind == "paragraph",
+            -len(re.sub(r"\s+", " ", item[1].text)),
+        ),
+    )[1]
+    if selected.kind == "table_row":
+        return selected.text
+    return _governing_source_excerpt_candidate([selected], candidates)
+
+
+def _governing_source_excerpt_candidate(
+    selected: list[_SourceExcerptCandidate],
+    candidates: list[_SourceExcerptCandidate],
+) -> str | None:
+    marked_parent = next(
+        (candidate.marked_parent for candidate in selected if candidate.marked_parent),
+        None,
+    )
+    if marked_parent is not None:
+        governing = next(
+            (
+                candidate
+                for candidate in candidates
+                if candidate.kind == "paragraph"
+                and (candidate.start, candidate.end) == marked_parent
+            ),
+            None,
+        )
+        return governing.text if governing is not None else None
+    return min(
+        selected,
+        key=lambda candidate: len(re.sub(r"\s+", " ", candidate.text)),
+    ).text
 
 
 def _exact_source_excerpt_candidates(source_text: str) -> list[str]:
-    candidates: list[str] = []
-    seen: set[str] = set()
-    for line in source_text.splitlines():
+    return [
+        candidate.text
+        for candidate in _exact_source_excerpt_candidate_spans(source_text)
+    ]
+
+
+def _exact_source_excerpt_candidate_spans(
+    source_text: str,
+) -> list[_SourceExcerptCandidate]:
+    candidates: list[_SourceExcerptCandidate] = []
+    seen: set[tuple[int, int]] = set()
+
+    def add_candidate(
+        start: int,
+        end: int,
+        *,
+        kind: str,
+        marked_parent: tuple[int, int] | None = None,
+    ) -> None:
+        while start < end and source_text[start].isspace():
+            start += 1
+        while end > start and source_text[end - 1].isspace():
+            end -= 1
+        candidate = source_text[start:end]
+        normalized = re.sub(r"\s+", " ", candidate)
+        span = (start, end)
+        if not candidate or len(normalized) > 500 or span in seen:
+            return
+        seen.add(span)
+        candidates.append(
+            _SourceExcerptCandidate(candidate, start, end, kind, marked_parent)
+        )
+
+    paragraph_lines: list[tuple[str, int, int]] = []
+
+    def flush_paragraph() -> None:
+        if not paragraph_lines:
+            return
+        paragraph_start = paragraph_lines[0][1]
+        paragraph_end = paragraph_lines[-1][2]
+        paragraph = source_text[paragraph_start:paragraph_end]
+        collapsed_paragraph = re.sub(r"\s+", " ", paragraph).strip()
+        is_marked_paragraph = bool(
+            _SOURCE_PARAGRAPH_MARKER_PATTERN.match(collapsed_paragraph)
+        )
+        trimmed_start = paragraph_start
+        trimmed_end = paragraph_end
+        while trimmed_start < trimmed_end and source_text[trimmed_start].isspace():
+            trimmed_start += 1
+        while trimmed_end > trimmed_start and source_text[trimmed_end - 1].isspace():
+            trimmed_end -= 1
+        marked_parent = (trimmed_start, trimmed_end) if is_marked_paragraph else None
+        add_candidate(
+            paragraph_start,
+            paragraph_end,
+            kind="paragraph",
+            marked_parent=marked_parent,
+        )
+
+        sentence_start = 0
+        for match in _SOURCE_SENTENCE_BOUNDARY_PATTERN.finditer(paragraph):
+            sentence_end = match.end()
+            prefix = paragraph[
+                max(sentence_start, sentence_end - 48) : sentence_end
+            ].rstrip()
+            if match.group() == "." and _SOURCE_ABBREVIATION_PATTERN.search(prefix):
+                continue
+            add_candidate(
+                paragraph_start + sentence_start,
+                paragraph_start + sentence_end,
+                kind="sentence",
+                marked_parent=marked_parent,
+            )
+            sentence_start = sentence_end
+        add_candidate(
+            paragraph_start + sentence_start,
+            paragraph_end,
+            kind="sentence",
+            marked_parent=marked_parent,
+        )
+
+        table_rows = [
+            (line, start, end)
+            for line, start, end in paragraph_lines
+            if line.strip() and _SOURCE_TABLE_ROW_PATTERN.match(line.strip())
+        ]
+        if len(table_rows) > 1:
+            for _line, start, end in table_rows:
+                add_candidate(
+                    start,
+                    end,
+                    kind="table_row",
+                    marked_parent=marked_parent,
+                )
+        paragraph_lines.clear()
+
+    offset = 0
+    for line in source_text.splitlines(keepends=True):
+        line_start = offset
+        line_end = offset + len(line)
+        offset = line_end
         collapsed = re.sub(r"\s+", " ", line).strip()
         if not collapsed:
+            flush_paragraph()
             continue
-        segments = re.split(r"(?<=[.!?;])\s+", collapsed)
-        for candidate in (collapsed, *segments):
-            candidate = candidate.strip()
-            if not candidate or len(candidate) > 500 or candidate in seen:
-                continue
-            seen.add(candidate)
-            candidates.append(candidate)
+        marker_match = _SOURCE_PARAGRAPH_MARKER_PATTERN.match(collapsed)
+        if paragraph_lines and marker_match is not None:
+            previous_line = re.sub(r"\s+", " ", paragraph_lines[-1][0]).strip()
+            body = marker_match.group("body")
+            previous_is_open = re.search(r"[.;:!?]\s*$", previous_line) is None
+            is_wrapped_cross_reference = previous_is_open and (
+                _SOURCE_CROSS_REFERENCE_LEAD_IN_PATTERN.search(previous_line)
+                is not None
+                or _SOURCE_CROSS_REFERENCE_BODY_PATTERN.match(body) is not None
+            )
+            if not is_wrapped_cross_reference:
+                flush_paragraph()
+        paragraph_lines.append((line, line_start, line_end))
+    flush_paragraph()
     return candidates
 
 
