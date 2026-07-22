@@ -40,6 +40,7 @@ from axiom_encode.cli import (
     _append_exception_positive_companion_tests_if_missing,
     _append_generated_derived_output_tests_if_missing,
     _append_generated_judgment_positive_tests_if_missing,
+    _append_generated_judgment_positive_tests_in_overlay,
     _append_generated_zero_branch_tests_if_missing,
     _applied_encoding_manifest_path,
     _applied_encoding_manifest_signature_issue,
@@ -20453,7 +20454,14 @@ rules:
         with pytest.raises(UnsafeRulespecContextPath):
             _canonical_rulespec_compile_path(rules_file, policy_repo)
 
-        def check_companion(staged_test_file, *, root, axiom_rules_path):
+        def check_companion(
+            staged_test_file,
+            *,
+            root,
+            axiom_rules_path,
+            rulespec_dependency_roots=(),
+        ):
+            assert rulespec_dependency_roots == ()
             staged_rules_file = staged_test_file.with_name(
                 "vat-electricity-water-exemption-directive.yaml"
             )
@@ -20496,6 +20504,20 @@ rules:
             "vat-electricity-water-exemption-directive#input.receives_water": True,
         }
         assert case["output"] == {target: "holds"}
+
+    def test_judgment_positive_overlay_skips_unrelated_companion_issues(self, tmp_path):
+        with patch("axiom_encode.cli._stage_apply_overlay_dependency_root") as stage:
+            repaired = _append_generated_judgment_positive_tests_in_overlay(
+                rules_file=tmp_path / "generated/example.yaml",
+                test_file=tmp_path / "generated/example.test.yaml",
+                policy_repo_path=tmp_path / "rulespec-us/us",
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+                relative_output=Path("regulations/example.yaml"),
+                issues=["Derived rule missing companion output coverage: example"],
+            )
+
+        assert repaired == []
+        stage.assert_not_called()
 
     def test_imported_output_repair_satisfies_positive_judgment_composition(
         self, tmp_path

@@ -6572,6 +6572,7 @@ def _evaluate_generated_artifact_with_repairs(
         policy_repo_root=policy_repo_root,
         axiom_rules_path=axiom_rules_path,
         issues=metrics.ci_issues,
+        rulespec_dependency_roots=rulespec_dependency_roots,
     )
     if not repairs:
         return metrics
@@ -6610,6 +6611,7 @@ def _apply_generated_eval_repairs(
     policy_repo_root: Path,
     axiom_rules_path: Path,
     issues: list[str],
+    rulespec_dependency_roots: Sequence[Path] = (),
 ) -> list[str]:
     """Apply deterministic generated-artifact repairs before final eval scoring."""
     repairs: list[str] = []
@@ -6673,14 +6675,14 @@ def _apply_generated_eval_repairs(
     )
     repairs.extend(
         f"judgment_positive:{name}"
-        for name in cli_helpers._append_generated_judgment_positive_tests_if_missing(
+        for name in cli_helpers._append_generated_judgment_positive_tests_in_overlay(
             rules_file=rulespec_file,
             test_file=test_file,
-            repo_path=policy_repo_root,
+            policy_repo_path=policy_repo_root,
             axiom_rules_path=axiom_rules_path,
             relative_output=relative_output,
             issues=companion_issues,
-            test_failure_checker=cli_helpers._rulespec_companion_test_failures,
+            rulespec_dependency_roots=rulespec_dependency_roots,
         )
     )
     repairs.extend(
