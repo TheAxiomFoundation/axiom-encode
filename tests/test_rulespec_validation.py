@@ -19181,6 +19181,41 @@ rules: []
     assert any("does not contain `official_amount` = 1055" in issue for issue in issues)
 
 
+def test_target_attestation_binding_does_not_apply_to_dependent_source(tmp_path):
+    target_source = "us/regulation/42/435/555"
+    dependent_source = "us/regulation/42/435/559"
+    target_pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path / "rulespec-us",
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+        local_corpus_release=None,
+        source_metadata={
+            "source_attestation": {
+                "requested_corpus_citation_path": target_source,
+            }
+        },
+    )
+    dependent_pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path / "rulespec-us",
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+        local_corpus_release=None,
+    )
+    dependent_content = f"""format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: {dependent_source}
+rules: []
+"""
+
+    assert target_pipeline._trusted_source_binding_issues(dependent_content) == [
+        "Source verification target mismatch: generated RuleSpec must include "
+        f"the trusted requested source `{target_source}`, but declared "
+        f"`{dependent_source}`."
+    ]
+    assert dependent_pipeline._trusted_source_binding_issues(dependent_content) == []
+
+
 def test_authoritative_corpus_uses_named_canonical_release(tmp_path):
     corpus = tmp_path / "axiom-corpus"
     canonical = corpus / "data/corpus/provisions/us/statute"
