@@ -305,7 +305,7 @@ def run_claude_code(
         "--no-chrome",
         "--strict-mcp-config",
         "--mcp-config",
-        "{}",
+        '{"mcpServers": {}}',
         "--tools",
         "",
         "--allowed-tools",

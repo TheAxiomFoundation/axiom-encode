@@ -277,7 +277,7 @@ Score each dimension from 1-10. Output ONLY valid JSON:
             "--no-chrome",
             "--strict-mcp-config",
             "--mcp-config",
-            "{}",
+            '{"mcpServers": {}}',
             "--tools",
             tools,
             "--allowed-tools",
