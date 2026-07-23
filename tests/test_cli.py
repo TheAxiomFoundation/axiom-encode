@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import tomllib
+from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -62,6 +63,7 @@ from axiom_encode.cli import (
     _default_generated_test_input_value,
     _discover_rulespec_test_files,
     _effective_runner_specs,
+    _ensure_no_unmanifested_preexisting_rulespec_changes,
     _ensure_rulespec_import,
     _eval_suite_json_sha256,
     _eval_suite_summary_payload,
@@ -31315,6 +31317,70 @@ class TestGuardGenerated:
             }
         )
 
+    def _waiver_entry_text(
+        self,
+        path: str,
+        *,
+        state: str = "active",
+        fingerprint: str = "1" * 64,
+    ) -> str:
+        expires = (date.today() + timedelta(days=30)).isoformat()
+        return (
+            f"  {path}:\n"
+            f"    {state}:\n"
+            f"      fingerprint: sha256:{fingerprint}\n"
+            "      owner: '@axiom-test'\n"
+            "      issue: https://github.com/TheAxiomFoundation/axiom-encode/issues/1\n"
+            f"      expires: '{expires}'\n"
+        )
+
+    def _waiver_retirement_repo(
+        self,
+        tmp_path: Path,
+        *,
+        base_waiver_text: str,
+        head_waiver_text: str = TEST_VALIDATION_WAIVER_TEXT,
+    ) -> tuple[Path, str]:
+        repo = self._canonical_guard_repo(tmp_path)
+        _git(repo, "init")
+        _git(repo, "config", "user.email", "test@example.com")
+        _git(repo, "config", "user.name", "Test User")
+        relative = "us/regulations/example.yaml"
+        rule = repo / relative
+        self._source_backed_rule(rule)
+        rule.write_text(rule.read_text() + "# protected-base version\n")
+        waiver = repo / "known-validation-gaps.yaml"
+        waiver.write_text(base_waiver_text)
+        _write_test_rulespec_toolchain(
+            repo,
+            release_content_sha256=self.corpus_release.content_sha256,
+        )
+        base_waiver_sha256 = hashlib.sha256(waiver.read_bytes()).hexdigest()
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "add protected-base waiver")
+        base_ref = _git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        self._source_backed_rule(rule)
+        waiver.write_text(head_waiver_text)
+        _write_test_rulespec_toolchain(
+            repo,
+            release_content_sha256=self.corpus_release.content_sha256,
+        )
+        payload = self._model_manifest(
+            [{"path": relative, "sha256": _sha256_file(rule)}]
+        )
+        payload["validation_waiver_set_sha256"] = base_waiver_sha256
+        payload["validation_execution"]["policy_pre_apply"][
+            "validation_waiver_set_sha256"
+        ] = base_waiver_sha256
+        _sign_applied_encoding_manifest(payload, TEST_APPLY_SIGNING_BROKER)
+        manifest = repo / ".axiom/encoding-manifests/us/regulations/example.json"
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text(json.dumps(payload) + "\n")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "apply encoding and retire waiver")
+        return repo, base_ref
+
     def _retirement_manifest(
         self,
         deleted_paths: list[str],
@@ -31658,10 +31724,114 @@ class TestGuardGenerated:
                 changed_files=[
                     "us/regulations/example.yaml",
                     ".axiom/encoding-manifests/us/regulations/example.json",
+                    ".axiom/toolchain.toml",
                 ],
             )
 
         assert issues == []
+
+    def test_accepts_post_apply_retirement_of_matching_active_waiver(self, tmp_path):
+        relative = "us/regulations/example.yaml"
+        repo, base_ref = self._waiver_retirement_repo(
+            tmp_path,
+            base_waiver_text=(
+                "validate_failures:\n" + self._waiver_entry_text(relative)
+            ),
+        )
+
+        issues = guard_generated_change_issues(
+            repo,
+            corpus_path=self.corpus_path,
+            base_ref=base_ref,
+            head_ref="HEAD",
+        )
+
+        assert issues == []
+
+    def test_preexisting_guard_accepts_post_apply_waiver_retirement(self, tmp_path):
+        relative = "us/regulations/example.yaml"
+        repo = self._canonical_guard_repo(tmp_path)
+        _git(repo, "init")
+        _git(repo, "config", "user.email", "test@example.com")
+        _git(repo, "config", "user.name", "Test User")
+        _git(repo, "branch", "-M", "main")
+        rule = repo / relative
+        self._source_backed_rule(rule)
+        rule.write_text(rule.read_text() + "# protected-base version\n")
+        waiver = repo / "known-validation-gaps.yaml"
+        waiver.write_text("validate_failures:\n" + self._waiver_entry_text(relative))
+        _write_test_rulespec_toolchain(
+            repo,
+            release_content_sha256=self.corpus_release.content_sha256,
+        )
+        base_waiver_sha256 = hashlib.sha256(waiver.read_bytes()).hexdigest()
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "add protected-base waiver")
+
+        self._source_backed_rule(rule)
+        waiver.write_text(TEST_VALIDATION_WAIVER_TEXT)
+        _write_test_rulespec_toolchain(
+            repo,
+            release_content_sha256=self.corpus_release.content_sha256,
+        )
+        payload = self._model_manifest(
+            [{"path": relative, "sha256": _sha256_file(rule)}]
+        )
+        payload["validation_waiver_set_sha256"] = base_waiver_sha256
+        payload["validation_execution"]["policy_pre_apply"][
+            "validation_waiver_set_sha256"
+        ] = base_waiver_sha256
+        _sign_applied_encoding_manifest(payload, TEST_APPLY_SIGNING_BROKER)
+        manifest = repo / ".axiom/encoding-manifests/us/regulations/example.json"
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text(json.dumps(payload) + "\n")
+
+        _ensure_no_unmanifested_preexisting_rulespec_changes(
+            repo,
+            [(Path(relative), [rule])],
+            corpus_path=self.corpus_path,
+        )
+
+    @pytest.mark.parametrize(
+        ("base_waiver_text", "expected_issue"),
+        [
+            (
+                "pending",
+                "only active entries without pending state may be removed",
+            ),
+            (
+                "unrelated",
+                "removed entries must name changed protected RuleSpec modules",
+            ),
+        ],
+    )
+    def test_rejects_unsafe_post_apply_waiver_retirement(
+        self,
+        tmp_path,
+        base_waiver_text,
+        expected_issue,
+    ):
+        target = "us/regulations/example.yaml"
+        waiver_path = (
+            target if base_waiver_text == "pending" else "us/statutes/26/99.yaml"
+        )
+        state = "pending" if base_waiver_text == "pending" else "active"
+        repo, base_ref = self._waiver_retirement_repo(
+            tmp_path,
+            base_waiver_text=(
+                "validate_failures:\n"
+                + self._waiver_entry_text(waiver_path, state=state)
+            ),
+        )
+
+        issues = guard_generated_change_issues(
+            repo,
+            corpus_path=self.corpus_path,
+            base_ref=base_ref,
+            head_ref="HEAD",
+        )
+
+        assert any(expected_issue in issue for issue in issues)
 
     def test_rejects_legacy_deterministic_manifest(self, tmp_path):
         rule = tmp_path / "us/regulations/example.yaml"
