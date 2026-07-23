@@ -19,7 +19,7 @@ REVIEWED_RULESPEC_REFS = frozenset(
     {
         (
             "us",
-            "10f7a16ef4a40cf1e26d6273e1aff9ebb79d002f",
+            "670e6d6642c70168a4ecfcd7ccfc47c3e7cf51c3",
         ),
         (
             "ca",
