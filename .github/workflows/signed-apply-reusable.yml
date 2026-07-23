@@ -12,6 +12,11 @@ name: Signed apply (Path R)
 #     and opens a PR for DIFF RE-REVIEW against the held reviewed wave PR.
 #     It NEVER auto-merges and never bypasses red — the repository's required
 #     validate check on the PR is the authoritative gate.
+#   * Re-dispatching a citation whose signed/<slug> branch already exists
+#     updates it in place with a lease-pinned force push — only after
+#     verifying the branch is this workflow's own single signed commit for
+#     the SAME citation and any open PR is the re-review PR on the default
+#     branch; every other pre-existing branch state fails closed (encode#1236).
 #   * The signer refuses to operate outside GitHub Actions by construction
 #     (context binding: repository + workflow ref + event name).
 
@@ -639,9 +644,91 @@ jobs:
             -m "Signed re-encode: $CITATION" \
             -m "Produced by axiom-encode encode --apply (backend openai) under the production supervisor + apply-signer (encode#1135) - Path R on encode#1147. For diff re-review against the held reviewed wave PR." \
             -m "Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
-          git push -u origin "$branch"
-          printf '%s\n\n%s\n' "Path R regeneration of \`$CITATION\` under the production apply-signer (encode#1147 / #1135). Re-review required: diff this against the corresponding held reviewed wave PR before merging; the reviewed branch is the reference for intent (verbatim excerpts, effective dates). Never merge red." "Generated with Claude Code" > "$RUNNER_TEMP/pr-body.md"
           default_branch="${{ github.event.repository.default_branch }}"
+          if ! ls_remote_out="$(git ls-remote --heads origin "refs/heads/$branch")"; then
+            echo "::error::could not determine whether origin/$branch exists; inspect the remote manually"; exit 1
+          fi
+          remote_exists=false
+          while IFS=$'\t' read -r _ ls_ref; do
+            if [ "$ls_ref" = "refs/heads/$branch" ]; then
+              remote_exists=true
+            fi
+          done <<< "$ls_remote_out"
+          if [ "$remote_exists" = false ]; then
+            git push -u origin "$branch" \
+              || { echo "::error::push of new branch $branch was rejected (branch appeared concurrently); re-dispatch to retry"; exit 1; }
+          else
+            git fetch --no-tags origin "+refs/heads/$branch:refs/remotes/origin/$branch" \
+              || { echo "::error::could not fetch origin/$branch for provenance checks; inspect the branch manually"; exit 1; }
+            remote_sha="$(git rev-parse "refs/remotes/origin/$branch")" \
+              || { echo "::error::could not resolve origin/$branch after fetch; inspect the branch manually"; exit 1; }
+            remote_commit_count="$(git rev-list --count "origin/$default_branch..$remote_sha")" \
+              || { echo "::error::could not compare origin/$branch with origin/$default_branch; inspect the branch manually"; exit 1; }
+            if [ "$remote_commit_count" != "1" ]; then
+              echo "::error::origin/$branch has $remote_commit_count commits outside origin/$default_branch; expected exactly 1; inspect the branch manually"; exit 1
+            fi
+            remote_parents="$(git log -1 --format='%P' "$remote_sha")" \
+              || { echo "::error::could not inspect origin/$branch commit parents; inspect the branch manually"; exit 1; }
+            read -r -a remote_parent_shas <<< "$remote_parents"
+            if [ "${#remote_parent_shas[@]}" -ne 1 ]; then
+              echo "::error::origin/$branch commit $remote_sha has ${#remote_parent_shas[@]} parents; expected exactly 1; inspect the branch manually"; exit 1
+            fi
+            expected_identity="axiom-signed-apply <hello@axiom-foundation.org>"
+            remote_author="$(git log -1 --format='%an <%ae>' "$remote_sha")" \
+              || { echo "::error::could not inspect origin/$branch author; inspect the branch manually"; exit 1; }
+            if [ "$remote_author" != "$expected_identity" ]; then
+              echo "::error::origin/$branch author mismatch (got: $remote_author; expected: $expected_identity); inspect the branch manually"; exit 1
+            fi
+            remote_committer="$(git log -1 --format='%cn <%ce>' "$remote_sha")" \
+              || { echo "::error::could not inspect origin/$branch committer; inspect the branch manually"; exit 1; }
+            if [ "$remote_committer" != "$expected_identity" ]; then
+              echo "::error::origin/$branch committer mismatch (got: $remote_committer; expected: $expected_identity); inspect the branch manually"; exit 1
+            fi
+            expected_subject="Signed re-encode: $CITATION"
+            remote_subject="$(git log -1 --format='%s' "$remote_sha")" \
+              || { echo "::error::could not inspect origin/$branch subject; inspect the branch manually"; exit 1; }
+            if [ "$remote_subject" != "$expected_subject" ]; then
+              echo "::error::origin/$branch subject mismatch (got: $remote_subject; expected: $expected_subject); inspect the branch manually"; exit 1
+            fi
+            git diff --no-renames --name-only -z "$remote_sha^" "$remote_sha" > "$RUNNER_TEMP/signed-branch-paths" \
+              || { echo "::error::could not inspect origin/$branch diff at $remote_sha; inspect the branch manually"; exit 1; }
+            while IFS= read -r -d '' remote_path; do
+              # Slash-wrapping makes the segment match exact: /NAME/ inside "/$path/"
+              # is the literal-path equivalent of the commit gate's (^|/)NAME(/|$).
+              case "/$remote_path/" in
+                */.github/*|*/scripts/*|*/_axiom/*|*/.git/*)
+                  echo "::error::origin/$branch modifies protected-surface path '$remote_path'; inspect the branch manually"; exit 1 ;;
+              esac
+            done < "$RUNNER_TEMP/signed-branch-paths"
+            if ! same_repo_pr_rows="$(
+              gh api --paginate \
+                "repos/$GITHUB_REPOSITORY/pulls?state=open&head=$GITHUB_REPOSITORY_OWNER:$branch&per_page=100" \
+                --jq '.[] | [.number, .base.ref, .head.repo.full_name // ""] | @tsv'
+            )"; then
+              echo "::error::could not inspect open PRs for origin/$branch; inspect the branch manually"; exit 1
+            fi
+            same_repo_pr_count=0
+            same_repo_pr_base=""
+            while IFS=$'\t' read -r pr_number pr_base pr_head_repo; do
+              if [ -z "$pr_number" ]; then
+                continue
+              fi
+              if [ "$pr_head_repo" != "$GITHUB_REPOSITORY" ]; then
+                continue
+              fi
+              same_repo_pr_count=$((same_repo_pr_count + 1))
+              same_repo_pr_base="$pr_base"
+            done <<< "$same_repo_pr_rows"
+            if [ "$same_repo_pr_count" -gt 1 ]; then
+              echo "::error::origin/$branch has $same_repo_pr_count same-repository open PRs; expected at most 1; inspect them manually"; exit 1
+            fi
+            if [ "$same_repo_pr_count" -eq 1 ] && [ "$same_repo_pr_base" != "$default_branch" ]; then
+              echo "::error::origin/$branch open PR base mismatch (got: $same_repo_pr_base; expected: $default_branch); inspect the PR manually"; exit 1
+            fi
+            git push --force-with-lease="refs/heads/$branch:$remote_sha" -u origin "$branch" \
+              || { echo "::error::lease-pinned push of $branch was rejected (branch moved after verification); re-dispatch to retry"; exit 1; }
+          fi
+          printf '%s\n\n%s\n' "Path R regeneration of \`$CITATION\` under the production apply-signer (encode#1147 / #1135). Re-review required: diff this against the corresponding held reviewed wave PR before merging; the reviewed branch is the reference for intent (verbatim excerpts, effective dates). Never merge red." "Generated with Claude Code" > "$RUNNER_TEMP/pr-body.md"
           gh pr create --head "$branch" --base "$default_branch" \
             --title "Signed re-encode: $CITATION" \
             --label signed-apply \
