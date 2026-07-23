@@ -480,6 +480,9 @@ class TestClaudeCodeBackendAdditional:
             cmd = mock_run.call_args[0][0]
             assert "--print" in cmd
             assert "--plugin-dir" not in cmd
+            # Current Claude CLI versions validate --mcp-config as a record
+            # with an mcpServers key; a bare "{}" fails every invocation.
+            assert cmd[cmd.index("--mcp-config") + 1] == '{"mcpServers": {}}'
 
     def test_run_claude_code_timeout(self):
         """Test _run_claude_code handles timeout."""
