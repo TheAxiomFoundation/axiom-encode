@@ -6569,14 +6569,9 @@ def _changed_manifest_group_files(
     manifest_groups: list[tuple[Path, list[Path]]],
 ) -> list[Path]:
     changed = set(_git_changed_files(repo_path, base_ref=None, head_ref="HEAD"))
-    for base_ref in ("origin/main", "main"):
-        try:
-            changed.update(
-                _git_changed_files(repo_path, base_ref=base_ref, head_ref="HEAD")
-            )
-            break
-        except RuntimeError:
-            continue
+    base_ref = _preferred_protected_base_ref(repo_path)
+    if base_ref is not None:
+        changed.update(_git_changed_files(repo_path, base_ref=base_ref, head_ref="HEAD"))
     repo_prefix = _git_worktree_prefix(repo_path)
     return _unique_paths(
         [
@@ -10563,6 +10558,16 @@ _SECTION_172_C_PLACEHOLDER_SYMBOL = (
 _SECTION_172_C_CAPACITY_SYMBOL = "deduction_capacity_before_net_operating_loss"
 
 
+def _preferred_protected_base_ref(repo_path: Path) -> str | None:
+    for base_ref in ("origin/main", "main"):
+        try:
+            _git_changed_files(repo_path, base_ref=base_ref, head_ref="HEAD")
+        except RuntimeError:
+            continue
+        return base_ref
+    return None
+
+
 def _ensure_no_unmanifested_preexisting_rulespec_changes(
     repo_path: Path,
     manifest_groups: list[tuple[Path, list[Path]]],
@@ -10603,11 +10608,22 @@ def _ensure_no_unmanifested_preexisting_rulespec_changes(
     relevant_manifest_paths.update(
         _applied_manifest_paths_for_files(repo_path, relative_files=dirty_targets)
     )
+    changed_metadata_paths = {
+        path
+        for path in (
+            _validation_waivers.DEFAULT_WAIVER_PATH,
+            ".axiom/toolchain.toml",
+        )
+        if path in changed
+    }
     issues = guard_generated_change_issues(
         repo_path,
         corpus_path=corpus_path,
+        base_ref=_preferred_protected_base_ref(repo_path),
         roots=roots,
-        changed_files=sorted(dirty_targets | relevant_manifest_paths),
+        changed_files=sorted(
+            dirty_targets | relevant_manifest_paths | changed_metadata_paths
+        ),
     )
     if not issues:
         return
