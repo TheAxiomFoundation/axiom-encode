@@ -3459,15 +3459,24 @@ def _cmd_validation_waivers_audit(args) -> int:
             return (not actual["passed"]) and actual["fingerprint"] == expected
         return bool(actual["passed"])
 
-    discrepant = [
+    discrepant = sorted(
         path
         for path, kind in classified.items()
         if path in executed_by_path
         and not _expectation_met(path, kind, executed_by_path[path])
-    ]
-    if discrepant:
+    )
+    # Recheck budget: sized for transient flakes (observed ~1 per 3,099
+    # modules per run), not for a broadly wrong ledger. Exceeding it means
+    # something systemic — a bad ledger, toolchain skew, or load
+    # instability — and re-running thousands of modules serially would
+    # also blow the hosted-runner window, so fail with one explicit
+    # systemic error instead of per-row accusations that isolation never
+    # confirmed.
+    recheck_budget = max(16, -(-len(executed_by_path) // 100))
+    systemic_discrepancy = len(discrepant) > recheck_budget
+    if discrepant and not systemic_discrepancy:
         rechecked = _fingerprint_validation_waiver_modules(
-            [Path(path) for path in sorted(discrepant)],
+            [Path(path) for path in discrepant],
             root=root,
             corpus_path=args.corpus_path,
             axiom_rules_path=args.axiom_rules_path,
@@ -3479,6 +3488,15 @@ def _cmd_validation_waivers_audit(args) -> int:
 
     results: list[dict[str, Any]] = []
     errors: list[str] = []
+    if systemic_discrepancy:
+        sample = ", ".join(discrepant[:10])
+        errors.append(
+            "systemic audit discrepancy: "
+            f"{len(discrepant)} of {len(executed_by_path)} executed modules "
+            f"violate their waiver expectations (isolated-recheck budget is "
+            f"{recheck_budget}); refusing per-module accusations that "
+            f"isolation never confirmed — first paths: {sample}"
+        )
 
     for path, kind in classified.items():
         if path in deleted_removed:
@@ -3529,6 +3547,14 @@ def _cmd_validation_waivers_audit(args) -> int:
             error = f"{path}: pending waiver requires the current module to pass"
         elif kind == "removed" and not actual["passed"]:
             error = f"{path}: removed active waiver still has a failing module"
+        if systemic_discrepancy and error is not None:
+            # The systemic error already fails the audit; per-module
+            # accusations that isolation never confirmed are recorded as
+            # unverified rather than asserted.
+            result_record["success"] = False
+            result_record["unverified_discrepancy"] = True
+            results.append(result_record)
+            continue
         result_record["success"] = error is None
         if error is not None:
             result_record["error"] = error

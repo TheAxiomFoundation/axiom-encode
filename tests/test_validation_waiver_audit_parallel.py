@@ -419,3 +419,152 @@ def test_audit_reports_discrepancy_that_survives_isolation(monkeypatch, capsys):
     assert code == 1
     err = capsys.readouterr().err
     assert "fingerprint drifted" in err
+
+
+def _ledger_for(paths_states, tmp_path):
+    import datetime
+
+    import yaml as _yaml
+
+    expires = (datetime.date.today() + datetime.timedelta(days=60)).isoformat()
+    entries = {}
+    for path, states in paths_states.items():
+        entry = {}
+        for state, fp in states.items():
+            entry[state] = {
+                "fingerprint": fp,
+                "owner": "@MaxGhenis",
+                "issue": "https://github.com/TheAxiomFoundation/rulespec-us/issues/1",
+                "expires": expires,
+            }
+        entries[path] = entry
+    return _yaml.safe_dump({"validate_failures": entries})
+
+
+@pytest.mark.parametrize(
+    ("kind", "states", "row", "expect_recheck"),
+    [
+        # active must fail with the recorded fingerprint
+        ("active-ok", {"active": "sha256:" + "a" * 64}, {"passed": False, "fingerprint": "sha256:" + "a" * 64}, False),
+        ("active-stale", {"active": "sha256:" + "a" * 64}, {"passed": True, "fingerprint": "sha256:" + "a" * 64}, True),
+        ("active-drift", {"active": "sha256:" + "a" * 64}, {"passed": False, "fingerprint": "sha256:" + "b" * 64}, True),
+        # pending-only must pass
+        ("pending-pass", {"pending": "sha256:" + "a" * 64}, {"passed": True, "fingerprint": "sha256:" + "c" * 64}, False),
+        ("pending-fail", {"pending": "sha256:" + "a" * 64}, {"passed": False, "fingerprint": "sha256:" + "c" * 64}, True),
+    ],
+)
+def test_recheck_selection_mirrors_verdicts(monkeypatch, kind, states, row, expect_recheck, tmp_path):
+    monkeypatch.setenv(cli._WAIVER_AUDIT_WORKERS_ENV, "1")
+    module_rel = "us/statutes/x.yaml"
+    root = tmp_path / "rulespec-us"
+    (root / "us/statutes").mkdir(parents=True)
+    (root / "us/statutes/x.yaml").write_text("format: rulespec/v1\n")
+    (root / "known-validation-gaps.yaml").write_text(
+        _ledger_for({module_rel: states}, tmp_path)
+    )
+    base = tmp_path / "base.yaml"
+    base.write_text(_ledger_for({module_rel: states}, tmp_path))
+    changed = tmp_path / "changed.txt"
+    changed.write_text("")
+
+    serial_calls = []
+
+    def fake_parallel(modules, **kwargs):
+        return [dict(row, path=module_rel, outcome={"v": 1})]
+
+    def fake_serial(modules, **kwargs):
+        serial_calls.append([str(m) for m in modules])
+        return [dict(row, path=module_rel, outcome={"v": 1})]
+
+    with (
+        patch.object(cli, "_fingerprint_validation_waiver_modules_parallel", fake_parallel),
+        patch.object(cli, "_fingerprint_validation_waiver_modules", fake_serial),
+    ):
+        cli._cmd_validation_waivers_audit(
+            _audit_args(tmp_path, root, tmp_path / "c", tmp_path / "e", base, changed)
+        )
+    assert bool(serial_calls) == expect_recheck, kind
+
+
+def test_recheck_report_flags_and_counts(monkeypatch, capsys, tmp_path):
+    import json as _json
+
+    monkeypatch.setenv(cli._WAIVER_AUDIT_WORKERS_ENV, "1")
+    module_rel = "us/statutes/x.yaml"
+    fp_good = "sha256:" + "a" * 64
+    fp_flake = "sha256:" + "b" * 64
+    root = tmp_path / "rulespec-us"
+    (root / "us/statutes").mkdir(parents=True)
+    (root / "us/statutes/x.yaml").write_text("format: rulespec/v1\n")
+    (root / "known-validation-gaps.yaml").write_text(
+        _ledger_for({module_rel: {"active": fp_good}}, tmp_path)
+    )
+    base = tmp_path / "base.yaml"
+    base.write_text(_ledger_for({module_rel: {"active": fp_good}}, tmp_path))
+    changed = tmp_path / "changed.txt"
+    changed.write_text("")
+
+    def fake_parallel(modules, **kwargs):
+        return [{"path": module_rel, "passed": False, "fingerprint": fp_flake, "outcome": {"v": "flake"}}]
+
+    def fake_serial(modules, **kwargs):
+        return [{"path": module_rel, "passed": False, "fingerprint": fp_good, "outcome": {"v": "stable"}}]
+
+    args = _audit_args(tmp_path, root, tmp_path / "c", tmp_path / "e", base, changed)
+    args.json = True
+    with (
+        patch.object(cli, "_fingerprint_validation_waiver_modules_parallel", fake_parallel),
+        patch.object(cli, "_fingerprint_validation_waiver_modules", fake_serial),
+    ):
+        code = cli._cmd_validation_waivers_audit(args)
+    report = _json.loads(capsys.readouterr().out)
+    assert code == 0 and report["success"] is True
+    assert report["checked"] == 1
+    (row_record,) = report["results"]
+    assert row_record["isolated_recheck"] is True
+    assert row_record["fingerprint"] == fp_good
+    assert row_record["success"] is True
+
+
+def test_systemic_discrepancy_fails_without_per_row_accusations(monkeypatch, capsys, tmp_path):
+    import json as _json
+
+    monkeypatch.setenv(cli._WAIVER_AUDIT_WORKERS_ENV, "1")
+    fp_good = "sha256:" + "a" * 64
+    fp_bad = "sha256:" + "b" * 64
+    count = 40  # > max(16, 1% of 40)
+    root = tmp_path / "rulespec-us"
+    (root / "us/statutes").mkdir(parents=True)
+    states = {}
+    for index in range(count):
+        rel = f"us/statutes/m{index:03d}.yaml"
+        (root / rel).write_text("format: rulespec/v1\n")
+        states[rel] = {"active": fp_good}
+    (root / "known-validation-gaps.yaml").write_text(_ledger_for(states, tmp_path))
+    base = tmp_path / "base.yaml"
+    base.write_text(_ledger_for(states, tmp_path))
+    changed = tmp_path / "changed.txt"
+    changed.write_text("")
+
+    def fake_parallel(modules, **kwargs):
+        return [
+            {"path": str(m), "passed": False, "fingerprint": fp_bad, "outcome": {}}
+            for m in modules
+        ]
+
+    def fake_serial(modules, **kwargs):
+        raise AssertionError("systemic mode must not recheck serially")
+
+    args = _audit_args(tmp_path, root, tmp_path / "c", tmp_path / "e", base, changed)
+    args.json = True
+    with (
+        patch.object(cli, "_fingerprint_validation_waiver_modules_parallel", fake_parallel),
+        patch.object(cli, "_fingerprint_validation_waiver_modules", fake_serial),
+    ):
+        code = cli._cmd_validation_waivers_audit(args)
+    report = _json.loads(capsys.readouterr().out)
+    assert code == 1 and report["success"] is False
+    assert len(report["errors"]) == 1
+    assert "systemic audit discrepancy" in report["errors"][0]
+    assert all(r.get("unverified_discrepancy") for r in report["results"])
+    assert not any("error" in r for r in report["results"])
