@@ -127,7 +127,7 @@ def test_validate_rulespec_base_accepts_main_ancestor(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("country", "reviewed_ref"),
     [
-        ("us", "10f7a16ef4a40cf1e26d6273e1aff9ebb79d002f"),
+        ("us", "670e6d6642c70168a4ecfcd7ccfc47c3e7cf51c3"),
         ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
     ],
 )
@@ -140,7 +140,7 @@ def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
     repo = tmp_path / f"rulespec-{country}"
     assert REVIEWED_RULESPEC_REFS == frozenset(
         {
-            ("us", "10f7a16ef4a40cf1e26d6273e1aff9ebb79d002f"),
+            ("us", "670e6d6642c70168a4ecfcd7ccfc47c3e7cf51c3"),
             ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
         }
     )
