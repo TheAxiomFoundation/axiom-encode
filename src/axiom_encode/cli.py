@@ -253,6 +253,7 @@ from .proof_hash_migration import (
     render_proof_hash_cascade_plan,
 )
 from .repo_routing import (
+    _rulespec_routing_cache_scope,
     canonical_rulespec_repo_name,
     canonical_rulespec_root_identity,
     find_policy_repo_root,
@@ -2931,10 +2932,23 @@ def _fingerprint_validation_waiver_modules(
     rulespec_dependency_roots: Sequence[Path] = (),
     corpus_release: LocalCorpusRelease | None = None,
 ) -> list[dict[str, Any]]:
-    """Execute validation and companions against one canonical checkout root."""
+    """Execute validation and companions against one canonical checkout root.
 
-    with _rulespec_resolution_cache_scope():
-        return _fingerprint_validation_waiver_modules_with_resolution_cache(
+    Holds only the ROUTING cache across the batch (path -> checkout-root
+    admission over a fixed tree: partition-invariant, successful probes
+    only). Deliberately NOT the full `_rulespec_resolution_cache_scope`:
+    that scope reuses an enclosing cache when nested, so holding one across
+    the batch leaks per-module resolution/identity state between neighbors
+    and makes failure messages — and therefore waiver fingerprints — depend
+    on how the batch was partitioned (observed: 5/3,099 rulespec-us waiver
+    fingerprints changed between chunk layouts). Each module's
+    `ValidatorPipeline.validate` opens its own fresh resolution scope, so
+    every fingerprint equals the module's standalone value regardless of
+    batch composition or worker fan-out.
+    """
+
+    with _rulespec_routing_cache_scope():
+        return _fingerprint_validation_waiver_modules_impl(
             modules,
             root=root,
             corpus_path=corpus_path,
@@ -2944,7 +2958,7 @@ def _fingerprint_validation_waiver_modules(
         )
 
 
-def _fingerprint_validation_waiver_modules_with_resolution_cache(
+def _fingerprint_validation_waiver_modules_impl(
     modules: list[Path],
     *,
     root: Path,

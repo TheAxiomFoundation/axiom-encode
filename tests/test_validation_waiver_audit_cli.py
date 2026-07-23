@@ -289,7 +289,15 @@ def test_fingerprint_boundary_reuses_nested_pipeline_admissions(tmp_path: Path):
         )
 
     assert len(results) == 3
-    assert walked_roots == [root]
+    # One admission probe up front plus one per module: the batch executor
+    # deliberately does NOT hold a shared resolution/identity cache, because
+    # that cache leaks per-module resolution state between batch neighbors
+    # and makes waiver fingerprints depend on how the batch was partitioned
+    # (observed on rulespec-us: 5/3,099 fingerprints changed between chunk
+    # layouts). Correctness of fingerprints beats the deduplicated walk;
+    # only the partition-invariant ROUTING cache spans the batch.
+    assert set(walked_roots) == {root}
+    assert len(walked_roots) == 1 + len(results)
 
 
 def test_fingerprint_passes_explicit_rulespec_dependency_roots(tmp_path: Path):
