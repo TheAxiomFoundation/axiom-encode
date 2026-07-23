@@ -11,6 +11,7 @@ from scripts.prepare_signed_backfill import (
     branch_name,
     stage_authorized_changes,
     validate_country,
+    validate_dependent_cascade,
     validate_rulespec_base,
 )
 
@@ -60,6 +61,27 @@ def _write_signed_change(repo: Path) -> tuple[Path, Path]:
         encoding="utf-8",
     )
     return rule, manifest
+
+
+def _write_module(
+    repo: Path,
+    relative: str,
+    *,
+    imports: tuple[str, ...] = (),
+) -> Path:
+    path = repo / "us" / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "format: rulespec/v1\n"
+        + (
+            "imports:\n" + "".join(f"  - {value}\n" for value in imports)
+            if imports
+            else "imports: []\n"
+        )
+        + "rules: []\n",
+        encoding="utf-8",
+    )
+    return path
 
 
 @pytest.mark.parametrize("country", ["../x", "us/x", "${{ inputs.x }}", "us\n"])
@@ -115,6 +137,64 @@ def test_rerun_attempt_uses_recoverable_distinct_branch() -> None:
     assert first == "axiom/signed-backfill-us-12345-1"
     assert rerun == "axiom/signed-backfill-us-12345-2"
     assert rerun != first
+
+
+def test_validate_dependent_cascade_accepts_only_direct_dependent(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    _write_module(repo, "regulations/42-cfr/435/555.yaml")
+    dependent = _write_module(
+        repo,
+        "regulations/42-cfr/435/559.yaml",
+        imports=("us:regulations/42-cfr/435/555#target_rule",),
+    )
+
+    assert validate_dependent_cascade(
+        repo,
+        "us/regulation/42/435/555",
+        "us/regulation/42/435/559",
+    ) == dependent.relative_to(repo / "us")
+
+
+def test_validate_dependent_cascade_rejects_unrelated_dependent(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    _write_module(repo, "regulations/42-cfr/435/555.yaml")
+    _write_module(
+        repo,
+        "regulations/42-cfr/435/559.yaml",
+        imports=("us:regulations/42-cfr/435/555",),
+    )
+    _write_module(repo, "regulations/42-cfr/435/561.yaml")
+
+    with pytest.raises(ValueError, match="does not exactly match"):
+        validate_dependent_cascade(
+            repo,
+            "us/regulation/42/435/555",
+            "us/regulation/42/435/561",
+        )
+
+
+def test_validate_dependent_cascade_rejects_multiple_direct_dependents(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    _write_module(repo, "regulations/42-cfr/435/555.yaml")
+    for section in ("559", "561"):
+        _write_module(
+            repo,
+            f"regulations/42-cfr/435/{section}.yaml",
+            imports=("regulations/42-cfr/435/555",),
+        )
+
+    with pytest.raises(ValueError, match="does not exactly match"):
+        validate_dependent_cascade(
+            repo,
+            "us/regulation/42/435/555",
+            "us/regulation/42/435/559",
+        )
 
 
 def test_validate_rulespec_base_accepts_main_ancestor(tmp_path: Path) -> None:
