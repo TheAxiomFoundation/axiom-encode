@@ -38,7 +38,7 @@ from dataclasses import asdict, is_dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation, localcontext
 from pathlib import Path
-from typing import Any, Callable, NamedTuple
+from typing import Any, Callable, NamedTuple, Protocol
 
 # receipt is pinned to an exact version and artifact hashes in uv.lock. Any
 # upgrade must rerun this repository's signature tests at the new pin first.
@@ -42241,13 +42241,25 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
             else []
         )
         dependent_pipeline = (
-            ValidatorPipeline(
-                policy_repo_path=overlay_content_root,
-                axiom_rules_path=axiom_rules_path,
-                enable_oracles=False,
-                enforce_repository_layout=False,
-                local_corpus_release=local_corpus_release,
-                rulespec_dependency_roots=staged_dependency_roots,
+            _DependentRegressionPipeline(
+                overlay_pipeline=ValidatorPipeline(
+                    policy_repo_path=overlay_content_root,
+                    axiom_rules_path=axiom_rules_path,
+                    enable_oracles=False,
+                    enforce_repository_layout=False,
+                    local_corpus_release=local_corpus_release,
+                    rulespec_dependency_roots=staged_dependency_roots,
+                ),
+                baseline_pipeline=ValidatorPipeline(
+                    policy_repo_path=policy_content_root,
+                    axiom_rules_path=axiom_rules_path,
+                    enable_oracles=False,
+                    enforce_repository_layout=False,
+                    local_corpus_release=local_corpus_release,
+                    rulespec_dependency_roots=rulespec_dependency_roots,
+                ),
+                overlay_root=overlay_content_root,
+                baseline_root=policy_content_root,
             )
             if dependents
             else pipeline
@@ -42575,10 +42587,19 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
                         dependents=dependents,
                     )
                     continue
+            actionable_validations = [
+                (validated_file, validation)
+                for validated_file, validation in validations
+                if not getattr(
+                    validation,
+                    _DEPENDENT_BASELINE_DEBT_ATTR,
+                    False,
+                )
+            ]
             removed_invalid_inputs = _remove_invalid_dependent_test_inputs(
                 overlay_repo=overlay_content_root,
                 relative_output=relative_output,
-                validations=validations,
+                validations=actionable_validations,
             )
             if removed_invalid_inputs:
                 for path in removed_invalid_inputs:
@@ -42597,7 +42618,7 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
             removed_unknown_outputs = _remove_unknown_dependent_test_outputs(
                 overlay_repo=overlay_content_root,
                 relative_output=relative_output,
-                validations=validations,
+                validations=actionable_validations,
             )
             if removed_unknown_outputs:
                 for path in removed_unknown_outputs:
@@ -42616,7 +42637,7 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
             removed_cross_module_outputs = _remove_cross_module_dependent_test_outputs(
                 overlay_repo=overlay_content_root,
                 relative_output=relative_output,
-                validations=validations,
+                validations=actionable_validations,
             )
             if removed_cross_module_outputs:
                 for path in removed_cross_module_outputs:
@@ -42635,7 +42656,7 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
             changed_tests = _complete_missing_dependent_test_inputs(
                 overlay_repo=overlay_content_root,
                 relative_output=relative_output,
-                validations=validations,
+                validations=actionable_validations,
             )
             if not changed_tests:
                 break
@@ -42651,6 +42672,8 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
             )
         issues: list[str] = []
         for validated_file, validation in validations:
+            if getattr(validation, "all_passed", False):
+                continue
             for validator_result in validation.results.values():
                 if validator_result.error:
                     relative_file = _relative_to_rulespec_apply_content_root(
@@ -44375,10 +44398,47 @@ def _unique_test_case_name(base: str, existing_names: set[str]) -> str:
     return f"{base}_{index}"
 
 
+class _PipelineResultLike(Protocol):
+    @property
+    def all_passed(self) -> bool: ...
+
+    @property
+    def results(self) -> Mapping[str, object]: ...
+
+
+class _ValidationPipelineLike(Protocol):
+    def validate(
+        self,
+        rulespec_file: Path,
+        /,
+        *,
+        skip_reviewers: bool,
+    ) -> _PipelineResultLike: ...
+
+
+_DEPENDENT_BASELINE_DEBT_ATTR = "_axiom_dependent_baseline_debt"
+
+
+class _ToleratedDependentValidation:
+    """Expose a tolerated dependent result without mutating validator output."""
+
+    def __init__(self, validation: _PipelineResultLike) -> None:
+        self._validation = validation
+        setattr(self, _DEPENDENT_BASELINE_DEBT_ATTR, True)
+
+    @property
+    def all_passed(self) -> bool:
+        return True
+
+    @property
+    def results(self) -> Mapping[str, object]:
+        return self._validation.results
+
+
 def _validate_overlay_files(
-    pipeline: ValidatorPipeline,
+    pipeline: _ValidationPipelineLike,
     *,
-    dependent_pipeline: ValidatorPipeline,
+    dependent_pipeline: _ValidationPipelineLike,
     overlay_target: Path,
     dependents: list[Path],
 ) -> list[tuple[Path, object]]:
@@ -44394,6 +44454,74 @@ def _validate_overlay_files(
                 )
             )
     return validations
+
+
+class _DependentRegressionPipeline:
+    """Validate dependents against the overlay without inheriting baseline debt."""
+
+    def __init__(
+        self,
+        *,
+        overlay_pipeline: _ValidationPipelineLike,
+        baseline_pipeline: _ValidationPipelineLike,
+        overlay_root: Path,
+        baseline_root: Path,
+    ) -> None:
+        self.overlay_pipeline = overlay_pipeline
+        self.baseline_pipeline = baseline_pipeline
+        self.overlay_root = overlay_root
+        self.baseline_root = baseline_root
+        self._baseline_cache: dict[Path, _PipelineResultLike] = {}
+
+    def validate(self, path: Path, *, skip_reviewers: bool) -> _PipelineResultLike:
+        relative = Path(path).relative_to(self.overlay_root)
+        overlay = self.overlay_pipeline.validate(
+            path,
+            skip_reviewers=skip_reviewers,
+        )
+        if overlay.all_passed:
+            return overlay
+
+        overlay_failures = _failed_validation_issue_counts(overlay)
+        if not overlay_failures or any(
+            not diagnostics for diagnostics in overlay_failures.values()
+        ):
+            return overlay
+        baseline = self._baseline_cache.get(relative)
+        if baseline is None:
+            baseline = self.baseline_pipeline.validate(
+                self.baseline_root / relative,
+                skip_reviewers=skip_reviewers,
+            )
+            self._baseline_cache[relative] = baseline
+        baseline_failures = _failed_validation_issue_counts(baseline)
+        if all(
+            diagnostics <= baseline_failures.get(validator_name, Counter())
+            for validator_name, diagnostics in overlay_failures.items()
+        ):
+            return _ToleratedDependentValidation(overlay)
+
+        return overlay
+
+
+def _failed_validation_issue_counts(
+    validation: _PipelineResultLike,
+) -> dict[str, Counter[str]]:
+    results = getattr(validation, "results", {})
+    if not isinstance(results, Mapping):
+        return {}
+    failures: dict[str, Counter[str]] = {}
+    for name, result in results.items():
+        if getattr(result, "passed", False):
+            continue
+        diagnostics = Counter(
+            str(issue) for issue in (getattr(result, "issues", []) or [])
+        )
+        error = getattr(result, "error", None)
+        if error:
+            diagnostics[str(error)] += 1
+        failures[str(name)] = diagnostics
+    return failures
 
 
 def _repair_dependent_proof_import_hashes(

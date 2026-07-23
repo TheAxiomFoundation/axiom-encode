@@ -35758,7 +35758,308 @@ rules:
         assert issues == []
         assert supplemental == {}
         assert [path.name for path in validated_paths] == ["C.yaml", "2.yaml"]
-        assert pipeline_source_metadata == [target_source_metadata, None]
+        assert pipeline_source_metadata == [target_source_metadata, None, None]
+
+    @pytest.mark.parametrize(
+        (
+            "baseline_issues",
+            "overlay_issues",
+            "baseline_validator",
+            "overlay_validator",
+            "expected_passed",
+        ),
+        [
+            (["legacy failure"], ["legacy failure"], "ci", "ci", True),
+            (
+                ["legacy failure", "resolved failure"],
+                ["legacy failure"],
+                "ci",
+                "ci",
+                True,
+            ),
+            (
+                ["legacy failure"],
+                ["legacy failure", "new failure"],
+                "ci",
+                "ci",
+                False,
+            ),
+            (
+                ["legacy failure"],
+                ["legacy failure", "legacy failure"],
+                "ci",
+                "ci",
+                False,
+            ),
+            (["legacy failure"], ["legacy failure"], "ci", "compile", False),
+        ],
+    )
+    def test_dependent_regression_validation_blocks_only_new_issues(
+        self,
+        tmp_path,
+        baseline_issues,
+        overlay_issues,
+        baseline_validator,
+        overlay_validator,
+        expected_passed,
+    ):
+        from axiom_encode.cli import (
+            _DEPENDENT_BASELINE_DEBT_ATTR,
+            _DependentRegressionPipeline,
+        )
+
+        baseline_root = tmp_path / "baseline"
+        overlay_root = tmp_path / "overlay"
+        relative = Path("regulations/42-cfr/435/559.yaml")
+        baseline_path = baseline_root / relative
+        overlay_path = overlay_root / relative
+        baseline_path.parent.mkdir(parents=True)
+        overlay_path.parent.mkdir(parents=True)
+        baseline_path.write_text("format: rulespec/v1\nrules: []\n")
+        overlay_path.write_text("format: rulespec/v1\nrules: []\n")
+
+        class StaticPipeline:
+            def __init__(self, issues, validator_name):
+                self.issues = issues
+                self.validator_name = validator_name
+                self.validated_paths = []
+
+            def validate(self, path, *, skip_reviewers):
+                assert skip_reviewers is True
+                self.validated_paths.append(Path(path))
+                return SimpleNamespace(
+                    all_passed=not self.issues,
+                    results={
+                        self.validator_name: SimpleNamespace(
+                            passed=not self.issues,
+                            issues=self.issues,
+                            error=None,
+                        ),
+                    },
+                )
+
+        baseline_pipeline = StaticPipeline(baseline_issues, baseline_validator)
+        overlay_pipeline = StaticPipeline(overlay_issues, overlay_validator)
+        pipeline = _DependentRegressionPipeline(
+            overlay_pipeline=overlay_pipeline,
+            baseline_pipeline=baseline_pipeline,
+            overlay_root=overlay_root,
+            baseline_root=baseline_root,
+        )
+
+        result = pipeline.validate(overlay_path, skip_reviewers=True)
+
+        assert result.all_passed is expected_passed
+        assert getattr(result, _DEPENDENT_BASELINE_DEBT_ATTR, False) is expected_passed
+        assert baseline_pipeline.validated_paths == [baseline_path]
+        assert overlay_pipeline.validated_paths == [overlay_path]
+
+    def test_dependent_regression_validation_caches_baseline(self, tmp_path):
+        from axiom_encode.cli import _DependentRegressionPipeline
+
+        baseline_root = tmp_path / "baseline"
+        overlay_root = tmp_path / "overlay"
+        relative = Path("regulations/42-cfr/435/559.yaml")
+        baseline_path = baseline_root / relative
+        overlay_path = overlay_root / relative
+        baseline_path.parent.mkdir(parents=True)
+        overlay_path.parent.mkdir(parents=True)
+        baseline_path.write_text("format: rulespec/v1\nrules: []\n")
+        overlay_path.write_text("format: rulespec/v1\nrules: []\n")
+        failed = SimpleNamespace(
+            all_passed=False,
+            results={
+                "ci": SimpleNamespace(
+                    passed=False,
+                    issues=["legacy failure"],
+                    error=None,
+                )
+            },
+        )
+        baseline_pipeline = MagicMock()
+        baseline_pipeline.validate.return_value = failed
+        overlay_pipeline = MagicMock()
+        overlay_pipeline.validate.return_value = failed
+        pipeline = _DependentRegressionPipeline(
+            overlay_pipeline=overlay_pipeline,
+            baseline_pipeline=baseline_pipeline,
+            overlay_root=overlay_root,
+            baseline_root=baseline_root,
+        )
+
+        first = pipeline.validate(overlay_path, skip_reviewers=True)
+        second = pipeline.validate(overlay_path, skip_reviewers=True)
+
+        assert first.all_passed is True
+        assert second.all_passed is True
+        assert failed.all_passed is False
+        baseline_pipeline.validate.assert_called_once_with(
+            baseline_path,
+            skip_reviewers=True,
+        )
+        assert overlay_pipeline.validate.call_count == 2
+
+    def test_dependent_regression_validation_fails_closed_without_issues(
+        self, tmp_path
+    ):
+        from axiom_encode.cli import _DependentRegressionPipeline
+
+        baseline_root = tmp_path / "baseline"
+        overlay_root = tmp_path / "overlay"
+        relative = Path("regulations/42-cfr/435/559.yaml")
+        overlay_path = overlay_root / relative
+        overlay_path.parent.mkdir(parents=True)
+        overlay_path.write_text("format: rulespec/v1\nrules: []\n")
+        baseline_pipeline = MagicMock()
+        overlay_pipeline = MagicMock()
+        overlay_pipeline.validate.return_value = SimpleNamespace(
+            all_passed=False,
+            results={
+                "ci": SimpleNamespace(passed=False, issues=[], error=None),
+            },
+        )
+        pipeline = _DependentRegressionPipeline(
+            overlay_pipeline=overlay_pipeline,
+            baseline_pipeline=baseline_pipeline,
+            overlay_root=overlay_root,
+            baseline_root=baseline_root,
+        )
+
+        result = pipeline.validate(overlay_path, skip_reviewers=True)
+
+        assert result.all_passed is False
+        baseline_pipeline.validate.assert_not_called()
+
+    def test_dependent_regression_validation_keeps_diagnostics_per_validator(
+        self, tmp_path
+    ):
+        from axiom_encode.cli import _DependentRegressionPipeline
+
+        baseline_root = tmp_path / "baseline"
+        overlay_root = tmp_path / "overlay"
+        relative = Path("regulations/42-cfr/435/559.yaml")
+        overlay_path = overlay_root / relative
+        overlay_path.parent.mkdir(parents=True)
+        overlay_path.write_text("format: rulespec/v1\nrules: []\n")
+
+        def failed_result(ci_issue, compile_issue):
+            return SimpleNamespace(
+                all_passed=False,
+                results={
+                    "ci": SimpleNamespace(
+                        passed=False,
+                        issues=[ci_issue],
+                        error=None,
+                    ),
+                    "compile": SimpleNamespace(
+                        passed=False,
+                        issues=[compile_issue],
+                        error=None,
+                    ),
+                },
+            )
+
+        baseline_pipeline = MagicMock()
+        baseline_pipeline.validate.return_value = failed_result(
+            "ci failure",
+            "compile failure",
+        )
+        overlay_pipeline = MagicMock()
+        overlay_pipeline.validate.return_value = failed_result(
+            "compile failure",
+            "ci failure",
+        )
+        pipeline = _DependentRegressionPipeline(
+            overlay_pipeline=overlay_pipeline,
+            baseline_pipeline=baseline_pipeline,
+            overlay_root=overlay_root,
+            baseline_root=baseline_root,
+        )
+
+        result = pipeline.validate(overlay_path, skip_reviewers=True)
+
+        assert result.all_passed is False
+
+    def test_apply_overlay_validation_excludes_baseline_debt_from_repairs_and_issues(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us" / "us"
+        generated = output_root / "codex-test-model" / "statutes/7/2015/d/2/C.yaml"
+        debt_dependent = policy_repo / "policies/debt.yaml"
+        new_dependent = policy_repo / "policies/new.yaml"
+        generated.parent.mkdir(parents=True)
+        debt_dependent.parent.mkdir(parents=True)
+        generated.write_text("format: rulespec/v1\nrules: []\n")
+        dependent_content = (
+            "format: rulespec/v1\nimports:\n  - us:statutes/7/2015/d/2/C\nrules: []\n"
+        )
+        debt_dependent.write_text(dependent_content)
+        new_dependent.write_text(dependent_content)
+        result = SimpleNamespace(
+            output_file=str(generated),
+            runner="codex-test-model",
+            backend="codex",
+        )
+        repair_validation_paths = []
+
+        def validation(*, passed, error=None):
+            return SimpleNamespace(
+                all_passed=passed,
+                results={
+                    "ci": SimpleNamespace(
+                        validator_name="ci",
+                        passed=passed,
+                        issues=[],
+                        error=error,
+                    )
+                },
+            )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                self.is_baseline = Path(kwargs["policy_repo_path"]) == policy_repo
+
+            def validate(self, path, *, skip_reviewers):
+                assert skip_reviewers is True
+                path = Path(path)
+                if path.name == "C.yaml":
+                    return validation(passed=True)
+                if path.name == "debt.yaml":
+                    return validation(passed=False, error="legacy failure")
+                if path.name == "new.yaml" and self.is_baseline:
+                    return validation(passed=True)
+                return validation(passed=False, error="new failure")
+
+        def capture_actionable_validations(**kwargs):
+            repair_validation_paths.extend(
+                path.name for path, _validation in kwargs["validations"]
+            )
+            return []
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._remove_invalid_dependent_test_inputs",
+                side_effect=capture_actionable_validations,
+            ),
+        ):
+            ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+                local_corpus_release=_bind_test_corpus_release(
+                    policy_repo,
+                    tmp_path / "axiom-corpus",
+                ),
+            )
+
+        assert ok is False
+        assert issues == ["policies/new.yaml: ci: new failure"]
+        assert supplemental == {}
+        assert "debt.yaml" not in repair_validation_paths
+        assert "new.yaml" in repair_validation_paths
 
     def test_apply_overlay_validation_can_skip_dependents_for_cascading_migration(
         self, tmp_path
@@ -35852,12 +36153,14 @@ rules:
         ]
 
         class FakePipeline:
-            def __init__(self, **_kwargs):
-                pass
+            def __init__(self, **kwargs):
+                self.is_baseline = Path(kwargs["policy_repo_path"]) == policy_repo
 
             def validate(self, path, *, skip_reviewers):
                 assert skip_reviewers is True
                 if Path(path).name == "c.yaml":
+                    return SimpleNamespace(all_passed=True, results={})
+                if self.is_baseline:
                     return SimpleNamespace(all_passed=True, results={})
                 test_content = Path(path).with_name("63.test.yaml").read_text()
                 for input_name in required:
@@ -35944,12 +36247,14 @@ rules:
         )
 
         class FakePipeline:
-            def __init__(self, **_kwargs):
-                pass
+            def __init__(self, **kwargs):
+                self.is_baseline = Path(kwargs["policy_repo_path"]) == policy_repo
 
             def validate(self, path, *, skip_reviewers):
                 assert skip_reviewers is True
                 if Path(path).name == "151.yaml":
+                    return SimpleNamespace(all_passed=True, results={})
+                if self.is_baseline:
                     return SimpleNamespace(all_passed=True, results={})
                 test_content = Path(path).with_name("7703.test.yaml").read_text()
                 relation_block = test_content.split(
@@ -36409,8 +36714,8 @@ rules:
         )
 
         class FakePipeline:
-            def __init__(self, **_kwargs):
-                pass
+            def __init__(self, **kwargs):
+                self.is_baseline = Path(kwargs["policy_repo_path"]) == policy_repo
 
             def validate(self, path, *, skip_reviewers):
                 assert skip_reviewers is True
@@ -36429,6 +36734,8 @@ rules:
                         },
                     )
                 if path.name == "63.yaml":
+                    if self.is_baseline:
+                        return SimpleNamespace(all_passed=True, results={})
                     current_hash = _sha256_file(path.parent / "151.yaml")
                     if f"hash: sha256:{current_hash}" not in content:
                         return SimpleNamespace(
@@ -36487,12 +36794,14 @@ rules:
         )
 
         class FakePipeline:
-            def __init__(self, **_kwargs):
-                pass
+            def __init__(self, **kwargs):
+                self.is_baseline = Path(kwargs["policy_repo_path"]) == policy_repo
 
             def validate(self, path, *, skip_reviewers):
                 assert skip_reviewers is True
                 if Path(path).name == "151.yaml":
+                    return SimpleNamespace(all_passed=True, results={})
+                if self.is_baseline:
                     return SimpleNamespace(all_passed=True, results={})
                 content = Path(path).with_name("63.test.yaml").read_text()
                 if "us:statutes/26/151#input.taxable_year_begins_after_2017" in content:
@@ -36564,12 +36873,14 @@ rules: []
         )
 
         class FakePipeline:
-            def __init__(self, **_kwargs):
-                pass
+            def __init__(self, **kwargs):
+                self.is_baseline = Path(kwargs["policy_repo_path"]) == policy_repo
 
             def validate(self, path, *, skip_reviewers):
                 assert skip_reviewers is True
                 if Path(path).name == "151.yaml":
+                    return SimpleNamespace(all_passed=True, results={})
+                if self.is_baseline:
                     return SimpleNamespace(all_passed=True, results={})
                 content = Path(path).with_name("63.test.yaml").read_text()
                 if (
@@ -36655,12 +36966,14 @@ rules: []
         )
 
         class FakePipeline:
-            def __init__(self, **_kwargs):
-                pass
+            def __init__(self, **kwargs):
+                self.is_baseline = Path(kwargs["policy_repo_path"]) == policy_repo
 
             def validate(self, path, *, skip_reviewers):
                 assert skip_reviewers is True
                 if Path(path).name == "151.yaml":
+                    return SimpleNamespace(all_passed=True, results={})
+                if self.is_baseline:
                     return SimpleNamespace(all_passed=True, results={})
                 content = Path(path).with_name("63.test.yaml").read_text()
                 if (
