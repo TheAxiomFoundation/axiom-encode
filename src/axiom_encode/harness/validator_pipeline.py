@@ -25282,6 +25282,25 @@ Output ONLY valid JSON:
                 )
 
             score = float(data.get("score", 5.0))
+            if not math.isfinite(score):
+                # JSON has no Infinity literal, but `1e309` parses to inf; a
+                # non-finite score is a malformed reviewer response, and
+                # downstream consumers (eval-board) refuse non-finite metric
+                # numbers. Fail closed like any other unparseable output.
+                duration = int((time.time() - start) * 1000)
+                return ValidationResult(
+                    validator_name=reviewer_type,
+                    passed=False,
+                    score=None,
+                    issues=[
+                        "reviewer_parse_failed",
+                        f"Reviewer score is not finite: {data.get('score')!r}",
+                    ],
+                    duration_ms=duration,
+                    raw_output=output,
+                    error="reviewer_parse_failed: non-finite score",
+                    prompt_sha256=prompt_sha256,
+                )
             if reviewer_type == "generalist-reviewer":
                 blocking_issues = data.get("blocking_issues", [])
                 non_blocking_issues = data.get("non_blocking_issues", [])

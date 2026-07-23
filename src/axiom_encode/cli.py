@@ -148,6 +148,14 @@ from .harness.encoding_db import (
     ReviewResult,
     ReviewResults,
 )
+from .harness.eval_board import (
+    EvalBoardError,
+    eval_board_case_rows,
+    eval_board_to_json,
+    fold_eval_board,
+    render_eval_board_markdown,
+    render_eval_board_text,
+)
 from .harness.eval_evidence import isolated_eval_evidence_signer
 from .harness.evals import (
     _EVAL_RESULT_ADMISSION_SCHEMA,
@@ -2251,6 +2259,60 @@ def main():
     )
     _add_policyengine_runtime_root_argument(eval_suite_report_parser)
 
+    eval_board_parser = subparsers.add_parser(
+        "eval-board",
+        help=(
+            "Fold one or more eval-suite results.json outputs into an "
+            "N-runner model-capability board"
+        ),
+    )
+    eval_board_parser.add_argument(
+        "results",
+        type=Path,
+        nargs="+",
+        help=(
+            "eval-suite results.json files or suite output directories; "
+            "runs fold only when suite name, case identities, corpus "
+            "release identity, and score-affecting execution identity "
+            "(checkout locations ignored) all match"
+        ),
+    )
+    eval_board_parser.add_argument(
+        "--allow-partial",
+        action="store_true",
+        help=(
+            "Fold incomplete suite runs; missing case cells render as not "
+            "run and per-runner rates cover only the cases that ran"
+        ),
+    )
+    eval_board_parser.add_argument(
+        "--allow-mixed-toolchains",
+        action="store_true",
+        help=(
+            "Fold runs whose score-affecting execution identities differ "
+            "(encoder, rules engine, RuleSpec content/toolchain/waivers, "
+            "PolicyEngine runtime); the mismatch is recorded in the board "
+            "instead of refusing the fold"
+        ),
+    )
+    eval_board_parser.add_argument(
+        "--markdown-out",
+        type=Path,
+        default=None,
+        help="Optional path to write the rendered Markdown board",
+    )
+    eval_board_parser.add_argument(
+        "--csv-out",
+        type=Path,
+        default=None,
+        help="Optional path to write the per-case grid as CSV",
+    )
+    eval_board_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the machine-readable board JSON instead of text",
+    )
+
     eval_suite_archive_parser = subparsers.add_parser(
         "eval-suite-archive",
         help="Copy an eval-suite output tree into the durable local archive registry",
@@ -2495,6 +2557,8 @@ def main():
         cmd_eval_suite_revalidate(args)
     elif args.command == "eval-suite-report":
         cmd_eval_suite_report(args)
+    elif args.command == "eval-board":
+        cmd_eval_board(args)
     elif args.command == "eval-suite-archive":
         cmd_eval_suite_archive(args)
     elif args.command == "session-start":
@@ -48917,6 +48981,39 @@ def _render_eval_suite_report_markdown(report: dict) -> str:
         )
 
     return "\n".join(lines) + "\n"
+
+
+def cmd_eval_board(args):
+    """Fold eval-suite outputs into an N-runner model-capability board."""
+    try:
+        board = fold_eval_board(
+            [Path(entry) for entry in args.results],
+            allow_partial=args.allow_partial,
+            allow_mixed_toolchains=args.allow_mixed_toolchains,
+        )
+    except EvalBoardError as exc:
+        print(str(exc))
+        sys.exit(1)
+
+    if args.csv_out:
+        rows = eval_board_case_rows(board)
+        args.csv_out.parent.mkdir(parents=True, exist_ok=True)
+        with args.csv_out.open("w", newline="") as fh:
+            fieldnames = list(rows[0].keys()) if rows else []
+            writer = csv.DictWriter(fh, fieldnames=fieldnames)
+            if fieldnames:
+                writer.writeheader()
+                writer.writerows(rows)
+
+    if args.markdown_out:
+        rendered_markdown = render_eval_board_markdown(board)
+        args.markdown_out.parent.mkdir(parents=True, exist_ok=True)
+        args.markdown_out.write_text(rendered_markdown)
+
+    if args.json:
+        print(json.dumps(eval_board_to_json(board), indent=2))
+    else:
+        print(render_eval_board_text(board))
 
 
 def cmd_eval_suite_report(args):
