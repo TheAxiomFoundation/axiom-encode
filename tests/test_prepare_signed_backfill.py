@@ -162,12 +162,19 @@ def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
         validate_rulespec_base(repo, country, reviewed_ref, open_pr=True)
 
 
+@pytest.mark.parametrize(
+    "retired_ref",
+    [
+        "991f5375b92dffca57b08069093c24a463365cbc",
+        "10f7a16ef4a40cf1e26d6273e1aff9ebb79d002f",
+    ],
+)
 def test_validate_rulespec_base_rejects_retired_reviewed_head(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    retired_ref: str,
 ) -> None:
     repo = tmp_path / "rulespec-us"
-    retired_ref = "991f5375b92dffca57b08069093c24a463365cbc"
     monkeypatch.setattr(
         "scripts.prepare_signed_backfill._git",
         lambda _repo, *_args: f"{retired_ref}\n".encode(),
