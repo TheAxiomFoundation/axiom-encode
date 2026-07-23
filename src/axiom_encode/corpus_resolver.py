@@ -12,7 +12,7 @@ import json
 import os
 import re
 import stat
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, replace
 from itertools import islice
 from pathlib import Path
@@ -307,7 +307,7 @@ class LocalCorpusRelease:
     root: Path
     name: str
     content_sha256: str
-    public_key: str = field(repr=False, compare=False)
+    public_key: str | Sequence[str] = field(repr=False, compare=False)
     provisions_root: Path = field(init=False)
     selector_sha256: str = field(init=False)
     scopes: tuple[ReleaseScope, ...] = field(init=False)

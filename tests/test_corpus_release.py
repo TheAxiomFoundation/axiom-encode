@@ -32,9 +32,11 @@ def _canonical_sha256(payload: dict) -> str:
 
 
 def _signed_release_object(
-    *, schema_version: str = RELEASE_OBJECT_SCHEMA_V2
+    *,
+    schema_version: str = RELEASE_OBJECT_SCHEMA_V2,
+    private_key: Ed25519PrivateKey | None = None,
 ) -> tuple[dict, str]:
-    private_key = Ed25519PrivateKey.generate()
+    private_key = private_key or Ed25519PrivateKey.generate()
     public_key = b64encode(
         private_key.public_key().public_bytes(
             serialization.Encoding.Raw,
@@ -194,6 +196,34 @@ def test_verified_release_object_accepts_profiled_v3() -> None:
 
     assert verified.content_sha256 == payload["content_sha256"]
     assert payload["content"]["quality_profile"] == (COMPLETE_EXPRESSION_DATES_PROFILE)
+
+
+def test_release_object_verifies_with_current_or_retired_key(caplog) -> None:
+    current_private_key = Ed25519PrivateKey.generate()
+    retired_private_key = Ed25519PrivateKey.generate()
+    old_payload, retired_public_key = _signed_release_object(
+        private_key=retired_private_key
+    )
+    new_payload, current_public_key = _signed_release_object(
+        private_key=current_private_key
+    )
+    keyring = (current_public_key, retired_public_key)
+
+    with caplog.at_level("DEBUG", logger="axiom_encode.corpus_release"):
+        old_verified = verify_release_object(old_payload, public_key=keyring)
+        new_verified = verify_release_object(new_payload, public_key=keyring)
+
+    assert old_verified.content_sha256 == old_payload["content_sha256"]
+    assert new_verified.content_sha256 == new_payload["content_sha256"]
+    assert "release object signature verified with key index 1" in caplog.messages
+    assert "release object signature verified with key index 0" in caplog.messages
+
+
+def test_release_object_rejects_empty_keyring() -> None:
+    payload, _public_key = _signed_release_object()
+
+    with pytest.raises(CorpusReleaseObjectError, match="keyring must not be empty"):
+        verify_release_object(payload, public_key=())
 
 
 @pytest.mark.parametrize("schema_version", [[], {}])

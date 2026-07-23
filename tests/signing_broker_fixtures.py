@@ -86,6 +86,7 @@ class SigningBrokerFixture:
         eval_private_key: str | None = None,
         eval_public_key: str | None = None,
         corpus_release_public_key: str | None = None,
+        corpus_release_public_keys: tuple[str, ...] | None = None,
     ):
         self._apply_private_key = (
             _private_key(apply_private_key, label="Apply manifest")
@@ -112,6 +113,31 @@ class SigningBrokerFixture:
             private_key=None,
             public_text=corpus_release_public_key,
         )
+        if corpus_release_public_keys is None:
+            self._corpus_release_public_keys = (
+                (self._corpus_release_public,)
+                if self._corpus_release_public is not None
+                else ()
+            )
+        else:
+            self._corpus_release_public_keys = tuple(
+                self._validate_pair(
+                    label="Corpus release",
+                    private_key=None,
+                    public_text=public_text,
+                )
+                for public_text in corpus_release_public_keys
+            )
+            if not self._corpus_release_public_keys:
+                raise SigningBrokerError(
+                    "Corpus release public keyring must not be empty"
+                )
+            if self._corpus_release_public is None:
+                self._corpus_release_public = self._corpus_release_public_keys[0]
+            elif self._corpus_release_public_keys[0] != self._corpus_release_public:
+                raise SigningBrokerError(
+                    "Corpus release public keyring conflicts with its current key"
+                )
 
     @staticmethod
     def _validate_pair(
@@ -155,6 +181,10 @@ class SigningBrokerFixture:
     @property
     def corpus_release_public_key_raw(self) -> bytes | None:
         return self._corpus_release_public
+
+    @property
+    def corpus_release_public_keys_raw(self) -> tuple[bytes, ...]:
+        return self._corpus_release_public_keys
 
     def apply_ed25519_sign(self, payload: bytes) -> bytes:
         if self._apply_private_key is None:

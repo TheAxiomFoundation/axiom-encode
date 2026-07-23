@@ -189,7 +189,7 @@ def test_claude_reviewer_disables_tools_and_scrubs_signing_capabilities(
     assert command[command.index("--permission-mode") + 1] == "dontAsk"
     assert command[command.index("--tools") + 1] == ""
     assert command[command.index("--allowed-tools") + 1] == ""
-    assert command[command.index("--mcp-config") + 1] == "{}"
+    assert command[command.index("--mcp-config") + 1] == '{"mcpServers": {}}'
     for flag in (
         "--safe-mode",
         "--no-session-persistence",
@@ -7037,6 +7037,33 @@ def test_reviewer_score_below_threshold_fails_even_if_declared_passed(
     )
 
 
+def test_reviewer_non_finite_score_fails_as_parse_failure(monkeypatch, tmp_path):
+    """JSON `1e309` parses to inf; a non-finite score must fail closed
+    rather than flow into durable metrics that consumers refuse."""
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text("format: rulespec/v1\nrules: []\n")
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    def fake_run_claude_code(*_args, **_kwargs):
+        return ('{"score": 1e309, "passed": true, "issues": []}', 0)
+
+    monkeypatch.setattr(
+        "axiom_encode.harness.validator_pipeline.run_claude_code",
+        fake_run_claude_code,
+    )
+
+    result = pipeline._run_reviewer("Formula Reviewer", rules_file)
+
+    assert result.passed is False
+    assert result.score is None
+    assert any("reviewer_parse_failed" in issue for issue in result.issues)
+    assert any("not finite" in issue for issue in result.issues)
+
+
 def test_rulespec_grounding_tolerates_decimal_percentage_float_noise():
     content = """format: rulespec/v1
 module:
@@ -9434,6 +9461,172 @@ def test_rulespec_proof_validator_rejects_direct_source_evidence_mismatch():
     assert result.passed is False
     assert any("source.excerpt" in issue for issue in result.issues)
     assert any("source.quote" in issue for issue in result.issues)
+
+
+def test_rulespec_proof_validator_rejects_excerpt_from_wrong_rule_subsection():
+    excerpt = (
+        "(g) Average monthly income for seasonal workers. (1) An applicable "
+        "individual demonstrates community engagement based on six-month income."
+    )
+    content = f"""format: rulespec/v1
+rules:
+  - name: monthly_income_threshold_for_community_engagement
+    kind: derived
+    dtype: Money
+    source: 42 CFR 435.552(a)(6), (f)(1)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/regulation/42/435/552
+              excerpt: {excerpt!r}
+    versions:
+      - effective_from: '2026-01-01'
+        formula: minimum_wage * 80
+"""
+
+    result = validate_rulespec_proofs(
+        content,
+        source_texts={"us/regulation/42/435/552": excerpt},
+    )
+
+    assert result.passed is False
+    assert any(
+        "outside the rule's declared subsection scope" in issue
+        and "(g)" in issue
+        and "(f)(1)" in issue
+        for issue in result.issues
+    )
+
+
+def test_rulespec_proof_validator_rejects_excerpt_from_wrong_numeric_subsection():
+    excerpt = (
+        "(7) The individual had an average monthly income over the preceding "
+        "6 months and is a seasonal worker."
+    )
+    content = f"""format: rulespec/v1
+rules:
+  - name: monthly_income_threshold_for_community_engagement
+    kind: derived
+    dtype: Money
+    source: 42 CFR 435.552(a)(6), (f)(1)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/regulation/42/435/552
+              excerpt: {excerpt!r}
+    versions:
+      - effective_from: '2026-01-01'
+        formula: minimum_wage * 80
+"""
+
+    result = validate_rulespec_proofs(
+        content,
+        source_texts={"us/regulation/42/435/552": excerpt},
+    )
+
+    assert result.passed is False
+    assert any(
+        "outside the rule's declared subsection scope" in issue
+        and "(7)" in issue
+        and "(f)(1)" in issue
+        for issue in result.issues
+    )
+
+
+def test_rulespec_proof_validator_allows_numeric_excerpt_in_declared_range():
+    excerpt = "(7) A declared pathway applies."
+    content = f"""format: rulespec/v1
+rules:
+  - name: declared_range
+    kind: derived
+    dtype: Judgment
+    source: 42 CFR 435.552(a)(5)-(7)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/regulation/42/435/552
+              excerpt: {excerpt!r}
+    versions:
+      - effective_from: '2026-01-01'
+        formula: pathway_applies
+"""
+
+    result = validate_rulespec_proofs(
+        content,
+        source_texts={"us/regulation/42/435/552": excerpt},
+    )
+
+    assert result.passed is True
+    assert result.issues == []
+
+
+def test_rulespec_proof_validator_allows_numeric_excerpt_under_broad_subsection():
+    excerpt = "(2) The agency determines monthly income using MAGI."
+    content = f"""format: rulespec/v1
+rules:
+  - name: monthly_income
+    kind: derived
+    dtype: Money
+    source: 42 CFR 435.552(f)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/regulation/42/435/552
+              excerpt: {excerpt!r}
+    versions:
+      - effective_from: '2026-01-01'
+        formula: monthly_income
+"""
+
+    result = validate_rulespec_proofs(
+        content,
+        source_texts={"us/regulation/42/435/552": excerpt},
+    )
+
+    assert result.passed is True
+    assert result.issues == []
+
+
+def test_rulespec_proof_validator_allows_declared_nested_roman_excerpt():
+    excerpt = "(i) The agency may calculate hours from monthly income."
+    content = f"""format: rulespec/v1
+rules:
+  - name: work_hours
+    kind: derived
+    dtype: Decimal
+    source: 42 CFR 435.552(e)(2)(i)-(ii)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/regulation/42/435/552
+              excerpt: {excerpt!r}
+    versions:
+      - effective_from: '2026-01-01'
+        formula: monthly_income / minimum_wage
+"""
+
+    result = validate_rulespec_proofs(
+        content,
+        source_texts={"us/regulation/42/435/552": excerpt},
+    )
+
+    assert result.passed is True
+    assert result.issues == []
 
 
 def _anchor_probe_content(atom_path: str, *, version: str) -> str:

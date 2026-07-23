@@ -12,6 +12,7 @@ Self-contained -- no external plugin dependencies.
 """
 
 import argparse
+import concurrent.futures
 import contextlib
 import copy
 import csv
@@ -39,6 +40,9 @@ from decimal import Decimal, InvalidOperation, localcontext
 from pathlib import Path
 from typing import Any, Callable, NamedTuple
 
+# receipt is pinned to an exact version and artifact hashes in uv.lock. Any
+# upgrade must rerun this repository's signature tests at the new pin first.
+import receipt.sign
 import yaml
 from axiom_oracles.bridges.coverage import (
     build_policyengine_candidate_report,
@@ -88,7 +92,6 @@ from axiom_oracles.bridges.us_populace import (
 from axiom_oracles.bridges.us_populace import (
     main as run_us_populace_compare,
 )
-from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from yaml.nodes import MappingNode, ScalarNode, SequenceNode
@@ -145,6 +148,14 @@ from .harness.encoding_db import (
     ReviewResult,
     ReviewResults,
 )
+from .harness.eval_board import (
+    EvalBoardError,
+    eval_board_case_rows,
+    eval_board_to_json,
+    fold_eval_board,
+    render_eval_board_markdown,
+    render_eval_board_text,
+)
 from .harness.eval_evidence import isolated_eval_evidence_signer
 from .harness.evals import (
     _EVAL_RESULT_ADMISSION_SCHEMA,
@@ -188,6 +199,7 @@ from .harness.proof_validator import (
     MONEY_UNITS,
     MoneyAtomRatchet,
     ProofValidationResult,
+    _rule_source_subsection_scope,
     emit_money_atom_ratchet,
     evaluate_money_atoms,
     find_noncanonical_corpus_citation_path_issues,
@@ -249,6 +261,7 @@ from .proof_hash_migration import (
     render_proof_hash_cascade_plan,
 )
 from .repo_routing import (
+    _rulespec_routing_cache_scope,
     canonical_rulespec_repo_name,
     canonical_rulespec_root_identity,
     find_policy_repo_root,
@@ -260,9 +273,9 @@ from .repo_routing import (
 )
 from .rules_engine_compat import run_rulespec_compile
 from .signing_broker import (
+    _SIGNATURE_DOMAIN_PREFIX,
     SigningBroker,
     SigningBrokerError,
-    canonical_signing_message,
     get_signing_broker,
     reject_direct_private_signing_environment,
 )
@@ -831,6 +844,12 @@ def main():
         description="Axiom Encode - AI-assisted RuleSpec encoding infrastructure"
     )
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
+
+    from .ci_parity import register_ci_parser
+    from .new_jurisdiction import register_new_jurisdiction_parser
+
+    register_ci_parser(subparsers)
+    register_new_jurisdiction_parser(subparsers)
 
     # validate command
     validate_parser = subparsers.add_parser(
@@ -2243,6 +2262,60 @@ def main():
     )
     _add_policyengine_runtime_root_argument(eval_suite_report_parser)
 
+    eval_board_parser = subparsers.add_parser(
+        "eval-board",
+        help=(
+            "Fold one or more eval-suite results.json outputs into an "
+            "N-runner model-capability board"
+        ),
+    )
+    eval_board_parser.add_argument(
+        "results",
+        type=Path,
+        nargs="+",
+        help=(
+            "eval-suite results.json files or suite output directories; "
+            "runs fold only when suite name, case identities, corpus "
+            "release identity, and score-affecting execution identity "
+            "(checkout locations ignored) all match"
+        ),
+    )
+    eval_board_parser.add_argument(
+        "--allow-partial",
+        action="store_true",
+        help=(
+            "Fold incomplete suite runs; missing case cells render as not "
+            "run and per-runner rates cover only the cases that ran"
+        ),
+    )
+    eval_board_parser.add_argument(
+        "--allow-mixed-toolchains",
+        action="store_true",
+        help=(
+            "Fold runs whose score-affecting execution identities differ "
+            "(encoder, rules engine, RuleSpec content/toolchain/waivers, "
+            "PolicyEngine runtime); the mismatch is recorded in the board "
+            "instead of refusing the fold"
+        ),
+    )
+    eval_board_parser.add_argument(
+        "--markdown-out",
+        type=Path,
+        default=None,
+        help="Optional path to write the rendered Markdown board",
+    )
+    eval_board_parser.add_argument(
+        "--csv-out",
+        type=Path,
+        default=None,
+        help="Optional path to write the per-case grid as CSV",
+    )
+    eval_board_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the machine-readable board JSON instead of text",
+    )
+
     eval_suite_archive_parser = subparsers.add_parser(
         "eval-suite-archive",
         help="Copy an eval-suite output tree into the durable local archive registry",
@@ -2403,6 +2476,16 @@ def main():
 
     args = parser.parse_args()
 
+    if args.command == "ci":
+        from .ci_parity import run_ci
+
+        sys.exit(run_ci(args))
+
+    if args.command == "new-jurisdiction":
+        from .new_jurisdiction import run_new_jurisdiction
+
+        sys.exit(run_new_jurisdiction(args))
+
     if args.command in _judge_cli.COMMANDS:
         sys.exit(_judge_cli.dispatch(args))
 
@@ -2482,6 +2565,8 @@ def main():
         cmd_eval_suite_revalidate(args)
     elif args.command == "eval-suite-report":
         cmd_eval_suite_report(args)
+    elif args.command == "eval-board":
+        cmd_eval_board(args)
     elif args.command == "eval-suite-archive":
         cmd_eval_suite_archive(args)
     elif args.command == "session-start":
@@ -2916,28 +3001,45 @@ def _fingerprint_validation_waiver_modules(
     corpus_path: Path,
     axiom_rules_path: Path,
     rulespec_dependency_roots: Sequence[Path] = (),
+    corpus_release: LocalCorpusRelease | None = None,
 ) -> list[dict[str, Any]]:
-    """Execute validation and companions against one canonical checkout root."""
+    """Execute validation and companions against one canonical checkout root.
 
-    with _rulespec_resolution_cache_scope():
-        return _fingerprint_validation_waiver_modules_with_resolution_cache(
+    Holds only the ROUTING cache across the batch (path -> checkout-root
+    admission: successful probes only, invalidated against filesystem and
+    git-config fingerprints — partition-invariant under the audit's
+    fixed-tree, fixed-process-environment execution model). Deliberately NOT the full `_rulespec_resolution_cache_scope`:
+    that scope reuses an enclosing cache when nested, so holding one across
+    the batch leaks per-module resolution/identity state between neighbors
+    and makes failure messages — and therefore waiver fingerprints — depend
+    on how the batch was partitioned (observed: 5/3,099 rulespec-us waiver
+    fingerprints changed between chunk layouts). Each module's
+    `ValidatorPipeline.validate` opens its own fresh resolution scope, so
+    every fingerprint equals the module's standalone value regardless of
+    batch composition or worker fan-out.
+    """
+
+    with _rulespec_routing_cache_scope():
+        return _fingerprint_validation_waiver_modules_impl(
             modules,
             root=root,
             corpus_path=corpus_path,
             axiom_rules_path=axiom_rules_path,
             rulespec_dependency_roots=rulespec_dependency_roots,
+            corpus_release=corpus_release,
         )
 
 
-def _fingerprint_validation_waiver_modules_with_resolution_cache(
+def _fingerprint_validation_waiver_modules_impl(
     modules: list[Path],
     *,
     root: Path,
     corpus_path: Path,
     axiom_rules_path: Path,
     rulespec_dependency_roots: Sequence[Path] = (),
+    corpus_release: LocalCorpusRelease | None = None,
 ) -> list[dict[str, Any]]:
-    """Fingerprint every module inside one bounded resolution-cache scope."""
+    """Fingerprint every module; each validate opens its own resolution scope."""
 
     root = Path(root).resolve()
     if not root.is_dir():
@@ -2962,7 +3064,8 @@ def _fingerprint_validation_waiver_modules_with_resolution_cache(
         axiom_rules_path,
         label="Axiom rules engine",
     )
-    corpus_release = load_rulespec_local_corpus_release(root, corpus_path)
+    if corpus_release is None:
+        corpus_release = load_rulespec_local_corpus_release(root, corpus_path)
     pipelines = {
         content_root: ValidatorPipeline(
             policy_repo_path=content_root,
@@ -3040,6 +3143,140 @@ def _fingerprint_validation_waiver_modules_with_resolution_cache(
                 }
             )
     return fingerprints
+
+
+_WAIVER_AUDIT_WORKERS_ENV = "AXIOM_ENCODE_WAIVER_AUDIT_WORKERS"
+_WAIVER_AUDIT_WORKERS_MAX = 32
+
+
+def _waiver_audit_worker_count(module_count: int) -> int:
+    """Resolve the audit's process fan-out; 1 means the serial code path."""
+    raw = os.environ.get(_WAIVER_AUDIT_WORKERS_ENV)
+    if raw is not None:
+        try:
+            configured = int(raw)
+        except ValueError as exc:
+            raise ValueError(
+                f"{_WAIVER_AUDIT_WORKERS_ENV} must be an integer: {raw!r}"
+            ) from exc
+        if configured < 0:
+            raise ValueError(f"{_WAIVER_AUDIT_WORKERS_ENV} must not be negative")
+        workers = min(configured or 1, _WAIVER_AUDIT_WORKERS_MAX)
+    else:
+        workers = min(8, os.cpu_count() or 1)
+    return max(1, min(workers, module_count))
+
+
+def _fingerprint_waiver_chunk(
+    paths: list[str],
+    root: str,
+    corpus_path: str,
+    axiom_rules_path: str,
+    rulespec_dependency_roots: tuple[str, ...],
+    release_identity: tuple[str, str, str, object],
+) -> list[dict[str, Any]]:
+    """Worker entrypoint: fingerprint one chunk against a pre-attested release.
+
+    The parent process resolved the release identity through the trusted
+    signing broker; workers re-verify the signed release object against that
+    same trust root (a single key or the v3 keyring, passed through opaquely)
+    and never hold any signing capability.
+    """
+    corpus_root, release_name, content_sha256, public_key = release_identity
+    corpus_release = LocalCorpusRelease(
+        Path(corpus_root),
+        release_name,
+        content_sha256,
+        public_key,
+    )
+    return _fingerprint_validation_waiver_modules(
+        [Path(path) for path in paths],
+        root=Path(root),
+        corpus_path=Path(corpus_path),
+        axiom_rules_path=Path(axiom_rules_path),
+        rulespec_dependency_roots=tuple(
+            Path(path) for path in rulespec_dependency_roots
+        ),
+        corpus_release=corpus_release,
+    )
+
+
+def _fingerprint_validation_waiver_modules_parallel(
+    modules: list[Path],
+    *,
+    root: Path,
+    corpus_path: Path,
+    axiom_rules_path: Path,
+    rulespec_dependency_roots: Sequence[Path] = (),
+) -> list[dict[str, Any]]:
+    """Fingerprint waiver modules across worker processes.
+
+    Each worker runs the unchanged serial executor over a contiguous slice of
+    the sorted module list with its own pipelines, temporary directory, and
+    compile cache; fingerprints are stable across the split because outcome
+    canonicalization replaces every process-specific path. A worker failure
+    fails the whole audit; results are re-sorted so output order matches the
+    serial code path exactly.
+    """
+    ordered = sorted(str(module) for module in modules)
+    workers = _waiver_audit_worker_count(len(ordered))
+    if workers <= 1:
+        return _fingerprint_validation_waiver_modules(
+            [Path(module) for module in ordered],
+            root=root,
+            corpus_path=corpus_path,
+            axiom_rules_path=axiom_rules_path,
+            rulespec_dependency_roots=rulespec_dependency_roots,
+        )
+
+    corpus_release = load_rulespec_local_corpus_release(
+        Path(root).resolve(), corpus_path
+    )
+    release_identity = (
+        str(corpus_release.root),
+        corpus_release.name,
+        corpus_release.content_sha256,
+        corpus_release.public_key,
+    )
+    chunk_size = max(8, math.ceil(len(ordered) / (workers * 8)))
+    chunks = [
+        ordered[start : start + chunk_size]
+        for start in range(0, len(ordered), chunk_size)
+    ]
+    dependency_roots = tuple(str(path) for path in rulespec_dependency_roots)
+
+    results: list[dict[str, Any]] = []
+    with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as pool:
+        futures = [
+            pool.submit(
+                _fingerprint_waiver_chunk,
+                chunk,
+                str(root),
+                str(corpus_path),
+                str(axiom_rules_path),
+                dependency_roots,
+                release_identity,
+            )
+            for chunk in chunks
+        ]
+        for future in futures:
+            results.extend(future.result())
+
+    returned = sorted(result["path"] for result in results)
+    if returned != ordered:
+        expected_set = set(ordered)
+        returned_set = set(returned)
+        missing = sorted(expected_set - returned_set)[:5]
+        unexpected = sorted(returned_set - expected_set)[:5]
+        duplicated = sorted(
+            {path for path in returned_set if returned.count(path) > 1}
+        )[:5]
+        raise RuntimeError(
+            "validation waiver audit workers returned a corrupted module set: "
+            f"expected {len(ordered)}, got {len(returned)}; "
+            f"missing={missing} unexpected={unexpected} duplicated={duplicated}"
+        )
+    return sorted(results, key=lambda result: result["path"])
 
 
 def _validation_waiver_repo_relative_path(raw: str, *, label: str) -> str:
@@ -3197,7 +3434,7 @@ def _cmd_validation_waivers_audit(args) -> int:
             missing_required.add(path)
 
     executed = (
-        _fingerprint_validation_waiver_modules(
+        _fingerprint_validation_waiver_modules_parallel(
             executable_paths,
             root=root,
             corpus_path=args.corpus_path,
@@ -3208,8 +3445,58 @@ def _cmd_validation_waivers_audit(args) -> int:
         else []
     )
     executed_by_path = {result["path"]: result for result in executed}
+
+    # Isolated recheck: concurrent fan-out occasionally perturbs a module's
+    # outcome (engine subprocesses under load), which would turn a transient
+    # flake into a waiver-audit accusation. Any result that disagrees with
+    # its ledger expectation is re-executed alone — the module's standalone
+    # value is the partition-invariant definition of truth — and only a
+    # discrepancy that survives isolation is reported. Real drift and stale
+    # waivers survive; load flakes do not.
+    def _expectation_met(path: str, kind: str, actual: dict[str, Any]) -> bool:
+        if kind == "active":
+            expected = head.entries[path].active.fingerprint
+            return (not actual["passed"]) and actual["fingerprint"] == expected
+        return bool(actual["passed"])
+
+    discrepant = sorted(
+        path
+        for path, kind in classified.items()
+        if path in executed_by_path
+        and not _expectation_met(path, kind, executed_by_path[path])
+    )
+    # Recheck budget: sized for transient flakes (observed ~1 per 3,099
+    # modules per run), not for a broadly wrong ledger. Exceeding it means
+    # something systemic — a bad ledger, toolchain skew, or load
+    # instability — and re-running thousands of modules serially would
+    # also blow the hosted-runner window, so fail with one explicit
+    # systemic error instead of per-row accusations that isolation never
+    # confirmed.
+    recheck_budget = max(16, -(-len(executed_by_path) // 100))
+    systemic_discrepancy = len(discrepant) > recheck_budget
+    if discrepant and not systemic_discrepancy:
+        rechecked = _fingerprint_validation_waiver_modules(
+            [Path(path) for path in discrepant],
+            root=root,
+            corpus_path=args.corpus_path,
+            axiom_rules_path=args.axiom_rules_path,
+            rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
+        )
+        for result in rechecked:
+            result["isolated_recheck"] = True
+            executed_by_path[result["path"]] = result
+
     results: list[dict[str, Any]] = []
     errors: list[str] = []
+    if systemic_discrepancy:
+        sample = ", ".join(discrepant[:10])
+        errors.append(
+            "systemic audit discrepancy: "
+            f"{len(discrepant)} of {len(executed_by_path)} executed modules "
+            f"violate their waiver expectations (isolated-recheck budget is "
+            f"{recheck_budget}); refusing per-module accusations that "
+            f"isolation never confirmed — first paths: {sample}"
+        )
 
     for path, kind in classified.items():
         if path in deleted_removed:
@@ -3243,6 +3530,8 @@ def _cmd_validation_waivers_audit(args) -> int:
             "fingerprint": actual["fingerprint"],
             "outcome": actual["outcome"],
         }
+        if actual.get("isolated_recheck"):
+            result_record["isolated_recheck"] = True
         error: str | None = None
         if kind == "active":
             expected = head.entries[path].active.fingerprint
@@ -3258,6 +3547,14 @@ def _cmd_validation_waivers_audit(args) -> int:
             error = f"{path}: pending waiver requires the current module to pass"
         elif kind == "removed" and not actual["passed"]:
             error = f"{path}: removed active waiver still has a failing module"
+        if systemic_discrepancy and error is not None:
+            # The systemic error already fails the audit; per-module
+            # accusations that isolation never confirmed are recorded as
+            # unverified rather than asserted.
+            result_record["success"] = False
+            result_record["unverified_discrepancy"] = True
+            results.append(result_record)
+            continue
         result_record["success"] = error is None
         if error is not None:
             result_record["error"] = error
@@ -13294,6 +13591,56 @@ def _oracle_parameter_test_period(
     }
 
 
+def _generated_test_period_for_rule(
+    rule: dict[str, object] | None,
+) -> dict[str, str]:
+    """Return a generated companion-test period matching the target rule."""
+    period_kind = str((rule or {}).get("period") or "Year").strip().lower()
+    effective_from: str | None = None
+    versions = (rule or {}).get("versions")
+    if isinstance(versions, list):
+        valid_dates: list[date] = []
+        for version in versions:
+            if not isinstance(version, dict):
+                continue
+            raw_effective_from = str(version.get("effective_from") or "").strip()
+            with contextlib.suppress(ValueError):
+                candidate = date.fromisoformat(raw_effective_from)
+                if candidate.year >= 1900:
+                    valid_dates.append(candidate)
+        if valid_dates:
+            effective_from = max(valid_dates).isoformat()
+
+    start = date.fromisoformat(effective_from or "2026-01-01")
+    if period_kind == "month":
+        if start.day != 1:
+            start = date(
+                start.year + (1 if start.month == 12 else 0),
+                1 if start.month == 12 else start.month + 1,
+                1,
+            )
+        return {
+            "period_kind": "month",
+            "start": start.isoformat(),
+            "end": date(
+                start.year,
+                start.month,
+                monthrange(start.year, start.month)[1],
+            ).isoformat(),
+        }
+    if period_kind == "day":
+        return {
+            "period_kind": "day",
+            "start": start.isoformat(),
+            "end": start.isoformat(),
+        }
+    return {
+        "period_kind": "tax_year",
+        "start": f"{start.year:04d}-01-01",
+        "end": f"{start.year:04d}-12-31",
+    }
+
+
 def _scalar_formula_value(formula: object) -> int | float | str | bool | None:
     if isinstance(formula, (int, float, bool)):
         return formula
@@ -13855,12 +14202,12 @@ def _append_generic_zero_branch_tests_if_missing(
     rules = rules_payload.get("rules")
     if not isinstance(rules, list):
         return []
-    rule_names = {
-        str(rule.get("name") or "").strip()
+    rules_by_name = {
+        name: rule
         for rule in rules
         if isinstance(rule, dict)
         and str(rule.get("kind") or "").strip().lower() in {"derived", "parameter"}
-        and str(rule.get("name") or "").strip()
+        and (name := str(rule.get("name") or "").strip())
     }
     target_base = _rulespec_anchor_base_for_output(repo_path, relative_output)
     factual_inputs = _local_factual_input_names_from_rules_content(rules_content)
@@ -13879,7 +14226,7 @@ def _append_generic_zero_branch_tests_if_missing(
         if isinstance(test_case, dict)
     }
     for output_name in output_names:
-        if output_name not in rule_names:
+        if output_name not in rules_by_name:
             continue
         if valid_output_names is not None and output_name not in valid_output_names:
             continue
@@ -13901,11 +14248,9 @@ def _append_generic_zero_branch_tests_if_missing(
         test_payload.append(
             {
                 "name": case_name,
-                "period": {
-                    "period_kind": "tax_year",
-                    "start": "2026-01-01",
-                    "end": "2026-12-31",
-                },
+                "period": _generated_test_period_for_rule(
+                    rules_by_name.get(output_name)
+                ),
                 "input": case_inputs,
                 "output": {target: 0},
             }
@@ -14261,11 +14606,7 @@ def _append_generated_derived_output_tests_if_missing(
         test_payload.append(
             {
                 "name": case_name,
-                "period": {
-                    "period_kind": "tax_year",
-                    "start": "2026-01-01",
-                    "end": "2026-12-31",
-                },
+                "period": _generated_test_period_for_rule(rule),
                 "input": dict(input_defaults),
                 "output": {
                     target: _default_generated_test_output_value(
@@ -14477,11 +14818,7 @@ def _build_generated_positive_judgment_case(
 
     return {
         "name": case_name,
-        "period": {
-            "period_kind": "tax_year",
-            "start": "2026-01-01",
-            "end": "2026-12-31",
-        },
+        "period": _generated_test_period_for_rule(rule),
         "input": inputs,
         "output": {target: "holds"},
     }
@@ -18525,15 +18862,30 @@ def _applied_encoding_manifest_signature_issue(
         return "has an invalid encoder apply manifest signature"
     if len(raw_signature) != 64:
         return "has an invalid encoder apply manifest signature"
+    raw_public_key = _raw_ed25519_public_key(public_key)
+    receipt_key_id = "apply-root"
+    signature_scope = "apply_ed25519"
     try:
-        public_key.verify(
-            raw_signature,
-            canonical_signing_message(
-                "apply_ed25519",
-                _unsigned_applied_encoding_manifest_bytes(payload),
+        keyring = receipt.sign.KeyringSpec(
+            keys=(
+                receipt.sign.KeySpec(
+                    key_id=receipt_key_id,
+                    fingerprint=receipt.sign.raw_public_key_sha256(raw_public_key),
+                    scheme="raw-sha256",
+                ),
             ),
+            threshold=1,
         )
-    except InvalidSignature:
+        receipt.sign.verify_threshold(
+            _unsigned_applied_encoding_manifest_bytes(payload),
+            {receipt_key_id: raw_signature},
+            {receipt_key_id: raw_public_key},
+            keyring,
+            domain=_SIGNATURE_DOMAIN_PREFIX + signature_scope.encode("ascii") + b"\x00",
+            label="encoder apply manifest",
+            allow_legacy=False,
+        )
+    except receipt.sign.SignError:
         return "has an invalid encoder apply manifest signature"
     return None
 
@@ -18647,6 +18999,11 @@ def _require_axiom_encode_version_provenance(
 
 
 def _latest_axiom_encode_version_commit(repo: Path) -> str | None:
+    head_versions = _axiom_encode_versions_at_ref(repo, "HEAD")
+    head_version = head_versions.get("pyproject")
+    if not head_version:
+        return None
+    fallback_commit = None
     commits = _git_name_only(
         repo,
         "log",
@@ -18660,11 +19017,17 @@ def _latest_axiom_encode_version_commit(repo: Path) -> str | None:
             continue
         parent = _git_first_parent(repo, commit)
         if parent is None:
+            increased = True
+        else:
+            previous = _axiom_encode_versions_at_ref(repo, parent)
+            increased = _axiom_encode_version_increased(current, previous)
+        if not increased:
+            continue
+        if fallback_commit is None:
+            fallback_commit = commit
+        if current.get("pyproject") == head_version:
             return commit
-        previous = _axiom_encode_versions_at_ref(repo, parent)
-        if _axiom_encode_version_increased(current, previous):
-            return commit
-    return None
+    return fallback_commit
 
 
 def _axiom_encode_version_increased(
@@ -27718,19 +28081,89 @@ _PROOF_EXCERPT_TOKEN_STOPWORDS = frozenset(
     }
 )
 _SOURCE_PARAGRAPH_MARKER_PATTERN = re.compile(
-    r"^(?:(?:\((?:\d+|[A-Za-z]|[ivxlcdmIVXLCDM]{2,6})\))+|"
-    r"(?:\d+(?:\.\d+){2,}\.?|\d{1,3}\.|[A-Za-z]\.))\s+(?P<body>.*)"
+    r"^(?:(?:\((?:\d+|[A-Za-z]{1,2}|[ivxlcdmIVXLCDM]{2,6})\))+|"
+    r"(?:\d+(?:\.\d+){2,}(?:\([A-Za-z0-9]+\))*\.?|"
+    r"(?:\d{1,3}[.]|\d{1,6}[)])|"
+    r"(?:[A-Za-z]{1,2}|[ivxlcdmIVXLCDM]{2,6})[.)]|"
+    r"\u00a7+\s*\d+(?:\.\d+)*(?:\([A-Za-z0-9]+\))*|"
+    r"[-*]|\u2022))\s+(?P<body>.*)"
+)
+_SOURCE_BARE_PARAGRAPH_MARKER_PATTERN = re.compile(
+    r"^(?:(?:\((?:\d+|[A-Za-z]{1,2}|[ivxlcdmIVXLCDM]{2,6})\))+|"
+    r"(?:\d+(?:\.\d+)+(?:\([A-Za-z0-9]+\))*\.?|"
+    r"(?:\d{1,3}[.]|\d{1,6}[)])|"
+    r"(?:[A-Za-z]{1,2}|[ivxlcdmIVXLCDM]{2,6})[.)]|"
+    r"\u00a7+\s*\d+(?:\.\d+)*(?:\([A-Za-z0-9]+\))*|[-*]|\u2022))$"
+)
+_SOURCE_BARE_DECIMAL_QUANTITY_PATTERN = re.compile(r"^\d+\.\d+$")
+_SOURCE_LEADING_ABBREVIATION_PATTERN = re.compile(
+    r"^(?:(?i:No|Nos|Mr|Mrs|Ms|Dr|Pt|Pts|Ch|Fig|Reg|Art|St|Ft|Mt|Rt|Id|Ex)\."
+    r"|v\.)\s"
+)
+_SOURCE_TWO_LEVEL_PARAGRAPH_MARKER_PATTERN = re.compile(
+    r"^\d+\.\d+(?:\([A-Za-z0-9]+\))*\.?\s+(?P<body>.+)"
+)
+_SOURCE_QUANTITY_BODY_PATTERN = re.compile(
+    r"^(?:%|percent(?:age)?\b|basis points?\b|fte\b|seconds?\b|minutes?\b|"
+    r"hours?\b|days?\b|weeks?\b|months?\b|years?\b|grams?\b|kilograms?\b|"
+    r"milligrams?\b|pounds?\b|ounces?\b|tons?\b|meters?\b|kilometers?\b|"
+    r"feet\b|foot\b|inches?\b|miles?\b|acres?\b|gallons?\b|liters?\b|"
+    r"litres?\b|watts?\b|kilowatts?\b|bytes?\b|dollars?\b|cents?\b|"
+    r"times?\b|units?\b|square (?:feet|foot|inches|meters|kilometers)\b|"
+    r"full-time equivalents?\b|"
+    r"degrees? (?:[Cc]elsius|[Ff]ahrenheit)\b|million\b|billion\b|"
+    r"federal poverty\b|"
+    r"poverty (?:level|guideline)s?\b|FTE\b|USD\b|CAD\b|EUR\b|GBP\b|KG\b|"
+    r"KM\b|LB\b|OZ\b|W\b|KW\b|KWH\b|MB\b|GB\b|TB\b|kg\b|km\b|lb\b|"
+    r"oz\b|w\b|kw\b|kwh\b|mb\b|gb\b|tb\b|kW\b|kWh\b|mL\b|dB\b|"
+    r"\u00b0[CF]\b)"
+)
+_SOURCE_QUANTITY_LEAD_IN_PATTERN = re.compile(
+    r"\b(?:at least|at most|no more than|not less than|not more than|be|is|are|"
+    r"was|were|equals?|equal to|exactly|set at|fixed at|totals?|uses?|using|"
+    r"used|exceeds?|receives?|received|employs?|employed|contains?|contained|"
+    r"requires?|required|"
+    r"exceed|of|at|to|through|than|by|from|between|approximately|about)\s*$",
+    flags=re.IGNORECASE,
 )
 _SOURCE_CROSS_REFERENCE_LEAD_IN_PATTERN = re.compile(
     r"\b(?:paragraph|subparagraph|section|subsection|clause|item|"
-    r"described in|specified in)\s*$",
+    r"described (?:in|under)|specified in)\s*$",
     flags=re.IGNORECASE,
 )
 _SOURCE_CROSS_REFERENCE_BODY_PATTERN = re.compile(
-    r"^of\s+(?:this|the)\b",
+    r"^of\s+(?:this|the)\s+(?:section|paragraph|subparagraph|subsection|"
+    r"clause|item|part|subpart|chapter|title|act|code|regulation|rule|"
+    r"state plan|plan|program|agreement|waiver)\b",
     flags=re.IGNORECASE,
 )
-_SOURCE_SENTENCE_BOUNDARY_PATTERN = re.compile(r"[.!?](?=\s+[A-Z0-9(])")
+_SOURCE_NAMED_CROSS_REFERENCE_BODY_PATTERN = re.compile(
+    r"^of\s+(?:the\s+(?:[A-Z][A-Za-z0-9'/-]*\s+){1,8}"
+    r"(?:Act|Code|Constitution|Statute|Regulations?)|"
+    r"(?:title|chapter|part|subpart)\s+[A-Z0-9IVXLCDM-]+)\b",
+    flags=re.IGNORECASE,
+)
+_SOURCE_MODIFIED_PROGRAM_CROSS_REFERENCE_BODY_PATTERN = re.compile(
+    r"^of\s+(?:this|the)\s+(?:[A-Za-z][A-Za-z0-9'/-]*\s+){0,6}"
+    r"(?:plan|program|agreement|waiver)\b",
+    flags=re.IGNORECASE,
+)
+_SOURCE_CLOSING_PUNCTUATION = r"""["')\]\u2019\u201d]"""
+_SOURCE_TRAILING_SENTENCE_MARK = (
+    rf"(?:{_SOURCE_CLOSING_PUNCTUATION}+|\[[^\]\r\n]{{1,20}}\]|"
+    r"\((?!\s*(?:\d+|[A-Za-z]{1,2}|[ivxlcdmIVXLCDM]{2,6})\s*\))"
+    r"[^()\r\n]{1,20}\))"
+)
+_SOURCE_TERMINAL_PUNCTUATION_PATTERN = re.compile(
+    rf"[.;:!?](?:\s*{_SOURCE_TRAILING_SENTENCE_MARK})*\s*$"
+)
+_SOURCE_SENTENCE_END_PATTERN = re.compile(
+    rf"[.!?](?:\s*{_SOURCE_TRAILING_SENTENCE_MARK})*\s*$"
+)
+_SOURCE_SENTENCE_BOUNDARY_PATTERN = re.compile(
+    rf"""[.!?](?:\s*{_SOURCE_TRAILING_SENTENCE_MARK})*"""
+    r"""(?=\s+(?:[A-Z0-9(\[]|["'\u2018\u201c]))"""
+)
 _SOURCE_ABBREVIATION_PATTERN = re.compile(
     r"\b(?:U\.S\.C|C\.F\.R|U\.S|e\.g|i\.e|No|Nos|Sec|Secs|Pt|Pts|"
     r"Para|Paras|Subsec|Subsecs|Ch|Fig|Mr|Mrs|Ms|Dr|Pub|L|Rev|Proc|"
@@ -27740,6 +28173,347 @@ _SOURCE_ABBREVIATION_PATTERN = re.compile(
 _SOURCE_TABLE_ROW_PATTERN = re.compile(
     r"^(?:\$|[-+]?\d[\d,.]*\s+\$\s*\d|.*(?:\t|\s{2,}|\|))"
 )
+_SOURCE_TABULAR_AMOUNT_ROW_PATTERN = re.compile(r"^[-+]?\d[\d,.]*\s+\$\s*\d")
+_SOURCE_STANDALONE_HEADING_PATTERN = re.compile(r"^[A-Z][A-Z0-9 &/',()\-]{2,}:?$")
+_SOURCE_STRUCTURAL_HEADING_PATTERN = re.compile(
+    r"^(?:(?:Part|Subpart|Chapter|Title)\s+[A-Z0-9IVXLCDM-]+"
+    r"\s*[\u2013\u2014-]\s*[A-Z]\S*(?:\s+.*)?|"
+    r"SECTION\s+\d+(?:\.\d+)*(?:\([A-Za-z0-9]+\))*"
+    r"\s*[\u2013\u2014-]\s*[A-Z]\S*(?:\s+.*)?|"
+    r"Sec\.\s+\d+(?:\.\d+)*(?:\([A-Za-z0-9]+\))*"
+    r"\s+[A-Z]\S*(?:\s+.*)?)$"
+)
+_SOURCE_TITLE_CASE_HEADING_PATTERN = re.compile(
+    r"^[A-Z][A-Za-z0-9'/-]*(?:\s+(?:[A-Z][A-Za-z0-9'/-]*|of|and|or|the|for|"
+    r"to|in|on|under)){0,9}:?$"
+)
+_SOURCE_CURRENCY_LEAD_IN_PATTERN = re.compile(
+    r"\b(?:pay|pays|paid|paying|set at|fixed at|is|are|be|equals?|totals?|"
+    r"limited to|exceeds?|not exceed|no more than|not more than|up to)\s*$",
+    flags=re.IGNORECASE,
+)
+_SOURCE_LEGAL_CITATION_ABBREVIATION_PATTERN = re.compile(
+    r"\b(?:U\.S\.C|C\.F\.R)\.(?:\s*\u00a7+)?$",
+    flags=re.IGNORECASE,
+)
+_SOURCE_LEGAL_CITATION_CONTINUATION_PATTERN = re.compile(
+    r"^(?:\u00a7+\s*)?(?:(?:pt|part)\.?\s+\d+(?:\.\d+)*|"
+    r"(?:ch|chapter)\.?\s+[IVXLCDM0-9]+|subpt\.?\s+[A-Z0-9]+|"
+    r"no\.?\s+\d+|\d+(?:\.\d+)*(?:\([A-Za-z0-9]+\))*)"
+    r"(?=\s|[,;)]|$)",
+    flags=re.IGNORECASE,
+)
+_SOURCE_TITLE_TERM_LEAD_IN_PATTERN = re.compile(
+    r"\b(?:a|an|the|of|in|on|at|to|for|from|by|with|under|as|use|using|"
+    r"including|called|known as|defined as|based on|"
+    r"covers?|"
+    r"(?:shall|must|may|will|to)\s+(?:use|apply|include))\s*$",
+    flags=re.IGNORECASE,
+)
+_SOURCE_TITLE_TERM_FOLLOWING_CONTINUATION_PATTERN = re.compile(
+    r"^(?:to|for|of|under|when|in|on|by|with|as)\b",
+    flags=re.IGNORECASE,
+)
+_SOURCE_PRIOR_CONDITION_PATTERN = re.compile(
+    r"\b(?:provided\s+further\s+that|"
+    r"provided(?:\s*,?\s*however\s*,?)?(?:\s+that|\s+(?=(?:the|a|an|"
+    r"such|each|every|any|no|household|individual|applicant|person|recipient|"
+    r"income|eligibility)\b))|in the event that|on (?:the )?condition that|"
+    r"conditioned on|conditional upon|contingent upon|in case|except that|"
+    r"except as (?:otherwise\s+)?provided|"
+    r"except as (?:required|permitted|authorized|specified) by|"
+    r"notwithstanding|to the extent that|during any period in which|"
+    r"after [^,.;:\r\n]{1,80}\b(?:determines?|finds?|establishes?|verifies?)|"
+    r"upon (?:a\s+)?(?:finding|determination) that|"
+    r"as long as|so long as|only if|"
+    r"subject(?:\s*,\s*however\s*,)?\s+to|unless|except when|whenever|"
+    r"where|if|when)\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _is_wrapped_currency_continuation(previous_line: str, current_line: str) -> bool:
+    previous = re.sub(r"\s+", " ", previous_line).strip()
+    current = re.sub(r"\s+", " ", current_line).strip()
+    return (
+        _SOURCE_CURRENCY_LEAD_IN_PATTERN.search(previous) is not None
+        and re.match(r"^\$\s*\d", current) is not None
+    )
+
+
+def _is_standalone_source_heading(
+    value: str,
+    *,
+    previous_line: str = "",
+    following_line: str = "",
+) -> bool:
+    heading = re.sub(r"\s+", " ", value).strip()
+    if _SOURCE_STRUCTURAL_HEADING_PATTERN.match(heading) is not None:
+        return True
+    is_heading_form = (
+        _SOURCE_STANDALONE_HEADING_PATTERN.match(heading) is not None
+        or _SOURCE_TITLE_CASE_HEADING_PATTERN.match(heading) is not None
+    )
+    if not is_heading_form:
+        return False
+    if heading.endswith(":"):
+        return True
+
+    previous = re.sub(r"\s+", " ", previous_line).strip()
+    following = re.sub(r"\s+", " ", following_line).strip()
+    return not (
+        previous
+        and _SOURCE_TERMINAL_PUNCTUATION_PATTERN.search(previous) is None
+        and (
+            _SOURCE_TITLE_TERM_LEAD_IN_PATTERN.search(previous) is not None
+            or (following and re.match(r"^[a-z]", following) is not None)
+            or _SOURCE_TITLE_TERM_FOLLOWING_CONTINUATION_PATTERN.match(following)
+            is not None
+        )
+    )
+
+
+def _is_wrapped_legal_citation_continuation(
+    previous_line: str,
+    current_line: str,
+) -> bool:
+    previous = re.sub(r"\s+", " ", previous_line).strip()
+    current = re.sub(r"\s+", " ", current_line).strip()
+    return (
+        _SOURCE_LEGAL_CITATION_ABBREVIATION_PATTERN.search(previous) is not None
+        and _SOURCE_LEGAL_CITATION_CONTINUATION_PATTERN.match(current) is not None
+    )
+
+
+def _has_source_sentence_boundary(value: str) -> bool:
+    for match in _SOURCE_SENTENCE_BOUNDARY_PATTERN.finditer(value):
+        prefix = value[max(0, match.end() - 48) : match.end()].rstrip()
+        continuation = value[match.end() :].lstrip()
+        if value[match.start()] == "." and _is_source_abbreviation_continuation(
+            prefix,
+            continuation,
+        ):
+            continue
+        return True
+    return False
+
+
+def _is_source_abbreviation_continuation(prefix: str, continuation: str) -> bool:
+    if _SOURCE_LEGAL_CITATION_ABBREVIATION_PATTERN.search(prefix):
+        return (
+            _SOURCE_LEGAL_CITATION_CONTINUATION_PATTERN.match(continuation) is not None
+        )
+    abbreviation = _SOURCE_ABBREVIATION_PATTERN.search(prefix)
+    if abbreviation is None:
+        return False
+    token = abbreviation.group().casefold()
+    if token in {"e.g.", "i.e.", "mr.", "mrs.", "ms.", "dr.", "v."}:
+        return True
+    if token == "u.s.":
+        return (
+            re.match(
+                r"^(?:Department|Code|Constitution|Government|Supreme|District|"
+                r"Treasury|Postal|Virgin Islands|Armed Forces|Attorney(?: General)?|"
+                r"Secretary|Bureau|Congress|mail|citizens?|nationals?|"
+                r"territor(?:y|ies)|persons?|dollars?)\b",
+                continuation,
+                flags=re.IGNORECASE,
+            )
+            is not None
+        )
+    if token == "pub.":
+        return re.match(r"^L\.\s", continuation, flags=re.IGNORECASE) is not None
+    if token == "rev.":
+        return re.match(r"^Proc\.\s", continuation, flags=re.IGNORECASE) is not None
+    if token == "l.":
+        return (
+            re.search(r"\bPub\.\s+L\.$", prefix, flags=re.IGNORECASE) is not None
+            or re.match(r"^(?:No\.\s*)?\d", continuation, flags=re.IGNORECASE)
+            is not None
+        )
+    return (
+        re.match(r"^(?:No\.\s*)?\d", continuation, flags=re.IGNORECASE) is not None
+        or re.match(r"^(?:No\.\s*)?[IVXLCDM]+\b", continuation) is not None
+    )
+
+
+def _is_wrapped_source_cross_reference(
+    previous_line: str,
+    marker_body: str,
+    current_line: str = "",
+) -> bool:
+    previous = re.sub(r"\s+", " ", previous_line).strip()
+    previous_is_open = _SOURCE_TERMINAL_PUNCTUATION_PATTERN.search(previous) is None
+    return previous_is_open and (
+        _SOURCE_CROSS_REFERENCE_LEAD_IN_PATTERN.search(previous) is not None
+        or _SOURCE_CROSS_REFERENCE_BODY_PATTERN.match(marker_body) is not None
+        or _SOURCE_NAMED_CROSS_REFERENCE_BODY_PATTERN.match(marker_body) is not None
+        or _SOURCE_MODIFIED_PROGRAM_CROSS_REFERENCE_BODY_PATTERN.match(marker_body)
+        is not None
+        or _is_explicit_section_cross_reference(previous, current_line)
+    )
+
+
+def _is_explicit_section_cross_reference(previous_line: str, current_line: str) -> bool:
+    previous = re.sub(r"\s+", " ", previous_line).strip()
+    current = re.sub(r"\s+", " ", current_line).strip()
+    return current.startswith("\N{SECTION SIGN}") and (
+        re.search(
+            r"\b(?:under|pursuant to|required by|set forth in)\s*$",
+            previous,
+            flags=re.IGNORECASE,
+        )
+        is not None
+    )
+
+
+def _is_wrapped_bare_source_cross_reference(
+    previous_line: str,
+    following_line: str,
+    current_line: str = "",
+) -> bool:
+    previous = re.sub(r"\s+", " ", previous_line).strip()
+    following = re.sub(r"\s+", " ", following_line).strip()
+    current = re.sub(r"\s+", " ", current_line).strip()
+    previous_is_open = _SOURCE_TERMINAL_PUNCTUATION_PATTERN.search(previous) is None
+    return previous_is_open and (
+        _SOURCE_CROSS_REFERENCE_LEAD_IN_PATTERN.search(previous) is not None
+        or _SOURCE_CROSS_REFERENCE_BODY_PATTERN.match(following) is not None
+        or _SOURCE_NAMED_CROSS_REFERENCE_BODY_PATTERN.match(following) is not None
+        or _SOURCE_MODIFIED_PROGRAM_CROSS_REFERENCE_BODY_PATTERN.match(following)
+        is not None
+        or _is_explicit_section_cross_reference(previous, current)
+    )
+
+
+def _source_paragraph_marker_match(value: str) -> re.Match[str] | None:
+    if _SOURCE_LEADING_ABBREVIATION_PATTERN.match(value):
+        return None
+    return _SOURCE_PARAGRAPH_MARKER_PATTERN.match(
+        value
+    ) or _SOURCE_TWO_LEVEL_PARAGRAPH_MARKER_PATTERN.match(value)
+
+
+def _source_line_paragraph_marker_match(
+    value: str,
+    *,
+    previous_line: str,
+) -> re.Match[str] | None:
+    if _is_wrapped_legal_citation_continuation(
+        previous_line,
+        value,
+    ) or _is_source_abbreviation_continuation(previous_line, value):
+        return None
+    if _SOURCE_BARE_PARAGRAPH_MARKER_PATTERN.fullmatch(value):
+        return None
+    primary_match = _SOURCE_PARAGRAPH_MARKER_PATTERN.match(value)
+    if primary_match is not None:
+        if _SOURCE_LEADING_ABBREVIATION_PATTERN.match(value):
+            return None
+        return primary_match
+    two_level_match = _SOURCE_TWO_LEVEL_PARAGRAPH_MARKER_PATTERN.match(value)
+    if two_level_match is None:
+        return None
+    if _is_decimal_quantity_continuation(
+        previous_line,
+        two_level_match.group("body"),
+    ):
+        return None
+    return two_level_match
+
+
+def _is_decimal_quantity_continuation(
+    previous_line: str,
+    quantity_body: str,
+) -> bool:
+    previous = re.sub(r"\s+", " ", previous_line).strip()
+    body = re.sub(r"\s+", " ", quantity_body).strip()
+    lead_in = previous[:-1].rstrip() if previous.endswith(":") else previous
+    return (
+        bool(previous)
+        and (
+            _SOURCE_TERMINAL_PUNCTUATION_PATTERN.search(previous) is None
+            or previous.endswith(":")
+        )
+        and _SOURCE_QUANTITY_BODY_PATTERN.match(body) is not None
+        and _SOURCE_QUANTITY_LEAD_IN_PATTERN.search(lead_in) is not None
+    )
+
+
+def _is_bare_decimal_continuation(
+    previous_line: str,
+    following_line: str,
+) -> bool:
+    return _is_decimal_quantity_continuation(previous_line, following_line)
+
+
+def _source_context_before_match(source: str, position: int) -> str:
+    """Return the current structural paragraph prefix before a direct match."""
+    current_line_end = source.find("\n", position)
+    if current_line_end < 0:
+        current_line_end = len(source)
+    match_line_suffix = source[position:current_line_end]
+    context_start = 0
+    for blank_boundary in re.finditer(r"\r?\n[ \t]*\r?\n", source[:position]):
+        context_start = blank_boundary.end()
+
+    context_lines = source[context_start:position].splitlines(keepends=True)
+    previous_line = ""
+    cursor = context_start
+    for index, line in enumerate(context_lines):
+        collapsed = re.sub(r"\s+", " ", line).strip()
+        if collapsed:
+            following_line = (
+                context_lines[index + 1]
+                if index + 1 < len(context_lines)
+                else match_line_suffix
+            )
+            marker_match = _source_line_paragraph_marker_match(
+                collapsed,
+                previous_line=previous_line,
+            )
+            bare_marker = _SOURCE_BARE_PARAGRAPH_MARKER_PATTERN.match(collapsed)
+            bare_decimal_is_quantity = _SOURCE_BARE_DECIMAL_QUANTITY_PATTERN.match(
+                collapsed
+            ) is not None and _is_bare_decimal_continuation(
+                previous_line, following_line
+            )
+            if (
+                (
+                    marker_match is not None
+                    and not _is_wrapped_source_cross_reference(
+                        previous_line,
+                        marker_match.group("body"),
+                        collapsed,
+                    )
+                )
+                or (
+                    bare_marker is not None
+                    and not bare_decimal_is_quantity
+                    and not _is_wrapped_legal_citation_continuation(
+                        previous_line,
+                        collapsed,
+                    )
+                    and not _is_source_abbreviation_continuation(
+                        previous_line,
+                        collapsed,
+                    )
+                    and not _is_wrapped_bare_source_cross_reference(
+                        previous_line,
+                        following_line,
+                        collapsed,
+                    )
+                )
+                or _is_standalone_source_heading(
+                    collapsed,
+                    previous_line=previous_line,
+                    following_line=following_line,
+                )
+            ):
+                context_start = cursor
+            previous_line = line
+        cursor += len(line)
+    return source[context_start:position]
 
 
 class _SourceExcerptCandidate(NamedTuple):
@@ -27758,12 +28532,16 @@ def _try_repair_generated_nonexact_proof_excerpts_for_apply(
     issues: list[str],
 ) -> list[str]:
     """Align near-match generated proof excerpts to their exact cited source text."""
-    targets = {
-        (match.group("rule"), int(match.group("atom")))
-        for issue in issues
-        if (match := _NONEXACT_PROOF_EXCERPT_ISSUE_PATTERN.search(str(issue)))
-        is not None
-    }
+    targets: dict[tuple[str, int], bool] = {}
+    for issue in issues:
+        issue_text = str(issue)
+        match = _NONEXACT_PROOF_EXCERPT_ISSUE_PATTERN.search(issue_text)
+        if match is None:
+            continue
+        target = (match.group("rule"), int(match.group("atom")))
+        targets[target] = targets.get(target, False) or (
+            "outside the rule's declared subsection scope" in issue_text
+        )
     if not targets:
         return []
     try:
@@ -27798,7 +28576,8 @@ def _try_repair_generated_nonexact_proof_excerpts_for_apply(
         if not isinstance(atoms, list):
             continue
         for atom_index, atom in enumerate(atoms):
-            if (rule_name, atom_index) not in targets or not isinstance(atom, dict):
+            target = (rule_name, atom_index)
+            if target not in targets or not isinstance(atom, dict):
                 continue
             source = atom.get("source")
             if not isinstance(source, dict):
@@ -27819,6 +28598,13 @@ def _try_repair_generated_nonexact_proof_excerpts_for_apply(
                 source_text = cited_source_texts[corpus_citation_path] or source_text
             if not source_text:
                 continue
+            if targets[target]:
+                source_text = _declared_rule_subsection_source_text(
+                    source_text,
+                    rule_source=rule.get("source"),
+                )
+                if not source_text:
+                    continue
             exact_excerpt = _closest_exact_source_excerpt(
                 source_text=source_text,
                 excerpt=excerpt,
@@ -27833,6 +28619,50 @@ def _try_repair_generated_nonexact_proof_excerpts_for_apply(
     if not _install_generated_yaml_payload(rules_file, payload):
         return []
     return repaired
+
+
+def _declared_rule_subsection_source_text(
+    source_text: str,
+    *,
+    rule_source: object,
+) -> str | None:
+    """Limit repair candidates to explicit rule-source subsections."""
+    if not isinstance(rule_source, str):
+        return None
+    scope = _rule_source_subsection_scope(rule_source)
+    if not scope:
+        return None
+    source = str(source_text)
+    markers = list(re.finditer(r"(?m)^[ \t]*\((?P<marker>[a-z])\)[ \t]+", source))
+    blocks: list[str] = []
+    for index, marker in enumerate(markers):
+        top = marker.group("marker")
+        if top not in scope:
+            continue
+        end = markers[index + 1].start() if index + 1 < len(markers) else len(source)
+        block = source[marker.start() : end]
+        children = scope[top]
+        if children is None:
+            blocks.append(block)
+            continue
+        child_markers = list(
+            re.finditer(r"(?m)^[ \t]*\((?P<marker>\d+)\)[ \t]+", block)
+        )
+        selected_children: list[str] = []
+        for child_index, child in enumerate(child_markers):
+            if child.group("marker") not in children:
+                continue
+            child_end = (
+                child_markers[child_index + 1].start()
+                if child_index + 1 < len(child_markers)
+                else len(block)
+            )
+            selected_children.append(block[child.start() : child_end])
+        if selected_children:
+            blocks.extend(selected_children)
+        elif not child_markers:
+            blocks.append(block)
+    return "\n\n".join(blocks) or None
 
 
 def _install_generated_yaml_payload(rules_file: Path, payload: dict) -> bool:
@@ -27867,13 +28697,25 @@ def _closest_exact_source_excerpt(*, source_text: str, excerpt: str) -> str | No
             and candidate.end >= direct_match.end()
         ]
         if not enclosing:
-            return None
+            return _safe_wrapped_direct_source_match(source, direct_match)
         table_rows = [
             candidate for candidate in enclosing if candidate.kind == "table_row"
         ]
         if table_rows:
             return min(table_rows, key=lambda candidate: len(candidate.text)).text
-        return _governing_source_excerpt_candidate(enclosing, candidates)
+        governing = _governing_source_excerpt_candidate(enclosing, candidates)
+        if governing is not None:
+            return governing
+        if any(
+            candidate.marked_parent is not None
+            and _SOURCE_PRIOR_CONDITION_PATTERN.search(
+                source[candidate.marked_parent[0] : direct_match.start()]
+            )
+            is not None
+            for candidate in enclosing
+        ):
+            return None
+        return _safe_wrapped_direct_source_match(source, direct_match)
 
     query_tokens = _proof_excerpt_match_tokens(query)
     query_numbers = set(extract_numbers_from_text(query))
@@ -27911,6 +28753,209 @@ def _closest_exact_source_excerpt(*, source_text: str, excerpt: str) -> str | No
     if selected.kind == "table_row":
         return selected.text
     return _governing_source_excerpt_candidate([selected], candidates)
+
+
+def _safe_wrapped_direct_source_match(
+    source: str,
+    direct_match: re.Match[str],
+) -> str | None:
+    raw_match = source[direct_match.start() : direct_match.end()]
+    raw_lines = raw_match.splitlines(keepends=True)
+    if len(raw_lines) < 2 or len(re.sub(r"\s+", " ", raw_match)) > 500:
+        return None
+
+    source_line_start = direct_match.start()
+    first_complete_line_start = source.rfind("\n", 0, direct_match.start()) + 1
+    first_complete_line_end = source.find("\n", direct_match.start())
+    if first_complete_line_end < 0:
+        first_complete_line_end = len(source)
+    first_complete_line = source[
+        first_complete_line_start:first_complete_line_end
+    ].strip()
+    first_line_prefix = source[first_complete_line_start : direct_match.start()]
+    if (
+        _SOURCE_PRIOR_CONDITION_PATTERN.search(
+            _source_context_before_match(source, direct_match.start())
+        )
+        is not None
+    ):
+        return None
+    preceding_line_end = max(0, first_complete_line_start - 1)
+    preceding_line_start = source.rfind("\n", 0, preceding_line_end) + 1
+    preceding_line = source[preceding_line_start:preceding_line_end]
+    first_following_line = re.sub(r"\s+", " ", raw_lines[1]).strip()
+    match_starts_at_line_content = not first_line_prefix.strip()
+    continued_bare_decimal = _SOURCE_BARE_DECIMAL_QUANTITY_PATTERN.match(
+        first_complete_line
+    ) is not None and _is_bare_decimal_continuation(
+        preceding_line, first_following_line
+    )
+    if _is_standalone_source_heading(
+        first_complete_line,
+        previous_line=preceding_line,
+        following_line=first_following_line,
+    ):
+        return None
+    if re.search(
+        r"(?:\t|\|[ \t]*|[^\s.!?][ \t]{2,})$",
+        first_line_prefix,
+    ):
+        return None
+    if match_starts_at_line_content:
+        first_marker_match = _source_line_paragraph_marker_match(
+            first_complete_line,
+            previous_line=preceding_line,
+        )
+        if first_marker_match is not None and not _is_wrapped_source_cross_reference(
+            preceding_line,
+            first_marker_match.group("body"),
+            first_complete_line,
+        ):
+            return None
+        if (
+            first_marker_match is None
+            and _SOURCE_BARE_PARAGRAPH_MARKER_PATTERN.match(first_complete_line)
+            is not None
+            and not continued_bare_decimal
+            and not _is_wrapped_legal_citation_continuation(
+                preceding_line,
+                first_complete_line,
+            )
+            and not _is_source_abbreviation_continuation(
+                preceding_line,
+                first_complete_line,
+            )
+            and not _is_wrapped_bare_source_cross_reference(
+                preceding_line,
+                first_following_line,
+                first_complete_line,
+            )
+        ):
+            return None
+        if (
+            _SOURCE_TABULAR_AMOUNT_ROW_PATTERN.match(first_complete_line) is not None
+            or re.match(r"^\$\s*\d", first_complete_line) is not None
+        ):
+            return None
+        if _SOURCE_TABLE_ROW_PATTERN.match(first_complete_line) and (
+            _SOURCE_TABLE_ROW_PATTERN.match(preceding_line.strip())
+            or _SOURCE_TABLE_ROW_PATTERN.match(first_following_line)
+        ):
+            return None
+    continued_wrapped_currency = False
+    for index in range(1, len(raw_lines)):
+        source_line_start += len(raw_lines[index - 1])
+        raw_line = raw_lines[index].rstrip("\r\n")
+        if not raw_line.strip():
+            return None
+        source_line_end = source.find("\n", source_line_start)
+        if source_line_end < 0:
+            source_line_end = len(source)
+        complete_line = source[source_line_start:source_line_end].strip()
+        previous_line = re.sub(r"\s+", " ", raw_lines[index - 1]).strip()
+        if _has_source_sentence_boundary(previous_line):
+            return None
+        if _SOURCE_SENTENCE_END_PATTERN.search(previous_line) is not None and not (
+            _is_source_abbreviation_continuation(previous_line, complete_line)
+        ):
+            return None
+        previous_line_start = source.rfind("\n", 0, max(0, source_line_start - 1)) + 1
+        previous_complete_line = source[
+            previous_line_start : max(previous_line_start, source_line_start - 1)
+        ].strip()
+        following_line_start = source_line_end + 1
+        following_line_end = source.find("\n", following_line_start)
+        if following_line_end < 0:
+            following_line_end = len(source)
+        following_line = source[following_line_start:following_line_end]
+        previous_is_table_row = _SOURCE_TABLE_ROW_PATTERN.match(previous_complete_line)
+        previous_match_fragment_is_table_row = _SOURCE_TABLE_ROW_PATTERN.match(
+            raw_lines[index - 1].strip()
+        )
+        current_is_table_row = _SOURCE_TABLE_ROW_PATTERN.match(complete_line)
+        following_is_table_row = _SOURCE_TABLE_ROW_PATTERN.match(following_line.strip())
+        is_wrapped_currency = (
+            _is_wrapped_currency_continuation(
+                previous_complete_line,
+                complete_line,
+            )
+            and following_is_table_row is None
+        )
+        current_is_dollar_amount = re.match(r"^\$\s*\d", complete_line) is not None
+        if current_is_dollar_amount and (
+            not is_wrapped_currency or continued_wrapped_currency
+        ):
+            return None
+        if _SOURCE_TABULAR_AMOUNT_ROW_PATTERN.match(complete_line) is not None:
+            return None
+        if _is_standalone_source_heading(
+            complete_line,
+            previous_line=previous_complete_line,
+            following_line=following_line,
+        ) and not (
+            continued_bare_decimal
+            and _SOURCE_QUANTITY_BODY_PATTERN.match(complete_line) is not None
+        ):
+            return None
+        if (
+            current_is_table_row
+            and not is_wrapped_currency
+            and (previous_is_table_row or following_is_table_row)
+        ):
+            return None
+        if (
+            previous_match_fragment_is_table_row
+            and current_is_table_row is None
+            and not (is_wrapped_currency or continued_wrapped_currency)
+        ):
+            return None
+        previous_is_amount_row = (
+            _SOURCE_TABULAR_AMOUNT_ROW_PATTERN.match(previous_complete_line) is not None
+            or re.match(r"^\$\s*\d", previous_complete_line) is not None
+        )
+        if previous_is_amount_row and not (
+            is_wrapped_currency or continued_wrapped_currency
+        ):
+            return None
+        marker_match = _source_line_paragraph_marker_match(
+            complete_line,
+            previous_line=previous_complete_line,
+        )
+        if marker_match is not None and not _is_wrapped_source_cross_reference(
+            previous_complete_line,
+            marker_match.group("body"),
+            complete_line,
+        ):
+            return None
+        if (
+            marker_match is None
+            and _SOURCE_BARE_PARAGRAPH_MARKER_PATTERN.match(complete_line) is not None
+        ):
+            if _is_wrapped_legal_citation_continuation(
+                previous_complete_line,
+                complete_line,
+            ) or _is_source_abbreviation_continuation(
+                previous_complete_line,
+                complete_line,
+            ):
+                continue
+            if _SOURCE_BARE_DECIMAL_QUANTITY_PATTERN.match(
+                complete_line
+            ) is not None and _is_bare_decimal_continuation(
+                previous_complete_line,
+                following_line,
+            ):
+                continued_bare_decimal = True
+                continue
+            if not _is_wrapped_bare_source_cross_reference(
+                previous_complete_line,
+                following_line,
+                complete_line,
+            ):
+                return None
+        continued_bare_decimal = False
+        continued_wrapped_currency = continued_wrapped_currency or is_wrapped_currency
+    return raw_match
 
 
 def _governing_source_excerpt_candidate(
@@ -27981,8 +29026,8 @@ def _exact_source_excerpt_candidate_spans(
         paragraph_end = paragraph_lines[-1][2]
         paragraph = source_text[paragraph_start:paragraph_end]
         collapsed_paragraph = re.sub(r"\s+", " ", paragraph).strip()
-        is_marked_paragraph = bool(
-            _SOURCE_PARAGRAPH_MARKER_PATTERN.match(collapsed_paragraph)
+        is_marked_paragraph = (
+            _source_paragraph_marker_match(collapsed_paragraph) is not None
         )
         trimmed_start = paragraph_start
         trimmed_end = paragraph_end
@@ -28004,7 +29049,11 @@ def _exact_source_excerpt_candidate_spans(
             prefix = paragraph[
                 max(sentence_start, sentence_end - 48) : sentence_end
             ].rstrip()
-            if match.group() == "." and _SOURCE_ABBREVIATION_PATTERN.search(prefix):
+            continuation = paragraph[sentence_end:].lstrip()
+            if paragraph[match.start()] == "." and _is_source_abbreviation_continuation(
+                prefix,
+                continuation,
+            ):
                 continue
             add_candidate(
                 paragraph_start + sentence_start,
@@ -28020,11 +29069,23 @@ def _exact_source_excerpt_candidate_spans(
             marked_parent=marked_parent,
         )
 
-        table_rows = [
-            (line, start, end)
-            for line, start, end in paragraph_lines
-            if line.strip() and _SOURCE_TABLE_ROW_PATTERN.match(line.strip())
-        ]
+        table_rows = []
+        for index, (line, start, end) in enumerate(paragraph_lines):
+            previous_line = paragraph_lines[index - 1][0] if index else ""
+            next_line = (
+                paragraph_lines[index + 1][0]
+                if index + 1 < len(paragraph_lines)
+                else ""
+            )
+            if (
+                line.strip()
+                and _SOURCE_TABLE_ROW_PATTERN.match(line.strip())
+                and not (
+                    _is_wrapped_currency_continuation(previous_line, line)
+                    and _SOURCE_TABLE_ROW_PATTERN.match(next_line.strip()) is None
+                )
+            ):
+                table_rows.append((line, start, end))
         if len(table_rows) > 1:
             for _line, start, end in table_rows:
                 add_candidate(
@@ -28033,28 +29094,84 @@ def _exact_source_excerpt_candidate_spans(
                     kind="table_row",
                     marked_parent=marked_parent,
                 )
+        elif table_rows and _SOURCE_TABULAR_AMOUNT_ROW_PATTERN.match(
+            table_rows[0][0].strip()
+        ):
+            _line, start, end = table_rows[0]
+            add_candidate(
+                start,
+                end,
+                kind="table_row",
+                marked_parent=marked_parent,
+            )
         paragraph_lines.clear()
 
+    source_lines: list[tuple[str, int, int]] = []
     offset = 0
     for line in source_text.splitlines(keepends=True):
         line_start = offset
         line_end = offset + len(line)
         offset = line_end
+        source_lines.append((line, line_start, line_end))
+
+    for index, (line, line_start, line_end) in enumerate(source_lines):
         collapsed = re.sub(r"\s+", " ", line).strip()
         if not collapsed:
             flush_paragraph()
             continue
-        marker_match = _SOURCE_PARAGRAPH_MARKER_PATTERN.match(collapsed)
-        if paragraph_lines and marker_match is not None:
-            previous_line = re.sub(r"\s+", " ", paragraph_lines[-1][0]).strip()
-            body = marker_match.group("body")
-            previous_is_open = re.search(r"[.;:!?]\s*$", previous_line) is None
-            is_wrapped_cross_reference = previous_is_open and (
-                _SOURCE_CROSS_REFERENCE_LEAD_IN_PATTERN.search(previous_line)
-                is not None
-                or _SOURCE_CROSS_REFERENCE_BODY_PATTERN.match(body) is not None
+        previous_source_line = source_lines[index - 1][0] if index else ""
+        following_line = (
+            source_lines[index + 1][0] if index + 1 < len(source_lines) else ""
+        )
+        is_wrapped_quantity_unit = (
+            len(paragraph_lines) >= 2
+            and _SOURCE_BARE_DECIMAL_QUANTITY_PATTERN.match(
+                re.sub(r"\s+", " ", paragraph_lines[-1][0]).strip()
             )
-            if not is_wrapped_cross_reference:
+            is not None
+            and _is_decimal_quantity_continuation(
+                paragraph_lines[-2][0],
+                collapsed,
+            )
+        )
+        if (
+            _is_standalone_source_heading(
+                collapsed,
+                previous_line=previous_source_line,
+                following_line=following_line,
+            )
+            and not is_wrapped_quantity_unit
+        ):
+            flush_paragraph()
+            paragraph_lines.append((line, line_start, line_end))
+            flush_paragraph()
+            continue
+        previous_line = paragraph_lines[-1][0] if paragraph_lines else ""
+        marker_match = _source_line_paragraph_marker_match(
+            collapsed,
+            previous_line=previous_line,
+        )
+        bare_marker_match = _SOURCE_BARE_PARAGRAPH_MARKER_PATTERN.match(collapsed)
+        if bare_marker_match is not None and (
+            _is_wrapped_legal_citation_continuation(previous_line, collapsed)
+            or _is_source_abbreviation_continuation(previous_line, collapsed)
+        ):
+            bare_marker_match = None
+        if (
+            bare_marker_match is not None
+            and _SOURCE_BARE_DECIMAL_QUANTITY_PATTERN.match(collapsed) is not None
+            and _is_bare_decimal_continuation(previous_line, following_line)
+        ):
+            bare_marker_match = None
+        if paragraph_lines and marker_match is not None:
+            if not _is_wrapped_source_cross_reference(
+                paragraph_lines[-1][0], marker_match.group("body"), collapsed
+            ):
+                flush_paragraph()
+        elif paragraph_lines and bare_marker_match is not None:
+            if not _is_wrapped_bare_source_cross_reference(
+                paragraph_lines[-1][0], following_line, collapsed
+            ):
                 flush_paragraph()
         paragraph_lines.append((line, line_start, line_end))
     flush_paragraph()
@@ -48093,6 +49210,39 @@ def _render_eval_suite_report_markdown(report: dict) -> str:
         )
 
     return "\n".join(lines) + "\n"
+
+
+def cmd_eval_board(args):
+    """Fold eval-suite outputs into an N-runner model-capability board."""
+    try:
+        board = fold_eval_board(
+            [Path(entry) for entry in args.results],
+            allow_partial=args.allow_partial,
+            allow_mixed_toolchains=args.allow_mixed_toolchains,
+        )
+    except EvalBoardError as exc:
+        print(str(exc))
+        sys.exit(1)
+
+    if args.csv_out:
+        rows = eval_board_case_rows(board)
+        args.csv_out.parent.mkdir(parents=True, exist_ok=True)
+        with args.csv_out.open("w", newline="") as fh:
+            fieldnames = list(rows[0].keys()) if rows else []
+            writer = csv.DictWriter(fh, fieldnames=fieldnames)
+            if fieldnames:
+                writer.writeheader()
+                writer.writerows(rows)
+
+    if args.markdown_out:
+        rendered_markdown = render_eval_board_markdown(board)
+        args.markdown_out.parent.mkdir(parents=True, exist_ok=True)
+        args.markdown_out.write_text(rendered_markdown)
+
+    if args.json:
+        print(json.dumps(eval_board_to_json(board), indent=2))
+    else:
+        print(render_eval_board_text(board))
 
 
 def cmd_eval_suite_report(args):

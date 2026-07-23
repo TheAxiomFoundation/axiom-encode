@@ -1,0 +1,131 @@
+# EncodeBench UK v1 — issue #1189, encodebench.org.
+#
+# Purpose: compare encoder models on the same stratified encoding tasks, as a
+# durable replacement for the 2026-07-10 scratchpad bake-off. This suite is a
+# measurement instrument, not a bulk-readiness gate: every rate gate is
+# pinned to 0.0 and `eval-board` reports rates instead of a READY verdict.
+#
+# Jurisdiction: UK, because capability runs need a strict 3-key release repo
+# (rulespec-uk pins uk-rulespec-2026-07-14). A US continuity suite carrying
+# the bake-off's eight citations follows the rulespec-us release migration.
+#
+# Mode: capability cases run cold. Repo-augmented workspaces deliberately
+# include the already-merged target module as precedent context — right for
+# refresh gates, but a capability score would then measure copying and drift
+# as the repo grows. Cold workspaces still carry definition stubs and
+# canonical-concept context, identically for every runner.
+#
+# The last three cases run repo-augmented as oracle candidates: they cover
+# provisions on the PolicyEngine UK comparison path (worker income tax,
+# primary Class 1 NICs, Child Benefit weekly rates). They ship with
+# `oracle: none` until the policyengine-uk runtime plumbing is verified for
+# eval cases; flipping a case to `oracle: policyengine` changes its case
+# identity, which starts a new board — flip all three in one revision.
+#
+# Comparability contract: `eval-board` folds runs whose suite name, ordered
+# case identities, and corpus release identity all match. Runner sets may
+# differ across runs (that is how models are added without re-running
+# incumbents), so single-runner variants of this manifest fold cleanly.
+#
+# Runner roster: subscription-billed backends only (codex CLI, claude CLI).
+# The metered `openai:` backend needs explicit per-run approval and is not
+# part of the standing roster.
+name: EncodeBench UK v1
+runners:
+  - terra=codex:gpt-5.6-terra
+  - sol=codex:gpt-5.6-sol
+  - gpt-5.5=codex:gpt-5.5
+  - luna=codex:gpt-5.6-luna
+  - fable=claude:claude-fable-5
+mode: cold
+# Rate gates are pinned to 0.0: a capability suite reports rates through
+# eval-board instead of gating bulk-readiness, and the manifest loader
+# (correctly) refuses omitted or null rate gates.
+gates:
+  min_cases: 16
+  min_success_rate: 0.0
+  min_compile_pass_rate: 0.0
+  min_ci_pass_rate: 0.0
+  min_zero_ungrounded_rate: 0.0
+  min_generalist_review_pass_rate: 0.0
+cases:
+  # -- parameters and thresholds ------------------------------------------
+  # Flat-rate control: VAT standard rate. The IL 35/5/201 analogue from the
+  # bake-off (the case gpt-5.5 fabricated a rate for).
+  - kind: source
+    name: vat_standard_rate
+    corpus_citation_path: uk/statute/ukpga/1994/23/2
+  # Weekly flat amount plus a small-profits threshold.
+  - kind: source
+    name: class_2_nic
+    corpus_citation_path: uk/statute/ukpga/1992/4/13
+  # Employer-side rate and secondary threshold.
+  - kind: source
+    name: class_1_secondary_nic
+    corpus_citation_path: uk/statute/ukpga/1992/4/9
+  # -- bracket and band structure -----------------------------------------
+  # Basic/higher/additional rate bands.
+  - kind: source
+    name: income_tax_rate_bands
+    corpus_citation_path: uk/statute/ukpga/2007/3/10
+  # Band-conditional nil-rate amount (personal savings allowance shape).
+  - kind: source
+    name: dividend_nil_rate
+    corpus_citation_path: uk/statute/ukpga/2007/3/13A
+  # -- phaseouts and tapers -----------------------------------------------
+  # Personal allowance with the £100,000 half-excess taper and round-up.
+  - kind: source
+    name: personal_allowance_taper
+    corpus_citation_path: uk/statute/ukpga/2007/3/35
+  # High income child benefit charge: £200 per £100 over the threshold.
+  - kind: source
+    name: hicbc_phaseout
+    corpus_citation_path: uk/statute/ukpga/2003/1/681B
+  # Annual allowance with the 228ZA taper adjacency.
+  - kind: source
+    name: pension_annual_allowance
+    corpus_citation_path: uk/statute/ukpga/2004/12/228
+  # -- cross-person and structural mechanics ------------------------------
+  # Transferable allowance: elections, both-party conditions, entity scope.
+  - kind: source
+    name: marriage_allowance_transfer
+    corpus_citation_path: uk/statute/ukpga/2007/3/55B
+  # Multi-step liability calculation; import-heavy structural formula.
+  - kind: source
+    name: income_tax_liability_steps
+    corpus_citation_path: uk/statute/ukpga/2007/3/23
+  # Universal credit award: maximum amount minus income reductions.
+  - kind: source
+    name: uc_award_calculation
+    corpus_citation_path: uk/statute/ukpga/2012/5/8
+  # -- grounding discipline ------------------------------------------------
+  # Child benefit entitlement conditions. The weekly amounts live in the
+  # 2006 regulations, not this section: any rate literal here is fabricated.
+  - kind: source
+    name: child_benefit_entitlement
+    corpus_citation_path: uk/statute/ukpga/1992/4/141
+  # Recency probe: 2026 act. Post-cutoff for most models, so the encoding
+  # must come from the supplied source text, not recall.
+  - kind: source
+    name: finance_act_2026_charge
+    corpus_citation_path: uk/statute/ukpga/2026/11/1
+  # -- oracle candidates (repo-augmented; see header) ----------------------
+  # Main income tax rates on the worker oracle path.
+  - kind: source
+    name: income_tax_main_rates
+    mode: repo-augmented
+    corpus_citation_path: uk/statute/ukpga/2007/3/6
+    oracle: none
+  # Employee-side Class 1 NICs on the worker oracle path.
+  - kind: source
+    name: class_1_primary_nic
+    mode: repo-augmented
+    corpus_citation_path: uk/statute/ukpga/1992/4/8
+    oracle: none
+  # Child benefit enhanced/other weekly rates (the regulation the
+  # entitlement case must not invent).
+  - kind: source
+    name: child_benefit_weekly_rates
+    mode: repo-augmented
+    corpus_citation_path: uk/regulation/uksi/2006/965/2
+    oracle: none

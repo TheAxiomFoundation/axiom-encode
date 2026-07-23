@@ -6,7 +6,9 @@ import hashlib
 import os
 import re
 import tomllib
-from base64 import b64encode
+from base64 import b64decode, b64encode
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -27,6 +29,9 @@ CORPUS_RELEASE_CONTENT_SHA256_FIELD = "axiom_corpus_release_content_sha256"
 VALIDATION_WAIVER_SET_SHA256_FIELD = "validation_waiver_set_sha256"
 VALIDATION_WAIVER_SET_PATH = "known-validation-gaps.yaml"
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_LOCAL_CORPUS_RELEASE_PUBLIC_KEY: ContextVar[str | None] = ContextVar(
+    "axiom_ci_corpus_release_public_key", default=None
+)
 
 
 class RuleSpecToolchainError(ValueError):
@@ -248,22 +253,57 @@ def load_rulespec_local_corpus_release(
 
     toolchain = load_rulespec_toolchain(rulespec_root)
     _verify_rulespec_validation_waiver_set(toolchain)
-    try:
-        broker = get_signing_broker()
-    except SigningBrokerError as exc:
-        raise RuleSpecToolchainError(
-            "A protected signing broker is required to verify the pinned "
-            "corpus release object"
-        ) from exc
-    public_key_raw = broker.corpus_release_public_key_raw
-    if public_key_raw is None or len(public_key_raw) != 32:
-        raise RuleSpecToolchainError(
-            "The protected signing broker has no valid corpus release public key"
+    public_key = _LOCAL_CORPUS_RELEASE_PUBLIC_KEY.get()
+    if public_key is not None:
+        public_keys = (public_key,)
+    else:
+        try:
+            broker = get_signing_broker()
+        except SigningBrokerError as exc:
+            raise RuleSpecToolchainError(
+                "A protected signing broker is required to verify the pinned "
+                "corpus release object"
+            ) from exc
+        public_keys_raw = broker.corpus_release_public_keys_raw
+        if not public_keys_raw or any(
+            len(candidate) != 32 for candidate in public_keys_raw
+        ):
+            raise RuleSpecToolchainError(
+                "The protected signing broker has no valid corpus release public keyring"
+            )
+        public_keys = tuple(
+            b64encode(candidate).decode("ascii") for candidate in public_keys_raw
         )
-    public_key = b64encode(public_key_raw).decode("ascii")
     return LocalCorpusRelease(
         corpus_root,
         toolchain.corpus_release,
         toolchain.corpus_release_content_sha256,
-        public_key,
+        public_keys,
     )
+
+
+@contextmanager
+def local_corpus_release_verification(public_key: str):
+    """Temporarily provide a verification-only corpus public key.
+
+    This exists solely for ``axiom-encode ci``.  It conveys no signing
+    capability, is never populated from the environment, and keeps the trusted
+    bootstrap's prohibition on environment-supplied public roots intact.
+    """
+
+    # Construct once so malformed keys fail before any gate starts.
+    try:
+        raw = b64decode(public_key, validate=True)
+    except Exception as exc:
+        raise RuleSpecToolchainError(
+            "--corpus-release-public-key must be canonical base64"
+        ) from exc
+    if len(raw) != 32 or b64encode(raw).decode("ascii") != public_key:
+        raise RuleSpecToolchainError(
+            "--corpus-release-public-key must encode exactly 32 bytes"
+        )
+    token = _LOCAL_CORPUS_RELEASE_PUBLIC_KEY.set(public_key)
+    try:
+        yield
+    finally:
+        _LOCAL_CORPUS_RELEASE_PUBLIC_KEY.reset(token)
