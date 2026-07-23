@@ -836,6 +836,10 @@ def main():
     )
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
+    from .ci_parity import register_ci_parser
+
+    register_ci_parser(subparsers)
+
     # validate command
     validate_parser = subparsers.add_parser(
         "validate", help="Validate RuleSpec YAML files (CI + reviewer agents)"
@@ -2406,6 +2410,11 @@ def main():
     _judge_cli.register_judge_subparsers(subparsers)
 
     args = parser.parse_args()
+
+    if args.command == "ci":
+        from .ci_parity import run_ci
+
+        sys.exit(run_ci(args))
 
     if args.command in _judge_cli.COMMANDS:
         sys.exit(_judge_cli.dispatch(args))
