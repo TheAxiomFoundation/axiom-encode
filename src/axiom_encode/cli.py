@@ -6571,7 +6571,9 @@ def _changed_manifest_group_files(
     changed = set(_git_changed_files(repo_path, base_ref=None, head_ref="HEAD"))
     base_ref = _preferred_protected_base_ref(repo_path)
     if base_ref is not None:
-        changed.update(_git_changed_files(repo_path, base_ref=base_ref, head_ref="HEAD"))
+        changed.update(
+            _git_changed_files(repo_path, base_ref=base_ref, head_ref="HEAD")
+        )
     repo_prefix = _git_worktree_prefix(repo_path)
     return _unique_paths(
         [
