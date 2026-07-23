@@ -85,6 +85,104 @@ def validate_rulespec_base(
     return "reviewed-head-artifact"
 
 
+def _citation_rulespec_path(citation: str) -> tuple[str, PurePosixPath]:
+    from axiom_encode.harness.evals import _resolve_eval_output_path
+
+    jurisdiction, separator, _remainder = citation.partition("/")
+    if not separator:
+        raise ValueError("citation must be a canonical corpus citation path")
+    relative = PurePosixPath(_resolve_eval_output_path(citation).as_posix())
+    if (
+        relative.is_absolute()
+        or ".." in relative.parts
+        or len(relative.parts) < 2
+        or relative.parts[0] not in RULESPEC_ATOMIC_ROOTS
+        or relative.suffix != ".yaml"
+    ):
+        raise ValueError("citation does not resolve to a canonical RuleSpec path")
+    return jurisdiction, relative
+
+
+def validate_dependent_cascade(
+    repo: Path,
+    target_citation: str,
+    dependent_citation: str,
+) -> PurePosixPath:
+    """Require the supplied module to be the target's only direct dependent."""
+
+    import yaml
+
+    target_jurisdiction, target_relative = _citation_rulespec_path(target_citation)
+    dependent_jurisdiction, dependent_relative = _citation_rulespec_path(
+        dependent_citation
+    )
+    if target_jurisdiction != dependent_jurisdiction:
+        raise ValueError("target and dependent must use the same jurisdiction")
+    if target_relative == dependent_relative:
+        raise ValueError("dependent citation must differ from the target citation")
+
+    repo_prefix = "rulespec-"
+    if not repo.name.startswith(repo_prefix):
+        raise ValueError("repository directory must use the rulespec-<country> name")
+    country = validate_country(repo.name.removeprefix(repo_prefix))
+    if target_jurisdiction != country and not target_jurisdiction.startswith(
+        f"{country}-"
+    ):
+        raise ValueError("citation jurisdiction does not belong to the RuleSpec repo")
+
+    content_root = repo / target_jurisdiction
+    target_path = content_root / target_relative
+    dependent_path = content_root / dependent_relative
+    if not target_path.is_file() or target_path.is_symlink():
+        raise ValueError("target citation has no regular baseline RuleSpec module")
+    if not dependent_path.is_file() or dependent_path.is_symlink():
+        raise ValueError("dependent citation has no regular baseline RuleSpec module")
+
+    target_import = target_relative.with_suffix("").as_posix()
+    canonical_target_import = f"{target_jurisdiction}:{target_import}"
+    direct_dependents: set[PurePosixPath] = set()
+    for atomic_root in sorted(RULESPEC_ATOMIC_ROOTS):
+        root = content_root / atomic_root
+        if not root.exists():
+            continue
+        for candidate in sorted(root.rglob("*.yaml")):
+            if candidate.name.endswith(".test.yaml") or candidate == target_path:
+                continue
+            if not candidate.is_file() or candidate.is_symlink():
+                raise ValueError(
+                    "baseline RuleSpec scan encountered a non-regular module"
+                )
+            try:
+                payload = yaml.safe_load(candidate.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, yaml.YAMLError) as exc:
+                raise ValueError(
+                    f"cannot inspect baseline RuleSpec module {candidate}"
+                ) from exc
+            if not isinstance(payload, dict):
+                continue
+            imports = payload.get("imports")
+            if not isinstance(imports, list):
+                continue
+            if any(
+                isinstance(raw_import, str)
+                and raw_import.split("#", 1)[0].strip().strip("/")
+                in {target_import, canonical_target_import}
+                for raw_import in imports
+            ):
+                direct_dependents.add(
+                    PurePosixPath(candidate.relative_to(content_root).as_posix())
+                )
+
+    expected = {dependent_relative}
+    if direct_dependents != expected:
+        rendered = ", ".join(map(str, sorted(direct_dependents))) or "<none>"
+        raise ValueError(
+            "target direct-dependent set does not exactly match supplied dependent: "
+            f"{rendered}"
+        )
+    return dependent_relative
+
+
 def _git(repo: Path, *args: str) -> bytes:
     return subprocess.check_output(["git", "-C", str(repo), *args])
 
@@ -217,6 +315,10 @@ def main() -> None:
     base_parser.add_argument("open_pr", choices=("true", "false"))
     stage_parser = subparsers.add_parser("stage")
     stage_parser.add_argument("repo", type=Path)
+    cascade_parser = subparsers.add_parser("validate-dependent-cascade")
+    cascade_parser.add_argument("repo", type=Path)
+    cascade_parser.add_argument("target_citation")
+    cascade_parser.add_argument("dependent_citation")
     args = parser.parse_args()
     try:
         if args.command == "validate-country":
@@ -230,6 +332,14 @@ def main() -> None:
                     args.country,
                     args.requested_ref,
                     open_pr=args.open_pr == "true",
+                )
+            )
+        elif args.command == "validate-dependent-cascade":
+            print(
+                validate_dependent_cascade(
+                    args.repo,
+                    args.target_citation,
+                    args.dependent_citation,
                 )
             )
         else:

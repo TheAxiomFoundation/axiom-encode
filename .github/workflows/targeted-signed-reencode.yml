@@ -28,6 +28,14 @@ on:
         description: Validator or independent-review finding to address
         required: false
         type: string
+      dependent_citation:
+        description: Direct dependent to re-encode atomically after a breaking target
+        required: false
+        type: string
+      dependent_review_finding:
+        description: Independent-review finding for the direct dependent
+        required: false
+        type: string
       open_pr:
         description: Commit, push, and open a draft RuleSpec pull request
         required: false
@@ -308,45 +316,92 @@ jobs:
               raise SystemExit("hardened RuleSpec routing rejected checkout")
           PY
 
+      - name: Validate dependent cascade
+        if: ${{ inputs.dependent_citation != '' }}
+        env:
+          CITATION: ${{ inputs.citation }}
+          DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
+          RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
+        run: |
+          set -euo pipefail
+          axiom-encode/.venv/bin/python \
+            axiom-encode/scripts/prepare_signed_backfill.py \
+            validate-dependent-cascade \
+            "$RULESPEC_CHECKOUT" "$CITATION" "$DEPENDENT_CITATION"
+
       - name: Encode, review, validate, and apply
         env:
           AXIOM_ENCODE_APPLY_SIGNING_KEY: ${{ secrets.AXIOM_ENCODE_APPLY_SIGNING_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           CITATION: ${{ inputs.citation }}
           REVIEW_FINDING: ${{ inputs.review_finding }}
+          DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
+          DEPENDENT_REVIEW_FINDING: ${{ inputs.dependent_review_finding }}
           RULESPEC_CHECKOUT: ${{ github.workspace }}/rulespec-${{ inputs.country }}
         run: |
-          args=(
-            /opt/axiom-verification/axiom-encode encode
-            --backend openai
-            --corpus-path "$GITHUB_WORKSPACE/axiom-corpus"
-            --axiom-rules-engine-path "$GITHUB_WORKSPACE/axiom-rules-engine"
-            --policy-repo-path "$RULESPEC_CHECKOUT"
-            --output "$RUNNER_TEMP/generated"
-            --mode repo-augmented
-            --db "$RUNNER_TEMP/encodings.db"
-            --no-sync
-            --apply
-          )
-          if [ -n "$REVIEW_FINDING" ]; then
-            review_finding_path="$(mktemp "$RUNNER_TEMP/axiom-targeted-review-finding.XXXXXX.txt")"
-            printf '%s\n' "$REVIEW_FINDING" > "$review_finding_path"
-            args+=(--review-findings "$review_finding_path")
-          fi
-          args+=("$CITATION")
+          set -euo pipefail
 
-          exec /opt/axiom-verification/axiom-encode-apply-signer run \
-            --scope apply_ed25519 \
-            --key-env AXIOM_ENCODE_APPLY_SIGNING_KEY \
-            --supervisor /opt/axiom-verification/axiom-encode-signing-supervisor \
-            --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
-            --trusted-python-runtime-root /opt/axiom-verification/python \
-            --trusted-python-import-root /opt/axiom-verification/python/lib/python3.13/site-packages \
-            --trusted-python-package-root /opt/axiom-verification/python/lib/python3.13/site-packages/axiom_encode \
-            --expected-github-repository TheAxiomFoundation/axiom-encode \
-            --allowed-workflow-ref TheAxiomFoundation/axiom-encode/.github/workflows/targeted-signed-reencode.yml@refs/heads/main \
-            --allowed-event-name workflow_dispatch \
-            -- "${args[@]}"
+          run_signed_encode() {
+            local citation="$1"
+            local review_finding="$2"
+            local target_only="$3"
+            local review_finding_path=""
+            local -a args=(
+              /opt/axiom-verification/axiom-encode encode
+              --backend openai
+              --corpus-path "$GITHUB_WORKSPACE/axiom-corpus"
+              --axiom-rules-engine-path "$GITHUB_WORKSPACE/axiom-rules-engine"
+              --policy-repo-path "$RULESPEC_CHECKOUT"
+              --output "$RUNNER_TEMP/generated"
+              --mode repo-augmented
+              --db "$RUNNER_TEMP/encodings.db"
+              --no-sync
+              --apply
+            )
+            if [ "$target_only" = "true" ]; then
+              args+=(--apply-target-only)
+            fi
+            if [ -n "$review_finding" ]; then
+              review_finding_dir="$(mktemp -d "$RUNNER_TEMP/axiom-targeted-review-finding.XXXXXX")"
+              review_finding_path="$review_finding_dir/review-finding.txt"
+              printf '%s\n' "$review_finding" > "$review_finding_path"
+              args+=(--review-findings "$review_finding_path")
+            fi
+            args+=("$citation")
+
+            /opt/axiom-verification/axiom-encode-apply-signer run \
+              --scope apply_ed25519 \
+              --key-env AXIOM_ENCODE_APPLY_SIGNING_KEY \
+              --supervisor /opt/axiom-verification/axiom-encode-signing-supervisor \
+              --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
+              --trusted-python-runtime-root /opt/axiom-verification/python \
+              --trusted-python-import-root /opt/axiom-verification/python/lib/python3.13/site-packages \
+              --trusted-python-package-root /opt/axiom-verification/python/lib/python3.13/site-packages/axiom_encode \
+              --expected-github-repository TheAxiomFoundation/axiom-encode \
+              --allowed-workflow-ref TheAxiomFoundation/axiom-encode/.github/workflows/targeted-signed-reencode.yml@refs/heads/main \
+              --allowed-event-name workflow_dispatch \
+              -- "${args[@]}"
+          }
+
+          if [ -n "$DEPENDENT_CITATION" ]; then
+            if [ "$DEPENDENT_CITATION" = "$CITATION" ]; then
+              echo "dependent citation must differ from the target citation" >&2
+              exit 1
+            fi
+            if [ -z "$DEPENDENT_REVIEW_FINDING" ]; then
+              echo "dependent review finding is required with dependent citation" >&2
+              exit 1
+            fi
+            run_signed_encode "$CITATION" "$REVIEW_FINDING" true
+            run_signed_encode \
+              "$DEPENDENT_CITATION" "$DEPENDENT_REVIEW_FINDING" false
+          else
+            if [ -n "$DEPENDENT_REVIEW_FINDING" ]; then
+              echo "dependent citation is required with dependent review finding" >&2
+              exit 1
+            fi
+            run_signed_encode "$CITATION" "$REVIEW_FINDING" false
+          fi
 
       - name: Verify generated provenance
         env:
@@ -367,6 +422,8 @@ jobs:
       - name: Package exact generated changes
         env:
           CITATION: ${{ inputs.citation }}
+          DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
+          DEPENDENT_REVIEW_FINDING_PRESENT: ${{ inputs.dependent_review_finding != '' }}
           REVIEW_FINDING_PRESENT: ${{ inputs.review_finding != '' }}
           RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
         run: |
@@ -405,53 +462,87 @@ jobs:
                   ".axiom/encoding-manifests",
               )
           )
-          matches = []
+          dependent_citation = os.environ.get("DEPENDENT_CITATION") or ""
+          expected_citations = {os.environ["CITATION"]}
+          if dependent_citation:
+              expected_citations.add(dependent_citation)
+
+          matches = {}
           for relative_path in sorted(manifest_paths):
               manifest_path = Path(os.environ["RULESPEC_CHECKOUT"]) / relative_path
               payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+              citation = payload.get("citation")
               if (
                   payload.get("schema_version")
                   == "axiom-encode/applied-rulespec/v5"
-                  and payload.get("citation") == os.environ["CITATION"]
+                  and citation in expected_citations
               ):
-                  matches.append(payload)
-          if len(matches) != 1:
-              raise SystemExit(
-                  "expected exactly one changed signed apply manifest for citation; "
-                  f"found {len(matches)}"
+                  matches.setdefault(citation, []).append(payload)
+
+          expected = [
+              (
+                  os.environ["CITATION"],
+                  os.environ["REVIEW_FINDING_PRESENT"] == "true",
+                  Path(sys.argv[1]),
+              )
+          ]
+          if dependent_citation:
+              expected.append(
+                  (
+                      dependent_citation,
+                      os.environ["DEPENDENT_REVIEW_FINDING_PRESENT"] == "true",
+                      Path(sys.argv[1]).with_name("dependent-context-manifest.json"),
+                  )
               )
 
-          applied_manifest = matches[0]
-          context_path = Path(applied_manifest["context_manifest_file"]).resolve()
           generated_root = (Path(os.environ["RUNNER_TEMP"]) / "generated").resolve()
-          try:
-              context_path.relative_to(generated_root)
-          except ValueError as exc:
-              raise SystemExit("signed context manifest is outside generated root") from exc
-          context_bytes = context_path.read_bytes()
-          context_digest = hashlib.sha256(context_bytes).hexdigest()
-          if context_digest != applied_manifest.get("context_manifest_sha256"):
-              raise SystemExit("signed context manifest digest does not match")
+          for citation, finding_required, destination in expected:
+              citation_matches = matches.get(citation, [])
+              if len(citation_matches) != 1:
+                  raise SystemExit(
+                      "expected exactly one changed signed apply manifest for "
+                      f"{citation}; found {len(citation_matches)}"
+                  )
+              applied_manifest = citation_matches[0]
+              context_path = Path(applied_manifest["context_manifest_file"]).resolve()
+              try:
+                  context_path.relative_to(generated_root)
+              except ValueError as exc:
+                  raise SystemExit(
+                      "signed context manifest is outside generated root"
+                  ) from exc
+              context_bytes = context_path.read_bytes()
+              context_digest = hashlib.sha256(context_bytes).hexdigest()
+              if context_digest != applied_manifest.get("context_manifest_sha256"):
+                  raise SystemExit("signed context manifest digest does not match")
 
-          context_payload = json.loads(context_bytes)
-          review_findings = context_payload.get("review_findings_files")
-          if not isinstance(review_findings, list):
-              raise SystemExit("context manifest review findings evidence is malformed")
-          if os.environ["REVIEW_FINDING_PRESENT"] == "true" and not review_findings:
-              raise SystemExit("context manifest omits supplied review finding")
-          for finding in review_findings:
-              if not isinstance(finding, dict):
-                  raise SystemExit("context manifest review finding is malformed")
-              content = finding.get("content")
-              digest = finding.get("sha256")
-              if not isinstance(content, str) or not content.strip():
-                  raise SystemExit("context manifest review finding content is empty")
-              if "\r" in content:
-                  raise SystemExit("context manifest review finding is not normalized")
-              if hashlib.sha256(content.encode("utf-8")).hexdigest() != digest:
-                  raise SystemExit("context manifest review finding digest does not match")
+              context_payload = json.loads(context_bytes)
+              review_findings = context_payload.get("review_findings_files")
+              if not isinstance(review_findings, list):
+                  raise SystemExit(
+                      "context manifest review findings evidence is malformed"
+                  )
+              if finding_required and not review_findings:
+                  raise SystemExit("context manifest omits supplied review finding")
+              for finding in review_findings:
+                  if not isinstance(finding, dict):
+                      raise SystemExit("context manifest review finding is malformed")
+                  content = finding.get("content")
+                  digest = finding.get("sha256")
+                  if not isinstance(content, str) or not content.strip():
+                      raise SystemExit(
+                          "context manifest review finding content is empty"
+                      )
+                  if "\r" in content:
+                      raise SystemExit(
+                          "context manifest review finding is not normalized"
+                      )
+                  if hashlib.sha256(content.encode("utf-8")).hexdigest() != digest:
+                      raise SystemExit(
+                          "context manifest review finding digest does not match"
+                      )
 
-          Path(sys.argv[1]).write_bytes(context_bytes)
+              destination.write_bytes(context_bytes)
           PY
           python - "$artifact/metadata.json" <<'PY'
           import json
@@ -467,6 +558,7 @@ jobs:
           payload = {
               "schema": "axiom-encode/targeted-reencode-artifact/v1",
               "citation": os.environ["CITATION"],
+              "dependent_citation": os.environ.get("DEPENDENT_CITATION") or None,
               "rulespec_base": rev(os.environ["RULESPEC_CHECKOUT"]),
               "encoder_commit": rev("axiom-encode"),
               "corpus_commit": rev("axiom-corpus"),
