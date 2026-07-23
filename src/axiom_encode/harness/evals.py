@@ -11971,7 +11971,7 @@ def _run_claude_prompt_eval(
         "--no-chrome",
         "--strict-mcp-config",
         "--mcp-config",
-        "{}",
+        '{"mcpServers": {}}',
         "--tools",
         "",
         "--allowed-tools",

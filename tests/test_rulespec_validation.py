@@ -189,7 +189,7 @@ def test_claude_reviewer_disables_tools_and_scrubs_signing_capabilities(
     assert command[command.index("--permission-mode") + 1] == "dontAsk"
     assert command[command.index("--tools") + 1] == ""
     assert command[command.index("--allowed-tools") + 1] == ""
-    assert command[command.index("--mcp-config") + 1] == "{}"
+    assert command[command.index("--mcp-config") + 1] == '{"mcpServers": {}}'
     for flag in (
         "--safe-mode",
         "--no-session-persistence",
