@@ -7037,6 +7037,33 @@ def test_reviewer_score_below_threshold_fails_even_if_declared_passed(
     )
 
 
+def test_reviewer_non_finite_score_fails_as_parse_failure(monkeypatch, tmp_path):
+    """JSON `1e309` parses to inf; a non-finite score must fail closed
+    rather than flow into durable metrics that consumers refuse."""
+    rules_file = tmp_path / "rules.yaml"
+    rules_file.write_text("format: rulespec/v1\nrules: []\n")
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    def fake_run_claude_code(*_args, **_kwargs):
+        return ('{"score": 1e309, "passed": true, "issues": []}', 0)
+
+    monkeypatch.setattr(
+        "axiom_encode.harness.validator_pipeline.run_claude_code",
+        fake_run_claude_code,
+    )
+
+    result = pipeline._run_reviewer("Formula Reviewer", rules_file)
+
+    assert result.passed is False
+    assert result.score is None
+    assert any("reviewer_parse_failed" in issue for issue in result.issues)
+    assert any("not finite" in issue for issue in result.issues)
+
+
 def test_rulespec_grounding_tolerates_decimal_percentage_float_noise():
     content = """format: rulespec/v1
 module:
