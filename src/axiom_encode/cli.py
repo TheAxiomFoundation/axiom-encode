@@ -3006,8 +3006,9 @@ def _fingerprint_validation_waiver_modules(
     """Execute validation and companions against one canonical checkout root.
 
     Holds only the ROUTING cache across the batch (path -> checkout-root
-    admission over a fixed tree: partition-invariant, successful probes
-    only). Deliberately NOT the full `_rulespec_resolution_cache_scope`:
+    admission: successful probes only, invalidated against filesystem and
+    git-config fingerprints — partition-invariant under the audit's
+    fixed-tree, fixed-process-environment execution model). Deliberately NOT the full `_rulespec_resolution_cache_scope`:
     that scope reuses an enclosing cache when nested, so holding one across
     the batch leaks per-module resolution/identity state between neighbors
     and makes failure messages — and therefore waiver fingerprints — depend
@@ -3038,7 +3039,7 @@ def _fingerprint_validation_waiver_modules_impl(
     rulespec_dependency_roots: Sequence[Path] = (),
     corpus_release: LocalCorpusRelease | None = None,
 ) -> list[dict[str, Any]]:
-    """Fingerprint every module inside one bounded resolution-cache scope."""
+    """Fingerprint every module; each validate opens its own resolution scope."""
 
     root = Path(root).resolve()
     if not root.is_dir():
