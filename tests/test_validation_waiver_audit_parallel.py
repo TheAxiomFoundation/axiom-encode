@@ -267,3 +267,155 @@ def test_fingerprint_batch_holds_no_shared_resolution_scope():
     # The batch may share ROUTING admission (partition-invariant); it must
     # never share the resolution/identity cache.
     assert routing_calls == ["entered"]
+
+
+def _audit_args(tmp_path, root, corpus, engine, base, changed):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        root=root,
+        corpus_path=corpus,
+        axiom_rules_path=engine,
+        protected_base=base,
+        changed_paths=changed,
+        json=False,
+        rulespec_dependency_roots=(),
+        rulespec_dependency_root=None,
+    )
+
+
+def test_audit_rechecks_discrepant_results_in_isolation(monkeypatch, capsys):
+    # A load flake in the parallel pass must not become an accusation: the
+    # audit re-executes any expectation-violating result alone and reports
+    # on the isolated value.
+    import yaml as _yaml
+
+    monkeypatch.setenv(cli._WAIVER_AUDIT_WORKERS_ENV, "1")
+    calls = []
+
+    fp_good = "sha256:" + "a" * 64
+    fp_flake = "sha256:" + "b" * 64
+
+    def fake_parallel(modules, **kwargs):
+        calls.append(("parallel", [str(m) for m in modules]))
+        return [
+            {
+                "path": "us/statutes/x.yaml",
+                "passed": False,
+                "fingerprint": fp_flake,
+                "outcome": {"validate": "flaky"},
+            }
+        ]
+
+    def fake_serial(modules, **kwargs):
+        calls.append(("serial", [str(m) for m in modules]))
+        return [
+            {
+                "path": "us/statutes/x.yaml",
+                "passed": False,
+                "fingerprint": fp_good,
+                "outcome": {"validate": "stable"},
+            }
+        ]
+
+    import tempfile
+    from pathlib import Path as _P
+
+    with tempfile.TemporaryDirectory() as td:
+        root = _P(td) / "rulespec-us"
+        (root / "us/statutes").mkdir(parents=True)
+        (root / "us/statutes/x.yaml").write_text("format: rulespec/v1\n")
+        ledger = {
+            "validate_failures": {
+                "us/statutes/x.yaml": {
+                    "active": {
+                        "fingerprint": fp_good,
+                        "owner": "@MaxGhenis",
+                        "issue": "https://github.com/TheAxiomFoundation/rulespec-us/issues/1",
+                        "expires": (__import__("datetime").date.today() + __import__("datetime").timedelta(days=60)).isoformat(),
+                    }
+                }
+            }
+        }
+        (root / "known-validation-gaps.yaml").write_text(_yaml.safe_dump(ledger))
+        base = _P(td) / "base.yaml"
+        base.write_text(_yaml.safe_dump(ledger))
+        changed = _P(td) / "changed.txt"
+        changed.write_text("")
+
+        with (
+            patch.object(
+                cli, "_fingerprint_validation_waiver_modules_parallel", fake_parallel
+            ),
+            patch.object(
+                cli, "_fingerprint_validation_waiver_modules", fake_serial
+            ),
+        ):
+            code = cli._cmd_validation_waivers_audit(
+                _audit_args(td, root, _P(td) / "corpus", _P(td) / "engine", base, changed)
+            )
+
+    assert code == 0
+    assert [c[0] for c in calls] == ["parallel", "serial"]
+    assert calls[1][1] == ["us/statutes/x.yaml"]
+    out = capsys.readouterr().out
+    assert "audit passed" in out
+
+
+def test_audit_reports_discrepancy_that_survives_isolation(monkeypatch, capsys):
+    import yaml as _yaml
+
+    monkeypatch.setenv(cli._WAIVER_AUDIT_WORKERS_ENV, "1")
+    fp_good = "sha256:" + "a" * 64
+    fp_real_drift = "sha256:" + "c" * 64
+
+    def fake_parallel(modules, **kwargs):
+        return [
+            {
+                "path": "us/statutes/x.yaml",
+                "passed": False,
+                "fingerprint": fp_real_drift,
+                "outcome": {"validate": "drifted"},
+            }
+        ]
+
+    fake_serial = fake_parallel
+
+    import tempfile
+    from pathlib import Path as _P
+
+    with tempfile.TemporaryDirectory() as td:
+        root = _P(td) / "rulespec-us"
+        (root / "us/statutes").mkdir(parents=True)
+        (root / "us/statutes/x.yaml").write_text("format: rulespec/v1\n")
+        ledger = {
+            "validate_failures": {
+                "us/statutes/x.yaml": {
+                    "active": {
+                        "fingerprint": fp_good,
+                        "owner": "@MaxGhenis",
+                        "issue": "https://github.com/TheAxiomFoundation/rulespec-us/issues/1",
+                        "expires": (__import__("datetime").date.today() + __import__("datetime").timedelta(days=60)).isoformat(),
+                    }
+                }
+            }
+        }
+        (root / "known-validation-gaps.yaml").write_text(_yaml.safe_dump(ledger))
+        base = _P(td) / "base.yaml"
+        base.write_text(_yaml.safe_dump(ledger))
+        changed = _P(td) / "changed.txt"
+        changed.write_text("")
+
+        with (
+            patch.object(
+                cli, "_fingerprint_validation_waiver_modules_parallel", fake_parallel
+            ),
+            patch.object(cli, "_fingerprint_validation_waiver_modules", fake_serial),
+        ):
+            code = cli._cmd_validation_waivers_audit(
+                _audit_args(td, root, _P(td) / "corpus", _P(td) / "engine", base, changed)
+            )
+
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "fingerprint drifted" in err

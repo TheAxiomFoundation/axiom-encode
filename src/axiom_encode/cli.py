@@ -3445,6 +3445,38 @@ def _cmd_validation_waivers_audit(args) -> int:
         else []
     )
     executed_by_path = {result["path"]: result for result in executed}
+
+    # Isolated recheck: concurrent fan-out occasionally perturbs a module's
+    # outcome (engine subprocesses under load), which would turn a transient
+    # flake into a waiver-audit accusation. Any result that disagrees with
+    # its ledger expectation is re-executed alone — the module's standalone
+    # value is the partition-invariant definition of truth — and only a
+    # discrepancy that survives isolation is reported. Real drift and stale
+    # waivers survive; load flakes do not.
+    def _expectation_met(path: str, kind: str, actual: dict[str, Any]) -> bool:
+        if kind == "active":
+            expected = head.entries[path].active.fingerprint
+            return (not actual["passed"]) and actual["fingerprint"] == expected
+        return bool(actual["passed"])
+
+    discrepant = [
+        path
+        for path, kind in classified.items()
+        if path in executed_by_path
+        and not _expectation_met(path, kind, executed_by_path[path])
+    ]
+    if discrepant:
+        rechecked = _fingerprint_validation_waiver_modules(
+            [Path(path) for path in sorted(discrepant)],
+            root=root,
+            corpus_path=args.corpus_path,
+            axiom_rules_path=args.axiom_rules_path,
+            rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
+        )
+        for result in rechecked:
+            result["isolated_recheck"] = True
+            executed_by_path[result["path"]] = result
+
     results: list[dict[str, Any]] = []
     errors: list[str] = []
 
@@ -3480,6 +3512,8 @@ def _cmd_validation_waivers_audit(args) -> int:
             "fingerprint": actual["fingerprint"],
             "outcome": actual["outcome"],
         }
+        if actual.get("isolated_recheck"):
+            result_record["isolated_recheck"] = True
         error: str | None = None
         if kind == "active":
             expected = head.entries[path].active.fingerprint
