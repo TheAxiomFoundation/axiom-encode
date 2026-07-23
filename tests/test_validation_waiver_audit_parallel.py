@@ -220,3 +220,50 @@ def test_chunk_worker_builds_release_without_broker():
     assert result == sentinel
     assert built["identity"] == _RELEASE_IDENTITY
     assert serial.call_args.kwargs["corpus_release"] == "release-object"
+
+
+def test_fingerprint_batch_holds_no_shared_resolution_scope():
+    # Partition-invariance regression: a batch-level resolution-cache scope
+    # is reused by every nested per-module scope, so module A's resolution
+    # state leaks into module B's failure messages and fingerprints become
+    # partition-dependent (observed: 5/3,099 rulespec-us waiver fingerprints
+    # changed between chunk layouts). The batch executor must leave scope
+    # management to each ValidatorPipeline.validate call.
+    calls = []
+    routing_calls = []
+
+    class _SpyScope:
+        def __enter__(self):
+            calls.append("entered")
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    class _RoutingSpy:
+        def __enter__(self):
+            routing_calls.append("entered")
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    with (
+        patch.object(cli, "_rulespec_resolution_cache_scope", _SpyScope),
+        patch.object(cli, "_rulespec_routing_cache_scope", _RoutingSpy),
+        patch.object(
+            cli, "_fingerprint_validation_waiver_modules_impl", return_value=[]
+        ) as impl,
+    ):
+        result = cli._fingerprint_validation_waiver_modules(
+            [Path("us/a.yaml")],
+            root=Path("/repo"),
+            corpus_path=Path("/corpus"),
+            axiom_rules_path=Path("/engine"),
+        )
+    assert result == []
+    assert impl.call_count == 1
+    assert calls == []
+    # The batch may share ROUTING admission (partition-invariant); it must
+    # never share the resolution/identity cache.
+    assert routing_calls == ["entered"]
