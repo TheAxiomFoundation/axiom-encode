@@ -1966,8 +1966,12 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert "printf '%s\\n' \"$review_finding\"" in command
     assert 'args+=(--review-findings "$review_finding_path")' in command
     assert "args+=(--apply-target-only)" in command
-    assert 'run_signed_encode "$CITATION" "$REVIEW_FINDING" true' in command
-    assert '"$DEPENDENT_CITATION" "$DEPENDENT_REVIEW_FINDING" false' in command
+    assert '--output "$RUNNER_TEMP/generated/$output_lane"' in command
+    assert 'run_signed_encode "$CITATION" "$REVIEW_FINDING" true target' in command
+    assert (
+        '"$DEPENDENT_CITATION" "$DEPENDENT_REVIEW_FINDING" false dependent' in command
+    )
+    assert 'run_signed_encode "$CITATION" "$REVIEW_FINDING" false target' in command
     assert "dependent review finding is required with dependent citation" in command
     assert steps.index(cascade_step) < steps.index(apply_step)
 
@@ -2176,8 +2180,8 @@ def test_targeted_artifact_packages_signed_review_context(tmp_path: Path) -> Non
         ],
     }
     context_bytes = json.dumps(context_payload, sort_keys=True).encode()
-    context_path = tmp_path / "generated" / "context-manifest.json"
-    context_path.parent.mkdir()
+    context_path = tmp_path / "generated" / "target" / "context-manifest.json"
+    context_path.parent.mkdir(parents=True)
     context_path.write_bytes(context_bytes)
     applied_manifest = {
         "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
@@ -2213,8 +2217,36 @@ def test_targeted_artifact_packages_signed_review_context(tmp_path: Path) -> Non
     assert packaged_context.read_bytes() == context_bytes
 
 
-def test_targeted_artifact_packages_target_and_dependent_contexts(
+@pytest.mark.parametrize(
+    ("target_lane", "dependent_lane", "dependent_context_citation", "error"),
+    [
+        ("target", "dependent", None, None),
+        (
+            "dependent",
+            "target",
+            None,
+            "signed context manifest is outside assigned target lane",
+        ),
+        (
+            "target",
+            "target",
+            None,
+            "signed context manifest is outside assigned dependent lane",
+        ),
+        (
+            "target",
+            "dependent",
+            "us/regulation/42/435/555",
+            "signed context manifest citation does not match",
+        ),
+    ],
+)
+def test_targeted_artifact_enforces_target_and_dependent_context_lanes(
     tmp_path: Path,
+    target_lane: str,
+    dependent_lane: str,
+    dependent_context_citation: str | None,
+    error: str | None,
 ) -> None:
     workflow = yaml.safe_load(
         (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
@@ -2247,12 +2279,24 @@ def test_targeted_artifact_packages_target_and_dependent_contexts(
     dependent_citation = "us/regulation/42/435/559"
     generated_root = tmp_path / "generated"
     contexts: dict[str, bytes] = {}
-    for citation, section, finding in (
-        (target_citation, "555", "Preserve the target source.\n"),
-        (dependent_citation, "559", "Preserve the dependent source.\n"),
+    for citation, context_citation, lane, section, finding in (
+        (
+            target_citation,
+            target_citation,
+            target_lane,
+            "555",
+            "Preserve the target source.\n",
+        ),
+        (
+            dependent_citation,
+            dependent_context_citation or dependent_citation,
+            dependent_lane,
+            "559",
+            "Preserve the dependent source.\n",
+        ),
     ):
         context_payload = {
-            "citation": citation,
+            "citation": context_citation,
             "review_findings_files": [
                 {
                     "content": finding,
@@ -2262,7 +2306,11 @@ def test_targeted_artifact_packages_target_and_dependent_contexts(
         }
         context_bytes = json.dumps(context_payload, sort_keys=True).encode()
         context_path = (
-            generated_root / "_eval_workspaces" / section / "context-manifest.json"
+            generated_root
+            / lane
+            / "_eval_workspaces"
+            / section
+            / "context-manifest.json"
         )
         context_path.parent.mkdir(parents=True)
         context_path.write_bytes(context_bytes)
@@ -2306,6 +2354,11 @@ def test_targeted_artifact_packages_target_and_dependent_contexts(
             "RULESPEC_CHECKOUT": "rulespec-us",
         },
     )
+
+    if error is not None:
+        assert completed.returncode != 0
+        assert error in completed.stderr
+        return
 
     assert completed.returncode == 0, completed.stderr
     assert packaged_target.read_bytes() == contexts[target_citation]

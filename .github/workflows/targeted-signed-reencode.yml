@@ -345,6 +345,7 @@ jobs:
             local citation="$1"
             local review_finding="$2"
             local target_only="$3"
+            local output_lane="$4"
             local review_finding_path=""
             local -a args=(
               /opt/axiom-verification/axiom-encode encode
@@ -352,7 +353,7 @@ jobs:
               --corpus-path "$GITHUB_WORKSPACE/axiom-corpus"
               --axiom-rules-engine-path "$GITHUB_WORKSPACE/axiom-rules-engine"
               --policy-repo-path "$RULESPEC_CHECKOUT"
-              --output "$RUNNER_TEMP/generated"
+              --output "$RUNNER_TEMP/generated/$output_lane"
               --mode repo-augmented
               --db "$RUNNER_TEMP/encodings.db"
               --no-sync
@@ -392,15 +393,15 @@ jobs:
               echo "dependent review finding is required with dependent citation" >&2
               exit 1
             fi
-            run_signed_encode "$CITATION" "$REVIEW_FINDING" true
+            run_signed_encode "$CITATION" "$REVIEW_FINDING" true target
             run_signed_encode \
-              "$DEPENDENT_CITATION" "$DEPENDENT_REVIEW_FINDING" false
+              "$DEPENDENT_CITATION" "$DEPENDENT_REVIEW_FINDING" false dependent
           else
             if [ -n "$DEPENDENT_REVIEW_FINDING" ]; then
               echo "dependent citation is required with dependent review finding" >&2
               exit 1
             fi
-            run_signed_encode "$CITATION" "$REVIEW_FINDING" false
+            run_signed_encode "$CITATION" "$REVIEW_FINDING" false target
           fi
 
       - name: Verify generated provenance
@@ -484,6 +485,7 @@ jobs:
                   os.environ["CITATION"],
                   os.environ["REVIEW_FINDING_PRESENT"] == "true",
                   Path(sys.argv[1]),
+                  "target",
               )
           ]
           if dependent_citation:
@@ -492,11 +494,12 @@ jobs:
                       dependent_citation,
                       os.environ["DEPENDENT_REVIEW_FINDING_PRESENT"] == "true",
                       Path(sys.argv[1]).with_name("dependent-context-manifest.json"),
+                      "dependent",
                   )
               )
 
           generated_root = (Path(os.environ["RUNNER_TEMP"]) / "generated").resolve()
-          for citation, finding_required, destination in expected:
+          for citation, finding_required, destination, lane in expected:
               citation_matches = matches.get(citation, [])
               if len(citation_matches) != 1:
                   raise SystemExit(
@@ -506,10 +509,10 @@ jobs:
               applied_manifest = citation_matches[0]
               context_path = Path(applied_manifest["context_manifest_file"]).resolve()
               try:
-                  context_path.relative_to(generated_root)
+                  context_path.relative_to(generated_root / lane)
               except ValueError as exc:
                   raise SystemExit(
-                      "signed context manifest is outside generated root"
+                      f"signed context manifest is outside assigned {lane} lane"
                   ) from exc
               context_bytes = context_path.read_bytes()
               context_digest = hashlib.sha256(context_bytes).hexdigest()
@@ -517,6 +520,10 @@ jobs:
                   raise SystemExit("signed context manifest digest does not match")
 
               context_payload = json.loads(context_bytes)
+              if context_payload.get("citation") != citation:
+                  raise SystemExit(
+                      "signed context manifest citation does not match"
+                  )
               review_findings = context_payload.get("review_findings_files")
               if not isinstance(review_findings, list):
                   raise SystemExit(
