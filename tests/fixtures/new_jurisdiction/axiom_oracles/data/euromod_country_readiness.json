@@ -1,0 +1,16 @@
+{
+  "description": "Copied from the real J2.0+ readiness matrix; reduced to the DK regression row for this fixture.",
+  "model_release": "EUROMOD_RELEASES_J2.0+ (JRC, 2026-02)",
+  "probed": "2026-07-02",
+  "countries": {
+    "DK": {
+      "systems": "DK_2007..DK_2025 (19)",
+      "latest_system": "DK_2025",
+      "training_dataset": "DK_training_data",
+      "training_rows": 2397,
+      "status": "ok_training_name",
+      "run_dataset": "DK_training_data",
+      "error": null
+    }
+  }
+}
