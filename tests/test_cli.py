@@ -96,6 +96,7 @@ from axiom_encode.cli import (
     _person_scoped_definition_issue_names,
     _promote_boolean_comparison_predicates_to_judgment,
     _qualify_deferred_output_subsection_paths,
+    _quoted_review_finding_excerpts,
     _read_only_guard_encoder_execution_identity,
     _record_successful_apply_validation,
     _recover_apply_transaction,
@@ -7250,6 +7251,217 @@ rules:
     }
 
 
+def test_quoted_review_finding_excerpts_extracts_mandatory_phrases(tmp_path):
+    content = (
+        'Use exact "The applicable individual resides\n'
+        'in a county" and "8 percent". Leave unquoted guidance unchanged.\n'
+    )
+    manifest = tmp_path / "context-manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "review_findings_files": [
+                    {
+                        "content": content,
+                        "sha256": hashlib.sha256(content.encode()).hexdigest(),
+                    }
+                ]
+            }
+        )
+    )
+    manifest_sha256 = hashlib.sha256(manifest.read_bytes()).hexdigest()
+
+    assert _quoted_review_finding_excerpts(
+        manifest,
+        expected_manifest_sha256=manifest_sha256,
+    ) == {
+        "The applicable individual resides\nin a county",
+        "8 percent",
+    }
+
+
+def test_quoted_review_finding_excerpts_rejects_manifest_tampering(tmp_path):
+    manifest = tmp_path / "context-manifest.json"
+    original_content = 'Use exact "8 percent".'
+    manifest.write_text(
+        json.dumps(
+            {
+                "review_findings_files": [
+                    {
+                        "content": original_content,
+                        "sha256": hashlib.sha256(original_content.encode()).hexdigest(),
+                    }
+                ]
+            }
+        )
+    )
+    original_manifest_sha256 = hashlib.sha256(manifest.read_bytes()).hexdigest()
+    tampered_content = 'Use exact "80 percent".'
+    manifest.write_text(
+        json.dumps(
+            {
+                "review_findings_files": [
+                    {
+                        "content": tampered_content,
+                        "sha256": hashlib.sha256(tampered_content.encode()).hexdigest(),
+                    }
+                ]
+            }
+        )
+    )
+
+    with pytest.raises(RuntimeError, match="manifest digest does not match"):
+        _quoted_review_finding_excerpts(
+            manifest,
+            expected_manifest_sha256=original_manifest_sha256,
+        )
+
+
+def test_quoted_review_finding_excerpts_accepts_manifest_above_ten_mib(tmp_path):
+    content = 'Use exact "8 percent".'
+    manifest = tmp_path / "context-manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "padding": "x" * (10 * 1024 * 1024),
+                "review_findings_files": [
+                    {
+                        "content": content,
+                        "sha256": hashlib.sha256(content.encode()).hexdigest(),
+                    }
+                ],
+            }
+        )
+    )
+
+    assert _quoted_review_finding_excerpts(
+        manifest,
+        expected_manifest_sha256=hashlib.sha256(manifest.read_bytes()).hexdigest(),
+    ) == {"8 percent"}
+
+
+def test_repair_generated_protected_review_excerpt_does_not_broaden_paragraph(
+    tmp_path, monkeypatch
+):
+    source_text = (
+        "(2) The applicable individual resides in a county or equivalent unit of\n"
+        "local government in which there exists an emergency or disaster declared\n"
+        "by the President under applicable law.\n"
+    )
+    protected_excerpt = (
+        "The applicable individual resides in a county or equivalent unit of local "
+        "government in which there exists an emergency or disaster"
+    )
+    expected_excerpt = (
+        "The applicable individual resides in a county or equivalent unit of\n"
+        "local government in which there exists an emergency or disaster"
+    )
+    output_root = tmp_path / "out"
+    rules_file = output_root / "model" / "regulations" / "435" / "555.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        f"""format: rulespec/v1
+rules:
+- name: presidential_emergency_or_disaster_short_term_hardship_event
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  source: 42 CFR 435.555(d)(2)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/regulation/42/435/555
+          excerpt: {protected_excerpt!r}
+  versions:
+  - effective_from: '0001-01-01'
+    formula: individual_resides_in_presidential_emergency_area
+"""
+    )
+    monkeypatch.setattr(
+        "axiom_encode.cli._local_source_text_for_corpus_path",
+        lambda citation_path, *, corpus_release: source_text,
+    )
+
+    repaired = _try_repair_generated_nonexact_proof_excerpts_for_apply(
+        SimpleNamespace(output_file=str(rules_file)),
+        output_root=output_root,
+        corpus_release=SimpleNamespace(name="test-release"),
+        issues=[
+            "Proof source evidence not found: rule "
+            "`presidential_emergency_or_disaster_short_term_hardship_event` "
+            "proof atom 0 `source.excerpt` does not appear in "
+            "`us/regulation/42/435/555`."
+        ],
+        protected_review_excerpts={protected_excerpt},
+    )
+
+    payload = yaml.safe_load(rules_file.read_text())
+    repaired_excerpt = payload["rules"][0]["metadata"]["proof"]["atoms"][0]["source"][
+        "excerpt"
+    ]
+    assert repaired == [
+        "presidential_emergency_or_disaster_short_term_hardship_event[0]"
+    ]
+    assert repaired_excerpt == expected_excerpt
+    assert repaired_excerpt in source_text
+    assert not repaired_excerpt.startswith("(2)")
+    assert "declared by the President" not in repaired_excerpt
+
+
+def test_repair_generated_protected_review_excerpt_fails_closed_without_exact_match(
+    tmp_path, monkeypatch
+):
+    source_text = (
+        "(2) A person lives in an area with a presidentially declared emergency.\n"
+    )
+    protected_excerpt = "The applicable individual resides in an emergency area"
+    output_root = tmp_path / "out"
+    rules_file = output_root / "model" / "regulations" / "435" / "555.yaml"
+    rules_file.parent.mkdir(parents=True)
+    original = f"""format: rulespec/v1
+rules:
+- name: presidential_emergency_or_disaster_short_term_hardship_event
+  kind: derived
+  entity: Person
+  dtype: Judgment
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: condition
+        source:
+          corpus_citation_path: us/regulation/42/435/555
+          excerpt: {protected_excerpt!r}
+  versions:
+  - effective_from: '0001-01-01'
+    formula: individual_resides_in_presidential_emergency_area
+"""
+    rules_file.write_text(original)
+    monkeypatch.setattr(
+        "axiom_encode.cli._local_source_text_for_corpus_path",
+        lambda citation_path, *, corpus_release: source_text,
+    )
+
+    repaired = _try_repair_generated_nonexact_proof_excerpts_for_apply(
+        SimpleNamespace(output_file=str(rules_file)),
+        output_root=output_root,
+        corpus_release=SimpleNamespace(name="test-release"),
+        issues=[
+            "Proof source evidence not found: rule "
+            "`presidential_emergency_or_disaster_short_term_hardship_event` "
+            "proof atom 0 `source.excerpt` does not appear in "
+            "`us/regulation/42/435/555`."
+        ],
+        protected_review_excerpts={protected_excerpt},
+    )
+
+    assert repaired == []
+    assert rules_file.read_text() == original
+
+
 def test_repair_generated_nonexact_proof_excerpt_uses_child_citation(
     tmp_path, monkeypatch
 ):
@@ -10526,6 +10738,9 @@ class TestCmdEncode:
         Path(result.context_manifest_file).write_text(
             json.dumps({"source_text_file": source.name}) + "\n"
         )
+        result.context_manifest_sha256 = hashlib.sha256(
+            Path(result.context_manifest_file).read_bytes()
+        ).hexdigest()
 
     def _bind_apply_source_release(
         self,
@@ -17823,6 +18038,23 @@ rules:
         args.apply = True
         result = self._make_eval_result(False)
         result.error = "Generated RuleSpec failed CI validation"
+        protected_excerpt = "Preserve this exact review phrase"
+        context_manifest = Path(result.context_manifest_file)
+        context_payload = json.loads(context_manifest.read_text())
+        findings_content = f'Use exact "{protected_excerpt}".\n'
+        context_payload["review_findings_files"] = [
+            {
+                "content": findings_content,
+                "sha256": hashlib.sha256(findings_content.encode()).hexdigest(),
+            }
+        ]
+        context_manifest.write_text(json.dumps(context_payload))
+        result.context_manifest_sha256 = hashlib.sha256(
+            context_manifest.read_bytes()
+        ).hexdigest()
+        findings_path = tmp_path / "review-findings.md"
+        findings_path.write_text(findings_content)
+        args.review_findings = [findings_path]
         output_file = (
             tmp_path / "out" / "codex-test-model" / "policies" / "benefit.yaml"
         )
@@ -17884,6 +18116,10 @@ rules:
                 ],
             ) as mock_overlay,
             patch(
+                "axiom_encode.cli._try_repair_generated_nonexact_proof_excerpts_for_apply",
+                wraps=_try_repair_generated_nonexact_proof_excerpts_for_apply,
+            ) as mock_excerpt_repair,
+            patch(
                 "axiom_encode.cli._apply_generated_encoding_result",
                 return_value=[applied_file],
             ) as mock_apply,
@@ -17894,6 +18130,11 @@ rules:
 
         assert exc_info.value.code == 0
         assert mock_overlay.call_count == 3
+        assert mock_excerpt_repair.call_count == 2
+        assert all(
+            call.kwargs["protected_review_excerpts"] == {protected_excerpt}
+            for call in mock_excerpt_repair.call_args_list
+        )
         mock_apply.assert_called_once()
         run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
         assert run.outcome["auto_repaired_nonexact_proof_excerpts"] == [

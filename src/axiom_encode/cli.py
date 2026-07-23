@@ -19685,6 +19685,9 @@ def _run_encode_attempt(
 
     skip_reviewers = bool(getattr(args, "skip_reviewers", False))
     policyengine_rule_hint = getattr(args, "policyengine_rule_hint", None)
+    review_findings_paths = [
+        Path(path) for path in getattr(args, "review_findings", [])
+    ]
     results = run_model_eval(
         citations=[args.citation],
         runner_specs=[runner],
@@ -19694,9 +19697,7 @@ def _run_encode_attempt(
         corpus_release=corpus_release,
         mode=args.mode,
         extra_context_paths=[Path(path) for path in args.allow_context],
-        review_findings_paths=[
-            Path(path) for path in getattr(args, "review_findings", [])
-        ],
+        review_findings_paths=review_findings_paths,
         include_tests=True,
         skip_reviewers=skip_reviewers,
         policyengine_rule_hint=policyengine_rule_hint,
@@ -19704,6 +19705,14 @@ def _run_encode_attempt(
     )
 
     result = results[0]
+    protected_review_excerpts = (
+        _quoted_review_finding_excerpts(
+            result.context_manifest_file,
+            expected_manifest_sha256=result.context_manifest_sha256,
+        )
+        if review_findings_paths
+        else set()
+    )
     print(f"Output root: {args.output}")
     print(f"Axiom Corpus: {corpus_path}")
     print(f"Corpus release: {corpus_release.name} ({corpus_release.content_sha256})")
@@ -21403,6 +21412,7 @@ def _run_encode_attempt(
                             output_root=args.output,
                             corpus_release=corpus_release,
                             issues=apply_issues,
+                            protected_review_excerpts=protected_review_excerpts,
                         )
                     )
                     if not repaired_refs:
@@ -28542,14 +28552,98 @@ class _SourceExcerptCandidate(NamedTuple):
     marked_parent: tuple[int, int] | None
 
 
+def _quoted_review_finding_excerpts(
+    context_manifest_file: str | Path,
+    *,
+    expected_manifest_sha256: str,
+) -> set[str]:
+    """Return quoted phrases from the validated review snapshot used by the model."""
+    manifest_path = Path(context_manifest_file)
+    try:
+        manifest_bytes = read_bounded_regular_file(
+            manifest_path.parent,
+            manifest_path,
+            label="eval context manifest",
+            max_bytes=32 * 1024 * 1024,
+        )
+        manifest = json.loads(manifest_bytes.decode("utf-8"))
+    except (
+        OSError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        RecursionError,
+        UnsafeCorpusPathError,
+    ) as exc:
+        raise RuntimeError(
+            "Cannot read protected excerpts from the eval context manifest"
+        ) from exc
+    if not re.fullmatch(r"[0-9a-f]{64}", str(expected_manifest_sha256)):
+        raise RuntimeError("Eval context manifest digest is missing or invalid")
+    if hashlib.sha256(manifest_bytes).hexdigest() != expected_manifest_sha256:
+        raise RuntimeError("Eval context manifest digest does not match the result")
+    if not isinstance(manifest, dict):
+        raise RuntimeError("Eval context manifest must be a JSON object")
+
+    excerpts: set[str] = set()
+    review_findings = manifest.get("review_findings_files", [])
+    if not isinstance(review_findings, list):
+        raise RuntimeError("Eval context review_findings_files must be a list")
+    for evidence in review_findings:
+        if not isinstance(evidence, dict):
+            raise RuntimeError("Eval review findings evidence must be an object")
+        content = evidence.get("content")
+        expected_sha256 = evidence.get("sha256")
+        if not isinstance(content, str) or not isinstance(expected_sha256, str):
+            raise RuntimeError("Eval review findings evidence is incomplete")
+        if hashlib.sha256(content.encode("utf-8")).hexdigest() != expected_sha256:
+            raise RuntimeError("Eval review findings evidence digest does not match")
+        excerpts.update(
+            match.group("excerpt").strip()
+            for match in re.finditer(
+                r'"(?P<excerpt>[^"]+)"',
+                content,
+            )
+            if match.group("excerpt").strip()
+        )
+    return excerpts
+
+
+def _normalized_proof_excerpt(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip().casefold()
+
+
+def _source_excerpt_preserving_whitespace(
+    *,
+    source_text: str,
+    excerpt: str,
+) -> str | None:
+    """Map a whitespace-normalized quote to only its literal source span."""
+    parts = str(excerpt).split()
+    if not parts:
+        return None
+    match = re.search(
+        r"\s+".join(re.escape(part) for part in parts),
+        str(source_text),
+        flags=re.IGNORECASE,
+    )
+    if match is None:
+        return None
+    return str(source_text)[match.start() : match.end()].strip()
+
+
 def _try_repair_generated_nonexact_proof_excerpts_for_apply(
     result,
     *,
     output_root: Path,
     corpus_release: LocalCorpusRelease | None = None,
     issues: list[str],
+    protected_review_excerpts: set[str] | None = None,
 ) -> list[str]:
     """Align near-match generated proof excerpts to their exact cited source text."""
+    protected_normalized = {
+        _normalized_proof_excerpt(excerpt)
+        for excerpt in (protected_review_excerpts or set())
+    }
     targets: dict[tuple[str, int], bool] = {}
     for issue in issues:
         issue_text = str(issue)
@@ -28623,10 +28717,16 @@ def _try_repair_generated_nonexact_proof_excerpts_for_apply(
                 )
                 if not source_text:
                     continue
-            exact_excerpt = _closest_exact_source_excerpt(
-                source_text=source_text,
-                excerpt=excerpt,
-            )
+            if _normalized_proof_excerpt(excerpt) in protected_normalized:
+                exact_excerpt = _source_excerpt_preserving_whitespace(
+                    source_text=source_text,
+                    excerpt=excerpt,
+                )
+            else:
+                exact_excerpt = _closest_exact_source_excerpt(
+                    source_text=source_text,
+                    excerpt=excerpt,
+                )
             if exact_excerpt is None or exact_excerpt == excerpt:
                 continue
             source["excerpt"] = exact_excerpt
