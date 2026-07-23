@@ -451,6 +451,9 @@ def _ledger_for(paths_states, tmp_path):
         # pending-only must pass
         ("pending-pass", {"pending": "sha256:" + "a" * 64}, {"passed": True, "fingerprint": "sha256:" + "c" * 64}, False),
         ("pending-fail", {"pending": "sha256:" + "a" * 64}, {"passed": False, "fingerprint": "sha256:" + "c" * 64}, True),
+        # removed (base-active, absent from head) must pass
+        ("removed-pass", "removed", {"passed": True, "fingerprint": "sha256:" + "c" * 64}, False),
+        ("removed-fail", "removed", {"passed": False, "fingerprint": "sha256:" + "c" * 64}, True),
     ],
 )
 def test_recheck_selection_mirrors_verdicts(monkeypatch, kind, states, row, expect_recheck, tmp_path):
@@ -459,11 +462,15 @@ def test_recheck_selection_mirrors_verdicts(monkeypatch, kind, states, row, expe
     root = tmp_path / "rulespec-us"
     (root / "us/statutes").mkdir(parents=True)
     (root / "us/statutes/x.yaml").write_text("format: rulespec/v1\n")
+    if states == "removed":
+        head_states, base_states = {}, {module_rel: {"active": "sha256:" + "a" * 64}}
+    else:
+        head_states, base_states = {module_rel: states}, {module_rel: states}
     (root / "known-validation-gaps.yaml").write_text(
-        _ledger_for({module_rel: states}, tmp_path)
+        _ledger_for(head_states, tmp_path)
     )
     base = tmp_path / "base.yaml"
-    base.write_text(_ledger_for({module_rel: states}, tmp_path))
+    base.write_text(_ledger_for(base_states, tmp_path))
     changed = tmp_path / "changed.txt"
     changed.write_text("")
 
