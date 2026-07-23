@@ -16922,13 +16922,10 @@ def _guard_manifest_waiver_set_identity(
     prefix = "RuleSpec post-apply waiver retirement is invalid: "
     if metadata_changes != {waiver_path, toolchain_path}:
         return current_waiver_set_sha256, [
-            prefix
-            + f"{waiver_path} and {toolchain_path} must change together"
+            prefix + f"{waiver_path} and {toolchain_path} must change together"
         ]
     if base_ref is None:
-        return current_waiver_set_sha256, [
-            prefix + "a protected base ref is required"
-        ]
+        return current_waiver_set_sha256, [prefix + "a protected base ref is required"]
 
     base_bytes = _git_show_bytes(repo_path, base_ref, waiver_path)
     if base_bytes is None:
