@@ -42083,7 +42083,6 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
                 enforce_repository_layout=False,
                 local_corpus_release=local_corpus_release,
                 rulespec_dependency_roots=staged_dependency_roots,
-                source_metadata=source_metadata,
             )
             if dependents
             else pipeline

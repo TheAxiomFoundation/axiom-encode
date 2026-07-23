@@ -35551,17 +35551,29 @@ rules:
             output_file=str(generated), runner="codex-test-model", backend="codex"
         )
         validated_paths: list[Path] = []
+        pipeline_source_metadata: list[object] = []
+        target_source_metadata = {
+            "source_attestation": {
+                "requested_corpus_citation_path": "us/statute/7/2015/d/2/C"
+            }
+        }
 
         class FakePipeline:
-            def __init__(self, **_kwargs):
-                pass
+            def __init__(self, **kwargs):
+                pipeline_source_metadata.append(kwargs.get("source_metadata"))
 
             def validate(self, path, *, skip_reviewers):
                 assert skip_reviewers is True
                 validated_paths.append(Path(path))
                 return SimpleNamespace(all_passed=True, results={})
 
-        with patch("axiom_encode.cli.ValidatorPipeline", FakePipeline):
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._generated_result_source_metadata",
+                return_value=target_source_metadata,
+            ),
+        ):
             ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
                 result,
                 output_root=output_root,
@@ -35576,6 +35588,7 @@ rules:
         assert issues == []
         assert supplemental == {}
         assert [path.name for path in validated_paths] == ["C.yaml", "2.yaml"]
+        assert pipeline_source_metadata == [target_source_metadata, None]
 
     def test_apply_overlay_validation_can_skip_dependents_for_cascading_migration(
         self, tmp_path
