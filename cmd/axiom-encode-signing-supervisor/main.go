@@ -128,31 +128,34 @@ type brokerOptions struct {
 }
 
 type signingTrustRoots struct {
-	Schema                 string `json:"schema"`
-	ApplyPublicKey         string `json:"apply_ed25519_public_key"`
-	EvalPublicKey          string `json:"eval_ed25519_public_key"`
-	CorpusReleasePublicKey string `json:"corpus_release_ed25519_public_key"`
+	Schema                  string   `json:"schema"`
+	ApplyPublicKey          string   `json:"apply_ed25519_public_key"`
+	EvalPublicKey           string   `json:"eval_ed25519_public_key"`
+	CorpusReleasePublicKey  *string  `json:"corpus_release_ed25519_public_key,omitempty"`
+	CorpusReleasePublicKeys []string `json:"corpus_release_ed25519_public_keys,omitempty"`
 }
 
 type brokerRequest struct {
-	Version                int    `json:"version"`
-	ID                     int64  `json:"id"`
-	Operation              string `json:"op"`
-	Payload                []byte `json:"payload,omitempty"`
-	ApplyPublicKey         []byte `json:"apply_public_key,omitempty"`
-	EvalPublicKey          []byte `json:"eval_public_key,omitempty"`
-	CorpusReleasePublicKey []byte `json:"corpus_release_public_key,omitempty"`
-	presentFields          map[string]struct{}
+	Version                 int      `json:"version"`
+	ID                      int64    `json:"id"`
+	Operation               string   `json:"op"`
+	Payload                 []byte   `json:"payload,omitempty"`
+	ApplyPublicKey          []byte   `json:"apply_public_key,omitempty"`
+	EvalPublicKey           []byte   `json:"eval_public_key,omitempty"`
+	CorpusReleasePublicKey  []byte   `json:"corpus_release_public_key,omitempty"`
+	CorpusReleasePublicKeys [][]byte `json:"corpus_release_public_keys,omitempty"`
+	presentFields           map[string]struct{}
 }
 
 var brokerRequestFields = map[string]struct{}{
-	"version":                   {},
-	"id":                        {},
-	"op":                        {},
-	"payload":                   {},
-	"apply_public_key":          {},
-	"eval_public_key":           {},
-	"corpus_release_public_key": {},
+	"version":                    {},
+	"id":                         {},
+	"op":                         {},
+	"payload":                    {},
+	"apply_public_key":           {},
+	"eval_public_key":            {},
+	"corpus_release_public_key":  {},
+	"corpus_release_public_keys": {},
 }
 
 func (request *brokerRequest) UnmarshalJSON(raw []byte) error {
@@ -210,19 +213,39 @@ func (request *brokerRequest) hasExactFields(expected ...string) bool {
 func (request *brokerRequest) hasInitializationFields() bool {
 	return request.hasField("apply_public_key") ||
 		request.hasField("eval_public_key") ||
-		request.hasField("corpus_release_public_key")
+		request.hasField("corpus_release_public_key") ||
+		request.hasField("corpus_release_public_keys")
 }
 
 func (request *brokerRequest) hasValidInitializationShape() bool {
+	if len(request.ApplyPublicKey) != ed25519.PublicKeySize ||
+		len(request.EvalPublicKey) != ed25519.PublicKeySize ||
+		len(request.CorpusReleasePublicKey) != ed25519.PublicKeySize ||
+		len(request.CorpusReleasePublicKeys) == 0 ||
+		!bytes.Equal(request.CorpusReleasePublicKey, request.CorpusReleasePublicKeys[0]) ||
+		bytes.Equal(request.ApplyPublicKey, request.EvalPublicKey) {
+		return false
+	}
+	seen := map[string]struct{}{
+		string(request.ApplyPublicKey): {},
+		string(request.EvalPublicKey):  {},
+	}
+	for _, publicKey := range request.CorpusReleasePublicKeys {
+		if len(publicKey) != ed25519.PublicKeySize {
+			return false
+		}
+		encoded := string(publicKey)
+		if _, duplicate := seen[encoded]; duplicate {
+			return false
+		}
+		seen[encoded] = struct{}{}
+	}
 	return len(request.ApplyPublicKey) == ed25519.PublicKeySize &&
 		len(request.EvalPublicKey) == ed25519.PublicKeySize &&
 		len(request.CorpusReleasePublicKey) == ed25519.PublicKeySize &&
-		!bytes.Equal(request.ApplyPublicKey, request.EvalPublicKey) &&
-		!bytes.Equal(request.ApplyPublicKey, request.CorpusReleasePublicKey) &&
-		!bytes.Equal(request.EvalPublicKey, request.CorpusReleasePublicKey) &&
 		request.hasExactFields(
 			"version", "id", "op", "apply_public_key", "eval_public_key",
-			"corpus_release_public_key",
+			"corpus_release_public_key", "corpus_release_public_keys",
 		)
 }
 
@@ -265,10 +288,11 @@ func validateBrokerRequestOperation(request *brokerRequest) error {
 }
 
 type brokerStatus struct {
-	Capabilities           []string `json:"capabilities"`
-	ApplyPublicKey         []byte   `json:"apply_public_key"`
-	EvalPublicKey          []byte   `json:"eval_public_key"`
-	CorpusReleasePublicKey []byte   `json:"corpus_release_public_key"`
+	Capabilities            []string `json:"capabilities"`
+	ApplyPublicKey          []byte   `json:"apply_public_key"`
+	EvalPublicKey           []byte   `json:"eval_public_key"`
+	CorpusReleasePublicKey  []byte   `json:"corpus_release_public_key"`
+	CorpusReleasePublicKeys [][]byte `json:"corpus_release_public_keys"`
 }
 
 type brokerResponse struct {
@@ -288,11 +312,12 @@ type receivedBrokerResponse struct {
 }
 
 type brokerResult struct {
-	Capabilities           []string `json:"capabilities,omitempty"`
-	ApplyPublicKey         []byte   `json:"apply_public_key,omitempty"`
-	EvalPublicKey          []byte   `json:"eval_public_key,omitempty"`
-	CorpusReleasePublicKey []byte   `json:"corpus_release_public_key,omitempty"`
-	Signature              []byte   `json:"signature,omitempty"`
+	Capabilities            []string `json:"capabilities,omitempty"`
+	ApplyPublicKey          []byte   `json:"apply_public_key,omitempty"`
+	EvalPublicKey           []byte   `json:"eval_public_key,omitempty"`
+	CorpusReleasePublicKey  []byte   `json:"corpus_release_public_key,omitempty"`
+	CorpusReleasePublicKeys [][]byte `json:"corpus_release_public_keys,omitempty"`
+	Signature               []byte   `json:"signature,omitempty"`
 }
 
 type signerRequest struct {
@@ -576,7 +601,7 @@ func supervise(arguments []string) error {
 		}
 	}
 
-	applyPublicKey, evalPublicKey, corpusReleasePublicKey, err := loadProtectedTrustRoots(
+	applyPublicKey, evalPublicKey, corpusReleasePublicKeys, err := loadProtectedTrustRoots(
 		parsed.trustRootsPath,
 	)
 	if err != nil {
@@ -603,7 +628,8 @@ func supervise(arguments []string) error {
 	}
 	initialization.ApplyPublicKey = applyPublicKey
 	initialization.EvalPublicKey = evalPublicKey
-	initialization.CorpusReleasePublicKey = corpusReleasePublicKey
+	initialization.CorpusReleasePublicKey = corpusReleasePublicKeys[0]
+	initialization.CorpusReleasePublicKeys = corpusReleasePublicKeys
 	if err := sendFrame(connection, initialization); err != nil {
 		return fmt.Errorf("could not provision signing broker: %w", err)
 	}
@@ -624,7 +650,7 @@ func supervise(arguments []string) error {
 		initialized.Result,
 		applyPublicKey,
 		evalPublicKey,
-		corpusReleasePublicKey,
+		corpusReleasePublicKeys,
 		parsed.applySignerFD >= 0,
 		parsed.evalSignerFD >= 0,
 	); err != nil {
@@ -929,7 +955,7 @@ func superviseWithCodexSubscription(parsed options, connection *os.File, environ
 	return nil
 }
 
-func loadProtectedTrustRoots(path string) ([]byte, []byte, []byte, error) {
+func loadProtectedTrustRoots(path string) ([]byte, []byte, [][]byte, error) {
 	trustedPath, file, err := inspectTrustedRegularFile(path, false)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("signing trust-root config is not protected: %w", err)
@@ -946,21 +972,23 @@ func loadProtectedTrustRoots(path string) ([]byte, []byte, []byte, error) {
 	if err := rejectDuplicateJSONKeys(raw); err != nil {
 		return nil, nil, nil, fmt.Errorf("signing trust-root config is malformed: %w", err)
 	}
+	return parseProtectedTrustRoots(raw, trustedPath)
+}
+
+func parseProtectedTrustRoots(raw []byte, trustedPath string) ([]byte, []byte, [][]byte, error) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
 		return nil, nil, nil, errors.New("signing trust-root config must be one JSON object")
 	}
-	expected := map[string]struct{}{
-		"schema":                            {},
-		"apply_ed25519_public_key":          {},
-		"eval_ed25519_public_key":           {},
-		"corpus_release_ed25519_public_key": {},
-	}
-	if len(fields) != len(expected) {
-		return nil, nil, nil, errors.New("signing trust-root config has the wrong fields")
+	allowed := map[string]struct{}{
+		"schema":                             {},
+		"apply_ed25519_public_key":           {},
+		"eval_ed25519_public_key":            {},
+		"corpus_release_ed25519_public_key":  {},
+		"corpus_release_ed25519_public_keys": {},
 	}
 	for name := range fields {
-		if _, ok := expected[name]; !ok {
+		if _, ok := allowed[name]; !ok {
 			return nil, nil, nil, fmt.Errorf("signing trust-root config has unknown field %q", name)
 		}
 	}
@@ -970,8 +998,26 @@ func loadProtectedTrustRoots(path string) ([]byte, []byte, []byte, error) {
 	if err := decoder.Decode(&config); err != nil {
 		return nil, nil, nil, fmt.Errorf("signing trust-root config is malformed: %w", err)
 	}
-	if config.Schema != "axiom-encode/signing-trust-roots/v2" {
+	const schemaV2 = "axiom-encode/signing-trust-roots/v2"
+	const schemaV3 = "axiom-encode/signing-trust-roots/v3"
+	if config.Schema != schemaV2 && config.Schema != schemaV3 {
 		return nil, nil, nil, errors.New("signing trust-root config schema is unsupported")
+	}
+	for _, required := range []string{
+		"schema", "apply_ed25519_public_key", "eval_ed25519_public_key",
+	} {
+		if _, present := fields[required]; !present {
+			return nil, nil, nil, errors.New("signing trust-root config has the wrong fields")
+		}
+	}
+	_, hasCorpusReleasePublicKey := fields["corpus_release_ed25519_public_key"]
+	_, hasCorpusReleasePublicKeys := fields["corpus_release_ed25519_public_keys"]
+	if config.Schema == schemaV2 {
+		if len(fields) != 4 || !hasCorpusReleasePublicKey || hasCorpusReleasePublicKeys {
+			return nil, nil, nil, errors.New("signing trust-root config has the wrong fields")
+		}
+	} else if (!hasCorpusReleasePublicKey && !hasCorpusReleasePublicKeys) || len(fields) > 5 {
+		return nil, nil, nil, errors.New("signing trust-root config has the wrong fields")
 	}
 	applyPublicKey, err := parsePublicKey([]byte(config.ApplyPublicKey))
 	if err != nil {
@@ -982,27 +1028,116 @@ func loadProtectedTrustRoots(path string) ([]byte, []byte, []byte, error) {
 		zero(applyPublicKey)
 		return nil, nil, nil, fmt.Errorf("invalid eval evidence public key in %s: %w", trustedPath, err)
 	}
-	corpusReleasePublicKey, err := parsePublicKey(
-		[]byte(config.CorpusReleasePublicKey),
-	)
-	if err != nil {
-		zero(applyPublicKey)
-		zero(evalPublicKey)
-		return nil, nil, nil, fmt.Errorf(
-			"invalid corpus release public key in %s: %w", trustedPath, err,
-		)
+	var corpusReleasePublicKeys [][]byte
+	if hasCorpusReleasePublicKeys {
+		if len(config.CorpusReleasePublicKeys) == 0 {
+			zero(applyPublicKey)
+			zero(evalPublicKey)
+			return nil, nil, nil, errors.New("corpus release public keyring must not be empty")
+		}
+		for index, encoded := range config.CorpusReleasePublicKeys {
+			publicKey, parseErr := parseRawPublicKey([]byte(encoded))
+			if parseErr != nil {
+				zero(applyPublicKey)
+				zero(evalPublicKey)
+				zeroPublicKeys(corpusReleasePublicKeys)
+				return nil, nil, nil, fmt.Errorf(
+					"invalid corpus release public key %d in %s: %w",
+					index, trustedPath, parseErr,
+				)
+			}
+			corpusReleasePublicKeys = append(corpusReleasePublicKeys, publicKey)
+		}
+	} else {
+		if config.CorpusReleasePublicKey == nil {
+			zero(applyPublicKey)
+			zero(evalPublicKey)
+			return nil, nil, nil, errors.New("corpus release public key is missing")
+		}
+		publicKey, parseErr := parsePublicKey([]byte(*config.CorpusReleasePublicKey))
+		if parseErr != nil {
+			zero(applyPublicKey)
+			zero(evalPublicKey)
+			return nil, nil, nil, fmt.Errorf(
+				"invalid corpus release public key in %s: %w", trustedPath, parseErr,
+			)
+		}
+		corpusReleasePublicKeys = [][]byte{publicKey}
 	}
-	if bytes.Equal(applyPublicKey, evalPublicKey) ||
-		bytes.Equal(applyPublicKey, corpusReleasePublicKey) ||
-		bytes.Equal(evalPublicKey, corpusReleasePublicKey) {
+	if hasCorpusReleasePublicKey && hasCorpusReleasePublicKeys {
+		if config.CorpusReleasePublicKey == nil {
+			zero(applyPublicKey)
+			zero(evalPublicKey)
+			zeroPublicKeys(corpusReleasePublicKeys)
+			return nil, nil, nil, errors.New("corpus release public key is missing")
+		}
+		singularPublicKey, parseErr := parsePublicKey([]byte(*config.CorpusReleasePublicKey))
+		if parseErr != nil {
+			zero(applyPublicKey)
+			zero(evalPublicKey)
+			zeroPublicKeys(corpusReleasePublicKeys)
+			return nil, nil, nil, fmt.Errorf(
+				"invalid corpus release public key in %s: %w", trustedPath, parseErr,
+			)
+		}
+		matchesCurrent := bytes.Equal(singularPublicKey, corpusReleasePublicKeys[0])
+		zero(singularPublicKey)
+		if !matchesCurrent {
+			zero(applyPublicKey)
+			zero(evalPublicKey)
+			zeroPublicKeys(corpusReleasePublicKeys)
+			return nil, nil, nil, errors.New(
+				"singular and plural corpus release public keys conflict",
+			)
+		}
+	}
+	if bytes.Equal(applyPublicKey, evalPublicKey) {
 		zero(applyPublicKey)
 		zero(evalPublicKey)
-		zero(corpusReleasePublicKey)
+		zeroPublicKeys(corpusReleasePublicKeys)
 		return nil, nil, nil, errors.New(
 			"apply, eval, and corpus release trust roots must be distinct",
 		)
 	}
-	return applyPublicKey, evalPublicKey, corpusReleasePublicKey, nil
+	seen := map[string]struct{}{
+		string(applyPublicKey): {},
+		string(evalPublicKey):  {},
+	}
+	for _, publicKey := range corpusReleasePublicKeys {
+		encoded := string(publicKey)
+		if _, duplicate := seen[encoded]; duplicate {
+			zero(applyPublicKey)
+			zero(evalPublicKey)
+			zeroPublicKeys(corpusReleasePublicKeys)
+			return nil, nil, nil, errors.New(
+				"apply, eval, and corpus release trust roots must be distinct",
+			)
+		}
+		seen[encoded] = struct{}{}
+	}
+	return applyPublicKey, evalPublicKey, corpusReleasePublicKeys, nil
+}
+
+func parseRawPublicKey(material []byte) ([]byte, error) {
+	normalized := bytes.TrimSpace(material)
+	decoded := make([]byte, base64.StdEncoding.DecodedLen(len(normalized)))
+	count, err := base64.StdEncoding.Strict().Decode(decoded, normalized)
+	if err != nil {
+		zero(decoded)
+		return nil, errors.New("key must be base64-encoded raw bytes")
+	}
+	decoded = decoded[:count]
+	if len(decoded) != ed25519.PublicKeySize {
+		zero(decoded)
+		return nil, fmt.Errorf("Ed25519 public key must contain %d raw bytes", ed25519.PublicKeySize)
+	}
+	return decoded, nil
+}
+
+func zeroPublicKeys(publicKeys [][]byte) {
+	for _, publicKey := range publicKeys {
+		zero(publicKey)
+	}
 }
 
 func parsePublicKey(material []byte) ([]byte, error) {
@@ -1157,7 +1292,8 @@ func startBroker(parsed options) (*os.File, *os.Process, error) {
 
 func validateStatus(
 	result brokerResult,
-	applyPublicKey, evalPublicKey, corpusReleasePublicKey []byte,
+	applyPublicKey, evalPublicKey []byte,
+	corpusReleasePublicKeys [][]byte,
 	hasApplyCapability, hasEvalCapability bool,
 ) error {
 	expectedCapabilities := make([]string, 0, 2)
@@ -1173,8 +1309,11 @@ func validateStatus(
 	if !bytes.Equal(result.EvalPublicKey, evalPublicKey) {
 		return errors.New("signing broker returned the wrong eval public key")
 	}
-	if !bytes.Equal(result.CorpusReleasePublicKey, corpusReleasePublicKey) {
+	if !bytes.Equal(result.CorpusReleasePublicKey, corpusReleasePublicKeys[0]) {
 		return errors.New("signing broker returned the wrong corpus release public key")
+	}
+	if !equalByteSlices(result.CorpusReleasePublicKeys, corpusReleasePublicKeys) {
+		return errors.New("signing broker returned the wrong corpus release public keyring")
 	}
 	if !equalStrings(result.Capabilities, expectedCapabilities) {
 		return errors.New("signing broker returned unexpected capabilities")
@@ -1452,6 +1591,9 @@ func serveBroker(descriptor int, parsed brokerOptions) error {
 		CorpusReleasePublicKey: append(
 			[]byte(nil), initialization.CorpusReleasePublicKey...,
 		),
+		CorpusReleasePublicKeys: clonePublicKeys(
+			initialization.CorpusReleasePublicKeys,
+		),
 	}
 	if parsed.applySignerFD >= 0 {
 		var err error
@@ -1583,6 +1725,7 @@ func zeroRequestSecrets(request *brokerRequest) {
 	zero(request.ApplyPublicKey)
 	zero(request.EvalPublicKey)
 	zero(request.CorpusReleasePublicKey)
+	zeroPublicKeys(request.CorpusReleasePublicKeys)
 }
 
 func sendError(connection io.Writer, requestID int64, message string) error {
@@ -1838,6 +1981,26 @@ func equalStrings(left, right []string) bool {
 		}
 	}
 	return true
+}
+
+func equalByteSlices(left, right [][]byte) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if !bytes.Equal(left[index], right[index]) {
+			return false
+		}
+	}
+	return true
+}
+
+func clonePublicKeys(publicKeys [][]byte) [][]byte {
+	cloned := make([][]byte, len(publicKeys))
+	for index, publicKey := range publicKeys {
+		cloned[index] = append([]byte(nil), publicKey...)
+	}
+	return cloned
 }
 
 func zero(value []byte) {

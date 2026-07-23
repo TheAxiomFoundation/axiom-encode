@@ -14,13 +14,18 @@ active content root).
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
+import stat
 import subprocess
 import sys
 from collections.abc import Iterable
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import NamedTuple
+from typing import Iterator, NamedTuple
 
 from .constants import RULESPEC_COMPOSITION_SPEC_ROOT, RULESPEC_FILESYSTEM_ROOTS
 
@@ -38,6 +43,139 @@ class CanonicalRuleSpecCheckoutInspection(NamedTuple):
 
     name: str | None
     rejection: str | None
+
+
+class _PathMutationStamp(NamedTuple):
+    """Cheap identity and metadata stamp for one filesystem entry."""
+
+    device: int
+    inode: int
+    mode: int
+    size: int
+    mtime_ns: int
+    ctime_ns: int
+    content_sha256: str | None
+
+
+@dataclass(frozen=True)
+class _CheckoutMutationFingerprint:
+    """Filesystem and environment inputs that determine checkout admission."""
+
+    path_identities: tuple[tuple[Path, tuple[int, int, int]], ...]
+    directory_stamps: tuple[tuple[Path, _PathMutationStamp], ...]
+    git_path_identities: tuple[
+        tuple[Path, tuple[tuple[Path, tuple[int, int, int]], ...] | None], ...
+    ]
+    git_input_stamps: tuple[tuple[Path, _PathMutationStamp | None], ...]
+    git_environment: tuple[tuple[str, str | None], ...]
+
+
+@dataclass(frozen=True)
+class _CachedCheckoutInspection:
+    inspection: CanonicalRuleSpecCheckoutInspection
+    git_config_inputs: tuple[Path, ...]
+    fingerprint: _CheckoutMutationFingerprint
+
+
+@dataclass(frozen=True)
+class _CheckoutAdmissionSnapshot:
+    """Pre-inspection inputs used to admit one stable cache entry."""
+
+    git_config_inputs: tuple[Path, ...]
+    fingerprint: _CheckoutMutationFingerprint
+
+
+@dataclass
+class _RuleSpecRoutingCache:
+    """Successful checkout identity probes admitted for one bounded operation."""
+
+    checkout_inspections: dict[tuple[Path, bool], _CachedCheckoutInspection] = field(
+        default_factory=dict
+    )
+
+
+_RULESPEC_ROUTING_CACHE: ContextVar[_RuleSpecRoutingCache | None] = ContextVar(
+    "axiom_rulespec_routing_cache",
+    default=None,
+)
+
+
+@contextmanager
+def _rulespec_routing_cache_scope() -> Iterator[_RuleSpecRoutingCache]:
+    """Reuse successful identity probes only for one explicit operation."""
+
+    current = _RULESPEC_ROUTING_CACHE.get()
+    if current is not None:
+        yield current
+        return
+    cache = _RuleSpecRoutingCache()
+    token = _RULESPEC_ROUTING_CACHE.set(cache)
+    try:
+        yield cache
+    finally:
+        _RULESPEC_ROUTING_CACHE.reset(token)
+
+
+def _path_mutation_stamp(
+    path: Path,
+    *,
+    hash_regular_file: bool = False,
+) -> _PathMutationStamp | None:
+    """Return a stable lstat stamp, optionally binding regular-file contents."""
+
+    path = Path(path)
+    try:
+        before = path.lstat()
+    except OSError:
+        return None
+    digest = None
+    if hash_regular_file and stat.S_ISREG(before.st_mode):
+        try:
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            after = path.lstat()
+        except OSError:
+            return None
+        if _stat_identity(after) != _stat_identity(before):
+            return None
+    return _PathMutationStamp(
+        before.st_dev,
+        before.st_ino,
+        before.st_mode,
+        before.st_size,
+        before.st_mtime_ns,
+        before.st_ctime_ns,
+        digest,
+    )
+
+
+def _stat_identity(value: os.stat_result) -> tuple[int, int, int, int, int, int]:
+    """Return fields that must remain stable while a file is fingerprinted."""
+
+    return (
+        value.st_dev,
+        value.st_ino,
+        value.st_mode,
+        value.st_size,
+        value.st_mtime_ns,
+        value.st_ctime_ns,
+    )
+
+
+def _path_identity_fingerprint(
+    path: Path,
+) -> tuple[tuple[Path, tuple[int, int, int]], ...] | None:
+    """Bind every lexical component to its inode and file type."""
+
+    absolute = Path(os.path.abspath(Path(path).expanduser()))
+    components: list[tuple[Path, tuple[int, int, int]]] = []
+    cursor = Path(absolute.anchor)
+    for part in absolute.parts[1:]:
+        cursor /= part
+        stamp = _path_mutation_stamp(cursor)
+        if stamp is None:
+            return None
+        components.append((cursor, (stamp.device, stamp.inode, stamp.mode)))
+    return tuple(components)
 
 
 def jurisdiction_country(prefix: str) -> str:
@@ -98,6 +236,243 @@ def inspect_canonical_rulespec_checkout(
     allow_composition_specs: bool = False,
 ) -> CanonicalRuleSpecCheckoutInspection:
     """Inspect one exact country checkout without weakening route acceptance."""
+
+    cache = _RULESPEC_ROUTING_CACHE.get()
+    cache_key = (
+        Path(os.path.abspath(Path(path).expanduser())),
+        allow_composition_specs,
+    )
+    cached = cache.checkout_inspections.get(cache_key) if cache is not None else None
+    if cached is not None:
+        current_fingerprint = _checkout_mutation_fingerprint(
+            cache_key[0],
+            git_config_inputs=cached.git_config_inputs,
+        )
+        if current_fingerprint == cached.fingerprint:
+            return cached.inspection
+        cache.checkout_inspections.pop(cache_key, None)
+
+    if cache is None:
+        return _inspect_canonical_rulespec_checkout_uncached(
+            path,
+            allow_composition_specs=allow_composition_specs,
+        )
+
+    for _attempt in range(2):
+        before = _checkout_admission_snapshot(cache_key[0])
+        inspection = _inspect_canonical_rulespec_checkout_uncached(
+            path,
+            allow_composition_specs=allow_composition_specs,
+        )
+        if inspection.name is None or before is None:
+            return inspection
+        cached_inspection = _cacheable_checkout_inspection(
+            cache_key[0],
+            inspection,
+            before=before,
+        )
+        if cached_inspection is not None:
+            cache.checkout_inspections[cache_key] = cached_inspection
+            return inspection
+
+    return CanonicalRuleSpecCheckoutInspection(
+        None, "checkout-mutated-during-inspection"
+    )
+
+
+def _checkout_admission_snapshot(
+    checkout: Path,
+) -> _CheckoutAdmissionSnapshot | None:
+    """Capture admission inputs before a successful identity inspection."""
+
+    try:
+        git_boundary = _nearest_git_boundary(checkout)
+        git_config_inputs = (
+            _git_config_input_paths(str(checkout)) if git_boundary is not None else ()
+        )
+    except _GitProbeError:
+        return None
+    fingerprint = _checkout_mutation_fingerprint(
+        checkout,
+        git_config_inputs=git_config_inputs,
+    )
+    if fingerprint is None:
+        return None
+    return _CheckoutAdmissionSnapshot(
+        git_config_inputs=git_config_inputs,
+        fingerprint=fingerprint,
+    )
+
+
+def _cacheable_checkout_inspection(
+    checkout: Path,
+    inspection: CanonicalRuleSpecCheckoutInspection,
+    *,
+    before: _CheckoutAdmissionSnapshot,
+) -> _CachedCheckoutInspection | None:
+    """Cache a successful admission only when its input snapshot stayed stable."""
+
+    try:
+        git_boundary = _nearest_git_boundary(checkout)
+        git_config_inputs = (
+            _git_config_input_paths(str(checkout)) if git_boundary is not None else ()
+        )
+    except _GitProbeError:
+        return None
+    if git_config_inputs != before.git_config_inputs:
+        return None
+    after = _checkout_mutation_fingerprint(
+        checkout,
+        git_config_inputs=git_config_inputs,
+    )
+    if after is None or after != before.fingerprint:
+        return None
+    return _CachedCheckoutInspection(
+        inspection=inspection,
+        git_config_inputs=git_config_inputs,
+        fingerprint=after,
+    )
+
+
+def _checkout_mutation_fingerprint(
+    checkout: Path,
+    *,
+    git_config_inputs: tuple[Path, ...],
+) -> _CheckoutMutationFingerprint | None:
+    """Fingerprint checkout admission inputs without invoking Git or walking files."""
+
+    lexical = _lexical_rulespec_path(checkout)
+    if lexical is None:
+        return None
+    path_identities = _path_identity_fingerprint(lexical)
+    if path_identities is None:
+        return None
+
+    try:
+        git_boundary = _nearest_git_boundary(lexical)
+    except _GitProbeError:
+        return None
+    directory_stamps: list[tuple[Path, _PathMutationStamp]] = []
+    for directory in (lexical,):
+        stamp = _path_mutation_stamp(directory)
+        if stamp is None or not stat.S_ISDIR(stamp.mode):
+            return None
+        directory_stamps.append((directory, stamp))
+    git_paths = _git_identity_input_paths(
+        lexical,
+        git_boundary=git_boundary,
+        git_config_inputs=git_config_inputs,
+    )
+    git_path_identities = tuple(
+        (path, _path_identity_fingerprint(path)) for path in git_paths
+    )
+    git_input_stamps = tuple(
+        (path, _path_mutation_stamp(path, hash_regular_file=True)) for path in git_paths
+    )
+    git_environment = tuple(
+        (name, os.environ.get(name))
+        for name in sorted(
+            {
+                "HOME",
+                "XDG_CONFIG_HOME",
+                *(name for name in os.environ if name.startswith("GIT_")),
+            }
+        )
+    )
+    return _CheckoutMutationFingerprint(
+        path_identities=path_identities,
+        directory_stamps=tuple(directory_stamps),
+        git_path_identities=git_path_identities,
+        git_input_stamps=git_input_stamps,
+        git_environment=git_environment,
+    )
+
+
+def _git_identity_input_paths(
+    checkout: Path,
+    *,
+    git_boundary: Path | None,
+    git_config_inputs: tuple[Path, ...],
+) -> tuple[Path, ...]:
+    """Return files whose mutation can change Git worktree/origin identity."""
+
+    candidate_markers = {
+        directory / ".git" for directory in (checkout, *checkout.parents)
+    }
+    if git_boundary is None:
+        return tuple(sorted(candidate_markers, key=str))
+    marker = git_boundary / ".git"
+    paths = {marker, *git_config_inputs}
+    paths.update(candidate_markers)
+    git_directory = _git_directory_from_marker(marker)
+    if git_directory is not None:
+        paths.update(
+            {
+                git_directory,
+                git_directory / "commondir",
+                git_directory / "config",
+                git_directory / "config.worktree",
+                git_directory / "HEAD",
+            }
+        )
+        common_directory = _git_common_directory(git_directory)
+        if common_directory is not None:
+            paths.update(
+                {
+                    common_directory,
+                    common_directory / "config",
+                    common_directory / "config.worktree",
+                }
+            )
+    home = Path(os.environ.get("HOME", str(Path.home()))).expanduser()
+    xdg_config_home = Path(
+        os.environ.get("XDG_CONFIG_HOME", str(home / ".config"))
+    ).expanduser()
+    paths.update({home / ".gitconfig", xdg_config_home / "git/config"})
+    return tuple(sorted((Path(path) for path in paths), key=str))
+
+
+def _git_directory_from_marker(marker: Path) -> Path | None:
+    """Resolve a directory marker or linked-worktree gitdir file lexically."""
+
+    if marker.is_dir():
+        return marker
+    if not marker.is_file() or marker.is_symlink():
+        return None
+    try:
+        marker_text = marker.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError):
+        return None
+    prefix = "gitdir:"
+    if not marker_text.lower().startswith(prefix):
+        return None
+    raw_git_directory = Path(marker_text[len(prefix) :].strip()).expanduser()
+    if not raw_git_directory.is_absolute():
+        raw_git_directory = marker.parent / raw_git_directory
+    return Path(os.path.abspath(raw_git_directory))
+
+
+def _git_common_directory(git_directory: Path) -> Path | None:
+    """Resolve the common Git directory used by linked worktrees."""
+
+    marker = git_directory / "commondir"
+    if not marker.is_file() or marker.is_symlink():
+        return git_directory
+    try:
+        raw_common_directory = Path(marker.read_text(encoding="utf-8").strip())
+    except (OSError, UnicodeError):
+        return None
+    if not raw_common_directory.is_absolute():
+        raw_common_directory = git_directory / raw_common_directory
+    return Path(os.path.abspath(raw_common_directory))
+
+
+def _inspect_canonical_rulespec_checkout_uncached(
+    path: Path,
+    *,
+    allow_composition_specs: bool = False,
+) -> CanonicalRuleSpecCheckoutInspection:
+    """Inspect one checkout before it is admitted to an operation cache."""
 
     lexical = _lexical_rulespec_path(path)
     if lexical is None:
@@ -392,6 +767,145 @@ def _git_origin_repo_name(root: str) -> str | None:
         return None
     name = remote.rsplit("/", 1)[-1]
     return name.removesuffix(".git") or None
+
+
+def _git_config_input_paths(root: str) -> tuple[Path, ...]:
+    """Return loaded configs and every configured include target.
+
+    Git omits missing, empty, and inactive conditional include files from its
+    origin list. Include directives still appear in their containing config,
+    so collect their resolved targets from the same bounded Git probe.
+    """
+
+    custom_config_environment = {
+        name
+        for name in ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM")
+        if name in os.environ
+    }
+    if custom_config_environment:
+        raise _GitProbeError(
+            f"Custom Git configuration environment observed for {root}",
+            category="custom-config-environment",
+        )
+    system_config_inputs = _git_system_config_input_paths(root)
+    try:
+        completed = subprocess.run(
+            [
+                "git",
+                "-C",
+                root,
+                "config",
+                "--show-origin",
+                "--null",
+                "--list",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise _GitProbeError(
+            f"Could not inspect Git configuration inputs for {root}",
+            category=_git_probe_exception_category(exc),
+        ) from exc
+    if completed.returncode != 0:
+        raise _GitProbeError(
+            f"Could not inspect Git configuration inputs for {root}",
+            category="unavailable",
+        )
+    fields = completed.stdout.removesuffix("\0").split("\0")
+    if len(fields) % 2 != 0:
+        raise _GitProbeError(
+            f"Could not parse Git configuration inputs for {root}",
+            category="invalid-output",
+        )
+    inputs = set(system_config_inputs)
+    for origin, setting in zip(fields[::2], fields[1::2], strict=True):
+        if not origin.startswith("file:"):
+            raise _GitProbeError(
+                f"Non-file Git configuration observed for {root}",
+                category="non-file-config",
+            )
+        key, separator, value = setting.partition("\n")
+        normalized_key = key.casefold()
+        is_include = separator and (
+            normalized_key == "include.path"
+            or (
+                normalized_key.startswith("includeif.")
+                and normalized_key.endswith(".path")
+            )
+        )
+        origin_path = _git_config_file_path(root, origin.removeprefix("file:"))
+        if origin_path is None:
+            raise _GitProbeError(
+                f"Could not resolve Git configuration input for {root}",
+                category="invalid-config-path",
+            )
+        inputs.add(origin_path)
+        if not is_include:
+            continue
+        include_path = _git_config_file_path(
+            str(origin_path.parent),
+            value,
+        )
+        if include_path is None:
+            raise _GitProbeError(
+                f"Could not resolve Git configuration include for {root}",
+                category="invalid-include-path",
+            )
+        inputs.add(include_path)
+        if len(inputs) > 1024:
+            raise _GitProbeError(
+                f"Too many Git configuration inputs for {root}",
+                category="input-limit",
+            )
+    return tuple(sorted(inputs, key=str))
+
+
+def _git_system_config_input_paths(root: str) -> tuple[Path, ...]:
+    """Return Git's platform-specific system config candidates, even if absent."""
+
+    try:
+        completed = subprocess.run(
+            ["git", "-C", root, "var", "GIT_CONFIG_SYSTEM"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise _GitProbeError(
+            f"Could not inspect Git system configuration inputs for {root}",
+            category=_git_probe_exception_category(exc),
+        ) from exc
+    raw_paths = completed.stdout.splitlines()
+    if completed.returncode != 0 or not raw_paths or len(raw_paths) > 16:
+        raise _GitProbeError(
+            f"Could not inspect Git system configuration inputs for {root}",
+            category="unavailable",
+        )
+    paths = tuple(_git_config_file_path(root, raw_path) for raw_path in raw_paths)
+    if any(path is None for path in paths):
+        raise _GitProbeError(
+            f"Could not resolve Git system configuration input for {root}",
+            category="invalid-config-path",
+        )
+    return tuple(path for path in paths if path is not None)
+
+
+def _git_config_file_path(base: str, raw_path: str) -> Path | None:
+    """Resolve one Git config path without accepting aliases or expansions."""
+
+    if not raw_path or "\0" in raw_path or raw_path.startswith("%("):
+        return None
+    try:
+        path = Path(raw_path).expanduser()
+    except (KeyError, RuntimeError):
+        return None
+    if not path.is_absolute():
+        path = Path(base) / path
+    return _lexical_rulespec_path(Path(os.path.abspath(path)))
 
 
 def _git_probe_exception_category(exc: BaseException) -> str:

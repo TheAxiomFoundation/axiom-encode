@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -241,6 +242,54 @@ def test_fingerprint_reuses_pipeline_and_marks_missing_companion_explicit(
     assert all(result["outcome"]["companion"]["present"] is False for result in results)
     assert all(result["outcome"]["companion"]["passed"] is True for result in results)
     assert all(result["fingerprint"].startswith("sha256:") for result in results)
+
+
+def test_fingerprint_boundary_reuses_nested_pipeline_admissions(tmp_path: Path):
+    from axiom_encode.harness import validator_pipeline
+
+    root = tmp_path / "rulespec-us"
+    modules = []
+    for index in range(3):
+        relative = Path(f"us/statutes/{index}.yaml")
+        module = root / relative
+        module.parent.mkdir(parents=True, exist_ok=True)
+        module.write_text("format: rulespec/v1\nrules: []\n", encoding="utf-8")
+        modules.append(relative)
+    engine = _engine(tmp_path)
+    walked_roots = []
+    original_walk = os.walk
+
+    def counting_walk(checkout, *walk_args, **walk_kwargs):
+        walked_roots.append(Path(checkout))
+        return original_walk(checkout, *walk_args, **walk_kwargs)
+
+    class AdmissionPipeline(validator_pipeline.ValidatorPipeline):
+        def _axiom_rules_binary(self):
+            return self.axiom_rules_path / "axiom-rules-engine"
+
+        def _validate_with_authoritative_roots(
+            self,
+            rulespec_file,
+            skip_reviewers=False,
+        ):
+            validator_pipeline._rulespec_checkout_root_for_active_path(
+                self.policy_repo_path
+            )
+            return _pipeline_result(passed=False)
+
+    with (
+        patch.object(cli, "ValidatorPipeline", AdmissionPipeline),
+        patch.object(validator_pipeline.os, "walk", side_effect=counting_walk),
+    ):
+        results = cli._fingerprint_validation_waiver_modules(
+            modules,
+            root=root,
+            corpus_path=_bound_corpus(tmp_path, root),
+            axiom_rules_path=engine,
+        )
+
+    assert len(results) == 3
+    assert walked_roots == [root]
 
 
 def test_fingerprint_passes_explicit_rulespec_dependency_roots(tmp_path: Path):

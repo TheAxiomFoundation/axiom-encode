@@ -68,6 +68,7 @@ from axiom_encode.harness.evals import (
     _normalize_nonannual_test_period_value,
     _normalize_test_case_value,
     _normalize_test_periods_to_effective_dates,
+    _numeric_occurrence_source_text,
     _policyengine_hint_upstream_composition_issues,
     _post_openai_eval_request,
     _prepare_codex_eval_home,
@@ -2907,8 +2908,12 @@ def test_build_eval_prompt_targets_rulespec_yaml(tmp_path):
     assert "For proration, average, ratio, or percentage tests" in prompt
     assert "use totals like 600" in prompt
     assert "Avoid exact equality boundaries for ratios or percentages" in prompt
-    assert "Do not assert raw `kind: parameter` rules directly" in prompt
-    assert "assert derived outputs that consume the parameters" in prompt
+    normalized_prompt = " ".join(prompt.split())
+    assert (
+        "If a module contains only parameters, emit one source-period snapshot "
+        "case that asserts every local parameter output directly." in normalized_prompt
+    )
+    assert "cover parameters through derived outputs" in normalized_prompt
     assert "modifier parameter stranded" in prompt
     assert "module.deferred_outputs[]" in prompt
     assert "source_values" in prompt
@@ -3040,7 +3045,8 @@ def test_build_eval_prompt_for_rate_only_source_id_limits_scope(tmp_path):
     assert "boundary must stay acyclic" in prompt
     assert "companion tests may assert" in prompt
     assert "canonical parameter output directly" in prompt
-    assert "Explicit rate-only source-boundary artifacts" in prompt
+    assert "Source-boundary artifacts that contain only scalar parameters" in prompt
+    assert "one source-period snapshot case" in prompt
 
 
 def test_target_source_scope_ignores_cross_references_before_structural_marker():
@@ -5619,7 +5625,13 @@ rules:
 
     def test_generated_eval_repairs_positive_judgment_companions(self, tmp_path):
         repo = _canonical_rulespec_content_root(tmp_path, "us-co")
-        rulespec_file = repo / "regulations" / "example.yaml"
+        dependency_content_root = _canonical_rulespec_content_root(tmp_path, "uk")
+        dependency_marker = dependency_content_root / "statutes/1/dependency.yaml"
+        dependency_marker.parent.mkdir(parents=True)
+        dependency_marker.write_text("format: rulespec/v1\nrules: []\n")
+        dependency_root = dependency_content_root.parent
+        relative_output = Path("regulations/example.yaml")
+        rulespec_file = tmp_path / "generated" / "openai" / relative_output
         rulespec_file.parent.mkdir(parents=True)
         rulespec_file.write_text(
             """format: rulespec/v1
@@ -5651,6 +5663,27 @@ rules:
             "`us-co:regulations/example#work_study_exemption` is not asserted "
             "as `holds` by the companion `.test.yaml` file."
         )
+        checked: dict[str, Path] = {}
+
+        def check_companion(
+            staged_test_file,
+            *,
+            root,
+            axiom_rules_path,
+            rulespec_dependency_roots=(),
+        ):
+            staged_rules_file = staged_test_file.with_name("example.yaml")
+            checked["rules"] = validator_pipeline._canonical_rulespec_compile_path(
+                staged_rules_file,
+                root,
+            )
+            checked["test"] = staged_test_file.resolve()
+            checked["root"] = root.resolve()
+            [staged_dependency_root] = rulespec_dependency_roots
+            checked["dependency"] = staged_dependency_root.resolve()
+            assert (staged_dependency_root / "uk/statutes/1/dependency.yaml").is_file()
+            return []
+
         with (
             patch.object(
                 ValidatorPipeline,
@@ -5667,7 +5700,7 @@ rules:
             ) as mock_ci,
             patch(
                 "axiom_encode.cli._rulespec_companion_test_failures",
-                return_value=[],
+                side_effect=check_companion,
             ),
         ):
             metrics = _evaluate_generated_artifact_with_repairs(
@@ -5679,6 +5712,7 @@ rules:
                 axiom_rules_path=Path("/tmp/axiom-rules-engine"),
                 source_text="Students in work study are exempt.",
                 skip_reviewers=True,
+                rulespec_dependency_roots=(dependency_root,),
             )
 
         repaired_tests = yaml.safe_load(
@@ -5686,6 +5720,12 @@ rules:
         )
         assert mock_ci.call_count == 2
         assert metrics.ci_pass
+        assert checked["rules"].is_relative_to(checked["root"])
+        assert checked["test"].is_relative_to(checked["root"])
+        assert checked["root"] != repo.resolve()
+        assert checked["dependency"] != dependency_root.resolve()
+        assert checked["dependency"].parent == checked["root"].parent.parent
+        assert not (repo / relative_output).exists()
         assert any(
             case.get("output", {}).get("us-co:regulations/example#work_study_exemption")
             == "holds"
@@ -6333,6 +6373,204 @@ rules:
         assert metrics.grounded_numeric_count == 1
         assert metrics.ungrounded_numeric_count == 0
         assert metrics.source_numeric_occurrence_count == 0
+
+    def test_rounding_occurrence_cleanup_does_not_cross_source_clause(self):
+        source_text = (
+            "Increase the allowance by 1 dollar. Round up the second digit if "
+            "the third digit is 5 or more."
+        )
+
+        cleaned = _numeric_occurrence_source_text(source_text)
+
+        assert validator_pipeline.extract_numeric_occurrences_from_text(cleaned) == [
+            1.0,
+            5.0,
+        ]
+        same_clause = _numeric_occurrence_source_text(
+            "Increase the second digit and decrease the allowance by 1 if needed."
+        )
+        assert validator_pipeline.extract_numeric_occurrences_from_text(
+            same_clause
+        ) == [1.0]
+        preceding_amount = _numeric_occurrence_source_text(
+            "Reduce the allowance by 1, increase the second digit by 1 if the "
+            "third digit is 5 or more."
+        )
+        assert validator_pipeline.extract_numeric_occurrences_from_text(
+            preceding_amount
+        ) == [1.0, 1.0, 5.0]
+        normalized_preceding_amount = _numeric_occurrence_source_text(
+            "Reduce the allowance by 1, increase the second digit by 1 if the "
+            "third digit is 5 or more.",
+            suppress_source_backed_half_up_increment=True,
+        )
+        assert validator_pipeline.extract_numeric_occurrences_from_text(
+            normalized_preceding_amount
+        ) == [1.0, 1.0, 5.0]
+
+        unrecognized_threshold = _numeric_occurrence_source_text(
+            "Increase the second digit by 1 if the third digit is 4 or more."
+        )
+        assert validator_pipeline.extract_numeric_occurrences_from_text(
+            unrecognized_threshold
+        ) == [1.0, 4.0]
+
+        negated_instruction = _numeric_occurrence_source_text(
+            "Do not, under any circumstances, increase the second digit by 1 "
+            "if the third digit is 5 or more."
+        )
+        assert validator_pipeline.extract_numeric_occurrences_from_text(
+            negated_instruction
+        ) == [1.0, 5.0]
+
+        recognized_instruction = (
+            "Increase the second digit by 1 if the third digit is 5 or more."
+        )
+        assert validator_pipeline.extract_numeric_occurrences_from_text(
+            _numeric_occurrence_source_text(recognized_instruction)
+        ) == [1.0, 5.0]
+        assert validator_pipeline.extract_numeric_occurrences_from_text(
+            _numeric_occurrence_source_text(
+                recognized_instruction,
+                suppress_source_backed_half_up_increment=True,
+            )
+        ) == [5.0]
+
+    def test_half_up_helper_eval_metric_uses_authoritative_rounding_instruction(
+        self, tmp_path
+    ):
+        active_instruction = (
+            "If the 3rd digit is 5 or more, increase the 2nd digit by 1"
+        )
+        passive_instruction = (
+            "If the 3rd digit is 5 or more, the 2nd digit shall be increased by 1."
+        )
+        source_text = f"{active_instruction}\n{passive_instruction}"
+        corpus_release = _write_test_corpus_provision(
+            tmp_path,
+            citation_path="ca/policy/cra/example/rounding",
+            body=source_text,
+        )
+        rulespec_file = tmp_path / "policies" / "cra" / "example" / "rounding.yaml"
+        rulespec_file.parent.mkdir(parents=True)
+        rulespec_file.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: ca/policy/cra/example/rounding
+rules:
+  - name: rounding_half_unit
+    kind: parameter
+    dtype: Decimal
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: parameter
+            source:
+              corpus_citation_path: ca/policy/cra/example/rounding
+              excerpt: if the 3rd digit is 5 or more, increase the 2nd digit by 1
+    versions:
+      - effective_from: '2025-01-01'
+        formula: 0.5
+      - effective_from: '2026-01-01'
+        formula: 0.5
+"""
+        )
+
+        with (
+            patch.object(
+                ValidatorPipeline,
+                "_run_compile_check",
+                return_value=ValidationResult("compile", True, issues=[]),
+            ),
+            patch.object(
+                ValidatorPipeline,
+                "_run_ci",
+                return_value=ValidationResult("ci", True, issues=[]),
+            ),
+        ):
+            metrics = evaluate_artifact(
+                rulespec_file=rulespec_file,
+                policy_repo_root=_canonical_rulespec_content_root(tmp_path, "ca"),
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
+                source_text=source_text,
+                local_corpus_release=corpus_release,
+                skip_reviewers=True,
+            )
+
+        assert metrics.ci_pass
+        assert metrics.grounded_numeric_count == 2
+        assert metrics.ungrounded_numeric_count == 0
+        assert metrics.grounding[0].grounded
+        assert metrics.source_numeric_occurrence_count == 2
+        assert metrics.covered_source_numeric_occurrence_count == 2
+        assert metrics.missing_source_numeric_occurrence_count == 0
+        assert not any(
+            "Ungrounded generated numeric literal" in issue
+            for issue in metrics.ci_issues
+        )
+
+    def test_half_up_helper_does_not_cover_independent_source_value(self, tmp_path):
+        source_text = (
+            "Increase the second digit after the decimal point by one if the "
+            "third digit is five or more. Charge a fee of $5."
+        )
+        corpus_release = _write_test_corpus_provision(
+            tmp_path,
+            citation_path="ca/policy/cra/example/rounding-and-fee",
+            body=source_text,
+        )
+        rulespec_file = (
+            tmp_path / "policies" / "cra" / "example" / "rounding-and-fee.yaml"
+        )
+        rulespec_file.parent.mkdir(parents=True)
+        rulespec_file.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: ca/policy/cra/example/rounding-and-fee
+  summary: Charge a fee of $5.
+rules:
+  - name: rounding_half_unit
+    kind: parameter
+    dtype: Decimal
+    versions:
+      - effective_from: '2025-01-01'
+        formula: 0.5
+      - effective_from: '2026-01-01'
+        formula: 0.5
+"""
+        )
+
+        with (
+            patch.object(
+                ValidatorPipeline,
+                "_run_compile_check",
+                return_value=ValidationResult("compile", True, issues=[]),
+            ),
+            patch.object(
+                ValidatorPipeline,
+                "_run_ci",
+                return_value=ValidationResult("ci", True, issues=[]),
+            ),
+        ):
+            metrics = evaluate_artifact(
+                rulespec_file=rulespec_file,
+                policy_repo_root=_canonical_rulespec_content_root(tmp_path, "ca"),
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
+                source_text=source_text,
+                local_corpus_release=corpus_release,
+                skip_reviewers=True,
+            )
+
+        assert not metrics.ci_pass
+        assert metrics.grounded_numeric_count == 2
+        assert metrics.ungrounded_numeric_count == 0
+        assert metrics.source_numeric_occurrence_count == 1
+        assert metrics.covered_source_numeric_occurrence_count == 0
+        assert metrics.missing_source_numeric_occurrence_count == 1
+        assert any("Source numeric value 5" in issue for issue in metrics.ci_issues)
 
     def test_parameter_table_grounding_uses_corpus_source_with_compact_summary(
         self, tmp_path
@@ -16500,7 +16738,8 @@ rules: []
             "Every local executable `kind: derived` or `kind: derived_relation` rule"
             in prompt
         )
-        assert "Do not assert raw `kind: parameter` rules directly" in prompt
+        assert "source-period snapshot case" in prompt
+        assert "local parameter output directly" in prompt
         assert "Use `holds` and `not_holds` for actual `dtype: Judgment`" in prompt
         assert "Use YAML booleans `true` and `false` for local factual" in prompt
         assert (

@@ -10,9 +10,22 @@ import subprocess
 from pathlib import Path, PurePosixPath
 
 COUNTRY_PATTERN = re.compile(r"[a-z]{2}")
+COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}")
 MANIFEST_ROOT = PurePosixPath(".axiom/encoding-manifests")
 RULESPEC_ATOMIC_ROOTS = frozenset(
     {"legislation", "policies", "regulations", "statutes"}
+)
+REVIEWED_RULESPEC_REFS = frozenset(
+    {
+        (
+            "us",
+            "10f7a16ef4a40cf1e26d6273e1aff9ebb79d002f",
+        ),
+        (
+            "ca",
+            "f60f7a84c30e38c7d4961d70647eb0457e7d76c2",
+        ),
+    }
 )
 
 
@@ -29,6 +42,49 @@ def branch_name(country: str, run_id: str, run_attempt: str) -> str:
     return f"axiom/signed-backfill-{country}-{run_id}-{run_attempt}"
 
 
+def validate_rulespec_base(
+    repo: Path,
+    country: str,
+    requested_ref: str,
+    *,
+    open_pr: bool,
+) -> str:
+    """Admit main ancestry or one exact independently reviewed migration head."""
+
+    validate_country(country)
+    if COMMIT_PATTERN.fullmatch(requested_ref) is None:
+        raise ValueError("rulespec ref must be a full lowercase commit SHA")
+    actual_ref = _git(repo, "rev-parse", "HEAD").decode().strip()
+    if actual_ref != requested_ref:
+        raise ValueError("rulespec checkout does not match the requested ref")
+    main_ancestor = (
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repo),
+                "merge-base",
+                "--is-ancestor",
+                "HEAD",
+                "refs/remotes/origin/main",
+            ],
+            check=False,
+        ).returncode
+        == 0
+    )
+    if main_ancestor:
+        return "main"
+    if (country, requested_ref) not in REVIEWED_RULESPEC_REFS:
+        raise ValueError(
+            "rulespec ref is neither on main nor an approved reviewed head"
+        )
+    if open_pr:
+        raise ValueError(
+            "reviewed-head runs are artifact-only and cannot open a pull request"
+        )
+    return "reviewed-head-artifact"
+
+
 def _git(repo: Path, *args: str) -> bytes:
     return subprocess.check_output(["git", "-C", str(repo), *args])
 
@@ -42,7 +98,9 @@ def _changed_paths(repo: Path) -> set[PurePosixPath]:
         entry = fields[index]
         status = entry[:2]
         if len(entry) < 4 or status[:1] in {b"R", b"C"} or status[1:] in {b"R", b"C"}:
-            raise ValueError("renamed/copied or malformed changed paths are not publishable")
+            raise ValueError(
+                "renamed/copied or malformed changed paths are not publishable"
+            )
         paths.add(PurePosixPath(entry[3:].decode("utf-8")))
         index += 1
     return paths
@@ -79,7 +137,9 @@ def authorized_changed_paths(repo: Path) -> set[PurePosixPath]:
         if path.is_relative_to(MANIFEST_ROOT) and path.suffix == ".json"
     }
     if not manifests:
-        raise ValueError("no changed signed apply manifest is available to authorize publication")
+        raise ValueError(
+            "no changed signed apply manifest is available to authorize publication"
+        )
 
     authorized = set(manifests)
     for relative in manifests:
@@ -91,16 +151,16 @@ def authorized_changed_paths(repo: Path) -> set[PurePosixPath]:
             raise ValueError(f"changed manifest has an unsupported schema: {relative}")
         applied_files = payload.get("applied_files")
         if not isinstance(applied_files, list) or not applied_files:
-            raise ValueError(f"changed manifest has no applied_files authorization: {relative}")
+            raise ValueError(
+                f"changed manifest has no applied_files authorization: {relative}"
+            )
         for index, entry in enumerate(applied_files):
             if not isinstance(entry, dict):
                 raise ValueError(f"{relative} applied_files[{index}] is malformed")
             label = f"{relative} applied_files[{index}].path"
             applied_path = _safe_relative_path(entry.get("path"), label=label)
             _validate_rulespec_path(repo, applied_path, label=label)
-            authorized.add(
-                applied_path
-            )
+            authorized.add(applied_path)
 
     unexpected = changed - authorized
     missing = authorized - changed
@@ -150,6 +210,11 @@ def main() -> None:
     branch_parser.add_argument("country")
     branch_parser.add_argument("run_id")
     branch_parser.add_argument("run_attempt")
+    base_parser = subparsers.add_parser("validate-rulespec-base")
+    base_parser.add_argument("repo", type=Path)
+    base_parser.add_argument("country")
+    base_parser.add_argument("requested_ref")
+    base_parser.add_argument("open_pr", choices=("true", "false"))
     stage_parser = subparsers.add_parser("stage")
     stage_parser.add_argument("repo", type=Path)
     args = parser.parse_args()
@@ -158,9 +223,23 @@ def main() -> None:
             print(validate_country(args.country))
         elif args.command == "branch-name":
             print(branch_name(args.country, args.run_id, args.run_attempt))
+        elif args.command == "validate-rulespec-base":
+            print(
+                validate_rulespec_base(
+                    args.repo,
+                    args.country,
+                    args.requested_ref,
+                    open_pr=args.open_pr == "true",
+                )
+            )
         else:
             stage_authorized_changes(args.repo)
-    except (OSError, ValueError, json.JSONDecodeError, subprocess.CalledProcessError) as exc:
+    except (
+        OSError,
+        ValueError,
+        json.JSONDecodeError,
+        subprocess.CalledProcessError,
+    ) as exc:
         parser.exit(1, f"error: {exc}\n")
 
 

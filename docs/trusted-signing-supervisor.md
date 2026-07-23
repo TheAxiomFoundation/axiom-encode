@@ -56,7 +56,32 @@ distinct public roots, even when the command uses no signing capability:
 }
 ```
 
-PKIX public-key PEM is also accepted. Environment public-key values never
+The v2 form remains valid and supplies a one-key corpus-release verification
+ring. During corpus-release key rotation, use the v3 form. The first key is the
+current signing identity; later keys are retired and verification-only:
+
+```json
+{
+  "schema": "axiom-encode/signing-trust-roots/v3",
+  "apply_ed25519_public_key": "BASE64_RAW_32_BYTES",
+  "eval_ed25519_public_key": "DISTINCT_BASE64_RAW_32_BYTES",
+  "corpus_release_ed25519_public_keys": [
+    "CURRENT_BASE64_RAW_32_BYTES",
+    "RETIRED_BASE64_RAW_32_BYTES"
+  ]
+}
+```
+
+A v3 file may retain the singular field, use the plural field, or include both
+when the singular key equals the first plural key. The supervisor rejects an
+empty ring, invalid base64, non-32-byte entries, duplicate or aliased roots,
+unknown schemas, and conflicting singular/plural current keys. The broker
+retains its singular current-key status field and also passes the ordered ring
+to Python release verification. Release signing is unchanged and uses only the
+current private signing identity.
+
+PKIX public-key PEM is also accepted for singular key fields; plural keyring
+entries are raw 32-byte keys in base64. Environment public-key values never
 define trust and are rejected, including `AXIOM_CORPUS_RELEASE_PUBLIC_KEY`.
 These three legacy/current private-key environment names are fatal when
 present, including with an empty value:
@@ -262,11 +287,19 @@ sudo .venv/bin/python scripts/provision_verification_supervisor.py \
   --supervisor build/axiom-encode-signing-supervisor \
   --site-packages .venv/lib/python3.13/site-packages \
   --apply-root "$APPLY_ROOT" --eval-root "$EVAL_ROOT" \
-  --corpus-release-root "$CORPUS_RELEASE_ROOT" --git /usr/bin/git \
+  --corpus-release-root "$CORPUS_RELEASE_ROOT" \
+  --retired-corpus-release-root "$RETIRED_CORPUS_RELEASE_ROOT" \
+  --git /usr/bin/git \
   --encoder-origin-repository github.com/TheAxiomFoundation/axiom-encode \
   --encoder-commit "$(git rev-parse HEAD)" --encoder-git-root "$PWD" \
   --install-pinned-codex-cli
 ```
+
+Omit `--retired-corpus-release-root` to retain the v2 one-key file. Repeat it
+for each retired verification-only key; the provisioner writes a v3 ring with
+the current `--corpus-release-root` first. Repository encode workflows require
+the `AXIOM_CORPUS_RELEASE_RETIRED_PUBLIC_KEY` organization variable during the
+2026-07 rotation so they cannot silently provision only the new key.
 
 Install custody remains with the operator: never automate this sudo invocation.
 For a subscription run, explicitly name the source credential and its refreshed

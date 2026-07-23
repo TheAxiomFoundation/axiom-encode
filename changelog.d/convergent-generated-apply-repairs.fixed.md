@@ -1,0 +1,1 @@
+Make generated apply converge on valid RuleSpec by normalizing threshold proof kinds, declaring known currency units, aligning near-match proof excerpts to exact embedded source text, and respecting explicit source scope.

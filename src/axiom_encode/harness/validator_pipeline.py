@@ -73,6 +73,10 @@ from axiom_encode.corpus_resolver import (
     resolve_local_corpus_source,
 )
 from axiom_encode.repo_routing import (
+    _path_identity_fingerprint,
+    _path_mutation_stamp,
+    _PathMutationStamp,
+    _rulespec_routing_cache_scope,
     candidate_jurisdiction_content_dirs,
     canonical_rulespec_repo_name,
     canonical_rulespec_root_identity,
@@ -125,6 +129,66 @@ _AUTHORITATIVE_RULESPEC_DEPENDENCY_ROOTS: ContextVar[tuple[Path, ...]] = Context
     "axiom_authoritative_rulespec_dependency_roots",
     default=(),
 )
+
+
+@dataclass(frozen=True)
+class _CachedExplicitDirectory:
+    resolved: Path
+    path_identity: tuple[tuple[Path, tuple[int, int, int]], ...]
+
+
+@dataclass(frozen=True)
+class _CachedActiveCheckout:
+    active: Path
+    checkout: Path
+
+
+@dataclass(frozen=True)
+class _CachedSymlinkAudit:
+    directory_stamps: tuple[tuple[Path, _PathMutationStamp], ...]
+
+
+@dataclass(frozen=True)
+class _CachedTargetFile:
+    target_file: Path
+    content_root: Path
+    path_identity: tuple[tuple[Path, tuple[int, int, int]], ...]
+    file_stamp: _PathMutationStamp
+
+
+@dataclass
+class _RuleSpecResolutionCache:
+    """Successful filesystem admissions retained for one validation operation."""
+
+    explicit_directories: dict[Path, _CachedExplicitDirectory] = field(
+        default_factory=dict
+    )
+    active_checkouts: dict[Path, _CachedActiveCheckout] = field(default_factory=dict)
+    symlink_audits: dict[Path, _CachedSymlinkAudit] = field(default_factory=dict)
+    target_files: dict[tuple[Any, ...], _CachedTargetFile] = field(default_factory=dict)
+
+
+_RULESPEC_RESOLUTION_CACHE: ContextVar[_RuleSpecResolutionCache | None] = ContextVar(
+    "axiom_rulespec_resolution_cache",
+    default=None,
+)
+
+
+@contextlib.contextmanager
+def _rulespec_resolution_cache_scope() -> Iterator[_RuleSpecResolutionCache]:
+    """Bound RuleSpec path and identity caches to one explicit operation."""
+
+    current = _RULESPEC_RESOLUTION_CACHE.get()
+    if current is not None:
+        yield current
+        return
+    cache = _RuleSpecResolutionCache()
+    with _rulespec_routing_cache_scope():
+        token = _RULESPEC_RESOLUTION_CACHE.set(cache)
+        try:
+            yield cache
+        finally:
+            _RULESPEC_RESOLUTION_CACHE.reset(token)
 
 
 @contextlib.contextmanager
@@ -1264,6 +1328,38 @@ _SUBPOUND_MONEY_PATTERN = re.compile(
     r"(\d+(?:\.\d+)?)\s*(?:pence|penny)\b", re.IGNORECASE
 )
 _TABLE_KEY_ASSIGNMENT_PATTERN = re.compile(r"\b\d+(?=\s*=)")
+_FORM_ARITHMETIC_OPERAND_PATTERN = re.compile(
+    r"(?:\b(?:multiplied|divided)\s+by\b|(?<!\w)[x×÷](?!\w))\s*"
+    r"(?:[$£€]\s*)?"
+    r"(?P<number>-?(?:\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?))(?![\d,])"
+    r"(?:\s*(?P<percent>%))?",
+    re.IGNORECASE,
+)
+_FORM_ARITHMETIC_FRACTION_PATTERN = re.compile(
+    r"(?:\b(?:multiplied|divided)\s+by\b|(?<!\w)[x×÷](?!\w))\s*"
+    r"(?P<numerator>\d+)\s*/\s*(?P<denominator>\d+)",
+    re.IGNORECASE,
+)
+_STANDALONE_FORM_FRACTION_PATTERN = re.compile(
+    r"(?m)^\s*(?P<numerator>\d+)\s*/\s*(?P<denominator>\d+)\s*$"
+)
+_CONTEXTUAL_ASCII_FRACTION_PATTERN = re.compile(
+    r"(?<![\d./])"
+    r"(?:(?P<whole>\d+)\s+)?"
+    r"(?P<numerator>\d+)\s*/\s*(?P<denominator>\d+)"
+    r"(?=\s*(?:times?\b|\(\s*Class\b|for\s+(?:property|RIIP|ZEV|Class)\b))",
+    re.IGNORECASE,
+)
+_SMALL_MONTH_RANGE_PATTERN = re.compile(
+    r"\b(?P<start>\d{1,2})\s+(?:through|to)\s+"
+    r"(?P<end>\d{1,2})\s+months?\b",
+    re.IGNORECASE,
+)
+_FORM_IMPLIED_CENTS_PATTERN = re.compile(
+    r"(?m)^[ \t]*(?P<dollars>\d{1,3}(?:[ ,]\d{3})*)[ \t]+"
+    r"(?P<cents>\d{2})[ \t]*$"
+    r"(?=(?:[ \t]*\r?\n){1,3}[ \t]*=)",
+)
 _TABLE_ROW_LABEL_PATTERN = re.compile(
     r"\b(?:size|household size|unit size)\s+\d+(?:\s+or\s+more)?(?=\s*:)",
     re.IGNORECASE,
@@ -2613,6 +2709,54 @@ def _rule_atom_evidence_by_path(
     return evidence
 
 
+def _rule_verified_source_excerpt_pairs_by_path(
+    rule: Any,
+    proof_source_texts: Mapping[str, str | None] | None,
+) -> dict[str, tuple[tuple[str | None, str], ...]]:
+    """Map proof anchors to citation-only or verified excerpt/source evidence."""
+    if not isinstance(rule, dict) or proof_source_texts is None:
+        return {}
+    metadata = rule.get("metadata")
+    proof = metadata.get("proof") if isinstance(metadata, dict) else None
+    if not isinstance(proof, dict):
+        proof = rule.get("proof")
+    atoms = proof.get("atoms") if isinstance(proof, dict) else None
+    if not isinstance(atoms, list):
+        return {}
+
+    by_path: dict[str, list[tuple[str | None, str]]] = {}
+    for atom in atoms:
+        if not isinstance(atom, dict):
+            continue
+        path = str(atom.get("path") or "").strip()
+        source = atom.get("source")
+        if not path or not isinstance(source, dict):
+            continue
+        citation_path = str(source.get("corpus_citation_path") or "").strip()
+        resolved_text = proof_source_texts.get(citation_path) if citation_path else None
+        excerpts = [
+            str(source.get(field) or "").strip() for field in ("excerpt", "quote")
+        ]
+        if not resolved_text:
+            continue
+        normalized_source = _collapse_source_sentence_text(resolved_text).lower()
+        selected_excerpts = [excerpt for excerpt in excerpts if excerpt]
+        if not selected_excerpts:
+            table = source.get("table")
+            if isinstance(table, dict) and table:
+                # Structured table coordinates are the atom's selected evidence.
+                # Do not widen them to the entire cited provision for semantic
+                # exemptions such as source-described rounding operations.
+                continue
+            by_path.setdefault(path, []).append((None, resolved_text))
+            continue
+        for excerpt in selected_excerpts:
+            normalized_excerpt = _collapse_source_sentence_text(excerpt).lower()
+            if normalized_excerpt and normalized_excerpt in normalized_source:
+                by_path.setdefault(path, []).append((excerpt, resolved_text))
+    return {path: tuple(pairs) for path, pairs in by_path.items()}
+
+
 def extract_grounding_values(content: str) -> list[tuple[int, str, float]]:
     """Extract grounded numeric values from RuleSpec definitions."""
     with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
@@ -2754,10 +2898,419 @@ def _is_half_up_rounding_helper_scalar(symbol_name: str, value: float) -> bool:
     if value != 0.5:
         return False
     normalized = symbol_name.lower()
-    if "half_increment" in normalized:
+    if "rounding" in normalized and (
+        "half_increment" in normalized or "half_unit" in normalized
+    ):
         return True
     return "half_up" in normalized and (
         "rounding" in normalized or "offset" in normalized
+    )
+
+
+def _half_up_rounding_source_matchers() -> tuple[
+    tuple[re.Pattern[str], ...],
+    re.Pattern[str],
+    re.Pattern[str],
+]:
+    """Build the narrow instruction, invalidation, and prohibition matchers."""
+    threshold_value = r"(?:five|5)"
+    threshold = (
+        r"(?:"
+        + threshold_value
+        + r"\s+or\s+(?:more|greater)|at\s+least\s+"
+        + threshold_value
+        + r"|equal\s+to\s+or\s+greater\s+than\s+"
+        + threshold_value
+        + r"|greater\s+than\s+or\s+equal\s+to\s+"
+        + threshold_value
+        + r")\b"
+        r"(?=\s*(?:[,.;:]|$|\bthen\b))"
+    )
+    second_digit = r"(?:the\s+)?(?:second|2nd)\s+digit"
+    third_digit = r"(?:the\s+)?(?:third|3rd)\s+digit"
+    decimal_position = r"(?:\s+after\s+the\s+decimal\s+point)?"
+    third_digit_position = third_digit + decimal_position
+    unit = r"(?:one|1)"
+    active_instruction = (
+        r"\b(?:increas\w*|round\w*\s+up)\s+"
+        + second_digit
+        + decimal_position
+        + r"\s+by\s+"
+        + unit
+        + r"\s+(?:if|when)\s+"
+        + third_digit_position
+        + r"\s+(?:(?:is|equals?)\s+)?"
+        + threshold
+    )
+    reverse_action = (
+        r"(?:increas\w*|round\w*\s+up)\s+"
+        + second_digit
+        + decimal_position
+        + r"\s+by\s+"
+        + unit
+    )
+    passive_action = (
+        second_digit
+        + decimal_position
+        + r"\s+(?:(?:shall|must|should|will)\s+be|is)\s+"
+        r"(?:increas\w*|round\w*\s+up)\s+by\s+" + unit
+    )
+    passive_then_condition = (
+        passive_action
+        + r"\s+(?:if|when)\s+"
+        + third_digit_position
+        + r"\s+(?:(?:is|equals?)\s+)?"
+        + threshold
+    )
+    reverse_instruction = (
+        r"\b(?:if|when)\s+"
+        + third_digit_position
+        + r"\s+(?:(?:is|equals?)\s+)?"
+        + threshold
+        + r"\s*[:,]?\s*(?:then\s+)?(?:"
+        + reverse_action
+        + "|"
+        + passive_action
+        + ")"
+    )
+    invalidation = re.compile(
+        r"(?:\b(?:(?:this|that)\s+(?:rounding\s+)?"
+        r"(?:rule|procedure|method|instruction)|the\s+rounding\s+"
+        r"(?:rule|procedure|method|instruction))\b"
+        r".{0,80}\b(?:do(?:es|ne)?\s+not\s+apply|"
+        r"(?:shall|should|must)\s+not\s+(?:apply|be\s+(?:applied|used))|"
+        r"may\s+not\s+(?:apply|be\s+(?:applied|used))|"
+        r"cannot\s+be\s+(?:applied|used)|is\s+not\s+applicable|"
+        r"is\s+inapplicable|is\s+(?:prohibit\w*|disallow\w*|forbid\w*))\b|"
+        r"\b(?:do\s+not|never|(?:shall|should|must|may)\s+not|cannot)\s+"
+        r"do\s+so\b|"
+        r"\bdoing\s+so\s+is\s+"
+        r"(?:prohibit\w*|forbid\w*|disallow\w*|not\s+(?:allowed|permitted))\b|"
+        r"\bwhich\s+is\s+"
+        r"(?:prohibit\w*|forbid\w*|disallow\w*|not\s+(?:allowed|permitted))\b|"
+        r"\b(?:this|that|it)\s+is\s+"
+        r"(?:prohibit\w*|forbid\w*|disallow\w*|not\s+(?:allowed|permitted))\b|"
+        r"\b(?:this|that|it)\s+is\s+(?:illustrative|an?\s+example)"
+        r"(?:\s+only)?\b|"
+        r"\bonly\s+as\s+an?\s+illustration\b|"
+        r"\b(?:it|this)\s+is\s+not\s+(?:allowed|permitted|authorized)\b)"
+    )
+    negated_or_excepted = re.compile(
+        r"\b(?:do\s+not|never|avoid(?:s|ed|ing)?)\b"
+        r"(?:(?![.;:]|,\s*(?:but|and)\b)[\s\S])*?"
+        r"\b(?:increas\w*|round\w*\s+up)\b|"
+        r"\b(?:not\s+to|rather\s+than)\s+"
+        r"(?:increas\w*|round\w*\s+up)\b|"
+        r"\b(?:cannot|can\s+not|does\s+not|did\s+not|"
+        r"won['\N{RIGHT SINGLE QUOTATION MARK}]t|"
+        r"shan['\N{RIGHT SINGLE QUOTATION MARK}]t|"
+        r"may\s+not|must\s+not|shall\s+not|should\s+not|"
+        r"(?:do|does|did|will|would|could|must|shall|should|is|are)"
+        r"n['\N{RIGHT SINGLE QUOTATION MARK}]t"
+        r"(?:\s+to)?|can['\N{RIGHT SINGLE QUOTATION MARK}]t)\b"
+        r"(?:(?![,;:])[\s\S]){0,80}\b(?:increas\w*|round\w*\s+up)\b|"
+        r"\b(?:is\s+)?(?:prohibit\w*|forbid\w*|"
+        r"not\s+(?:permitted|allowed|authorized))\s+to\s+"
+        r"(?:increas\w*|round\w*\s+up)\b|"
+        r"\bno\s+need\s+to\s+(?:increas\w*|round\w*\s+up)\b|"
+        r"\b(?:except(?:ion)?|excluding|unless|subject\s+to)\b|"
+        r"\bfor\s+example\b|"
+        r"\b(?:for|only\s+as\s+an?)\s+illustration\b|"
+        r"\b(?:but|although)\b.{0,80}"
+        r"(?:\b(?:(?:may|shall|should|must|will|would|could)\s+not\s+|cannot\s+)"
+        r"(?:apply|be\s+(?:applied|used)|do\s+so)\b|"
+        r"\bonly\s+(?:an?\s+)?example\b|"
+        r"\bnot\s+(?:calculations?|computations?)\b)"
+    )
+    return (
+        tuple(
+            re.compile(pattern)
+            for pattern in (
+                active_instruction,
+                reverse_instruction,
+                passive_then_condition,
+            )
+        ),
+        invalidation,
+        negated_or_excepted,
+    )
+
+
+def _normalized_half_up_rounding_source_text(source_text: str) -> str:
+    normalized = re.sub(r"[^\S\n]+", " ", source_text.strip()).lower()
+    normalized = re.sub(r",\s*\n\s*", ", ", normalized)
+    return re.sub(r"(?<=[a-z0-9)])\n\s*(?=[a-z0-9])", " ", normalized)
+
+
+def _half_up_rounding_clause_instruction_spans(
+    source_text: str,
+    instruction_patterns: tuple[re.Pattern[str], ...],
+    negated_or_excepted: re.Pattern[str],
+) -> tuple[tuple[int, int], ...]:
+    """Return structurally affirmative instructions in one source clause."""
+    normalized = source_text.lower()
+    if negated_or_excepted.search(normalized):
+        return ()
+    candidate_spans = sorted(
+        {
+            match.span()
+            for pattern in instruction_patterns
+            for match in pattern.finditer(normalized)
+        }
+    )
+    accepted: list[tuple[int, int]] = []
+    for span in candidate_spans:
+        start, _end = span
+        prefix_start = accepted[-1][1] if accepted else 0
+        prefix = normalized[prefix_start:start]
+        if accepted:
+            if not re.fullmatch(r"\s*,?\s*(?:and|or)\s+", prefix):
+                continue
+        elif prefix.strip(" \t\r\n,:"):
+            structural_prefix = _STRUCTURAL_SOURCE_PREFIX_PATTERN.fullmatch(prefix)
+            official_context = re.fullmatch(
+                r"\s*(?:if|when)\s+.{1,240}\b(?:has|have)\s+"
+                r"(?:three|3)\s+or\s+more\s+digits?\s+after\s+the\s+"
+                r"decimal\s+point\s*,\s*",
+                prefix,
+            )
+            unrelated_contrast = re.fullmatch(r".+,\s*but\s+", prefix)
+            if (
+                not structural_prefix
+                and not official_context
+                and not unrelated_contrast
+            ):
+                continue
+        accepted.append(span)
+    return tuple(accepted)
+
+
+def _half_up_rounding_clause_instruction_count(
+    source_text: str,
+    instruction_patterns: tuple[re.Pattern[str], ...],
+    negated_or_excepted: re.Pattern[str],
+) -> int:
+    """Count exact instructions in one clause after clause-level exclusions."""
+    return len(
+        _half_up_rounding_clause_instruction_spans(
+            source_text, instruction_patterns, negated_or_excepted
+        )
+    )
+
+
+def _half_up_rounding_supported_line_flags(
+    lines: list[str],
+    instruction_patterns: tuple[re.Pattern[str], ...],
+    negated_or_excepted: re.Pattern[str],
+) -> tuple[bool, ...]:
+    """Mark complete instruction lines not negated by the preceding line."""
+    flags: list[bool] = []
+    for index, line in enumerate(lines):
+        supported = bool(
+            _half_up_rounding_clause_instruction_count(
+                line, instruction_patterns, negated_or_excepted
+            )
+        )
+        if supported and index:
+            preceding_line = lines[index - 1].strip().lower()
+            dangling_negation = bool(
+                re.search(
+                    r"\b(?:do\s+not|never|avoid|cannot|can\s+not|"
+                    r"may\s+not|must\s+not|shall\s+not|should\s+not|"
+                    r"will\s+not|would\s+not|could\s+not|not\s+to)\s*$",
+                    preceding_line,
+                )
+                or re.fullmatch(
+                    r"\s*(?:do\s+not|never|avoid)\s*,\s*[^,]+,?\s*",
+                    preceding_line,
+                )
+            )
+            supported = not dangling_negation
+        flags.append(supported)
+    return tuple(flags)
+
+
+def normalize_source_backed_half_up_rounding_occurrence_text(
+    source_text: str,
+) -> str:
+    """Spell out increments only inside recognized affirmative instructions."""
+    instruction_patterns, invalidation, negated_or_excepted = (
+        _half_up_rounding_source_matchers()
+    )
+    case_insensitive_patterns = tuple(
+        re.compile(pattern.pattern, re.IGNORECASE) for pattern in instruction_patterns
+    )
+
+    def normalize_instruction_units(text: str) -> str:
+        spans = _half_up_rounding_clause_instruction_spans(
+            text, case_insensitive_patterns, negated_or_excepted
+        )
+        if not spans:
+            return text
+        for start, end in sorted(spans, reverse=True):
+            instruction = re.sub(
+                r"(\bby\s+)1\b",
+                r"\g<1>one",
+                text[start:end],
+                flags=re.IGNORECASE,
+            )
+            text = text[:start] + instruction + text[end:]
+        return text
+
+    parts = re.split(r"([.!?;]+)", source_text)
+    clause_indexes = [
+        index for index in range(0, len(parts), 2) if parts[index].strip()
+    ]
+    for position, part_index in enumerate(clause_indexes):
+        clause = parts[part_index]
+        context_indexes = clause_indexes[max(0, position - 1) : position + 2]
+        context = _normalized_half_up_rounding_source_text(
+            ". ".join(parts[index] for index in context_indexes)
+        )
+        if invalidation.search(context):
+            continue
+        lines = clause.splitlines(keepends=True)
+        supported_line_flags = _half_up_rounding_supported_line_flags(
+            lines, instruction_patterns, negated_or_excepted
+        )
+        if any(supported_line_flags):
+            parts[part_index] = "".join(
+                normalize_instruction_units(line)
+                if supported_line_flags[index]
+                else line
+                for index, line in enumerate(lines)
+            )
+        else:
+            parts[part_index] = normalize_instruction_units(clause)
+    return "".join(parts)
+
+
+def _is_source_backed_half_up_rounding_helper(
+    symbol_name: str,
+    value: float,
+    source_text: str,
+) -> bool:
+    """Return True for an explicit source-backed half-up digit instruction."""
+    return bool(
+        _source_backed_half_up_rounding_instruction_count(
+            symbol_name, value, source_text
+        )
+    )
+
+
+def _source_backed_half_up_rounding_instruction_count(
+    symbol_name: str,
+    value: float,
+    source_text: str,
+) -> int:
+    """Count supported instructions while retaining adjacent invalidations."""
+    if not _is_half_up_rounding_helper_scalar(symbol_name, value):
+        return 0
+    instruction_patterns, invalidation, negated_or_excepted = (
+        _half_up_rounding_source_matchers()
+    )
+    punctuation_clauses = [
+        clause.strip() for clause in re.split(r"[.!?;]+", source_text) if clause.strip()
+    ]
+    clauses: list[str] = []
+    for clause in punctuation_clauses:
+        lines = [line.strip() for line in clause.splitlines() if line.strip()]
+        supported_line_flags = _half_up_rounding_supported_line_flags(
+            lines, instruction_patterns, negated_or_excepted
+        )
+        if not any(supported_line_flags):
+            clauses.append(clause)
+            continue
+        for index, line in enumerate(lines):
+            raw_supported = bool(
+                _half_up_rounding_clause_instruction_count(
+                    line, instruction_patterns, negated_or_excepted
+                )
+            )
+            if raw_supported and not supported_line_flags[index] and index:
+                clauses.append(f"{lines[index - 1]}\n{line}")
+            else:
+                clauses.append(line)
+    count = 0
+    for index, clause in enumerate(clauses):
+        instruction_count = _half_up_rounding_clause_instruction_count(
+            clause, instruction_patterns, negated_or_excepted
+        )
+        if not instruction_count:
+            continue
+        context = _normalized_half_up_rounding_source_text(
+            ". ".join(clauses[max(0, index - 1) : index + 2])
+        )
+        if not invalidation.search(context):
+            count += instruction_count
+    return count
+
+
+def source_backed_half_up_rounding_helper_count(
+    content: str,
+    authoritative_source_text: str,
+) -> int:
+    """Count source instructions supported by at least one direct helper."""
+    with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
+        payload = yaml.safe_load(content)
+        rules = payload.get("rules") if isinstance(payload, dict) else None
+        if isinstance(rules, list):
+            selector_table_keys = _rulespec_index_selector_keys(rules)
+            for rule in rules:
+                rule_name = (
+                    str(rule.get("name") or "").strip()
+                    if isinstance(rule, dict)
+                    else ""
+                )
+                for anchor_path, _raw, value in _rule_grounding_values_by_path(
+                    rule,
+                    selector_table_keys=selector_table_keys,
+                ):
+                    if not _is_direct_half_up_rounding_helper_value(
+                        rule, anchor_path, value
+                    ):
+                        continue
+                    instruction_count = (
+                        _source_backed_half_up_rounding_instruction_count(
+                            rule_name,
+                            value,
+                            authoritative_source_text,
+                        )
+                    )
+                    if instruction_count:
+                        return instruction_count
+    return 0
+
+
+def _is_direct_half_up_rounding_helper_value(
+    rule: Any,
+    anchor_path: str,
+    value: float,
+) -> bool:
+    """Return True only for a helper version whose whole formula is ``0.5``."""
+    if not isinstance(rule, dict):
+        return False
+    rule_name = str(rule.get("name") or "").strip()
+    if not _is_half_up_rounding_helper_scalar(rule_name, value):
+        return False
+    match = re.fullmatch(r"versions\[(\d+)\]\.formula", anchor_path)
+    versions = rule.get("versions")
+    if match is None or not isinstance(versions, list):
+        return False
+    index = int(match.group(1))
+    if index >= len(versions) or not isinstance(versions[index], dict):
+        return False
+    direct_value = _numeric_rule_value(versions[index].get("formula"))
+    return direct_value is not None and direct_value[1] == value
+
+
+def _strip_ambiguous_half_up_terms(text: str) -> str:
+    """Remove ``half-up`` prose while retaining substantive word-form halves."""
+    return re.sub(
+        r"\bhalf[- ]up\b",
+        " ",
+        text,
+        flags=re.IGNORECASE,
     )
 
 
@@ -3127,9 +3680,13 @@ def _call_body_contains_any(
 
 def extract_numbers_from_text(text: str) -> set[float]:
     """Extract numeric values from embedded statute text."""
-    original_text = text
+    implied_cents_matches = _iter_form_implied_cents_matches(text)
+    original_text = _FORM_IMPLIED_CENTS_PATTERN.sub(
+        lambda match: " " * len(match.group(0)),
+        text,
+    )
     two_line_table_occurrences = _extract_two_line_table_value_occurrences(text)
-    text = _clean_source_text_for_numeric_extraction(text)
+    text = _clean_source_text_for_numeric_extraction(original_text)
     schedule_occurrences, text = _extract_collapsed_schedule_row_occurrences(text)
     numbers = set()
     occupied_spans: list[tuple[int, int]] = []
@@ -3159,6 +3716,10 @@ def extract_numbers_from_text(text: str) -> set[float]:
     numbers.update(_extract_dotted_date_year_values(original_text))
     numbers.update(_extract_centime_unit_values(original_text))
     numbers.update(_extract_annual_context_values(original_text))
+    numbers.update(_extract_form_arithmetic_operand_values(original_text))
+    numbers.update(_extract_contextual_ascii_fraction_values(original_text))
+    numbers.update(_extract_small_month_range_values(original_text))
+    numbers.update(value for _, value in implied_cents_matches)
     numbers.update(_extract_vehicle_tax_fiscal_power_table_values(original_text))
 
     for match in GLUED_UNIT_NUMBER_PATTERN.finditer(text):
@@ -3690,6 +4251,77 @@ def _extract_annual_context_values(text: str) -> set[float]:
     return set()
 
 
+def _extract_form_arithmetic_operand_values(text: str) -> list[float]:
+    """Extract operands printed in official form calculation cells."""
+
+    values: list[float] = []
+    fraction_spans: list[tuple[int, int]] = []
+    for match in (
+        *_FORM_ARITHMETIC_FRACTION_PATTERN.finditer(text),
+        *_STANDALONE_FORM_FRACTION_PATTERN.finditer(text),
+    ):
+        with contextlib.suppress(ValueError, ZeroDivisionError):
+            denominator = float(match.group("denominator"))
+            values.append(float(match.group("numerator")) / denominator)
+            fraction_spans.append(match.span())
+    for match in _FORM_ARITHMETIC_OPERAND_PATTERN.finditer(text):
+        if _span_overlaps(match.span(), fraction_spans):
+            continue
+        with contextlib.suppress(ValueError):
+            value = float(match.group("number").replace(",", ""))
+            values.append(value / 100 if match.group("percent") else value)
+    return values
+
+
+def _extract_contextual_ascii_fraction_values(text: str) -> list[float]:
+    """Extract source-stated factors such as ``1 1/2`` and ``7/8 times``."""
+
+    values: list[float] = []
+    for match in _CONTEXTUAL_ASCII_FRACTION_PATTERN.finditer(text):
+        with contextlib.suppress(ValueError, ZeroDivisionError):
+            whole = float(match.group("whole") or 0)
+            numerator = float(match.group("numerator"))
+            denominator = float(match.group("denominator"))
+            values.append(whole + numerator / denominator)
+    return values
+
+
+def _extract_small_month_range_values(text: str) -> list[float]:
+    """Expand bounded month-count ranges explicitly stated by official tables."""
+
+    values: list[float] = []
+    for match in _SMALL_MONTH_RANGE_PATTERN.finditer(text):
+        start = int(match.group("start"))
+        end = int(match.group("end"))
+        preceding_context = text[max(0, match.start() - 500) : match.start()]
+        row_context = text[match.start() : match.end() + 80]
+        if (
+            0 <= start <= end <= 24
+            and re.search(
+                r"\bmonthly\s+proration\s+table\b",
+                preceding_context,
+                re.IGNORECASE,
+            )
+            and re.search(r"\bline\s+[A-E]\b", row_context, re.IGNORECASE)
+        ):
+            values.extend(float(value) for value in range(start, end + 1))
+    return values
+
+
+def _iter_form_implied_cents_matches(
+    text: str,
+) -> list[tuple[tuple[int, int], float]]:
+    """Match fixed-width form amounts whose decimal separator is omitted."""
+
+    matches: list[tuple[tuple[int, int], float]] = []
+    for match in _FORM_IMPLIED_CENTS_PATTERN.finditer(text):
+        with contextlib.suppress(ValueError):
+            dollars = float(match.group("dollars").replace(",", "").replace(" ", ""))
+            cents = float(match.group("cents"))
+            matches.append((match.span(), dollars + cents / 100))
+    return matches
+
+
 def _extract_vehicle_tax_fiscal_power_table_values(text: str) -> set[float]:
     values: set[float] = set()
     lowered = text.lower()
@@ -4212,15 +4844,20 @@ def _extract_two_line_table_value_occurrences(text: str) -> list[float]:
 
 def extract_numeric_occurrences_from_text(text: str) -> list[float]:
     """Extract substantive numeric occurrences from source text, preserving repeats."""
-    raw_text = text
+    implied_cents_matches = _iter_form_implied_cents_matches(text)
+    raw_text = _FORM_IMPLIED_CENTS_PATTERN.sub(
+        lambda match: " " * len(match.group(0)),
+        text,
+    )
     two_line_table_occurrences = _extract_two_line_table_value_occurrences(text)
-    cleaned = _clean_source_text_for_numeric_extraction(text)
+    cleaned = _clean_source_text_for_numeric_extraction(raw_text)
     collapsed_schedule_occurrences, cleaned = (
         _extract_collapsed_schedule_row_occurrences(cleaned)
     )
 
     occurrences: list[float] = list(two_line_table_occurrences)
     occurrences.extend(collapsed_schedule_occurrences)
+    occurrences.extend(value for _, value in implied_cents_matches)
     spans: list[tuple[int, int]] = []
     cleaned_money_values: list[float] = []
     for span, value in _iter_belgian_numeric_range_endpoint_matches(cleaned):
@@ -4252,6 +4889,9 @@ def extract_numeric_occurrences_from_text(text: str) -> list[float]:
     occurrences.extend(_extract_year_duration_month_values(raw_text))
     occurrences.extend(_extract_dotted_date_year_values(raw_text))
     occurrences.extend(_extract_centime_unit_values(raw_text))
+    occurrences.extend(_extract_form_arithmetic_operand_values(raw_text))
+    occurrences.extend(_extract_contextual_ascii_fraction_values(raw_text))
+    occurrences.extend(_extract_small_month_range_values(raw_text))
 
     for span, value in _iter_normalized_special_numeric_matches(cleaned):
         if _span_overlaps(span, spans):
@@ -4528,10 +5168,15 @@ def _numeric_value_grounded_in_source(
 def _ungrounded_from_values(
     grounding_values: Sequence[tuple[int, str, float]],
     source: str,
+    *,
+    source_numbers: set[float] | None = None,
+    decimal_place_scale_values: set[float] | None = None,
 ) -> list[str]:
     """Report values not grounded in ``source`` (which must be pre-stripped)."""
-    source_numbers = extract_numbers_from_text(source)
-    decimal_place_scale_values = _decimal_place_scale_values_from_source(source)
+    if source_numbers is None:
+        source_numbers = extract_numbers_from_text(source)
+    if decimal_place_scale_values is None:
+        decimal_place_scale_values = _decimal_place_scale_values_from_source(source)
     issues: list[str] = []
     for _, raw, value in grounding_values:
         if _numeric_value_grounded_in_source(
@@ -4546,9 +5191,100 @@ def _ungrounded_from_values(
     return issues
 
 
+def evaluate_numeric_grounding_values(
+    content: str,
+    source_text: str,
+    *,
+    authoritative_source_text: str | None = None,
+) -> list[tuple[int, str, float, bool]]:
+    """Return a grounding decision for every generated numeric literal.
+
+    ``source_text`` may include excerpt-verified proof evidence used for ordinary
+    literal matching. Semantic rounding support is intentionally restricted to
+    ``authoritative_source_text`` when supplied, so inline excerpts cannot grant
+    the half-up helper exemption.
+    """
+    grounding_values = extract_grounding_values(content)
+    if not grounding_values:
+        return []
+
+    authoritative_source = (
+        source_text
+        if authoritative_source_text is None
+        else authoritative_source_text.strip()
+    )
+    with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
+        payload = yaml.safe_load(content)
+        rules = payload.get("rules") if isinstance(payload, dict) else None
+        if isinstance(rules, list):
+            selector_table_keys = _rulespec_index_selector_keys(rules)
+            decisions: list[tuple[int, str, float, bool]] = []
+            source_indexes: dict[str, tuple[set[float], set[float]]] = {}
+            for rule in rules:
+                anchored_values = _rule_grounding_values_by_path(
+                    rule, selector_table_keys=selector_table_keys
+                )
+                rule_name = (
+                    str(rule.get("name") or "").strip()
+                    if isinstance(rule, dict)
+                    else ""
+                )
+                for anchor_path, raw, value in anchored_values:
+                    direct_half_up_helper = _is_direct_half_up_rounding_helper_value(
+                        rule, anchor_path, value
+                    )
+                    if direct_half_up_helper and (
+                        _is_source_backed_half_up_rounding_helper(
+                            rule_name, value, authoritative_source
+                        )
+                    ):
+                        decisions.append((1, raw, value, True))
+                        continue
+                    grounding_source = (
+                        _strip_ambiguous_half_up_terms(source_text)
+                        if _is_half_up_rounding_helper_scalar(rule_name, value)
+                        else source_text
+                    )
+                    source_index = source_indexes.get(grounding_source)
+                    if source_index is None:
+                        source_index = (
+                            extract_numbers_from_text(grounding_source),
+                            _decimal_place_scale_values_from_source(grounding_source),
+                        )
+                        source_indexes[grounding_source] = source_index
+                    decisions.append(
+                        (
+                            1,
+                            raw,
+                            value,
+                            _numeric_value_grounded_in_source(
+                                value, source_index[0], source_index[1]
+                            ),
+                        )
+                    )
+            if len(decisions) == len(grounding_values):
+                return decisions
+
+    source_numbers = extract_numbers_from_text(source_text)
+    decimal_place_scale_values = _decimal_place_scale_values_from_source(source_text)
+    return [
+        (
+            line,
+            raw,
+            value,
+            _numeric_value_grounded_in_source(
+                value, source_numbers, decimal_place_scale_values
+            ),
+        )
+        for line, raw, value in grounding_values
+    ]
+
+
 def find_ungrounded_numeric_issues(
     content: str,
     source_text: str | None = None,
+    *,
+    authoritative_source_text: str | None = None,
 ) -> list[str]:
     """Return issues for generated numeric literals absent from source text."""
     grounding_values = extract_grounding_values(content)
@@ -4566,7 +5302,20 @@ def find_ungrounded_numeric_issues(
             "`module.summary` is not accepted as source text for numeric grounding."
         ]
 
-    return _ungrounded_from_values(grounding_values, source)
+    issues: list[str] = []
+    for _line, raw, value, grounded in evaluate_numeric_grounding_values(
+        content,
+        source,
+        authoritative_source_text=authoritative_source_text,
+    ):
+        if grounded:
+            continue
+        display = raw if raw == f"{value:g}" else f"{raw} ({value:g})"
+        issues.append(
+            "Ungrounded generated numeric literal: "
+            f"{display} does not appear as a substantive numeric value in the source text."
+        )
+    return issues
 
 
 def find_ungrounded_numeric_issues_scoped(
@@ -4629,10 +5378,46 @@ def find_ungrounded_numeric_issues_scoped(
         # fabricated value that merely appears in its own excerpt. Module-source
         # retention matches the pre-existing single-source check (no regression).
         evidence_by_path = _rule_atom_evidence_by_path(rule, proof_source_texts)
+        verified_source_pairs_by_path = _rule_verified_source_excerpt_pairs_by_path(
+            rule, proof_source_texts
+        )
+        rule_name = (
+            str(rule.get("name") or "").strip() if isinstance(rule, dict) else ""
+        )
         for anchor_path, raw, value in anchored_values:
+            direct_half_up_helper = _is_direct_half_up_rounding_helper_value(
+                rule, anchor_path, value
+            )
             texts = [module_source, evidence_by_path.get(anchor_path, "")]
             combined = "\n".join(text for text in texts if text).strip()
-            for issue in _ungrounded_from_values([(1, raw, value)], combined):
+            source_evidence = verified_source_pairs_by_path.get(anchor_path, ())
+            module_supports_rounding = bool(module_source) and (
+                _is_source_backed_half_up_rounding_helper(
+                    rule_name, value, module_source
+                )
+            )
+            atom_supports_rounding = any(
+                (
+                    excerpt is None
+                    or _is_source_backed_half_up_rounding_helper(
+                        rule_name, value, excerpt
+                    )
+                )
+                and _is_source_backed_half_up_rounding_helper(
+                    rule_name, value, resolved_source
+                )
+                for excerpt, resolved_source in source_evidence
+            )
+            if direct_half_up_helper and (
+                module_supports_rounding or atom_supports_rounding
+            ):
+                continue
+            grounding_source = (
+                _strip_ambiguous_half_up_terms(combined)
+                if _is_half_up_rounding_helper_scalar(rule_name, value)
+                else combined
+            )
+            for issue in _ungrounded_from_values([(1, raw, value)], grounding_source):
                 if issue not in seen:
                     seen.add(issue)
                     issues.append(issue)
@@ -9635,7 +10420,21 @@ def find_person_scoped_definition_unit_issues(content: str) -> list[str]:
         entity = str(rule.get("entity") or "").strip()
         if entity.lower() not in _UNIT_SCOPED_ENTITY_NAMES:
             continue
-        scoped_source_text = " ".join(_rule_proof_source_excerpts(rule))
+        proof_source_excerpts = _rule_proof_source_excerpts(rule)
+        source_scope_record = (
+            _rule_source_scope(rule, source_text) if proof_source_excerpts else None
+        )
+        if source_scope_record is not None:
+            source_scope, source_unit_entity = source_scope_record
+            if source_scope == _SOURCE_SCOPE_UNIT and (
+                source_unit_entity is None
+                or _unit_entities_are_equivalent(
+                    entity.lower(),
+                    source_unit_entity,
+                )
+            ):
+                continue
+        scoped_source_text = " ".join(proof_source_excerpts)
         if not scoped_source_text:
             scoped_source_text = _source_text_for_rule_source(source_text, rule_source)
         if (
@@ -19264,6 +20063,12 @@ def _validate_explicit_rulespec_directory(
 
     raw = Path(os.path.abspath(Path(root).expanduser()))
     checked = _normalize_macos_system_path_alias(raw)
+    cache = _RULESPEC_RESOLUTION_CACHE.get()
+    cached = cache.explicit_directories.get(raw) if cache is not None else None
+    if cached is not None:
+        if _path_identity_fingerprint(checked) == cached.path_identity:
+            return cached.resolved
+        cache.explicit_directories.pop(raw, None)
     cursor = Path(checked.anchor)
     relative_parts = checked.parts[1:] if checked.is_absolute() else checked.parts
     for part in relative_parts:
@@ -19276,6 +20081,13 @@ def _validate_explicit_rulespec_directory(
         raise UnsafeRulespecContextPath(f"{label} does not exist: {raw}") from exc
     if not resolved.is_dir():
         raise UnsafeRulespecContextPath(f"{label} is not a directory: {raw}")
+    if cache is not None:
+        path_identity = _path_identity_fingerprint(checked)
+        if path_identity is not None:
+            cache.explicit_directories[raw] = _CachedExplicitDirectory(
+                resolved=resolved,
+                path_identity=path_identity,
+            )
     return resolved
 
 
@@ -19305,6 +20117,25 @@ def _normalize_macos_system_path_alias(path: Path) -> Path:
 def _rulespec_checkout_root_for_active_path(path: Path) -> Path:
     """Return the direct country checkout for one explicit content root."""
 
+    cache = _RULESPEC_RESOLUTION_CACHE.get()
+    cache_key = Path(os.path.abspath(Path(path).expanduser()))
+    cached = cache.active_checkouts.get(cache_key) if cache is not None else None
+    if cached is not None:
+        active = _validate_explicit_rulespec_directory(
+            path,
+            label="active RuleSpec root",
+        )
+        identity = canonical_rulespec_root_identity(active)
+        if active == cached.active and identity is not None:
+            checkout = active.parent
+            if checkout == cached.checkout:
+                _reject_rulespec_checkout_symlinks(
+                    checkout,
+                    label="active RuleSpec checkout",
+                )
+                return checkout
+        cache.active_checkouts.pop(cache_key, None)
+
     active = _validate_explicit_rulespec_directory(
         path,
         label="active RuleSpec root",
@@ -19321,20 +20152,56 @@ def _rulespec_checkout_root_for_active_path(path: Path) -> Path:
         checkout,
         label="active RuleSpec checkout",
     )
+    if cache is not None:
+        cache.active_checkouts[cache_key] = _CachedActiveCheckout(
+            active=active,
+            checkout=checkout,
+        )
     return checkout
 
 
 def _reject_rulespec_checkout_symlinks(checkout: Path, *, label: str) -> None:
     """Reject every symlink beneath a checkout exposed to the RuleSpec engine."""
 
+    cache = _RULESPEC_RESOLUTION_CACHE.get()
+    cache_key = Path(checkout).resolve()
+    cached = cache.symlink_audits.get(cache_key) if cache is not None else None
+    if cached is not None:
+        current_stamps = tuple(
+            (directory, _path_mutation_stamp(directory))
+            for directory, _stamp in cached.directory_stamps
+        )
+        if current_stamps == cached.directory_stamps:
+            return
+        cache.symlink_audits.pop(cache_key, None)
+
+    directory_stamps: list[tuple[Path, _PathMutationStamp]] = []
     for current, directory_names, file_names in os.walk(checkout, followlinks=False):
         current_path = Path(current)
+        current_stamp = _path_mutation_stamp(current_path)
+        if current_stamp is None:
+            raise UnsafeRulespecContextPath(
+                f"{label} changed during symlink audit: {current_path}"
+            )
+        directory_stamps.append((current_path, current_stamp))
         for name in (*directory_names, *file_names):
             candidate = current_path / name
             if candidate.is_symlink():
                 raise UnsafeRulespecContextPath(
                     f"{label} contains a symlink: {candidate}"
                 )
+    if cache is not None:
+        stable_stamps = tuple(
+            (directory, _path_mutation_stamp(directory))
+            for directory, _stamp in directory_stamps
+        )
+        if stable_stamps != tuple(directory_stamps):
+            raise UnsafeRulespecContextPath(
+                f"{label} changed during symlink audit: {checkout}"
+            )
+        cache.symlink_audits[cache_key] = _CachedSymlinkAudit(
+            directory_stamps=stable_stamps,
+        )
 
 
 def _normalize_rulespec_dependency_roots(
@@ -19414,11 +20281,35 @@ def _resolve_rulespec_target_file(
     rulespec_dependency_roots: Iterable[Path] | None = None,
 ) -> Path | None:
     """Resolve a canonical target only through caller-authorized checkouts."""
+    dependency_roots = _effective_rulespec_dependency_roots(rulespec_dependency_roots)
+    policy_root_key = (
+        Path(os.path.abspath(Path(policy_repo_path).expanduser()))
+        if policy_repo_path is not None
+        else None
+    )
+    cache = _RULESPEC_RESOLUTION_CACHE.get()
+    cache_key = (target_ref, policy_root_key, dependency_roots)
+    cached = cache.target_files.get(cache_key) if cache is not None else None
+    if cached is not None:
+        current_identity = _path_identity_fingerprint(cached.target_file)
+        current_stamp = _path_mutation_stamp(cached.target_file)
+        if (
+            current_identity == cached.path_identity
+            and current_stamp == cached.file_stamp
+            and canonical_rulespec_repo_name(cached.content_root)
+            == target_ref.repo_name
+        ):
+            _reject_rulespec_checkout_symlinks(
+                cached.content_root.parent,
+                label="resolved RuleSpec checkout",
+            )
+            return cached.target_file
+        cache.target_files.pop(cache_key, None)
     for root in _candidate_rulespec_repo_roots(
         target_ref.repo_name,
         policy_repo_path,
         prefix=target_ref.prefix,
-        rulespec_dependency_roots=rulespec_dependency_roots,
+        rulespec_dependency_roots=dependency_roots,
     ):
         if not root.is_dir():
             continue
@@ -19436,7 +20327,18 @@ def _resolve_rulespec_target_file(
             raise UnsafeRulespecContextPath(
                 f"Resolved RuleSpec target is a symlink: {target_file}"
             )
-        return validate_rulespec_context_file(target_file, root)
+        resolved = validate_rulespec_context_file(target_file, root)
+        if cache is not None:
+            path_identity = _path_identity_fingerprint(resolved)
+            file_stamp = _path_mutation_stamp(resolved)
+            if path_identity is not None and file_stamp is not None:
+                cache.target_files[cache_key] = _CachedTargetFile(
+                    target_file=resolved,
+                    content_root=root,
+                    path_identity=path_identity,
+                    file_stamp=file_stamp,
+                )
+        return resolved
     return None
 
 
@@ -20399,7 +21301,10 @@ class ValidatorPipeline:
     ) -> PipelineResult:
         """Run validation with the caller-authorized dependency roots bound."""
 
-        with _authoritative_rulespec_dependency_scope(self.rulespec_dependency_roots):
+        with (
+            _rulespec_resolution_cache_scope(),
+            _authoritative_rulespec_dependency_scope(self.rulespec_dependency_roots),
+        ):
             return self._validate_with_authoritative_roots(
                 rulespec_file,
                 skip_reviewers=skip_reviewers,
