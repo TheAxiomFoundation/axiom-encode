@@ -332,7 +332,10 @@ def test_audit_rechecks_discrepant_results_in_isolation(monkeypatch, capsys):
                         "fingerprint": fp_good,
                         "owner": "@MaxGhenis",
                         "issue": "https://github.com/TheAxiomFoundation/rulespec-us/issues/1",
-                        "expires": (__import__("datetime").date.today() + __import__("datetime").timedelta(days=60)).isoformat(),
+                        "expires": (
+                            __import__("datetime").date.today()
+                            + __import__("datetime").timedelta(days=60)
+                        ).isoformat(),
                     }
                 }
             }
@@ -347,12 +350,12 @@ def test_audit_rechecks_discrepant_results_in_isolation(monkeypatch, capsys):
             patch.object(
                 cli, "_fingerprint_validation_waiver_modules_parallel", fake_parallel
             ),
-            patch.object(
-                cli, "_fingerprint_validation_waiver_modules", fake_serial
-            ),
+            patch.object(cli, "_fingerprint_validation_waiver_modules", fake_serial),
         ):
             code = cli._cmd_validation_waivers_audit(
-                _audit_args(td, root, _P(td) / "corpus", _P(td) / "engine", base, changed)
+                _audit_args(
+                    td, root, _P(td) / "corpus", _P(td) / "engine", base, changed
+                )
             )
 
     assert code == 0
@@ -395,7 +398,10 @@ def test_audit_reports_discrepancy_that_survives_isolation(monkeypatch, capsys):
                         "fingerprint": fp_good,
                         "owner": "@MaxGhenis",
                         "issue": "https://github.com/TheAxiomFoundation/rulespec-us/issues/1",
-                        "expires": (__import__("datetime").date.today() + __import__("datetime").timedelta(days=60)).isoformat(),
+                        "expires": (
+                            __import__("datetime").date.today()
+                            + __import__("datetime").timedelta(days=60)
+                        ).isoformat(),
                     }
                 }
             }
@@ -413,7 +419,9 @@ def test_audit_reports_discrepancy_that_survives_isolation(monkeypatch, capsys):
             patch.object(cli, "_fingerprint_validation_waiver_modules", fake_serial),
         ):
             code = cli._cmd_validation_waivers_audit(
-                _audit_args(td, root, _P(td) / "corpus", _P(td) / "engine", base, changed)
+                _audit_args(
+                    td, root, _P(td) / "corpus", _P(td) / "engine", base, changed
+                )
             )
 
     assert code == 1
@@ -445,18 +453,55 @@ def _ledger_for(paths_states, tmp_path):
     ("kind", "states", "row", "expect_recheck"),
     [
         # active must fail with the recorded fingerprint
-        ("active-ok", {"active": "sha256:" + "a" * 64}, {"passed": False, "fingerprint": "sha256:" + "a" * 64}, False),
-        ("active-stale", {"active": "sha256:" + "a" * 64}, {"passed": True, "fingerprint": "sha256:" + "a" * 64}, True),
-        ("active-drift", {"active": "sha256:" + "a" * 64}, {"passed": False, "fingerprint": "sha256:" + "b" * 64}, True),
+        (
+            "active-ok",
+            {"active": "sha256:" + "a" * 64},
+            {"passed": False, "fingerprint": "sha256:" + "a" * 64},
+            False,
+        ),
+        (
+            "active-stale",
+            {"active": "sha256:" + "a" * 64},
+            {"passed": True, "fingerprint": "sha256:" + "a" * 64},
+            True,
+        ),
+        (
+            "active-drift",
+            {"active": "sha256:" + "a" * 64},
+            {"passed": False, "fingerprint": "sha256:" + "b" * 64},
+            True,
+        ),
         # pending-only must pass
-        ("pending-pass", {"pending": "sha256:" + "a" * 64}, {"passed": True, "fingerprint": "sha256:" + "c" * 64}, False),
-        ("pending-fail", {"pending": "sha256:" + "a" * 64}, {"passed": False, "fingerprint": "sha256:" + "c" * 64}, True),
+        (
+            "pending-pass",
+            {"pending": "sha256:" + "a" * 64},
+            {"passed": True, "fingerprint": "sha256:" + "c" * 64},
+            False,
+        ),
+        (
+            "pending-fail",
+            {"pending": "sha256:" + "a" * 64},
+            {"passed": False, "fingerprint": "sha256:" + "c" * 64},
+            True,
+        ),
         # removed (base-active, absent from head) must pass
-        ("removed-pass", "removed", {"passed": True, "fingerprint": "sha256:" + "c" * 64}, False),
-        ("removed-fail", "removed", {"passed": False, "fingerprint": "sha256:" + "c" * 64}, True),
+        (
+            "removed-pass",
+            "removed",
+            {"passed": True, "fingerprint": "sha256:" + "c" * 64},
+            False,
+        ),
+        (
+            "removed-fail",
+            "removed",
+            {"passed": False, "fingerprint": "sha256:" + "c" * 64},
+            True,
+        ),
     ],
 )
-def test_recheck_selection_mirrors_verdicts(monkeypatch, kind, states, row, expect_recheck, tmp_path):
+def test_recheck_selection_mirrors_verdicts(
+    monkeypatch, kind, states, row, expect_recheck, tmp_path
+):
     monkeypatch.setenv(cli._WAIVER_AUDIT_WORKERS_ENV, "1")
     module_rel = "us/statutes/x.yaml"
     root = tmp_path / "rulespec-us"
@@ -466,9 +511,7 @@ def test_recheck_selection_mirrors_verdicts(monkeypatch, kind, states, row, expe
         head_states, base_states = {}, {module_rel: {"active": "sha256:" + "a" * 64}}
     else:
         head_states, base_states = {module_rel: states}, {module_rel: states}
-    (root / "known-validation-gaps.yaml").write_text(
-        _ledger_for(head_states, tmp_path)
-    )
+    (root / "known-validation-gaps.yaml").write_text(_ledger_for(head_states, tmp_path))
     base = tmp_path / "base.yaml"
     base.write_text(_ledger_for(base_states, tmp_path))
     changed = tmp_path / "changed.txt"
@@ -484,7 +527,9 @@ def test_recheck_selection_mirrors_verdicts(monkeypatch, kind, states, row, expe
         return [dict(row, path=module_rel, outcome={"v": 1})]
 
     with (
-        patch.object(cli, "_fingerprint_validation_waiver_modules_parallel", fake_parallel),
+        patch.object(
+            cli, "_fingerprint_validation_waiver_modules_parallel", fake_parallel
+        ),
         patch.object(cli, "_fingerprint_validation_waiver_modules", fake_serial),
     ):
         cli._cmd_validation_waivers_audit(
@@ -512,15 +557,31 @@ def test_recheck_report_flags_and_counts(monkeypatch, capsys, tmp_path):
     changed.write_text("")
 
     def fake_parallel(modules, **kwargs):
-        return [{"path": module_rel, "passed": False, "fingerprint": fp_flake, "outcome": {"v": "flake"}}]
+        return [
+            {
+                "path": module_rel,
+                "passed": False,
+                "fingerprint": fp_flake,
+                "outcome": {"v": "flake"},
+            }
+        ]
 
     def fake_serial(modules, **kwargs):
-        return [{"path": module_rel, "passed": False, "fingerprint": fp_good, "outcome": {"v": "stable"}}]
+        return [
+            {
+                "path": module_rel,
+                "passed": False,
+                "fingerprint": fp_good,
+                "outcome": {"v": "stable"},
+            }
+        ]
 
     args = _audit_args(tmp_path, root, tmp_path / "c", tmp_path / "e", base, changed)
     args.json = True
     with (
-        patch.object(cli, "_fingerprint_validation_waiver_modules_parallel", fake_parallel),
+        patch.object(
+            cli, "_fingerprint_validation_waiver_modules_parallel", fake_parallel
+        ),
         patch.object(cli, "_fingerprint_validation_waiver_modules", fake_serial),
     ):
         code = cli._cmd_validation_waivers_audit(args)
@@ -533,7 +594,9 @@ def test_recheck_report_flags_and_counts(monkeypatch, capsys, tmp_path):
     assert row_record["success"] is True
 
 
-def test_systemic_discrepancy_fails_without_per_row_accusations(monkeypatch, capsys, tmp_path):
+def test_systemic_discrepancy_fails_without_per_row_accusations(
+    monkeypatch, capsys, tmp_path
+):
     import json as _json
 
     monkeypatch.setenv(cli._WAIVER_AUDIT_WORKERS_ENV, "1")
@@ -565,7 +628,9 @@ def test_systemic_discrepancy_fails_without_per_row_accusations(monkeypatch, cap
     args = _audit_args(tmp_path, root, tmp_path / "c", tmp_path / "e", base, changed)
     args.json = True
     with (
-        patch.object(cli, "_fingerprint_validation_waiver_modules_parallel", fake_parallel),
+        patch.object(
+            cli, "_fingerprint_validation_waiver_modules_parallel", fake_parallel
+        ),
         patch.object(cli, "_fingerprint_validation_waiver_modules", fake_serial),
     ):
         code = cli._cmd_validation_waivers_audit(args)
