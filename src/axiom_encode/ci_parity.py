@@ -309,6 +309,11 @@ def find_caller_workflow(repo: Path) -> CallerConfig:
         for job in jobs.values() if isinstance(jobs, dict) else ():
             if not isinstance(job, dict) or not isinstance(job.get("uses"), str):
                 continue
+            if job["uses"].endswith("validate-rulespec.yml@<pin-me>"):
+                raise ValueError(
+                    f"Caller {path}: validate-rulespec workflow has placeholder pin "
+                    "<pin-me>; replace it with the reviewed full lowercase SHA"
+                )
             match = WORKFLOW_RE.fullmatch(job["uses"])
             if match:
                 matches.append(parse_caller_job(path, match.group("sha"), job))
@@ -328,6 +333,11 @@ def parse_caller_workflow(path: Path) -> CallerConfig:
     found = []
     for job in jobs.values() if isinstance(jobs, dict) else ():
         if isinstance(job, dict) and isinstance(job.get("uses"), str):
+            if job["uses"].endswith("validate-rulespec.yml@<pin-me>"):
+                raise ValueError(
+                    f"Caller {path}: validate-rulespec workflow has placeholder pin "
+                    "<pin-me>; replace it with the reviewed full lowercase SHA"
+                )
             match = WORKFLOW_RE.fullmatch(job["uses"])
             if match:
                 found.append(parse_caller_job(path, match.group("sha"), job))
