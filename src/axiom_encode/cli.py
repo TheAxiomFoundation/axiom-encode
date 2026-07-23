@@ -3445,8 +3445,58 @@ def _cmd_validation_waivers_audit(args) -> int:
         else []
     )
     executed_by_path = {result["path"]: result for result in executed}
+
+    # Isolated recheck: concurrent fan-out occasionally perturbs a module's
+    # outcome (engine subprocesses under load), which would turn a transient
+    # flake into a waiver-audit accusation. Any result that disagrees with
+    # its ledger expectation is re-executed alone — the module's standalone
+    # value is the partition-invariant definition of truth — and only a
+    # discrepancy that survives isolation is reported. Real drift and stale
+    # waivers survive; load flakes do not.
+    def _expectation_met(path: str, kind: str, actual: dict[str, Any]) -> bool:
+        if kind == "active":
+            expected = head.entries[path].active.fingerprint
+            return (not actual["passed"]) and actual["fingerprint"] == expected
+        return bool(actual["passed"])
+
+    discrepant = sorted(
+        path
+        for path, kind in classified.items()
+        if path in executed_by_path
+        and not _expectation_met(path, kind, executed_by_path[path])
+    )
+    # Recheck budget: sized for transient flakes (observed ~1 per 3,099
+    # modules per run), not for a broadly wrong ledger. Exceeding it means
+    # something systemic — a bad ledger, toolchain skew, or load
+    # instability — and re-running thousands of modules serially would
+    # also blow the hosted-runner window, so fail with one explicit
+    # systemic error instead of per-row accusations that isolation never
+    # confirmed.
+    recheck_budget = max(16, -(-len(executed_by_path) // 100))
+    systemic_discrepancy = len(discrepant) > recheck_budget
+    if discrepant and not systemic_discrepancy:
+        rechecked = _fingerprint_validation_waiver_modules(
+            [Path(path) for path in discrepant],
+            root=root,
+            corpus_path=args.corpus_path,
+            axiom_rules_path=args.axiom_rules_path,
+            rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
+        )
+        for result in rechecked:
+            result["isolated_recheck"] = True
+            executed_by_path[result["path"]] = result
+
     results: list[dict[str, Any]] = []
     errors: list[str] = []
+    if systemic_discrepancy:
+        sample = ", ".join(discrepant[:10])
+        errors.append(
+            "systemic audit discrepancy: "
+            f"{len(discrepant)} of {len(executed_by_path)} executed modules "
+            f"violate their waiver expectations (isolated-recheck budget is "
+            f"{recheck_budget}); refusing per-module accusations that "
+            f"isolation never confirmed — first paths: {sample}"
+        )
 
     for path, kind in classified.items():
         if path in deleted_removed:
@@ -3480,6 +3530,8 @@ def _cmd_validation_waivers_audit(args) -> int:
             "fingerprint": actual["fingerprint"],
             "outcome": actual["outcome"],
         }
+        if actual.get("isolated_recheck"):
+            result_record["isolated_recheck"] = True
         error: str | None = None
         if kind == "active":
             expected = head.entries[path].active.fingerprint
@@ -3495,6 +3547,14 @@ def _cmd_validation_waivers_audit(args) -> int:
             error = f"{path}: pending waiver requires the current module to pass"
         elif kind == "removed" and not actual["passed"]:
             error = f"{path}: removed active waiver still has a failing module"
+        if systemic_discrepancy and error is not None:
+            # The systemic error already fails the audit; per-module
+            # accusations that isolation never confirmed are recorded as
+            # unverified rather than asserted.
+            result_record["success"] = False
+            result_record["unverified_discrepancy"] = True
+            results.append(result_record)
+            continue
         result_record["success"] = error is None
         if error is not None:
             result_record["error"] = error
