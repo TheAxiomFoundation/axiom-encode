@@ -7402,6 +7402,53 @@ def test_numeric_extraction_ignores_non_quantity_quarter():
     assert 0.25 not in extract_numbers_from_text("the quarter ended in March")
 
 
+def test_numeric_extraction_reads_nz_social_security_cents_per_dollar_rate():
+    source_text = (
+        "must be reduced by 50 cents for every $1 of the combined weekly income"
+    )
+    assert 0.5 in extract_numbers_from_text(source_text)
+
+
+def test_numeric_extraction_reads_nz_familyboost_cents_per_dollar_rate():
+    source_text = (
+        "Subject to subsection (3), the abatement amount is calculated at the "
+        "rate of 7 cents for each complete dollar of the person’s tax credit "
+        "income for the tax credit quarter that is greater than $35,000."
+    )
+    assert 0.07 in extract_numbers_from_text(source_text)
+
+
+@pytest.mark.parametrize(
+    ("source_text", "expected"),
+    [
+        ("1 cent", 0.01),
+        ("9.75 cents", 0.0975),
+    ],
+)
+def test_numeric_extraction_maps_integer_and_decimal_cents_values(
+    source_text, expected
+):
+    assert expected in extract_numbers_from_text(source_text)
+
+
+def test_numeric_extraction_preserves_bare_cents_value():
+    assert {0.5, 50.0} <= extract_numbers_from_text("50 cents")
+
+
+@pytest.mark.parametrize(
+    ("source_text", "excluded_values"),
+    [
+        ("MUZ-R13 cents", {0.13}),
+        ("R13.1 cents", {0.131, 0.01}),
+        ("effective 2025-07-01 cents", {0.01}),
+    ],
+)
+def test_numeric_extraction_cents_pattern_ignores_identifiers_and_dates(
+    source_text, excluded_values
+):
+    assert extract_numbers_from_text(source_text).isdisjoint(excluded_values)
+
+
 def test_numeric_extraction_handles_ghana_cedi_grouped_thousands():
     # The Ghana cedi symbol glued to a grouped-thousands amount ("GH¢5,880")
     # must still yield the full value, not just the trailing "880". Mirrors
