@@ -9507,6 +9507,24 @@ def test_rulespec_proof_validator_ignores_source_line_wrapping():
     [
         ("The official amount is 150 dollars.", "50 dollars", "50"),
         ("The official amount is 1,500 dollars.", "500 dollars", "500"),
+        ("The official amount is 1 500 euros.", "500 euros", "500"),
+        ("The official amount is 1\u00a0500 euros.", "500 euros", "500"),
+        ("The official amount is 1\u202f500 euros.", "500 euros", "500"),
+        (
+            "The official amount is 100 500 euros.",
+            "The official amount is 100",
+            "100",
+        ),
+        (
+            "The official amount is 100\u00a0500 euros.",
+            "The official amount is 100",
+            "100",
+        ),
+        (
+            "The official amount is 100\u202f500 euros.",
+            "The official amount is 100",
+            "100",
+        ),
         ("The official amount is 10.5 dollars.", "5 dollars", "5"),
         ("The official amount is -50 dollars.", "50 dollars", "50"),
         ("The official amount is +50 dollars.", "50 dollars", "50"),
@@ -9539,6 +9557,27 @@ def test_rulespec_proof_validator_rejects_partial_numeric_evidence(
     assert (
         sum("Proof source evidence not found" in issue for issue in result.issues) == 2
     )
+
+
+@pytest.mark.parametrize("separator", [" ", "\u00a0", "\u202f"])
+def test_rulespec_proof_validator_accepts_complete_space_grouped_numeric_evidence(
+    separator: str,
+):
+    evidence = f"The official amount is 1{separator}500 euros."
+    content = (
+        _corpus_checked_proof_content()
+        .replace("The official amount is $298.", f'"{evidence}"')
+        .replace("$298", f'"{evidence}"')
+        .replace("formula: '298'", "formula: '1500'")
+    )
+
+    result = validate_rulespec_proofs(
+        content,
+        source_texts={"us/guidance/example/page-1": evidence},
+    )
+
+    assert result.passed is True
+    assert result.issues == []
 
 
 @pytest.mark.parametrize(
@@ -30175,6 +30214,24 @@ def test_scoped_grounding_rejects_unverified_numeric_table_evidence():
     [
         ("The official amount is 150 dollars.", "50 dollars", "50"),
         ("The official amount is 1,500 dollars.", "500 dollars", "500"),
+        ("The official amount is 1 500 euros.", "500 euros", "500"),
+        ("The official amount is 1\u00a0500 euros.", "500 euros", "500"),
+        ("The official amount is 1\u202f500 euros.", "500 euros", "500"),
+        (
+            "The official amount is 100 500 euros.",
+            "The official amount is 100",
+            "100",
+        ),
+        (
+            "The official amount is 100\u00a0500 euros.",
+            "The official amount is 100",
+            "100",
+        ),
+        (
+            "The official amount is 100\u202f500 euros.",
+            "The official amount is 100",
+            "100",
+        ),
         ("The official amount is 10.5 dollars.", "5 dollars", "5"),
         ("The official amount is -50 dollars.", "50 dollars", "50"),
         ("The official amount is +50 dollars.", "50 dollars", "50"),

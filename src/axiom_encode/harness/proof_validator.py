@@ -592,6 +592,11 @@ def _source_evidence_span_is_bounded(
         return False
 
     if _evidence_begins_with_numeric_token(evidence_text):
+        if _span_starts_inside_space_grouped_number(
+            evidence_text=evidence_text,
+            before=before,
+        ):
+            return False
         left = before.rstrip()
         if left.endswith(("+", "-", "−")):
             return False
@@ -599,6 +604,8 @@ def _source_evidence_span_is_bounded(
             return False
 
     if _evidence_ends_with_numeric_token(evidence_text):
+        if _span_ends_inside_space_grouped_number(after=after):
+            return False
         right = after.lstrip()
         if right.startswith(("%", "‰")):
             return False
@@ -617,6 +624,34 @@ def _evidence_begins_with_numeric_token(evidence_text: str) -> bool:
 def _evidence_ends_with_numeric_token(evidence_text: str) -> bool:
     text = evidence_text.rstrip()
     return bool(text and text[-1].isdecimal())
+
+
+_NUMERIC_GROUPING_SPACES = frozenset({" ", "\N{NO-BREAK SPACE}", "\N{NARROW NO-BREAK SPACE}"})
+
+
+def _span_starts_inside_space_grouped_number(
+    *,
+    evidence_text: str,
+    before: str,
+) -> bool:
+    text = evidence_text.lstrip()
+    leading_digits = re.match(r"\d+", text)
+    return bool(
+        leading_digits
+        and len(leading_digits.group(0)) == 3
+        and len(before) >= 2
+        and before[-1] in _NUMERIC_GROUPING_SPACES
+        and before[-2].isdecimal()
+    )
+
+
+def _span_ends_inside_space_grouped_number(*, after: str) -> bool:
+    return bool(
+        len(after) >= 4
+        and after[0] in _NUMERIC_GROUPING_SPACES
+        and all(character.isdecimal() for character in after[1:4])
+        and (len(after) == 4 or not after[4].isdecimal())
+    )
 
 
 def _proof_excerpt_subsection_scope_issues(
