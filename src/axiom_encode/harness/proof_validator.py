@@ -27,6 +27,7 @@ import yaml
 from ..corpus_resolver import (
     InvalidCorpusCitationError,
     require_canonical_corpus_citation_path,
+    split_proof_evidence_text,
 )
 
 
@@ -548,11 +549,16 @@ def _source_contains_proof_evidence(
     source_text: str,
     evidence_text: str,
 ) -> bool:
-    if evidence_text in source_text:
-        return True
-    normalized_source = re.sub(r"\s+", " ", source_text).strip()
     normalized_evidence = re.sub(r"\s+", " ", evidence_text).strip()
-    return bool(normalized_evidence and normalized_evidence in normalized_source)
+    if not normalized_evidence:
+        return False
+    for segment in split_proof_evidence_text(source_text):
+        if evidence_text in segment:
+            return True
+        normalized_segment = re.sub(r"\s+", " ", segment).strip()
+        if normalized_evidence in normalized_segment:
+            return True
+    return False
 
 
 def _proof_excerpt_subsection_scope_issues(

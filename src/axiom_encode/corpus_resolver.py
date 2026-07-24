@@ -35,6 +35,7 @@ MAX_COMPOSITION_NODES = 100_000
 MAX_COMPOSITION_PREFIX_BYTES = 64 * 1024 * 1024
 MAX_RELEASE_OBJECT_BYTES = 16 * 1024 * 1024
 MAX_CORPUS_DESCENDANT_ROWS = 10_000
+PROOF_EVIDENCE_SEGMENT_SEPARATOR = "\n\x1e\n"
 MAX_CORPUS_CITATION_SEGMENT_LENGTH = 512
 MAX_CORPUS_CITATION_SEGMENTS = 64
 MAX_CORPUS_CITATION_LENGTH = 4_096
@@ -434,10 +435,21 @@ class ResolvedCorpusSource:
     slice_required: bool = False
 
     @property
-    def proof_evidence_text(self) -> str:
-        """Return release-bound provision text available to proof validation."""
+    def proof_evidence_segments(self) -> tuple[str, ...]:
+        """Return independently matchable, release-bound proof evidence."""
 
-        return "\n".join((self.body, *self.source_history))
+        segments = (self.body, *self.source_history)
+        if any(PROOF_EVIDENCE_SEGMENT_SEPARATOR in segment for segment in segments):
+            raise CorpusResolutionError(
+                "Corpus proof evidence contains the reserved segment separator"
+            )
+        return segments
+
+    @property
+    def proof_evidence_text(self) -> str:
+        """Return segmented release-bound text available to proof validation."""
+
+        return PROOF_EVIDENCE_SEGMENT_SEPARATOR.join(self.proof_evidence_segments)
 
     def to_attestation(self) -> dict[str, Any]:
         """Return the JSON-compatible provenance bound into apply manifests."""
@@ -3861,6 +3873,12 @@ def _record_source_history(record: dict[str, Any]) -> tuple[str, ...]:
     return tuple(
         entry.strip() for entry in history if isinstance(entry, str) and entry.strip()
     )
+
+
+def split_proof_evidence_text(source_text: str) -> tuple[str, ...]:
+    """Split proof evidence without permitting matches across source records."""
+
+    return tuple(str(source_text).split(PROOF_EVIDENCE_SEGMENT_SEPARATOR))
 
 
 def _clean_string_value(value: Any, *, label: str) -> str:

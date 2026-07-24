@@ -19,6 +19,7 @@ from axiom_oracles.bridges.registry import (
 )
 
 from axiom_encode.corpus_resolver import (
+    PROOF_EVIDENCE_SEGMENT_SEPARATOR,
     AmbiguousCorpusSourceError,
     LocalCorpusRelease,
 )
@@ -9499,6 +9500,47 @@ def test_rulespec_proof_validator_ignores_source_line_wrapping():
 
     assert result.passed is True
     assert result.issues == []
+
+
+@pytest.mark.parametrize(
+    ("source_text", "excerpt"),
+    [
+        (
+            "The amount is" + PROOF_EVIDENCE_SEGMENT_SEPARATOR + "effective thereafter",
+            "The amount is effective thereafter",
+        ),
+        (
+            "Body text"
+            + PROOF_EVIDENCE_SEGMENT_SEPARATOR
+            + "Acts 2025"
+            + PROOF_EVIDENCE_SEGMENT_SEPARATOR
+            + "effective thereafter",
+            "Acts 2025 effective thereafter",
+        ),
+    ],
+)
+def test_rulespec_proof_validator_rejects_cross_segment_evidence(
+    source_text: str,
+    excerpt: str,
+):
+    content = (
+        _corpus_checked_proof_content()
+        .replace(
+            "excerpt: The official amount is $298.",
+            f"excerpt: {excerpt}",
+        )
+        .replace("quote: $298", f"quote: {excerpt}")
+    )
+
+    result = validate_rulespec_proofs(
+        content,
+        source_texts={"us/guidance/example/page-1": source_text},
+    )
+
+    assert result.passed is False
+    assert (
+        sum("Proof source evidence not found" in issue for issue in result.issues) == 2
+    )
 
 
 def test_rulespec_proof_validator_rejects_unresolved_direct_source():
@@ -19347,6 +19389,81 @@ def test_validator_pipeline_resolves_direct_proof_sources_from_authoritative_cor
 
     assert source_texts == {citation_path: "The official amount is $298."}
     assert find_rulespec_proof_issues(content, source_texts=source_texts) == []
+
+
+def test_source_history_proves_excerpt_without_grounding_numeric_literal(tmp_path):
+    citation_path = "us/statute/example/1"
+    corpus_root = tmp_path / "axiom-corpus"
+    provisions = corpus_root / "data" / "corpus" / "provisions" / "us" / "statute"
+    provisions.mkdir(parents=True)
+    body = "The benefit is available."
+    history = "Acts 2007, No. 278, section 1."
+    (provisions / "example.jsonl").write_text(
+        json.dumps(
+            _active_corpus_record(
+                citation_path,
+                body,
+                version="example",
+                metadata={"source_history": [history]},
+            )
+        )
+        + "\n"
+    )
+    release = _test_corpus_release(
+        corpus_root,
+        ("us", "statute", "example"),
+    )
+    content = f"""format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: {citation_path}
+rules:
+  - name: benefit_amount
+    kind: parameter
+    dtype: Money
+    unit: USD
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: {citation_path}
+              excerpt: {history}
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '278'
+"""
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path / "rulespec-us",
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+        local_corpus_release=release,
+    )
+
+    with validator_pipeline._authoritative_corpus_scope(release):
+        proof_source_texts = pipeline._proof_source_texts_for_rulespec_content(
+            content,
+            source_texts=None,
+        )
+        numeric_source_texts = pipeline._numeric_source_texts_for_rulespec_content(
+            content,
+            source_texts=None,
+        )
+
+    assert proof_source_texts[citation_path].endswith(history)
+    assert numeric_source_texts == {citation_path: body}
+    assert find_rulespec_proof_issues(content, source_texts=proof_source_texts) == []
+    assert any(
+        "278" in issue
+        for issue in find_ungrounded_numeric_issues_scoped(
+            content,
+            module_source_text=None,
+            proof_source_texts=numeric_source_texts,
+        )
+    )
 
 
 def test_district_plan_proof_source_grounds_anchored_numeric_from_corpus(tmp_path):

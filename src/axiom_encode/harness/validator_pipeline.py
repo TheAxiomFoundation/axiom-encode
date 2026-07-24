@@ -2687,17 +2687,34 @@ def _rule_atom_evidence_by_path(
         source = atom.get("source")
         if not path or not isinstance(source, dict):
             continue
+        citation_path = str(source.get("corpus_citation_path") or "").strip()
+        resolved_text = (
+            proof_source_texts.get(citation_path)
+            if proof_source_texts is not None and citation_path
+            else None
+        )
         fragments = by_path.setdefault(path, [])
         for evidence_field in ("excerpt", "quote"):
             text = source.get(evidence_field)
-            if isinstance(text, str) and text.strip():
+            if not isinstance(text, str) or not text.strip():
+                continue
+            normalized_text = _collapse_source_sentence_text(text).lower()
+            excerpt_is_body_bound = (
+                proof_source_texts is None
+                or not citation_path
+                or (
+                    resolved_text is not None
+                    and normalized_text
+                    in _collapse_source_sentence_text(resolved_text).lower()
+                )
+            )
+            if excerpt_is_body_bound:
                 fragments.append(text.strip())
         table = source.get("table")
         if isinstance(table, dict):
             for cell in table.values():
                 if isinstance(cell, (str, int, float)) and not isinstance(cell, bool):
                     fragments.append(str(cell))
-        citation_path = str(source.get("corpus_citation_path") or "").strip()
         if citation_path:
             cited_by_path.setdefault(path, []).append(citation_path)
     evidence: dict[str, str] = {}
@@ -21252,7 +21269,39 @@ class ValidatorPipeline:
     ) -> dict[str, str | None]:
         """Resolve direct proof sources through the authoritative corpus path."""
 
+        return self._cited_source_texts_for_rulespec_content(
+            content,
+            source_texts=source_texts,
+            proof_evidence=True,
+        )
+
+    def _numeric_source_texts_for_rulespec_content(
+        self,
+        content: str,
+        *,
+        source_texts: Mapping[str, str] | None,
+    ) -> dict[str, str | None]:
+        """Resolve proof-cited provision bodies for numeric grounding."""
+
+        return self._cited_source_texts_for_rulespec_content(
+            content,
+            source_texts=source_texts,
+            proof_evidence=False,
+        )
+
+    def _cited_source_texts_for_rulespec_content(
+        self,
+        content: str,
+        *,
+        source_texts: Mapping[str, str] | None,
+        proof_evidence: bool,
+    ) -> dict[str, str | None]:
         resolved: dict[str, str | None] = dict(source_texts or {})
+        fetch_source = (
+            _fetch_corpus_proof_evidence_text
+            if proof_evidence
+            else _fetch_corpus_source_text
+        )
         try:
             payload = yaml.safe_load(content)
         except (yaml.YAMLError, ValueError):
@@ -21282,9 +21331,7 @@ class ValidatorPipeline:
                     continue
                 citation_path = str(source.get("corpus_citation_path") or "").strip()
                 if citation_path:
-                    resolved[citation_path] = _fetch_corpus_proof_evidence_text(
-                        citation_path
-                    )
+                    resolved[citation_path] = fetch_source(citation_path)
         return resolved
 
     def _trusted_source_binding_issues(self, content: str) -> list[str]:
@@ -22705,6 +22752,10 @@ class ValidatorPipeline:
             issues.append(f"Axiom rules engine compile failed: {exc}")
 
         validation_source_texts = self._source_texts_for_rulespec_content(content)
+        numeric_source_texts = self._numeric_source_texts_for_rulespec_content(
+            content,
+            source_texts=validation_source_texts,
+        )
         proof_source_texts = self._proof_source_texts_for_rulespec_content(
             content,
             source_texts=validation_source_texts,
@@ -22734,7 +22785,7 @@ class ValidatorPipeline:
                 find_ungrounded_numeric_issues_scoped(
                     content,
                     module_source_text=validation_source_text,
-                    proof_source_texts=proof_source_texts,
+                    proof_source_texts=numeric_source_texts,
                 )
             )
         issues.extend(find_deprecated_source_url_issues(content))

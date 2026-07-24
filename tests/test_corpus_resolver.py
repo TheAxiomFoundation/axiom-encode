@@ -245,7 +245,7 @@ def test_resolver_exposes_source_history_only_as_proof_evidence(tmp_path: Path):
     assert resolved.stored_body_sha256 == body_sha
     assert resolved.resolved_text_sha256 == body_sha
     assert resolved.source_history == (history,)
-    assert resolved.proof_evidence_text == f"{body}\n{history}"
+    assert resolved.proof_evidence_segments == (body, history)
     assert "source_history" not in resolved.to_attestation()
 
 
