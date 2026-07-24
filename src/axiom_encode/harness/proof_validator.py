@@ -750,11 +750,7 @@ def _span_omits_trailing_accounting_sign(
     after: str,
 ) -> bool:
     del evidence_text, before
-    return bool(
-        after
-        and not after[0].isspace()
-        and after[0] in _NUMERIC_SIGN_MARKERS
-    )
+    return bool(after and not after[0].isspace() and after[0] in _NUMERIC_SIGN_MARKERS)
 
 
 def _is_currency_marker(character: str) -> bool:
@@ -763,9 +759,7 @@ def _is_currency_marker(character: str) -> bool:
 
 def _is_connector_character(character: str) -> bool:
     return bool(
-        not character.isspace()
-        and not character.isalnum()
-        and character != "_"
+        not character.isspace() and not character.isalnum() and character != "_"
     )
 
 
