@@ -553,12 +553,22 @@ def _source_contains_proof_evidence(
     if not normalized_evidence:
         return False
     for segment in split_proof_evidence_text(source_text):
-        if evidence_text in segment:
+        if _bounded_source_evidence_match(evidence_text, segment):
             return True
         normalized_segment = re.sub(r"\s+", " ", segment).strip()
-        if normalized_evidence in normalized_segment:
+        if _bounded_source_evidence_match(normalized_evidence, normalized_segment):
             return True
     return False
+
+
+def _bounded_source_evidence_match(evidence_text: str, source_text: str) -> bool:
+    return (
+        re.search(
+            rf"(?<![A-Za-z0-9]){re.escape(evidence_text)}(?![A-Za-z0-9])",
+            source_text,
+        )
+        is not None
+    )
 
 
 def _proof_excerpt_subsection_scope_issues(

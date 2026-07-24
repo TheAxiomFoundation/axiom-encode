@@ -2698,14 +2698,12 @@ def _rule_atom_evidence_by_path(
             text = source.get(evidence_field)
             if not isinstance(text, str) or not text.strip():
                 continue
-            normalized_text = _collapse_source_sentence_text(text).lower()
             excerpt_is_body_bound = (
                 proof_source_texts is None
                 or not citation_path
                 or (
                     resolved_text is not None
-                    and normalized_text
-                    in _collapse_source_sentence_text(resolved_text).lower()
+                    and _source_evidence_fragment_is_body_bound(text, resolved_text)
                 )
             )
             if excerpt_is_body_bound:
@@ -2715,23 +2713,14 @@ def _rule_atom_evidence_by_path(
             for cell in table.values():
                 if isinstance(cell, (str, int, float)) and not isinstance(cell, bool):
                     text = str(cell).strip()
-                    normalized_text = _collapse_source_sentence_text(text).casefold()
-                    normalized_source = (
-                        _collapse_source_sentence_text(resolved_text).casefold()
-                        if resolved_text is not None
-                        else ""
-                    )
                     cell_is_body_bound = (
                         proof_source_texts is None
                         or not citation_path
                         or (
-                            normalized_text
-                            and re.search(
-                                rf"(?<![A-Za-z0-9]){re.escape(normalized_text)}"
-                                r"(?![A-Za-z0-9])",
-                                normalized_source,
+                            resolved_text is not None
+                            and _source_evidence_fragment_is_body_bound(
+                                text, resolved_text
                             )
-                            is not None
                         )
                     )
                     if cell_is_body_bound:
@@ -2751,6 +2740,21 @@ def _rule_atom_evidence_by_path(
                     resolved.append(text)
         evidence[path] = "\n".join(resolved)
     return evidence
+
+
+def _source_evidence_fragment_is_body_bound(
+    evidence_text: str,
+    source_text: str,
+) -> bool:
+    normalized_evidence = _collapse_source_sentence_text(evidence_text).casefold()
+    normalized_source = _collapse_source_sentence_text(source_text).casefold()
+    return bool(
+        normalized_evidence
+        and re.search(
+            rf"(?<![A-Za-z0-9]){re.escape(normalized_evidence)}(?![A-Za-z0-9])",
+            normalized_source,
+        )
+    )
 
 
 def _rule_verified_source_excerpt_pairs_by_path(

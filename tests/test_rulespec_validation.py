@@ -9502,6 +9502,27 @@ def test_rulespec_proof_validator_ignores_source_line_wrapping():
     assert result.issues == []
 
 
+def test_rulespec_proof_validator_rejects_partial_numeric_evidence():
+    content = (
+        _corpus_checked_proof_content()
+        .replace("The official amount is $298.", "50 dollars")
+        .replace("$298", "50 dollars")
+        .replace("formula: '298'", "formula: '50'")
+    )
+
+    result = validate_rulespec_proofs(
+        content,
+        source_texts={
+            "us/guidance/example/page-1": "The official amount is 150 dollars."
+        },
+    )
+
+    assert result.passed is False
+    assert (
+        sum("Proof source evidence not found" in issue for issue in result.issues) == 2
+    )
+
+
 @pytest.mark.parametrize(
     ("source_text", "excerpt"),
     [
@@ -30128,6 +30149,49 @@ def test_scoped_grounding_rejects_unverified_numeric_table_evidence():
                 "xx/policy/benefit/table": (
                     "Monthly benefit. Household amount 987654321. Dollars."
                 )
+            },
+        )
+        == []
+    )
+
+
+def test_scoped_grounding_rejects_partial_numeric_excerpt_evidence():
+    content = textwrap.dedent(
+        """
+        format: rulespec/v1
+        rules:
+          - name: official_amount
+            kind: parameter
+            dtype: Money
+            metadata:
+              proof:
+                atoms:
+                  - path: versions[0].formula
+                    kind: amount
+                    source:
+                      corpus_citation_path: xx/policy/benefit/amount
+                      excerpt: 50 dollars
+            versions:
+              - effective_from: '2026-01-01'
+                formula: '50'
+        """
+    ).strip()
+
+    issues = find_ungrounded_numeric_issues_scoped(
+        content,
+        module_source_text="",
+        proof_source_texts={
+            "xx/policy/benefit/amount": "The official amount is 150 dollars."
+        },
+    )
+    assert any("50" in issue for issue in issues), issues
+
+    assert (
+        find_ungrounded_numeric_issues_scoped(
+            content,
+            module_source_text="",
+            proof_source_texts={
+                "xx/policy/benefit/amount": "The official amount is 50 dollars."
             },
         )
         == []
