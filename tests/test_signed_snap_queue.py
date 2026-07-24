@@ -165,8 +165,7 @@ def test_paused_transition_rejects_manual_completion(tmp_path: Path) -> None:
         "target_run_head_sha": "f" * 40,
         "target_run_attempt": 1,
         "target_run_url": (
-            "https://github.com/TheAxiomFoundation/"
-            "axiom-encode/actions/runs/1"
+            "https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/1"
         ),
         "type": "merged-rulespec-pr",
         "url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1",
@@ -275,9 +274,7 @@ def test_terminal_snap_queue_dispositions_require_durable_evidence() -> None:
             _queue(),
             item_id="ut-0001",
             status="completed",
-            evidence_url=(
-                "https://github.com/TheAxiomFoundation/rulespec-us/pull/123"
-            ),
+            evidence_url=("https://github.com/TheAxiomFoundation/rulespec-us/pull/123"),
             note=None,
         )
 
@@ -636,9 +633,7 @@ def _target_evidence(payload: dict, rulespec: Path, item_id: str) -> dict:
     manifest_digest = hashlib.sha256(
         (rulespec / manifest_path).read_bytes()
     ).hexdigest()
-    run_url = (
-        "https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/1"
-    )
+    run_url = "https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/1"
     return {
         item_id: {
             "apply_manifests": {
@@ -666,9 +661,7 @@ def _target_evidence(payload: dict, rulespec: Path, item_id: str) -> dict:
                 "encoder_commit": "c" * 40,
                 "pr_base_branch": payload["dispatch"]["pr_base_branch"],
                 "queue_id": payload["queue_id"],
-                "queue_item_generation_sha256": item_generation_sha256(
-                    payload, item
-                ),
+                "queue_item_generation_sha256": item_generation_sha256(payload, item),
                 "queue_item_id": item_id,
                 "queue_manifest_sha256": dispatch_queue_sha256(payload),
                 "rulespec_base": payload["dispatch"]["rulespec_ref"],
@@ -705,9 +698,10 @@ def test_finalize_repin_activates_quiet_queue_and_records_merged_pr(
     payload, rulespec, _, new_ref = _repin_fixture(tmp_path)
     evidence = _finalizer_evidence()
     evidence["target_evidence"] = _target_evidence(payload, rulespec, "ut-0001")
-    assert evidence["target_evidence"]["ut-0001"]["metadata"][
-        "queue_manifest_sha256"
-    ] == payload["suspension"]["active_queue_sha256"]
+    assert (
+        evidence["target_evidence"]["ut-0001"]["metadata"]["queue_manifest_sha256"]
+        == payload["suspension"]["active_queue_sha256"]
+    )
     updated = finalize_and_repin(
         payload,
         rulespec_root=rulespec,
@@ -830,17 +824,16 @@ def test_finalization_plan_and_repin_require_exact_target_artifact(
                 "https://github.com/TheAxiomFoundation/rulespec-us/pull/1"
             ),
             "target_run_url": (
-                "https://github.com/TheAxiomFoundation/"
-                "axiom-encode/actions/runs/1"
+                "https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/1"
             ),
         }
     ]
 
     evidence = _finalizer_evidence()
     evidence["target_evidence"] = _target_evidence(payload, rulespec, "ut-0001")
-    evidence["target_evidence"]["ut-0001"]["apply_manifests"]["items"][0][
-        "sha256"
-    ] = "0" * 64
+    evidence["target_evidence"]["ut-0001"]["apply_manifests"]["items"][0]["sha256"] = (
+        "0" * 64
+    )
     with pytest.raises(
         ValueError,
         match="merged RuleSpec tree lacks the signed applied manifest",
@@ -878,8 +871,7 @@ def test_finalize_repin_revalidates_existing_completed_items(tmp_path: Path) -> 
         "target_run_head_sha": "c" * 40,
         "target_run_attempt": 1,
         "target_run_url": (
-            "https://github.com/TheAxiomFoundation/"
-            "axiom-encode/actions/runs/1"
+            "https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/1"
         ),
         "type": "merged-rulespec-pr",
         "url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1",
@@ -1137,8 +1129,7 @@ def test_verify_merge_authorization_rejects_direct_activation_merge(
     merge_commit = "b" * 40
     pr_head = "a" * 40
     run_url = (
-        "https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/"
-        f"{run_id}"
+        f"https://github.com/TheAxiomFoundation/axiom-encode/actions/runs/{run_id}"
     )
     authorization = {
         "activation_pr_head_sha": pr_head,

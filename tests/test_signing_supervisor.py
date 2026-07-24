@@ -1862,8 +1862,9 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert "prepare_signed_queue.py" in country_step["run"]
     assert "validate-dispatch" in country_step["run"]
     assert "QUEUE_DISPATCHER_RUN_ID" in country_step["env"]
-    assert "queue target must be created by an authenticated dispatcher" in (
-        country_step["run"]
+    assert (
+        "queue target must be created by an authenticated dispatcher"
+        in (country_step["run"])
     )
     assert 'GITHUB_RUN_ATTEMPT" != "1"' in country_step["run"]
     assert "dispatch-signed-snap-queue.yml" in country_step["run"]
@@ -1871,9 +1872,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert "jobs?filter=all&per_page=100" in country_step["run"]
     assert "Dispatch protected SNAP queue" in country_step["run"]
     assert '.conclusion == "skipped"' in country_step["run"]
-    assert "snap-queue-reconciliation-$QUEUE_DISPATCHER_RUN_ID" in (
-        country_step["run"]
-    )
+    assert "snap-queue-reconciliation-$QUEUE_DISPATCHER_RUN_ID" in (country_step["run"])
     assert "snap-queue-plan.json" in country_step["run"]
     assert "dispatched-run-records.jsonl" in country_step["run"]
     assert "workflow_run_id == $run_id" in country_step["run"]
@@ -2325,9 +2324,7 @@ def test_snap_queue_activation_checks_and_merge_revalidate_live_state() -> None:
         step["if"] == "${{ steps.transition.outputs.initial == 'true' }}"
         for step in initial_checkouts
     )
-    assert {
-        step["with"]["repository"] for step in initial_checkouts
-    } == {
+    assert {step["with"]["repository"] for step in initial_checkouts} == {
         "TheAxiomFoundation/axiom-corpus",
         "TheAxiomFoundation/rulespec-us",
         "TheAxiomFoundation/axiom-rules-engine",
@@ -2338,9 +2335,10 @@ def test_snap_queue_activation_checks_and_merge_revalidate_live_state() -> None:
         if step.get("name") == "Regenerate and authenticate initial queue"
     )
     provenance_command = provenance["run"]
-    assert "AXIOM_CORPUS_RELEASE_PUBLIC_KEY" in provenance["env"][
-        "CORPUS_RELEASE_PUBLIC_KEY"
-    ]
+    assert (
+        "AXIOM_CORPUS_RELEASE_PUBLIC_KEY"
+        in provenance["env"]["CORPUS_RELEASE_PUBLIC_KEY"]
+    )
     assert "release_objects?select=release_object" in provenance_command
     assert "build-snap initial-axiom-corpus initial-rulespec-us" in provenance_command
     assert "--state paused" in provenance_command
@@ -2368,8 +2366,7 @@ def test_snap_queue_activation_checks_and_merge_revalidate_live_state() -> None:
     command = next(
         step["run"]
         for step in steps
-        if step.get("name")
-        == "Revalidate evidence and merge against live RuleSpec tip"
+        if step.get("name") == "Revalidate evidence and merge against live RuleSpec tip"
     )
     assert "--require-success true" in command
     assert "verify-activation-commit" in command
@@ -2390,7 +2387,9 @@ def test_snap_queue_activation_checks_and_merge_revalidate_live_state() -> None:
         for step in steps
         if step.get("name") == "Upload trusted queue merge authorization"
     )
-    assert "snap-queue-merge-authorization-${{ github.run_id }}" == upload["with"]["name"]
+    assert (
+        "snap-queue-merge-authorization-${{ github.run_id }}" == upload["with"]["name"]
+    )
     assert upload["with"]["retention-days"] == 90
 
 
@@ -2504,7 +2503,7 @@ def test_targeted_artifact_packages_signed_review_context(tmp_path: Path) -> Non
     marker = (
         "python - \\\n"
         '  "$artifact/context-manifest.json" \\\n'
-        '  "$artifact/apply-manifests.json" <<\'PY\'\n'
+        "  \"$artifact/apply-manifests.json\" <<'PY'\n"
     )
     script = package_command.split(marker, 1)[1].split(
         '\nPY\npython - "$artifact/metadata.json"', 1
@@ -2625,7 +2624,7 @@ def test_targeted_artifact_enforces_target_and_dependent_context_lanes(
     marker = (
         "python - \\\n"
         '  "$artifact/context-manifest.json" \\\n'
-        '  "$artifact/apply-manifests.json" <<\'PY\'\n'
+        "  \"$artifact/apply-manifests.json\" <<'PY'\n"
     )
     script = package_command.split(marker, 1)[1].split(
         '\nPY\npython - "$artifact/metadata.json"', 1
