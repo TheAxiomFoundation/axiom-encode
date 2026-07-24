@@ -9681,6 +9681,7 @@ def test_rulespec_proof_validator_accepts_numeric_evidence_after_legal_markers(
             "The official amount is 50 dollars-.",
             "The official amount is 50 dollars",
         ),
+        ("The official amount is ½-.", "The official amount is ½"),
         ("The official amount is 50➖.", "The official amount is 50"),
         ("The official amount is 50\u200b-.", "The official amount is 50"),
     ],

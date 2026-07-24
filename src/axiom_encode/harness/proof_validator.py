@@ -595,7 +595,7 @@ def _source_evidence_span_is_bounded(
     evidence_begins_numeric = _evidence_begins_with_numeric_token(evidence_text)
     evidence_ends_numeric = _evidence_ends_with_numeric_token(evidence_text)
     evidence_contains_numeric = any(
-        character.isdecimal() for character in evidence_text
+        character.isnumeric() for character in evidence_text
     )
 
     if evidence_begins_numeric:
