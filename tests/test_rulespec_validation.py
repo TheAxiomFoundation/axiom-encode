@@ -19,6 +19,7 @@ from axiom_oracles.bridges.registry import (
 )
 
 from axiom_encode.corpus_resolver import (
+    PROOF_EVIDENCE_SEGMENT_SEPARATOR,
     AmbiguousCorpusSourceError,
     LocalCorpusRelease,
 )
@@ -9487,6 +9488,305 @@ def test_rulespec_proof_validator_checks_direct_source_evidence_text():
 
     assert result.passed is True
     assert result.issues == []
+
+
+def test_rulespec_proof_validator_ignores_source_line_wrapping():
+    content = _corpus_checked_proof_content()
+
+    result = validate_rulespec_proofs(
+        content,
+        source_texts={"us/guidance/example/page-1": "The official\namount is $298."},
+    )
+
+    assert result.passed is True
+    assert result.issues == []
+
+
+@pytest.mark.parametrize(
+    ("source_text", "excerpt", "formula"),
+    [
+        ("The official amount is 150 dollars.", "50 dollars", "50"),
+        ("The official amount is 1,500 dollars.", "500 dollars", "500"),
+        ("The official amount is 1 500 euros.", "500 euros", "500"),
+        ("The official amount is 1\u00a0500 euros.", "500 euros", "500"),
+        ("The official amount is 1\u202f500 euros.", "500 euros", "500"),
+        (
+            "The official amount is 100 500 euros.",
+            "The official amount is 100",
+            "100",
+        ),
+        (
+            "The official amount is 100\u00a0500 euros.",
+            "The official amount is 100",
+            "100",
+        ),
+        (
+            "The official amount is 100\u202f500 euros.",
+            "The official amount is 100",
+            "100",
+        ),
+        ("The official amount is 10.5 dollars.", "5 dollars", "5"),
+        ("The official amount is -50 dollars.", "50 dollars", "50"),
+        ("The official amount is +50 dollars.", "50 dollars", "50"),
+        ("The official amount is −50 dollars.", "50 dollars", "50"),
+        ("The official amount is 1/7 dollars.", "7 dollars", "7"),
+        ("The official amount is 20:50 dollars.", "50 dollars", "50"),
+        ("The official amount is 100⁄200 dollars.", "200 dollars", "200"),
+        ("The official amount is 100∕200 dollars.", "200 dollars", "200"),
+        ("The official amount is 100∶200 dollars.", "200 dollars", "200"),
+        ("The official amount is 100／200 dollars.", "200 dollars", "200"),
+        ("The official amount is 100：200 dollars.", "200 dollars", "200"),
+        ("The official amount is 100–200 dollars.", "200 dollars", "200"),
+        ("The official amount is 100..200 dollars.", "200 dollars", "200"),
+        ("The official amount is 100…200 dollars.", "200 dollars", "200"),
+        ("The official amount is -$50 dollars.", "50 dollars", "50"),
+        ("The official amount is -\u200b50 dollars.", "50 dollars", "50"),
+        ("The official amount is +$50 dollars.", "50 dollars", "50"),
+        ("The official amount is −$50 dollars.", "50 dollars", "50"),
+        ("The official amount is -₩50 dollars.", "50 dollars", "50"),
+        ("The official amount is -₽50 dollars.", "50 dollars", "50"),
+        ("The official amount is ±$50 dollars.", "50 dollars", "50"),
+        ("The official amount is ∓$50 dollars.", "50 dollars", "50"),
+        ("The official amount is ($50 dollars).", "50 dollars", "50"),
+        ("The official amount is (₩50 dollars).", "50 dollars", "50"),
+        ("The official amount is $50 dollars-.", "50 dollars", "50"),
+        ("The official amount is 50%.", "50", "50"),
+        ("The official amount is 50‰.", "50", "50"),
+        ("The official amount is 50‱.", "50", "50"),
+        ("The official amount is 50％.", "50", "50"),
+        ("The official amount is 50٪.", "50", "50"),
+        ("The official amount is 50؉.", "50", "50"),
+        ("The official amount is 50؊.", "50", "50"),
+        ("The official amount is 50 percent.", "50", "50"),
+        ("The official amount is 50 percentage points.", "50", "50"),
+        ("The official amount is 50 per cent.", "50", "50"),
+        ("The official amount is 50 basis points.", "50", "50"),
+        ("The official amount is 50-percent.", "50", "50"),
+        ("The official amount is 50 per-cent.", "50", "50"),
+        ("The official amount is 50 basis-points.", "50", "50"),
+        ("The official amount is 50\u200b%.", "50", "50"),
+        ("The official amount is 50➖.", "50", "50"),
+        ("The official amount is 50‐.", "50", "50"),
+        ("The official amount is 50\u200b-.", "50", "50"),
+        ("The official amount is ١50 dollars.", "50 dollars", "50"),
+    ],
+)
+def test_rulespec_proof_validator_rejects_partial_numeric_evidence(
+    source_text: str,
+    excerpt: str,
+    formula: str,
+):
+    content = (
+        _corpus_checked_proof_content()
+        .replace("The official amount is $298.", repr(excerpt))
+        .replace("$298", repr(excerpt))
+        .replace("formula: '298'", f"formula: '{formula}'")
+    )
+
+    result = validate_rulespec_proofs(
+        content,
+        source_texts={"us/guidance/example/page-1": source_text},
+    )
+
+    assert result.passed is False
+    assert (
+        sum("Proof source evidence not found" in issue for issue in result.issues) == 2
+    )
+
+
+@pytest.mark.parametrize("separator", [" ", "\u00a0", "\u2007", "\u2009", "\u202f"])
+def test_rulespec_proof_validator_accepts_complete_space_grouped_numeric_evidence(
+    separator: str,
+):
+    evidence = f"The official amount is 1{separator}500 euros."
+    content = (
+        _corpus_checked_proof_content()
+        .replace("The official amount is $298.", f'"{evidence}"')
+        .replace("$298", f'"{evidence}"')
+        .replace("formula: '298'", "formula: '1500'")
+    )
+
+    result = validate_rulespec_proofs(
+        content,
+        source_texts={"us/guidance/example/page-1": evidence},
+    )
+
+    assert result.passed is True
+    assert result.issues == []
+
+
+@pytest.mark.parametrize(
+    "numeric_text",
+    ["100⁄200", "100∕200", "100∶200", "100／200", "100：200", "100–200"],
+)
+def test_rulespec_proof_validator_accepts_complete_connected_numeric_evidence(
+    numeric_text: str,
+):
+    evidence = f"The official amount is {numeric_text} dollars."
+    content = (
+        _corpus_checked_proof_content()
+        .replace("The official amount is $298.", f'"{evidence}"')
+        .replace("$298", f'"{evidence}"')
+        .replace("formula: '298'", "formula: '200'")
+    )
+
+    result = validate_rulespec_proofs(
+        content,
+        source_texts={"us/guidance/example/page-1": evidence},
+    )
+
+    assert result.passed is True
+    assert result.issues == []
+
+
+@pytest.mark.parametrize(
+    "source_text",
+    [
+        "(1) 50 dollars is allowed.",
+        "(a)(1) $50 dollars is allowed.",
+        "1) 50 dollars is allowed.",
+        "1. 50 dollars is allowed.",
+        "1: 50 dollars is allowed.",
+        "Tier 1; 50 dollars applies.",
+        "Paragraph 1 — 50 dollars is allowed.",
+    ],
+)
+def test_rulespec_proof_validator_accepts_numeric_evidence_after_legal_markers(
+    source_text: str,
+):
+    evidence = "$50 dollars" if "$50" in source_text else "50 dollars"
+    content = (
+        _corpus_checked_proof_content()
+        .replace("The official amount is $298.", repr(evidence))
+        .replace("$298", repr(evidence))
+        .replace("formula: '298'", "formula: '50'")
+    )
+
+    result = validate_rulespec_proofs(
+        content,
+        source_texts={"us/guidance/example/page-1": source_text},
+    )
+
+    assert result.passed is True
+    assert result.issues == []
+
+
+@pytest.mark.parametrize(
+    ("source_text", "evidence"),
+    [
+        ("The official amount is 50€-.", "50€"),
+        ("The official amount is 50 dollars-.", "50 dollars"),
+        ("The official amount is $50 dollars-.", "$50 dollars"),
+        (
+            "The official amount is 50 dollars-.",
+            "The official amount is 50 dollars",
+        ),
+        ("The official amount is ½-.", "The official amount is ½"),
+        (
+            "The official amount is fifty dollars-.",
+            "The official amount is fifty dollars",
+        ),
+        (
+            "The official amount is one-half percent-.",
+            "The official amount is one-half percent",
+        ),
+        ("The official amount is 50➖.", "The official amount is 50"),
+        ("The official amount is 50\u200b-.", "The official amount is 50"),
+    ],
+)
+def test_rulespec_proof_validator_rejects_omitted_trailing_accounting_sign(
+    source_text: str,
+    evidence: str,
+):
+    content = (
+        _corpus_checked_proof_content()
+        .replace("The official amount is $298.", repr(evidence))
+        .replace("$298", repr(evidence))
+        .replace("formula: '298'", "formula: '50'")
+    )
+
+    result = validate_rulespec_proofs(
+        content,
+        source_texts={"us/guidance/example/page-1": source_text},
+    )
+
+    assert result.passed is False
+    assert (
+        sum("Proof source evidence not found" in issue for issue in result.issues) == 2
+    )
+
+
+@pytest.mark.parametrize(
+    ("separator", "evidence"),
+    [
+        (":", "200 dollars"),
+        ("：", "200 dollars"),
+        (":", "The official ratio is 100"),
+        ("：", "The official ratio is 100"),
+    ],
+)
+def test_rulespec_proof_validator_rejects_spaced_ratio_evidence(
+    separator: str,
+    evidence: str,
+):
+    source_text = f"The official ratio is 100 {separator} 200 dollars."
+    content = (
+        _corpus_checked_proof_content()
+        .replace("The official amount is $298.", repr(evidence))
+        .replace("$298", repr(evidence))
+        .replace("formula: '298'", "formula: '200'")
+    )
+
+    result = validate_rulespec_proofs(
+        content,
+        source_texts={"us/guidance/example/page-1": source_text},
+    )
+
+    assert result.passed is False
+    assert (
+        sum("Proof source evidence not found" in issue for issue in result.issues) == 2
+    )
+
+
+@pytest.mark.parametrize(
+    ("source_text", "excerpt"),
+    [
+        (
+            "The amount is" + PROOF_EVIDENCE_SEGMENT_SEPARATOR + "effective thereafter",
+            "The amount is effective thereafter",
+        ),
+        (
+            "Body text"
+            + PROOF_EVIDENCE_SEGMENT_SEPARATOR
+            + "Acts 2025"
+            + PROOF_EVIDENCE_SEGMENT_SEPARATOR
+            + "effective thereafter",
+            "Acts 2025 effective thereafter",
+        ),
+    ],
+)
+def test_rulespec_proof_validator_rejects_cross_segment_evidence(
+    source_text: str,
+    excerpt: str,
+):
+    content = (
+        _corpus_checked_proof_content()
+        .replace(
+            "excerpt: The official amount is $298.",
+            f"excerpt: {excerpt}",
+        )
+        .replace("quote: $298", f"quote: {excerpt}")
+    )
+
+    result = validate_rulespec_proofs(
+        content,
+        source_texts={"us/guidance/example/page-1": source_text},
+    )
+
+    assert result.passed is False
+    assert (
+        sum("Proof source evidence not found" in issue for issue in result.issues) == 2
+    )
 
 
 def test_rulespec_proof_validator_rejects_unresolved_direct_source():
@@ -19335,6 +19635,78 @@ def test_validator_pipeline_resolves_direct_proof_sources_from_authoritative_cor
 
     assert source_texts == {citation_path: "The official amount is $298."}
     assert find_rulespec_proof_issues(content, source_texts=source_texts) == []
+
+
+def test_source_history_proves_excerpt_without_grounding_numeric_literal(tmp_path):
+    citation_path = "us/statute/example/1"
+    corpus_root = tmp_path / "axiom-corpus"
+    provisions = corpus_root / "data" / "corpus" / "provisions" / "us" / "statute"
+    provisions.mkdir(parents=True)
+    body = "The benefit is available."
+    history = "Acts 2007, No. 278, section 1."
+    (provisions / "example.jsonl").write_text(
+        json.dumps(
+            _active_corpus_record(
+                citation_path,
+                body,
+                version="example",
+                metadata={"source_history": [history]},
+            )
+        )
+        + "\n"
+    )
+    release = _test_corpus_release(
+        corpus_root,
+        ("us", "statute", "example"),
+    )
+    content = f"""format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: {citation_path}
+rules:
+  - name: benefit_amount
+    kind: parameter
+    dtype: Money
+    unit: USD
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: {citation_path}
+              excerpt: {history}
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '278'
+"""
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path / "rulespec-us",
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+        local_corpus_release=release,
+    )
+
+    with validator_pipeline._authoritative_corpus_scope(release):
+        proof_source_texts = pipeline._proof_source_texts_for_rulespec_content(
+            content,
+            source_texts=None,
+        )
+        numeric_source_texts = pipeline._numeric_source_texts_for_rulespec_content(
+            content,
+            source_texts=None,
+        )
+
+    assert proof_source_texts[citation_path].endswith(history)
+    assert numeric_source_texts == {citation_path: body}
+    assert find_rulespec_proof_issues(content, source_texts=proof_source_texts) == []
+    assert find_ungrounded_numeric_issues_scoped(
+        content,
+        module_source_text=None,
+        proof_source_texts=numeric_source_texts,
+    )
 
 
 def test_district_plan_proof_source_grounds_anchored_numeric_from_corpus(tmp_path):
@@ -29892,12 +30264,20 @@ def test_scoped_grounding_uses_resolved_source_for_half_up_helper():
         "Increase the second digit after the decimal point by one if the third digit is five or more.",
         "the rounding increment is 0.5",
     )
+    issues = find_ungrounded_numeric_issues_scoped(
+        explicit_literal,
+        module_source_text="The module delegates rounding to the procedure.",
+        proof_source_texts={
+            "xx/policy/rounding/procedure": "Round to the nearest cent."
+        },
+    )
+    assert any("0.5" in issue for issue in issues), issues
     assert (
         find_ungrounded_numeric_issues_scoped(
             explicit_literal,
             module_source_text="The module delegates rounding to the procedure.",
             proof_source_texts={
-                "xx/policy/rounding/procedure": "Round to the nearest cent."
+                "xx/policy/rounding/procedure": "The rounding increment is 0.5."
             },
         )
         == []
@@ -29945,6 +30325,160 @@ def test_scoped_grounding_does_not_widen_table_evidence_for_half_up_helper():
     )
 
     assert any("0.5" in issue for issue in issues), issues
+
+
+def test_scoped_grounding_rejects_unverified_numeric_table_evidence():
+    content = textwrap.dedent(
+        """
+        format: rulespec/v1
+        rules:
+          - name: official_amount
+            kind: parameter
+            dtype: Money
+            metadata:
+              proof:
+                atoms:
+                  - path: versions[0].formula
+                    kind: table_cell
+                    source:
+                      corpus_citation_path: xx/policy/benefit/table
+                      table:
+                        header: monthly benefit
+                        row: household amount 987654321
+                        column: dollars
+            versions:
+              - effective_from: '2026-01-01'
+                formula: '987654321'
+        """
+    ).strip()
+
+    issues = find_ungrounded_numeric_issues_scoped(
+        content,
+        module_source_text="",
+        proof_source_texts={
+            "xx/policy/benefit/table": (
+                "Monthly benefit. Household amount is prescribed in dollars."
+            )
+        },
+    )
+    assert any("987654321" in issue for issue in issues), issues
+
+    assert (
+        find_ungrounded_numeric_issues_scoped(
+            content,
+            module_source_text="",
+            proof_source_texts={
+                "xx/policy/benefit/table": (
+                    "Monthly benefit. Household amount 987654321. Dollars."
+                )
+            },
+        )
+        == []
+    )
+
+
+@pytest.mark.parametrize(
+    ("source_text", "excerpt", "formula"),
+    [
+        ("The official amount is 150 dollars.", "50 dollars", "50"),
+        ("The official amount is 1,500 dollars.", "500 dollars", "500"),
+        ("The official amount is 1 500 euros.", "500 euros", "500"),
+        ("The official amount is 1\u00a0500 euros.", "500 euros", "500"),
+        ("The official amount is 1\u202f500 euros.", "500 euros", "500"),
+        (
+            "The official amount is 100 500 euros.",
+            "The official amount is 100",
+            "100",
+        ),
+        (
+            "The official amount is 100\u00a0500 euros.",
+            "The official amount is 100",
+            "100",
+        ),
+        (
+            "The official amount is 100\u202f500 euros.",
+            "The official amount is 100",
+            "100",
+        ),
+        ("The official amount is 10.5 dollars.", "5 dollars", "5"),
+        ("The official amount is -50 dollars.", "50 dollars", "50"),
+        ("The official amount is +50 dollars.", "50 dollars", "50"),
+        ("The official amount is −50 dollars.", "50 dollars", "50"),
+        ("The official amount is 1/7 dollars.", "7 dollars", "7"),
+        ("The official amount is 20:50 dollars.", "50 dollars", "50"),
+        ("The official amount is 100⁄200 dollars.", "200 dollars", "200"),
+        ("The official amount is 100∕200 dollars.", "200 dollars", "200"),
+        ("The official amount is 100∶200 dollars.", "200 dollars", "200"),
+        ("The official amount is 100／200 dollars.", "200 dollars", "200"),
+        ("The official amount is 100：200 dollars.", "200 dollars", "200"),
+        ("The official amount is 100–200 dollars.", "200 dollars", "200"),
+        ("The official amount is 100..200 dollars.", "200 dollars", "200"),
+        ("The official amount is 100…200 dollars.", "200 dollars", "200"),
+        ("The official amount is 100 : 200 dollars.", "200 dollars", "200"),
+        ("The official amount is 100 ： 200 dollars.", "200 dollars", "200"),
+        ("The official amount is 100 – 200 dollars.", "200 dollars", "200"),
+        (
+            "The official amount is 100 – 200 dollars.",
+            "The official amount is 100",
+            "100",
+        ),
+        ("The official amount is -$50 dollars.", "50 dollars", "50"),
+        ("The official amount is -\u200b50 dollars.", "50 dollars", "50"),
+        ("The official amount is +$50 dollars.", "50 dollars", "50"),
+        ("The official amount is −$50 dollars.", "50 dollars", "50"),
+        ("The official amount is -₩50 dollars.", "50 dollars", "50"),
+        ("The official amount is -₽50 dollars.", "50 dollars", "50"),
+        ("The official amount is ±$50 dollars.", "50 dollars", "50"),
+        ("The official amount is ∓$50 dollars.", "50 dollars", "50"),
+        ("The official amount is ($50 dollars).", "50 dollars", "50"),
+        ("The official amount is (₩50 dollars).", "50 dollars", "50"),
+        ("The official amount is $50 dollars-.", "50 dollars", "50"),
+        ("The official amount is ١50 dollars.", "50 dollars", "50"),
+    ],
+)
+def test_scoped_grounding_rejects_partial_numeric_excerpt_evidence(
+    source_text: str,
+    excerpt: str,
+    formula: str,
+):
+    content = textwrap.dedent(
+        f"""
+        format: rulespec/v1
+        rules:
+          - name: official_amount
+            kind: parameter
+            dtype: Money
+            metadata:
+              proof:
+                atoms:
+                  - path: versions[0].formula
+                    kind: amount
+                    source:
+                      corpus_citation_path: xx/policy/benefit/amount
+                      excerpt: {excerpt!r}
+            versions:
+              - effective_from: '2026-01-01'
+                formula: '{formula}'
+        """
+    ).strip()
+
+    issues = find_ungrounded_numeric_issues_scoped(
+        content,
+        module_source_text="",
+        proof_source_texts={"xx/policy/benefit/amount": source_text},
+    )
+    assert issues
+
+    assert (
+        find_ungrounded_numeric_issues_scoped(
+            content,
+            module_source_text="",
+            proof_source_texts={
+                "xx/policy/benefit/amount": f"The official amount is {excerpt}."
+            },
+        )
+        == []
+    )
 
 
 def test_scoped_grounding_does_not_join_distinct_sources_into_rounding_rule():

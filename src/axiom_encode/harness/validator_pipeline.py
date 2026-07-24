@@ -106,6 +106,7 @@ from .policyengine_runtime import (
     policyengine_subprocess_environment,
 )
 from .proof_validator import (
+    _bounded_source_evidence_match,
     find_plural_corpus_citation_path_issues,
     find_rulespec_proof_issues,
     validate_rulespec_proofs,
@@ -2669,6 +2670,7 @@ def _rule_atom_evidence_by_path(
     """
     by_path: dict[str, list[str]] = {}
     cited_by_path: dict[str, list[str]] = {}
+    explicit_evidence_paths: set[str] = set()
     if not isinstance(rule, dict):
         return {}
     metadata = rule.get("metadata")
@@ -2687,23 +2689,55 @@ def _rule_atom_evidence_by_path(
         source = atom.get("source")
         if not path or not isinstance(source, dict):
             continue
+        citation_path = str(source.get("corpus_citation_path") or "").strip()
+        resolved_text = (
+            proof_source_texts.get(citation_path)
+            if proof_source_texts is not None and citation_path
+            else None
+        )
         fragments = by_path.setdefault(path, [])
         for evidence_field in ("excerpt", "quote"):
             text = source.get(evidence_field)
-            if isinstance(text, str) and text.strip():
+            if not isinstance(text, str) or not text.strip():
+                continue
+            explicit_evidence_paths.add(path)
+            excerpt_is_body_bound = (
+                proof_source_texts is None
+                or not citation_path
+                or (
+                    resolved_text is not None
+                    and _source_evidence_fragment_is_body_bound(text, resolved_text)
+                )
+            )
+            if excerpt_is_body_bound:
                 fragments.append(text.strip())
         table = source.get("table")
         if isinstance(table, dict):
             for cell in table.values():
                 if isinstance(cell, (str, int, float)) and not isinstance(cell, bool):
-                    fragments.append(str(cell))
-        citation_path = str(source.get("corpus_citation_path") or "").strip()
+                    explicit_evidence_paths.add(path)
+                    text = str(cell).strip()
+                    cell_is_body_bound = (
+                        proof_source_texts is None
+                        or not citation_path
+                        or (
+                            resolved_text is not None
+                            and _source_evidence_fragment_is_body_bound(
+                                text, resolved_text
+                            )
+                        )
+                    )
+                    if cell_is_body_bound:
+                        fragments.append(text)
         if citation_path:
             cited_by_path.setdefault(path, []).append(citation_path)
     evidence: dict[str, str] = {}
     for path, fragments in by_path.items():
         if fragments:
             evidence[path] = "\n".join(fragments)
+            continue
+        if path in explicit_evidence_paths:
+            evidence[path] = ""
             continue
         resolved: list[str] = []
         if proof_source_texts is not None:
@@ -2713,6 +2747,18 @@ def _rule_atom_evidence_by_path(
                     resolved.append(text)
         evidence[path] = "\n".join(resolved)
     return evidence
+
+
+def _source_evidence_fragment_is_body_bound(
+    evidence_text: str,
+    source_text: str,
+) -> bool:
+    normalized_evidence = _collapse_source_sentence_text(evidence_text).casefold()
+    normalized_source = _collapse_source_sentence_text(source_text).casefold()
+    return bool(
+        normalized_evidence
+        and _bounded_source_evidence_match(normalized_evidence, normalized_source)
+    )
 
 
 def _rule_verified_source_excerpt_pairs_by_path(
@@ -19517,6 +19563,28 @@ def _fetch_corpus_source_text(citation_path: str) -> str | None:
     return _fetch_local_corpus_source_text(citation_path)
 
 
+def _fetch_corpus_proof_evidence_text(citation_path: str) -> str | None:
+    """Fetch all proof-bearing text from the authoritative corpus provision."""
+
+    release = _AUTHORITATIVE_CORPUS_RELEASE.get()
+    normalized_path = citation_path.strip().strip("/")
+    if not normalized_path:
+        return None
+    if release is None:
+        raise CorpusResolutionError(
+            "Corpus source resolution requires a bound LocalCorpusRelease"
+        )
+    try:
+        return resolve_local_corpus_source(
+            normalized_path,
+            release,
+        ).proof_evidence_text
+    except CorpusSourceNotFoundError:
+        return None
+    except UnsafeCorpusPathError as exc:
+        raise UnsafeRulespecContextPath(str(exc)) from exc
+
+
 def _fetch_local_corpus_source_text(
     citation_path: str,
 ) -> str | None:
@@ -21230,7 +21298,39 @@ class ValidatorPipeline:
     ) -> dict[str, str | None]:
         """Resolve direct proof sources through the authoritative corpus path."""
 
+        return self._cited_source_texts_for_rulespec_content(
+            content,
+            source_texts=source_texts,
+            proof_evidence=True,
+        )
+
+    def _numeric_source_texts_for_rulespec_content(
+        self,
+        content: str,
+        *,
+        source_texts: Mapping[str, str] | None,
+    ) -> dict[str, str | None]:
+        """Resolve proof-cited provision bodies for numeric grounding."""
+
+        return self._cited_source_texts_for_rulespec_content(
+            content,
+            source_texts=source_texts,
+            proof_evidence=False,
+        )
+
+    def _cited_source_texts_for_rulespec_content(
+        self,
+        content: str,
+        *,
+        source_texts: Mapping[str, str] | None,
+        proof_evidence: bool,
+    ) -> dict[str, str | None]:
         resolved: dict[str, str | None] = dict(source_texts or {})
+        fetch_source = (
+            _fetch_corpus_proof_evidence_text
+            if proof_evidence
+            else _fetch_corpus_source_text
+        )
         try:
             payload = yaml.safe_load(content)
         except (yaml.YAMLError, ValueError):
@@ -21259,8 +21359,8 @@ class ValidatorPipeline:
                 if not isinstance(source, dict):
                     continue
                 citation_path = str(source.get("corpus_citation_path") or "").strip()
-                if citation_path and citation_path not in resolved:
-                    resolved[citation_path] = _fetch_corpus_source_text(citation_path)
+                if citation_path:
+                    resolved[citation_path] = fetch_source(citation_path)
         return resolved
 
     def _trusted_source_binding_issues(self, content: str) -> list[str]:
@@ -22681,6 +22781,10 @@ class ValidatorPipeline:
             issues.append(f"Axiom rules engine compile failed: {exc}")
 
         validation_source_texts = self._source_texts_for_rulespec_content(content)
+        numeric_source_texts = self._numeric_source_texts_for_rulespec_content(
+            content,
+            source_texts=validation_source_texts,
+        )
         proof_source_texts = self._proof_source_texts_for_rulespec_content(
             content,
             source_texts=validation_source_texts,
@@ -22710,7 +22814,7 @@ class ValidatorPipeline:
                 find_ungrounded_numeric_issues_scoped(
                     content,
                     module_source_text=validation_source_text,
-                    proof_source_texts=proof_source_texts,
+                    proof_source_texts=numeric_source_texts,
                 )
             )
         issues.extend(find_deprecated_source_url_issues(content))

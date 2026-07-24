@@ -35,6 +35,7 @@ MAX_COMPOSITION_NODES = 100_000
 MAX_COMPOSITION_PREFIX_BYTES = 64 * 1024 * 1024
 MAX_RELEASE_OBJECT_BYTES = 16 * 1024 * 1024
 MAX_CORPUS_DESCENDANT_ROWS = 10_000
+PROOF_EVIDENCE_SEGMENT_SEPARATOR = "\n\x1e\n"
 MAX_CORPUS_CITATION_SEGMENT_LENGTH = 512
 MAX_CORPUS_CITATION_SEGMENTS = 64
 MAX_CORPUS_CITATION_LENGTH = 4_096
@@ -216,6 +217,7 @@ def scope_resolved_corpus_source(
         requested=target,
         body=body,
         resolved_text_sha256=_sha256_text(body),
+        source_history=source.source_history if target == source.citation_path else (),
         slice_required=target != source.citation_path,
     )
 
@@ -429,7 +431,25 @@ class ResolvedCorpusSource:
     release_name: str
     release_content_sha256: str
     release_selector_sha256: str
+    source_history: tuple[str, ...] = ()
     slice_required: bool = False
+
+    @property
+    def proof_evidence_segments(self) -> tuple[str, ...]:
+        """Return independently matchable, release-bound proof evidence."""
+
+        segments = (self.body, *self.source_history)
+        if any(PROOF_EVIDENCE_SEGMENT_SEPARATOR in segment for segment in segments):
+            raise CorpusResolutionError(
+                "Corpus proof evidence contains the reserved segment separator"
+            )
+        return segments
+
+    @property
+    def proof_evidence_text(self) -> str:
+        """Return segmented release-bound text available to proof validation."""
+
+        return PROOF_EVIDENCE_SEGMENT_SEPARATOR.join(self.proof_evidence_segments)
 
     def to_attestation(self) -> dict[str, Any]:
         """Return the JSON-compatible provenance bound into apply manifests."""
@@ -462,6 +482,7 @@ class _StoredRecord:
     ordinal: int | None
     file_path: Path
     file_sha256: str
+    source_history: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -883,6 +904,7 @@ def _resolved_source(
         release_name=release.name,
         release_content_sha256=release.content_sha256,
         release_selector_sha256=release.selector_sha256,
+        source_history=() if slice_required else selected.source_history,
         slice_required=slice_required,
     )
 
@@ -1101,6 +1123,7 @@ def _read_matching_records(
                 ordinal=_optional_int(record.get("ordinal")),
                 file_path=path,
                 file_sha256=artifact.sha256,
+                source_history=_record_source_history(record),
             )
         )
     return records
@@ -1182,6 +1205,7 @@ def _read_descendant_records(
                 ordinal=ordinal,
                 file_path=path,
                 file_sha256=artifact.sha256,
+                source_history=_record_source_history(record),
             )
         )
     return records
@@ -3837,6 +3861,24 @@ def _record_status(record: dict[str, Any]) -> str | None:
         return None
     status = metadata.get("status")
     return status if status == "repealed" else None
+
+
+def _record_source_history(record: dict[str, Any]) -> tuple[str, ...]:
+    metadata = record.get("metadata")
+    if not isinstance(metadata, Mapping):
+        return ()
+    history = metadata.get("source_history")
+    if not isinstance(history, list):
+        return ()
+    return tuple(
+        entry.strip() for entry in history if isinstance(entry, str) and entry.strip()
+    )
+
+
+def split_proof_evidence_text(source_text: str) -> tuple[str, ...]:
+    """Split proof evidence without permitting matches across source records."""
+
+    return tuple(str(source_text).split(PROOF_EVIDENCE_SEGMENT_SEPARATOR))
 
 
 def _clean_string_value(value: Any, *, label: str) -> str:

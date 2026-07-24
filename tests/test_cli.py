@@ -60,6 +60,7 @@ from axiom_encode.cli import (
     _convert_indexed_parameter_values_to_derived_formulas,
     _convert_versioned_boolean_parameters_to_indicators,
     _current_guard_encoder_execution_identity,
+    _declared_rule_subsection_source_text,
     _default_generated_test_input_value,
     _discover_rulespec_test_files,
     _effective_runner_specs,
@@ -169,6 +170,7 @@ from axiom_encode.cli import (
     _sha256_text,
     _sign_applied_encoding_manifest,
     _source_attestation_structure_issues,
+    _source_excerpt_preserving_whitespace,
     _source_relation_preservation_issues,
     _split_colorado_snap_program_utility_outputs,
     _split_table_row_relation_test_cases,
@@ -264,6 +266,7 @@ from axiom_encode.constants import (
     RULESPEC_FILESYSTEM_ROOTS,
 )
 from axiom_encode.corpus_resolver import (
+    PROOF_EVIDENCE_SEGMENT_SEPARATOR,
     LocalCorpusRelease,
     UnsafeCorpusPathError,
     normalize_corpus_identifier,
@@ -1473,6 +1476,7 @@ def _write_active_corpus_row(
     body: str,
     *,
     version: str = TEST_CORPUS_VERSION,
+    metadata: dict | None = None,
 ) -> LocalCorpusRelease:
     jurisdiction, document_class, *_rest = citation_path.split("/")
     provision_file = (
@@ -1499,6 +1503,7 @@ def _write_active_corpus_row(
                 "source_path": f"sources/{jurisdiction}/{document_class}/test",
                 "source_as_of": "2026-01-01",
                 "expression_date": "2026-01-01",
+                **({"metadata": metadata} if metadata is not None else {}),
             }
         )
         + "\n",
@@ -1557,8 +1562,14 @@ def _bind_test_corpus_release(
     *,
     citation_path: str = "us/statute/26/1",
     body: str = "authoritative test source",
+    metadata: dict | None = None,
 ) -> LocalCorpusRelease:
-    release = _write_active_corpus_row(corpus_root, citation_path, body)
+    release = _write_active_corpus_row(
+        corpus_root,
+        citation_path,
+        body,
+        metadata=metadata,
+    )
     _write_test_rulespec_toolchain(
         rulespec_root,
         release_content_sha256=release.content_sha256,
@@ -10015,6 +10026,33 @@ rules:
         source_texts={"us/regulation/42/435/552": source_text},
     )
     assert validation.passed, validation.issues
+
+
+def test_declared_subsection_source_keeps_corpus_evidence_segments_separate():
+    source_text = (
+        "(a) Body prefix\n"
+        "(b) Other body text"
+        + PROOF_EVIDENCE_SEGMENT_SEPARATOR
+        + "(a) history suffix\n"
+        "(b) Other history text"
+    )
+    excerpt = "Body prefix (a) history suffix"
+
+    scoped = _declared_rule_subsection_source_text(
+        source_text,
+        rule_source="Section 1(a)",
+    )
+
+    assert scoped is not None
+    assert PROOF_EVIDENCE_SEGMENT_SEPARATOR in scoped
+    assert len(scoped.split(PROOF_EVIDENCE_SEGMENT_SEPARATOR)) == 2
+    assert (
+        _source_excerpt_preserving_whitespace(
+            source_text=scoped,
+            excerpt=excerpt,
+        )
+        is None
+    )
 
 
 class TestCmdInventory:
@@ -28334,6 +28372,51 @@ rules: []
             corpus_release=corpus_release,
             issues=[
                 "Ungrounded generated numeric literal: 80 does not appear as "
+                "a substantive numeric value in the source text."
+            ],
+        )
+
+        assert repaired == []
+        payload = yaml.safe_load(rules_file.read_text())
+        assert (
+            payload["module"]["source_verification"]["corpus_citation_path"]
+            == "us/statute/42/1396a"
+        )
+
+    def test_source_child_corpus_path_repair_ignores_source_history_numbers(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        rules_file = output_root / "codex-gpt-5.5" / "statutes/42/1396a/xx.yaml"
+        rules_file.parent.mkdir(parents=True)
+        rules_repo = _canonical_rulespec_content_root(tmp_path)
+        corpus_release = _bind_test_corpus_release(
+            rules_repo,
+            tmp_path / "axiom-corpus",
+            citation_path="us/statute/42/1396a/xx",
+            body="A State shall verify community engagement.",
+            metadata={"source_history": ["Acts 2007, No. 278, section 1."]},
+        )
+        rules_file.write_text(
+            """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/statute/42/1396a
+rules: []
+"""
+        )
+        result = SimpleNamespace(
+            runner="codex-gpt-5.5",
+            output_file=str(rules_file),
+        )
+
+        repaired = _try_repair_generated_source_child_corpus_paths_for_apply(
+            result,
+            output_root=output_root,
+            rules_repo_path=rules_repo,
+            corpus_release=corpus_release,
+            issues=[
+                "Ungrounded generated numeric literal: 278 does not appear as "
                 "a substantive numeric value in the source text."
             ],
         )

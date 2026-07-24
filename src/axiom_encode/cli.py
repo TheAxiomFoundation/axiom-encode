@@ -120,6 +120,7 @@ from .constants import (
     RULESPEC_TEST_FILE_SUFFIX,
 )
 from .corpus_resolver import (
+    PROOF_EVIDENCE_SEGMENT_SEPARATOR,
     AmbiguousCorpusSourceError,
     CorpusDescendantStructureError,
     CorpusLayoutError,
@@ -134,6 +135,7 @@ from .corpus_resolver import (
     read_bounded_regular_file,
     require_canonical_corpus_citation_path,
     resolve_local_corpus_source,
+    split_proof_evidence_text,
     validate_corpus_release_name,
 )
 from .harness.dependency_stubs import (
@@ -170,7 +172,6 @@ from .harness.evals import (
     _eval_suite_case_policy_repo_root,
     _eval_suite_execution_identity_sha256,
     _eval_suite_rulespec_roots,
-    _fetch_local_corpus_source_text_from_repo,
     _git_checkout_execution_identity,
     _load_eval_suite_resume_state,
     _render_eval_result_verdict_evidence,
@@ -3701,7 +3702,7 @@ def cmd_proof_validate(args):
                     source_text_cache[cache_key] = resolve_local_corpus_source(
                         citation_path,
                         corpus_release,
-                    ).body
+                    ).proof_evidence_text
                 except CorpusResolutionError as exc:
                     source_text_cache[cache_key] = None
                     source_error_cache[cache_key] = (
@@ -23090,7 +23091,7 @@ def _try_repair_generated_source_child_corpus_paths_for_apply(
     )
     if child_corpus_path is None:
         return []
-    child_source_text = _local_source_text_for_corpus_path(
+    child_source_text = _local_corpus_body_for_corpus_path(
         child_corpus_path,
         corpus_release=corpus_release,
     )
@@ -23358,11 +23359,29 @@ def _local_source_text_for_corpus_path(
     *,
     corpus_release: LocalCorpusRelease,
 ) -> str | None:
-    source_text = _fetch_local_corpus_source_text_from_repo(
-        corpus_citation_path,
-        corpus_release,
-    )
-    return str(source_text) if source_text is not None else None
+    try:
+        source = resolve_local_corpus_source(
+            corpus_citation_path,
+            corpus_release,
+        )
+    except CorpusSourceNotFoundError:
+        return None
+    return source.proof_evidence_text
+
+
+def _local_corpus_body_for_corpus_path(
+    corpus_citation_path: str,
+    *,
+    corpus_release: LocalCorpusRelease,
+) -> str | None:
+    try:
+        source = resolve_local_corpus_source(
+            corpus_citation_path,
+            corpus_release,
+        )
+    except CorpusSourceNotFoundError:
+        return None
+    return source.body
 
 
 def _corpus_citation_path_is_parent_of(parent: str, child: str) -> bool:
@@ -28621,14 +28640,13 @@ def _source_excerpt_preserving_whitespace(
     parts = str(excerpt).split()
     if not parts:
         return None
-    match = re.search(
-        r"\s+".join(re.escape(part) for part in parts),
-        str(source_text),
-        flags=re.IGNORECASE,
-    )
-    if match is None:
-        return None
-    return str(source_text)[match.start() : match.end()].strip()
+    matches: set[str] = set()
+    pattern = r"\s+".join(re.escape(part) for part in parts)
+    for segment in split_proof_evidence_text(source_text):
+        match = re.search(pattern, segment, flags=re.IGNORECASE)
+        if match is not None:
+            matches.add(segment[match.start() : match.end()].strip())
+    return next(iter(matches)) if len(matches) == 1 else None
 
 
 def _try_repair_generated_nonexact_proof_excerpts_for_apply(
@@ -28750,7 +28768,20 @@ def _declared_rule_subsection_source_text(
     scope = _rule_source_subsection_scope(rule_source)
     if not scope:
         return None
-    source = str(source_text)
+    selected_segments = [
+        selected
+        for segment in split_proof_evidence_text(source_text)
+        if (selected := _declared_rule_subsection_source_segment(segment, scope))
+    ]
+    return PROOF_EVIDENCE_SEGMENT_SEPARATOR.join(selected_segments) or None
+
+
+def _declared_rule_subsection_source_segment(
+    source: str,
+    scope: dict[str, frozenset[str] | None],
+) -> str | None:
+    """Select subsection blocks without joining distinct evidence records."""
+
     markers = list(re.finditer(r"(?m)^[ \t]*\((?P<marker>[a-z])\)[ \t]+", source))
     blocks: list[str] = []
     for index, marker in enumerate(markers):
@@ -28803,6 +28834,19 @@ def _closest_exact_source_excerpt(*, source_text: str, excerpt: str) -> str | No
     query = re.sub(r"\s+", " ", str(excerpt)).strip()
     if not source or not query:
         return None
+    segments = split_proof_evidence_text(source)
+    if len(segments) > 1:
+        matches = {
+            candidate
+            for segment in segments
+            if (
+                candidate := _closest_exact_source_excerpt(
+                    source_text=segment,
+                    excerpt=excerpt,
+                )
+            )
+        }
+        return next(iter(matches)) if len(matches) == 1 else None
 
     candidates = _exact_source_excerpt_candidate_spans(source)
     whitespace_pattern = r"\s+".join(re.escape(part) for part in query.split())
