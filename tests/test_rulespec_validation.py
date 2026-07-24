@@ -30084,6 +30084,56 @@ def test_scoped_grounding_does_not_widen_table_evidence_for_half_up_helper():
     assert any("0.5" in issue for issue in issues), issues
 
 
+def test_scoped_grounding_rejects_unverified_numeric_table_evidence():
+    content = textwrap.dedent(
+        """
+        format: rulespec/v1
+        rules:
+          - name: official_amount
+            kind: parameter
+            dtype: Money
+            metadata:
+              proof:
+                atoms:
+                  - path: versions[0].formula
+                    kind: table_cell
+                    source:
+                      corpus_citation_path: xx/policy/benefit/table
+                      table:
+                        header: monthly benefit
+                        row: household amount 987654321
+                        column: dollars
+            versions:
+              - effective_from: '2026-01-01'
+                formula: '987654321'
+        """
+    ).strip()
+
+    issues = find_ungrounded_numeric_issues_scoped(
+        content,
+        module_source_text="",
+        proof_source_texts={
+            "xx/policy/benefit/table": (
+                "Monthly benefit. Household amount is prescribed in dollars."
+            )
+        },
+    )
+    assert any("987654321" in issue for issue in issues), issues
+
+    assert (
+        find_ungrounded_numeric_issues_scoped(
+            content,
+            module_source_text="",
+            proof_source_texts={
+                "xx/policy/benefit/table": (
+                    "Monthly benefit. Household amount 987654321. Dollars."
+                )
+            },
+        )
+        == []
+    )
+
+
 def test_scoped_grounding_does_not_join_distinct_sources_into_rounding_rule():
     content = textwrap.dedent(
         """

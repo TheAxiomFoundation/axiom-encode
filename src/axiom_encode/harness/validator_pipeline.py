@@ -2714,7 +2714,28 @@ def _rule_atom_evidence_by_path(
         if isinstance(table, dict):
             for cell in table.values():
                 if isinstance(cell, (str, int, float)) and not isinstance(cell, bool):
-                    fragments.append(str(cell))
+                    text = str(cell).strip()
+                    normalized_text = _collapse_source_sentence_text(text).casefold()
+                    normalized_source = (
+                        _collapse_source_sentence_text(resolved_text).casefold()
+                        if resolved_text is not None
+                        else ""
+                    )
+                    cell_is_body_bound = (
+                        proof_source_texts is None
+                        or not citation_path
+                        or (
+                            normalized_text
+                            and re.search(
+                                rf"(?<![A-Za-z0-9]){re.escape(normalized_text)}"
+                                r"(?![A-Za-z0-9])",
+                                normalized_source,
+                            )
+                            is not None
+                        )
+                    )
+                    if cell_is_body_bound:
+                        fragments.append(text)
         if citation_path:
             cited_by_path.setdefault(path, []).append(citation_path)
     evidence: dict[str, str] = {}

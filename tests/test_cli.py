@@ -60,6 +60,7 @@ from axiom_encode.cli import (
     _convert_indexed_parameter_values_to_derived_formulas,
     _convert_versioned_boolean_parameters_to_indicators,
     _current_guard_encoder_execution_identity,
+    _declared_rule_subsection_source_text,
     _default_generated_test_input_value,
     _discover_rulespec_test_files,
     _effective_runner_specs,
@@ -169,6 +170,7 @@ from axiom_encode.cli import (
     _sha256_text,
     _sign_applied_encoding_manifest,
     _source_attestation_structure_issues,
+    _source_excerpt_preserving_whitespace,
     _source_relation_preservation_issues,
     _split_colorado_snap_program_utility_outputs,
     _split_table_row_relation_test_cases,
@@ -264,6 +266,7 @@ from axiom_encode.constants import (
     RULESPEC_FILESYSTEM_ROOTS,
 )
 from axiom_encode.corpus_resolver import (
+    PROOF_EVIDENCE_SEGMENT_SEPARATOR,
     LocalCorpusRelease,
     UnsafeCorpusPathError,
     normalize_corpus_identifier,
@@ -10023,6 +10026,33 @@ rules:
         source_texts={"us/regulation/42/435/552": source_text},
     )
     assert validation.passed, validation.issues
+
+
+def test_declared_subsection_source_keeps_corpus_evidence_segments_separate():
+    source_text = (
+        "(a) Body prefix\n"
+        "(b) Other body text"
+        + PROOF_EVIDENCE_SEGMENT_SEPARATOR
+        + "(a) history suffix\n"
+        "(b) Other history text"
+    )
+    excerpt = "Body prefix (a) history suffix"
+
+    scoped = _declared_rule_subsection_source_text(
+        source_text,
+        rule_source="Section 1(a)",
+    )
+
+    assert scoped is not None
+    assert PROOF_EVIDENCE_SEGMENT_SEPARATOR in scoped
+    assert len(scoped.split(PROOF_EVIDENCE_SEGMENT_SEPARATOR)) == 2
+    assert (
+        _source_excerpt_preserving_whitespace(
+            source_text=scoped,
+            excerpt=excerpt,
+        )
+        is None
+    )
 
 
 class TestCmdInventory:

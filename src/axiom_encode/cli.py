@@ -120,6 +120,7 @@ from .constants import (
     RULESPEC_TEST_FILE_SUFFIX,
 )
 from .corpus_resolver import (
+    PROOF_EVIDENCE_SEGMENT_SEPARATOR,
     AmbiguousCorpusSourceError,
     CorpusDescendantStructureError,
     CorpusLayoutError,
@@ -28767,7 +28768,20 @@ def _declared_rule_subsection_source_text(
     scope = _rule_source_subsection_scope(rule_source)
     if not scope:
         return None
-    source = str(source_text)
+    selected_segments = [
+        selected
+        for segment in split_proof_evidence_text(source_text)
+        if (selected := _declared_rule_subsection_source_segment(segment, scope))
+    ]
+    return PROOF_EVIDENCE_SEGMENT_SEPARATOR.join(selected_segments) or None
+
+
+def _declared_rule_subsection_source_segment(
+    source: str,
+    scope: dict[str, frozenset[str] | None],
+) -> str | None:
+    """Select subsection blocks without joining distinct evidence records."""
+
     markers = list(re.finditer(r"(?m)^[ \t]*\((?P<marker>[a-z])\)[ \t]+", source))
     blocks: list[str] = []
     for index, marker in enumerate(markers):
