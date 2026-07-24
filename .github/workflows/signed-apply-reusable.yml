@@ -348,11 +348,9 @@ jobs:
               --trusted-python-package-root "/opt/axiom-verification/python/lib/$pyseg/site-packages/axiom_encode" \
               -- /opt/axiom-verification/axiom-encode "$@"
           }
-          jur="$(cd "$genroot" && ls -d */ | grep -vE '^(tests|data|bulk|docs)/' | grep -E '^[a-z]{2}(-[a-z0-9-]+)*/' | head -1 | tr -d '/')"
-
           # validate AND proof-validate were both hard-cut to explicit RuleSpec
           # file paths (the --root tree form was removed in the named-corpus
-          # cut). Select atomic RuleSpec modules under the jurisdiction's
+          # cut). Select atomic RuleSpec modules under every jurisdiction's
           # canonical content roots (statutes/ regulations/ policies/
           # legislation/), excluding *.test.* and composition specs under
           # programs/, and skip ACTIVE validation waivers. Both gates take the
@@ -364,9 +362,16 @@ jobs:
 
           (
             cd "$genroot"
-            find "$jur" -type f \( -name "*.yaml" -o -name "*.yml" \) \
-              ! -name "*.test.yaml" ! -name "*.test.yml" \
-              ! -path "*/programs/*" -print0
+            while IFS= read -r jur; do
+              find "$jur" -type f \( -name "*.yaml" -o -name "*.yml" \) \
+                ! -name "*.test.yaml" ! -name "*.test.yml" \
+                ! -path "*/programs/*" -print0
+            done < <(
+              ls -d */ |
+                grep -vE '^(tests|data|bulk|docs)/' |
+                grep -E '^[a-z]{2}(-[a-z0-9-]+)*/' |
+                tr -d '/'
+            )
           ) > "$gate_tmp/candidates"
 
           # Only consult waivers when the file exists: the CLI's waiver loader
