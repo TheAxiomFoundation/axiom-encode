@@ -587,7 +587,16 @@ def _source_evidence_span_is_bounded(
 
     before = source_text[:start]
     after = source_text[end:]
-    if before and (before[-1].isalnum() or before[-1] == "_"):
+    if (
+        before
+        and (before[-1].isalnum() or before[-1] == "_")
+        and not (
+            _span_starts_after_fused_footnote_marker(
+                evidence_text=evidence_text,
+                before=before,
+            )
+        )
+    ):
         return False
     if after and (after[0].isalnum() or after[0] == "_"):
         return False
@@ -761,14 +770,18 @@ def _span_omits_accounting_parentheses(
     before: str,
     after: str,
 ) -> bool:
-    if _is_numeric_date_label(evidence_text):
-        return False
     left = before.rstrip()
     while left and _is_currency_marker(left[-1]):
         left = left[:-1].rstrip()
-    omitted_closing = after.lstrip().startswith(")")
     carried_closing = evidence_text.rstrip().endswith(")")
-    return bool(left.endswith("(") and (omitted_closing or carried_closing))
+    if carried_closing:
+        return left.endswith("(")
+    if _is_numeric_date_label(evidence_text) or _is_substantive_numeric_prose(
+        evidence_text
+    ):
+        return False
+    omitted_closing = after.lstrip().startswith(")")
+    return bool(left.endswith("(") and omitted_closing)
 
 
 def _is_numeric_date_label(text: str) -> bool:
@@ -779,6 +792,53 @@ def _is_numeric_date_label(text: str) -> bool:
         re.fullmatch(
             rf"\s*{date}(?:\s*(?:-|[\u2010-\u2015]|to)\s*{date})?\s*",
             text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _span_starts_after_fused_footnote_marker(
+    *,
+    evidence_text: str,
+    before: str,
+) -> bool:
+    """Recognize OCR text that fuses a one-digit footnote to sentence prose."""
+
+    text = evidence_text.lstrip()
+    lead = re.match(r"[^\W\d_]+", text)
+    words = re.findall(r"[^\W\d_]+", text)
+    left_context = before[:-1].rstrip()
+    follows_document_boundary = bool(
+        re.search(r"\$\d[\d,]*(?:\.\d+)?$", left_context)
+        or left_context.endswith((".", "!", "?"))
+    )
+    return bool(
+        lead
+        and lead.group(0) == "The"
+        and len(words) >= 4
+        and len(before) >= 2
+        and before[-1] in "123456789"
+        and before[-2].isspace()
+        and left_context
+        and follows_document_boundary
+    )
+
+
+def _is_substantive_numeric_prose(text: str) -> bool:
+    """Distinguish a parenthesized legal clause from accounting notation."""
+
+    normalized = re.sub(r"\s+", " ", text).strip()
+    return bool(
+        re.fullmatch(
+            r"\d+(?:\.\d+)?%\s+of\s+\w+\s+meals\s+(?:a|per)\s+"
+            r"(?:day|week|month|year)",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        or re.fullmatch(
+            r"\d+\s+(?:days?|weeks?|months?|years?)\s+or\s+the\s+period\s+"
+            r"for\s+which\b.+",
+            normalized,
             flags=re.IGNORECASE,
         )
     )

@@ -9700,6 +9700,140 @@ def test_rulespec_proof_validator_accepts_complete_numeric_legal_citation():
 
 
 @pytest.mark.parametrize(
+    ("prefix", "marker"),
+    [
+        ("Annual limits $146,836", "1"),
+        ("The FPL guidelines are subject to change.", "2"),
+        ("This threshold is established by CAPS.", "3"),
+    ],
+)
+def test_rulespec_proof_validator_accepts_fused_ocr_footnote_marker(
+    prefix: str,
+    marker: str,
+):
+    evidence = (
+        "The threshold for families in the very low-income priority group is "
+        "50% of the federal poverty level (FPL) guidelines"
+    )
+    content = (
+        _corpus_checked_proof_content()
+        .replace("The official amount is $298.", repr(evidence))
+        .replace("$298", repr(evidence))
+        .replace("formula: '298'", "formula: '0.50'")
+    )
+
+    result = validate_rulespec_proofs(
+        content,
+        source_texts={"us/guidance/example/page-1": f"{prefix} {marker}{evidence}"},
+    )
+
+    assert result.passed is True
+    assert result.issues == []
+
+
+@pytest.mark.parametrize(
+    ("source_text", "evidence"),
+    [
+        (
+            "Section 1The allowance is for all eligible families.",
+            "The allowance is for all eligible families",
+        ),
+        (
+            "Ratio 1For every 2 units during the year.",
+            "For every 2 units during the year",
+        ),
+        (
+            "Section 1ABC allowance is 50 percent.",
+            "ABC allowance is 50 percent",
+        ),
+        (
+            "Section 1.2 3The allowance is for all eligible families.",
+            "The allowance is for all eligible families",
+        ),
+        (
+            "Ratio 3:1 2The allowance is for all eligible families.",
+            "The allowance is for all eligible families",
+        ),
+    ],
+)
+def test_rulespec_proof_validator_rejects_partial_alphanumeric_identifier(
+    source_text: str,
+    evidence: str,
+):
+    content = (
+        _corpus_checked_proof_content()
+        .replace("The official amount is $298.", repr(evidence))
+        .replace("$298", repr(evidence))
+        .replace("formula: '298'", "formula: '0.50'")
+    )
+
+    result = validate_rulespec_proofs(
+        content,
+        source_texts={"us/guidance/example/page-1": source_text},
+    )
+
+    assert result.passed is False
+    assert any("Proof source evidence not found" in issue for issue in result.issues)
+
+
+@pytest.mark.parametrize(
+    "evidence",
+    [
+        "50% of three meals a day",
+        "24 months or the period for which the person was called to active duty",
+    ],
+)
+def test_rulespec_proof_validator_accepts_parenthesized_numeric_legal_prose(
+    evidence: str,
+):
+    content = (
+        _corpus_checked_proof_content()
+        .replace("The official amount is $298.", repr(evidence))
+        .replace("$298", repr(evidence))
+        .replace("formula: '298'", "formula: '50'")
+    )
+
+    result = validate_rulespec_proofs(
+        content,
+        source_texts={"us/guidance/example/page-1": f"Rule text ({evidence}) applies."},
+    )
+
+    assert result.passed is True
+    assert result.issues == []
+
+
+@pytest.mark.parametrize(
+    "evidence",
+    [
+        "$50 of total assets for the current period",
+        "1:50 of total assets for the current period",
+        "$50 of total assets for the current period)",
+        "24 months or the period for which the person was called to active duty)",
+    ],
+)
+def test_rulespec_proof_validator_rejects_parenthesized_accounting_prose(
+    evidence: str,
+):
+    source_evidence = evidence.rstrip(")")
+    content = (
+        _corpus_checked_proof_content()
+        .replace("The official amount is $298.", repr(evidence))
+        .replace("$298", repr(evidence))
+        .replace("formula: '298'", "formula: '50'")
+    )
+
+    result = validate_rulespec_proofs(
+        content,
+        source_texts={
+            "us/guidance/example/page-1": f"Statement ({source_evidence}) filed."
+        },
+    )
+
+    assert result.passed is False
+    assert any("Proof source evidence not found" in issue for issue in result.issues)
+
+
+@pytest.mark.parametrize(
     "source_text",
     [
         "(1) 50 dollars is allowed.",
