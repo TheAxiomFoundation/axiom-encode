@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import contextlib
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
@@ -601,7 +602,17 @@ def _source_evidence_span_is_bounded(
             return False
         if _left_context_continues_numeric_token(before):
             return False
-        if _span_omits_accounting_parentheses(before=before, after=after):
+        if _span_omits_accounting_parentheses(
+            evidence_text=evidence_text,
+            before=before,
+            after=after,
+        ):
+            return False
+        if _span_omits_trailing_accounting_sign(
+            evidence_text=evidence_text,
+            before=before,
+            after=after,
+        ):
             return False
 
     if _evidence_ends_with_numeric_token(evidence_text):
@@ -617,7 +628,7 @@ def _source_evidence_span_is_bounded(
 
 def _evidence_begins_with_numeric_token(evidence_text: str) -> bool:
     text = evidence_text.lstrip()
-    while text and text[0] in "$£€¥₹":
+    while text and _is_currency_marker(text[0]):
         text = text[1:].lstrip()
     return bool(text and text[0].isdecimal())
 
@@ -627,16 +638,14 @@ def _evidence_ends_with_numeric_token(evidence_text: str) -> bool:
     return bool(text and text[-1].isdecimal())
 
 
-_NUMERIC_CURRENCY_MARKERS = frozenset("$£€¥₹")
-_NUMERIC_GROUPING_SPACES = frozenset(
-    {" ", "\N{NO-BREAK SPACE}", "\N{NARROW NO-BREAK SPACE}"}
-)
 _NUMERIC_SIGN_MARKERS = frozenset(
     {
         "+",
         "-",
+        "\N{PLUS-MINUS SIGN}",
         "\N{FIGURE DASH}",
         "\N{MINUS SIGN}",
+        "\N{MINUS-OR-PLUS SIGN}",
         "\N{SMALL PLUS SIGN}",
         "\N{SMALL HYPHEN-MINUS}",
         "\N{FULLWIDTH PLUS SIGN}",
@@ -655,6 +664,28 @@ _NUMERIC_SUFFIX_MARKERS = frozenset(
         "\N{FULLWIDTH PERCENT SIGN}",
     }
 )
+_ASCII_NUMERIC_CONNECTORS = frozenset(".,/:^+-*")
+_UNICODE_NUMERIC_CONNECTOR_NAME_WORDS = frozenset(
+    {
+        "ASTERISK",
+        "CARET",
+        "COLON",
+        "COMMA",
+        "DASH",
+        "DIVISION",
+        "HYPHEN",
+        "MINUS",
+        "MULTIPLICATION",
+        "RATIO",
+        "SOLIDUS",
+    }
+)
+_UNICODE_NUMERIC_CONNECTOR_NAME_PHRASES = (
+    "DECIMAL SEPARATOR",
+    "FRACTION SLASH",
+    "FULL STOP",
+    "THOUSANDS SEPARATOR",
+)
 
 
 def _span_starts_inside_space_grouped_number(
@@ -668,7 +699,7 @@ def _span_starts_inside_space_grouped_number(
         leading_digits
         and len(leading_digits.group(0)) == 3
         and len(before) >= 2
-        and before[-1] in _NUMERIC_GROUPING_SPACES
+        and before[-1].isspace()
         and before[-2].isdecimal()
     )
 
@@ -676,7 +707,7 @@ def _span_starts_inside_space_grouped_number(
 def _span_ends_inside_space_grouped_number(*, after: str) -> bool:
     return bool(
         len(after) >= 4
-        and after[0] in _NUMERIC_GROUPING_SPACES
+        and after[0].isspace()
         and all(character.isdecimal() for character in after[1:4])
         and (len(after) == 4 or not after[4].isdecimal())
     )
@@ -684,34 +715,73 @@ def _span_ends_inside_space_grouped_number(*, after: str) -> bool:
 
 def _left_context_omits_numeric_sign(before: str) -> bool:
     left = before.rstrip()
-    while left and left[-1] in _NUMERIC_CURRENCY_MARKERS:
+    while left and _is_currency_marker(left[-1]):
         left = left[:-1].rstrip()
     return bool(left and left[-1] in _NUMERIC_SIGN_MARKERS)
 
 
 def _left_context_continues_numeric_token(before: str) -> bool:
     left = before.rstrip()
-    boundary_found = False
-    while left and not (left[-1].isalnum() or left[-1] == "_"):
-        boundary_found = True
-        left = left[:-1].rstrip()
-    return bool(boundary_found and left and left[-1].isdecimal())
+    if not left or not _is_numeric_connector(left[-1]):
+        return False
+    left = left[:-1].rstrip()
+    return bool(left and left[-1].isdecimal())
 
 
 def _right_context_continues_numeric_token(after: str) -> bool:
     right = after.lstrip()
-    boundary_found = False
-    while right and not (right[0].isalnum() or right[0] == "_"):
-        boundary_found = True
-        right = right[1:].lstrip()
-    return bool(boundary_found and right and right[0].isdecimal())
+    if not right or not _is_numeric_connector(right[0]):
+        return False
+    right = right[1:].lstrip()
+    return bool(right and right[0].isdecimal())
 
 
-def _span_omits_accounting_parentheses(*, before: str, after: str) -> bool:
+def _span_omits_accounting_parentheses(
+    *,
+    evidence_text: str,
+    before: str,
+    after: str,
+) -> bool:
     left = before.rstrip()
-    while left and left[-1] in _NUMERIC_CURRENCY_MARKERS:
+    while left and _is_currency_marker(left[-1]):
         left = left[:-1].rstrip()
-    return bool(left.endswith("(") and after.lstrip().startswith(")"))
+    omitted_closing = after.lstrip().startswith(")")
+    carried_closing = evidence_text.rstrip().endswith(")")
+    return bool(left.endswith("(") and (omitted_closing or carried_closing))
+
+
+def _span_omits_trailing_accounting_sign(
+    *,
+    evidence_text: str,
+    before: str,
+    after: str,
+) -> bool:
+    evidence = evidence_text.lstrip()
+    left = before.rstrip()
+    carries_currency = bool(evidence and _is_currency_marker(evidence[0]))
+    omits_currency = bool(left and _is_currency_marker(left[-1]))
+    right = after.lstrip()
+    return bool(
+        (carries_currency or omits_currency)
+        and right
+        and right[0] in _NUMERIC_SIGN_MARKERS
+    )
+
+
+def _is_currency_marker(character: str) -> bool:
+    return unicodedata.category(character) == "Sc"
+
+
+def _is_numeric_connector(character: str) -> bool:
+    normalized = unicodedata.normalize("NFKC", character)
+    if normalized in _ASCII_NUMERIC_CONNECTORS or character in _NUMERIC_SIGN_MARKERS:
+        return True
+    name = unicodedata.name(character, "")
+    name_words = frozenset(name.split())
+    return bool(
+        name_words & _UNICODE_NUMERIC_CONNECTOR_NAME_WORDS
+        or any(phrase in name for phrase in _UNICODE_NUMERIC_CONNECTOR_NAME_PHRASES)
+    )
 
 
 def _proof_excerpt_subsection_scope_issues(
