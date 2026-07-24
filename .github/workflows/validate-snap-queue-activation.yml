@@ -1,0 +1,221 @@
+name: Validate SNAP queue activation
+
+on:
+  pull_request:
+    paths:
+      - data/encoding-queues/us-snap-or-ut-2026-07.json
+      - scripts/prepare_signed_queue.py
+      - .github/workflows/finalize-signed-snap-queue.yml
+      - .github/workflows/validate-snap-queue-activation.yml
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout pull request
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Authenticate activation evidence and current RuleSpec tip
+        id: transition
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+          queue="data/encoding-queues/us-snap-or-ut-2026-07.json"
+          python3 scripts/prepare_signed_queue.py validate "$queue"
+          previous_queue="$RUNNER_TEMP/previous-snap-queue.json"
+          initial=false
+          if git cat-file -e "$BASE_SHA:$queue" 2> /dev/null; then
+            git show "$BASE_SHA:$queue" > "$previous_queue"
+          elif [ "$(jq -r '.state' "$queue")" != "paused" ] || ! jq -e '
+            all(.items[]; .status == "pending" and .attempt == 1)
+          ' "$queue" > /dev/null; then
+            echo "new queue must start paused with untouched pending items" >&2
+            exit 1
+          else
+            initial=true
+          fi
+          echo "initial=$initial" >> "$GITHUB_OUTPUT"
+          if [ "$initial" = "true" ]; then
+            for field in corpus_ref rules_engine_ref rulespec_ref; do
+              printf '%s=%s\n' "$field" \
+                "$(jq -r --arg field "$field" '.dispatch[$field]' "$queue")" \
+                >> "$GITHUB_OUTPUT"
+            done
+            printf 'release_name=%s\n' "$(jq -r '.release.name' "$queue")" \
+              >> "$GITHUB_OUTPUT"
+            printf 'release_sha=%s\n' \
+              "$(jq -r '.release.content_sha256' "$queue")" >> "$GITHUB_OUTPUT"
+          fi
+          if [ "$(jq -r '.state' "$queue")" = "paused" ]; then
+            if [ -f "$previous_queue" ]; then
+              python3 scripts/prepare_signed_queue.py verify-paused-transition \
+                "$queue" --previous-queue "$previous_queue"
+            fi
+            echo "Queue is paused; no activation evidence is required."
+            exit 0
+          fi
+
+          run_url="$(jq -r '.activation.finalizer_run_url' "$queue")"
+          run_id="${run_url##*/}"
+          test "$run_url" = \
+            "https://github.com/$GITHUB_REPOSITORY/actions/runs/$run_id"
+          api_version="2026-03-10"
+          gh api \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: $api_version" \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" \
+            > "$RUNNER_TEMP/finalizer-run.json"
+          gh api --paginate --slurp \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: $api_version" \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?filter=all&per_page=100" \
+            > "$RUNNER_TEMP/finalizer-jobs.json"
+          gh api \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: $api_version" \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts?per_page=100" \
+            > "$RUNNER_TEMP/finalizer-artifacts.json"
+          archive_url="$(jq -er \
+            --arg name "snap-queue-finalization-$run_id" '
+              [
+                .artifacts[]
+                | select(.name == $name and .expired == false)
+                | .archive_download_url
+              ]
+              | if length == 1 then .[0] else error("activation artifact is unavailable") end
+            ' "$RUNNER_TEMP/finalizer-artifacts.json")"
+          gh api "$archive_url" > "$RUNNER_TEMP/finalizer-evidence.zip"
+          mkdir "$RUNNER_TEMP/finalizer-evidence"
+          unzip -q "$RUNNER_TEMP/finalizer-evidence.zip" \
+            -d "$RUNNER_TEMP/finalizer-evidence"
+
+          evidence="$RUNNER_TEMP/finalizer-evidence"
+          jq '.pull_request' "$GITHUB_EVENT_PATH" \
+            > "$RUNNER_TEMP/activation-pr.json"
+          git diff --name-only "$BASE_SHA" "$HEAD_SHA" \
+            | jq -R -s 'split("\n") | map(select(length > 0))' \
+            > "$RUNNER_TEMP/current-activation-changed-files.json"
+          tree_sha="$(git rev-parse "${HEAD_SHA}^{tree}")"
+          python3 scripts/prepare_signed_queue.py verify-activation-commit "$queue" \
+            --provenance "$evidence/activation-commit.json" \
+            --pull-request "$RUNNER_TEMP/activation-pr.json" \
+            --current-base-sha "$BASE_SHA" \
+            --current-head-sha "$HEAD_SHA" \
+            --current-tree-sha "$tree_sha" \
+            --current-changed-files "$RUNNER_TEMP/current-activation-changed-files.json"
+          python3 scripts/prepare_signed_queue.py verify-activation "$queue" \
+            --previous-queue "$previous_queue" \
+            --expected-base-sha "$BASE_SHA" \
+            --finalized-queue "$evidence/finalized-snap-queue.json" \
+            --check-runs "$evidence/rulespec-check-runs.json" \
+            --pull-requests "$evidence/rulespec-pull-requests.json" \
+            --workflow-runs "$evidence/targeted-workflow-runs.json" \
+            --finalizer-run "$RUNNER_TEMP/finalizer-run.json" \
+            --finalizer-jobs "$RUNNER_TEMP/finalizer-jobs.json" \
+            --require-success false
+
+          rulespec_ref="$(jq -r '.dispatch.rulespec_ref' "$queue")"
+          test "$(gh api \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: $api_version" \
+            repos/TheAxiomFoundation/rulespec-us/git/ref/heads/hard-cut/canonical-layout-us \
+            --jq '.object.sha')" = "$rulespec_ref"
+
+      - name: Checkout exact queue corpus source
+        if: ${{ steps.transition.outputs.initial == 'true' }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: TheAxiomFoundation/axiom-corpus
+          ref: ${{ steps.transition.outputs.corpus_ref }}
+          path: initial-axiom-corpus
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout exact queue RuleSpec source
+        if: ${{ steps.transition.outputs.initial == 'true' }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: TheAxiomFoundation/rulespec-us
+          ref: ${{ steps.transition.outputs.rulespec_ref }}
+          path: initial-rulespec-us
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout exact queue rules engine source
+        if: ${{ steps.transition.outputs.initial == 'true' }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: TheAxiomFoundation/axiom-rules-engine
+          ref: ${{ steps.transition.outputs.rules_engine_ref }}
+          path: initial-axiom-rules-engine
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install uv for initial queue provenance
+        if: ${{ steps.transition.outputs.initial == 'true' }}
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+
+      - name: Regenerate and authenticate initial queue
+        if: ${{ steps.transition.outputs.initial == 'true' }}
+        env:
+          CORPUS_RELEASE_PUBLIC_KEY: ${{ vars.AXIOM_CORPUS_RELEASE_PUBLIC_KEY }}
+          RELEASE_NAME: ${{ steps.transition.outputs.release_name }}
+          RELEASE_SHA: ${{ steps.transition.outputs.release_sha }}
+          SUPABASE_ANON_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_URL: https://swocpijqqahhuwtuahwc.supabase.co
+        run: |
+          set -euo pipefail
+          test -n "$CORPUS_RELEASE_PUBLIC_KEY"
+          test -n "$SUPABASE_ANON_KEY"
+          test "$(git -C initial-axiom-corpus rev-parse HEAD)" = \
+            "${{ steps.transition.outputs.corpus_ref }}"
+          test "$(git -C initial-rulespec-us rev-parse HEAD)" = \
+            "${{ steps.transition.outputs.rulespec_ref }}"
+          test "$(git -C initial-axiom-rules-engine rev-parse HEAD)" = \
+            "${{ steps.transition.outputs.rules_engine_ref }}"
+
+          response="$RUNNER_TEMP/corpus-release-response.json"
+          release_object="$RUNNER_TEMP/corpus-release-object.json"
+          release_public_key="$RUNNER_TEMP/corpus-release-public-key"
+          generated_queue="$RUNNER_TEMP/generated-snap-queue.json"
+          url="${SUPABASE_URL%/}/rest/v1/release_objects?select=release_object&release_name=eq.${RELEASE_NAME}&content_sha256=eq.${RELEASE_SHA}&limit=2"
+          curl --fail --silent --show-error --location \
+            --proto '=https' --proto-redir '=https' --tlsv1.2 \
+            --max-filesize 16777216 \
+            --header "apikey: $SUPABASE_ANON_KEY" \
+            --header "Authorization: Bearer $SUPABASE_ANON_KEY" \
+            --header "Accept-Profile: corpus" \
+            --output "$response" "$url"
+          jq -e 'if length == 1 then .[0].release_object else
+            error("expected exactly one signed corpus release object") end' \
+            "$response" > "$release_object"
+          printf '%s\n' "$CORPUS_RELEASE_PUBLIC_KEY" > "$release_public_key"
+
+          uv run --frozen --python 3.13 python scripts/prepare_signed_queue.py \
+            build-snap initial-axiom-corpus initial-rulespec-us \
+            --corpus-ref "${{ steps.transition.outputs.corpus_ref }}" \
+            --rulespec-ref "${{ steps.transition.outputs.rulespec_ref }}" \
+            --rules-engine-ref "${{ steps.transition.outputs.rules_engine_ref }}" \
+            --release-name "$RELEASE_NAME" \
+            --release-content-sha256 "$RELEASE_SHA" \
+            --release-object "$release_object" \
+            --release-public-key "$release_public_key" \
+            --state paused \
+            --pause-reason \
+              "Awaiting a green, independently reviewed exact RuleSpec protected-branch tip." \
+            > "$generated_queue"
+          cmp --silent \
+            data/encoding-queues/us-snap-or-ut-2026-07.json "$generated_queue"

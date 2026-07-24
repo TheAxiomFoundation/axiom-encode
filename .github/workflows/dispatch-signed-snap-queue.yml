@@ -1,0 +1,356 @@
+name: Dispatch protected SNAP queue
+run-name: "SNAP queue dispatch=${{ inputs.dispatch }} items=${{ inputs.item_ids || 'next' }} limit=${{ inputs.limit }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      item_ids:
+        description: Optional comma-separated queue item IDs; defaults to the next items
+        required: false
+        type: string
+      limit:
+        description: Maximum bounded tranche size
+        required: true
+        default: "1"
+        type: choice
+        options:
+          - "1"
+          - "2"
+          - "3"
+          - "4"
+      dispatch:
+        description: Dispatch protected targeted runs; false is a preview
+        required: true
+        default: false
+        type: boolean
+      activation_merge_run_id:
+        description: Trusted successful queue activation merge workflow run ID
+        required: false
+        type: string
+
+permissions:
+  actions: write
+  contents: read
+  issues: write
+
+concurrency:
+  group: dispatch-signed-snap-queue
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    name: Dispatch protected SNAP queue
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch'
+        && github.ref == 'refs/heads/main'
+        && github.run_attempt == 1
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout immutable encoder main
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Select and validate bounded queue tranche
+        id: selection
+        env:
+          ACTIVATION_MERGE_RUN_ID: ${{ inputs.activation_merge_run_id }}
+          GH_TOKEN: ${{ github.token }}
+          ITEM_IDS: ${{ inputs.item_ids }}
+          LIMIT: ${{ inputs.limit }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          queue="data/encoding-queues/us-snap-or-ut-2026-07.json"
+          python3 scripts/prepare_signed_queue.py validate "$queue"
+          if [ "$(jq -r '.state' "$queue")" = "active" ]; then
+            if [[ ! "$ACTIVATION_MERGE_RUN_ID" =~ ^[0-9]+$ ]]; then
+              echo "active queue requires activation_merge_run_id" >&2
+              exit 1
+            fi
+            api_version="2026-03-10"
+            merge_run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$ACTIVATION_MERGE_RUN_ID"
+            gh api \
+              --header "Accept: application/vnd.github+json" \
+              --header "X-GitHub-Api-Version: $api_version" \
+              "repos/$GITHUB_REPOSITORY/actions/runs/$ACTIVATION_MERGE_RUN_ID" \
+              > "$RUNNER_TEMP/activation-merge-run.json"
+            gh api --paginate --slurp \
+              --header "Accept: application/vnd.github+json" \
+              --header "X-GitHub-Api-Version: $api_version" \
+              "repos/$GITHUB_REPOSITORY/actions/runs/$ACTIVATION_MERGE_RUN_ID/jobs?filter=all&per_page=100" \
+              > "$RUNNER_TEMP/activation-merge-jobs.json"
+            gh api \
+              --header "Accept: application/vnd.github+json" \
+              --header "X-GitHub-Api-Version: $api_version" \
+              "repos/$GITHUB_REPOSITORY/actions/runs/$ACTIVATION_MERGE_RUN_ID/artifacts?per_page=100" \
+              > "$RUNNER_TEMP/activation-merge-artifacts.json"
+            archive_url="$(jq -er \
+              --arg name "snap-queue-merge-authorization-$ACTIVATION_MERGE_RUN_ID" '
+                [
+                  .artifacts[]
+                  | select(.name == $name and .expired == false)
+                  | .archive_download_url
+                ]
+                | if length == 1 then .[0] else error("merge authorization artifact is unavailable") end
+              ' "$RUNNER_TEMP/activation-merge-artifacts.json")"
+            gh api "$archive_url" > "$RUNNER_TEMP/activation-merge-authorization.zip"
+            mkdir "$RUNNER_TEMP/activation-merge-authorization"
+            unzip -q "$RUNNER_TEMP/activation-merge-authorization.zip" \
+              -d "$RUNNER_TEMP/activation-merge-authorization"
+            authorization="$RUNNER_TEMP/activation-merge-authorization/snap-queue-merge-authorization.json"
+            test "$(jq -r '.merge_workflow_run_url' "$authorization")" = \
+              "$merge_run_url"
+            pr_number="$(jq -er '.activation_pr_number' "$authorization")"
+            gh api \
+              --header "Accept: application/vnd.github+json" \
+              --header "X-GitHub-Api-Version: $api_version" \
+              "repos/$GITHUB_REPOSITORY/pulls/$pr_number" \
+              > "$RUNNER_TEMP/activation-pull-request.json"
+            merge_commit="$(jq -er '.merge_commit' "$authorization")"
+            git merge-base --is-ancestor "$merge_commit" "$GITHUB_SHA"
+            queue_change_sha="$(git log --first-parent -1 --format=%H \
+              "$GITHUB_SHA" -- "$queue")"
+            python3 scripts/prepare_signed_queue.py verify-merge-authorization \
+              "$queue" \
+              --authorization "$authorization" \
+              --merge-run "$RUNNER_TEMP/activation-merge-run.json" \
+              --merge-jobs "$RUNNER_TEMP/activation-merge-jobs.json" \
+              --pull-request "$RUNNER_TEMP/activation-pull-request.json" \
+              --current-head-sha "$GITHUB_SHA" \
+              --queue-change-sha "$queue_change_sha"
+
+            rulespec_ref="$(jq -r '.dispatch.rulespec_ref' "$queue")"
+            test "$(gh api \
+              --header "Accept: application/vnd.github+json" \
+              --header "X-GitHub-Api-Version: $api_version" \
+              repos/TheAxiomFoundation/rulespec-us/git/ref/heads/hard-cut/canonical-layout-us \
+              --jq '.object.sha')" = "$rulespec_ref"
+            gh api --paginate --slurp \
+              --header "Accept: application/vnd.github+json" \
+              --header "X-GitHub-Api-Version: $api_version" \
+              "repos/TheAxiomFoundation/rulespec-us/commits/$rulespec_ref/check-runs?per_page=100" \
+              > "$RUNNER_TEMP/live-rulespec-check-runs.json"
+            jq -e '
+              [.[].check_runs[]] as $checks
+              | ($checks | length) > 0
+              and all(
+                $checks[];
+                .status == "completed"
+                and (.conclusion | IN("success", "neutral", "skipped"))
+              )
+            ' "$RUNNER_TEMP/live-rulespec-check-runs.json" > /dev/null
+          fi
+          python3 scripts/prepare_signed_queue.py select "$queue" \
+            --item-ids "$ITEM_IDS" --limit "$LIMIT" \
+            > "$RUNNER_TEMP/snap-queue-seed.json"
+          python3 scripts/prepare_signed_queue.py candidates "$queue" \
+            > "$RUNNER_TEMP/snap-queue-candidates.json"
+          digest="$(python3 scripts/prepare_signed_queue.py sha256 "$queue")"
+          echo "manifest_sha256=$digest" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Protected SNAP queue selection"
+            echo
+            echo "Manifest SHA-256: \`$digest\`"
+            echo
+            jq -r '.items[] | "- `\(.id)`: `\(.citation)`"' \
+              "$RUNNER_TEMP/snap-queue-seed.json"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Plan or dispatch idempotent protected runs
+        env:
+          DO_DISPATCH: ${{ inputs.dispatch }}
+          EXPLICIT_ITEM_IDS: ${{ inputs.item_ids }}
+          GH_TOKEN: ${{ github.token }}
+          LIMIT: ${{ inputs.limit }}
+          MANIFEST_SHA256: ${{ steps.selection.outputs.manifest_sha256 }}
+        run: |
+          set -euo pipefail
+          candidates="$RUNNER_TEMP/snap-queue-candidates.json"
+          selection="$RUNNER_TEMP/snap-queue-reconciled.json"
+          summary="$RUNNER_TEMP/snap-queue-dispatch.md"
+          plan_jsonl="$RUNNER_TEMP/snap-queue-plan.jsonl"
+          run_records="$RUNNER_TEMP/dispatched-run-records.jsonl"
+          : > "$plan_jsonl"
+          : > "$run_records"
+          queue_id="$(jq -r '.queue_id' "$candidates")"
+          issue="$(jq -r '.issue' "$candidates")"
+          queue_state="$(jq -r '.state' "$candidates")"
+          workflow="targeted-signed-reencode.yml"
+          selected_count=0
+          skipped_count=0
+          {
+            if [ "$DO_DISPATCH" = "true" ]; then
+              echo "### Protected SNAP queue dispatch"
+            else
+              echo "### Protected SNAP queue preview"
+            fi
+            echo
+            echo "Queue: \`$queue_id\`"
+            echo "State: \`$queue_state\`"
+            echo "Manifest SHA-256: \`$MANIFEST_SHA256\`"
+            echo "Dispatcher: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            if [ "$queue_state" = "paused" ]; then
+              echo "Pause reason: $(jq -r '.pause_reason' "$candidates")"
+            fi
+            echo
+          } > "$summary"
+
+          run_pages="$RUNNER_TEMP/workflow-runs.json"
+          pull_pages="$RUNNER_TEMP/rulespec-pull-requests.json"
+          gh api --paginate --slurp \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2026-03-10" \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?event=workflow_dispatch&per_page=100" \
+            > "$run_pages"
+          gh api --paginate --slurp \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2026-03-10" \
+            "repos/TheAxiomFoundation/rulespec-us/pulls?state=all&sort=updated&direction=desc&per_page=100" \
+            > "$pull_pages"
+          python3 scripts/prepare_signed_queue.py reconcile "$candidates" \
+            --pull-requests "$pull_pages" \
+            --workflow-runs "$run_pages" \
+            > "$selection"
+
+          if jq -e 'any(.items[]; .dispatchable == false)' "$selection" \
+            > /dev/null; then
+            {
+              echo "- No new items selected: the current tranche must be finalized."
+              jq -r \
+                '.items[] | select(.dispatchable == false) | "- `\(.id)`: \(.reason): \(.history_url // \"\")"' \
+                "$selection"
+            } >> "$summary"
+          else
+          while IFS= read -r item; do
+            if [ "$selected_count" -ge "$LIMIT" ]; then
+              break
+            fi
+            item_id="$(jq -r '.id' <<< "$item")"
+            if [ -n "$EXPLICIT_ITEM_IDS" ] && ! jq -e \
+              --arg item_id "$item_id" \
+              'any(.items[]; .id == $item_id)' \
+              "$RUNNER_TEMP/snap-queue-seed.json" > /dev/null; then
+              continue
+            fi
+            citation="$(jq -r '.citation' <<< "$item")"
+            generation_sha256="$(jq -r '.generation_sha256' <<< "$item")"
+            if [ "$(jq -r '.dispatchable' <<< "$item")" != "true" ]; then
+              skipped_count=$((skipped_count + 1))
+              if [ -n "$EXPLICIT_ITEM_IDS" ]; then
+                reason="$(jq -r '.reason' <<< "$item")"
+                history_url="$(jq -r '.history_url // \"\"' <<< "$item")"
+                printf -- '- `%s`: skipped; %s: %s\n' \
+                  "$item_id" "$reason" "$history_url" >> "$summary"
+              fi
+              continue
+            fi
+
+            jq -c \
+              --arg action "$(
+                if [ "$DO_DISPATCH" = "true" ]; then
+                  echo dispatch
+                else
+                  echo preview
+                fi
+              )" \
+              'del(.dispatchable, .history_url, .reason) + {action: $action}' \
+              <<< "$item" >> "$plan_jsonl"
+            selected_count=$((selected_count + 1))
+            if [ "$DO_DISPATCH" != "true" ]; then
+              printf -- '- `%s`: would dispatch `%s`\n' \
+                "$item_id" "$citation" >> "$summary"
+              continue
+            fi
+
+            dispatch_response="$RUNNER_TEMP/workflow-dispatch-${item_id}.json"
+            jq -n \
+              --arg citation "$citation" \
+              --arg corpus_ref "$(jq -r '.dispatch.corpus_ref' "$selection")" \
+              --arg country "$(jq -r '.dispatch.country' "$selection")" \
+              --arg item_id "$item_id" \
+              --arg item_generation_sha "$generation_sha256" \
+              --arg manifest_sha "$MANIFEST_SHA256" \
+              --arg pr_base "$(jq -r '.dispatch.pr_base_branch' "$selection")" \
+              --arg queue_id "$queue_id" \
+              --arg rules_engine_ref "$(jq -r '.dispatch.rules_engine_ref' "$selection")" \
+              --arg rulespec_ref "$(jq -r '.dispatch.rulespec_ref' "$selection")" \
+              --arg dispatcher_run_id "$GITHUB_RUN_ID" \
+              '{
+                ref: "main",
+                inputs: {
+                  citation: $citation,
+                  country: $country,
+                  rulespec_ref: $rulespec_ref,
+                  pr_base_branch: $pr_base,
+                  corpus_ref: $corpus_ref,
+                  rules_engine_ref: $rules_engine_ref,
+                  open_pr: "true",
+                  queue_id: $queue_id,
+                  queue_item_id: $item_id,
+                  queue_item_generation_sha256: $item_generation_sha,
+                  queue_manifest_sha256: $manifest_sha,
+                  queue_dispatcher_run_id: $dispatcher_run_id
+                }
+              }' |
+              gh api --method POST \
+                --header "Accept: application/vnd.github+json" \
+                --header "X-GitHub-Api-Version: 2026-03-10" \
+                "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/dispatches" \
+                --input - > "$dispatch_response"
+            created_id="$(jq -er '.workflow_run_id' "$dispatch_response")"
+            created_url="$(jq -er '.html_url' "$dispatch_response")"
+            printf -- '- `%s`: dispatched `%s`: %s\n' \
+              "$item_id" "$citation" "$created_url" >> "$summary"
+            jq -n \
+              --arg id "$created_id" \
+              --arg item_id "$item_id" \
+              --arg url "$created_url" \
+              '{
+                item_id: $item_id,
+                workflow_run_attempt: 1,
+                workflow_run_id: $id,
+                url: $url
+              }' \
+              >> "$run_records"
+          done < <(jq -c '.items[]' "$selection")
+          fi
+
+          jq -s \
+            --arg queue_id "$queue_id" \
+            --arg manifest_sha256 "$MANIFEST_SHA256" \
+            '{
+              schema: "axiom-encode/signed-encoding-queue-plan/v1",
+              queue_id: $queue_id,
+              manifest_sha256: $manifest_sha256,
+              items: .
+            }' "$plan_jsonl" > "$RUNNER_TEMP/snap-queue-plan.json"
+          {
+            echo
+            echo "Selected: $selected_count; skipped from prior history: $skipped_count."
+          } >> "$summary"
+          cat "$summary" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$DO_DISPATCH" = "true" ]; then
+            gh issue comment "$issue" --repo "$GITHUB_REPOSITORY" \
+              --body-file "$summary"
+          fi
+          cp "$summary" "$RUNNER_TEMP/snap-queue-dispatch-summary.md"
+
+      - name: Upload queue reconciliation record
+        if: ${{ always() && steps.selection.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: snap-queue-reconciliation-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/snap-queue-seed.json
+            ${{ runner.temp }}/snap-queue-candidates.json
+            ${{ runner.temp }}/snap-queue-reconciled.json
+            ${{ runner.temp }}/snap-queue-plan.json
+            ${{ runner.temp }}/snap-queue-dispatch-summary.md
+            ${{ runner.temp }}/dispatched-run-records.jsonl
+          if-no-files-found: warn
+          retention-days: 90

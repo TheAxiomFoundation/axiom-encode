@@ -13,6 +13,7 @@ from scripts.prepare_signed_backfill import (
     stage_authorized_changes,
     validate_country,
     validate_dependent_cascade,
+    validate_queue_tracking,
     validate_rulespec_base,
 )
 
@@ -89,6 +90,40 @@ def _write_module(
 def test_validate_country_rejects_adversarial_values(country: str) -> None:
     with pytest.raises(ValueError, match="two-letter lowercase"):
         validate_country(country)
+
+
+def test_validate_queue_tracking_accepts_complete_or_empty_metadata() -> None:
+    assert validate_queue_tracking("", "", "", "") == "ad-hoc"
+    assert (
+        validate_queue_tracking(
+            "us-snap-or-ut-2026-07",
+            "ut-0001",
+            "a" * 64,
+            "b" * 64,
+        )
+        == "tracked"
+    )
+
+
+@pytest.mark.parametrize(
+    ("queue_id", "item_id", "digest", "generation", "message"),
+    [
+        ("queue", "", "a" * 64, "b" * 64, "supplied together"),
+        ("queue/unsafe", "ut-0001", "a" * 64, "b" * 64, "queue_id"),
+        ("queue", "ut/0001", "a" * 64, "b" * 64, "queue_item_id"),
+        ("queue", "ut-0001", "abc", "b" * 64, "queue_manifest_sha256"),
+        ("queue", "ut-0001", "a" * 64, "abc", "queue_item_generation"),
+    ],
+)
+def test_validate_queue_tracking_rejects_incomplete_or_unsafe_metadata(
+    queue_id: str,
+    item_id: str,
+    digest: str,
+    generation: str,
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        validate_queue_tracking(queue_id, item_id, digest, generation)
 
 
 def test_stage_authorized_changes_stages_only_manifest_and_applied_files(

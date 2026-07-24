@@ -1820,7 +1820,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     )
     trigger = workflow.get("on", workflow.get(True))
     assert set(trigger) == {"workflow_dispatch"}
-    assert workflow["permissions"] == {"contents": "read"}
+    assert workflow["permissions"] == {"actions": "read", "contents": "read"}
     inputs = trigger["workflow_dispatch"]["inputs"]
     assert "allowlisted reviewed SHA" in inputs["rulespec_ref"]["description"]
     assert "artifact-only" in inputs["rulespec_ref"]["description"]
@@ -1836,16 +1836,50 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert inputs["pr_base_branch"]["default"] == "main"
     assert inputs["dependent_citation"]["required"] is False
     assert inputs["dependent_review_finding"]["required"] is False
+    assert inputs["queue_id"]["required"] is False
+    assert inputs["queue_item_id"]["required"] is False
+    assert inputs["queue_manifest_sha256"]["required"] is False
+    assert inputs["queue_item_generation_sha256"]["required"] is False
+    assert inputs["queue_dispatcher_run_id"]["required"] is False
+    assert "[${{ inputs.queue_id || 'adhoc' }}:" in workflow["run-name"]
 
     job = workflow["jobs"]["encode"]
+    assert job["name"] == "Queue protected signed RuleSpec re-encode"
     assert job["environment"] == "production-signing"
     assert "github.ref == 'refs/heads/main'" in job["if"]
+    assert "github.actor == 'github-actions[bot]'" in job["if"]
+    assert "github.run_attempt == 1" in job["if"]
     steps = job["steps"]
     country_step = next(
         step for step in steps if step.get("name") == "Validate country routing input"
     )
     assert "prepare_signed_backfill.py" in country_step["run"]
     assert 'validate-country "$COUNTRY"' in country_step["run"]
+    assert "validate-queue-tracking" in country_step["run"]
+    assert '"$QUEUE_ID" "$QUEUE_ITEM_ID"' in country_step["run"]
+    assert '"$QUEUE_MANIFEST_SHA256"' in country_step["run"]
+    assert '"$QUEUE_ITEM_GENERATION_SHA256"' in country_step["run"]
+    assert "prepare_signed_queue.py" in country_step["run"]
+    assert "validate-dispatch" in country_step["run"]
+    assert "QUEUE_DISPATCHER_RUN_ID" in country_step["env"]
+    assert (
+        "queue target must be created by an authenticated dispatcher"
+        in (country_step["run"])
+    )
+    assert 'GITHUB_RUN_ATTEMPT" != "1"' in country_step["run"]
+    assert "dispatch-signed-snap-queue.yml" in country_step["run"]
+    assert ".run_attempt >= 1" in country_step["run"]
+    assert "jobs?filter=all&per_page=100" in country_step["run"]
+    assert "Dispatch protected SNAP queue" in country_step["run"]
+    assert '.conclusion == "skipped"' in country_step["run"]
+    assert "snap-queue-reconciliation-$QUEUE_DISPATCHER_RUN_ID" in (country_step["run"])
+    assert "snap-queue-plan.json" in country_step["run"]
+    assert "dispatched-run-records.jsonl" in country_step["run"]
+    assert "workflow_run_id == $run_id" in country_step["run"]
+    assert "workflow_run_attempt == 1" in country_step["run"]
+    assert (
+        '"axiom-encode/data/encoding-queues/${QUEUE_ID}.json"' in (country_step["run"])
+    )
     assert steps.index(country_step) < next(
         index
         for index, step in enumerate(steps)
@@ -1884,11 +1918,15 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         "SUPABASE_URL": "https://swocpijqqahhuwtuahwc.supabase.co",
         "SUPABASE_ANON_KEY": "${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}",
         "RULESPEC_CHECKOUT": "rulespec-${{ inputs.country }}",
+        "QUEUE_ID": "${{ inputs.queue_id }}",
+        "QUEUE_MANIFEST_SHA256": "${{ inputs.queue_manifest_sha256 }}",
     }
     release_command = release_step["run"]
     assert "materialize_corpus_release.py" in release_command
     assert "$RULESPEC_CHECKOUT/.axiom/toolchain.toml" in release_command
     assert 'pin --toolchain "$toolchain"' in release_command
+    assert "validate-release-pin" in release_command
+    assert '--manifest-sha256 "$QUEUE_MANIFEST_SHA256"' in release_command
     assert 'mktemp "$RUNNER_TEMP/' in release_command
     assert "/rest/v1/release_objects?select=release_object" in release_command
     assert "content_sha256=eq.${release_sha}&limit=2" in release_command
@@ -1998,6 +2036,15 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert 'finding.get("sha256")' in package_command
     assert '"dependent-context-manifest.json"' in package_command
     assert '"pr_base_branch": os.environ["PR_BASE_BRANCH"]' in package_command
+    assert '"queue_id": os.environ.get("QUEUE_ID") or None' in package_command
+    assert '"queue_item_id": os.environ.get("QUEUE_ITEM_ID") or None' in (
+        package_command
+    )
+    assert '"queue_item_generation_sha256": (' in package_command
+    assert '"queue_manifest_sha256": (' in package_command
+    assert '"workflow_run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"])' in (
+        package_command
+    )
 
     guard_step = next(
         step for step in steps if step.get("name") == "Verify generated provenance"
@@ -2032,6 +2079,9 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert "gh api --method POST" in publish_command
     assert '-f base="$PR_BASE_BRANCH"' in publish_command
     assert "-F draft=true" in publish_command
+    assert "Queue item:" in publish_command
+    assert "Queue generation SHA-256:" in publish_command
+    assert "Queue manifest SHA-256:" in publish_command
     assert "'.base.ref == $branch and .base.sha == $sha'" in publish_command
     assert "pulls/${pr_number}" in publish_command
     assert "-f state=closed" in publish_command
@@ -2056,6 +2106,291 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         step for step in steps if step.get("name") == "Upload signed re-encode artifact"
     )
     assert steps.index(checksum_step) + 1 == steps.index(upload_step)
+
+
+def test_signed_snap_queue_dispatcher_is_bounded_and_idempotent() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/dispatch-signed-snap-queue.yml").read_text()
+    )
+    trigger = workflow.get("on", workflow.get(True))
+    assert set(trigger) == {"workflow_dispatch"}
+    inputs = trigger["workflow_dispatch"]["inputs"]
+    assert inputs["dispatch"]["type"] == "boolean"
+    assert inputs["dispatch"]["default"] is False
+    assert inputs["limit"]["options"] == ["1", "2", "3", "4"]
+    assert workflow["permissions"] == {
+        "actions": "write",
+        "contents": "read",
+        "issues": "write",
+    }
+    assert workflow["concurrency"] == {
+        "group": "dispatch-signed-snap-queue",
+        "cancel-in-progress": False,
+    }
+
+    job = workflow["jobs"]["dispatch"]
+    assert job["name"] == "Dispatch protected SNAP queue"
+    assert "github.ref == 'refs/heads/main'" in job["if"]
+    assert "github.run_attempt == 1" in job["if"]
+    assert "environment" not in job
+    steps = job["steps"]
+    checkout = steps[0]
+    assert checkout["with"]["persist-credentials"] is False
+    assert checkout["with"]["fetch-depth"] == 0
+
+    selection = next(
+        step
+        for step in steps
+        if step.get("name") == "Select and validate bounded queue tranche"
+    )
+    selection_command = selection["run"]
+    assert 'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"' in selection_command
+    assert "prepare_signed_queue.py validate" in selection_command
+    assert "activation_merge_run_id" in inputs
+    assert "verify-merge-authorization" in selection_command
+    assert '--merge-jobs "$RUNNER_TEMP/activation-merge-jobs.json"' in (
+        selection_command
+    )
+    assert "snap-queue-merge-authorization-$ACTIVATION_MERGE_RUN_ID" in (
+        selection_command
+    )
+    assert "git log --first-parent" in selection_command
+    assert "commits/$rulespec_ref/check-runs?per_page=100" in selection_command
+    assert "prepare_signed_queue.py select" in selection_command
+    assert '--item-ids "$ITEM_IDS" --limit "$LIMIT"' in selection_command
+    assert "prepare_signed_queue.py candidates" in selection_command
+    assert 'if [ -n "$ITEM_IDS" ]' not in selection_command
+    assert "prepare_signed_queue.py sha256" in selection_command
+
+    dispatch = next(
+        step
+        for step in steps
+        if step.get("name") == "Plan or dispatch idempotent protected runs"
+    )
+    assert "if" not in dispatch
+    assert dispatch["env"]["DO_DISPATCH"] == "${{ inputs.dispatch }}"
+    assert dispatch["env"]["GH_TOKEN"] == "${{ github.token }}"
+    command = dispatch["run"]
+    assert "rulespec-us/pulls?state=all" in command
+    assert "prepare_signed_queue.py reconcile" in command
+    assert "retry_failed" not in inputs
+    assert "--retry-failed" not in command
+    assert "snap-queue-reconciled.json" in command
+    assert "the current tranche must be finalized" in command
+    assert "any(.items[]; .dispatchable == false)" in command
+    assert "targeted-signed-reencode.yml/dispatches" not in command
+    assert "actions/workflows/$workflow/dispatches" in command
+    assert 'ref: "main"' in command
+    assert 'open_pr: "true"' in command
+    assert "queue_item_generation_sha256" in command
+    assert "queue_manifest_sha256" in command
+    assert "queue_dispatcher_run_id: $dispatcher_run_id" in command
+    assert command.index(
+        'queue_id="$(jq -r \'.queue_id\' "$candidates")"'
+    ) < command.index('> "$selection"')
+    assert 'if [ "$selected_count" -ge "$LIMIT" ]' in command
+    assert "signed-encoding-queue-plan/v1" in command
+    assert 'if [ "$DO_DISPATCH" = "true" ]' in command
+    assert "X-GitHub-Api-Version: 2026-03-10" in command
+    assert "workflow_run_id" in command
+    assert "workflow_run_attempt: 1" in command
+    assert "dispatched-run-records.jsonl" in command
+    assert "sleep 5" not in command
+    assert 'gh issue comment "$issue"' in command
+
+    upload = next(
+        step
+        for step in steps
+        if step.get("name") == "Upload queue reconciliation record"
+    )
+    assert upload["with"]["retention-days"] == 90
+    assert upload["with"]["if-no-files-found"] == "warn"
+    assert "snap-queue-seed.json" in upload["with"]["path"]
+    assert "snap-queue-reconciled.json" in upload["with"]["path"]
+    assert "snap-queue-plan.json" in upload["with"]["path"]
+    assert "dispatched-run-records.jsonl" in upload["with"]["path"]
+
+
+def test_signed_snap_queue_finalizer_uses_live_fail_closed_evidence() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/finalize-signed-snap-queue.yml").read_text()
+    )
+    trigger = workflow.get("on", workflow.get(True))
+    assert set(trigger) == {"workflow_dispatch"}
+    assert workflow["permissions"] == {
+        "actions": "read",
+        "contents": "write",
+        "pull-requests": "write",
+    }
+    assert workflow["concurrency"] == {
+        "group": "finalize-signed-snap-queue",
+        "cancel-in-progress": False,
+    }
+    job = workflow["jobs"]["finalize"]
+    assert job["name"] == "Finalize protected SNAP queue tranche"
+    assert "github.run_attempt == 1" in job["if"]
+    assert "github.ref == 'refs/heads/main'" in job["if"]
+    steps = job["steps"]
+    checkouts = [
+        step for step in steps if step.get("uses", "").startswith("actions/checkout@")
+    ]
+    assert len(checkouts) == 2
+    assert all(step["with"]["persist-credentials"] is False for step in checkouts)
+    assert all(step["with"]["fetch-depth"] == 0 for step in checkouts)
+
+    evidence = next(
+        step for step in steps if step.get("name") == "Fetch live finalization evidence"
+    )
+    command = evidence["run"]
+    assert 'test "$(jq -r \'.state\' "$queue")" = "paused"' in command
+    assert "git/ref/heads/hard-cut/canonical-layout-us" in command
+    assert "commits/$NEW_RULESPEC_REF/check-runs?per_page=100" in command
+    assert '.status == "completed"' in command
+    assert 'IN("success", "neutral", "skipped")' in command
+    assert "rulespec-us/pulls?state=all" in command
+    assert "targeted-signed-reencode.yml/runs" in command
+    assert "finalize-repin" in command
+    assert "finalization-target-plan" in command
+    assert "targeted-reencode-$run_id" in command
+    assert "jobs?filter=all&per_page=100" in command
+    assert "--slurpfile jobs" in command
+    assert "sha256sum -c SHA256SUMS" in command
+    assert '--target-evidence "$RUNNER_TEMP/target-evidence.json"' in command
+    assert '"$queue" rulespec-us' in command
+    assert '--check-runs "$RUNNER_TEMP/rulespec-check-runs.json"' in command
+    assert '--finalizer-head-sha "$GITHUB_SHA"' in command
+    assert "--finalizer-run-url" in command
+    assert command.count("\"$branch_ref\" --jq '.object.sha'") == 2
+
+    activation = next(
+        step
+        for step in steps
+        if step.get("name") == "Create exact queue activation commit"
+    )
+    activation_command = activation["run"]
+    assert "uv version --bump patch" in activation_command
+    assert "uv lock --offline" in activation_command
+    assert 'test "$(git rev-parse refs/remotes/origin/main)" = "$GITHUB_SHA"' in (
+        activation_command
+    )
+    assert "activation-commit.json" in activation_command
+    assert "activation-changed-files.json" in activation_command
+    assert "HEAD^{tree}" in activation_command
+    upload = next(
+        step for step in steps if step.get("name") == "Upload finalization evidence"
+    )
+    assert "activation-commit.json" in upload["with"]["path"]
+    assert steps.index(activation) < steps.index(upload)
+
+    publish = next(
+        step
+        for step in steps
+        if step.get("name") == "Open reviewed queue activation pull request"
+    )
+    publish_command = publish["run"]
+    assert "gh api --method POST" in publish_command
+    assert "-F draft=true" in publish_command
+    assert "required independent review-fix cycle" in publish_command
+    assert steps.index(upload) < steps.index(publish)
+
+
+def test_snap_queue_activation_checks_and_merge_revalidate_live_state() -> None:
+    validate = yaml.safe_load(
+        (ROOT / ".github/workflows/validate-snap-queue-activation.yml").read_text()
+    )
+    trigger = validate.get("on", validate.get(True))
+    assert set(trigger) == {"pull_request"}
+    assert validate["permissions"] == {"actions": "read", "contents": "read"}
+    validate_command = validate["jobs"]["validate"]["steps"][1]["run"]
+    assert "verify-activation" in validate_command
+    assert "verify-paused-transition" in validate_command
+    assert '--previous-queue "$previous_queue"' in validate_command
+    assert '--expected-base-sha "$BASE_SHA"' in validate_command
+    assert "--require-success false" in validate_command
+    assert "verify-activation-commit" in validate_command
+    assert '--finalizer-jobs "$RUNNER_TEMP/finalizer-jobs.json"' in validate_command
+    assert "snap-queue-finalization-$run_id" in validate_command
+    assert "git/ref/heads/hard-cut/canonical-layout-us" in validate_command
+    assert 'echo "initial=$initial" >> "$GITHUB_OUTPUT"' in validate_command
+
+    steps = validate["jobs"]["validate"]["steps"]
+    initial_checkouts = [
+        step
+        for step in steps
+        if step.get("name", "").startswith("Checkout exact queue")
+    ]
+    assert len(initial_checkouts) == 3
+    assert all(
+        step["if"] == "${{ steps.transition.outputs.initial == 'true' }}"
+        for step in initial_checkouts
+    )
+    assert {step["with"]["repository"] for step in initial_checkouts} == {
+        "TheAxiomFoundation/axiom-corpus",
+        "TheAxiomFoundation/rulespec-us",
+        "TheAxiomFoundation/axiom-rules-engine",
+    }
+    provenance = next(
+        step
+        for step in steps
+        if step.get("name") == "Regenerate and authenticate initial queue"
+    )
+    provenance_command = provenance["run"]
+    assert (
+        "AXIOM_CORPUS_RELEASE_PUBLIC_KEY"
+        in provenance["env"]["CORPUS_RELEASE_PUBLIC_KEY"]
+    )
+    assert "release_objects?select=release_object" in provenance_command
+    assert "build-snap initial-axiom-corpus initial-rulespec-us" in provenance_command
+    assert "--state paused" in provenance_command
+    assert "cmp --silent" in provenance_command
+
+    merge = yaml.safe_load(
+        (ROOT / ".github/workflows/merge-snap-queue-activation.yml").read_text()
+    )
+    trigger = merge.get("on", merge.get(True))
+    assert set(trigger) == {"workflow_dispatch"}
+    assert merge["permissions"] == {
+        "actions": "read",
+        "contents": "write",
+        "pull-requests": "write",
+    }
+    assert "github.ref == 'refs/heads/main'" in merge["jobs"]["merge"]["if"]
+    assert "github.run_attempt == 1" in merge["jobs"]["merge"]["if"]
+    assert merge["jobs"]["merge"]["name"] == "Merge reviewed SNAP queue activation"
+    steps = merge["jobs"]["merge"]["steps"]
+    checkout = next(
+        step for step in steps if step.get("uses", "").startswith("actions/checkout@")
+    )
+    assert checkout["with"]["ref"] == "${{ steps.pull.outputs.base_sha }}"
+    assert checkout["with"]["persist-credentials"] is False
+    command = next(
+        step["run"]
+        for step in steps
+        if step.get("name") == "Revalidate evidence and merge against live RuleSpec tip"
+    )
+    assert "--require-success true" in command
+    assert "verify-activation-commit" in command
+    assert 'test "$(git rev-parse HEAD)" = "$BASE_SHA"' in command
+    assert 'git fetch --no-tags origin "$HEAD_SHA"' in command
+    assert "--current-changed-files" in command
+    assert '--finalizer-jobs "$RUNNER_TEMP/finalizer-jobs.json"' in command
+    assert "merge_workflow_run_attempt: 1" in command
+    assert "commits/$HEAD_SHA/check-runs?per_page=100" in command
+    assert "commits/$rulespec_ref/check-runs?per_page=100" in command
+    assert '--previous-queue "$RUNNER_TEMP/previous-snap-queue.json"' in command
+    assert '--expected-base-sha "$BASE_SHA"' in command
+    assert "git/ref/heads/hard-cut/canonical-layout-us" in command
+    assert '--match-head-commit "$HEAD_SHA"' in command
+    assert "git log --first-parent" in command
+    upload = next(
+        step
+        for step in steps
+        if step.get("name") == "Upload trusted queue merge authorization"
+    )
+    assert (
+        "snap-queue-merge-authorization-${{ github.run_id }}" == upload["with"]["name"]
+    )
+    assert upload["with"]["retention-days"] == 90
 
 
 def test_targeted_signed_reencode_orders_target_and_dependent(tmp_path: Path) -> None:
@@ -2165,7 +2500,11 @@ def test_targeted_artifact_packages_signed_review_context(tmp_path: Path) -> Non
         for step in workflow["jobs"]["encode"]["steps"]
         if step.get("name") == "Package exact generated changes"
     )["run"]
-    marker = "python - \"$artifact/context-manifest.json\" <<'PY'\n"
+    marker = (
+        "python - \\\n"
+        '  "$artifact/context-manifest.json" \\\n'
+        "  \"$artifact/apply-manifests.json\" <<'PY'\n"
+    )
     script = package_command.split(marker, 1)[1].split(
         '\nPY\npython - "$artifact/metadata.json"', 1
     )[0]
@@ -2212,9 +2551,10 @@ def test_targeted_artifact_packages_signed_review_context(tmp_path: Path) -> Non
     applied_path.write_text(json.dumps(applied_manifest))
 
     packaged_context = tmp_path / "artifact" / "context-manifest.json"
+    packaged_inventory = tmp_path / "artifact" / "apply-manifests.json"
     packaged_context.parent.mkdir()
     completed = subprocess.run(
-        [sys.executable, "-", str(packaged_context)],
+        [sys.executable, "-", str(packaged_context), str(packaged_inventory)],
         cwd=tmp_path,
         input=script,
         check=False,
@@ -2231,6 +2571,15 @@ def test_targeted_artifact_packages_signed_review_context(tmp_path: Path) -> Non
 
     assert completed.returncode == 0, completed.stderr
     assert packaged_context.read_bytes() == context_bytes
+    inventory = json.loads(packaged_inventory.read_text())
+    assert inventory["schema"] == "axiom-encode/applied-manifest-inventory/v1"
+    assert inventory["items"] == [
+        {
+            "citation": citation,
+            "path": applied_path.relative_to(rulespec).as_posix(),
+            "sha256": hashlib.sha256(applied_path.read_bytes()).hexdigest(),
+        }
+    ]
 
 
 @pytest.mark.parametrize(
@@ -2272,7 +2621,11 @@ def test_targeted_artifact_enforces_target_and_dependent_context_lanes(
         for step in workflow["jobs"]["encode"]["steps"]
         if step.get("name") == "Package exact generated changes"
     )["run"]
-    marker = "python - \"$artifact/context-manifest.json\" <<'PY'\n"
+    marker = (
+        "python - \\\n"
+        '  "$artifact/context-manifest.json" \\\n'
+        "  \"$artifact/apply-manifests.json\" <<'PY'\n"
+    )
     script = package_command.split(marker, 1)[1].split(
         '\nPY\npython - "$artifact/metadata.json"', 1
     )[0]
@@ -2353,8 +2706,9 @@ def test_targeted_artifact_enforces_target_and_dependent_context_lanes(
     artifact = tmp_path / "artifact"
     artifact.mkdir()
     packaged_target = artifact / "context-manifest.json"
+    packaged_inventory = artifact / "apply-manifests.json"
     completed = subprocess.run(
-        [sys.executable, "-", str(packaged_target)],
+        [sys.executable, "-", str(packaged_target), str(packaged_inventory)],
         cwd=tmp_path,
         input=script,
         check=False,
