@@ -592,7 +592,10 @@ def _source_evidence_span_is_bounded(
     if after and (after[0].isalnum() or after[0] == "_"):
         return False
 
-    if _evidence_begins_with_numeric_token(evidence_text):
+    evidence_begins_numeric = _evidence_begins_with_numeric_token(evidence_text)
+    evidence_ends_numeric = _evidence_ends_with_numeric_token(evidence_text)
+
+    if evidence_begins_numeric:
         if _span_starts_inside_space_grouped_number(
             evidence_text=evidence_text,
             before=before,
@@ -608,23 +611,27 @@ def _source_evidence_span_is_bounded(
             after=after,
         ):
             return False
-        if _span_omits_trailing_accounting_sign(
-            evidence_text=evidence_text,
-            before=before,
-            after=after,
-        ):
-            return False
 
-    if _evidence_ends_with_numeric_token(evidence_text):
+    if evidence_ends_numeric:
         if _span_ends_inside_space_grouped_number(after=after):
             return False
         right = after.lstrip()
+        while right and unicodedata.category(right[0]) == "Cf":
+            right = right[1:]
         if right and _is_numeric_suffix_marker(right[0]):
             return False
         if _right_context_starts_textual_numeric_suffix(after):
             return False
         if _right_context_continues_numeric_token(after):
             return False
+    if (evidence_begins_numeric or evidence_ends_numeric) and (
+        _span_omits_trailing_accounting_sign(
+            evidence_text=evidence_text,
+            before=before,
+            after=after,
+        )
+    ):
+        return False
     return True
 
 
@@ -730,12 +737,20 @@ def _right_context_continues_numeric_token(after: str) -> bool:
     while right and _is_connector_character(right[0]):
         connectors += right[0]
         right = right[1:]
+    connector_followed_by_space = bool(right and right[0].isspace())
     right = right.lstrip()
     if not connectors or not right or not right[0].isdecimal():
         return False
     return bool(
         not separated_from_evidence
         or any(_is_spaced_numeric_connector(character) for character in connectors)
+        or (
+            connector_followed_by_space
+            and any(
+                unicodedata.normalize("NFKC", character) == ":"
+                for character in connectors
+            )
+        )
     )
 
 
@@ -780,7 +795,11 @@ def _is_connector_character(character: str) -> bool:
 
 def _is_spaced_numeric_connector(character: str) -> bool:
     normalized = unicodedata.normalize("NFKC", character)
-    if normalized in "/*^+-" or _is_numeric_sign_marker(character):
+    if (
+        normalized in "/*^+-"
+        or character == "\N{EN DASH}"
+        or _is_numeric_sign_marker(character)
+    ):
         return True
     name = unicodedata.name(character, "")
     name_words = frozenset(name.split())
@@ -811,16 +830,33 @@ def _is_numeric_sign_marker(character: str) -> bool:
 
 
 def _right_context_starts_textual_numeric_suffix(after: str) -> bool:
+    normalized = "".join(
+        " "
+        if (
+            character.isspace()
+            or unicodedata.category(character) == "Cf"
+            or _is_hyphen_marker(character)
+        )
+        else character
+        for character in after
+    )
     return bool(
         re.match(
-            r"\s+(?:"
+            r"\s*(?:"
             r"per\s+cent|percent(?:age)?s?|"
             r"per\s+mille|per\s+ten\s+thousand|"
             r"basis\s+points?|bps"
             r")\b",
-            after,
+            normalized,
             flags=re.IGNORECASE,
         )
+    )
+
+
+def _is_hyphen_marker(character: str) -> bool:
+    normalized = unicodedata.normalize("NFKC", character)
+    return bool(
+        normalized == "-" or "HYPHEN" in unicodedata.name(character, "").split()
     )
 
 
