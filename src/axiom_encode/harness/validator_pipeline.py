@@ -106,7 +106,7 @@ from .policyengine_runtime import (
     policyengine_subprocess_environment,
 )
 from .proof_validator import (
-    _bounded_source_evidence_pattern,
+    _bounded_source_evidence_match,
     find_plural_corpus_citation_path_issues,
     find_rulespec_proof_issues,
     validate_rulespec_proofs,
@@ -2670,6 +2670,7 @@ def _rule_atom_evidence_by_path(
     """
     by_path: dict[str, list[str]] = {}
     cited_by_path: dict[str, list[str]] = {}
+    explicit_evidence_paths: set[str] = set()
     if not isinstance(rule, dict):
         return {}
     metadata = rule.get("metadata")
@@ -2699,6 +2700,7 @@ def _rule_atom_evidence_by_path(
             text = source.get(evidence_field)
             if not isinstance(text, str) or not text.strip():
                 continue
+            explicit_evidence_paths.add(path)
             excerpt_is_body_bound = (
                 proof_source_texts is None
                 or not citation_path
@@ -2713,6 +2715,7 @@ def _rule_atom_evidence_by_path(
         if isinstance(table, dict):
             for cell in table.values():
                 if isinstance(cell, (str, int, float)) and not isinstance(cell, bool):
+                    explicit_evidence_paths.add(path)
                     text = str(cell).strip()
                     cell_is_body_bound = (
                         proof_source_texts is None
@@ -2733,6 +2736,9 @@ def _rule_atom_evidence_by_path(
         if fragments:
             evidence[path] = "\n".join(fragments)
             continue
+        if path in explicit_evidence_paths:
+            evidence[path] = ""
+            continue
         resolved: list[str] = []
         if proof_source_texts is not None:
             for citation_path in cited_by_path.get(path, []):
@@ -2751,10 +2757,7 @@ def _source_evidence_fragment_is_body_bound(
     normalized_source = _collapse_source_sentence_text(source_text).casefold()
     return bool(
         normalized_evidence
-        and re.search(
-            _bounded_source_evidence_pattern(normalized_evidence),
-            normalized_source,
-        )
+        and _bounded_source_evidence_match(normalized_evidence, normalized_source)
     )
 
 

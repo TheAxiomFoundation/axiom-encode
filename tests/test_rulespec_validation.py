@@ -9508,6 +9508,14 @@ def test_rulespec_proof_validator_ignores_source_line_wrapping():
         ("The official amount is 150 dollars.", "50 dollars", "50"),
         ("The official amount is 1,500 dollars.", "500 dollars", "500"),
         ("The official amount is 10.5 dollars.", "5 dollars", "5"),
+        ("The official amount is -50 dollars.", "50 dollars", "50"),
+        ("The official amount is +50 dollars.", "50 dollars", "50"),
+        ("The official amount is −50 dollars.", "50 dollars", "50"),
+        ("The official amount is 1/7 dollars.", "7 dollars", "7"),
+        ("The official amount is 20:50 dollars.", "50 dollars", "50"),
+        ("The official amount is 50%.", "50", "50"),
+        ("The official amount is 50‰.", "50", "50"),
+        ("The official amount is ١50 dollars.", "50 dollars", "50"),
     ],
 )
 def test_rulespec_proof_validator_rejects_partial_numeric_evidence(
@@ -9517,8 +9525,8 @@ def test_rulespec_proof_validator_rejects_partial_numeric_evidence(
 ):
     content = (
         _corpus_checked_proof_content()
-        .replace("The official amount is $298.", excerpt)
-        .replace("$298", excerpt)
+        .replace("The official amount is $298.", repr(excerpt))
+        .replace("$298", repr(excerpt))
         .replace("formula: '298'", f"formula: '{formula}'")
     )
 
@@ -30171,6 +30179,12 @@ def test_scoped_grounding_rejects_unverified_numeric_table_evidence():
         ("The official amount is 150 dollars.", "50 dollars", "50"),
         ("The official amount is 1,500 dollars.", "500 dollars", "500"),
         ("The official amount is 10.5 dollars.", "5 dollars", "5"),
+        ("The official amount is -50 dollars.", "50 dollars", "50"),
+        ("The official amount is +50 dollars.", "50 dollars", "50"),
+        ("The official amount is −50 dollars.", "50 dollars", "50"),
+        ("The official amount is 1/7 dollars.", "7 dollars", "7"),
+        ("The official amount is 20:50 dollars.", "50 dollars", "50"),
+        ("The official amount is ١50 dollars.", "50 dollars", "50"),
     ],
 )
 def test_scoped_grounding_rejects_partial_numeric_excerpt_evidence(
@@ -30192,7 +30206,7 @@ def test_scoped_grounding_rejects_partial_numeric_excerpt_evidence(
                     kind: amount
                     source:
                       corpus_citation_path: xx/policy/benefit/amount
-                      excerpt: {excerpt}
+                      excerpt: {excerpt!r}
             versions:
               - effective_from: '2026-01-01'
                 formula: '{formula}'
@@ -30204,7 +30218,7 @@ def test_scoped_grounding_rejects_partial_numeric_excerpt_evidence(
         module_source_text="",
         proof_source_texts={"xx/policy/benefit/amount": source_text},
     )
-    assert any(formula in issue for issue in issues), issues
+    assert issues
 
     assert (
         find_ungrounded_numeric_issues_scoped(

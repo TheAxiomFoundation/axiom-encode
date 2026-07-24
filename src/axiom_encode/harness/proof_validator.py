@@ -562,20 +562,61 @@ def _source_contains_proof_evidence(
 
 
 def _bounded_source_evidence_match(evidence_text: str, source_text: str) -> bool:
-    return (
-        re.search(_bounded_source_evidence_pattern(evidence_text), source_text)
-        is not None
+    if not evidence_text:
+        return False
+    return any(
+        _source_evidence_span_is_bounded(
+            evidence_text=evidence_text,
+            source_text=source_text,
+            start=match.start(),
+            end=match.end(),
+        )
+        for match in re.finditer(re.escape(evidence_text), source_text)
     )
 
 
-def _bounded_source_evidence_pattern(evidence_text: str) -> str:
-    """Prevent evidence matches inside words, grouped numbers, or decimals."""
+def _source_evidence_span_is_bounded(
+    *,
+    evidence_text: str,
+    source_text: str,
+    start: int,
+    end: int,
+) -> bool:
+    """Reject source spans that omit part of a word or numeric token."""
 
-    return (
-        r"(?<![A-Za-z0-9])(?<![0-9][.,])"
-        + re.escape(evidence_text)
-        + r"(?![A-Za-z0-9])(?![.,][0-9])"
-    )
+    before = source_text[:start]
+    after = source_text[end:]
+    if before and (before[-1].isalnum() or before[-1] == "_"):
+        return False
+    if after and (after[0].isalnum() or after[0] == "_"):
+        return False
+
+    if _evidence_begins_with_numeric_token(evidence_text):
+        left = before.rstrip()
+        if left.endswith(("+", "-", "−")):
+            return False
+        if re.search(r"\d\s*[.,/:^]\s*$", left):
+            return False
+
+    if _evidence_ends_with_numeric_token(evidence_text):
+        right = after.lstrip()
+        if right.startswith(("%", "‰")):
+            return False
+        if re.match(r"[.,/:^]\s*\d", right):
+            return False
+    return True
+
+
+def _evidence_begins_with_numeric_token(evidence_text: str) -> bool:
+    text = evidence_text.lstrip()
+    while text and text[0] in "$£€¥₹":
+        text = text[1:].lstrip()
+    return bool(text and text[0].isdecimal())
+
+
+def _evidence_ends_with_numeric_token(evidence_text: str) -> bool:
+    text = evidence_text.rstrip()
+    return bool(text and text[-1].isdecimal())
 
 
 def _proof_excerpt_subsection_scope_issues(
