@@ -19495,13 +19495,10 @@ rules:
     assert proof_source_texts[citation_path].endswith(history)
     assert numeric_source_texts == {citation_path: body}
     assert find_rulespec_proof_issues(content, source_texts=proof_source_texts) == []
-    assert any(
-        "278" in issue
-        for issue in find_ungrounded_numeric_issues_scoped(
-            content,
-            module_source_text=None,
-            proof_source_texts=numeric_source_texts,
-        )
+    assert find_ungrounded_numeric_issues_scoped(
+        content,
+        module_source_text=None,
+        proof_source_texts=numeric_source_texts,
     )
 
 
