@@ -30021,12 +30021,20 @@ def test_scoped_grounding_uses_resolved_source_for_half_up_helper():
         "Increase the second digit after the decimal point by one if the third digit is five or more.",
         "the rounding increment is 0.5",
     )
+    issues = find_ungrounded_numeric_issues_scoped(
+        explicit_literal,
+        module_source_text="The module delegates rounding to the procedure.",
+        proof_source_texts={
+            "xx/policy/rounding/procedure": "Round to the nearest cent."
+        },
+    )
+    assert any("0.5" in issue for issue in issues), issues
     assert (
         find_ungrounded_numeric_issues_scoped(
             explicit_literal,
             module_source_text="The module delegates rounding to the procedure.",
             proof_source_texts={
-                "xx/policy/rounding/procedure": "Round to the nearest cent."
+                "xx/policy/rounding/procedure": "The rounding increment is 0.5."
             },
         )
         == []
