@@ -9569,6 +9569,17 @@ def test_rulespec_proof_validator_ignores_source_line_wrapping():
         ("The official amount is 50‐.", "50", "50"),
         ("The official amount is 50\u200b-.", "50", "50"),
         ("The official amount is ١50 dollars.", "50 dollars", "50"),
+        (
+            "The official amount is ($50 dollars effective 01/01/19).",
+            "50 dollars effective 01/01/19",
+            "50",
+        ),
+        (
+            "The official amount is 100/50 dollars effective 01/01/19.",
+            "50 dollars effective 01/01/19",
+            "50",
+        ),
+        ("The official amount is 100/01/01/19.", "01/01/19", "2019"),
     ],
 )
 def test_rulespec_proof_validator_rejects_partial_numeric_evidence(
@@ -9633,6 +9644,55 @@ def test_rulespec_proof_validator_accepts_complete_connected_numeric_evidence(
     result = validate_rulespec_proofs(
         content,
         source_texts={"us/guidance/example/page-1": evidence},
+    )
+
+    assert result.passed is True
+    assert result.issues == []
+
+
+@pytest.mark.parametrize(
+    "evidence",
+    [
+        "01/01/19 - 12/31/19",
+        "10/01/10 \u201312/31/10",
+        "12/01/15 \u201301/31/16",
+    ],
+)
+def test_rulespec_proof_validator_accepts_parenthesized_effective_dates(
+    evidence: str,
+):
+    content = (
+        _corpus_checked_proof_content()
+        .replace("The official amount is $298.", repr(evidence))
+        .replace("$298", repr(evidence))
+        .replace("formula: '298'", "formula: '2019'")
+    )
+
+    result = validate_rulespec_proofs(
+        content,
+        source_texts={"us/guidance/example/page-1": f"REVISION 47 ({evidence})"},
+    )
+
+    assert result.passed is True
+    assert result.issues == []
+
+
+def test_rulespec_proof_validator_accepts_complete_numeric_legal_citation():
+    evidence = "through the application of sections 457.10"
+    content = (
+        _corpus_checked_proof_content()
+        .replace("The official amount is $298.", repr(evidence))
+        .replace("$298", repr(evidence))
+        .replace("formula: '298'", "formula: '457'")
+    )
+
+    result = validate_rulespec_proofs(
+        content,
+        source_texts={
+            "us/guidance/example/page-1": (
+                f"{evidence}, 457.350(b)(2), 457.622(c)(5), and 457.626(a)(3)"
+            )
+        },
     )
 
     assert result.passed is True

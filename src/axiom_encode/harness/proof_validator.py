@@ -719,7 +719,7 @@ def _left_context_continues_numeric_token(before: str) -> bool:
     if not connectors or not left or not left[-1].isdecimal():
         return False
     return bool(
-        not separated_from_evidence
+        (not separated_from_evidence and not connector_preceded_by_space)
         or any(_is_spaced_numeric_connector(character) for character in connectors)
         or (
             connector_preceded_by_space
@@ -743,7 +743,7 @@ def _right_context_continues_numeric_token(after: str) -> bool:
     if not connectors or not right or not right[0].isdecimal():
         return False
     return bool(
-        not separated_from_evidence
+        (not separated_from_evidence and not connector_followed_by_space)
         or any(_is_spaced_numeric_connector(character) for character in connectors)
         or (
             connector_followed_by_space
@@ -761,12 +761,27 @@ def _span_omits_accounting_parentheses(
     before: str,
     after: str,
 ) -> bool:
+    if _is_numeric_date_label(evidence_text):
+        return False
     left = before.rstrip()
     while left and _is_currency_marker(left[-1]):
         left = left[:-1].rstrip()
     omitted_closing = after.lstrip().startswith(")")
     carried_closing = evidence_text.rstrip().endswith(")")
     return bool(left.endswith("(") and (omitted_closing or carried_closing))
+
+
+def _is_numeric_date_label(text: str) -> bool:
+    """Recognize a complete date-only legal effective-period label."""
+
+    date = r"\d{1,4}/\d{1,2}/\d{1,4}"
+    return bool(
+        re.fullmatch(
+            rf"\s*{date}(?:\s*(?:-|[\u2010-\u2015]|to)\s*{date})?\s*",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
 
 
 def _span_omits_trailing_accounting_sign(
