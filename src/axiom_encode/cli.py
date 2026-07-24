@@ -28870,7 +28870,11 @@ def _closest_exact_source_excerpt(*, source_text: str, excerpt: str) -> str | No
     )[1]
     if selected.kind == "table_row":
         return selected.text
-    return _governing_source_excerpt_candidate([selected], candidates)
+    return _governing_source_excerpt_candidate(
+        [selected],
+        candidates,
+        allow_complete_conditional_fallback=True,
+    )
 
 
 def _safe_wrapped_direct_source_match(
@@ -29079,6 +29083,8 @@ def _safe_wrapped_direct_source_match(
 def _governing_source_excerpt_candidate(
     selected: list[_SourceExcerptCandidate],
     candidates: list[_SourceExcerptCandidate],
+    *,
+    allow_complete_conditional_fallback: bool = False,
 ) -> str | None:
     marked_parent = next(
         (candidate.marked_parent for candidate in selected if candidate.marked_parent),
@@ -29094,7 +29100,42 @@ def _governing_source_excerpt_candidate(
             ),
             None,
         )
-        return governing.text if governing is not None else None
+        if governing is not None:
+            return governing.text
+        complete_condition = min(
+            selected,
+            key=lambda candidate: len(re.sub(r"\s+", " ", candidate.text)),
+        )
+        preceding_sentences = [
+            candidate
+            for candidate in candidates
+            if candidate.kind == "sentence"
+            and candidate.marked_parent == marked_parent
+            and candidate.end <= complete_condition.start
+        ]
+        heading_match = (
+            _source_paragraph_marker_match(
+                re.sub(r"\s+", " ", preceding_sentences[0].text).strip()
+            )
+            if len(preceding_sentences) == 1
+            and preceding_sentences[0].start == marked_parent[0]
+            else None
+        )
+        if (
+            allow_complete_conditional_fallback
+            and complete_condition.kind == "sentence"
+            and _SOURCE_PRIOR_CONDITION_PATTERN.search(complete_condition.text)
+            is not None
+            and heading_match is not None
+            and re.match(
+                r"requirements?\s+to\b",
+                heading_match.group("body"),
+                flags=re.IGNORECASE,
+            )
+            is not None
+        ):
+            return complete_condition.text
+        return None
     return min(
         selected,
         key=lambda candidate: len(re.sub(r"\s+", " ", candidate.text)),

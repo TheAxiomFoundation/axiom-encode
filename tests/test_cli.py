@@ -9669,6 +9669,52 @@ rules:
     assert not validation.passed
 
 
+def test_closest_exact_source_excerpt_uses_complete_condition_from_long_paragraph():
+    expected = (
+        "If the agency has sufficient information to verify an individual meets "
+        "or is deemed to meet the community engagement requirement and has "
+        "information that suggests, but needs more information to verify that the "
+        "individual is a specified excluded individual, the agency must enroll the "
+        "individual promptly using the verified information and attempt to verify "
+        "eligibility for the exclusion post-enrollment or, if the individual is "
+        "already enrolled, following the redetermination of eligibility."
+    )
+    source_text = (
+        "(3) Requirement to enroll eligible individuals and verify potential "
+        "exclusion post-enrollment. " + expected
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt=(
+            "If compliance is verified but exclusion needs more information, "
+            "enroll promptly and verify the exclusion after enrollment."
+        ),
+    )
+
+    assert len(source_text) > 500
+    assert repaired == expected
+
+
+def test_closest_exact_source_excerpt_rejects_later_condition_after_substantive_rule():
+    source_text = (
+        "(3) Eligibility is limited to State residents. "
+        + ("Administrative background applies. " * 14)
+        + "If the household submits a timely request, the agency must issue the "
+        "benefit."
+    )
+
+    repaired = _closest_exact_source_excerpt(
+        source_text=source_text,
+        excerpt=(
+            "A timely household request requires the agency to issue the benefit."
+        ),
+    )
+
+    assert len(source_text) > 500
+    assert repaired is None
+
+
 def test_repair_generated_wrapped_proof_excerpt_in_over_limit_paragraph(
     tmp_path, monkeypatch
 ):
