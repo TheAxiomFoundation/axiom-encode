@@ -563,11 +563,18 @@ def _source_contains_proof_evidence(
 
 def _bounded_source_evidence_match(evidence_text: str, source_text: str) -> bool:
     return (
-        re.search(
-            rf"(?<![A-Za-z0-9]){re.escape(evidence_text)}(?![A-Za-z0-9])",
-            source_text,
-        )
+        re.search(_bounded_source_evidence_pattern(evidence_text), source_text)
         is not None
+    )
+
+
+def _bounded_source_evidence_pattern(evidence_text: str) -> str:
+    """Prevent evidence matches inside words, grouped numbers, or decimals."""
+
+    return (
+        r"(?<![A-Za-z0-9])(?<![0-9][.,])"
+        + re.escape(evidence_text)
+        + r"(?![A-Za-z0-9])(?![.,][0-9])"
     )
 
 

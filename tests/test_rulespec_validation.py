@@ -9502,19 +9502,29 @@ def test_rulespec_proof_validator_ignores_source_line_wrapping():
     assert result.issues == []
 
 
-def test_rulespec_proof_validator_rejects_partial_numeric_evidence():
+@pytest.mark.parametrize(
+    ("source_text", "excerpt", "formula"),
+    [
+        ("The official amount is 150 dollars.", "50 dollars", "50"),
+        ("The official amount is 1,500 dollars.", "500 dollars", "500"),
+        ("The official amount is 10.5 dollars.", "5 dollars", "5"),
+    ],
+)
+def test_rulespec_proof_validator_rejects_partial_numeric_evidence(
+    source_text: str,
+    excerpt: str,
+    formula: str,
+):
     content = (
         _corpus_checked_proof_content()
-        .replace("The official amount is $298.", "50 dollars")
-        .replace("$298", "50 dollars")
-        .replace("formula: '298'", "formula: '50'")
+        .replace("The official amount is $298.", excerpt)
+        .replace("$298", excerpt)
+        .replace("formula: '298'", f"formula: '{formula}'")
     )
 
     result = validate_rulespec_proofs(
         content,
-        source_texts={
-            "us/guidance/example/page-1": "The official amount is 150 dollars."
-        },
+        source_texts={"us/guidance/example/page-1": source_text},
     )
 
     assert result.passed is False
@@ -30155,9 +30165,21 @@ def test_scoped_grounding_rejects_unverified_numeric_table_evidence():
     )
 
 
-def test_scoped_grounding_rejects_partial_numeric_excerpt_evidence():
+@pytest.mark.parametrize(
+    ("source_text", "excerpt", "formula"),
+    [
+        ("The official amount is 150 dollars.", "50 dollars", "50"),
+        ("The official amount is 1,500 dollars.", "500 dollars", "500"),
+        ("The official amount is 10.5 dollars.", "5 dollars", "5"),
+    ],
+)
+def test_scoped_grounding_rejects_partial_numeric_excerpt_evidence(
+    source_text: str,
+    excerpt: str,
+    formula: str,
+):
     content = textwrap.dedent(
-        """
+        f"""
         format: rulespec/v1
         rules:
           - name: official_amount
@@ -30170,28 +30192,26 @@ def test_scoped_grounding_rejects_partial_numeric_excerpt_evidence():
                     kind: amount
                     source:
                       corpus_citation_path: xx/policy/benefit/amount
-                      excerpt: 50 dollars
+                      excerpt: {excerpt}
             versions:
               - effective_from: '2026-01-01'
-                formula: '50'
+                formula: '{formula}'
         """
     ).strip()
 
     issues = find_ungrounded_numeric_issues_scoped(
         content,
         module_source_text="",
-        proof_source_texts={
-            "xx/policy/benefit/amount": "The official amount is 150 dollars."
-        },
+        proof_source_texts={"xx/policy/benefit/amount": source_text},
     )
-    assert any("50" in issue for issue in issues), issues
+    assert any(formula in issue for issue in issues), issues
 
     assert (
         find_ungrounded_numeric_issues_scoped(
             content,
             module_source_text="",
             proof_source_texts={
-                "xx/policy/benefit/amount": "The official amount is 50 dollars."
+                "xx/policy/benefit/amount": f"The official amount is {excerpt}."
             },
         )
         == []

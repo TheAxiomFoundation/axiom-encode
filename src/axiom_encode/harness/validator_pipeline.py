@@ -106,6 +106,7 @@ from .policyengine_runtime import (
     policyengine_subprocess_environment,
 )
 from .proof_validator import (
+    _bounded_source_evidence_pattern,
     find_plural_corpus_citation_path_issues,
     find_rulespec_proof_issues,
     validate_rulespec_proofs,
@@ -2751,7 +2752,7 @@ def _source_evidence_fragment_is_body_bound(
     return bool(
         normalized_evidence
         and re.search(
-            rf"(?<![A-Za-z0-9]){re.escape(normalized_evidence)}(?![A-Za-z0-9])",
+            _bounded_source_evidence_pattern(normalized_evidence),
             normalized_source,
         )
     )
