@@ -221,6 +221,59 @@ def test_resolves_one_active_row_with_complete_identity_and_hashes(tmp_path: Pat
     assert attestation["corpus_release_selector_sha256"] == release.selector_sha256
 
 
+def test_resolver_exposes_source_history_only_as_proof_evidence(tmp_path: Path):
+    version = "2026-01-02-title-7"
+    _write_selector(tmp_path, [_scope(version)])
+    body = "The credit is available."
+    history = "Acts 2007, No. 278, section 1, effective January 1, 2008."
+    _write_rows(
+        tmp_path,
+        version,
+        [
+            {
+                "citation_path": CITATION,
+                "body": body,
+                "metadata": {"source_history": [history]},
+            }
+        ],
+    )
+
+    resolved = resolve_local_corpus_source(CITATION, _release(tmp_path))
+
+    body_sha = hashlib.sha256(body.encode()).hexdigest()
+    assert resolved.body == body
+    assert resolved.stored_body_sha256 == body_sha
+    assert resolved.resolved_text_sha256 == body_sha
+    assert resolved.source_history == (history,)
+    assert resolved.proof_evidence_text == f"{body}\n{history}"
+    assert "source_history" not in resolved.to_attestation()
+
+
+def test_scoped_parent_slice_drops_parent_source_history(tmp_path: Path):
+    version = "2026-01-02-title-7"
+    _write_selector(tmp_path, [_scope(version)])
+    parent = "us/statute/7/2014"
+    body = "(a) First rule.\n(e) Second rule."
+    _write_rows(
+        tmp_path,
+        version,
+        [
+            {
+                "citation_path": parent,
+                "body": body,
+                "metadata": {"source_history": ["History for the parent provision."]},
+            }
+        ],
+    )
+    source = resolve_local_corpus_source(parent, _release(tmp_path))
+
+    scoped = scope_resolved_corpus_source(source, CITATION)
+
+    assert scoped.body == "(e) Second rule."
+    assert scoped.source_history == ()
+    assert scoped.proof_evidence_text == scoped.body
+
+
 def test_active_scope_beats_newer_inactive_duplicate(tmp_path: Path):
     active = "2025-01-01-active"
     inactive = "2026-01-01-inactive"
@@ -587,12 +640,20 @@ def test_parent_fallback_slices_child_and_hashes_full_parent(tmp_path: Path):
     _write_rows(
         tmp_path,
         version,
-        [{"citation_path": "us/statute/7/2014", "body": parent_body}],
+        [
+            {
+                "citation_path": "us/statute/7/2014",
+                "body": parent_body,
+                "metadata": {"source_history": ["History for the parent provision."]},
+            }
+        ],
     )
 
     resolved = resolve_local_corpus_source(CITATION, _release(tmp_path))
     assert resolved.citation_path == "us/statute/7/2014"
     assert resolved.body == "(e) Target $198."
+    assert resolved.source_history == ()
+    assert resolved.proof_evidence_text == resolved.body
     assert (
         resolved.stored_body_sha256 == hashlib.sha256(parent_body.encode()).hexdigest()
     )

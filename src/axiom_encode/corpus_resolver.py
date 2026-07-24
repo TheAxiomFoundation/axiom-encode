@@ -216,6 +216,7 @@ def scope_resolved_corpus_source(
         requested=target,
         body=body,
         resolved_text_sha256=_sha256_text(body),
+        source_history=source.source_history if target == source.citation_path else (),
         slice_required=target != source.citation_path,
     )
 
@@ -429,7 +430,14 @@ class ResolvedCorpusSource:
     release_name: str
     release_content_sha256: str
     release_selector_sha256: str
+    source_history: tuple[str, ...] = ()
     slice_required: bool = False
+
+    @property
+    def proof_evidence_text(self) -> str:
+        """Return release-bound provision text available to proof validation."""
+
+        return "\n".join((self.body, *self.source_history))
 
     def to_attestation(self) -> dict[str, Any]:
         """Return the JSON-compatible provenance bound into apply manifests."""
@@ -462,6 +470,7 @@ class _StoredRecord:
     ordinal: int | None
     file_path: Path
     file_sha256: str
+    source_history: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -883,6 +892,7 @@ def _resolved_source(
         release_name=release.name,
         release_content_sha256=release.content_sha256,
         release_selector_sha256=release.selector_sha256,
+        source_history=() if slice_required else selected.source_history,
         slice_required=slice_required,
     )
 
@@ -1101,6 +1111,7 @@ def _read_matching_records(
                 ordinal=_optional_int(record.get("ordinal")),
                 file_path=path,
                 file_sha256=artifact.sha256,
+                source_history=_record_source_history(record),
             )
         )
     return records
@@ -1182,6 +1193,7 @@ def _read_descendant_records(
                 ordinal=ordinal,
                 file_path=path,
                 file_sha256=artifact.sha256,
+                source_history=_record_source_history(record),
             )
         )
     return records
@@ -3837,6 +3849,18 @@ def _record_status(record: dict[str, Any]) -> str | None:
         return None
     status = metadata.get("status")
     return status if status == "repealed" else None
+
+
+def _record_source_history(record: dict[str, Any]) -> tuple[str, ...]:
+    metadata = record.get("metadata")
+    if not isinstance(metadata, Mapping):
+        return ()
+    history = metadata.get("source_history")
+    if not isinstance(history, list):
+        return ()
+    return tuple(
+        entry.strip() for entry in history if isinstance(entry, str) and entry.strip()
+    )
 
 
 def _clean_string_value(value: Any, *, label: str) -> str:

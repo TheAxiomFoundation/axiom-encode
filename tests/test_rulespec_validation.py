@@ -9489,6 +9489,18 @@ def test_rulespec_proof_validator_checks_direct_source_evidence_text():
     assert result.issues == []
 
 
+def test_rulespec_proof_validator_ignores_source_line_wrapping():
+    content = _corpus_checked_proof_content()
+
+    result = validate_rulespec_proofs(
+        content,
+        source_texts={"us/guidance/example/page-1": "The official\namount is $298."},
+    )
+
+    assert result.passed is True
+    assert result.issues == []
+
+
 def test_rulespec_proof_validator_rejects_unresolved_direct_source():
     result = validate_rulespec_proofs(
         _corpus_checked_proof_content(),

@@ -170,7 +170,6 @@ from .harness.evals import (
     _eval_suite_case_policy_repo_root,
     _eval_suite_execution_identity_sha256,
     _eval_suite_rulespec_roots,
-    _fetch_local_corpus_source_text_from_repo,
     _git_checkout_execution_identity,
     _load_eval_suite_resume_state,
     _render_eval_result_verdict_evidence,
@@ -3701,7 +3700,7 @@ def cmd_proof_validate(args):
                     source_text_cache[cache_key] = resolve_local_corpus_source(
                         citation_path,
                         corpus_release,
-                    ).body
+                    ).proof_evidence_text
                 except CorpusResolutionError as exc:
                     source_text_cache[cache_key] = None
                     source_error_cache[cache_key] = (
@@ -23358,11 +23357,14 @@ def _local_source_text_for_corpus_path(
     *,
     corpus_release: LocalCorpusRelease,
 ) -> str | None:
-    source_text = _fetch_local_corpus_source_text_from_repo(
-        corpus_citation_path,
-        corpus_release,
-    )
-    return str(source_text) if source_text is not None else None
+    try:
+        source = resolve_local_corpus_source(
+            corpus_citation_path,
+            corpus_release,
+        )
+    except CorpusSourceNotFoundError:
+        return None
+    return source.proof_evidence_text
 
 
 def _corpus_citation_path_is_parent_of(parent: str, child: str) -> bool:

@@ -19517,6 +19517,28 @@ def _fetch_corpus_source_text(citation_path: str) -> str | None:
     return _fetch_local_corpus_source_text(citation_path)
 
 
+def _fetch_corpus_proof_evidence_text(citation_path: str) -> str | None:
+    """Fetch all proof-bearing text from the authoritative corpus provision."""
+
+    release = _AUTHORITATIVE_CORPUS_RELEASE.get()
+    normalized_path = citation_path.strip().strip("/")
+    if not normalized_path:
+        return None
+    if release is None:
+        raise CorpusResolutionError(
+            "Corpus source resolution requires a bound LocalCorpusRelease"
+        )
+    try:
+        return resolve_local_corpus_source(
+            normalized_path,
+            release,
+        ).proof_evidence_text
+    except CorpusSourceNotFoundError:
+        return None
+    except UnsafeCorpusPathError as exc:
+        raise UnsafeRulespecContextPath(str(exc)) from exc
+
+
 def _fetch_local_corpus_source_text(
     citation_path: str,
 ) -> str | None:
@@ -21259,8 +21281,10 @@ class ValidatorPipeline:
                 if not isinstance(source, dict):
                     continue
                 citation_path = str(source.get("corpus_citation_path") or "").strip()
-                if citation_path and citation_path not in resolved:
-                    resolved[citation_path] = _fetch_corpus_source_text(citation_path)
+                if citation_path:
+                    resolved[citation_path] = _fetch_corpus_proof_evidence_text(
+                        citation_path
+                    )
         return resolved
 
     def _trusted_source_binding_issues(self, content: str) -> list[str]:

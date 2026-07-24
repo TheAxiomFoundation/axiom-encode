@@ -485,7 +485,10 @@ def _validate_source_proof_atom(
                 if not isinstance(evidence_text, str) or not evidence_text.strip():
                     continue
                 evidence_text = evidence_text.strip()
-                if evidence_text not in resolved_text:
+                if not _source_contains_proof_evidence(
+                    source_text=resolved_text,
+                    evidence_text=evidence_text,
+                ):
                     issues.append(
                         "Proof source evidence not found: "
                         f"{label} `source.{field}` does not appear in "
@@ -538,6 +541,18 @@ def _validate_source_proof_atom(
             )
 
     return issues
+
+
+def _source_contains_proof_evidence(
+    *,
+    source_text: str,
+    evidence_text: str,
+) -> bool:
+    if evidence_text in source_text:
+        return True
+    normalized_source = re.sub(r"\s+", " ", source_text).strip()
+    normalized_evidence = re.sub(r"\s+", " ", evidence_text).strip()
+    return bool(normalized_evidence and normalized_evidence in normalized_source)
 
 
 def _proof_excerpt_subsection_scope_issues(
