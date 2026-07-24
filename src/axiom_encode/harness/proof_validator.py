@@ -621,6 +621,8 @@ def _source_evidence_span_is_bounded(
         right = after.lstrip()
         if right and _is_numeric_suffix_marker(right[0]):
             return False
+        if _right_context_starts_textual_numeric_suffix(after):
+            return False
         if _right_context_continues_numeric_token(after):
             return False
     return True
@@ -657,7 +659,7 @@ _NUMERIC_SIGN_MARKERS = frozenset(
     }
 )
 _SPACED_NUMERIC_CONNECTOR_NAME_WORDS = frozenset(
-    {"ASTERISK", "CARET", "DASH", "DIVISION", "MINUS", "MULTIPLICATION", "RATIO"}
+    {"ASTERISK", "CARET", "DIVISION", "MINUS", "MULTIPLICATION", "RATIO"}
 )
 _SPACED_NUMERIC_CONNECTOR_NAME_PHRASES = (
     "FRACTION SLASH",
@@ -694,7 +696,7 @@ def _left_context_omits_numeric_sign(before: str) -> bool:
     left = before.rstrip()
     while left and _is_currency_marker(left[-1]):
         left = left[:-1].rstrip()
-    return bool(left and left[-1] in _NUMERIC_SIGN_MARKERS)
+    return bool(left and _is_numeric_sign_marker(left[-1]))
 
 
 def _left_context_continues_numeric_token(before: str) -> bool:
@@ -704,12 +706,20 @@ def _left_context_continues_numeric_token(before: str) -> bool:
     while left and _is_connector_character(left[-1]):
         connectors = left[-1] + connectors
         left = left[:-1]
+    connector_preceded_by_space = bool(left and left[-1].isspace())
     left = left.rstrip()
     if not connectors or not left or not left[-1].isdecimal():
         return False
     return bool(
         not separated_from_evidence
         or any(_is_spaced_numeric_connector(character) for character in connectors)
+        or (
+            connector_preceded_by_space
+            and any(
+                unicodedata.normalize("NFKC", character) == ":"
+                for character in connectors
+            )
+        )
     )
 
 
@@ -750,7 +760,12 @@ def _span_omits_trailing_accounting_sign(
     after: str,
 ) -> bool:
     del evidence_text, before
-    return bool(after and not after[0].isspace() and after[0] in _NUMERIC_SIGN_MARKERS)
+    if not after or after[0].isspace():
+        return False
+    right = after
+    while right and unicodedata.category(right[0]) == "Cf":
+        right = right[1:]
+    return bool(right and _is_numeric_sign_marker(right[0]))
 
 
 def _is_currency_marker(character: str) -> bool:
@@ -765,7 +780,7 @@ def _is_connector_character(character: str) -> bool:
 
 def _is_spaced_numeric_connector(character: str) -> bool:
     normalized = unicodedata.normalize("NFKC", character)
-    if normalized in "/*^+-" or character in _NUMERIC_SIGN_MARKERS:
+    if normalized in "/*^+-" or _is_numeric_sign_marker(character):
         return True
     name = unicodedata.name(character, "")
     name_words = frozenset(name.split())
@@ -782,6 +797,30 @@ def _is_numeric_suffix_marker(character: str) -> bool:
     return any(
         phrase in name
         for phrase in ("PERCENT SIGN", "PER MILLE SIGN", "PER TEN THOUSAND SIGN")
+    )
+
+
+def _is_numeric_sign_marker(character: str) -> bool:
+    if character in _NUMERIC_SIGN_MARKERS:
+        return True
+    normalized = unicodedata.normalize("NFKC", character)
+    if normalized in "+-":
+        return True
+    name = unicodedata.name(character, "")
+    return any(word in name.split() for word in ("HYPHEN", "MINUS", "PLUS"))
+
+
+def _right_context_starts_textual_numeric_suffix(after: str) -> bool:
+    return bool(
+        re.match(
+            r"\s+(?:"
+            r"per\s+cent|percent(?:age)?s?|"
+            r"per\s+mille|per\s+ten\s+thousand|"
+            r"basis\s+points?|bps"
+            r")\b",
+            after,
+            flags=re.IGNORECASE,
+        )
     )
 
 

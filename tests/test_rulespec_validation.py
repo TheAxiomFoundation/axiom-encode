@@ -9556,6 +9556,13 @@ def test_rulespec_proof_validator_ignores_source_line_wrapping():
         ("The official amount is 50٪.", "50", "50"),
         ("The official amount is 50؉.", "50", "50"),
         ("The official amount is 50؊.", "50", "50"),
+        ("The official amount is 50 percent.", "50", "50"),
+        ("The official amount is 50 percentage points.", "50", "50"),
+        ("The official amount is 50 per cent.", "50", "50"),
+        ("The official amount is 50 basis points.", "50", "50"),
+        ("The official amount is 50➖.", "50", "50"),
+        ("The official amount is 50‐.", "50", "50"),
+        ("The official amount is 50\u200b-.", "50", "50"),
         ("The official amount is ١50 dollars.", "50 dollars", "50"),
     ],
 )
@@ -9636,6 +9643,7 @@ def test_rulespec_proof_validator_accepts_complete_connected_numeric_evidence(
         "1. 50 dollars is allowed.",
         "1: 50 dollars is allowed.",
         "Tier 1; 50 dollars applies.",
+        "Paragraph 1 — 50 dollars is allowed.",
     ],
 )
 def test_rulespec_proof_validator_accepts_numeric_evidence_after_legal_markers(
@@ -9675,6 +9683,28 @@ def test_rulespec_proof_validator_rejects_omitted_trailing_accounting_sign(
         .replace("The official amount is $298.", repr(evidence))
         .replace("$298", repr(evidence))
         .replace("formula: '298'", "formula: '50'")
+    )
+
+    result = validate_rulespec_proofs(
+        content,
+        source_texts={"us/guidance/example/page-1": source_text},
+    )
+
+    assert result.passed is False
+    assert (
+        sum("Proof source evidence not found" in issue for issue in result.issues) == 2
+    )
+
+
+@pytest.mark.parametrize("separator", [":", "："])
+def test_rulespec_proof_validator_rejects_spaced_ratio_evidence(separator: str):
+    source_text = f"The official ratio is 100 {separator} 200 dollars."
+    evidence = "200 dollars"
+    content = (
+        _corpus_checked_proof_content()
+        .replace("The official amount is $298.", repr(evidence))
+        .replace("$298", repr(evidence))
+        .replace("formula: '298'", "formula: '200'")
     )
 
     result = validate_rulespec_proofs(
@@ -30354,6 +30384,8 @@ def test_scoped_grounding_rejects_unverified_numeric_table_evidence():
         ("The official amount is 100–200 dollars.", "200 dollars", "200"),
         ("The official amount is 100..200 dollars.", "200 dollars", "200"),
         ("The official amount is 100…200 dollars.", "200 dollars", "200"),
+        ("The official amount is 100 : 200 dollars.", "200 dollars", "200"),
+        ("The official amount is 100 ： 200 dollars.", "200 dollars", "200"),
         ("The official amount is -$50 dollars.", "50 dollars", "50"),
         ("The official amount is +$50 dollars.", "50 dollars", "50"),
         ("The official amount is −$50 dollars.", "50 dollars", "50"),
