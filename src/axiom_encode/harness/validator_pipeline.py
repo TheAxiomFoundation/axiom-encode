@@ -793,6 +793,12 @@ GLUED_UNIT_NUMBER_PATTERN = re.compile(
     r"(?![A-Za-z0-9])",
     re.IGNORECASE,
 )
+CENTS_VALUE_NUMBER_PATTERN = re.compile(
+    r"(?<![\w.,/\-])"
+    r"(?P<number>-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)"
+    r"\s+cents?\b",
+    re.IGNORECASE,
+)
 EUROPEAN_DECIMAL_NUMBER_PATTERN = re.compile(
     r"(?:^|(?<=[\s$£€(\[,+\-−*/\"'`“”‘’]))"
     r"(-?(?:\d{1,3}(?:[.\u00a0\u202f]\d{3})+|\d+),(?:\d{1,2}|\d{4}))"
@@ -3726,6 +3732,18 @@ def extract_numbers_from_text(text: str) -> set[float]:
         span = match.span()
         with contextlib.suppress(ValueError):
             numbers.add(float(match.group("number").replace(",", "")))
+            occupied_spans.append(span)
+
+    for match in CENTS_VALUE_NUMBER_PATTERN.finditer(text):
+        span = match.span()
+        if _span_overlaps(span, occupied_spans):
+            continue
+        with contextlib.suppress(ValueError):
+            value = float(match.group("number").replace(",", ""))
+            # The explicit cents unit is the context guard. Keep the existing
+            # bare-number candidate and add its substantive currency fraction.
+            numbers.add(value)
+            numbers.add(value / 100)
             occupied_spans.append(span)
 
     for span, value in _iter_normalized_special_numeric_matches(text):
