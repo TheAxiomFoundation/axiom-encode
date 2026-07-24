@@ -597,19 +597,20 @@ def _source_evidence_span_is_bounded(
             before=before,
         ):
             return False
-        left = before.rstrip()
-        if left.endswith(("+", "-", "−")):
+        if _left_context_omits_numeric_sign(before):
             return False
-        if re.search(r"\d\s*[.,/:^]\s*$", left):
+        if _left_context_continues_numeric_token(before):
+            return False
+        if _span_omits_accounting_parentheses(before=before, after=after):
             return False
 
     if _evidence_ends_with_numeric_token(evidence_text):
         if _span_ends_inside_space_grouped_number(after=after):
             return False
         right = after.lstrip()
-        if right.startswith(("%", "‰")):
+        if right.startswith(tuple(_NUMERIC_SUFFIX_MARKERS)):
             return False
-        if re.match(r"[.,/:^]\s*\d", right):
+        if _right_context_continues_numeric_token(after):
             return False
     return True
 
@@ -626,7 +627,34 @@ def _evidence_ends_with_numeric_token(evidence_text: str) -> bool:
     return bool(text and text[-1].isdecimal())
 
 
-_NUMERIC_GROUPING_SPACES = frozenset({" ", "\N{NO-BREAK SPACE}", "\N{NARROW NO-BREAK SPACE}"})
+_NUMERIC_CURRENCY_MARKERS = frozenset("$£€¥₹")
+_NUMERIC_GROUPING_SPACES = frozenset(
+    {" ", "\N{NO-BREAK SPACE}", "\N{NARROW NO-BREAK SPACE}"}
+)
+_NUMERIC_SIGN_MARKERS = frozenset(
+    {
+        "+",
+        "-",
+        "\N{FIGURE DASH}",
+        "\N{MINUS SIGN}",
+        "\N{SMALL PLUS SIGN}",
+        "\N{SMALL HYPHEN-MINUS}",
+        "\N{FULLWIDTH PLUS SIGN}",
+        "\N{FULLWIDTH HYPHEN-MINUS}",
+        "\N{SUPERSCRIPT PLUS SIGN}",
+        "\N{SUPERSCRIPT MINUS}",
+        "\N{SUBSCRIPT PLUS SIGN}",
+        "\N{SUBSCRIPT MINUS}",
+    }
+)
+_NUMERIC_SUFFIX_MARKERS = frozenset(
+    {
+        "%",
+        "\N{PER MILLE SIGN}",
+        "\N{PER TEN THOUSAND SIGN}",
+        "\N{FULLWIDTH PERCENT SIGN}",
+    }
+)
 
 
 def _span_starts_inside_space_grouped_number(
@@ -652,6 +680,38 @@ def _span_ends_inside_space_grouped_number(*, after: str) -> bool:
         and all(character.isdecimal() for character in after[1:4])
         and (len(after) == 4 or not after[4].isdecimal())
     )
+
+
+def _left_context_omits_numeric_sign(before: str) -> bool:
+    left = before.rstrip()
+    while left and left[-1] in _NUMERIC_CURRENCY_MARKERS:
+        left = left[:-1].rstrip()
+    return bool(left and left[-1] in _NUMERIC_SIGN_MARKERS)
+
+
+def _left_context_continues_numeric_token(before: str) -> bool:
+    left = before.rstrip()
+    boundary_found = False
+    while left and not (left[-1].isalnum() or left[-1] == "_"):
+        boundary_found = True
+        left = left[:-1].rstrip()
+    return bool(boundary_found and left and left[-1].isdecimal())
+
+
+def _right_context_continues_numeric_token(after: str) -> bool:
+    right = after.lstrip()
+    boundary_found = False
+    while right and not (right[0].isalnum() or right[0] == "_"):
+        boundary_found = True
+        right = right[1:].lstrip()
+    return bool(boundary_found and right and right[0].isdecimal())
+
+
+def _span_omits_accounting_parentheses(*, before: str, after: str) -> bool:
+    left = before.rstrip()
+    while left and left[-1] in _NUMERIC_CURRENCY_MARKERS:
+        left = left[:-1].rstrip()
+    return bool(left.endswith("(") and after.lstrip().startswith(")"))
 
 
 def _proof_excerpt_subsection_scope_issues(

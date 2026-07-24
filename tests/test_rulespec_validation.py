@@ -9531,8 +9531,20 @@ def test_rulespec_proof_validator_ignores_source_line_wrapping():
         ("The official amount is −50 dollars.", "50 dollars", "50"),
         ("The official amount is 1/7 dollars.", "7 dollars", "7"),
         ("The official amount is 20:50 dollars.", "50 dollars", "50"),
+        ("The official amount is 100⁄200 dollars.", "200 dollars", "200"),
+        ("The official amount is 100∕200 dollars.", "200 dollars", "200"),
+        ("The official amount is 100∶200 dollars.", "200 dollars", "200"),
+        ("The official amount is 100／200 dollars.", "200 dollars", "200"),
+        ("The official amount is 100：200 dollars.", "200 dollars", "200"),
+        ("The official amount is 100–200 dollars.", "200 dollars", "200"),
+        ("The official amount is -$50 dollars.", "50 dollars", "50"),
+        ("The official amount is +$50 dollars.", "50 dollars", "50"),
+        ("The official amount is −$50 dollars.", "50 dollars", "50"),
+        ("The official amount is ($50 dollars).", "50 dollars", "50"),
         ("The official amount is 50%.", "50", "50"),
         ("The official amount is 50‰.", "50", "50"),
+        ("The official amount is 50‱.", "50", "50"),
+        ("The official amount is 50％.", "50", "50"),
         ("The official amount is ١50 dollars.", "50 dollars", "50"),
     ],
 )
@@ -9569,6 +9581,30 @@ def test_rulespec_proof_validator_accepts_complete_space_grouped_numeric_evidenc
         .replace("The official amount is $298.", f'"{evidence}"')
         .replace("$298", f'"{evidence}"')
         .replace("formula: '298'", "formula: '1500'")
+    )
+
+    result = validate_rulespec_proofs(
+        content,
+        source_texts={"us/guidance/example/page-1": evidence},
+    )
+
+    assert result.passed is True
+    assert result.issues == []
+
+
+@pytest.mark.parametrize(
+    "numeric_text",
+    ["100⁄200", "100∕200", "100∶200", "100／200", "100：200", "100–200"],
+)
+def test_rulespec_proof_validator_accepts_complete_connected_numeric_evidence(
+    numeric_text: str,
+):
+    evidence = f"The official amount is {numeric_text} dollars."
+    content = (
+        _corpus_checked_proof_content()
+        .replace("The official amount is $298.", f'"{evidence}"')
+        .replace("$298", f'"{evidence}"')
+        .replace("formula: '298'", "formula: '200'")
     )
 
     result = validate_rulespec_proofs(
@@ -30238,6 +30274,16 @@ def test_scoped_grounding_rejects_unverified_numeric_table_evidence():
         ("The official amount is −50 dollars.", "50 dollars", "50"),
         ("The official amount is 1/7 dollars.", "7 dollars", "7"),
         ("The official amount is 20:50 dollars.", "50 dollars", "50"),
+        ("The official amount is 100⁄200 dollars.", "200 dollars", "200"),
+        ("The official amount is 100∕200 dollars.", "200 dollars", "200"),
+        ("The official amount is 100∶200 dollars.", "200 dollars", "200"),
+        ("The official amount is 100／200 dollars.", "200 dollars", "200"),
+        ("The official amount is 100：200 dollars.", "200 dollars", "200"),
+        ("The official amount is 100–200 dollars.", "200 dollars", "200"),
+        ("The official amount is -$50 dollars.", "50 dollars", "50"),
+        ("The official amount is +$50 dollars.", "50 dollars", "50"),
+        ("The official amount is −$50 dollars.", "50 dollars", "50"),
+        ("The official amount is ($50 dollars).", "50 dollars", "50"),
         ("The official amount is ١50 dollars.", "50 dollars", "50"),
     ],
 )
