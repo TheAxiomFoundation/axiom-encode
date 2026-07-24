@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from scripts.prepare_signed_backfill import (
+    REVIEWED_RULESPEC_PR_BASE_BRANCHES,
     REVIEWED_RULESPEC_REFS,
     branch_name,
     stage_authorized_changes,
@@ -204,6 +205,43 @@ def test_validate_rulespec_base_accepts_main_ancestor(tmp_path: Path) -> None:
     assert validate_rulespec_base(repo, "us", base, open_pr=True) == "main"
 
 
+def test_validate_rulespec_base_rejects_non_main_pr_for_main_ancestor(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    base = _add_origin_main(repo)
+
+    with pytest.raises(ValueError, match="must target main"):
+        validate_rulespec_base(
+            repo,
+            "us",
+            base,
+            open_pr=True,
+            pr_base_branch="hard-cut/canonical-layout-us",
+        )
+
+
+def test_validate_rulespec_base_rejects_stale_main_pr_base(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    stale_base = _add_origin_main(repo)
+    (repo / "README.md").write_text("advanced\n", encoding="utf-8")
+    _git(repo, "add", "README.md")
+    _git(repo, "commit", "-m", "advance main")
+    advanced_base = _git(repo, "rev-parse", "HEAD")
+    _git(
+        repo,
+        "update-ref",
+        "refs/remotes/origin/main",
+        advanced_base,
+    )
+    _git(repo, "checkout", "--detach", stale_base)
+
+    with pytest.raises(ValueError, match="exact pull request base branch tip"):
+        validate_rulespec_base(repo, "us", stale_base, open_pr=True)
+
+
 @pytest.mark.parametrize(
     ("country", "reviewed_ref"),
     [
@@ -224,6 +262,9 @@ def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
             ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
         }
     )
+    assert REVIEWED_RULESPEC_PR_BASE_BRANCHES == frozenset(
+        {("us", "hard-cut/canonical-layout-us")}
+    )
     monkeypatch.setattr(
         "scripts.prepare_signed_backfill._git",
         lambda _repo, *_args: f"{reviewed_ref}\n".encode(),
@@ -240,6 +281,93 @@ def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
 
     with pytest.raises(ValueError, match="artifact-only"):
         validate_rulespec_base(repo, country, reviewed_ref, open_pr=True)
+
+
+def test_validate_rulespec_base_accepts_exact_reviewed_protected_branch_tip(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "rulespec-us"
+    reviewed_ref = "8f224620540f9e285428ec839d094835396f7d99"
+    git_calls: list[tuple[str, ...]] = []
+
+    def fake_git(_repo: Path, *args: str) -> bytes:
+        git_calls.append(args)
+        return f"{reviewed_ref}\n".encode()
+
+    monkeypatch.setattr("scripts.prepare_signed_backfill._git", fake_git)
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill.subprocess.run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+    )
+
+    assert (
+        validate_rulespec_base(
+            repo,
+            "us",
+            reviewed_ref,
+            open_pr=True,
+            pr_base_branch="hard-cut/canonical-layout-us",
+        )
+        == "reviewed-head-pr"
+    )
+    assert (
+        "rev-parse",
+        "refs/remotes/origin/hard-cut/canonical-layout-us",
+    ) in git_calls
+
+
+def test_validate_rulespec_base_rejects_stale_reviewed_protected_branch_tip(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "rulespec-us"
+    reviewed_ref = "8f224620540f9e285428ec839d094835396f7d99"
+
+    def fake_git(_repo: Path, *args: str) -> bytes:
+        if args[-1] == "refs/remotes/origin/hard-cut/canonical-layout-us":
+            return f"{'f' * 40}\n".encode()
+        return f"{reviewed_ref}\n".encode()
+
+    monkeypatch.setattr("scripts.prepare_signed_backfill._git", fake_git)
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill.subprocess.run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+    )
+
+    with pytest.raises(ValueError, match="exact pull request base branch tip"):
+        validate_rulespec_base(
+            repo,
+            "us",
+            reviewed_ref,
+            open_pr=True,
+            pr_base_branch="hard-cut/canonical-layout-us",
+        )
+
+
+def test_validate_rulespec_base_rejects_unapproved_reviewed_pr_branch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "rulespec-us"
+    reviewed_ref = "8f224620540f9e285428ec839d094835396f7d99"
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill._git",
+        lambda _repo, *_args: f"{reviewed_ref}\n".encode(),
+    )
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill.subprocess.run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+    )
+
+    with pytest.raises(ValueError, match="artifact-only"):
+        validate_rulespec_base(
+            repo,
+            "us",
+            reviewed_ref,
+            open_pr=True,
+            pr_base_branch="migration/other",
+        )
 
 
 @pytest.mark.parametrize(

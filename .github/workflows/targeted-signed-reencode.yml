@@ -13,8 +13,13 @@ on:
         default: us
         type: string
       rulespec_ref:
-        description: Immutable main SHA, or an allowlisted reviewed SHA for artifact-only runs
+        description: Immutable main SHA, or allowlisted reviewed SHA (artifact-only unless its approved PR base is exact)
         required: true
+        type: string
+      pr_base_branch:
+        description: Exact RuleSpec branch targeted when open_pr is true
+        required: false
+        default: main
         type: string
       corpus_ref:
         description: Immutable axiom-corpus commit SHA
@@ -107,6 +112,7 @@ jobs:
           RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
           RULESPEC_REF: ${{ inputs.rulespec_ref }}
           OPEN_PR: ${{ inputs.open_pr }}
+          PR_BASE_BRANCH: ${{ inputs.pr_base_branch }}
           CORPUS_REF: ${{ inputs.corpus_ref }}
           RULES_ENGINE_REF: ${{ inputs.rules_engine_ref }}
         run: |
@@ -138,7 +144,7 @@ jobs:
             "https://github.com/TheAxiomFoundation/rulespec-$COUNTRY"
           python axiom-encode/scripts/prepare_signed_backfill.py \
             validate-rulespec-base "$RULESPEC_CHECKOUT" "$COUNTRY" \
-            "$RULESPEC_REF" "$OPEN_PR"
+            "$RULESPEC_REF" "$OPEN_PR" "$PR_BASE_BRANCH"
           git -C axiom-corpus merge-base --is-ancestor HEAD refs/remotes/origin/main
           git -C axiom-rules-engine merge-base --is-ancestor HEAD refs/remotes/origin/main
 
@@ -425,6 +431,7 @@ jobs:
           CITATION: ${{ inputs.citation }}
           DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
           DEPENDENT_REVIEW_FINDING_PRESENT: ${{ inputs.dependent_review_finding != '' }}
+          PR_BASE_BRANCH: ${{ inputs.pr_base_branch }}
           REVIEW_FINDING_PRESENT: ${{ inputs.review_finding != '' }}
           RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
         run: |
@@ -566,6 +573,7 @@ jobs:
               "schema": "axiom-encode/targeted-reencode-artifact/v1",
               "citation": os.environ["CITATION"],
               "dependent_citation": os.environ.get("DEPENDENT_CITATION") or None,
+              "pr_base_branch": os.environ["PR_BASE_BRANCH"],
               "rulespec_base": rev(os.environ["RULESPEC_CHECKOUT"]),
               "encoder_commit": rev("axiom-encode"),
               "corpus_commit": rev("axiom-corpus"),
@@ -604,11 +612,16 @@ jobs:
           COUNTRY: ${{ inputs.country }}
           CITATION: ${{ inputs.citation }}
           RULESPEC_REF: ${{ inputs.rulespec_ref }}
+          PR_BASE_BRANCH: ${{ inputs.pr_base_branch }}
           RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
         run: |
           set -euo pipefail
           test -n "$GH_TOKEN"
           repo="TheAxiomFoundation/rulespec-${COUNTRY}"
+          git -C "$RULESPEC_CHECKOUT" fetch --no-tags origin \
+            "+refs/heads/${PR_BASE_BRANCH}:refs/remotes/origin/${PR_BASE_BRANCH}"
+          test "$(git -C "$RULESPEC_CHECKOUT" rev-parse \
+            "refs/remotes/origin/${PR_BASE_BRANCH}")" = "$RULESPEC_REF"
           branch="$(python axiom-encode/scripts/prepare_signed_backfill.py branch-name \
             "$COUNTRY" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT")"
           body="$(printf '%s\n' \
@@ -616,6 +629,7 @@ jobs:
             '' \
             "Citation: \`${CITATION}\`" \
             "Base commit: \`${RULESPEC_REF}\`" \
+            "Base branch: \`${PR_BASE_BRANCH}\`" \
             "Axiom Encode run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
             '' \
             'This draft PR was produced by the protected country-general signed-apply workflow. Review all RuleSpec and manifest changes before marking it ready.')"
@@ -625,9 +639,27 @@ jobs:
           gh api --method POST "repos/${repo}/pulls" \
             -f title="Add signed encoding manifest for ${CITATION}" \
             -f head="TheAxiomFoundation:${branch}" \
-            -f base=main \
+            -f base="$PR_BASE_BRANCH" \
             -f body="$body" \
             -F draft=true > "$RUNNER_TEMP/lane-pull-request.json"
+          if ! jq -e \
+            --arg branch "$PR_BASE_BRANCH" \
+            --arg sha "$RULESPEC_REF" \
+            '.base.ref == $branch and .base.sha == $sha' \
+            "$RUNNER_TEMP/lane-pull-request.json" > /dev/null; then
+            pr_number="$(jq -r '.number // empty' \
+              "$RUNNER_TEMP/lane-pull-request.json")"
+            if test -n "$pr_number"; then
+              gh api --method PATCH "repos/${repo}/pulls/${pr_number}" \
+                -f state=closed || echo "warning: failed to close stale-base PR" >&2
+            fi
+            git -C "$RULESPEC_CHECKOUT" push \
+              "https://github.com/${repo}.git" \
+              ":refs/heads/${branch}" ||
+              echo "warning: failed to delete stale-base lane branch" >&2
+            echo "created pull request does not target the reviewed base SHA" >&2
+            exit 1
+          fi
           cp "$RUNNER_TEMP/lane-pull-request.json" \
             "$RUNNER_TEMP/targeted-reencode/lane-pull-request.json"
 

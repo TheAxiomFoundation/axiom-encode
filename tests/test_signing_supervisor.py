@@ -1832,6 +1832,8 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     }
     assert inputs["open_pr"]["type"] == "boolean"
     assert inputs["open_pr"]["default"] is False
+    assert inputs["pr_base_branch"]["type"] == "string"
+    assert inputs["pr_base_branch"]["default"] == "main"
     assert inputs["dependent_citation"]["required"] is False
     assert inputs["dependent_review_finding"]["required"] is False
 
@@ -1866,8 +1868,9 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert "rev-parse HEAD" in identity_command
     assert "merge-base --is-ancestor" in identity_command
     assert "validate-rulespec-base" in identity_command
-    assert '"$RULESPEC_REF" "$OPEN_PR"' in identity_command
+    assert '"$RULESPEC_REF" "$OPEN_PR" "$PR_BASE_BRANCH"' in identity_command
     assert identity_step["env"]["OPEN_PR"] == "${{ inputs.open_pr }}"
+    assert identity_step["env"]["PR_BASE_BRANCH"] == ("${{ inputs.pr_base_branch }}")
     assert '"https://github.com/TheAxiomFoundation/rulespec-$COUNTRY"' in (
         identity_command
     )
@@ -1985,6 +1988,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert package_step["env"]["DEPENDENT_REVIEW_FINDING_PRESENT"] == (
         "${{ inputs.dependent_review_finding != '' }}"
     )
+    assert package_step["env"]["PR_BASE_BRANCH"] == ("${{ inputs.pr_base_branch }}")
     assert '"$artifact/context-manifest.json"' in package_command
     assert '".axiom/encoding-manifests"' in package_command
     assert 'citation = payload.get("citation")' in package_command
@@ -1993,6 +1997,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert 'finding.get("content")' in package_command
     assert 'finding.get("sha256")' in package_command
     assert '"dependent-context-manifest.json"' in package_command
+    assert '"pr_base_branch": os.environ["PR_BASE_BRANCH"]' in package_command
 
     guard_step = next(
         step for step in steps if step.get("name") == "Verify generated provenance"
@@ -2014,15 +2019,26 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     )
     assert publish_step["if"] == "${{ inputs.open_pr }}"
     assert publish_step["env"]["GH_TOKEN"] == "${{ secrets.AXIOM_REPO_TOKEN }}"
+    assert publish_step["env"]["PR_BASE_BRANCH"] == ("${{ inputs.pr_base_branch }}")
     assert "AXIOM_ENCODE_APPLY_SIGNING_KEY" not in publish_step["env"]
     publish_command = publish_step["run"]
     assert 'repo="TheAxiomFoundation/rulespec-${COUNTRY}"' in publish_command
     assert '"$COUNTRY" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"' in publish_command
     assert "core.hooksPath=/dev/null" in publish_command
+    assert "fetch --no-tags origin \\\n" in publish_command
+    assert "refs/remotes/origin/${PR_BASE_BRANCH}" in publish_command
+    assert '" = "$RULESPEC_REF"' in publish_command
     assert '"HEAD:refs/heads/${branch}"' in publish_command
     assert "gh api --method POST" in publish_command
-    assert "-f base=main" in publish_command
+    assert '-f base="$PR_BASE_BRANCH"' in publish_command
     assert "-F draft=true" in publish_command
+    assert "'.base.ref == $branch and .base.sha == $sha'" in publish_command
+    assert "pulls/${pr_number}" in publish_command
+    assert "-f state=closed" in publish_command
+    assert '":refs/heads/${branch}"' in publish_command
+    assert "created pull request does not target the reviewed base SHA" in (
+        publish_command
+    )
     assert "SHA256SUMS" not in publish_command
 
     checksum_step = next(

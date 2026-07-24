@@ -27,6 +27,11 @@ REVIEWED_RULESPEC_REFS = frozenset(
         ),
     }
 )
+REVIEWED_RULESPEC_PR_BASE_BRANCHES = frozenset(
+    {
+        ("us", "hard-cut/canonical-layout-us"),
+    }
+)
 
 
 def validate_country(value: str) -> str:
@@ -48,8 +53,9 @@ def validate_rulespec_base(
     requested_ref: str,
     *,
     open_pr: bool,
+    pr_base_branch: str = "main",
 ) -> str:
-    """Admit main ancestry or one exact independently reviewed migration head."""
+    """Admit main ancestry or an exact independently reviewed protected head."""
 
     validate_country(country)
     if COMMIT_PATTERN.fullmatch(requested_ref) is None:
@@ -73,16 +79,45 @@ def validate_rulespec_base(
         == 0
     )
     if main_ancestor:
+        if open_pr:
+            if pr_base_branch != "main":
+                raise ValueError("main-ancestor pull requests must target main")
+            _require_remote_branch_tip(repo, pr_base_branch, requested_ref)
         return "main"
     if (country, requested_ref) not in REVIEWED_RULESPEC_REFS:
         raise ValueError(
             "rulespec ref is neither on main nor an approved reviewed head"
         )
     if open_pr:
-        raise ValueError(
-            "reviewed-head runs are artifact-only and cannot open a pull request"
-        )
+        if (country, pr_base_branch) not in REVIEWED_RULESPEC_PR_BASE_BRANCHES:
+            raise ValueError(
+                "reviewed-head runs are artifact-only unless the pull request "
+                "targets an approved protected base branch"
+            )
+        _require_remote_branch_tip(repo, pr_base_branch, requested_ref)
+        return "reviewed-head-pr"
     return "reviewed-head-artifact"
+
+
+def _require_remote_branch_tip(
+    repo: Path,
+    branch: str,
+    requested_ref: str,
+) -> None:
+    try:
+        branch_ref = (
+            _git(repo, "rev-parse", f"refs/remotes/origin/{branch}")
+            .decode()
+            .strip()
+        )
+    except subprocess.CalledProcessError as exc:
+        raise ValueError(
+            f"pull request base branch is unavailable: {branch}"
+        ) from exc
+    if branch_ref != requested_ref:
+        raise ValueError(
+            "rulespec ref is not the exact pull request base branch tip"
+        )
 
 
 def _citation_rulespec_path(citation: str) -> tuple[str, PurePosixPath]:
@@ -313,6 +348,7 @@ def main() -> None:
     base_parser.add_argument("country")
     base_parser.add_argument("requested_ref")
     base_parser.add_argument("open_pr", choices=("true", "false"))
+    base_parser.add_argument("pr_base_branch", nargs="?", default="main")
     stage_parser = subparsers.add_parser("stage")
     stage_parser.add_argument("repo", type=Path)
     cascade_parser = subparsers.add_parser("validate-dependent-cascade")
@@ -332,6 +368,7 @@ def main() -> None:
                     args.country,
                     args.requested_ref,
                     open_pr=args.open_pr == "true",
+                    pr_base_branch=args.pr_base_branch,
                 )
             )
         elif args.command == "validate-dependent-cascade":
