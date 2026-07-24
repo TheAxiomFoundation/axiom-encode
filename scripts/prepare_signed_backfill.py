@@ -11,6 +11,8 @@ from pathlib import Path, PurePosixPath
 
 COUNTRY_PATTERN = re.compile(r"[a-z]{2}")
 COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}")
+DIGEST_PATTERN = re.compile(r"[0-9a-f]{64}")
+QUEUE_TRACKING_PATTERN = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
 MANIFEST_ROOT = PurePosixPath(".axiom/encoding-manifests")
 RULESPEC_ATOMIC_ROOTS = frozenset(
     {"legislation", "policies", "regulations", "statutes"}
@@ -38,6 +40,35 @@ def validate_country(value: str) -> str:
     if COUNTRY_PATTERN.fullmatch(value) is None:
         raise ValueError("country must be a two-letter lowercase country code")
     return value
+
+
+def validate_queue_tracking(
+    queue_id: str,
+    queue_item_id: str,
+    queue_manifest_sha256: str,
+    queue_item_generation_sha256: str,
+) -> str:
+    """Require complete, shell-safe queue tracking metadata or no metadata."""
+
+    values = (
+        queue_id,
+        queue_item_id,
+        queue_manifest_sha256,
+        queue_item_generation_sha256,
+    )
+    if not any(values):
+        return "ad-hoc"
+    if not all(values):
+        raise ValueError("queue tracking fields must be supplied together")
+    if QUEUE_TRACKING_PATTERN.fullmatch(queue_id) is None:
+        raise ValueError("queue_id is malformed")
+    if QUEUE_TRACKING_PATTERN.fullmatch(queue_item_id) is None:
+        raise ValueError("queue_item_id is malformed")
+    if DIGEST_PATTERN.fullmatch(queue_manifest_sha256) is None:
+        raise ValueError("queue_manifest_sha256 is malformed")
+    if DIGEST_PATTERN.fullmatch(queue_item_generation_sha256) is None:
+        raise ValueError("queue_item_generation_sha256 is malformed")
+    return "tracked"
 
 
 def branch_name(country: str, run_id: str, run_attempt: str) -> str:
@@ -106,18 +137,12 @@ def _require_remote_branch_tip(
 ) -> None:
     try:
         branch_ref = (
-            _git(repo, "rev-parse", f"refs/remotes/origin/{branch}")
-            .decode()
-            .strip()
+            _git(repo, "rev-parse", f"refs/remotes/origin/{branch}").decode().strip()
         )
     except subprocess.CalledProcessError as exc:
-        raise ValueError(
-            f"pull request base branch is unavailable: {branch}"
-        ) from exc
+        raise ValueError(f"pull request base branch is unavailable: {branch}") from exc
     if branch_ref != requested_ref:
-        raise ValueError(
-            "rulespec ref is not the exact pull request base branch tip"
-        )
+        raise ValueError("rulespec ref is not the exact pull request base branch tip")
 
 
 def _citation_rulespec_path(citation: str) -> tuple[str, PurePosixPath]:
@@ -339,6 +364,11 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest="command", required=True)
     country_parser = subparsers.add_parser("validate-country")
     country_parser.add_argument("country")
+    queue_parser = subparsers.add_parser("validate-queue-tracking")
+    queue_parser.add_argument("queue_id")
+    queue_parser.add_argument("queue_item_id")
+    queue_parser.add_argument("queue_manifest_sha256")
+    queue_parser.add_argument("queue_item_generation_sha256")
     branch_parser = subparsers.add_parser("branch-name")
     branch_parser.add_argument("country")
     branch_parser.add_argument("run_id")
@@ -359,6 +389,15 @@ def main() -> None:
     try:
         if args.command == "validate-country":
             print(validate_country(args.country))
+        elif args.command == "validate-queue-tracking":
+            print(
+                validate_queue_tracking(
+                    args.queue_id,
+                    args.queue_item_id,
+                    args.queue_manifest_sha256,
+                    args.queue_item_generation_sha256,
+                )
+            )
         elif args.command == "branch-name":
             print(branch_name(args.country, args.run_id, args.run_attempt))
         elif args.command == "validate-rulespec-base":

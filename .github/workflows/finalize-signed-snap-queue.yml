@@ -1,0 +1,294 @@
+name: Finalize protected SNAP queue tranche
+run-name: "Finalize SNAP queue at ${{ inputs.new_rulespec_ref }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      new_rulespec_ref:
+        description: Independently reviewed and allowlisted current RuleSpec branch tip
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: finalize-signed-snap-queue
+  cancel-in-progress: false
+
+jobs:
+  finalize:
+    name: Finalize protected SNAP queue tranche
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch'
+        && github.ref == 'refs/heads/main'
+        && github.run_attempt == 1
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout immutable encoder main
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout exact RuleSpec branch tip
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: TheAxiomFoundation/rulespec-us
+          ref: hard-cut/canonical-layout-us
+          path: rulespec-us
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.7"
+
+      - name: Fetch live finalization evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEW_RULESPEC_REF: ${{ inputs.new_rulespec_ref }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          if [[ ! "$NEW_RULESPEC_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "new_rulespec_ref must be a full lowercase commit SHA" >&2
+            exit 1
+          fi
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C rulespec-us rev-parse HEAD)" = "$NEW_RULESPEC_REF"
+          queue="data/encoding-queues/us-snap-or-ut-2026-07.json"
+          python3 scripts/prepare_signed_queue.py validate "$queue"
+          test "$(jq -r '.state' "$queue")" = "paused"
+
+          api_version="2026-03-10"
+          branch_ref="repos/TheAxiomFoundation/rulespec-us/git/ref/heads/hard-cut/canonical-layout-us"
+          live_tip="$(gh api \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: $api_version" \
+            "$branch_ref" --jq '.object.sha')"
+          test "$live_tip" = "$NEW_RULESPEC_REF"
+
+          gh api --paginate --slurp \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: $api_version" \
+            "repos/TheAxiomFoundation/rulespec-us/commits/$NEW_RULESPEC_REF/check-runs?per_page=100" \
+            > "$RUNNER_TEMP/rulespec-check-runs.json"
+          jq -e '
+            [.[].check_runs[]] as $checks
+            | ($checks | length) > 0
+            and all(
+              $checks[];
+              .status == "completed"
+              and (.conclusion | IN("success", "neutral", "skipped"))
+            )
+          ' "$RUNNER_TEMP/rulespec-check-runs.json" > /dev/null
+
+          gh api --paginate --slurp \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: $api_version" \
+            "repos/TheAxiomFoundation/rulespec-us/pulls?state=all&sort=updated&direction=desc&per_page=100" \
+            > "$RUNNER_TEMP/rulespec-pull-requests.json"
+          gh api --paginate --slurp \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: $api_version" \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/targeted-signed-reencode.yml/runs?event=workflow_dispatch&per_page=100" \
+            > "$RUNNER_TEMP/targeted-workflow-runs.json"
+
+          python3 scripts/prepare_signed_queue.py finalization-target-plan \
+            "$queue" \
+            --pull-requests "$RUNNER_TEMP/rulespec-pull-requests.json" \
+            --workflow-runs "$RUNNER_TEMP/targeted-workflow-runs.json" \
+            > "$RUNNER_TEMP/finalization-target-plan.json"
+          : > "$RUNNER_TEMP/target-evidence-entries.jsonl"
+          while IFS= read -r target; do
+            item_id="$(jq -r '.id' <<< "$target")"
+            run_url="$(jq -r '.target_run_url' <<< "$target")"
+            run_id="${run_url##*/}"
+            item_root="$RUNNER_TEMP/target-evidence-$item_id"
+            mkdir "$item_root"
+            gh api \
+              --header "Accept: application/vnd.github+json" \
+              --header "X-GitHub-Api-Version: $api_version" \
+              "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" \
+              > "$item_root/run.json"
+            gh api --paginate --slurp \
+              --header "Accept: application/vnd.github+json" \
+              --header "X-GitHub-Api-Version: $api_version" \
+              "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?filter=all&per_page=100" \
+              > "$item_root/jobs.json"
+            gh api \
+              --header "Accept: application/vnd.github+json" \
+              --header "X-GitHub-Api-Version: $api_version" \
+              "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts?per_page=100" \
+              > "$item_root/artifacts.json"
+            archive_url="$(jq -er \
+              --arg name "targeted-reencode-$run_id" '
+                [
+                  .artifacts[]
+                  | select(.name == $name and .expired == false)
+                  | .archive_download_url
+                ]
+                | if length == 1 then .[0] else error("target artifact is unavailable") end
+              ' "$item_root/artifacts.json")"
+            gh api "$archive_url" > "$item_root/artifact.zip"
+            mkdir "$item_root/artifact"
+            unzip -q "$item_root/artifact.zip" -d "$item_root/artifact"
+            (
+              cd "$item_root/artifact"
+              sha256sum -c SHA256SUMS
+            )
+            jq -n \
+              --arg item_id "$item_id" \
+              --slurpfile apply_manifests "$item_root/artifact/apply-manifests.json" \
+              --slurpfile jobs "$item_root/jobs.json" \
+              --slurpfile metadata "$item_root/artifact/metadata.json" \
+              --slurpfile pull_request "$item_root/artifact/lane-pull-request.json" \
+              --slurpfile run "$item_root/run.json" \
+              '{
+                key: $item_id,
+                value: {
+                  apply_manifests: $apply_manifests[0],
+                  jobs: $jobs[0],
+                  metadata: $metadata[0],
+                  pull_request: $pull_request[0],
+                  run: $run[0]
+                }
+              }' >> "$RUNNER_TEMP/target-evidence-entries.jsonl"
+          done < <(jq -c '.items[]' "$RUNNER_TEMP/finalization-target-plan.json")
+          jq -s 'from_entries' "$RUNNER_TEMP/target-evidence-entries.jsonl" \
+            > "$RUNNER_TEMP/target-evidence.json"
+
+          python3 scripts/prepare_signed_queue.py finalize-repin \
+            "$queue" rulespec-us \
+            --check-runs "$RUNNER_TEMP/rulespec-check-runs.json" \
+            --pull-requests "$RUNNER_TEMP/rulespec-pull-requests.json" \
+            --workflow-runs "$RUNNER_TEMP/targeted-workflow-runs.json" \
+            --target-evidence "$RUNNER_TEMP/target-evidence.json" \
+            --new-rulespec-ref "$NEW_RULESPEC_REF" \
+            --finalizer-head-sha "$GITHUB_SHA" \
+            --finalizer-run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            > "$RUNNER_TEMP/finalized-snap-queue.json"
+
+          test "$(gh api \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: $api_version" \
+            "$branch_ref" --jq '.object.sha')" = "$NEW_RULESPEC_REF"
+
+      - name: Create exact queue activation commit
+        id: activation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEW_RULESPEC_REF: ${{ inputs.new_rulespec_ref }}
+        run: |
+          set -euo pipefail
+          queue="data/encoding-queues/us-snap-or-ut-2026-07.json"
+          cp "$RUNNER_TEMP/finalized-snap-queue.json" "$queue"
+          old_version="$(uv version --short)"
+          new_version="$(uv version --bump patch --short --no-sync)"
+          python3 - "$old_version" "$new_version" <<'PY'
+          import sys
+          from pathlib import Path
+
+          path = Path("src/axiom_encode/__init__.py")
+          old, new = sys.argv[1:3]
+          body = path.read_text(encoding="utf-8")
+          needle = f'__version__ = "{old}"'
+          if body.count(needle) != 1:
+              raise SystemExit("package version marker is unavailable")
+          path.write_text(body.replace(needle, f'__version__ = "{new}"'), encoding="utf-8")
+          PY
+          uv lock --offline
+          python3 scripts/prepare_signed_queue.py validate "$queue"
+          git diff --check
+          git fetch --no-tags origin main
+          test "$(git rev-parse refs/remotes/origin/main)" = "$GITHUB_SHA"
+
+          branch="axiom/snap-queue-repin-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          git switch -c "$branch"
+          git add "$queue" pyproject.toml src/axiom_encode/__init__.py uv.lock
+          git -c user.name=axiom-encode-bot \
+            -c user.email=axiom-encode-bot@users.noreply.github.com \
+            commit -m "Finalize SNAP queue tranche at ${NEW_RULESPEC_REF}"
+          gh auth setup-git
+          git push "https://github.com/${GITHUB_REPOSITORY}.git" \
+            "HEAD:refs/heads/${branch}"
+          head_sha="$(git rev-parse HEAD)"
+          tree_sha="$(git rev-parse 'HEAD^{tree}')"
+          git diff --name-only "$GITHUB_SHA" "$head_sha" \
+            | jq -R -s 'split("\n") | map(select(length > 0))' \
+            > "$RUNNER_TEMP/activation-changed-files.json"
+          jq -e '
+            . == [
+              "data/encoding-queues/us-snap-or-ut-2026-07.json",
+              "pyproject.toml",
+              "src/axiom_encode/__init__.py",
+              "uv.lock"
+            ]
+          ' "$RUNNER_TEMP/activation-changed-files.json" > /dev/null
+          queue_sha256="$(python3 scripts/prepare_signed_queue.py sha256 "$queue")"
+          jq -n \
+            --arg base_sha "$GITHUB_SHA" \
+            --arg head_sha "$head_sha" \
+            --arg queue_sha256 "$queue_sha256" \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg tree_sha "$tree_sha" \
+            --slurpfile changed_files "$RUNNER_TEMP/activation-changed-files.json" \
+            '{
+              schema: "axiom-encode/snap-queue-activation-commit/v1",
+              repository: $repository,
+              base_sha: $base_sha,
+              head_sha: $head_sha,
+              tree_sha: $tree_sha,
+              queue_path: "data/encoding-queues/us-snap-or-ut-2026-07.json",
+              queue_sha256: $queue_sha256,
+              changed_files: $changed_files[0]
+            }' > "$RUNNER_TEMP/activation-commit.json"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Upload finalization evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: snap-queue-finalization-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/activation-changed-files.json
+            ${{ runner.temp }}/activation-commit.json
+            ${{ runner.temp }}/finalized-snap-queue.json
+            ${{ runner.temp }}/rulespec-check-runs.json
+            ${{ runner.temp }}/rulespec-pull-requests.json
+            ${{ runner.temp }}/finalization-target-plan.json
+            ${{ runner.temp }}/target-evidence.json
+            ${{ runner.temp }}/targeted-workflow-runs.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Open reviewed queue activation pull request
+        env:
+          BRANCH: ${{ steps.activation.outputs.branch }}
+          EXPECTED_HEAD_SHA: ${{ steps.activation.outputs.head_sha }}
+          GH_TOKEN: ${{ github.token }}
+          NEW_RULESPEC_REF: ${{ inputs.new_rulespec_ref }}
+        run: |
+          set -euo pipefail
+          test "$(jq -r '.head_sha' "$RUNNER_TEMP/activation-commit.json")" = \
+            "$EXPECTED_HEAD_SHA"
+          body="$(printf '%s\n' \
+            '## Protected SNAP queue finalization' \
+            '' \
+            "RuleSpec tip: \`${NEW_RULESPEC_REF}\`" \
+            "Finalizer run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            '' \
+            'This draft records merged queue items and activates the next bounded tranche. Run the required independent review-fix cycle before merge.')"
+          gh api --method POST "repos/$GITHUB_REPOSITORY/pulls" \
+            -f title="Finalize protected SNAP queue tranche" \
+            -f head="TheAxiomFoundation:${BRANCH}" \
+            -f base=main \
+            -f body="$body" \
+            -F draft=true > "$RUNNER_TEMP/finalization-pull-request.json"

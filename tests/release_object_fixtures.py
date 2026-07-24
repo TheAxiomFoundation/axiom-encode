@@ -42,6 +42,8 @@ def write_test_release_object(
     corpus_root: Path,
     name: str,
     scopes: list[tuple[str, str, str]],
+    *,
+    git_commit: str = "a" * 40,
 ) -> str:
     """Write a production-shaped signed release object and return its identity."""
 
@@ -143,7 +145,7 @@ def write_test_release_object(
         "selector_sha256": _canonical_sha256(selector),
         "corpus_base": "data/corpus",
         "git": {
-            "commit": "a" * 40,
+            "commit": git_commit,
             "committed_at": "2026-07-10T00:00:00Z",
         },
         "r2": {"bucket": "axiom-corpus", "addressing": "sha256"},

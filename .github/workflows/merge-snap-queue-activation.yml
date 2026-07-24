@@ -1,0 +1,239 @@
+name: Merge reviewed SNAP queue activation
+run-name: "Merge SNAP queue activation PR #${{ inputs.pull_request_number }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      pull_request_number:
+        description: Reviewed, ready, green SNAP queue activation pull request
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: merge-snap-queue-activation
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    name: Merge reviewed SNAP queue activation
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch'
+        && github.ref == 'refs/heads/main'
+        && github.run_attempt == 1
+      }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Resolve exact reviewed pull request head
+        id: pull
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = "1"
+          if [[ ! "$PULL_REQUEST_NUMBER" =~ ^[0-9]+$ ]]; then
+            echo "pull_request_number must be decimal" >&2
+            exit 1
+          fi
+          gh api \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2026-03-10" \
+            "repos/$GITHUB_REPOSITORY/pulls/$PULL_REQUEST_NUMBER" \
+            > "$RUNNER_TEMP/activation-pr.json"
+          jq -e '
+            .state == "open"
+            and .draft == false
+            and .base.ref == "main"
+            and .head.repo.full_name == env.GITHUB_REPOSITORY
+          ' "$RUNNER_TEMP/activation-pr.json" > /dev/null
+          echo "head_sha=$(jq -r '.head.sha' "$RUNNER_TEMP/activation-pr.json")" \
+            >> "$GITHUB_OUTPUT"
+          echo "base_sha=$(jq -r '.base.sha' "$RUNNER_TEMP/activation-pr.json")" \
+            >> "$GITHUB_OUTPUT"
+
+      - name: Checkout trusted pull request base
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ steps.pull.outputs.base_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Revalidate evidence and merge against live RuleSpec tip
+        id: merge
+        env:
+          BASE_SHA: ${{ steps.pull.outputs.base_sha }}
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ steps.pull.outputs.head_sha }}
+          PULL_REQUEST_NUMBER: ${{ inputs.pull_request_number }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$BASE_SHA"
+          git fetch --no-tags origin "$HEAD_SHA"
+          test "$(git rev-parse FETCH_HEAD)" = "$HEAD_SHA"
+          test "$(git rev-parse "${HEAD_SHA}^")" = "$BASE_SHA"
+          queue="data/encoding-queues/us-snap-or-ut-2026-07.json"
+          candidate_queue="$RUNNER_TEMP/candidate-snap-queue.json"
+          git show "$HEAD_SHA:$queue" > "$candidate_queue"
+          python3 scripts/prepare_signed_queue.py validate "$candidate_queue"
+          test "$(jq -r '.state' "$candidate_queue")" = "active"
+
+          run_url="$(jq -r '.activation.finalizer_run_url' "$candidate_queue")"
+          run_id="${run_url##*/}"
+          test "$run_url" = \
+            "https://github.com/$GITHUB_REPOSITORY/actions/runs/$run_id"
+          api_version="2026-03-10"
+          gh api \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: $api_version" \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" \
+            > "$RUNNER_TEMP/finalizer-run.json"
+          gh api --paginate --slurp \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: $api_version" \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?filter=all&per_page=100" \
+            > "$RUNNER_TEMP/finalizer-jobs.json"
+          gh api \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: $api_version" \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts?per_page=100" \
+            > "$RUNNER_TEMP/finalizer-artifacts.json"
+          archive_url="$(jq -er \
+            --arg name "snap-queue-finalization-$run_id" '
+              [
+                .artifacts[]
+                | select(.name == $name and .expired == false)
+                | .archive_download_url
+              ]
+              | if length == 1 then .[0] else error("activation artifact is unavailable") end
+            ' "$RUNNER_TEMP/finalizer-artifacts.json")"
+          gh api "$archive_url" > "$RUNNER_TEMP/finalizer-evidence.zip"
+          mkdir "$RUNNER_TEMP/finalizer-evidence"
+          unzip -q "$RUNNER_TEMP/finalizer-evidence.zip" \
+            -d "$RUNNER_TEMP/finalizer-evidence"
+          evidence="$RUNNER_TEMP/finalizer-evidence"
+          git diff --name-only "$BASE_SHA" "$HEAD_SHA" \
+            | jq -R -s 'split("\n") | map(select(length > 0))' \
+            > "$RUNNER_TEMP/current-activation-changed-files.json"
+          tree_sha="$(git rev-parse "${HEAD_SHA}^{tree}")"
+          python3 scripts/prepare_signed_queue.py verify-activation-commit \
+            "$candidate_queue" \
+            --provenance "$evidence/activation-commit.json" \
+            --pull-request "$RUNNER_TEMP/activation-pr.json" \
+            --current-base-sha "$BASE_SHA" \
+            --current-head-sha "$HEAD_SHA" \
+            --current-tree-sha "$tree_sha" \
+            --current-changed-files "$RUNNER_TEMP/current-activation-changed-files.json"
+          git show "$BASE_SHA:$queue" > "$RUNNER_TEMP/previous-snap-queue.json"
+          python3 scripts/prepare_signed_queue.py verify-activation "$candidate_queue" \
+            --previous-queue "$RUNNER_TEMP/previous-snap-queue.json" \
+            --expected-base-sha "$BASE_SHA" \
+            --finalized-queue "$evidence/finalized-snap-queue.json" \
+            --check-runs "$evidence/rulespec-check-runs.json" \
+            --pull-requests "$evidence/rulespec-pull-requests.json" \
+            --workflow-runs "$evidence/targeted-workflow-runs.json" \
+            --finalizer-run "$RUNNER_TEMP/finalizer-run.json" \
+            --finalizer-jobs "$RUNNER_TEMP/finalizer-jobs.json" \
+            --require-success true
+
+          gh api --paginate --slurp \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: $api_version" \
+            "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs?per_page=100" \
+            > "$RUNNER_TEMP/activation-pr-checks.json"
+          jq -e '
+            [.[].check_runs[]] as $checks
+            | ($checks | length) > 0
+            and all(
+              $checks[];
+              .status == "completed"
+              and (.conclusion | IN("success", "neutral", "skipped"))
+            )
+          ' "$RUNNER_TEMP/activation-pr-checks.json" > /dev/null
+
+          rulespec_ref="$(jq -r '.dispatch.rulespec_ref' "$candidate_queue")"
+          gh api --paginate --slurp \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: $api_version" \
+            "repos/TheAxiomFoundation/rulespec-us/commits/$rulespec_ref/check-runs?per_page=100" \
+            > "$RUNNER_TEMP/live-rulespec-check-runs.json"
+          jq -e '
+            [.[].check_runs[]] as $checks
+            | ($checks | length) > 0
+            and all(
+              $checks[];
+              .status == "completed"
+              and (.conclusion | IN("success", "neutral", "skipped"))
+            )
+          ' "$RUNNER_TEMP/live-rulespec-check-runs.json" > /dev/null
+          test "$(gh api \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: $api_version" \
+            repos/TheAxiomFoundation/rulespec-us/git/ref/heads/hard-cut/canonical-layout-us \
+            --jq '.object.sha')" = "$rulespec_ref"
+          gh pr merge "$PULL_REQUEST_NUMBER" \
+            --repo "$GITHUB_REPOSITORY" \
+            --merge \
+            --match-head-commit "$HEAD_SHA" \
+            --delete-branch
+          gh api \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: $api_version" \
+            "repos/$GITHUB_REPOSITORY/pulls/$PULL_REQUEST_NUMBER" \
+            > "$RUNNER_TEMP/merged-activation-pr.json"
+          merge_commit="$(jq -er '
+            select(
+              .state == "closed"
+              and .merged_at != null
+              and .head.sha == env.HEAD_SHA
+              and .merged_by.login == "github-actions[bot]"
+            )
+            | .merge_commit_sha
+          ' "$RUNNER_TEMP/merged-activation-pr.json")"
+          if [[ ! "$merge_commit" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "trusted activation merge commit is unavailable" >&2
+            exit 1
+          fi
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$merge_commit" refs/remotes/origin/main
+          queue_change_sha="$(git log --first-parent -1 --format=%H \
+            refs/remotes/origin/main -- "$queue")"
+          test "$queue_change_sha" = "$merge_commit"
+          queue_sha256="$(python3 scripts/prepare_signed_queue.py sha256 \
+            "$candidate_queue")"
+          jq -n \
+            --arg head_sha "$HEAD_SHA" \
+            --arg merge_commit "$merge_commit" \
+            --arg queue_sha256 "$queue_sha256" \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg run_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --argjson pr_number "$PULL_REQUEST_NUMBER" \
+            --argjson run_id "$GITHUB_RUN_ID" \
+            '{
+              schema: "axiom-encode/snap-queue-merge-authorization/v1",
+              repository: $repository,
+              queue_path: "data/encoding-queues/us-snap-or-ut-2026-07.json",
+              queue_sha256: $queue_sha256,
+              activation_pr_number: $pr_number,
+              activation_pr_head_sha: $head_sha,
+              merge_commit: $merge_commit,
+              merge_workflow_run_id: $run_id,
+              merge_workflow_run_attempt: 1,
+              merge_workflow_run_url: $run_url
+            }' > "$RUNNER_TEMP/snap-queue-merge-authorization.json"
+
+      - name: Upload trusted queue merge authorization
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: snap-queue-merge-authorization-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/snap-queue-merge-authorization.json
+            ${{ runner.temp }}/merged-activation-pr.json
+          if-no-files-found: error
+          retention-days: 90

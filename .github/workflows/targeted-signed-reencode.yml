@@ -1,4 +1,5 @@
 name: Targeted signed RuleSpec re-encode
+run-name: "Targeted signed RuleSpec re-encode [${{ inputs.queue_id || 'adhoc' }}:${{ inputs.queue_item_id || 'adhoc' }}:${{ inputs.queue_item_generation_sha256 || 'adhoc' }}] ${{ inputs.citation }}"
 
 on:
   workflow_dispatch:
@@ -46,8 +47,29 @@ on:
         required: false
         default: false
         type: boolean
+      queue_id:
+        description: Optional durable encoding queue identifier
+        required: false
+        type: string
+      queue_item_id:
+        description: Optional durable encoding queue item identifier
+        required: false
+        type: string
+      queue_manifest_sha256:
+        description: Optional SHA-256 of the durable queue manifest
+        required: false
+        type: string
+      queue_item_generation_sha256:
+        description: Optional stable SHA-256 identity of the queue item attempt
+        required: false
+        type: string
+      queue_dispatcher_run_id:
+        description: Dispatcher run that authorized this queue-target workflow run
+        required: false
+        type: string
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -56,7 +78,19 @@ concurrency:
 
 jobs:
   encode:
-    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+    name: Queue protected signed RuleSpec re-encode
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch'
+        && github.ref == 'refs/heads/main'
+        && (
+          inputs.queue_id == ''
+          || (
+            github.actor == 'github-actions[bot]'
+            && github.run_attempt == 1
+          )
+        )
+      }}
     environment: production-signing
     runs-on: ubuntu-latest
     timeout-minutes: 120
@@ -70,11 +104,135 @@ jobs:
 
       - name: Validate country routing input
         env:
+          CITATION: ${{ inputs.citation }}
+          CORPUS_REF: ${{ inputs.corpus_ref }}
           COUNTRY: ${{ inputs.country }}
+          OPEN_PR: ${{ inputs.open_pr }}
+          PR_BASE_BRANCH: ${{ inputs.pr_base_branch }}
+          QUEUE_DISPATCHER_RUN_ID: ${{ inputs.queue_dispatcher_run_id }}
+          QUEUE_ID: ${{ inputs.queue_id }}
+          QUEUE_ITEM_ID: ${{ inputs.queue_item_id }}
+          QUEUE_ITEM_GENERATION_SHA256: ${{ inputs.queue_item_generation_sha256 }}
+          QUEUE_MANIFEST_SHA256: ${{ inputs.queue_manifest_sha256 }}
+          RULES_ENGINE_REF: ${{ inputs.rules_engine_ref }}
+          RULESPEC_REF: ${{ inputs.rulespec_ref }}
         run: |
           set -euo pipefail
           python axiom-encode/scripts/prepare_signed_backfill.py \
             validate-country "$COUNTRY"
+          python axiom-encode/scripts/prepare_signed_backfill.py \
+            validate-queue-tracking "$QUEUE_ID" "$QUEUE_ITEM_ID" \
+            "$QUEUE_MANIFEST_SHA256" "$QUEUE_ITEM_GENERATION_SHA256"
+          if [ -n "$QUEUE_ID" ]; then
+            if [ "$GITHUB_ACTOR" != "github-actions[bot]" ] || \
+              [ "$GITHUB_RUN_ATTEMPT" != "1" ] || \
+              [[ ! "$QUEUE_DISPATCHER_RUN_ID" =~ ^[0-9]+$ ]]; then
+              echo "queue target must be created by an authenticated dispatcher" >&2
+              exit 1
+            fi
+            python axiom-encode/scripts/prepare_signed_queue.py \
+              validate-dispatch \
+              "axiom-encode/data/encoding-queues/${QUEUE_ID}.json" \
+              --queue-id "$QUEUE_ID" \
+              --item-id "$QUEUE_ITEM_ID" \
+              --manifest-sha256 "$QUEUE_MANIFEST_SHA256" \
+              --item-generation-sha256 "$QUEUE_ITEM_GENERATION_SHA256" \
+              --citation "$CITATION" \
+              --country "$COUNTRY" \
+              --rulespec-ref "$RULESPEC_REF" \
+              --pr-base-branch "$PR_BASE_BRANCH" \
+              --corpus-ref "$CORPUS_REF" \
+              --rules-engine-ref "$RULES_ENGINE_REF" \
+              --open-pr "$OPEN_PR"
+
+            api_version="2026-03-10"
+            dispatcher_run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$QUEUE_DISPATCHER_RUN_ID"
+            for _ in $(seq 1 60); do
+              gh api \
+                --header "Accept: application/vnd.github+json" \
+                --header "X-GitHub-Api-Version: $api_version" \
+                "repos/$GITHUB_REPOSITORY/actions/runs/$QUEUE_DISPATCHER_RUN_ID" \
+                > "$RUNNER_TEMP/queue-dispatcher-run.json"
+              if jq -e '.status == "completed"' \
+                "$RUNNER_TEMP/queue-dispatcher-run.json" > /dev/null; then
+                break
+              fi
+              sleep 2
+            done
+            jq -e \
+              --arg head_sha "$GITHUB_SHA" \
+              --arg url "$dispatcher_run_url" '
+                .status == "completed"
+                and .conclusion == "success"
+                and .event == "workflow_dispatch"
+                and .head_branch == "main"
+                and .head_sha == $head_sha
+                and (.run_attempt | type) == "number"
+                and .run_attempt >= 1
+                and .html_url == $url
+                and .path == ".github/workflows/dispatch-signed-snap-queue.yml"
+              ' "$RUNNER_TEMP/queue-dispatcher-run.json" > /dev/null
+            gh api --paginate --slurp \
+              --header "Accept: application/vnd.github+json" \
+              --header "X-GitHub-Api-Version: $api_version" \
+              "repos/$GITHUB_REPOSITORY/actions/runs/$QUEUE_DISPATCHER_RUN_ID/jobs?filter=all&per_page=100" \
+              > "$RUNNER_TEMP/queue-dispatcher-jobs.json"
+            dispatcher_attempts="$(jq -r '.run_attempt' \
+              "$RUNNER_TEMP/queue-dispatcher-run.json")"
+            jq -e --argjson attempts "$dispatcher_attempts" '
+              [.[].jobs[] | select(.name == "Dispatch protected SNAP queue")] as $jobs
+              | ($jobs | length) == $attempts
+              and ([range(1; $attempts + 1)] ==
+                ([$jobs[].run_attempt] | sort))
+              and all(
+                $jobs[];
+                if .run_attempt == 1
+                then .status == "completed" and .conclusion == "success"
+                else .status == "completed" and .conclusion == "skipped"
+                end
+              )
+            ' "$RUNNER_TEMP/queue-dispatcher-jobs.json" > /dev/null
+            gh api \
+              --header "Accept: application/vnd.github+json" \
+              --header "X-GitHub-Api-Version: $api_version" \
+              "repos/$GITHUB_REPOSITORY/actions/runs/$QUEUE_DISPATCHER_RUN_ID/artifacts?per_page=100" \
+              > "$RUNNER_TEMP/queue-dispatcher-artifacts.json"
+            archive_url="$(jq -er \
+              --arg name "snap-queue-reconciliation-$QUEUE_DISPATCHER_RUN_ID" '
+                [
+                  .artifacts[]
+                  | select(.name == $name and .expired == false)
+                  | .archive_download_url
+                ]
+                | if length == 1 then .[0] else error("dispatcher artifact is unavailable") end
+              ' "$RUNNER_TEMP/queue-dispatcher-artifacts.json")"
+            gh api "$archive_url" > "$RUNNER_TEMP/queue-dispatcher.zip"
+            mkdir "$RUNNER_TEMP/queue-dispatcher"
+            unzip -q "$RUNNER_TEMP/queue-dispatcher.zip" \
+              -d "$RUNNER_TEMP/queue-dispatcher"
+            jq -e \
+              --arg generation "$QUEUE_ITEM_GENERATION_SHA256" \
+              --arg item_id "$QUEUE_ITEM_ID" \
+              --arg manifest "$QUEUE_MANIFEST_SHA256" '
+                .manifest_sha256 == $manifest
+                and any(
+                  .items[];
+                  .id == $item_id
+                  and .generation_sha256 == $generation
+                  and .action == "dispatch"
+                )
+              ' "$RUNNER_TEMP/queue-dispatcher/snap-queue-plan.json" > /dev/null
+            jq -e \
+              --arg item_id "$QUEUE_ITEM_ID" \
+              --arg run_id "$GITHUB_RUN_ID" '
+                select(
+                  .item_id == $item_id
+                  and .workflow_run_attempt == 1
+                  and .workflow_run_id == $run_id
+                )
+              ' "$RUNNER_TEMP/queue-dispatcher/dispatched-run-records.jsonl" \
+              > /dev/null
+          fi
 
       - name: Checkout canonical RuleSpec country
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -185,6 +343,8 @@ jobs:
           SUPABASE_URL: https://swocpijqqahhuwtuahwc.supabase.co
           SUPABASE_ANON_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
+          QUEUE_ID: ${{ inputs.queue_id }}
+          QUEUE_MANIFEST_SHA256: ${{ inputs.queue_manifest_sha256 }}
         run: |
           set -euo pipefail
           test -n "$SUPABASE_ANON_KEY"
@@ -199,6 +359,14 @@ jobs:
           fi
           release_name="${release_pin[0]}"
           release_sha="${release_pin[1]}"
+          if [ -n "$QUEUE_ID" ]; then
+            axiom-encode/.venv/bin/python \
+              axiom-encode/scripts/prepare_signed_queue.py \
+              validate-release-pin \
+              "axiom-encode/data/encoding-queues/${QUEUE_ID}.json" \
+              --toolchain "$toolchain" \
+              --manifest-sha256 "$QUEUE_MANIFEST_SHA256"
+          fi
           response="$(mktemp "$RUNNER_TEMP/corpus-release-response.XXXXXX")"
           trap 'rm -f "$response"' EXIT
           url="${SUPABASE_URL%/}/rest/v1/release_objects?select=release_object&release_name=eq.${release_name}&content_sha256=eq.${release_sha}&limit=2"
@@ -432,6 +600,10 @@ jobs:
           DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
           DEPENDENT_REVIEW_FINDING_PRESENT: ${{ inputs.dependent_review_finding != '' }}
           PR_BASE_BRANCH: ${{ inputs.pr_base_branch }}
+          QUEUE_ID: ${{ inputs.queue_id }}
+          QUEUE_ITEM_ID: ${{ inputs.queue_item_id }}
+          QUEUE_ITEM_GENERATION_SHA256: ${{ inputs.queue_item_generation_sha256 }}
+          QUEUE_MANIFEST_SHA256: ${{ inputs.queue_manifest_sha256 }}
           REVIEW_FINDING_PRESENT: ${{ inputs.review_finding != '' }}
           RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
         run: |
@@ -442,7 +614,9 @@ jobs:
             | tar -C "$RULESPEC_CHECKOUT" --null -czf "$artifact/untracked.tar.gz" --files-from -
           git -C "$RULESPEC_CHECKOUT" status --short > "$artifact/status.txt"
           cp "$RUNNER_TEMP/guard-generated.json" "$artifact/guard-generated.json"
-          python - "$artifact/context-manifest.json" <<'PY'
+          python - \
+            "$artifact/context-manifest.json" \
+            "$artifact/apply-manifests.json" <<'PY'
           import hashlib
           import json
           import os
@@ -485,7 +659,7 @@ jobs:
                   == "axiom-encode/applied-rulespec/v5"
                   and citation in expected_citations
               ):
-                  matches.setdefault(citation, []).append(payload)
+                  matches.setdefault(citation, []).append((relative_path, payload))
 
           expected = [
               (
@@ -506,6 +680,7 @@ jobs:
               )
 
           generated_root = (Path(os.environ["RUNNER_TEMP"]) / "generated").resolve()
+          applied_inventory = []
           for citation, finding_required, destination, lane in expected:
               citation_matches = matches.get(citation, [])
               if len(citation_matches) != 1:
@@ -513,7 +688,8 @@ jobs:
                       "expected exactly one changed signed apply manifest for "
                       f"{citation}; found {len(citation_matches)}"
                   )
-              applied_manifest = citation_matches[0]
+              relative_path, applied_manifest = citation_matches[0]
+              manifest_path = Path(os.environ["RULESPEC_CHECKOUT"]) / relative_path
               context_path = Path(applied_manifest["context_manifest_file"]).resolve()
               try:
                   context_path.relative_to(generated_root / lane)
@@ -557,6 +733,25 @@ jobs:
                       )
 
               destination.write_bytes(context_bytes)
+              applied_inventory.append(
+                  {
+                      "citation": citation,
+                      "path": relative_path.as_posix(),
+                      "sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+                  }
+              )
+          Path(sys.argv[2]).write_text(
+              json.dumps(
+                  {
+                      "schema": "axiom-encode/applied-manifest-inventory/v1",
+                      "items": applied_inventory,
+                  },
+                  indent=2,
+                  sort_keys=True,
+              )
+              + "\n",
+              encoding="utf-8",
+          )
           PY
           python - "$artifact/metadata.json" <<'PY'
           import json
@@ -574,10 +769,19 @@ jobs:
               "citation": os.environ["CITATION"],
               "dependent_citation": os.environ.get("DEPENDENT_CITATION") or None,
               "pr_base_branch": os.environ["PR_BASE_BRANCH"],
+              "queue_id": os.environ.get("QUEUE_ID") or None,
+              "queue_item_id": os.environ.get("QUEUE_ITEM_ID") or None,
+              "queue_item_generation_sha256": (
+                  os.environ.get("QUEUE_ITEM_GENERATION_SHA256") or None
+              ),
+              "queue_manifest_sha256": (
+                  os.environ.get("QUEUE_MANIFEST_SHA256") or None
+              ),
               "rulespec_base": rev(os.environ["RULESPEC_CHECKOUT"]),
               "encoder_commit": rev("axiom-encode"),
               "corpus_commit": rev("axiom-corpus"),
               "rules_engine_commit": rev("axiom-rules-engine"),
+              "workflow_run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
               "workflow_run_id": os.environ["GITHUB_RUN_ID"],
           }
           with open(sys.argv[1], "w", encoding="utf-8") as stream:
@@ -613,6 +817,10 @@ jobs:
           CITATION: ${{ inputs.citation }}
           RULESPEC_REF: ${{ inputs.rulespec_ref }}
           PR_BASE_BRANCH: ${{ inputs.pr_base_branch }}
+          QUEUE_ID: ${{ inputs.queue_id }}
+          QUEUE_ITEM_ID: ${{ inputs.queue_item_id }}
+          QUEUE_ITEM_GENERATION_SHA256: ${{ inputs.queue_item_generation_sha256 }}
+          QUEUE_MANIFEST_SHA256: ${{ inputs.queue_manifest_sha256 }}
           RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
         run: |
           set -euo pipefail
@@ -630,6 +838,9 @@ jobs:
             "Citation: \`${CITATION}\`" \
             "Base commit: \`${RULESPEC_REF}\`" \
             "Base branch: \`${PR_BASE_BRANCH}\`" \
+            "Queue item: \`${QUEUE_ID:-ad-hoc}/${QUEUE_ITEM_ID:-ad-hoc}\`" \
+            "Queue generation SHA-256: \`${QUEUE_ITEM_GENERATION_SHA256:-n/a}\`" \
+            "Queue manifest SHA-256: \`${QUEUE_MANIFEST_SHA256:-n/a}\`" \
             "Axiom Encode run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
             '' \
             'This draft PR was produced by the protected country-general signed-apply workflow. Review all RuleSpec and manifest changes before marking it ready.')"
@@ -678,4 +889,4 @@ jobs:
           name: targeted-reencode-${{ github.run_id }}
           path: ${{ runner.temp }}/targeted-reencode
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 90
