@@ -594,6 +594,9 @@ def _source_evidence_span_is_bounded(
 
     evidence_begins_numeric = _evidence_begins_with_numeric_token(evidence_text)
     evidence_ends_numeric = _evidence_ends_with_numeric_token(evidence_text)
+    evidence_contains_numeric = any(
+        character.isdecimal() for character in evidence_text
+    )
 
     if evidence_begins_numeric:
         if _span_starts_inside_space_grouped_number(
@@ -624,7 +627,7 @@ def _source_evidence_span_is_bounded(
             return False
         if _right_context_continues_numeric_token(after):
             return False
-    if (evidence_begins_numeric or evidence_ends_numeric) and (
+    if evidence_contains_numeric and (
         _span_omits_trailing_accounting_sign(
             evidence_text=evidence_text,
             before=before,
@@ -701,8 +704,11 @@ def _span_ends_inside_space_grouped_number(*, after: str) -> bool:
 
 def _left_context_omits_numeric_sign(before: str) -> bool:
     left = before.rstrip()
-    while left and _is_currency_marker(left[-1]):
-        left = left[:-1].rstrip()
+    while left:
+        if unicodedata.category(left[-1]) == "Cf" or _is_currency_marker(left[-1]):
+            left = left[:-1].rstrip()
+            continue
+        break
     return bool(left and _is_numeric_sign_marker(left[-1]))
 
 
