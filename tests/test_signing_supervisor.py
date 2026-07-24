@@ -1870,9 +1870,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert "validate-rulespec-base" in identity_command
     assert '"$RULESPEC_REF" "$OPEN_PR" "$PR_BASE_BRANCH"' in identity_command
     assert identity_step["env"]["OPEN_PR"] == "${{ inputs.open_pr }}"
-    assert identity_step["env"]["PR_BASE_BRANCH"] == (
-        "${{ inputs.pr_base_branch }}"
-    )
+    assert identity_step["env"]["PR_BASE_BRANCH"] == ("${{ inputs.pr_base_branch }}")
     assert '"https://github.com/TheAxiomFoundation/rulespec-$COUNTRY"' in (
         identity_command
     )
@@ -1990,9 +1988,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert package_step["env"]["DEPENDENT_REVIEW_FINDING_PRESENT"] == (
         "${{ inputs.dependent_review_finding != '' }}"
     )
-    assert package_step["env"]["PR_BASE_BRANCH"] == (
-        "${{ inputs.pr_base_branch }}"
-    )
+    assert package_step["env"]["PR_BASE_BRANCH"] == ("${{ inputs.pr_base_branch }}")
     assert '"$artifact/context-manifest.json"' in package_command
     assert '".axiom/encoding-manifests"' in package_command
     assert 'citation = payload.get("citation")' in package_command
@@ -2023,15 +2019,13 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     )
     assert publish_step["if"] == "${{ inputs.open_pr }}"
     assert publish_step["env"]["GH_TOKEN"] == "${{ secrets.AXIOM_REPO_TOKEN }}"
-    assert publish_step["env"]["PR_BASE_BRANCH"] == (
-        "${{ inputs.pr_base_branch }}"
-    )
+    assert publish_step["env"]["PR_BASE_BRANCH"] == ("${{ inputs.pr_base_branch }}")
     assert "AXIOM_ENCODE_APPLY_SIGNING_KEY" not in publish_step["env"]
     publish_command = publish_step["run"]
     assert 'repo="TheAxiomFoundation/rulespec-${COUNTRY}"' in publish_command
     assert '"$COUNTRY" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT"' in publish_command
     assert "core.hooksPath=/dev/null" in publish_command
-    assert 'fetch --no-tags origin \\\n' in publish_command
+    assert "fetch --no-tags origin \\\n" in publish_command
     assert "refs/remotes/origin/${PR_BASE_BRANCH}" in publish_command
     assert '" = "$RULESPEC_REF"' in publish_command
     assert '"HEAD:refs/heads/${branch}"' in publish_command
@@ -2039,7 +2033,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert '-f base="$PR_BASE_BRANCH"' in publish_command
     assert "-F draft=true" in publish_command
     assert "'.base.ref == $branch and .base.sha == $sha'" in publish_command
-    assert 'pulls/${pr_number}' in publish_command
+    assert "pulls/${pr_number}" in publish_command
     assert "-f state=closed" in publish_command
     assert '":refs/heads/${branch}"' in publish_command
     assert "created pull request does not target the reviewed base SHA" in (
