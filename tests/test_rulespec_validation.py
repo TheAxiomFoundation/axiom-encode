@@ -9670,9 +9670,7 @@ def test_rulespec_proof_validator_accepts_parenthesized_effective_dates(
 
     result = validate_rulespec_proofs(
         content,
-        source_texts={
-            "us/guidance/example/page-1": f"REVISION 47 ({evidence})"
-        },
+        source_texts={"us/guidance/example/page-1": f"REVISION 47 ({evidence})"},
     )
 
     assert result.passed is True
