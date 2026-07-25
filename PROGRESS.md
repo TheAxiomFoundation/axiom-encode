@@ -32,8 +32,8 @@ The audit has two bounded fixes:
   blocked by the sandbox. The two relevant source files exceed GitNexus's
   indexing size limit, so direct source and test inspection was authoritative.
 - Confirmed that no final-report output path is configured in the environment.
-  The final report will be written to
-  `/private/tmp/benchmark-validity-final-report.md`.
+  The sandbox rejected an attempted `/private/tmp` report write, so the final
+  report is committed as `BENCHMARK_VALIDITY_FINAL_REPORT.md` in this worktree.
 - Established the test-first, implementation, version-bump, validation,
   independent-review, and PR plan.
 - Traced defect 1 from `_rulespec_validation_target`'s fresh overlay through
@@ -102,6 +102,8 @@ The audit has two bounded fixes:
 - Attempted the connected GitHub API fallback. Read access succeeds, but each
   narrowly scoped write confirmation was canceled, so it cannot create the
   remote branch or PR without user approval.
+- Wrote the defensive audit report to
+  `BENCHMARK_VALIDITY_FINAL_REPORT.md`.
 
 ## Next
 
