@@ -5,7 +5,8 @@
 Audit started on 2026-07-25 in the requested writable worktree on
 `fix/benchmark-validity-timeout-tmpdir`, based on `origin/main` at `f60fd29d`
 (`axiom-encode` 0.2.1380). The starting worktree was clean. Defect 1 is
-implemented and focused checks pass; defect 2 and the version batch remain.
+committed. Defect 2 is implemented and focused checks pass; its commit and the
+version batch remain.
 
 The audit has two bounded fixes:
 
@@ -46,14 +47,32 @@ The audit has two bounded fixes:
   either `compile_issues` or `ci_issues`.
 - Reran the focused defect 1 tests: 3 passed. Reran adjacent overlay and
   persisted-revalidation tests: 16 passed. Focused Ruff check passed; Ruff
-  formatting was applied and will be rechecked before commit.
+  formatting and compilation checks passed.
+- Committed defect 1 separately as `75496c29`.
+- Traced defect 2 from the Claude backend's hardcoded `timeout=600` through the
+  uncaught `TimeoutExpired` path. Confirmed that it escaped before an
+  `EvalPromptResponse`, so no timeout trace or artifact evidence could be
+  recorded.
+- Added the Claude timeout regressions first and observed all six expected
+  failures: overrides were ignored, unset/invalid values stayed at 600
+  seconds, and `TimeoutExpired` escaped.
+- Replaced the Claude-only cutoff with
+  `AXIOM_ENCODE_ENCODER_TIMEOUT_SECONDS`, using the existing positive-integer
+  environment parser. The default is 1,800 seconds: about 8.5 times the
+  measured 211-second median and equal to the existing Codex long-source wall
+  ceiling, retaining a bounded hung-process guard without systematically
+  censoring the observed long tail.
+- Claude traces now record `timed_out`, `timeout_reason`, and the effective
+  `timeout_seconds` on success and error. Wall expiration returns a structured
+  `Claude eval timed out` response so existing retry/persistence behavior can
+  retain infrastructure evidence.
+- Added an isolation test proving the Claude encoder env var does not change
+  Codex's existing timeout selection. The adjacent Claude/Codex timeout slice
+  passes: 13 tests. Focused Ruff check, format check, and compilation pass.
 
 ## Next
 
-- Recheck defect 1 formatting/lint/tests and commit the coherent first fix.
-- Add and run the failing Claude timeout/trace regressions, implement the
-  configurable structured timeout behavior, rerun focused checks, and commit
-  defect 2 separately.
+- Commit the coherent defect 2 fix separately.
 - Commit version 0.2.1381 and changelog fragments, run the explicit version
   gate and required full check battery, complete an independent review-fix
   cycle, then push and open one unmerged PR against `main` referencing #1189.

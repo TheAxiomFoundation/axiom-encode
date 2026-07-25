@@ -2848,6 +2848,108 @@ class TestCorpusSourceResolution:
 
 
 class TestClaudePromptEval:
+    def test_prompt_eval_uses_configurable_encoder_timeout_and_records_it(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        monkeypatch.setenv("AXIOM_ENCODE_ENCODER_TIMEOUT_SECONDS", "1234")
+        runner = parse_runner_spec("claude:opus")
+        workspace = EvalWorkspace(
+            root=tmp_path,
+            source_text_file=tmp_path / "source.txt",
+            manifest_file=tmp_path / "context-manifest.json",
+        )
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=json.dumps({"result": "review complete", "usage": {}}),
+            stderr="",
+        )
+
+        with patch(
+            "axiom_encode.harness.evals.subprocess.run",
+            return_value=completed,
+        ) as mock_run:
+            response = _run_claude_prompt_eval(runner, workspace, "review this")
+
+        assert mock_run.call_args.kwargs["timeout"] == 1234
+        assert response.trace["timed_out"] is False
+        assert response.trace["timeout_reason"] is None
+        assert response.trace["timeout_seconds"] == 1234
+
+    def test_prompt_eval_returns_structured_timeout_failure(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        monkeypatch.setenv("AXIOM_ENCODE_ENCODER_TIMEOUT_SECONDS", "1234")
+        runner = parse_runner_spec("claude:opus")
+        workspace = EvalWorkspace(
+            root=tmp_path,
+            source_text_file=tmp_path / "source.txt",
+            manifest_file=tmp_path / "context-manifest.json",
+        )
+
+        with patch(
+            "axiom_encode.harness.evals.subprocess.run",
+            side_effect=subprocess.TimeoutExpired(["claude"], timeout=1234),
+        ):
+            response = _run_claude_prompt_eval(runner, workspace, "review this")
+
+        assert response.text == ""
+        assert response.error == "Claude eval timed out"
+        assert response.trace == {
+            "provider": "anthropic",
+            "backend": "claude-print",
+            "model": "opus",
+            "timed_out": True,
+            "timeout_reason": "wall",
+            "timeout_seconds": 1234,
+        }
+
+    @pytest.mark.parametrize(
+        "configured_value",
+        [None, "not-a-number", "0", "-1"],
+    )
+    def test_prompt_eval_uses_fair_default_for_invalid_encoder_timeout(
+        self,
+        tmp_path,
+        monkeypatch,
+        configured_value,
+    ):
+        if configured_value is None:
+            monkeypatch.delenv(
+                "AXIOM_ENCODE_ENCODER_TIMEOUT_SECONDS",
+                raising=False,
+            )
+        else:
+            monkeypatch.setenv(
+                "AXIOM_ENCODE_ENCODER_TIMEOUT_SECONDS",
+                configured_value,
+            )
+        runner = parse_runner_spec("claude:opus")
+        workspace = EvalWorkspace(
+            root=tmp_path,
+            source_text_file=tmp_path / "source.txt",
+            manifest_file=tmp_path / "context-manifest.json",
+        )
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=json.dumps({"result": "review complete", "usage": {}}),
+            stderr="",
+        )
+
+        with patch(
+            "axiom_encode.harness.evals.subprocess.run",
+            return_value=completed,
+        ) as mock_run:
+            response = _run_claude_prompt_eval(runner, workspace, "review this")
+
+        assert mock_run.call_args.kwargs["timeout"] == 1800
+        assert response.trace["timeout_seconds"] == 1800
+
     def test_prompt_eval_disables_tools_and_scrubs_signing_capabilities(
         self,
         tmp_path,
@@ -4972,6 +5074,24 @@ def test_run_source_eval_retries_once_when_first_response_times_out(tmp_path):
 
 
 def test_codex_prompt_timeouts_use_default_for_short_source(tmp_path):
+    workspace = prepare_eval_workspace(
+        citation="us/statute/7/2012",
+        runner=parse_runner_spec("codex:gpt-5.4"),
+        output_root=tmp_path / "out",
+        source_text="short source",
+        axiom_rules_path=_canonical_rulespec_content_root(tmp_path, "us"),
+        mode="cold",
+        extra_context_paths=[],
+    )
+
+    assert _codex_prompt_timeouts(workspace) == (600, 300)
+
+
+def test_claude_encoder_timeout_does_not_change_codex_timeouts(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("AXIOM_ENCODE_ENCODER_TIMEOUT_SECONDS", "1234")
     workspace = prepare_eval_workspace(
         citation="us/statute/7/2012",
         runner=parse_runner_spec("codex:gpt-5.4"),
