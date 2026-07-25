@@ -8,7 +8,10 @@ Audit started on 2026-07-25 in the requested writable worktree on
 committed. Defect 2 is committed. The 0.2.1381 version/changelog batch is
 committed, and its explicit provenance gate passes. The required checks and
 independent review-fix cycle are complete with no remaining actionable
-findings; PR publication remains.
+findings. PR publication is blocked by the execution environment: direct Git
+transport cannot resolve or connect to GitHub, and the connected GitHub app's
+write confirmation was canceled on each attempted branch/blob write. No PR
+exists and CI has not started.
 
 The audit has two bounded fixes:
 
@@ -93,8 +96,18 @@ The audit has two bounded fixes:
 - Completed the release re-review after correcting the ledger. The reviewer
   independently reran the version gate, confirmed the finding is resolved, and
   approved current HEAD with no remaining actionable findings.
+- Attempted the authorized branch push. Git failed before authentication with
+  `Could not resolve host: github.com`; a direct-IP connectivity probe also
+  confirmed outbound GitHub connections are unavailable in this sandbox.
+- Attempted the connected GitHub API fallback. Read access succeeds, but each
+  narrowly scoped write confirmation was canceled, so it cannot create the
+  remote branch or PR without user approval.
 
 ## Next
 
-- Push and open one unmerged PR against `main` referencing #1189, inspect CI,
-  and write the final report to the recorded output path.
+- Approve GitHub app writes when prompted, or push the prepared branch from a
+  network-enabled shell with
+  `git push -u origin fix/benchmark-validity-timeout-tmpdir`.
+- Once the remote branch exists, open one unmerged PR against `main`
+  referencing #1189, inspect CI, and update the final report with its PR number
+  and CI state.
