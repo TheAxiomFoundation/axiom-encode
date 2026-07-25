@@ -5475,6 +5475,71 @@ class TestEvaluateArtifact:
             assert "us-ny" in parts
             assert parts != policy_repo.parts
 
+    def test_normalizes_ephemeral_validation_root_in_compile_and_ci_issues(
+        self, tmp_path
+    ):
+        policy_repo = _canonical_rulespec_content_root(tmp_path / "repos", "us")
+        generated = _generated_rulespec_file_path(
+            tmp_path / "out",
+            "statutes/1/a.yaml",
+        )
+        generated.write_text("format: rulespec/v1\nrules: []\n")
+        observed_paths: list[Path] = []
+
+        def fake_compile(_pipeline, path):
+            observed_paths.append(path)
+            issue = f"Axiom rules engine compile failed: failed to load `{path}`"
+            return ValidationResult(
+                "compile",
+                passed=False,
+                issues=[issue],
+                error=issue,
+                raw_output=issue,
+            )
+
+        def fake_ci(_pipeline, path):
+            observed_paths.append(path)
+            issue = f"Axiom rules engine compile failed: failed to load `{path}`"
+            return ValidationResult(
+                "ci",
+                passed=False,
+                issues=[issue],
+                error=issue,
+                raw_output=issue,
+            )
+
+        with (
+            patch.object(
+                ValidatorPipeline,
+                "_run_rulespec_compile_check",
+                fake_compile,
+            ),
+            patch.object(ValidatorPipeline, "_run_rulespec_ci", fake_ci),
+        ):
+            corpus_release = _write_test_corpus_provision(tmp_path / "bound-release")
+            metrics_by_run = [
+                evaluate_artifact(
+                    local_corpus_release=corpus_release,
+                    rulespec_file=generated,
+                    policy_repo_root=policy_repo,
+                    axiom_rules_path=tmp_path / "axiom-rules-engine",
+                    source_text="No numeric values.",
+                    skip_reviewers=True,
+                )
+                for _ in range(2)
+            ]
+
+        stable_issue = (
+            "Axiom rules engine compile failed: failed to load "
+            "`<rulespec-validation-root>/rulespec-us/us/statutes/1/a.yaml`"
+        )
+        assert observed_paths[0] == observed_paths[1]
+        assert observed_paths[2] == observed_paths[3]
+        assert observed_paths[0] != observed_paths[2]
+        for metrics in metrics_by_run:
+            assert metrics.compile_issues == [stable_issue]
+            assert metrics.ci_issues == [stable_issue]
+
     def test_validation_overlay_preserves_country_monorepo_state_shape(self, tmp_path):
         monorepo = tmp_path / "repos" / "rulespec-us"
         policy_repo = monorepo / "us-mn"
@@ -17451,6 +17516,34 @@ def test_persisted_revalidation_still_rejects_deterministic_drift(
     )
     persisted = _revalidation_metrics(**persisted_overrides)
     fresh = _revalidation_metrics(**reviewer_blank, **fresh_overrides)
+    with pytest.raises(ValueError, match="do not match fresh validation"):
+        _run_case_revalidation(persisted, fresh)
+
+
+@pytest.mark.parametrize("field_name", ["compile_issues", "ci_issues"])
+def test_persisted_revalidation_still_rejects_issue_text_drift(field_name):
+    """Location normalization must not remove issue lists from tamper checks."""
+    persisted = _revalidation_metrics(
+        **{
+            field_name: [
+                "failed to load "
+                "<rulespec-validation-root>/rulespec-uk/uk/statutes/1/a.yaml"
+            ]
+        }
+    )
+    fresh = _revalidation_metrics(
+        generalist_review_pass=None,
+        generalist_review_score=None,
+        generalist_review_issues=[],
+        generalist_review_prompt_sha256=None,
+        **{
+            field_name: [
+                "failed to load "
+                "<rulespec-validation-root>/rulespec-uk/uk/statutes/1/b.yaml"
+            ]
+        },
+    )
+
     with pytest.raises(ValueError, match="do not match fresh validation"):
         _run_case_revalidation(persisted, fresh)
 

@@ -6353,6 +6353,12 @@ def _evaluate_artifact_in_scope(
         validation_policy_repo_root = _validation_policy_repo_root(
             validation_file, policy_repo_root
         )
+        source_policy_repo_root = Path(policy_repo_root).resolve()
+        validation_staging_root = (
+            validation_policy_repo_root.parent.parent
+            if validation_policy_repo_root != source_policy_repo_root
+            else None
+        )
         validation_dependency_roots = _validation_rulespec_dependency_roots(
             validation_file=validation_file,
             policy_repo_root=policy_repo_root,
@@ -6370,6 +6376,7 @@ def _evaluate_artifact_in_scope(
             local_corpus_release=local_corpus_release,
             source_citation_path=source_citation_path,
             rulespec_dependency_roots=validation_dependency_roots,
+            validation_staging_root=validation_staging_root,
         )
         compile_result = pipeline._run_compile_check(validation_file)
         ci_result = pipeline._run_ci(validation_file)
