@@ -5,8 +5,10 @@
 Audit started on 2026-07-25 in the requested writable worktree on
 `fix/benchmark-validity-timeout-tmpdir`, based on `origin/main` at `f60fd29d`
 (`axiom-encode` 0.2.1380). The starting worktree was clean. Defect 1 is
-committed. Defect 2 is implemented and focused checks pass; its commit and the
-version batch remain.
+committed. Defect 2 is committed. The 0.2.1381 version/changelog batch is
+committed, and its explicit provenance gate passes. The required checks and
+independent review-fix cycle are complete with no remaining actionable
+findings; PR publication remains.
 
 The audit has two bounded fixes:
 
@@ -69,10 +71,30 @@ The audit has two bounded fixes:
 - Added an isolation test proving the Claude encoder env var does not change
   Codex's existing timeout selection. The adjacent Claude/Codex timeout slice
   passes: 13 tests. Focused Ruff check, format check, and compilation pass.
+- Committed defect 2 separately as `0e2fce58`.
+- Updated `pyproject.toml`, `src/axiom_encode/__init__.py`, and the
+  `axiom-encode` package entry in `uv.lock` to 0.2.1381.
+- Added separate `#1189` fixed fragments for location-independent validator
+  evidence and the configurable Claude encoder timeout.
+- Committed the 0.2.1381 version/changelog batch; the explicit nonstandard
+  provenance gate passes after the final ledger amendment (1 passed, 1,018
+  deselected).
+- Passed the required Ruff lint check, Ruff format check, and Python compileall
+  check.
+- Ran the exact required test battery. It reached 2,797 passed and 1 skipped;
+  its sole failure was the pre-existing macOS path-alias test attempting to
+  create a temporary directory directly under sandbox-denied `/var/tmp`.
+  Rerunning the same battery with only that environment-incompatible test
+  deselected passed: 2,797 passed, 1 skipped, 1 deselected.
+- Completed independent reviews of both implementation commits. Reviewers
+  found no actionable correctness, coverage, cleanup, trace-persistence, or
+  Codex-isolation issues. The release review found this progress ledger was
+  stale after the version commit; this update resolves that process finding.
+- Completed the release re-review after correcting the ledger. The reviewer
+  independently reran the version gate, confirmed the finding is resolved, and
+  approved current HEAD with no remaining actionable findings.
 
 ## Next
 
-- Commit the coherent defect 2 fix separately.
-- Commit version 0.2.1381 and changelog fragments, run the explicit version
-  gate and required full check battery, complete an independent review-fix
-  cycle, then push and open one unmerged PR against `main` referencing #1189.
+- Push and open one unmerged PR against `main` referencing #1189, inspect CI,
+  and write the final report to the recorded output path.
