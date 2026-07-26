@@ -99,6 +99,7 @@ from yaml.nodes import MappingNode, ScalarNode, SequenceNode
 
 from axiom_encode import __version__
 
+from . import manifest_audit
 from . import validation_waivers as _validation_waivers
 from .codex_cli import codex_auth_error
 from .concepts import (
@@ -1668,6 +1669,32 @@ def main():
         help="Write the JSON/badge output to this path (durable badge file)",
     )
 
+    manifest_audit_parser = subparsers.add_parser(
+        "manifest-audit",
+        help=(
+            "Assert that EVERY committed encoding manifest matches its file, and "
+            "that no file carries more than one live manifest (the check an "
+            "outside auditor would run)"
+        ),
+    )
+    manifest_audit_parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Rules repository to audit",
+    )
+    manifest_audit_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the full audit result as JSON instead of a report",
+    )
+    manifest_audit_parser.add_argument(
+        "--limit",
+        type=int,
+        default=25,
+        help="Maximum findings to print per kind (0 for no limit)",
+    )
+
     run_log_export_parser = subparsers.add_parser(
         "run-log-export",
         help=(
@@ -2589,6 +2616,8 @@ def main():
         cmd_guard_generated(args)
     elif args.command == "manifest-census":
         cmd_manifest_census(args)
+    elif args.command == "manifest-audit":
+        cmd_manifest_audit(args)
     elif args.command == "encode":
         cmd_encode(args)
     elif args.command == "eval":
@@ -6478,6 +6507,25 @@ def cmd_manifest_census(args):
         print(f"wrote {out_path}")
     else:
         print(output, end="")
+
+
+def cmd_manifest_audit(args):
+    """Assert every committed manifest matches the file it attests.
+
+    Distinct from ``guard-generated``: that guard asks whether a *changed* file
+    has *a* matching attestation, so one good record satisfies it and any other
+    record committed alongside goes unread.  This audit reads every committed
+    record in every manifest tree — including the jurisdiction trees the guard
+    does not enumerate — and requires all of them to be true.
+    """
+    repo_path = Path(args.repo).resolve()
+    result = manifest_audit.audit_repository(repo_path)
+    if getattr(args, "json", False):
+        print(json.dumps(result.as_dict(), indent=2))
+    else:
+        limit = getattr(args, "limit", 25) or None
+        print(manifest_audit.format_report(result, limit=limit))
+    sys.exit(0 if result.passed else 1)
 
 
 def _run_log_repo_paths(repos_arg):
@@ -42504,7 +42552,55 @@ def _write_applied_encoding_manifest(
     payload["validation_execution"] = copy.deepcopy(validation_execution)
     _sign_applied_encoding_manifest(payload, signing_broker)
     manifest_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    _prune_superseded_apply_manifests(
+        content_root=content_root,
+        manifest_path=manifest_path,
+        applied_files=unique_applied_files,
+    )
     return manifest_path
+
+
+def _prune_superseded_apply_manifests(
+    *,
+    content_root: Path,
+    manifest_path: Path,
+    applied_files: list[Path],
+) -> None:
+    """Retire the records this manifest supersedes.
+
+    Without this, re-generating a rule leaves its previous manifest in place
+    asserting a hash the file no longer has.  The apply guard does not notice,
+    because it asks whether *a* matching attestation exists rather than whether
+    every committed attestation matches — which is how 121 attestations on
+    rulespec-us went stale with CI green (axiom-encode#1282).
+
+    Best-effort by design: a checkout this cannot resolve leaves the tree
+    exactly as before, and ``manifest-audit`` still fails the pull request, so
+    the invariant is enforced either way.
+    """
+    checkout_root = _rulespec_checkout_root(Path(content_root))
+    try:
+        new_manifest = manifest_path.relative_to(checkout_root).as_posix()
+        attested = [
+            path.relative_to(checkout_root).as_posix() for path in applied_files
+        ]
+    except ValueError:
+        return
+    plan = manifest_audit.apply_prune(
+        checkout_root,
+        new_manifest=new_manifest,
+        attested_paths=attested,
+        reason=(
+            f"Superseded by {new_manifest}, which attests this rule's current "
+            "content. This record also carries the only attestation for another "
+            "file it covers, so it is retired in place rather than deleted."
+        ),
+        issue="https://github.com/TheAxiomFoundation/axiom-encode/issues/1282",
+    )
+    for manifest in plan.retire:
+        print(f"Retired superseded apply manifest {manifest}")
+    for manifest, path in plan.disclose:
+        print(f"Disclosed superseded claim {manifest} -> {path}")
 
 
 def _require_applied_manifest_not_shrunk(
