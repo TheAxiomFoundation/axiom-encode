@@ -13,12 +13,14 @@ same score-affecting execution identity (encoder, rules engine, RuleSpec
 content/toolchain/waivers, per-case-runner generation/retry budget, backend
 timeout policy, timeout retry policy, PolicyEngine runtime) — compared after
 dropping location-only fields, so the same toolchain checked out at different
-paths still folds. The manifest content hash may differ (single-runner variants
-of one suite differ byte-wise but share case identities), and runner sets may
-differ — that is the add-a-model path. Duplicate runner names across payloads
-are refused rather than merged: two runs of one runner are two boards, not one.
+paths still folds. Requested effort may differ across distinct runner names,
+while same-name runs must match. The manifest content hash may differ
+(single-runner variants of one suite differ byte-wise but share case
+identities), and runner sets may differ — that is the add-a-model path.
+Duplicate runner names across payloads are refused rather than merged: two
+runs of one runner are two boards, not one.
 
-The board consumes canonical v6 suite payloads and refuses anything else:
+The board consumes canonical v8 suite payloads and refuses anything else:
 unknown schema versions, rows for runners a payload never declared, rows
 whose case identity does not match the manifest, coverage claims the result
 matrix contradicts, and malformed metric types are all hard errors rather
@@ -49,29 +51,51 @@ from axiom_encode.harness.policyengine_runtime import (
     POLICYENGINE_RUNTIME_SCHEMA,
 )
 
-BoardCellState = Literal["pass", "fail", "timeout", "error", "missing"]
+BoardCellState = Literal[
+    "pass",
+    "fail",
+    "timeout",
+    "context_overflow",
+    "output_truncated",
+    "integrity",
+    "error",
+    "missing",
+]
 
 _RESULTS_FILE_NAME = "results.json"
 
 # The one producer schema this consumer understands. A new producer version
 # must be reviewed here before boards fold it; test_eval_board locks this to
 # the producer constant in cli.py.
-SUPPORTED_RESULTS_SCHEMA = "axiom-encode/eval-suite-results/v6"
+SUPPORTED_RESULTS_SCHEMA = "axiom-encode/eval-suite-results/v8"
 
 # The one execution-identity schema whose field semantics the normalizer
 # below understands; test_eval_board locks this to the producer constant.
-SUPPORTED_EXECUTION_IDENTITY_SCHEMA = "axiom-encode/eval-execution-identity/v3"
+SUPPORTED_EXECUTION_IDENTITY_SCHEMA = "axiom-encode/eval-execution-identity/v6"
 
 # The evidence schema this consumer understands; locked to the producer
 # constant by test_eval_board.
 SUPPORTED_EVIDENCE_SCHEMA = "axiom-encode/eval-suite-evidence/v5"
-EVAL_BOARD_SCHEMA = "axiom-encode/eval-board/v2"
+EVAL_BOARD_SCHEMA = "axiom-encode/eval-board/v3"
+_RUNNER_EFFORTS_BY_BACKEND = {
+    "claude": frozenset({"low", "medium", "high", "max"}),
+    "codex": frozenset({"low", "medium", "high", "xhigh", "ultra"}),
+    "openai": frozenset({"none", "low", "medium", "high", "xhigh", "max"}),
+}
+_OPENAI_REASONING_EFFORTS_BY_MODEL_PREFIX = (
+    ("gpt-5.6", frozenset({"none", "low", "medium", "high", "xhigh", "max"})),
+    ("gpt-5.5-pro", frozenset({"medium", "high", "xhigh"})),
+    ("gpt-5.5", frozenset({"none", "low", "medium", "high", "xhigh"})),
+    ("gpt-5.4-pro", frozenset({"medium", "high", "xhigh"})),
+    ("gpt-5.4", frozenset({"none", "low", "medium", "high", "xhigh"})),
+)
+_INFRA_FAILURE_KINDS = frozenset({"context_overflow", "output_truncated", "integrity"})
 
 # Every persisted result row carries this self-binding digest.
 _RESULT_SHA256_FIELD = "result_sha256"
 _RESULT_ADMISSION_SCHEMA = "axiom-encode/eval-result-admission/v2"
 
-# These exact scopes are part of the v3 producer contract. Admission keeps
+# These exact scopes are part of the v5 producer contract. Admission keeps
 # independent literals so a producer scope change cannot silently widen or
 # narrow what an existing board consumer accepts.
 _ENCODER_GIT_PATHSPECS = ("src/axiom_encode", "pyproject.toml", "uv.lock")
@@ -122,6 +146,7 @@ class BoardRunnerStats:
     runner: str
     backend: str
     model: str
+    requested_effort: str | None
     source: str
     cases_run: int
     artifact_case_count: int
@@ -1231,8 +1256,99 @@ def _payload_execution_identity(payload: dict, source: str) -> tuple[dict, str]:
             "Suite results execution identity has a missing or malformed "
             f"timeout retry policy: {source}"
         )
+    runner_identities = _payload_runner_identities(payload, source)
+    runner_efforts = identity.get("runner_efforts")
+    if not isinstance(runner_efforts, list) or len(runner_efforts) != len(
+        runner_identities
+    ):
+        raise EvalBoardError(
+            "Suite results execution identity has missing or malformed "
+            f"requested effort declarations: {source}"
+        )
+    for runner_effort, runner_identity in zip(
+        runner_efforts,
+        runner_identities,
+        strict=True,
+    ):
+        backend = runner_identity["backend"]
+        model = runner_identity["model"]
+        accepted_efforts = _runner_efforts_for_backend_model(backend, model)
+        requested_effort = (
+            runner_effort.get("requested_effort")
+            if isinstance(runner_effort, dict)
+            else None
+        )
+        uses_receiver_default = (
+            runner_effort.get("uses_receiver_default")
+            if isinstance(runner_effort, dict)
+            else None
+        )
+        if (
+            not isinstance(runner_effort, dict)
+            or set(runner_effort)
+            != {"name", "requested_effort", "uses_receiver_default"}
+            or runner_effort.get("name") != runner_identity["name"]
+            or (
+                requested_effort is not None
+                and (
+                    not isinstance(requested_effort, str)
+                    or requested_effort not in accepted_efforts
+                )
+            )
+            or uses_receiver_default is not (requested_effort is None)
+        ):
+            raise EvalBoardError(
+                "Suite results execution identity has a malformed requested "
+                f"effort for runner {runner_identity['name']!r}: {source}"
+            )
+    receiver_environments = identity.get("receiver_environments")
+    expected_backends = {
+        runner_identity["backend"] for runner_identity in runner_identities
+    }
+    if (
+        not isinstance(receiver_environments, dict)
+        or set(receiver_environments) != expected_backends
+    ):
+        raise EvalBoardError(
+            "Suite results execution identity has missing, extra, or mismatched "
+            f"receiver environments: {source}"
+        )
+    for backend, environment in receiver_environments.items():
+        if backend == "openai":
+            expected_requested_models = [
+                {
+                    "name": runner_identity["name"],
+                    "model": runner_identity["model"],
+                }
+                for runner_identity in runner_identities
+                if runner_identity["backend"] == "openai"
+            ]
+            if (
+                not isinstance(environment, dict)
+                or set(environment) != {"endpoint", "requested_models"}
+                or not _is_nonempty_string(environment.get("endpoint"))
+                or environment.get("requested_models") != expected_requested_models
+            ):
+                raise EvalBoardError(
+                    "Suite results execution identity has a malformed or "
+                    f"mismatched receiver environment for {backend!r}: {source}"
+                )
+            continue
+        if (
+            not isinstance(environment, dict)
+            or set(environment) != {"cli_version", "launcher_sha256", "native_sha256"}
+            or not _is_nonempty_string(environment.get("cli_version"))
+            or not _is_sha256_hex(environment.get("launcher_sha256"))
+            or not _is_sha256_hex(environment.get("native_sha256"))
+        ):
+            raise EvalBoardError(
+                "Suite results execution identity has a malformed receiver "
+                f"environment for {backend!r}: {source}"
+            )
     if set(identity) != {
         "schema",
+        "runner_efforts",
+        "receiver_environments",
         "case_timeout_seconds",
         "runner_timeouts",
         "timeout_retry_policy",
@@ -1242,7 +1358,7 @@ def _payload_execution_identity(payload: dict, source: str) -> tuple[dict, str]:
         "rulespec_roots",
     }:
         raise EvalBoardError(
-            f"Suite results execution identity has unexpected v3 fields: {source}"
+            f"Suite results execution identity has unexpected v6 fields: {source}"
         )
     if not isinstance(digest, str) or not digest:
         raise EvalBoardError(
@@ -1255,6 +1371,20 @@ def _payload_execution_identity(payload: dict, source: str) -> tuple[dict, str]:
             f"identity payload: {source}"
         )
     return identity, digest
+
+
+def _runner_efforts_for_backend_model(
+    backend: str,
+    model: str,
+) -> frozenset[str]:
+    """Return receiver-supported explicit effort values for a runner."""
+
+    if backend != "openai":
+        return _RUNNER_EFFORTS_BY_BACKEND.get(backend, frozenset())
+    for prefix, efforts in _OPENAI_REASONING_EFFORTS_BY_MODEL_PREFIX:
+        if model == prefix or model.startswith(f"{prefix}-"):
+            return efforts
+    return frozenset()
 
 
 def _payload_completeness(
@@ -1430,6 +1560,246 @@ def result_gate_pass(result: dict) -> bool:
     )
 
 
+def _validate_result_effective_environment(result: dict, *, context: str) -> None:
+    """Bind receiver metadata to the backend that produced this v8 row."""
+
+    string_fields = (
+        "claude_cli_version",
+        "codex_cli_version",
+        "openai_endpoint",
+        "openai_response_model_id",
+        "openai_service_tier",
+    )
+    for field_name in string_fields:
+        value = result.get(field_name)
+        if value is not None and (not isinstance(value, str) or not value.strip()):
+            raise EvalBoardError(
+                f"{context} {field_name} must be null or a nonempty string"
+            )
+
+    local_digest_fields = (
+        "claude_cli_launcher_sha256",
+        "claude_cli_native_sha256",
+        "codex_cli_launcher_sha256",
+        "codex_cli_native_sha256",
+    )
+    for field_name in local_digest_fields:
+        value = result.get(field_name)
+        if value is not None and not _is_sha256_hex(value):
+            raise EvalBoardError(
+                f"{context} {field_name} must be null or 64 lowercase hex characters"
+            )
+    if "codex_cli_sha256" in result:
+        raise EvalBoardError(
+            f"{context} carries legacy codex_cli_sha256 in a v8 result"
+        )
+    openai_max_output_tokens = result.get("openai_max_output_tokens")
+    if openai_max_output_tokens is not None and not _is_positive_int(
+        openai_max_output_tokens
+    ):
+        raise EvalBoardError(
+            f"{context} openai_max_output_tokens must be null or a positive integer"
+        )
+
+    backend = result.get("backend")
+    claude_fields_present = any(
+        result.get(field_name) is not None
+        for field_name in (
+            "claude_cli_version",
+            "claude_cli_launcher_sha256",
+            "claude_cli_native_sha256",
+        )
+    )
+    codex_fields_present = any(
+        result.get(field_name) is not None
+        for field_name in (
+            "codex_cli_version",
+            "codex_cli_launcher_sha256",
+            "codex_cli_native_sha256",
+        )
+    )
+    openai_fields_present = any(
+        result.get(field_name) is not None
+        for field_name in (
+            "openai_endpoint",
+            "openai_response_model_id",
+            "openai_service_tier",
+            "openai_max_output_tokens",
+        )
+    )
+    if (
+        (claude_fields_present and backend != "claude")
+        or (codex_fields_present and backend != "codex")
+        or (openai_fields_present and backend != "openai")
+    ):
+        raise EvalBoardError(
+            f"{context} effective-environment fields do not match its backend"
+        )
+
+    if backend in {"claude", "codex"}:
+        version_field = f"{backend}_cli_version"
+        if not _is_nonempty_string(result.get(version_field)):
+            raise EvalBoardError(f"{context} requires {version_field}")
+        for digest_field in (
+            f"{backend}_cli_launcher_sha256",
+            f"{backend}_cli_native_sha256",
+        ):
+            if not _is_sha256_hex(result.get(digest_field)):
+                raise EvalBoardError(f"{context} requires {digest_field}")
+    if backend == "openai":
+        if not _is_nonempty_string(result.get("openai_endpoint")):
+            raise EvalBoardError(f"{context} requires openai_endpoint")
+        if not _is_positive_int(result.get("openai_max_output_tokens")):
+            raise EvalBoardError(f"{context} requires openai_max_output_tokens")
+        has_generated_artifact = bool(result.get("output_file")) or isinstance(
+            result.get("metrics"), dict
+        )
+        if has_generated_artifact and not _is_nonempty_string(
+            result.get("openai_response_model_id")
+        ):
+            raise EvalBoardError(f"{context} requires openai_response_model_id")
+
+
+def _validate_result_receiver_identity_binding(
+    result: dict,
+    *,
+    execution_identity: dict,
+    context: str,
+) -> None:
+    """Require each row to match its suite-preflighted receiver."""
+
+    backend = result.get("backend")
+    if backend not in {"claude", "codex", "openai"}:
+        return
+    receiver_environments = execution_identity.get("receiver_environments")
+    environment = (
+        receiver_environments.get(backend)
+        if isinstance(receiver_environments, dict)
+        else None
+    )
+    if backend == "openai":
+        expected_endpoint = (
+            environment.get("endpoint") if isinstance(environment, dict) else None
+        )
+        if result.get("openai_endpoint") != expected_endpoint:
+            raise EvalBoardError(
+                f"{context} openai_endpoint does not match its execution identity"
+            )
+        requested_models = (
+            environment.get("requested_models")
+            if isinstance(environment, dict)
+            else None
+        )
+        runner = result.get("runner")
+        requested_identity = (
+            next(
+                (
+                    requested
+                    for requested in requested_models
+                    if isinstance(requested, dict) and requested.get("name") == runner
+                ),
+                None,
+            )
+            if isinstance(requested_models, list)
+            else None
+        )
+        requested_model = (
+            requested_identity.get("model")
+            if isinstance(requested_identity, dict)
+            else None
+        )
+        if result.get("model") != requested_model:
+            raise EvalBoardError(
+                f"{context} requested model does not match its execution identity"
+            )
+        response_model = result.get("openai_response_model_id")
+        if response_model is not None and not _openai_response_model_matches_request(
+            response_model,
+            requested_model,
+        ):
+            raise EvalBoardError(
+                f"{context} response model {response_model!r} does not match "
+                f"requested model {requested_model!r}"
+            )
+        return
+    expected = {
+        f"{backend}_cli_version": (
+            environment.get("cli_version") if isinstance(environment, dict) else None
+        ),
+        f"{backend}_cli_launcher_sha256": (
+            environment.get("launcher_sha256")
+            if isinstance(environment, dict)
+            else None
+        ),
+        f"{backend}_cli_native_sha256": (
+            environment.get("native_sha256") if isinstance(environment, dict) else None
+        ),
+    }
+    for field_name, expected_value in expected.items():
+        if result.get(field_name) != expected_value:
+            raise EvalBoardError(
+                f"{context} {field_name} does not match its execution identity"
+            )
+
+
+def _openai_response_model_matches_request(
+    response_model: str,
+    requested_model: str,
+) -> bool:
+    """Allow only the requested OpenAI model or its dated server snapshot."""
+
+    return (
+        response_model == requested_model
+        or re.fullmatch(
+            rf"{re.escape(requested_model)}-[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}",
+            response_model,
+        )
+        is not None
+    )
+
+
+def _validate_openai_server_identity_stability(
+    result: dict,
+    *,
+    response_models: dict[str, str],
+    service_tiers: dict[str, str],
+    context: str,
+) -> None:
+    """Refuse server-reported OpenAI identity drift within one runner."""
+
+    if result.get("backend") != "openai":
+        return
+    runner = result.get("runner")
+    assert isinstance(runner, str)
+    for field_name, label, recorded in (
+        ("openai_response_model_id", "response model", response_models),
+        ("openai_service_tier", "service tier", service_tiers),
+    ):
+        value = result.get(field_name)
+        if value is None:
+            continue
+        prior = recorded.get(runner)
+        if prior is not None and prior != value:
+            raise EvalBoardError(
+                f"{context} OpenAI {label} changed for runner {runner!r} "
+                f"from {prior!r} to {value!r}"
+            )
+        recorded[runner] = value
+
+
+def _receiver_environment_comparison_identity(
+    backend: str,
+    environment: dict,
+) -> object:
+    """Return the receiver fields that must agree between board payloads."""
+
+    if backend == "openai":
+        # Each single-runner payload legitimately carries its own requested
+        # model roster. The endpoint is the shared request environment.
+        return environment["endpoint"]
+    return environment
+
+
 def _validate_result_types(result: dict, *, context: str) -> None:
     """Refuse malformed rows instead of reinterpreting them."""
     _require_bool(result.get("success"), context=f"{context} success")
@@ -1437,9 +1807,16 @@ def _validate_result_types(result: dict, *, context: str) -> None:
     if error is not None and not isinstance(error, str):
         raise EvalBoardError(f"{context} error must be null or a string, got {error!r}")
     failure_kind = result.get("failure_kind")
-    if failure_kind not in {None, "timeout", "validation", "error"}:
+    if failure_kind not in {
+        None,
+        "timeout",
+        "validation",
+        "error",
+        *_INFRA_FAILURE_KINDS,
+    }:
         raise EvalBoardError(
-            f"{context} failure_kind must be null, timeout, validation, or error"
+            f"{context} failure_kind must be null, timeout, validation, error, "
+            "context_overflow, output_truncated, or integrity"
         )
     timed_out = result.get("timed_out")
     if not isinstance(timed_out, bool):
@@ -1475,6 +1852,22 @@ def _validate_result_types(result: dict, *, context: str) -> None:
             raise EvalBoardError(f"{context} marks success with a failure_kind")
     elif failure_kind is None:
         raise EvalBoardError(f"{context} failure row has no failure_kind")
+    unexpected_accesses = result.get("unexpected_accesses")
+    if not isinstance(unexpected_accesses, list) or any(
+        not isinstance(access, str) or not access.strip()
+        for access in unexpected_accesses
+    ):
+        raise EvalBoardError(
+            f"{context} unexpected_accesses must be a list of nonempty strings"
+        )
+    if unexpected_accesses and failure_kind != "integrity":
+        raise EvalBoardError(
+            f"{context} has unexpected_accesses without an integrity failure"
+        )
+    if failure_kind == "integrity" and not unexpected_accesses:
+        raise EvalBoardError(
+            f"{context} integrity failure must record unexpected_accesses"
+        )
     _require_nonnegative_int(
         result.get("duration_ms"), context=f"{context} duration_ms"
     )
@@ -1482,6 +1875,7 @@ def _validate_result_types(result: dict, *, context: str) -> None:
         result.get("estimated_cost_usd"),
         context=f"{context} estimated_cost_usd",
     )
+    _validate_result_effective_environment(result, context=context)
     raw_metrics = result.get("metrics")
     if raw_metrics is not None and not isinstance(raw_metrics, dict):
         raise EvalBoardError(
@@ -1497,6 +1891,15 @@ def _validate_result_types(result: dict, *, context: str) -> None:
     ):
         raise EvalBoardError(
             f"{context} timeout row must have attempts and no generated artifact "
+            "or artifact metrics"
+        )
+    if failure_kind in _INFRA_FAILURE_KINDS and (
+        metrics is not None
+        or bool(result.get("output_file"))
+        or result.get("generated_output_sha256") is not None
+    ):
+        raise EvalBoardError(
+            f"{context} {failure_kind} row must have no generated artifact "
             "or artifact metrics"
         )
     if failure_kind == "validation" and metrics is None:
@@ -1775,6 +2178,11 @@ def _validate_result_row_admission(
         context=context,
     )
     _validate_result_types(result, context=context)
+    _validate_result_receiver_identity_binding(
+        result,
+        execution_identity=execution_identity,
+        context=context,
+    )
     _validate_result_policyengine_runtime_evidence(
         result,
         case_identity=case_identity,
@@ -1820,6 +2228,14 @@ def _cell_for_result(result: dict) -> BoardCell:
         error = result.get("error")
         detail = str(error)[:200] if error else "encoder or case budget timed out"
         return BoardCell(state="timeout", duration_ms=duration_ms, detail=detail)
+    if failure_kind in _INFRA_FAILURE_KINDS:
+        error = result.get("error")
+        detail = str(error)[:200] if error else failure_kind.replace("_", " ")
+        return BoardCell(
+            state=failure_kind,
+            duration_ms=duration_ms,
+            detail=detail,
+        )
     metrics = _result_metrics(result)
     failed: list[str] = []
     if metrics is not None:
@@ -1882,6 +2298,11 @@ def fold_eval_board(
     reference_source = ""
     runner_sources: dict[str, str] = {}
     runner_identities: dict[str, dict] = {}
+    runner_effort_identities: dict[str, dict] = {}
+    receiver_environment_identities: dict[str, dict] = {}
+    receiver_environment_sources: dict[str, str] = {}
+    openai_response_model_identities: dict[str, str] = {}
+    openai_service_tier_identities: dict[str, str] = {}
     runner_results: dict[str, dict[int, dict]] = {}
     sources: dict[str, str] = {}
     incomplete_sources: list[str] = []
@@ -1901,7 +2322,35 @@ def fold_eval_board(
         execution_identity, execution_digest = _payload_execution_identity(
             payload, source
         )
-        normalized_execution = normalized_execution_identity(execution_identity)
+        common_execution_identity = dict(execution_identity)
+        common_execution_identity.pop("runner_efforts")
+        common_execution_identity.pop("receiver_environments")
+        normalized_execution = normalized_execution_identity(common_execution_identity)
+        payload_runner_efforts = {
+            effort["name"]: effort for effort in execution_identity["runner_efforts"]
+        }
+        for backend, environment in execution_identity["receiver_environments"].items():
+            prior_environment = receiver_environment_identities.get(backend)
+            environment_changed = (
+                prior_environment is not None
+                and _receiver_environment_comparison_identity(
+                    backend,
+                    prior_environment,
+                )
+                != _receiver_environment_comparison_identity(backend, environment)
+            )
+            if environment_changed and not allow_mixed_toolchains:
+                raise EvalBoardError(
+                    "Suite results are not comparable: receiver environment "
+                    f"for {backend!r} in {source} does not match "
+                    f"{receiver_environment_sources[backend]}"
+                )
+            if environment_changed:
+                if source not in mixed_toolchain_sources:
+                    mixed_toolchain_sources.append(source)
+            elif prior_environment is None:
+                receiver_environment_identities[backend] = environment
+                receiver_environment_sources[backend] = source
         execution_identity_sha256s[source] = execution_digest
 
         if reference_cases is None:
@@ -1947,6 +2396,17 @@ def fold_eval_board(
         for identity in payload_runner_identities:
             name = identity.get("name")
             assert isinstance(name, str)
+            effort_identity = payload_runner_efforts[name]
+            prior_effort_identity = runner_effort_identities.get(name)
+            if (
+                prior_effort_identity is not None
+                and prior_effort_identity != effort_identity
+            ):
+                raise EvalBoardError(
+                    f"Runner {name!r} requests a different effort in "
+                    f"{runner_sources[name]} and {source}; same-name runs must "
+                    "use the same requested effort, including receiver default"
+                )
             if name in runner_sources:
                 raise EvalBoardError(
                     f"Runner {name!r} appears in both {runner_sources[name]} "
@@ -1955,6 +2415,7 @@ def fold_eval_board(
                 )
             runner_sources[name] = source
             runner_identities[name] = identity
+            runner_effort_identities[name] = effort_identity
             runner_results[name] = {}
             payload_runner_names.add(name)
 
@@ -2017,6 +2478,12 @@ def fold_eval_board(
                     f"Duplicate result for runner {runner!r} case "
                     f"#{case_index} in {source}"
                 )
+            _validate_openai_server_identity_stability(
+                result,
+                response_models=openai_response_model_identities,
+                service_tiers=openai_service_tier_identities,
+                context=context,
+            )
             runner_results[runner][case_index] = result
 
         complete = _payload_completeness(
@@ -2079,6 +2546,7 @@ def fold_eval_board(
             runner=name,
             backend=identity["backend"],
             model=identity["model"],
+            requested_effort=runner_effort_identities[name]["requested_effort"],
             source=runner_sources[name],
             cases_run=0,
             artifact_case_count=0,
@@ -2156,6 +2624,9 @@ _CELL_GLYPHS: dict[BoardCellState, str] = {
     "pass": "P",
     "fail": "F",
     "timeout": "T",
+    "context_overflow": "C",
+    "output_truncated": "X",
+    "integrity": "I",
     "error": "E",
     "missing": "·",
 }
@@ -2198,6 +2669,8 @@ def eval_board_to_json(board: EvalBoard) -> dict:
                 "runner": stats.runner,
                 "backend": stats.backend,
                 "model": stats.model,
+                "requested_effort": stats.requested_effort,
+                "uses_receiver_default": stats.requested_effort is None,
                 "source": stats.source,
                 "cases_run": stats.cases_run,
                 "artifact_case_count": stats.artifact_case_count,
@@ -2288,11 +2761,12 @@ def render_eval_board_markdown(board: EvalBoard) -> str:
     )
     lines.append("")
     header = (
-        "| runner | model | gate pass | timeouts | artifacts | compile | ci | grounded | "
-        "src coverage | review | review score | oracle | median s | mean $ |"
+        "| runner | model | requested effort | gate pass | timeouts | artifacts | "
+        "compile | ci | grounded | src coverage | review | review score | oracle | "
+        "median s | mean $ |"
     )
     lines.append(header)
-    lines.append("|" + "---|" * 14)
+    lines.append("|" + "---|" * 15)
     for stats in ordered:
         oracle = (
             f"{stats.policyengine_pass_count}/{stats.policyengine_case_count}"
@@ -2300,12 +2774,13 @@ def render_eval_board_markdown(board: EvalBoard) -> str:
             else "—"
         )
         lines.append(
-            "| {runner} | {model} | {gate} | {timeouts} | {artifacts} | "
+            "| {runner} | {model} | {effort} | {gate} | {timeouts} | {artifacts} | "
             "{compile} | {ci} | {grounded} | "
             "{coverage} | {review} | {review_score} | {oracle} | {median} | "
             "{cost} |".format(
                 runner=stats.runner,
                 model=stats.model,
+                effort=stats.requested_effort or "default (receiver)",
                 gate=f"{stats.gate_pass_count}/{stats.cases_run} "
                 f"({_format_percent(stats.gate_pass_rate)})",
                 timeouts=stats.timeout_count,
@@ -2328,6 +2803,7 @@ def render_eval_board_markdown(board: EvalBoard) -> str:
     lines.append("")
     lines.append(
         "P = gate pass, F = validation/gate fail, T = encoder/case timeout, "
+        "C = context overflow, X = output truncated, I = integrity error, "
         "E = encode error, · = not run."
     )
     lines.append("")
@@ -2367,6 +2843,7 @@ def render_eval_board_text(board: EvalBoard) -> str:
     for stats in ordered:
         lines.append(
             f"{stats.runner:<{name_width}}  "
+            f"requested effort {stats.requested_effort or 'default (receiver)'}  "
             f"gate {stats.gate_pass_count}/{stats.cases_run} "
             f"({_format_percent(stats.gate_pass_rate)})  "
             f"T timeout {stats.timeout_count}  "
@@ -2377,7 +2854,10 @@ def render_eval_board_text(board: EvalBoard) -> str:
             f"median {_format_optional(stats.median_duration_seconds, '{:.0f}s')}"
         )
     lines.append("")
-    lines.append("Grid (P pass / F fail / T timeout / E error / · not run):")
+    lines.append(
+        "Grid (P pass / F fail / T timeout / C context overflow / "
+        "X output truncated / I integrity error / E error / · not run):"
+    )
     for case in board.cases:
         cells = " ".join(
             _CELL_GLYPHS[board.cells[(case.index, stats.runner)].state]

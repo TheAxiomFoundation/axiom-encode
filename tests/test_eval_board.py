@@ -24,9 +24,11 @@ from axiom_encode.harness.eval_board import (
     result_gate_pass,
 )
 from axiom_encode.harness.evals import (
+    EvalCliEnvironment,
     _build_eval_suite_execution_identity,
     _eval_suite_execution_identity_sha256,
     load_eval_suite_manifest,
+    parse_runner_spec,
 )
 from axiom_encode.harness.evals import (
     _canonical_json_sha256 as evals_canonical_json_sha256,
@@ -38,6 +40,20 @@ from axiom_encode.harness.policyengine_runtime import (
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CAPABILITY_MANIFEST = REPO_ROOT / "benchmarks" / "encodebench_uk_v1.yaml"
+_UNSET = object()
+
+
+def _cli_environment(backend: str) -> EvalCliEnvironment:
+    return EvalCliEnvironment(
+        backend=backend,
+        executable=f"/verified/bin/{backend}",
+        version=("Claude Code 2.test" if backend == "claude" else "codex-cli 0.test"),
+        executable_sha256=("a" if backend == "claude" else "c") * 64,
+        launcher_sha256=("a" if backend == "claude" else "c") * 64,
+        native_executable=f"/verified/lib/{backend}",
+        native_sha256=("b" if backend == "claude" else "d") * 64,
+    )
+
 
 CASE_IDENTITIES = [
     {
@@ -173,6 +189,9 @@ def _execution_identity(
     claude_timeout_seconds=1800,
     codex_timeout_seconds=600,
     suite_max_attempts=3,
+    runner_efforts=None,
+    receiver_backends=("codex",),
+    openai_requested_models=(),
 ):
     """A payload execution identity mirroring the current producer shape."""
     rulespec_checkout = f"{checkout.rsplit('/', 1)[0]}/rulespec-uk"
@@ -186,8 +205,38 @@ def _execution_identity(
         if isinstance(runtime_identity, dict)
         else None
     )
+    receiver_environments = {
+        backend: {
+            "cli_version": (
+                "Claude Code 2.test" if backend == "claude" else "codex-cli 0.test"
+            ),
+            "launcher_sha256": ("a" if backend == "claude" else "c") * 64,
+            "native_sha256": ("b" if backend == "claude" else "d") * 64,
+        }
+        for backend in receiver_backends
+    }
+    if openai_requested_models:
+        receiver_environments["openai"] = {
+            "endpoint": "https://api.openai.com/v1/responses",
+            "requested_models": [
+                {"name": name, "model": model}
+                for name, model in openai_requested_models
+            ],
+        }
     return {
         "schema": SUPPORTED_EXECUTION_IDENTITY_SCHEMA,
+        "runner_efforts": (
+            [
+                {
+                    "name": "terra",
+                    "requested_effort": None,
+                    "uses_receiver_default": True,
+                }
+            ]
+            if runner_efforts is None
+            else copy.deepcopy(runner_efforts)
+        ),
+        "receiver_environments": receiver_environments,
         "case_timeout_seconds": case_timeout_seconds,
         "runner_timeouts": {
             "claude": {"wall_seconds": claude_timeout_seconds},
@@ -340,9 +389,46 @@ def _result(
     timeout_reason=None,
     timeout_seconds=None,
     timeout_attempts=0,
+    claude_cli_version=_UNSET,
+    claude_cli_launcher_sha256=_UNSET,
+    claude_cli_native_sha256=_UNSET,
+    codex_cli_version=_UNSET,
+    codex_cli_launcher_sha256=_UNSET,
+    codex_cli_native_sha256=_UNSET,
+    openai_endpoint=_UNSET,
+    openai_response_model_id=_UNSET,
+    openai_service_tier=_UNSET,
+    openai_max_output_tokens=_UNSET,
+    unexpected_accesses=_UNSET,
 ):
     if metrics == "default":
         metrics = _metrics()
+    if claude_cli_version is _UNSET:
+        claude_cli_version = "Claude Code 2.test" if backend == "claude" else None
+    if claude_cli_launcher_sha256 is _UNSET:
+        claude_cli_launcher_sha256 = "a" * 64 if backend == "claude" else None
+    if claude_cli_native_sha256 is _UNSET:
+        claude_cli_native_sha256 = "b" * 64 if backend == "claude" else None
+    if codex_cli_version is _UNSET:
+        codex_cli_version = "codex-cli 0.test" if backend == "codex" else None
+    if codex_cli_launcher_sha256 is _UNSET:
+        codex_cli_launcher_sha256 = "c" * 64 if backend == "codex" else None
+    if codex_cli_native_sha256 is _UNSET:
+        codex_cli_native_sha256 = "d" * 64 if backend == "codex" else None
+    if openai_endpoint is _UNSET:
+        openai_endpoint = (
+            "https://api.openai.com/v1/responses" if backend == "openai" else None
+        )
+    if openai_response_model_id is _UNSET:
+        openai_response_model_id = model if backend == "openai" else None
+    if openai_service_tier is _UNSET:
+        openai_service_tier = "default" if backend == "openai" else None
+    if openai_max_output_tokens is _UNSET:
+        openai_max_output_tokens = 128_000 if backend == "openai" else None
+    if unexpected_accesses is _UNSET:
+        unexpected_accesses = (
+            ["prompt-only tool invocation"] if failure_kind == "integrity" else []
+        )
     has_generated_artifact = success is True or isinstance(metrics, dict)
     eval_case = {
         "index": case["index"],
@@ -368,6 +454,17 @@ def _result(
         "timeout_reason": timeout_reason,
         "timeout_seconds": timeout_seconds,
         "timeout_attempts": timeout_attempts,
+        "claude_cli_version": claude_cli_version,
+        "claude_cli_launcher_sha256": claude_cli_launcher_sha256,
+        "claude_cli_native_sha256": claude_cli_native_sha256,
+        "codex_cli_version": codex_cli_version,
+        "codex_cli_launcher_sha256": codex_cli_launcher_sha256,
+        "codex_cli_native_sha256": codex_cli_native_sha256,
+        "openai_endpoint": openai_endpoint,
+        "openai_response_model_id": openai_response_model_id,
+        "openai_service_tier": openai_service_tier,
+        "openai_max_output_tokens": openai_max_output_tokens,
+        "unexpected_accesses": unexpected_accesses,
         "duration_ms": duration_ms,
         "estimated_cost_usd": cost,
         "output_file": (
@@ -398,6 +495,7 @@ def _payload(
     results_sha256=None,
     coverage_overrides=None,
     evidence_overrides=None,
+    requested_efforts=None,
     schema=SUPPORTED_RESULTS_SCHEMA,
 ):
     case_identities = CASE_IDENTITIES if case_identities is None else case_identities
@@ -417,7 +515,30 @@ def _payload(
         "case_identities": case_identities,
     }
     if execution_identity is None:
-        execution_identity = _execution_identity()
+        execution_identity = _execution_identity(
+            receiver_backends=tuple(
+                sorted(
+                    {
+                        backend
+                        for _name, backend, _model in runners
+                        if backend in {"claude", "codex"}
+                    }
+                )
+            ),
+            openai_requested_models=tuple(
+                (name, model) for name, backend, model in runners if backend == "openai"
+            ),
+        )
+    execution_identity = copy.deepcopy(execution_identity)
+    requested_efforts = {} if requested_efforts is None else requested_efforts
+    execution_identity["runner_efforts"] = [
+        {
+            "name": name,
+            "requested_effort": requested_efforts.get(name),
+            "uses_receiver_default": requested_efforts.get(name) is None,
+        }
+        for name, _backend, _model in runners
+    ]
     if execution_identity_sha256 is None:
         execution_identity_sha256 = evals_canonical_json_sha256(execution_identity)
     bound_results = []
@@ -581,13 +702,22 @@ def _bind_result_to_rulespec_root(payload, row_index, root):
 
 def test_supported_schema_matches_producer():
     assert SUPPORTED_RESULTS_SCHEMA == cli._EVAL_SUITE_RESULTS_SCHEMA
-    assert SUPPORTED_RESULTS_SCHEMA == "axiom-encode/eval-suite-results/v6"
+    assert SUPPORTED_RESULTS_SCHEMA == "axiom-encode/eval-suite-results/v8"
     assert (
-        SUPPORTED_EXECUTION_IDENTITY_SCHEMA == "axiom-encode/eval-execution-identity/v3"
+        SUPPORTED_EXECUTION_IDENTITY_SCHEMA == "axiom-encode/eval-execution-identity/v6"
     )
     assert (
         eval_board_module.SUPPORTED_EVIDENCE_SCHEMA == cli._EVAL_SUITE_EVIDENCE_SCHEMA
     )
+
+
+def test_effort_changelog_names_current_execution_identity_generation():
+    generation = SUPPORTED_EXECUTION_IDENTITY_SCHEMA.rsplit("/", 1)[-1]
+    changelog = (
+        REPO_ROOT / "changelog.d" / "1189-eval-effort-axis.changed.md"
+    ).read_text()
+
+    assert f"Execution identity {generation} binds" in changelog
 
 
 def test_canonical_digest_matches_both_producer_functions():
@@ -608,7 +738,12 @@ def test_real_producer_identity_matches_consumer_contract():
     exercises the producer's actual schema string, digest function, and
     field shapes against the consumer's constants and normalizer.
     """
-    identity = _build_eval_suite_execution_identity(REPO_ROOT, ())
+    identity = _build_eval_suite_execution_identity(
+        REPO_ROOT,
+        (),
+        parsed_runners=(parse_runner_spec("terra=codex:gpt-5.6-terra"),),
+        cli_environments={"codex": _cli_environment("codex")},
+    )
     assert identity["schema"] == SUPPORTED_EXECUTION_IDENTITY_SCHEMA
     digest = _eval_suite_execution_identity_sha256(identity)
     assert digest == eval_board_module._canonical_json_sha256(identity)
@@ -621,6 +756,197 @@ def test_real_producer_identity_matches_consumer_contract():
     assert identity["case_timeout_seconds"] == normalized["case_timeout_seconds"]
     assert identity["runner_timeouts"] == normalized["runner_timeouts"]
     assert identity["timeout_retry_policy"] == normalized["timeout_retry_policy"]
+    assert identity["runner_efforts"] == normalized["runner_efforts"]
+
+
+def test_payload_execution_identity_requires_receiver_environments(tmp_path):
+    payload = _payload(
+        [("terra", "codex", "gpt-5.6-terra")],
+        [_result("terra", case) for case in CASE_IDENTITIES],
+    )
+    payload["evidence"]["execution_identity"].pop("receiver_environments")
+    unsigned_evidence = dict(payload["evidence"])
+    unsigned_evidence.pop("sha256")
+    payload["evidence"]["sha256"] = cli._eval_suite_json_sha256(unsigned_evidence)
+    assert "receiver_environments" not in payload["evidence"]["execution_identity"]
+    path = _write_payload(tmp_path, "missing-receiver-environments.json", payload)
+
+    with pytest.raises(EvalBoardError, match="receiver environments"):
+        fold_eval_board([path])
+
+
+def test_payload_execution_identity_refuses_unexercised_receiver_environment(
+    tmp_path,
+):
+    identity = _execution_identity(receiver_backends=("claude", "codex"))
+    payload = _payload(
+        [("terra", "codex", "gpt-5.6-terra")],
+        [_result("terra", case) for case in CASE_IDENTITIES],
+        execution_identity=identity,
+    )
+    path = _write_payload(tmp_path, "extra-receiver-environment.json", payload)
+
+    with pytest.raises(EvalBoardError, match="receiver environments"):
+        fold_eval_board([path])
+
+
+@pytest.mark.parametrize(
+    "requested_models",
+    [
+        [{"name": "api", "model": "gpt-5.4-pro"}],
+        [{"name": "other", "model": "gpt-5.4"}],
+        [
+            {"name": "api", "model": "gpt-5.4"},
+            {"name": "undeclared", "model": "gpt-5.4"},
+        ],
+    ],
+)
+def test_payload_execution_identity_requires_exact_openai_requested_model_roster(
+    tmp_path,
+    requested_models,
+):
+    identity = _execution_identity(
+        receiver_backends=(),
+        openai_requested_models=(("api", "gpt-5.4"),),
+    )
+    identity["receiver_environments"]["openai"]["requested_models"] = requested_models
+    path = _write_payload(
+        tmp_path,
+        "mismatched-openai-roster.json",
+        _payload(
+            [("api", "openai", "gpt-5.4")],
+            [
+                _result("api", case, backend="openai", model="gpt-5.4")
+                for case in CASE_IDENTITIES
+            ],
+            execution_identity=identity,
+        ),
+    )
+
+    with pytest.raises(EvalBoardError, match="receiver environment"):
+        fold_eval_board([path])
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        {},
+        {
+            "endpoint": "",
+            "requested_models": [{"name": "api", "model": "gpt-5.4"}],
+        },
+        {
+            "endpoint": "https://api.openai.com/v1/responses",
+            "requested_models": "gpt-5.4",
+        },
+        {
+            "endpoint": "https://api.openai.com/v1/responses",
+            "requested_models": [{"name": "api", "model": "gpt-5.4"}],
+            "extra": True,
+        },
+    ],
+)
+def test_payload_execution_identity_refuses_malformed_openai_environment(
+    tmp_path,
+    mutation,
+):
+    identity = _execution_identity(
+        receiver_backends=(),
+        openai_requested_models=(("api", "gpt-5.4"),),
+    )
+    identity["receiver_environments"]["openai"] = mutation
+    path = _write_payload(
+        tmp_path,
+        "malformed-openai-environment.json",
+        _payload(
+            [("api", "openai", "gpt-5.4")],
+            [
+                _result("api", case, backend="openai", model="gpt-5.4")
+                for case in CASE_IDENTITIES
+            ],
+            execution_identity=identity,
+        ),
+    )
+
+    with pytest.raises(EvalBoardError, match="receiver environment"):
+        fold_eval_board([path])
+
+
+def test_normalized_execution_identity_preserves_receiver_digests():
+    identity = _execution_identity()
+    identity["receiver_environments"] = {
+        "codex": {
+            "cli_version": "codex-cli 0.test",
+            "launcher_sha256": "a" * 64,
+            "native_sha256": "b" * 64,
+        }
+    }
+
+    normalized = normalized_execution_identity(identity)
+
+    assert normalized["receiver_environments"] == identity["receiver_environments"]
+
+
+@pytest.mark.parametrize(
+    ("backend", "model", "missing_field"),
+    [
+        ("claude", "claude-fable-5", "claude_cli_launcher_sha256"),
+        ("claude", "claude-fable-5", "claude_cli_native_sha256"),
+        ("codex", "gpt-5.6-terra", "codex_cli_launcher_sha256"),
+        ("codex", "gpt-5.6-terra", "codex_cli_native_sha256"),
+    ],
+)
+def test_fold_requires_local_receiver_launcher_and_native_digests(
+    tmp_path,
+    backend,
+    model,
+    missing_field,
+):
+    results = [
+        _result("runner", case, backend=backend, model=model)
+        for case in CASE_IDENTITIES
+    ]
+    for row in results:
+        prefix = f"{backend}_cli"
+        row[f"{prefix}_launcher_sha256"] = "a" * 64
+        row[f"{prefix}_native_sha256"] = "b" * 64
+    results[0].pop(missing_field)
+    path = _write_payload(
+        tmp_path,
+        f"missing-{missing_field}.json",
+        _payload([("runner", backend, model)], results),
+    )
+
+    with pytest.raises(EvalBoardError, match=missing_field):
+        fold_eval_board([path])
+
+
+@pytest.mark.parametrize(
+    ("field_name", "replacement"),
+    [
+        ("codex_cli_version", "codex-cli 99.test"),
+        ("codex_cli_launcher_sha256", "e" * 64),
+        ("codex_cli_native_sha256", "f" * 64),
+    ],
+)
+def test_fold_requires_row_receiver_to_match_execution_identity(
+    tmp_path,
+    field_name,
+    replacement,
+):
+    results = [_result("terra", case) for case in CASE_IDENTITIES]
+    results[0][field_name] = replacement
+    path = _write_payload(
+        tmp_path,
+        f"mismatched-{field_name}.json",
+        _payload([("terra", "codex", "gpt-5.6-terra")], results),
+    )
+
+    with pytest.raises(
+        EvalBoardError,
+        match=rf"{field_name}.*execution identity",
+    ):
+        fold_eval_board([path])
 
 
 def test_real_producer_identity_is_admitted_by_consumer(tmp_path):
@@ -657,6 +983,8 @@ def test_real_producer_identity_is_admitted_by_consumer(tmp_path):
     identity = _build_eval_suite_execution_identity(
         REPO_ROOT,
         (str(content_root),),
+        parsed_runners=(parse_runner_spec("terra=codex:gpt-5.6-terra"),),
+        cli_environments={"codex": _cli_environment("codex")},
     )
     digest = _eval_suite_execution_identity_sha256(identity)
 
@@ -675,6 +1003,13 @@ def test_real_producer_identity_is_admitted_by_consumer(tmp_path):
     admitted_identity, admitted_digest = eval_board_module._payload_execution_identity(
         {
             "evidence": {
+                "effective_runner_identities": [
+                    {
+                        "name": "terra",
+                        "backend": "codex",
+                        "model": "gpt-5.6-terra",
+                    }
+                ],
                 "execution_identity": identity,
                 "execution_identity_sha256": digest,
             }
@@ -852,6 +1187,79 @@ def test_fold_two_single_runner_payloads(tmp_path):
     assert board.mixed_toolchain_sources == []
 
 
+def test_fold_allows_distinct_openai_requested_rosters_at_one_endpoint(tmp_path):
+    first = _write_payload(
+        tmp_path,
+        "openai-gpt-5.4.json",
+        _payload(
+            [("api-54", "openai", "gpt-5.4")],
+            [
+                _result("api-54", case, backend="openai", model="gpt-5.4")
+                for case in CASE_IDENTITIES
+            ],
+        ),
+    )
+    second = _write_payload(
+        tmp_path,
+        "openai-gpt-5.5.json",
+        _payload(
+            [("api-55", "openai", "gpt-5.5")],
+            [
+                _result("api-55", case, backend="openai", model="gpt-5.5")
+                for case in CASE_IDENTITIES
+            ],
+        ),
+    )
+
+    board = fold_eval_board([first, second])
+
+    assert {runner.runner for runner in board.runners} == {"api-54", "api-55"}
+    assert board.mixed_toolchain_sources == []
+
+
+def test_fold_refuses_openai_endpoint_drift_across_payloads(tmp_path):
+    first = _write_payload(
+        tmp_path,
+        "openai-primary-endpoint.json",
+        _payload(
+            [("api-54", "openai", "gpt-5.4")],
+            [
+                _result("api-54", case, backend="openai", model="gpt-5.4")
+                for case in CASE_IDENTITIES
+            ],
+        ),
+    )
+    alternate_endpoint = "https://api.openai.example/v1/responses"
+    alternate_identity = _execution_identity(
+        receiver_backends=(),
+        openai_requested_models=(("api-55", "gpt-5.5"),),
+    )
+    alternate_identity["receiver_environments"]["openai"]["endpoint"] = (
+        alternate_endpoint
+    )
+    second = _write_payload(
+        tmp_path,
+        "openai-alternate-endpoint.json",
+        _payload(
+            [("api-55", "openai", "gpt-5.5")],
+            [
+                _result(
+                    "api-55",
+                    case,
+                    backend="openai",
+                    model="gpt-5.5",
+                    openai_endpoint=alternate_endpoint,
+                )
+                for case in CASE_IDENTITIES
+            ],
+            execution_identity=alternate_identity,
+        ),
+    )
+
+    with pytest.raises(EvalBoardError, match=r"receiver environment.*openai"):
+        fold_eval_board([first, second])
+
+
 def test_board_distinguishes_timeout_validation_failure_and_plain_error(tmp_path):
     results = [
         _result(
@@ -911,6 +1319,457 @@ def test_board_distinguishes_timeout_validation_failure_and_plain_error(tmp_path
     assert stats.zero_ungrounded_rate == 1.0
     assert "T = encoder/case timeout" in render_eval_board_markdown(board)
     assert "T timeout" in render_eval_board_text(board)
+
+
+def test_board_renders_distinct_infra_failure_states(tmp_path):
+    failure_kinds = (
+        ("context_overflow", "Prompt exceeds the shared receiver limit"),
+        ("output_truncated", "Receiver stopped at its output-token limit"),
+        ("integrity", "Codex read an undeclared path"),
+    )
+    results = [
+        _result(
+            "terra",
+            case,
+            success=False,
+            error=error,
+            metrics=None,
+            failure_kind=failure_kind,
+        )
+        for case, (failure_kind, error) in zip(
+            CASE_IDENTITIES, failure_kinds, strict=True
+        )
+    ]
+    path = _write_payload(
+        tmp_path,
+        "infra-failures.json",
+        _payload([("terra", "codex", "gpt-5.6-terra")], results),
+    )
+
+    board = fold_eval_board([path])
+
+    assert [board.cells[(index, "terra")].state for index in range(1, 4)] == [
+        "context_overflow",
+        "output_truncated",
+        "integrity",
+    ]
+    assert [cell["state"] for cell in eval_board_to_json(board)["cells"]] == [
+        "context_overflow",
+        "output_truncated",
+        "integrity",
+    ]
+    markdown = render_eval_board_markdown(board)
+    assert "C = context overflow" in markdown
+    assert "X = output truncated" in markdown
+    assert "I = integrity error" in markdown
+    assert "| 01 alpha | C |" in markdown
+    assert "| 02 beta | X |" in markdown
+    assert "| 03 gamma | I |" in markdown
+    text = render_eval_board_text(board)
+    assert "C context overflow" in text
+    assert "X output truncated" in text
+    assert "I integrity error" in text
+    grid_rows = [line for line in text.splitlines() if line.startswith("  0")]
+    assert grid_rows[0].endswith("C")
+    assert grid_rows[1].endswith("X")
+    assert grid_rows[2].endswith("I")
+
+
+@pytest.mark.parametrize(
+    "failure_kind", ["context_overflow", "output_truncated", "integrity"]
+)
+def test_fold_refuses_infra_failure_that_claims_a_generated_artifact(
+    tmp_path, failure_kind
+):
+    results = [_result("terra", case) for case in CASE_IDENTITIES]
+    results[0] = _result(
+        "terra",
+        CASE_IDENTITIES[0],
+        success=False,
+        error=f"{failure_kind} failure",
+        metrics=_metrics(),
+        failure_kind=failure_kind,
+    )
+    path = _write_payload(
+        tmp_path,
+        f"artifact-mislabeled-as-{failure_kind}.json",
+        _payload([("terra", "codex", "gpt-5.6-terra")], results),
+    )
+
+    with pytest.raises(EvalBoardError, match="no generated artifact"):
+        fold_eval_board([path])
+
+
+@pytest.mark.parametrize(
+    ("backend", "model", "required_field"),
+    [
+        ("claude", "claude-fable-5", "claude_cli_version"),
+        ("claude", "claude-fable-5", "claude_cli_launcher_sha256"),
+        ("claude", "claude-fable-5", "claude_cli_native_sha256"),
+        ("codex", "gpt-5.6-terra", "codex_cli_version"),
+        ("codex", "gpt-5.6-terra", "codex_cli_launcher_sha256"),
+        ("codex", "gpt-5.6-terra", "codex_cli_native_sha256"),
+        ("openai", "gpt-5.4", "openai_endpoint"),
+        ("openai", "gpt-5.4", "openai_response_model_id"),
+        ("openai", "gpt-5.4", "openai_max_output_tokens"),
+    ],
+)
+def test_fold_requires_backend_effective_environment_field(
+    tmp_path, backend, model, required_field
+):
+    results = [
+        _result("runner", case, backend=backend, model=model)
+        for case in CASE_IDENTITIES
+    ]
+    results[0].pop(required_field)
+    path = _write_payload(
+        tmp_path,
+        f"missing-{required_field}.json",
+        _payload([("runner", backend, model)], results),
+    )
+
+    with pytest.raises(EvalBoardError, match=required_field):
+        fold_eval_board([path])
+
+
+@pytest.mark.parametrize(
+    ("backend", "model", "field_name", "invalid_value"),
+    [
+        ("claude", "claude-fable-5", "claude_cli_version", ""),
+        ("claude", "claude-fable-5", "claude_cli_version", " \t"),
+        ("codex", "gpt-5.6-terra", "codex_cli_version", ""),
+        ("codex", "gpt-5.6-terra", "codex_cli_version", " \t"),
+    ],
+)
+def test_fold_requires_nonempty_local_cli_version(
+    tmp_path, backend, model, field_name, invalid_value
+):
+    results = [
+        _result("runner", case, backend=backend, model=model)
+        for case in CASE_IDENTITIES
+    ]
+    results[0][field_name] = invalid_value
+    path = _write_payload(
+        tmp_path,
+        f"invalid-{field_name}.json",
+        _payload([("runner", backend, model)], results),
+    )
+
+    with pytest.raises(EvalBoardError, match=field_name):
+        fold_eval_board([path])
+
+
+@pytest.mark.parametrize(
+    ("backend", "model", "field_name"),
+    [
+        ("claude", "claude-fable-5", "claude_cli_version"),
+        ("codex", "gpt-5.6-terra", "codex_cli_version"),
+        ("openai", "gpt-5.4", "openai_endpoint"),
+        ("openai", "gpt-5.4", "openai_response_model_id"),
+        ("openai", "gpt-5.4", "openai_service_tier"),
+    ],
+)
+@pytest.mark.parametrize("invalid_value", ["", "   ", 17])
+def test_fold_refuses_invalid_effective_environment_string(
+    tmp_path, backend, model, field_name, invalid_value
+):
+    results = [
+        _result("runner", case, backend=backend, model=model)
+        for case in CASE_IDENTITIES
+    ]
+    results[0][field_name] = invalid_value
+    path = _write_payload(
+        tmp_path,
+        f"invalid-{field_name}.json",
+        _payload([("runner", backend, model)], results),
+    )
+
+    with pytest.raises(EvalBoardError, match=field_name):
+        fold_eval_board([path])
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "claude_cli_launcher_sha256",
+        "claude_cli_native_sha256",
+        "codex_cli_launcher_sha256",
+        "codex_cli_native_sha256",
+    ],
+)
+@pytest.mark.parametrize("invalid_sha256", ["D" * 64, "d" * 63, 17])
+def test_fold_refuses_invalid_local_cli_sha256(
+    tmp_path,
+    field_name,
+    invalid_sha256,
+):
+    backend = field_name.split("_", 1)[0]
+    model = "claude-fable-5" if backend == "claude" else "gpt-5.6-terra"
+    results = [
+        _result("runner", case, backend=backend, model=model)
+        for case in CASE_IDENTITIES
+    ]
+    results[0][field_name] = invalid_sha256
+    path = _write_payload(
+        tmp_path,
+        f"invalid-{field_name}.json",
+        _payload([("runner", backend, model)], results),
+    )
+
+    with pytest.raises(EvalBoardError, match=field_name):
+        fold_eval_board([path])
+
+
+@pytest.mark.parametrize("invalid_max_tokens", [0, -1, True, "128000"])
+def test_fold_refuses_invalid_openai_max_output_tokens(tmp_path, invalid_max_tokens):
+    results = [
+        _result("openai", case, backend="openai", model="gpt-5.4")
+        for case in CASE_IDENTITIES
+    ]
+    results[0]["openai_max_output_tokens"] = invalid_max_tokens
+    path = _write_payload(
+        tmp_path,
+        "invalid-openai-max-output-tokens.json",
+        _payload([("openai", "openai", "gpt-5.4")], results),
+    )
+
+    with pytest.raises(EvalBoardError, match="openai_max_output_tokens"):
+        fold_eval_board([path])
+
+
+@pytest.mark.parametrize(
+    ("backend", "model", "foreign_field", "foreign_value"),
+    [
+        ("codex", "gpt-5.6-terra", "claude_cli_version", "Claude Code 2.test"),
+        ("codex", "gpt-5.6-terra", "claude_cli_launcher_sha256", "a" * 64),
+        ("codex", "gpt-5.6-terra", "claude_cli_native_sha256", "b" * 64),
+        ("claude", "claude-fable-5", "codex_cli_version", "codex-cli 0.test"),
+        ("claude", "claude-fable-5", "codex_cli_launcher_sha256", "c" * 64),
+        ("claude", "claude-fable-5", "codex_cli_native_sha256", "d" * 64),
+        (
+            "codex",
+            "gpt-5.6-terra",
+            "openai_endpoint",
+            "https://api.openai.com/v1/responses",
+        ),
+        ("codex", "gpt-5.6-terra", "openai_response_model_id", "gpt-5.4"),
+        ("codex", "gpt-5.6-terra", "openai_service_tier", "default"),
+        ("codex", "gpt-5.6-terra", "openai_max_output_tokens", 128_000),
+    ],
+)
+def test_fold_refuses_effective_environment_field_for_another_backend(
+    tmp_path, backend, model, foreign_field, foreign_value
+):
+    results = [
+        _result("runner", case, backend=backend, model=model)
+        for case in CASE_IDENTITIES
+    ]
+    results[0][foreign_field] = foreign_value
+    path = _write_payload(
+        tmp_path,
+        f"foreign-{foreign_field}.json",
+        _payload([("runner", backend, model)], results),
+    )
+
+    with pytest.raises(EvalBoardError, match="effective-environment.*backend"):
+        fold_eval_board([path])
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    ["codex_cli_launcher_sha256", "codex_cli_native_sha256"],
+)
+def test_fold_refuses_nullable_codex_cli_sha256(tmp_path, field_name):
+    codex_results = [_result("terra", case) for case in CASE_IDENTITIES]
+    for row in codex_results:
+        row[field_name] = None
+    codex_path = _write_payload(
+        tmp_path,
+        "codex-unreadable-executable.json",
+        _payload([("terra", "codex", "gpt-5.6-terra")], codex_results),
+    )
+
+    with pytest.raises(EvalBoardError, match=field_name):
+        fold_eval_board([codex_path])
+
+
+def test_fold_allows_pre_response_openai_metadata(tmp_path):
+    openai_results = [
+        _result(
+            "openai",
+            CASE_IDENTITIES[0],
+            backend="openai",
+            model="gpt-5.4",
+            success=False,
+            error="request failed before a response arrived",
+            metrics=None,
+            failure_kind="error",
+            openai_response_model_id=None,
+            openai_service_tier=None,
+        ),
+        *[
+            _result("openai", case, backend="openai", model="gpt-5.4")
+            for case in CASE_IDENTITIES[1:]
+        ],
+    ]
+    openai_path = _write_payload(
+        tmp_path,
+        "openai-pre-response-error.json",
+        _payload([("openai", "openai", "gpt-5.4")], openai_results),
+    )
+
+    assert fold_eval_board([openai_path]).cells[(1, "openai")].state == "error"
+
+
+def test_fold_requires_openai_row_endpoint_to_match_execution_identity(tmp_path):
+    results = [
+        _result("api", case, backend="openai", model="gpt-5.4")
+        for case in CASE_IDENTITIES
+    ]
+    results[0]["openai_endpoint"] = "https://api.openai.example/v1/responses"
+    path = _write_payload(
+        tmp_path,
+        "openai-row-endpoint-mismatch.json",
+        _payload([("api", "openai", "gpt-5.4")], results),
+    )
+
+    with pytest.raises(
+        EvalBoardError,
+        match=r"openai_endpoint.*execution identity",
+    ):
+        fold_eval_board([path])
+
+
+@pytest.mark.parametrize("response_model_id", ["gpt-4o", "gpt-5.4-pro"])
+def test_fold_requires_openai_response_model_to_match_requested_model(
+    tmp_path,
+    response_model_id,
+):
+    results = [
+        _result("api", case, backend="openai", model="gpt-5.4")
+        for case in CASE_IDENTITIES
+    ]
+    results[0]["openai_response_model_id"] = response_model_id
+    path = _write_payload(
+        tmp_path,
+        "openai-response-model-mismatch.json",
+        _payload([("api", "openai", "gpt-5.4")], results),
+    )
+
+    with pytest.raises(
+        EvalBoardError,
+        match=r"response model.*requested model",
+    ):
+        fold_eval_board([path])
+
+
+@pytest.mark.parametrize(
+    ("field_name", "replacement", "message"),
+    [
+        (
+            "openai_response_model_id",
+            "gpt-5.4-2026-07-01",
+            r"response model.*changed",
+        ),
+        ("openai_service_tier", "priority", r"service tier.*changed"),
+    ],
+)
+def test_fold_refuses_openai_server_identity_drift(
+    tmp_path,
+    field_name,
+    replacement,
+    message,
+):
+    results = [
+        _result(
+            "api",
+            case,
+            backend="openai",
+            model="gpt-5.4",
+            openai_response_model_id="gpt-5.4-2026-06-01",
+        )
+        for case in CASE_IDENTITIES
+    ]
+    results[1][field_name] = replacement
+    path = _write_payload(
+        tmp_path,
+        f"openai-{field_name}-drift.json",
+        _payload([("api", "openai", "gpt-5.4")], results),
+    )
+
+    with pytest.raises(EvalBoardError, match=message):
+        fold_eval_board([path])
+
+
+def test_fold_allows_versioned_openai_response_model_identity(tmp_path):
+    results = [
+        _result(
+            "api",
+            case,
+            backend="openai",
+            model="gpt-5.4",
+            openai_response_model_id="gpt-5.4-2026-06-01",
+        )
+        for case in CASE_IDENTITIES
+    ]
+    path = _write_payload(
+        tmp_path,
+        "openai-versioned-response-model.json",
+        _payload([("api", "openai", "gpt-5.4")], results),
+    )
+
+    assert fold_eval_board([path]).runners[0].runner == "api"
+
+
+@pytest.mark.parametrize(
+    "unexpected_accesses",
+    [None, "cat /etc/passwd", [17], [""], ["   "]],
+)
+def test_fold_refuses_malformed_unexpected_accesses(tmp_path, unexpected_accesses):
+    results = [_result("terra", case) for case in CASE_IDENTITIES]
+    results[0]["unexpected_accesses"] = unexpected_accesses
+    path = _write_payload(
+        tmp_path,
+        "malformed-unexpected-accesses.json",
+        _payload([("terra", "codex", "gpt-5.6-terra")], results),
+    )
+
+    with pytest.raises(EvalBoardError, match="unexpected_accesses"):
+        fold_eval_board([path])
+
+
+def test_fold_refuses_success_with_unexpected_accesses(tmp_path):
+    results = [_result("terra", case) for case in CASE_IDENTITIES]
+    results[0]["unexpected_accesses"] = ["cat $HOME/.ssh/id_rsa"]
+    path = _write_payload(
+        tmp_path,
+        "successful-unexpected-access.json",
+        _payload([("terra", "codex", "gpt-5.6-terra")], results),
+    )
+
+    with pytest.raises(EvalBoardError, match="unexpected_accesses.*integrity"):
+        fold_eval_board([path])
+
+
+def test_fold_refuses_integrity_without_unexpected_accesses(tmp_path):
+    results = [_result("terra", case) for case in CASE_IDENTITIES]
+    results[0] = _result(
+        "terra",
+        CASE_IDENTITIES[0],
+        success=False,
+        error="integrity failure",
+        metrics=None,
+        failure_kind="integrity",
+        unexpected_accesses=[],
+    )
+    path = _write_payload(
+        tmp_path,
+        "integrity-without-unexpected-access.json",
+        _payload([("terra", "codex", "gpt-5.6-terra")], results),
+    )
+
+    with pytest.raises(EvalBoardError, match="integrity.*unexpected_accesses"):
+        fold_eval_board([path])
 
 
 def test_fold_refuses_timeout_row_that_claims_a_generated_artifact(tmp_path):
@@ -1086,7 +1945,7 @@ def test_fold_refuses_unknown_schema(tmp_path):
         _payload(
             [("terra", "codex", "gpt-5.6-terra")],
             [_result("terra", case) for case in CASE_IDENTITIES],
-            schema="axiom-encode/eval-suite-results/v1",
+            schema="axiom-encode/eval-suite-results/v6",
         ),
     )
     with pytest.raises(EvalBoardError, match="folds only"):
@@ -1106,6 +1965,78 @@ def test_fold_refuses_unknown_execution_identity_schema(tmp_path):
         ),
     )
     with pytest.raises(EvalBoardError, match="execution identity carries schema"):
+        fold_eval_board([path])
+
+
+def test_fold_refuses_malformed_requested_effort_identity(tmp_path):
+    path = _write_payload(
+        tmp_path,
+        "malformed-effort.json",
+        _payload(
+            [("terra", "codex", "gpt-5.6-terra")],
+            [_result("terra", case) for case in CASE_IDENTITIES],
+            requested_efforts={"terra": "minimal"},
+        ),
+    )
+
+    with pytest.raises(EvalBoardError, match="requested effort"):
+        fold_eval_board([path])
+
+
+@pytest.mark.parametrize(
+    ("model", "effort"),
+    [
+        ("gpt-5.4", "none"),
+        ("gpt-5.4", "xhigh"),
+        ("gpt-5.6", "max"),
+    ],
+)
+def test_fold_accepts_model_supported_openai_effort(tmp_path, model, effort):
+    path = _write_payload(
+        tmp_path,
+        f"{model}-{effort}.json",
+        _payload(
+            [("api", "openai", model)],
+            [
+                _result("api", case, backend="openai", model=model)
+                for case in CASE_IDENTITIES
+            ],
+            requested_efforts={"api": effort},
+        ),
+    )
+
+    [runner] = fold_eval_board([path]).runners
+
+    assert runner.requested_effort == effort
+
+
+@pytest.mark.parametrize(
+    ("model", "effort"),
+    [
+        ("gpt-5.4", "max"),
+        ("gpt-5.6", "ultra"),
+        ("future-model", "high"),
+    ],
+)
+def test_fold_refuses_openai_effort_unsupported_by_model(
+    tmp_path,
+    model,
+    effort,
+):
+    path = _write_payload(
+        tmp_path,
+        f"{model}-{effort}.json",
+        _payload(
+            [("api", "openai", model)],
+            [
+                _result("api", case, backend="openai", model=model)
+                for case in CASE_IDENTITIES
+            ],
+            requested_efforts={"api": effort},
+        ),
+    )
+
+    with pytest.raises(EvalBoardError, match="requested effort"):
         fold_eval_board([path])
 
 
@@ -1955,6 +2886,79 @@ def test_fold_refuses_mismatched_execution_identity(tmp_path):
     assert "Mixed toolchains" in markdown
 
 
+def test_fold_allows_distinct_runner_names_to_request_different_efforts(tmp_path):
+    low = _write_payload(
+        tmp_path,
+        "low.json",
+        _payload(
+            [("sol-low", "codex", "gpt-5.6-sol")],
+            [
+                _result(
+                    "sol-low",
+                    case,
+                    model="gpt-5.6-sol",
+                )
+                for case in CASE_IDENTITIES
+            ],
+            requested_efforts={"sol-low": "low"},
+        ),
+    )
+    high = _write_payload(
+        tmp_path,
+        "high.json",
+        _payload(
+            [("sol-high", "codex", "gpt-5.6-sol")],
+            [
+                _result(
+                    "sol-high",
+                    case,
+                    model="gpt-5.6-sol",
+                )
+                for case in CASE_IDENTITIES
+            ],
+            requested_efforts={"sol-high": "high"},
+        ),
+    )
+
+    board = fold_eval_board([low, high])
+
+    assert {runner.runner: runner.requested_effort for runner in board.runners} == {
+        "sol-low": "low",
+        "sol-high": "high",
+    }
+
+
+@pytest.mark.parametrize("allow_mixed_toolchains", [False, True])
+def test_fold_refuses_effort_mismatch_for_same_runner_name(
+    tmp_path,
+    allow_mixed_toolchains,
+):
+    low = _write_payload(
+        tmp_path,
+        "low.json",
+        _payload(
+            [("sol", "codex", "gpt-5.6-sol")],
+            [_result("sol", case, model="gpt-5.6-sol") for case in CASE_IDENTITIES],
+            requested_efforts={"sol": "low"},
+        ),
+    )
+    high = _write_payload(
+        tmp_path,
+        "high.json",
+        _payload(
+            [("sol", "codex", "gpt-5.6-sol")],
+            [_result("sol", case, model="gpt-5.6-sol") for case in CASE_IDENTITIES],
+            requested_efforts={"sol": "high"},
+        ),
+    )
+
+    with pytest.raises(EvalBoardError, match="requested effort"):
+        fold_eval_board(
+            [low, high],
+            allow_mixed_toolchains=allow_mixed_toolchains,
+        )
+
+
 def test_fold_refuses_mismatched_encoder_timeout(tmp_path):
     left = _write_payload(
         tmp_path,
@@ -2196,6 +3200,13 @@ def test_fold_refuses_policyengine_runtime_path_topology(
         eval_board_module._payload_execution_identity(
             {
                 "evidence": {
+                    "effective_runner_identities": [
+                        {
+                            "name": "terra",
+                            "backend": "codex",
+                            "model": "gpt-5.6-terra",
+                        }
+                    ],
                     "execution_identity": execution_identity,
                     "execution_identity_sha256": execution_digest,
                 }
@@ -2957,16 +3968,21 @@ def test_renderers_and_exports(tmp_path):
     assert "# Eval board — EncodeBench UK v1" in markdown
     assert "uk-rulespec-2026-07-14" in markdown
     assert "| terra |" in markdown
+    assert "| requested effort |" in markdown
+    assert "default (receiver)" in markdown
     assert "01 alpha" in markdown
 
     text = render_eval_board_text(board)
     assert "gate 1/3" in text
+    assert "requested effort default (receiver)" in text
     grid_lines = [line for line in text.splitlines() if line.startswith("  0")]
     assert [line.split()[-1] for line in grid_lines] == ["P", "F", "E"]
 
     payload = eval_board_to_json(board)
-    assert payload["schema"] == "axiom-encode/eval-board/v2"
+    assert payload["schema"] == "axiom-encode/eval-board/v3"
     assert payload["runners"][0]["gate_pass_count"] == 1
+    assert payload["runners"][0]["requested_effort"] is None
+    assert payload["runners"][0]["uses_receiver_default"] is True
     expected_digest = terra_payload["evidence"]["execution_identity_sha256"]
     assert payload["execution_identity_sha256s"] == {str(terra_path): expected_digest}
     assert len(payload["cells"]) == 3

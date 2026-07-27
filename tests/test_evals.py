@@ -1,8 +1,10 @@
 """Tests for model comparison eval helpers."""
 
+import copy
 import hashlib
 import json
 import os
+import re
 import subprocess
 import tempfile
 import threading
@@ -141,6 +143,20 @@ _TEST_POLICYENGINE_RUNTIME_IDENTITY_SHA256 = hashlib.sha256(
 ).hexdigest()
 
 
+def _test_eval_cli_environment(backend: str) -> evals_module.EvalCliEnvironment:
+    launcher_sha256 = ("c" if backend == "codex" else "a") * 64
+    native_sha256 = ("d" if backend == "codex" else "b") * 64
+    return evals_module.EvalCliEnvironment(
+        backend=backend,
+        executable=f"/verified/bin/{backend}",
+        version=f"{backend} 9.9.9",
+        executable_sha256=launcher_sha256,
+        launcher_sha256=launcher_sha256,
+        native_executable=f"/verified/lib/{backend}",
+        native_sha256=native_sha256,
+    )
+
+
 def _test_policyengine_runtime(country: str = "us") -> PolicyEngineRuntime:
     root = Path(f"/tmp/policyengine-{country}")
     identity = {
@@ -180,7 +196,12 @@ def _test_eval_suite_execution_identity() -> dict[str, object]:
             "tree_sha256": "1" * 64,
         },
     ):
-        return _build_eval_suite_execution_identity(Path("/tmp/axiom-rules"), ())
+        return _build_eval_suite_execution_identity(
+            Path("/tmp/axiom-rules"),
+            (),
+            parsed_runners=(parse_runner_spec("test=codex:gpt-5.4"),),
+            cli_environments={"codex": _test_eval_cli_environment("codex")},
+        )
 
 
 @pytest.fixture(autouse=True)
@@ -434,6 +455,22 @@ def _bind_fake_source_results(
                 reasoning_output_tokens=result.reasoning_output_tokens,
             ),
         )
+        cli_environments = kwargs.get("cli_environments") or {}
+        if result.backend == "claude":
+            environment = cli_environments["claude"]
+            result.claude_cli_version = environment.version
+            result.claude_cli_launcher_sha256 = environment.launcher_sha256
+            result.claude_cli_native_sha256 = environment.native_sha256
+        elif result.backend == "codex":
+            environment = cli_environments["codex"]
+            result.codex_cli_version = environment.version
+            result.codex_cli_launcher_sha256 = environment.launcher_sha256
+            result.codex_cli_native_sha256 = environment.native_sha256
+        elif result.backend == "openai":
+            result.openai_endpoint = "https://api.openai.com/v1/responses"
+            result.openai_response_model_id = result.model
+            result.openai_service_tier = "default"
+            result.openai_max_output_tokens = 128_000
     return results
 
 
@@ -563,6 +600,51 @@ class TestParseRunnerSpec:
         assert runner.name == "openai-gpt-5.4"
         assert runner.backend == "openai"
         assert runner.model == "gpt-5.4"
+        assert runner.effort is None
+
+    @pytest.mark.parametrize(
+        ("spec", "expected_effort"),
+        [
+            ("sol=codex:gpt-5.6-sol@ultra", "ultra"),
+            ("claude:opus@max", "max"),
+            ("openai:gpt-5.4@none", "none"),
+            ("openai:gpt-5.4@xhigh", "xhigh"),
+            ("openai:gpt-5.6@max", "max"),
+        ],
+    )
+    def test_parses_backend_specific_requested_effort(
+        self,
+        spec,
+        expected_effort,
+    ):
+        runner = parse_runner_spec(spec)
+
+        assert runner.effort == expected_effort
+        assert runner.model not in {"gpt-5.6-sol@ultra", "opus@max", "gpt-5.4@xhigh"}
+
+    def test_requested_effort_does_not_change_default_runner_name(self):
+        low = parse_runner_spec("codex:gpt-5.6-sol@low")
+        high = parse_runner_spec("codex:gpt-5.6-sol@high")
+
+        assert low.name == high.name == "codex-gpt-5.6-sol"
+
+    @pytest.mark.parametrize(
+        "spec",
+        [
+            "codex:gpt-5.6-terra@minimal",
+            "codex:gpt-5.6-sol@max",
+            "claude:opus@xhigh",
+            "claude:opus@ultra",
+            "openai:gpt-5.4@ultra",
+            "openai:gpt-5.4@max",
+            "openai:gpt-5.4@default",
+            "openai:gpt-5.6@ultra",
+            "openai:future-model@high",
+        ],
+    )
+    def test_rejects_effort_level_unsupported_by_backend(self, spec):
+        with pytest.raises(ValueError, match="Unsupported effort"):
+            parse_runner_spec(spec)
 
     @pytest.mark.parametrize("alias", ["../../other", ".", "-runner"])
     def test_rejects_unsafe_runner_alias(self, alias):
@@ -586,6 +668,479 @@ class TestParseRunnerSpec:
     def test_rejects_noncanonical_or_empty_runner_identity(self, spec):
         with pytest.raises(ValueError, match="Invalid runner spec"):
             parse_runner_spec(spec)
+
+
+def test_eval_cli_preflight_probes_each_backend_once_for_duplicate_runners(
+    monkeypatch,
+    tmp_path,
+):
+    claude = _write_fake_eval_executable(
+        tmp_path / "bin" / "claude",
+        b"#!/bin/sh\n",
+    )
+    codex = _write_fake_eval_executable(
+        tmp_path / "bin" / "codex",
+        b"\x7fELFdirect-native-codex-receiver",
+    )
+    help_text = {
+        "claude": " ".join(
+            (
+                "--print",
+                "--output-format",
+                "--permission-mode",
+                "--safe-mode",
+                "--no-session-persistence",
+                "--disable-slash-commands",
+                "--no-chrome",
+                "--strict-mcp-config",
+                "--mcp-config",
+                "--tools",
+                "--allowed-tools",
+                "--model",
+                "--effort",
+            )
+        ),
+        "codex": " ".join(
+            (
+                "--json",
+                "--skip-git-repo-check",
+                "--ignore-user-config",
+                "--strict-config",
+                "--output-last-message",
+                "--model",
+                "--cd",
+                "--sandbox",
+                "--config",
+            )
+        ),
+    }
+
+    def probe(command, **_kwargs):
+        executable = Path(command[0]).name
+        if command[-1] == "--version":
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout=(
+                    "2.1.99 (Claude Code)\n"
+                    if executable == "claude"
+                    else "codex-cli 0.999.0\n"
+                ),
+                stderr="",
+            )
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=help_text[executable],
+            stderr="",
+        )
+
+    monkeypatch.setattr(
+        evals_module.shutil,
+        "which",
+        lambda name: str(claude if name == "claude" else codex),
+    )
+    with (
+        patch("axiom_encode.harness.evals.subprocess.run", side_effect=probe) as run,
+        patch(
+            "axiom_encode.harness.evals.resolve_codex_cli",
+            return_value=str(codex),
+        ),
+        patch(
+            "axiom_encode.harness.evals._eval_cli_executable_sha256",
+            return_value="a" * 64,
+        ),
+    ):
+        environments = evals_module._preflight_eval_cli_runners(
+            [
+                parse_runner_spec("adaptive=claude:opus"),
+                parse_runner_spec("forced=claude:opus@max"),
+                parse_runner_spec("low=codex:gpt-5.4@low"),
+                parse_runner_spec("high=codex:gpt-5.4@high"),
+                parse_runner_spec("openai:gpt-5.4"),
+            ]
+        )
+
+    assert run.call_count == 4
+    assert [call.args[0][1:] for call in run.call_args_list] == [
+        ["--version"],
+        ["--help"],
+        ["--version"],
+        ["exec", "--help"],
+    ]
+    assert [call.args[0][0] for call in run.call_args_list] == [
+        environments["claude"].executable,
+        environments["claude"].executable,
+        environments["codex"].executable,
+        environments["codex"].executable,
+    ]
+    assert environments["claude"].version == "2.1.99 (Claude Code)"
+    assert environments["codex"].version == "codex-cli 0.999.0"
+    assert "openai" not in environments
+
+
+def _write_fake_eval_executable(path: Path, payload: bytes) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(payload)
+    path.chmod(0o755)
+    return path
+
+
+def _successful_eval_cli_probe(command, **_kwargs):
+    if command[-1] == "--version":
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout="receiver-cli 9.9.9\n",
+            stderr="",
+        )
+    return subprocess.CompletedProcess(
+        command,
+        0,
+        stdout=" ".join(
+            (
+                "--print",
+                "--output-format",
+                "--permission-mode",
+                "--safe-mode",
+                "--no-session-persistence",
+                "--disable-slash-commands",
+                "--no-chrome",
+                "--strict-mcp-config",
+                "--mcp-config",
+                "--tools",
+                "--allowed-tools",
+                "--model",
+                "--effort",
+                "--json",
+                "--skip-git-repo-check",
+                "--ignore-user-config",
+                "--strict-config",
+                "--output-last-message",
+                "--cd",
+                "--sandbox",
+                "--config",
+            )
+        ),
+        stderr="",
+    )
+
+
+def test_eval_cli_preflight_hashes_codex_launcher_and_vendor_receiver(
+    monkeypatch,
+    tmp_path,
+):
+    package_root = tmp_path / "node_modules" / "@openai" / "codex"
+    wrapper = _write_fake_eval_executable(
+        package_root / "bin" / "codex.js",
+        b"#!/usr/bin/env node\n// fake codex launcher\n",
+    )
+    (package_root / "package.json").write_text(json.dumps({"name": "@openai/codex"}))
+    native = _write_fake_eval_executable(
+        package_root.parent
+        / "codex-test-platform"
+        / "vendor"
+        / "test-target"
+        / "bin"
+        / "codex",
+        b"fake-native-codex-receiver",
+    )
+    monkeypatch.setattr(
+        evals_module,
+        "_codex_vendor_layout",
+        lambda: ("codex-test-platform", "test-target"),
+        raising=False,
+    )
+
+    with (
+        patch(
+            "axiom_encode.harness.evals.resolve_codex_cli",
+            return_value=str(wrapper),
+        ),
+        patch(
+            "axiom_encode.harness.evals.subprocess.run",
+            side_effect=_successful_eval_cli_probe,
+        ),
+    ):
+        environment = evals_module._preflight_eval_cli_runners(
+            [parse_runner_spec("codex:gpt-5.4")]
+        )["codex"]
+
+    assert environment.executable == str(wrapper.resolve())
+    assert (
+        environment.launcher_sha256 == hashlib.sha256(wrapper.read_bytes()).hexdigest()
+    )
+    assert environment.native_executable == str(native.resolve())
+    assert environment.native_sha256 == hashlib.sha256(native.read_bytes()).hexdigest()
+
+
+def test_eval_cli_preflight_fails_closed_for_codex_wrapper_without_vendor_receiver(
+    monkeypatch,
+    tmp_path,
+):
+    package_root = tmp_path / "node_modules" / "@openai" / "codex"
+    wrapper = _write_fake_eval_executable(
+        package_root / "bin" / "codex.js",
+        b"#!/usr/bin/env node\n// fake codex launcher\n",
+    )
+    (package_root / "package.json").write_text(json.dumps({"name": "@openai/codex"}))
+    monkeypatch.setattr(
+        evals_module,
+        "_codex_vendor_layout",
+        lambda: ("codex-test-platform", "test-target"),
+        raising=False,
+    )
+
+    with (
+        patch(
+            "axiom_encode.harness.evals.resolve_codex_cli",
+            return_value=str(wrapper),
+        ),
+        patch(
+            "axiom_encode.harness.evals.subprocess.run",
+            side_effect=_successful_eval_cli_probe,
+        ),
+        pytest.raises(RuntimeError, match="native receiver"),
+    ):
+        evals_module._preflight_eval_cli_runners([parse_runner_spec("codex:gpt-5.4")])
+
+
+def test_eval_cli_preflight_accepts_direct_codex_native_binary(monkeypatch, tmp_path):
+    native = _write_fake_eval_executable(
+        tmp_path / "bin" / "codex",
+        b"\x7fELFdirect-native-codex-receiver",
+    )
+
+    with (
+        patch(
+            "axiom_encode.harness.evals.resolve_codex_cli",
+            return_value=str(native),
+        ),
+        patch(
+            "axiom_encode.harness.evals.subprocess.run",
+            side_effect=_successful_eval_cli_probe,
+        ),
+    ):
+        environment = evals_module._preflight_eval_cli_runners(
+            [parse_runner_spec("codex:gpt-5.4")]
+        )["codex"]
+
+    expected_digest = hashlib.sha256(native.read_bytes()).hexdigest()
+    assert environment.launcher_sha256 == expected_digest
+    assert environment.native_executable == str(native.resolve())
+    assert environment.native_sha256 == expected_digest
+
+
+def test_eval_cli_preflight_fails_closed_for_unrecognized_codex_launcher_layout(
+    monkeypatch,
+    tmp_path,
+):
+    launcher = _write_fake_eval_executable(
+        tmp_path / "custom-launchers" / "codex-wrapper",
+        b'#!/bin/sh\nexec /private/receiver/codex "$@"\n',
+    )
+
+    with (
+        patch(
+            "axiom_encode.harness.evals.resolve_codex_cli",
+            return_value=str(launcher),
+        ),
+        patch(
+            "axiom_encode.harness.evals.subprocess.run",
+            side_effect=_successful_eval_cli_probe,
+        ),
+        pytest.raises(
+            RuntimeError,
+            match=r"unrecognized Codex launcher layout.*codex-wrapper",
+        ),
+    ):
+        evals_module._preflight_eval_cli_runners([parse_runner_spec("codex:gpt-5.4")])
+
+
+def test_eval_cli_preflight_resolves_claude_symlink_to_native_receiver(
+    monkeypatch,
+    tmp_path,
+):
+    native = _write_fake_eval_executable(
+        tmp_path / "versions" / "claude",
+        b"native-claude-receiver",
+    )
+    launcher = tmp_path / "bin" / "claude"
+    launcher.parent.mkdir()
+    launcher.symlink_to(native)
+    monkeypatch.setattr(
+        evals_module.shutil,
+        "which",
+        lambda name: str(launcher) if name == "claude" else None,
+    )
+
+    with patch(
+        "axiom_encode.harness.evals.subprocess.run",
+        side_effect=_successful_eval_cli_probe,
+    ):
+        environment = evals_module._preflight_eval_cli_runners(
+            [parse_runner_spec("claude:opus")]
+        )["claude"]
+
+    expected_digest = hashlib.sha256(native.read_bytes()).hexdigest()
+    assert environment.executable == str(native.resolve())
+    assert environment.launcher_sha256 == expected_digest
+    assert environment.native_executable == str(native.resolve())
+    assert environment.native_sha256 == expected_digest
+
+
+def test_eval_cli_preflight_canonicalizes_relative_executables_before_use(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.chdir(tmp_path)
+    relative_paths = {
+        "claude": "relative-tools/claude",
+        "codex": "relative-tools/codex",
+    }
+    expected_paths = {
+        backend: str((tmp_path / path).resolve())
+        for backend, path in relative_paths.items()
+    }
+    _write_fake_eval_executable(
+        tmp_path / relative_paths["codex"],
+        b"\x7fELFdirect-native-codex-receiver",
+    )
+    help_text = " ".join(
+        (
+            "--print",
+            "--output-format",
+            "--permission-mode",
+            "--safe-mode",
+            "--no-session-persistence",
+            "--disable-slash-commands",
+            "--no-chrome",
+            "--strict-mcp-config",
+            "--mcp-config",
+            "--tools",
+            "--allowed-tools",
+            "--model",
+            "--effort",
+            "--json",
+            "--skip-git-repo-check",
+            "--ignore-user-config",
+            "--strict-config",
+            "--output-last-message",
+            "--cd",
+            "--sandbox",
+            "--config",
+        )
+    )
+    observed_commands: list[list[str]] = []
+
+    def probe(command, **_kwargs):
+        observed_commands.append(command)
+        if command[-1] == "--version":
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout=f"{Path(command[0]).name} 9.9.9\n",
+                stderr="",
+            )
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=help_text,
+            stderr="",
+        )
+
+    monkeypatch.setattr(
+        evals_module.shutil,
+        "which",
+        lambda name: relative_paths[name],
+    )
+    with (
+        patch("axiom_encode.harness.evals.subprocess.run", side_effect=probe),
+        patch(
+            "axiom_encode.harness.evals.resolve_codex_cli",
+            return_value=relative_paths["codex"],
+        ),
+        patch(
+            "axiom_encode.harness.evals._eval_cli_executable_sha256",
+            return_value="a" * 64,
+        ) as executable_sha256,
+    ):
+        environments = evals_module._preflight_eval_cli_runners(
+            [
+                parse_runner_spec("claude:opus@max"),
+                parse_runner_spec("codex:gpt-5.4@high"),
+            ]
+        )
+
+    assert [command[0] for command in observed_commands] == [
+        expected_paths["claude"],
+        expected_paths["claude"],
+        expected_paths["codex"],
+        expected_paths["codex"],
+    ]
+    assert environments["claude"].executable == expected_paths["claude"]
+    assert environments["codex"].executable == expected_paths["codex"]
+    assert [item.args[0] for item in executable_sha256.call_args_list] == [
+        expected_paths["claude"],
+        expected_paths["claude"],
+        expected_paths["codex"],
+        expected_paths["codex"],
+    ]
+
+
+@pytest.mark.parametrize(
+    ("runner_spec", "version", "help_text", "missing_flag"),
+    [
+        (
+            "claude:opus",
+            "2.1.87 (Claude Code)",
+            "--print --output-format --permission-mode --no-session-persistence "
+            "--disable-slash-commands --no-chrome --strict-mcp-config --mcp-config "
+            "--tools --allowed-tools --model",
+            "--safe-mode",
+        ),
+        (
+            "codex:gpt-5.4",
+            "codex-cli 0.143.0",
+            "--json --skip-git-repo-check --ignore-user-config "
+            "--output-last-message --model --cd --sandbox",
+            "--strict-config",
+        ),
+    ],
+)
+def test_eval_cli_preflight_rejects_missing_required_flag(
+    monkeypatch,
+    runner_spec,
+    version,
+    help_text,
+    missing_flag,
+):
+    backend = parse_runner_spec(runner_spec).backend
+    monkeypatch.setattr(
+        evals_module.shutil,
+        "which",
+        lambda _name: f"/bin/{backend}",
+    )
+    responses = [
+        subprocess.CompletedProcess([], 0, stdout=version, stderr=""),
+        subprocess.CompletedProcess([], 0, stdout=help_text, stderr=""),
+    ]
+
+    with (
+        patch(
+            "axiom_encode.harness.evals.resolve_codex_cli",
+            return_value=f"/bin/{backend}",
+        ),
+        patch(
+            "axiom_encode.harness.evals.subprocess.run",
+            side_effect=responses,
+        ),
+        pytest.raises(
+            RuntimeError,
+            match=rf"{re.escape(version)}.*{re.escape(missing_flag)}",
+        ),
+    ):
+        evals_module._preflight_eval_cli_runners([parse_runner_spec(runner_spec)])
 
 
 def test_source_identifier_maps_corpus_regulation_to_repo_path():
@@ -981,7 +1536,7 @@ def test_provision_inheritance_preserves_same_document_amendment_exclusion(tmp_p
     assert source_unit.amendment_documents == ()
 
 
-def test_sibling_amendments_are_context_with_bounded_bodies(tmp_path):
+def test_sibling_amendments_preserve_full_context_bodies(tmp_path):
     release = _write_test_corpus_release(
         tmp_path,
         [
@@ -1036,9 +1591,9 @@ def test_sibling_amendments_are_context_with_bounded_bodies(tmp_path):
         "2026 Amendment Act",
     ]
     assert "Change 12 to 24." in prompt
-    assert "body omitted: exceeds 12000-character amendment context cap" in prompt
-    assert "amendment metadata truncated at 6000 characters" in prompt
-    assert "x" * 12_001 not in prompt
+    assert "x" * 12_001 in prompt
+    assert "m" * 7_000 in prompt
+    assert "truncated" not in prompt
     assert "Duplicate descendant body." not in prompt
     assert "Post-consolidation amendment acts in this corpus scope" in prompt
     assert prompt.count("Change 12 to 24.") == 1
@@ -1298,7 +1853,9 @@ def test_workspace_without_manifest_metadata_stays_minimal(tmp_path):
     assert prompt == prompt_without_injection_feature
 
 
-def test_injected_context_enforces_aggregate_character_cap_newest_last(tmp_path):
+def test_build_eval_prompt_excludes_amendments_when_corpus_injection_disabled(
+    tmp_path,
+):
     amendments = tuple(
         CorpusAmendmentDocument(
             citation_path=f"dk/statute/amendment-{year}",
@@ -1320,6 +1877,18 @@ def test_injected_context_enforces_aggregate_character_cap_newest_last(tmp_path)
         amendment_documents=amendments,
         extra_context_paths=[],
     )
+    ordinary_source = tmp_path / "ordinary-context.yaml"
+    ordinary_source.write_text("ordinary-context-sentinel\n")
+    ordinary_workspace_path = Path("context") / "ordinary-context.yaml"
+    (workspace.root / ordinary_workspace_path).write_text(ordinary_source.read_text())
+    workspace.context_files.append(
+        EvalContextFile(
+            source_path=str(ordinary_source),
+            workspace_path=ordinary_workspace_path.as_posix(),
+            import_path="dk:statute/ordinary-context",
+            kind="extra",
+        )
+    )
 
     amendment_texts = [
         (workspace.root / item.workspace_path).read_text().rstrip("\n")
@@ -1330,15 +1899,502 @@ def test_injected_context_enforces_aggregate_character_cap_newest_last(tmp_path)
         map(len, amendment_texts)
     )
 
-    assert injected_length <= 32_000
+    assert injected_length > 32_000
     assert "N" * 11_500 in amendment_texts[0]
-    assert (
-        "amendment body truncated to satisfy aggregate context cap"
-        in amendment_texts[1]
+    assert "O" * 11_500 in amendment_texts[1]
+    assert "truncated" not in (workspace.provision_metadata_text or "")
+    assert all("truncated" not in text for text in amendment_texts)
+
+    prompt_with_injection = _build_eval_prompt(
+        "dk/statute/benefit/section-1",
+        "cold",
+        workspace,
+        workspace.context_files,
+        target_file_name="target.yaml",
+        include_tests=True,
+        runner_backend="openai",
+    )
+    prompt_without_injection = _build_eval_prompt(
+        "dk/statute/benefit/section-1",
+        "cold",
+        workspace,
+        workspace.context_files,
+        target_file_name="target.yaml",
+        include_tests=True,
+        runner_backend="openai",
+        include_corpus_context_injection=False,
+    )
+
+    assert "N" * 11_500 in prompt_with_injection
+    assert "O" * 11_500 in prompt_with_injection
+    assert "p" * 5_500 in prompt_with_injection
+    assert "ordinary-context-sentinel" in prompt_with_injection
+    assert "N" * 11_500 not in prompt_without_injection
+    assert "O" * 11_500 not in prompt_without_injection
+    assert "p" * 5_500 not in prompt_without_injection
+    assert "corpus-amendments" not in prompt_without_injection
+    assert "ordinary-context-sentinel" in prompt_without_injection
+
+
+def test_build_eval_prompt_is_location_independent_and_uses_opaque_paths(tmp_path):
+    prompts: list[str] = []
+    prompt_digests: list[str] = []
+    roots: list[Path] = []
+    locations = (
+        ("machine-a", "policy-a"),
+        ("machine-b", "Fast Disk/policy-b"),
+    )
+    for machine_name, policy_location in locations:
+        machine_root = tmp_path / "workspaces" / machine_name
+        machine_root.mkdir(parents=True)
+        source_file = machine_root / "source.txt"
+        source_file.write_text(
+            "The source amount is 12. See https://law.example/legal/section-1."
+        )
+        policy_root = tmp_path / "policies" / policy_location
+        rulespec_root = _canonical_rulespec_content_root(policy_root, "us")
+        roots.append(rulespec_root)
+        existing_target = rulespec_root / "statutes" / "26" / "63" / "f.yaml"
+        existing_target.parent.mkdir(parents=True)
+        existing_target.write_text(
+            "format: rulespec/v1\n"
+            "imports:\n"
+            "  - us:statutes/26/151#missing_symbol\n"
+            "rules: []\n"
+        )
+        unresolved_target = rulespec_root / "statutes" / "26" / "151.yaml"
+        unresolved_target.parent.mkdir(parents=True, exist_ok=True)
+        unresolved_target.write_text(
+            "format: rulespec/v1\n"
+            "rules:\n"
+            "  - name: another_symbol\n"
+            "    kind: parameter\n"
+            "    dtype: Money\n"
+            "    unit: USD\n"
+            "    period: Year\n"
+            "    versions:\n"
+            "      - effective_from: '2025-01-01'\n"
+            "        value: 12\n"
+        )
+        copied_target = machine_root / "context" / "existing-target.yaml"
+        copied_target.parent.mkdir()
+        copied_target.write_text(existing_target.read_text())
+        definition_context = machine_root / "context" / "definition.yaml"
+        definition_context.write_text(
+            "format: rulespec/v1\n"
+            "rules:\n"
+            "  - name: canonical_amount\n"
+            "    kind: parameter\n"
+            "    dtype: Money\n"
+            "    unit: USD\n"
+            "    period: Year\n"
+            "    versions:\n"
+            "      - effective_from: '2025-01-01'\n"
+            "        value: 12\n"
+        )
+        review_findings = machine_root / "review-findings" / "01-findings.md"
+        review_findings.parent.mkdir()
+        review_findings.write_text(
+            f"- Inspect {machine_root}/private/reviewer-notes.json.\n"
+            "- Preserve https://review.example/findings/one.\n"
+        )
+        context_files = [
+            EvalContextFile(
+                source_path=str(existing_target),
+                workspace_path="context/existing-target.yaml",
+                import_path="us:statutes/26/63/f",
+                kind="existing_target",
+            ),
+            EvalContextFile(
+                source_path=str(definition_context),
+                workspace_path="context/definition.yaml",
+                import_path="us:statutes/26/151",
+                kind="definition_stub",
+                label=f"citation cache ({machine_root}/private/citation.json)",
+            ),
+        ]
+        workspace = EvalWorkspace(
+            root=machine_root,
+            source_text_file=source_file,
+            manifest_file=machine_root / "context-manifest.json",
+            context_files=context_files,
+            provision_metadata_text=(
+                f"cache_file: {machine_root}/private/provision-cache.json\n"
+                "authority_url: https://corpus.example/releases/current"
+            ),
+            review_findings_files=[
+                EvalContextFile(
+                    source_path=str(review_findings),
+                    workspace_path="review-findings/01-findings.md",
+                    import_path="review-findings/01-findings.md",
+                    kind="mandatory_review_findings",
+                    label=str(machine_root / "private" / "review-label.md"),
+                )
+            ],
+            source_metadata={
+                "source_attestation": {
+                    "requested_corpus_citation_path": "us/statute/example/section-1",
+                    "rulespec_root": str(rulespec_root),
+                    "row": {
+                        "citation_path": (
+                            "us/statute/example/section-1 "
+                            f"({machine_root}/private/citation-cache.json)"
+                        ),
+                        "source_path": str(machine_root / "corpus" / "source.json"),
+                        "diagnostic": (
+                            f"loaded from {machine_root}/private/source-cache.json"
+                        ),
+                        "authority_url": "https://metadata.example/source/one",
+                    },
+                },
+                f"metadata ({machine_root}/private/key.json)": "location-bound key",
+            },
+        )
+        prompt = _build_eval_prompt(
+            "us/statute/example/section-1",
+            "repo-augmented",
+            workspace,
+            context_files,
+            target_file_name="target.yaml",
+            include_tests=True,
+            runner_backend="codex",
+            validation_retry_feedback=[
+                f"validator error ({machine_root}/private/validator.json)",
+                "docs: https://validator.example/errors/unresolved-import",
+            ],
+        )
+        prompts.append(prompt)
+        prompt_digests.append(hashlib.sha256(prompt.encode("utf-8")).hexdigest())
+
+        assert workspace.source_metadata is not None
+        assert workspace.source_metadata["source_attestation"]["rulespec_root"] == str(
+            rulespec_root
+        )
+
+    assert prompts[0] == prompts[1]
+    assert prompt_digests[0] == prompt_digests[1]
+    assert "<opaque-host-path>" in prompts[0]
+    assert all(str(root) not in prompt for root in roots for prompt in prompts)
+    assert all(str(tmp_path) not in prompt for prompt in prompts)
+    assert "Fast Disk" not in prompts[1]
+    for expected_url in (
+        "https://law.example/legal/section-1",
+        "https://review.example/findings/one",
+        "https://corpus.example/releases/current",
+        "https://metadata.example/source/one",
+        "https://validator.example/errors/unresolved-import",
+    ):
+        assert expected_url in prompts[0]
+
+
+def test_prompt_root_path_substitution_uses_literal_path_boundaries_and_aliases():
+    unresolved_root = Path("/Volumes/Fast Disk/checkouts/axiom-encode")
+    resolved_root = Path("/private/var/folders/build roots/checkouts/axiom-encode")
+    var_alias = Path("/var/folders/build roots/checkouts/axiom-encode")
+
+    with patch.object(Path, "resolve", return_value=resolved_root):
+        root_variants = evals_module._prompt_root_path_variants(unresolved_root)
+
+    text = (
+        f"unresolved='{unresolved_root}' "
+        f"child={unresolved_root}/metadata.json "
+        f"resolved=({resolved_root}/citation.json) "
+        f"alias=[{var_alias}/error.txt] "
+        f"embedded=token{unresolved_root}/keep.json "
+        f"suffix={unresolved_root}-cache "
+        f"extension={resolved_root}.bak"
+    )
+
+    assert evals_module._replace_prompt_root_paths(text, root_variants) == (
+        "unresolved='<opaque-host-path>' "
+        "child=<opaque-host-path>/metadata.json "
+        "resolved=(<opaque-host-path>/citation.json) "
+        "alias=[<opaque-host-path>/error.txt] "
+        f"embedded=token{unresolved_root}/keep.json "
+        f"suffix={unresolved_root}-cache "
+        f"extension={resolved_root}.bak"
     )
 
 
-def test_provision_metadata_rendering_enforces_character_cap(tmp_path):
+def test_generation_prompt_sha256_is_location_independent_for_volumes_root(tmp_path):
+    source_file = tmp_path / "source.txt"
+    source_file.write_text("The source amount is 12.")
+    prompts: list[str] = []
+    generation_prompt_sha256s: list[str] = []
+    roots = (
+        Path("/Volumes/Fast Disk/evals/machine-a"),
+        Path("/opt/axiom-evals/machine-b"),
+    )
+
+    for root in roots:
+        workspace = EvalWorkspace(
+            root=root,
+            source_text_file=source_file,
+            manifest_file=root / "context-manifest.json",
+            provision_metadata_text=f"cache: {root}/manifest/provision.json",
+            source_metadata={
+                "source_attestation": {
+                    "requested_corpus_citation_path": "us/statute/example/section-1",
+                    "rulespec_root": str(root / "rulespec-us" / "us"),
+                    "row": {
+                        "citation_path": (
+                            "us/statute/example/section-1 "
+                            f"({root}/citations/section-1.json)"
+                        ),
+                        "source_path": str(root / "corpus" / "source.json"),
+                    },
+                }
+            },
+        )
+        prompt = _build_eval_prompt(
+            "us/statute/example/section-1",
+            "cold",
+            workspace,
+            [],
+            target_file_name="target.yaml",
+            validation_retry_feedback=[
+                f"validator error: ({root}/errors/validation.txt)"
+            ],
+        )
+        prompts.append(prompt)
+        generation_prompt_sha256s.append(
+            hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+        )
+
+    assert prompts[0] == prompts[1]
+    assert generation_prompt_sha256s[0] == generation_prompt_sha256s[1]
+    assert all(str(root) not in prompt for root in roots for prompt in prompts)
+    assert "Fast Disk" not in prompts[0]
+
+
+def test_generation_prompt_sha256_redacts_output_root_sibling_feedback(tmp_path):
+    source_file = tmp_path / "source.txt"
+    source_file.write_text("The source amount is 12.")
+    prompts: list[str] = []
+    generation_prompt_sha256s: list[str] = []
+    suite_roots = (
+        Path("/Volumes/Fast Disk/evals/machine-a"),
+        Path("/opt/axiom-evals/machine-b"),
+    )
+
+    for suite_root in suite_roots:
+        output_root = suite_root / "out"
+        workspace_root = (
+            output_root / "_eval_workspaces" / "api" / "case-one" / "workspace"
+        )
+        workspace = EvalWorkspace(
+            root=workspace_root,
+            source_text_file=source_file,
+            manifest_file=workspace_root / "context-manifest.json",
+        )
+        retry_error = output_root / "api" / "case-one" / "validation-error.json"
+        prompt = _build_eval_prompt(
+            "us/statute/example/section-1",
+            "cold",
+            workspace,
+            [],
+            target_file_name="target.yaml",
+            validation_retry_feedback=[f"validator error: ({retry_error})"],
+        )
+        prompts.append(prompt)
+        generation_prompt_sha256s.append(
+            hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+        )
+
+    assert prompts[0] == prompts[1]
+    assert generation_prompt_sha256s[0] == generation_prompt_sha256s[1]
+    assert all(str(root) not in prompt for root in suite_roots for prompt in prompts)
+    assert "Fast Disk" not in prompts[0]
+
+
+def test_build_eval_prompt_sanitizes_dynamic_non_authority_channels(tmp_path):
+    source_file = tmp_path / "source.txt"
+    source_file.write_text("Legal source. See https://law.example/section/1.")
+    review_findings = tmp_path / "review-findings.md"
+    review_findings.write_text(
+        f"- Inspect {tmp_path}/private/reviewer.json.\n"
+        "- Keep https://review.example/finding/1.\n"
+    )
+    workspace = EvalWorkspace(
+        root=tmp_path,
+        source_text_file=source_file,
+        manifest_file=tmp_path / "context-manifest.json",
+        provision_metadata_text=(
+            f"cache: {tmp_path}/private/provision.json\n"
+            "windows_cache: C:\\Users\\example\\private\\provision.json\n"
+            "file_uri: file:///Users/example/private/provision.json\n"
+            "posix_unc: //server/share/private/provision.json\n"
+            "windows_unc: \\\\server\\share\\private\\provision.json\n"
+            "url: https://corpus.example/release/1"
+        ),
+        review_findings_files=[
+            EvalContextFile(
+                source_path=str(review_findings),
+                workspace_path="review-findings.md",
+                import_path="review-findings.md",
+                kind="mandatory_review_findings",
+                label=str(tmp_path / "private" / "review-label.md"),
+            )
+        ],
+    )
+
+    prompt = _build_eval_prompt(
+        "us/statute/example/section-1",
+        "cold",
+        workspace,
+        [],
+        target_file_name="target.yaml",
+        validation_retry_feedback=[
+            f"validator read {tmp_path}/private/validator-output.json",
+            "See https://validator.example/errors/one.",
+        ],
+    )
+
+    assert str(tmp_path) not in prompt
+    assert r"C:\Users\example\private\provision.json" not in prompt
+    assert "file:///Users/example/private/provision.json" not in prompt
+    assert "//server/share/private/provision.json" not in prompt
+    assert r"\\server\share\private\provision.json" not in prompt
+    assert prompt.count("<opaque-host-path>") >= 8
+    for expected_url in (
+        "https://law.example/section/1",
+        "https://review.example/finding/1",
+        "https://corpus.example/release/1",
+        "https://validator.example/errors/one",
+    ):
+        assert expected_url in prompt
+
+
+def test_build_eval_prompt_redacts_invalid_policyengine_hint_host_path(tmp_path):
+    source_file = tmp_path / "source.txt"
+    source_file.write_text("Legal source.")
+    workspace = EvalWorkspace(
+        root=tmp_path,
+        source_text_file=source_file,
+        manifest_file=tmp_path / "context-manifest.json",
+    )
+    hostile_hint = "/Users/private/receiver/policyengine-rule.json"
+
+    prompt = _build_eval_prompt(
+        "us/statute/example/section-1",
+        "cold",
+        workspace,
+        [],
+        target_file_name="target.yaml",
+        include_tests=True,
+        runner_backend="codex",
+        policyengine_rule_hint=hostile_hint,
+    )
+
+    assert hostile_hint not in prompt
+    assert "<opaque-host-path>" in prompt
+    assert "not a valid local RuleSpec identifier" in prompt
+
+
+@pytest.mark.parametrize(
+    "host_path",
+    [
+        "/Users/private/corpus/source.json",
+        r"C:\Users\private\corpus\source.json",
+        "file:///Users/private/corpus/source.json",
+        "//server/share/private/source.json",
+        r"\\server\share\private\source.json",
+    ],
+    ids=["posix", "windows", "file-uri", "posix-unc", "windows-unc"],
+)
+def test_build_eval_prompt_rejects_host_paths_in_authoritative_source(
+    tmp_path,
+    host_path,
+):
+    source_file = tmp_path / "source.txt"
+    source_file.write_text(f"Legal source copied from {host_path}.")
+    workspace = EvalWorkspace(
+        root=tmp_path,
+        source_text_file=source_file,
+        manifest_file=tmp_path / "context-manifest.json",
+    )
+
+    with pytest.raises(ValueError, match="authoritative source text.*host path"):
+        _build_eval_prompt(
+            "us/statute/example/section-1",
+            "cold",
+            workspace,
+            [],
+            target_file_name="target.yaml",
+        )
+
+
+def test_build_eval_prompt_rejects_host_paths_in_authoritative_context(tmp_path):
+    workspace_root = tmp_path / "workspace"
+    context_path = workspace_root / "context" / "allowed.yaml"
+    context_path.parent.mkdir(parents=True)
+    source_file = workspace_root / "source.txt"
+    source_file.write_text("Legal source.")
+    hostile_path = "/Users/private/receiver/context-cache.json"
+    context_path.write_text(
+        f"format: rulespec/v1\n# copied from {hostile_path}\nrules: []\n"
+    )
+    workspace = EvalWorkspace(
+        root=workspace_root,
+        source_text_file=source_file,
+        manifest_file=workspace_root / "context-manifest.json",
+    )
+    context_file = EvalContextFile(
+        source_path=str(context_path),
+        workspace_path="context/allowed.yaml",
+        import_path="us:statutes/example/allowed",
+        kind="allowed_context",
+    )
+
+    with pytest.raises(ValueError, match="authoritative context.*host path"):
+        _build_eval_prompt(
+            "us/statute/example/section-1",
+            "repo-augmented",
+            workspace,
+            [context_file],
+            target_file_name="target.yaml",
+        )
+
+
+def test_build_eval_prompt_preserves_relative_paths_and_urls_in_authority(tmp_path):
+    workspace_root = tmp_path / "workspace"
+    context_path = workspace_root / "context" / "allowed.yaml"
+    context_path.parent.mkdir(parents=True)
+    source_file = workspace_root / "source.txt"
+    source_text = "See ./schedule-a and https://law.example/statute/section-1 exactly."
+    context_text = (
+        "format: rulespec/v1\n"
+        "# See ../shared/definitions.yaml and "
+        "https://rules.example/context/definitions.\n"
+        "rules: []\n"
+    )
+    source_file.write_text(source_text)
+    context_path.write_text(context_text)
+    workspace = EvalWorkspace(
+        root=workspace_root,
+        source_text_file=source_file,
+        manifest_file=workspace_root / "context-manifest.json",
+    )
+    context_file = EvalContextFile(
+        source_path=str(context_path),
+        workspace_path="context/allowed.yaml",
+        import_path="us:statutes/example/allowed",
+        kind="allowed_context",
+    )
+
+    prompt = _build_eval_prompt(
+        "us/statute/example/section-1",
+        "repo-augmented",
+        workspace,
+        [context_file],
+        target_file_name="target.yaml",
+    )
+
+    assert source_text in prompt
+    assert context_text in prompt
+
+
+def test_provision_metadata_rendering_preserves_full_content(tmp_path):
     workspace = prepare_eval_workspace(
         citation="dk/statute/benefit/section-1",
         runner=parse_runner_spec("openai:gpt-5.4"),
@@ -1351,10 +2407,8 @@ def test_provision_metadata_rendering_enforces_character_cap(tmp_path):
     )
 
     assert workspace.provision_metadata_text is not None
-    assert len(workspace.provision_metadata_text) == 6_000
-    assert workspace.provision_metadata_text.endswith(
-        "[provision metadata truncated at 6000 characters]"
-    )
+    assert "z" * 10_000 in workspace.provision_metadata_text
+    assert "truncated" not in workspace.provision_metadata_text
 
 
 def test_run_source_eval_rejects_forged_resolver_source(tmp_path):
@@ -1515,6 +2569,7 @@ def test_model_eval_reuses_identical_resolved_source_for_all_runners(tmp_path):
             policy_path=tmp_path / "rulespec",
             runtime_axiom_rules_path=tmp_path / "engine",
             corpus_release=corpus_release,
+            cli_environments={"codex": _test_eval_cli_environment("codex")},
         )
 
     assert actual == results
@@ -1523,6 +2578,127 @@ def test_model_eval_reuses_identical_resolved_source_for_all_runners(tmp_path):
     assert all(
         call.kwargs["source_unit"] is source_unit for call in mock_run.call_args_list
     )
+
+
+def test_run_model_eval_preflights_local_runners_when_environments_are_omitted(
+    tmp_path,
+):
+    corpus_release, source_unit = _write_test_source_unit(
+        tmp_path,
+        "authoritative source",
+        citation_path="us/statute/26/1",
+    )
+    environment = _test_eval_cli_environment("codex")
+    result = Mock(name="result")
+
+    with (
+        patch(
+            "axiom_encode.harness.evals.resolve_corpus_source_unit",
+            return_value=source_unit,
+        ),
+        patch(
+            "axiom_encode.harness.evals._preflight_eval_cli_runners",
+            return_value={"codex": environment},
+        ) as preflight,
+        patch(
+            "axiom_encode.harness.evals._run_single_eval",
+            return_value=result,
+        ) as run_single,
+    ):
+        actual = run_model_eval(
+            citations=["us/statute/26/1"],
+            runner_specs=["codex:model-a", "openai:model-b"],
+            output_root=tmp_path / "out",
+            policy_path=tmp_path / "rulespec",
+            runtime_axiom_rules_path=tmp_path / "engine",
+            corpus_release=corpus_release,
+        )
+
+    assert actual == [result, result]
+    preflight.assert_called_once_with(
+        [
+            parse_runner_spec("codex:model-a"),
+            parse_runner_spec("openai:model-b"),
+        ]
+    )
+    assert [item.kwargs["cli_environment"] for item in run_single.call_args_list] == [
+        environment,
+        None,
+    ]
+
+
+def test_run_source_eval_preflights_local_runner_when_environments_are_omitted(
+    tmp_path,
+):
+    corpus_release, source_unit = _write_test_source_unit(
+        tmp_path,
+        "authoritative source",
+    )
+    environment = _test_eval_cli_environment("claude")
+    result = Mock(name="result")
+
+    with (
+        patch(
+            "axiom_encode.harness.evals._preflight_eval_cli_runners",
+            return_value={"claude": environment},
+        ) as preflight,
+        patch(
+            "axiom_encode.harness.evals._run_single_source_eval",
+            return_value=result,
+        ) as run_single,
+    ):
+        actual = run_source_eval(
+            source_unit=source_unit,
+            runner_specs=["claude:opus"],
+            output_root=tmp_path / "out",
+            policy_path=_canonical_rulespec_content_root(tmp_path, "us"),
+            local_corpus_release=corpus_release,
+            runtime_axiom_rules_path=tmp_path / "engine",
+        )
+
+    assert actual == [result]
+    preflight.assert_called_once_with([parse_runner_spec("claude:opus")])
+    assert run_single.call_args.kwargs["cli_environment"] is environment
+
+
+@pytest.mark.parametrize("entrypoint", ["model", "source"])
+def test_public_eval_rejects_incomplete_explicit_cli_environments(
+    tmp_path,
+    entrypoint,
+):
+    corpus_release, source_unit = _write_test_source_unit(
+        tmp_path,
+        "authoritative source",
+        citation_path="us/statute/26/1",
+    )
+    common = {
+        "runner_specs": ["codex:model-a"],
+        "output_root": tmp_path / "out",
+        "policy_path": _canonical_rulespec_content_root(tmp_path, "us"),
+        "runtime_axiom_rules_path": tmp_path / "engine",
+        "cli_environments": {},
+    }
+
+    with (
+        patch("axiom_encode.harness.evals._run_single_eval") as run_model,
+        patch("axiom_encode.harness.evals._run_single_source_eval") as run_source,
+        pytest.raises(ValueError, match="preflight-verified.*codex"),
+    ):
+        if entrypoint == "model":
+            run_model_eval(
+                citations=["us/statute/26/1"],
+                corpus_release=corpus_release,
+                **common,
+            )
+        else:
+            run_source_eval(
+                source_unit=source_unit,
+                local_corpus_release=corpus_release,
+                **common,
+            )
+
+    run_model.assert_not_called()
+    run_source.assert_not_called()
 
 
 def test_model_eval_passes_single_target_output_override(tmp_path):
@@ -3003,13 +4179,481 @@ class TestCorpusSourceResolution:
                 local_corpus_release=corpus_release,
                 runtime_axiom_rules_path=tmp_path / "axiom-rules-engine",
                 mode="cold",
+                cli_environments={"codex": _test_eval_cli_environment("codex")},
             )
 
         assert result.success is False
         assert result.error == "Generated RuleSpec failed CI validation"
 
 
+def _claude_result_stdout(
+    result: str = "review complete",
+    **overrides,
+) -> str:
+    payload = {
+        "type": "result",
+        "subtype": "success",
+        "is_error": False,
+        "stop_reason": "end_turn",
+        "result": result,
+        "usage": {},
+    }
+    payload.update(overrides)
+    return json.dumps(payload)
+
+
 class TestClaudePromptEval:
+    def test_prompt_eval_streams_exact_prompt_over_stdin(self, tmp_path):
+        runner = parse_runner_spec("claude:opus")
+        workspace = EvalWorkspace(
+            root=tmp_path,
+            source_text_file=tmp_path / "source.txt",
+            manifest_file=tmp_path / "context-manifest.json",
+        )
+        prompt = "full prompt bytes\r\nΔ" + ("x" * 199_980)
+        observed: dict[str, object] = {}
+
+        def fake_run(command, **kwargs):
+            observed["command"] = command
+            observed["prompt"] = kwargs["stdin"].read()
+            return subprocess.CompletedProcess(
+                args=command,
+                returncode=0,
+                stdout=_claude_result_stdout(),
+                stderr="",
+            )
+
+        with patch(
+            "axiom_encode.harness.evals.subprocess.run",
+            side_effect=fake_run,
+        ):
+            _run_claude_prompt_eval(runner, workspace, prompt)
+
+        command = observed["command"]
+        assert isinstance(command, list)
+        assert command.count("-p") == 1
+        assert prompt not in command
+        assert observed["prompt"] == prompt.encode("utf-8")
+
+    def test_prompt_eval_parses_required_envelope_from_stdout_only(self, tmp_path):
+        runner = parse_runner_spec("claude:opus")
+        workspace = EvalWorkspace(
+            root=tmp_path,
+            source_text_file=tmp_path / "source.txt",
+            manifest_file=tmp_path / "context-manifest.json",
+        )
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=_claude_result_stdout("valid output"),
+            stderr="warning: receiver diagnostic",
+        )
+
+        with patch(
+            "axiom_encode.harness.evals.subprocess.run",
+            return_value=completed,
+        ):
+            response = _run_claude_prompt_eval(runner, workspace, "review this")
+
+        assert response.text == "valid output"
+        assert response.error is None
+        assert "warning: receiver diagnostic" not in json.dumps(response.trace)
+        assert response.trace["stderr_diagnostic"]["byte_count"] == len(
+            completed.stderr.encode("utf-8")
+        )
+
+    @pytest.mark.parametrize(
+        ("stdout", "expected_error"),
+        [
+            ("not json", "valid JSON object"),
+            (json.dumps(["not", "an", "object"]), "JSON object"),
+            (
+                _claude_result_stdout(type="assistant"),
+                "type='result'",
+            ),
+            (
+                _claude_result_stdout(subtype="error_during_execution"),
+                "subtype='success'",
+            ),
+            (
+                json.dumps(
+                    {
+                        "type": "result",
+                        "subtype": "success",
+                        "is_error": False,
+                        "result": "plausible artifact",
+                    }
+                ),
+                "stop_reason",
+            ),
+            (
+                _claude_result_stdout(is_error="false"),
+                "is_error",
+            ),
+        ],
+    )
+    def test_prompt_eval_rejects_malformed_required_json_envelope(
+        self,
+        tmp_path,
+        stdout,
+        expected_error,
+    ):
+        runner = parse_runner_spec("claude:opus")
+        workspace = EvalWorkspace(
+            root=tmp_path,
+            source_text_file=tmp_path / "source.txt",
+            manifest_file=tmp_path / "context-manifest.json",
+        )
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=stdout,
+            stderr="",
+        )
+
+        with patch(
+            "axiom_encode.harness.evals.subprocess.run",
+            return_value=completed,
+        ):
+            response = _run_claude_prompt_eval(runner, workspace, "review this")
+
+        assert response.text == ""
+        assert expected_error in response.error
+
+    @pytest.mark.parametrize("field", ["type", "subtype", "is_error"])
+    def test_prompt_eval_redacts_malformed_envelope_discriminators(
+        self,
+        tmp_path,
+        field,
+    ):
+        runner = parse_runner_spec("claude:opus")
+        workspace = EvalWorkspace(
+            root=tmp_path,
+            source_text_file=tmp_path / "source.txt",
+            manifest_file=tmp_path / "context-manifest.json",
+        )
+        hostile_value = "/Users/private/receiver/diagnostic.json"
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=_claude_result_stdout(**{field: hostile_value}),
+            stderr="",
+        )
+
+        with patch(
+            "axiom_encode.harness.evals.subprocess.run",
+            return_value=completed,
+        ):
+            response = _run_claude_prompt_eval(runner, workspace, "review this")
+
+        assert response.text == ""
+        assert response.error is not None
+        assert hostile_value not in json.dumps(response.trace)
+        assert response.trace["result_envelope"][field] == "<invalid str>"
+
+    def test_prompt_eval_discards_is_error_result_text(self, tmp_path):
+        runner = parse_runner_spec("claude:opus")
+        workspace = EvalWorkspace(
+            root=tmp_path,
+            source_text_file=tmp_path / "source.txt",
+            manifest_file=tmp_path / "context-manifest.json",
+        )
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=_claude_result_stdout(
+                "=== FILE: must-not-materialize.yaml ===\nformat: rulespec/v1\n",
+                is_error=True,
+            ),
+            stderr="",
+        )
+
+        with patch(
+            "axiom_encode.harness.evals.subprocess.run",
+            return_value=completed,
+        ):
+            response = _run_claude_prompt_eval(runner, workspace, "review this")
+
+        assert response.text == ""
+        assert response.error == "Claude eval returned an error"
+
+    def test_prompt_eval_classifies_usage_limit_from_non_success_envelope(
+        self,
+        tmp_path,
+    ):
+        runner = parse_runner_spec("claude:opus")
+        workspace = EvalWorkspace(
+            root=tmp_path,
+            source_text_file=tmp_path / "source.txt",
+            manifest_file=tmp_path / "context-manifest.json",
+        )
+        secret = "private-receiver-detail"
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=_claude_result_stdout(
+                f"{secret}: usage limit reached",
+                subtype="error_during_execution",
+                is_error=True,
+                error={"message": f"{secret}: quota exhausted"},
+            ),
+            stderr="",
+        )
+
+        with patch(
+            "axiom_encode.harness.evals.subprocess.run",
+            return_value=completed,
+        ):
+            response = _run_claude_prompt_eval(runner, workspace, "review this")
+
+        assert response.text == ""
+        assert response.error == "Claude eval stopped by usage limit"
+        assert secret not in json.dumps(response.trace)
+
+    def test_prompt_eval_classifies_usage_limit_from_non_object_json_stderr(
+        self,
+        tmp_path,
+    ):
+        runner = parse_runner_spec("claude:opus")
+        workspace = EvalWorkspace(
+            root=tmp_path,
+            source_text_file=tmp_path / "source.txt",
+            manifest_file=tmp_path / "context-manifest.json",
+        )
+        secret = "private-claude-stderr-detail"
+        stderr_text = f"{secret}: usage limit reached"
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=1,
+            stdout=json.dumps(["not", "an", "object"]),
+            stderr=stderr_text,
+        )
+
+        with patch(
+            "axiom_encode.harness.evals.subprocess.run",
+            return_value=completed,
+        ):
+            response = _run_claude_prompt_eval(runner, workspace, "review this")
+
+        assert response.text == ""
+        assert response.error == "Claude eval stopped by usage limit"
+        assert secret not in json.dumps(response.trace)
+        assert response.trace["stderr_diagnostic"]["byte_count"] == len(
+            stderr_text.encode()
+        )
+
+    @pytest.mark.parametrize(
+        ("stop_reason", "invalid_type"),
+        [
+            (["private-stop-reason-detail"], "list"),
+            ({"reason": "private-stop-reason-detail"}, "dict"),
+        ],
+        ids=["list", "object"],
+    )
+    def test_prompt_eval_rejects_malformed_stop_reason_without_type_error(
+        self,
+        tmp_path,
+        stop_reason,
+        invalid_type,
+    ):
+        runner = parse_runner_spec("claude:opus")
+        workspace = EvalWorkspace(
+            root=tmp_path,
+            source_text_file=tmp_path / "source.txt",
+            manifest_file=tmp_path / "context-manifest.json",
+        )
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=_claude_result_stdout(stop_reason=stop_reason),
+            stderr="",
+        )
+
+        with patch(
+            "axiom_encode.harness.evals.subprocess.run",
+            return_value=completed,
+        ):
+            response = _run_claude_prompt_eval(runner, workspace, "review this")
+
+        assert response.text == ""
+        assert response.error == (
+            "Claude eval JSON envelope requires a nonempty stop_reason"
+        )
+        assert "private-stop-reason-detail" not in json.dumps(response.trace)
+        assert response.trace["result_envelope"]["stop_reason"] == (
+            f"<invalid {invalid_type}>"
+        )
+
+    def test_prompt_eval_preserves_truncation_priority_over_stderr_quota(
+        self,
+        tmp_path,
+    ):
+        runner = parse_runner_spec("claude:opus")
+        workspace = EvalWorkspace(
+            root=tmp_path,
+            source_text_file=tmp_path / "source.txt",
+            manifest_file=tmp_path / "context-manifest.json",
+        )
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=1,
+            stdout=_claude_result_stdout(
+                "partial",
+                subtype="error_during_execution",
+                is_error=True,
+                stop_reason="max_tokens",
+            ),
+            stderr="usage limit reached",
+        )
+
+        with patch(
+            "axiom_encode.harness.evals.subprocess.run",
+            return_value=completed,
+        ):
+            response = _run_claude_prompt_eval(runner, workspace, "review this")
+
+        assert response.text == ""
+        assert response.failure_kind == "output_truncated"
+        assert "max_tokens" in response.error
+
+    @pytest.mark.parametrize(
+        "stop_reason",
+        ["max_tokens", "model_context_window_exceeded"],
+    )
+    def test_prompt_eval_classifies_truncated_stop_reason_for_non_success_envelope(
+        self,
+        tmp_path,
+        stop_reason,
+    ):
+        runner = parse_runner_spec("claude:opus")
+        workspace = EvalWorkspace(
+            root=tmp_path,
+            source_text_file=tmp_path / "source.txt",
+            manifest_file=tmp_path / "context-manifest.json",
+        )
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=_claude_result_stdout(
+                "=== FILE: partial.yaml ===\nformat: rulespec/v1\n",
+                subtype="error_during_execution",
+                is_error=True,
+                stop_reason=stop_reason,
+            ),
+            stderr="",
+        )
+
+        with patch(
+            "axiom_encode.harness.evals.subprocess.run",
+            return_value=completed,
+        ):
+            response = _run_claude_prompt_eval(runner, workspace, "review this")
+
+        assert response.text == ""
+        assert response.failure_kind == "output_truncated"
+        assert stop_reason in response.error
+
+    @pytest.mark.parametrize(
+        "stop_reason",
+        ["max_tokens", "model_context_window_exceeded"],
+    )
+    def test_prompt_eval_rejects_truncated_stop_reason(
+        self,
+        tmp_path,
+        stop_reason,
+    ):
+        runner = parse_runner_spec("claude:opus")
+        workspace = EvalWorkspace(
+            root=tmp_path,
+            source_text_file=tmp_path / "source.txt",
+            manifest_file=tmp_path / "context-manifest.json",
+        )
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=_claude_result_stdout(
+                "=== FILE: partial.yaml ===\nformat: rulespec/v1\n",
+                stop_reason=stop_reason,
+            ),
+            stderr="",
+        )
+
+        with patch(
+            "axiom_encode.harness.evals.subprocess.run",
+            return_value=completed,
+        ):
+            response = _run_claude_prompt_eval(runner, workspace, "review this")
+
+        assert response.text == ""
+        assert response.failure_kind == "output_truncated"
+        assert stop_reason in response.error
+
+    @pytest.mark.parametrize(
+        ("spec", "expected_effort"),
+        [
+            ("claude:opus", None),
+            ("claude:opus@max", "max"),
+        ],
+    )
+    def test_prompt_eval_passes_only_declared_effort(
+        self,
+        tmp_path,
+        spec,
+        expected_effort,
+    ):
+        runner = parse_runner_spec(spec)
+        workspace = EvalWorkspace(
+            root=tmp_path,
+            source_text_file=tmp_path / "source.txt",
+            manifest_file=tmp_path / "context-manifest.json",
+        )
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=_claude_result_stdout(),
+            stderr="",
+        )
+
+        with patch(
+            "axiom_encode.harness.evals.subprocess.run",
+            return_value=completed,
+        ) as mock_run:
+            _run_claude_prompt_eval(runner, workspace, "review this")
+
+        command = mock_run.call_args.args[0]
+        if expected_effort is None:
+            assert "--effort" not in command
+        else:
+            assert command[command.index("--effort") + 1] == expected_effort
+
+    def test_prompt_eval_uses_the_preflight_verified_executable(self, tmp_path):
+        runner = parse_runner_spec("claude:opus")
+        workspace = EvalWorkspace(
+            root=tmp_path,
+            source_text_file=tmp_path / "source.txt",
+            manifest_file=tmp_path / "context-manifest.json",
+        )
+        completed = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=_claude_result_stdout(),
+            stderr="",
+        )
+        environment = _test_eval_cli_environment("claude")
+
+        with patch(
+            "axiom_encode.harness.evals.subprocess.run",
+            return_value=completed,
+        ) as mock_run:
+            _run_claude_prompt_eval(
+                runner,
+                workspace,
+                "review this",
+                cli_environment=environment,
+            )
+
+        assert mock_run.call_args.args[0][0] == "/verified/bin/claude"
+
     def test_prompt_eval_uses_configurable_encoder_timeout_and_records_it(
         self,
         tmp_path,
@@ -3025,7 +4669,7 @@ class TestClaudePromptEval:
         completed = subprocess.CompletedProcess(
             args=[],
             returncode=0,
-            stdout=json.dumps({"result": "review complete", "usage": {}}),
+            stdout=_claude_result_stdout(),
             stderr="",
         )
 
@@ -3086,7 +4730,7 @@ class TestClaudePromptEval:
         completed = subprocess.CompletedProcess(
             args=[],
             returncode=0,
-            stdout=json.dumps({"result": "late success", "usage": {}}),
+            stdout=_claude_result_stdout("late success"),
             stderr="",
         )
 
@@ -3144,7 +4788,7 @@ class TestClaudePromptEval:
         completed = subprocess.CompletedProcess(
             args=[],
             returncode=0,
-            stdout=json.dumps({"result": "review complete", "usage": {}}),
+            stdout=_claude_result_stdout(),
             stderr="",
         )
 
@@ -3176,12 +4820,7 @@ class TestClaudePromptEval:
         completed = subprocess.CompletedProcess(
             args=[],
             returncode=0,
-            stdout=json.dumps(
-                {
-                    "result": "review complete",
-                    "usage": {"input_tokens": 2, "output_tokens": 3},
-                }
-            ),
+            stdout=_claude_result_stdout(usage={"input_tokens": 2, "output_tokens": 3}),
             stderr="",
         )
 
@@ -3218,6 +4857,495 @@ class TestClaudePromptEval:
 
 
 class TestCodexPromptEval:
+    def test_prompt_eval_classifies_usage_limit_from_nonzero_stderr_before_sanitization(
+        self,
+        tmp_path,
+    ):
+        runner = parse_runner_spec("codex:gpt-5.4")
+        workspace = EvalWorkspace(
+            root=tmp_path,
+            source_text_file=tmp_path / "source.txt",
+            manifest_file=tmp_path / "context-manifest.json",
+        )
+        secret = "private-receiver-detail"
+        stderr_text = f"{secret}: usage limit\n"
+
+        class FakePopen:
+            def __init__(self, cmd, stdout, stderr, text, cwd, stdin=None, env=None):
+                self.args = cmd
+                self.returncode = 1
+                stderr.write(stderr_text)
+                stderr.flush()
+
+            def poll(self):
+                return self.returncode
+
+            def wait(self, timeout=None):
+                return self.returncode
+
+            def kill(self):
+                self.returncode = -9
+
+        with (
+            patch("axiom_encode.harness.evals.subprocess.Popen", FakePopen),
+            patch(
+                "axiom_encode.harness.evals._wait_for_codex_process",
+                return_value=False,
+            ),
+        ):
+            response = _run_codex_prompt_eval(runner, workspace, "prompt")
+
+        assert response.text == ""
+        assert response.error == "Codex eval stopped by usage limit"
+        assert secret not in json.dumps(response.trace)
+        assert response.trace["stderr_diagnostic"]["byte_count"] == len(
+            stderr_text.encode()
+        )
+        result = _fake_eval_result("codex-gpt-5.4", "sample")
+        result.error = response.error
+        assert evals_module._eval_result_indicates_usage_limit(result)
+
+    @pytest.mark.parametrize(
+        ("turn_failure", "expected_error", "expected_failure_kind"),
+        [
+            (
+                "receiver unavailable",
+                "Codex eval stopped by usage limit",
+                "error",
+            ),
+            (
+                "max_tokens output limit reached",
+                "Codex eval output was truncated by receiver limits",
+                "output_truncated",
+            ),
+        ],
+        ids=["generic-failure-yields-to-quota", "truncation-retains-priority"],
+    )
+    def test_prompt_eval_prioritizes_mixed_terminal_diagnostics(
+        self,
+        tmp_path,
+        turn_failure,
+        expected_error,
+        expected_failure_kind,
+    ):
+        runner = parse_runner_spec("codex:gpt-5.4")
+        workspace = EvalWorkspace(
+            root=tmp_path,
+            source_text_file=tmp_path / "source.txt",
+            manifest_file=tmp_path / "context-manifest.json",
+        )
+        secret = "private-mixed-codex-diagnostic"
+        stderr_text = f"{secret}: usage limit reached\n"
+        event_line = json.dumps(
+            {
+                "type": "turn.failed",
+                "error": {"message": turn_failure},
+            }
+        )
+
+        class FakePopen:
+            def __init__(self, cmd, stdout, stderr, text, cwd, stdin=None, env=None):
+                self.args = cmd
+                self.returncode = 1
+                stdout.write(event_line + "\n")
+                stdout.flush()
+                stderr.write(stderr_text)
+                stderr.flush()
+
+            def poll(self):
+                return self.returncode
+
+            def wait(self, timeout=None):
+                return self.returncode
+
+            def kill(self):
+                self.returncode = -9
+
+        with (
+            patch("axiom_encode.harness.evals.subprocess.Popen", FakePopen),
+            patch(
+                "axiom_encode.harness.evals._wait_for_codex_process",
+                return_value=False,
+            ),
+        ):
+            response = _run_codex_prompt_eval(runner, workspace, "prompt")
+
+        assert response.text == ""
+        assert response.error == expected_error
+        assert response.failure_kind == expected_failure_kind
+        assert secret not in json.dumps(response.trace)
+
+    def test_prompt_eval_redacts_generic_error_event_before_persistence(
+        self,
+        tmp_path,
+    ):
+        runner = parse_runner_spec("codex:gpt-5.4")
+        workspace = EvalWorkspace(
+            root=tmp_path,
+            source_text_file=tmp_path / "source.txt",
+            manifest_file=tmp_path / "context-manifest.json",
+        )
+        hostile_message = (
+            "receiver failed at /Users/private/receiver/error-diagnostic.json"
+        )
+        event_lines = "\n".join(
+            [
+                json.dumps({"type": "error", "message": hostile_message}),
+                json.dumps(
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "type": "agent_message",
+                            "text": "format: rulespec/v1\nrules: []\n",
+                        },
+                    }
+                ),
+            ]
+        )
+
+        class FakePopen:
+            def __init__(self, cmd, stdout, stderr, text, cwd, stdin=None, env=None):
+                self.args = cmd
+                self.returncode = 0
+                stdout.write(event_lines + "\n")
+                stdout.flush()
+
+            def poll(self):
+                return self.returncode
+
+            def wait(self, timeout=None):
+                return self.returncode
+
+            def kill(self):
+                self.returncode = -9
+
+        with (
+            patch("axiom_encode.harness.evals.subprocess.Popen", FakePopen),
+            patch(
+                "axiom_encode.harness.evals._wait_for_codex_process",
+                return_value=False,
+            ),
+        ):
+            response = _run_codex_prompt_eval(runner, workspace, "prompt")
+
+        assert response.text == ""
+        assert response.error == "Codex eval error"
+        assert response.failure_kind == "error"
+        assert hostile_message not in json.dumps(response.trace)
+        assert response.trace["events"][0] == {
+            "type": "error",
+            "failure_kind": "error",
+        }
+
+    def test_prompt_eval_classifies_nested_error_event_quota_before_redaction(
+        self,
+        tmp_path,
+    ):
+        runner = parse_runner_spec("codex:gpt-5.4")
+        workspace = EvalWorkspace(
+            root=tmp_path,
+            source_text_file=tmp_path / "source.txt",
+            manifest_file=tmp_path / "context-manifest.json",
+        )
+        secret = "/Users/private/receiver/quota-diagnostic.json"
+        event_line = json.dumps(
+            {
+                "type": "error",
+                "details": {
+                    "diagnostic": secret,
+                    "reason": "usage limit reached",
+                },
+            }
+        )
+
+        class FakePopen:
+            def __init__(self, cmd, stdout, stderr, text, cwd, stdin=None, env=None):
+                self.args = cmd
+                self.returncode = 1
+                stdout.write(event_line + "\n")
+                stdout.flush()
+
+            def poll(self):
+                return self.returncode
+
+            def wait(self, timeout=None):
+                return self.returncode
+
+            def kill(self):
+                self.returncode = -9
+
+        with (
+            patch("axiom_encode.harness.evals.subprocess.Popen", FakePopen),
+            patch(
+                "axiom_encode.harness.evals._wait_for_codex_process",
+                return_value=False,
+            ),
+        ):
+            response = _run_codex_prompt_eval(runner, workspace, "prompt")
+
+        assert response.text == ""
+        assert response.error == "Codex eval stopped by usage limit"
+        assert response.failure_kind == "error"
+        assert secret not in json.dumps(response.trace)
+        assert response.trace["events"] == [
+            {"type": "error", "failure_kind": "usage_limit"}
+        ]
+
+    def test_prompt_eval_redacts_hostile_item_type_from_integrity_evidence(
+        self,
+        tmp_path,
+    ):
+        runner = parse_runner_spec("codex:gpt-5.4")
+        workspace = EvalWorkspace(
+            root=tmp_path,
+            source_text_file=tmp_path / "source.txt",
+            manifest_file=tmp_path / "context-manifest.json",
+        )
+        hostile_item_type = "/Users/private/receiver/tool-diagnostic.json"
+        event_line = json.dumps(
+            {
+                "type": "item.completed",
+                "item": {
+                    "type": hostile_item_type,
+                    "result": "private receiver result",
+                },
+            }
+        )
+
+        class FakePopen:
+            def __init__(self, cmd, stdout, stderr, text, cwd, stdin=None, env=None):
+                self.args = cmd
+                self.returncode = 0
+                stdout.write(event_line + "\n")
+                stdout.flush()
+
+            def poll(self):
+                return self.returncode
+
+            def wait(self, timeout=None):
+                return self.returncode
+
+            def kill(self):
+                self.returncode = -9
+
+        with (
+            patch("axiom_encode.harness.evals.subprocess.Popen", FakePopen),
+            patch(
+                "axiom_encode.harness.evals._wait_for_codex_process",
+                return_value=False,
+            ),
+        ):
+            response = _run_codex_prompt_eval(runner, workspace, "prompt")
+
+        verdict_payload = {
+            "trace": response.trace,
+            "unexpected_accesses": response.unexpected_accesses,
+            "error": response.error,
+        }
+        assert response.failure_kind == "integrity"
+        assert hostile_item_type not in json.dumps(verdict_payload)
+        assert response.unexpected_accesses == ["<invalid item type>"]
+
+    def test_prompt_eval_streams_exact_prompt_over_stdin(self, tmp_path):
+        runner = parse_runner_spec("codex:gpt-5.4")
+        workspace = EvalWorkspace(
+            root=tmp_path,
+            source_text_file=tmp_path / "source.txt",
+            manifest_file=tmp_path / "context-manifest.json",
+        )
+        prompt = "full prompt bytes\r\nΔ" + ("x" * 199_980)
+        observed: dict[str, object] = {}
+
+        class FakePopen:
+            def __init__(self, cmd, stdout, stderr, text, cwd, stdin=None, env=None):
+                self.args = cmd
+                self.returncode = 0
+                observed["command"] = cmd
+                observed["prompt"] = stdin.read()
+
+            def poll(self):
+                return self.returncode
+
+            def wait(self, timeout=None):
+                return self.returncode
+
+            def kill(self):
+                self.returncode = -9
+
+        with (
+            patch("axiom_encode.harness.evals.subprocess.Popen", FakePopen),
+            patch(
+                "axiom_encode.harness.evals._wait_for_codex_process",
+                return_value=False,
+            ),
+        ):
+            _run_codex_prompt_eval(runner, workspace, prompt)
+
+        command = observed["command"]
+        assert isinstance(command, list)
+        assert command[-1] == "-"
+        assert prompt not in command
+        assert observed["prompt"] == prompt.encode("utf-8")
+
+    def test_prompt_eval_uses_the_preflight_verified_executable(self, tmp_path):
+        runner = parse_runner_spec("codex:gpt-5.4")
+        workspace = EvalWorkspace(
+            root=tmp_path,
+            source_text_file=tmp_path / "source.txt",
+            manifest_file=tmp_path / "context-manifest.json",
+        )
+        observed_commands: list[list[str]] = []
+        environment = _test_eval_cli_environment("codex")
+
+        class FakePopen:
+            def __init__(self, cmd, stdout, stderr, text, cwd, stdin=None, env=None):
+                self.args = cmd
+                self.returncode = 0
+                observed_commands.append(cmd)
+
+            def poll(self):
+                return self.returncode
+
+            def wait(self, timeout=None):
+                return self.returncode
+
+            def kill(self):
+                self.returncode = -9
+
+        with (
+            patch("axiom_encode.harness.evals.subprocess.Popen", FakePopen),
+            patch(
+                "axiom_encode.harness.evals._wait_for_codex_process",
+                return_value=False,
+            ),
+        ):
+            _run_codex_prompt_eval(
+                runner,
+                workspace,
+                "prompt",
+                cli_environment=environment,
+            )
+
+        assert observed_commands[0][0] == "/verified/bin/codex"
+
+    @pytest.mark.parametrize(
+        ("spec", "expected_config"),
+        [
+            ("codex:gpt-5.6-sol", None),
+            (
+                "codex:gpt-5.6-sol@high",
+                'model_reasoning_effort="high"',
+            ),
+        ],
+    )
+    def test_prompt_eval_uses_strict_declared_reasoning_effort(
+        self,
+        tmp_path,
+        spec,
+        expected_config,
+    ):
+        runner = parse_runner_spec(spec)
+        workspace = EvalWorkspace(
+            root=tmp_path,
+            source_text_file=tmp_path / "source.txt",
+            manifest_file=tmp_path / "context-manifest.json",
+        )
+        observed_commands: list[list[str]] = []
+
+        class FakePopen:
+            def __init__(self, cmd, stdout, stderr, text, cwd, stdin=None, env=None):
+                self.args = cmd
+                self.returncode = 0
+                observed_commands.append(cmd)
+
+            def poll(self):
+                return self.returncode
+
+            def wait(self, timeout=None):
+                return self.returncode
+
+            def kill(self):
+                self.returncode = -9
+
+        with (
+            patch("axiom_encode.harness.evals.subprocess.Popen", FakePopen),
+            patch(
+                "axiom_encode.harness.evals._wait_for_codex_process",
+                return_value=False,
+            ),
+        ):
+            _run_codex_prompt_eval(runner, workspace, "prompt")
+
+        [command] = observed_commands
+        assert "--strict-config" in command
+        configs = [
+            command[index + 1]
+            for index, value in enumerate(command)
+            if value in {"-c", "--config"}
+        ]
+        if expected_config is None:
+            assert configs == []
+        else:
+            assert configs == [expected_config]
+        assert not any(config.startswith("reasoning_effort=") for config in configs)
+
+    def test_codex_prompt_eval_runs_in_empty_read_only_scratch_workspace(
+        self,
+        tmp_path,
+    ):
+        runner = parse_runner_spec("codex:gpt-5.4")
+        workspace = EvalWorkspace(
+            root=tmp_path / "populated-workspace",
+            source_text_file=tmp_path / "populated-workspace" / "source.txt",
+            manifest_file=tmp_path / "populated-workspace" / "context-manifest.json",
+        )
+        workspace.root.mkdir()
+        workspace.source_text_file.write_text("must not be receiver-readable")
+        observed: dict[str, object] = {}
+
+        class FakePopen:
+            def __init__(self, cmd, stdout, stderr, text, cwd, stdin=None, env=None):
+                self.args = cmd
+                self.returncode = 0
+                scratch = Path(cwd)
+                observed["cmd"] = cmd
+                observed["cwd"] = scratch
+                observed["initial_entries"] = list(scratch.iterdir())
+                Path(cmd[cmd.index("-o") + 1]).write_text(
+                    "format: rulespec/v1\nrules: []\n"
+                )
+
+            def poll(self):
+                return self.returncode
+
+            def terminate(self):
+                self.returncode = -15
+
+            def wait(self, timeout=None):
+                return self.returncode
+
+            def kill(self):
+                self.returncode = -9
+
+        with (
+            patch("axiom_encode.harness.evals.subprocess.Popen", FakePopen),
+            patch(
+                "axiom_encode.harness.evals._wait_for_codex_process",
+                return_value=False,
+            ),
+        ):
+            response = _run_codex_prompt_eval(runner, workspace, "inline exam")
+
+        command = observed["cmd"]
+        scratch = observed["cwd"]
+        assert isinstance(command, list)
+        assert isinstance(scratch, Path)
+        assert scratch != workspace.root
+        assert observed["initial_entries"] == []
+        assert command[command.index("-C") + 1] == str(scratch)
+        assert command[command.index("-s") + 1] == "read-only"
+        assert response.text.startswith("format: rulespec/v1")
+
     def test_codex_prompt_eval_rejects_success_returned_after_case_deadline(
         self,
         tmp_path,
@@ -3895,8 +6023,16 @@ rules:
     versions:
       - effective_from: '2026-01-01'
         formula: true
-"""
+        """
     )
+    copied_cyclic_context = workspace.root / "context" / "statutes" / "26" / "7703.yaml"
+    copied_cyclic_context.parent.mkdir(parents=True, exist_ok=True)
+    copied_cyclic_context.write_text(cyclic_context.read_text())
+    copied_section_68_context = (
+        workspace.root / "context" / "statutes" / "26" / "68" / "b.yaml"
+    )
+    copied_section_68_context.parent.mkdir(parents=True, exist_ok=True)
+    copied_section_68_context.write_text(section_68_context.read_text())
     workspace.context_files.append(
         EvalContextFile(
             source_path=str(cyclic_context),
@@ -5080,6 +7216,7 @@ def test_run_source_eval_retries_once_when_first_response_has_no_rulespec(tmp_pa
             local_corpus_release=corpus_release,
             runtime_axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
+            cli_environments={"codex": _test_eval_cli_environment("codex")},
         )
 
     assert result.success is True
@@ -5135,6 +7272,7 @@ def test_run_source_eval_does_not_promote_context_to_source_authority(tmp_path, 
             runtime_axiom_rules_path=tmp_path / "axiom-rules-engine",
             extra_context_paths=[continuation],
             mode=mode,
+            cli_environments={"codex": _test_eval_cli_environment("codex")},
         )
 
     manifest = json.loads(Path(result.context_manifest_file).read_text())
@@ -5316,6 +7454,47 @@ def test_empty_artifact_runtime_uses_bound_max_attempts(monkeypatch, tmp_path):
     assert wrote_artifact is False
     assert retry_count == 0
     assert materialized_paths == frozenset()
+
+
+def test_terminal_infra_response_is_never_materialized_or_retried(tmp_path):
+    artifact_root = tmp_path / "out"
+    artifact_root.mkdir()
+    output_file = artifact_root / "sample.yaml"
+    response = EvalPromptResponse(
+        text="format: rulespec/v1\nrules: []\n",
+        duration_ms=1,
+        error="OpenAI response was incomplete: max_output_tokens",
+        failure_kind="output_truncated",
+    )
+
+    with (
+        patch(
+            "axiom_encode.harness.evals._run_prompt_eval",
+            return_value=response,
+        ) as mock_prompt,
+        patch(
+            "axiom_encode.harness.evals._materialize_eval_artifact",
+        ) as mock_materialize,
+    ):
+        returned, wrote_artifact, retry_count, materialized_paths = (
+            evals_module._run_prompt_eval_with_empty_artifact_retry(
+                parse_runner_spec("openai:gpt-5.4"),
+                SimpleNamespace(root=tmp_path),
+                "prompt",
+                output_file,
+                "source",
+                "sample.yaml",
+                False,
+                artifact_root=artifact_root,
+            )
+        )
+
+    assert returned.text == ""
+    assert wrote_artifact is False
+    assert retry_count == 0
+    assert materialized_paths == frozenset()
+    mock_prompt.assert_called_once()
+    mock_materialize.assert_not_called()
 
 
 def test_materialized_artifact_crossing_case_budget_is_discarded(
@@ -5541,6 +7720,7 @@ def test_run_source_eval_retries_once_when_first_response_times_out(tmp_path):
             local_corpus_release=corpus_release,
             runtime_axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
+            cli_environments={"codex": _test_eval_cli_environment("codex")},
         )
 
     assert result.success is True
@@ -5589,6 +7769,7 @@ def test_exhausted_encoder_timeout_classification_survives_result_round_trip(
             local_corpus_release=corpus_release,
             runtime_axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
+            cli_environments={"claude": _test_eval_cli_environment("claude")},
         )
 
     restored = _eval_result_from_payload(result.to_dict())
@@ -5666,6 +7847,7 @@ def test_timed_out_truncated_artifact_is_never_scored_as_validation_failure(
             local_corpus_release=corpus_release,
             runtime_axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
+            cli_environments={"codex": _test_eval_cli_environment("codex")},
         )
 
     restored = _eval_result_from_payload(result.to_dict())
@@ -5680,6 +7862,70 @@ def test_timed_out_truncated_artifact_is_never_scored_as_validation_failure(
     assert restored.output_file == ""
     assert restored.generated_output_sha256 is None
     assert mock_prompt_eval.call_count == 2
+    mock_evaluate.assert_not_called()
+
+
+def test_receiver_error_with_plausible_artifact_is_never_materialized_or_scored(
+    tmp_path,
+):
+    policy_repo_root = _canonical_rulespec_content_root(tmp_path, "us")
+    corpus_release, source_unit = _write_test_source_unit(
+        tmp_path, "source states 451."
+    )
+    plausible_bundle = (
+        "=== FILE: sample.yaml ===\n"
+        "format: rulespec/v1\n"
+        "module:\n"
+        "  summary: plausible but receiver-rejected output\n"
+        "rules: []\n"
+        "=== FILE: sample.test.yaml ===\n"
+        "[]\n"
+    )
+    response = EvalPromptResponse(
+        text=plausible_bundle,
+        duration_ms=50,
+        error="Receiver rejected the turn",
+        failure_kind="error",
+    )
+    plausible_metrics = EvalArtifactMetrics(
+        compile_pass=True,
+        compile_issues=[],
+        ci_pass=True,
+        ci_issues=[],
+        embedded_source_present=True,
+        grounded_numeric_count=1,
+        ungrounded_numeric_count=0,
+        grounding=[],
+    )
+
+    with (
+        patch(
+            "axiom_encode.harness.evals._run_prompt_eval",
+            return_value=response,
+        ) as mock_prompt_eval,
+        patch(
+            "axiom_encode.harness.evals.evaluate_artifact",
+            return_value=plausible_metrics,
+        ) as mock_evaluate,
+    ):
+        [result] = run_source_eval(
+            source_unit=source_unit,
+            runner_specs=["codex:gpt-5.4"],
+            output_root=tmp_path / "out",
+            policy_path=policy_repo_root,
+            local_corpus_release=corpus_release,
+            runtime_axiom_rules_path=tmp_path / "axiom-rules-engine",
+            mode="cold",
+            cli_environments={"codex": _test_eval_cli_environment("codex")},
+        )
+
+    restored = _eval_result_from_payload(result.to_dict())
+    assert restored.success is False
+    assert restored.failure_kind == "error"
+    assert restored.metrics is None
+    assert restored.output_file == ""
+    assert restored.generated_output_sha256 is None
+    assert mock_prompt_eval.call_count == 1
     mock_evaluate.assert_not_called()
 
 
@@ -5703,6 +7949,36 @@ def test_timed_out_response_outcome_prioritizes_timeout_over_artifact_validation
     assert outcome == {
         "failure_kind": "timeout",
         "timed_out": True,
+        "timeout_stage": "encoder",
+        "timeout_reason": "wall",
+        "timeout_seconds": 600,
+        "timeout_attempts": 1,
+    }
+
+
+def test_integrity_response_outcome_prioritizes_integrity_over_timeout():
+    response = EvalPromptResponse(
+        text="",
+        duration_ms=600_000,
+        unexpected_accesses=["cat $HOME/.ssh/id_rsa"],
+        error="Codex eval attempted command execution",
+        failure_kind="integrity",
+        timed_out=True,
+        timeout_stage="encoder",
+        timeout_reason="wall",
+        timeout_seconds=600,
+        timeout_attempts=1,
+    )
+
+    outcome = evals_module._eval_result_outcome(
+        response,
+        wrote_artifact=False,
+        validation_error=None,
+    )
+
+    assert outcome == {
+        "failure_kind": "integrity",
+        "timed_out": False,
         "timeout_stage": "encoder",
         "timeout_reason": "wall",
         "timeout_seconds": 600,
@@ -5794,6 +8070,37 @@ def test_retry_timeout_history_before_http_error_is_not_terminal_timeout():
     }
 
 
+@pytest.mark.parametrize(
+    ("field_name", "replacement", "expected_error"),
+    [
+        (
+            "openai_response_model_id",
+            "gpt-5.4-2026-07-01",
+            "response model.*changed",
+        ),
+        ("openai_service_tier", "priority", "service tier.*changed"),
+    ],
+)
+def test_empty_artifact_retry_rejects_openai_server_identity_drift(
+    field_name,
+    replacement,
+    expected_error,
+):
+    initial = EvalPromptResponse(
+        text="",
+        duration_ms=10,
+        openai_endpoint="https://api.openai.com/v1/responses",
+        openai_response_model_id="gpt-5.4-2026-06-01",
+        openai_service_tier="default",
+        openai_max_output_tokens=128_000,
+    )
+    retry = replace(initial, text="format: rulespec/v1\nrules: []\n")
+    setattr(retry, field_name, replacement)
+
+    with pytest.raises(ValueError, match=expected_error):
+        evals_module._combine_retry_response(initial, retry, "retry")
+
+
 def test_result_binding_rejects_failed_row_without_failure_kind():
     payload = _fake_eval_result("openai-gpt-5.4", "sample").to_dict()
     payload["success"] = False
@@ -5802,6 +8109,125 @@ def test_result_binding_rejects_failed_row_without_failure_kind():
 
     with pytest.raises(ValueError, match="failed result without a failure_kind"):
         evals_module._validate_eval_result_artifact_binding(payload)
+
+
+@pytest.mark.parametrize(
+    ("backend", "required_field", "invalid_value"),
+    [
+        ("claude", "claude_cli_version", None),
+        ("claude", "claude_cli_version", ""),
+        ("claude", "claude_cli_version", " \t"),
+        ("claude", "claude_cli_launcher_sha256", None),
+        ("claude", "claude_cli_native_sha256", None),
+        ("codex", "codex_cli_version", None),
+        ("codex", "codex_cli_version", ""),
+        ("codex", "codex_cli_version", " \t"),
+        ("codex", "codex_cli_launcher_sha256", None),
+        ("codex", "codex_cli_native_sha256", None),
+    ],
+)
+def test_result_binding_requires_local_cli_evidence(
+    backend, required_field, invalid_value
+):
+    payload = _fake_eval_result(f"{backend}-runner", "sample").to_dict()
+    payload["backend"] = backend
+    payload["model"] = "claude-fable-5" if backend == "claude" else "gpt-5.6-terra"
+    payload["claude_cli_version"] = (
+        "Claude Code 2.test" if backend == "claude" else None
+    )
+    payload["claude_cli_launcher_sha256"] = "a" * 64 if backend == "claude" else None
+    payload["claude_cli_native_sha256"] = "b" * 64 if backend == "claude" else None
+    payload["codex_cli_version"] = "codex-cli 0.test" if backend == "codex" else None
+    payload["codex_cli_launcher_sha256"] = "c" * 64 if backend == "codex" else None
+    payload["codex_cli_native_sha256"] = "d" * 64 if backend == "codex" else None
+    payload[required_field] = invalid_value
+
+    with pytest.raises(ValueError, match=rf"requires {required_field}$"):
+        evals_module._validate_eval_result_artifact_binding(payload)
+
+
+def test_result_binding_rejects_terminal_infra_failure_with_artifact():
+    payload = _fake_eval_result("openai-gpt-5.4", "sample").to_dict()
+    payload["success"] = False
+    payload["error"] = "OpenAI output was truncated"
+    payload["failure_kind"] = "output_truncated"
+
+    with pytest.raises(ValueError, match="terminal infra failure.*no artifact"):
+        evals_module._validate_eval_result_artifact_binding(payload)
+
+
+@pytest.mark.parametrize(
+    "unexpected_accesses",
+    [None, "cat /etc/passwd", [17], [""], ["   "]],
+)
+def test_result_binding_rejects_malformed_unexpected_accesses(unexpected_accesses):
+    payload = _fake_eval_result("openai-gpt-5.4", "sample").to_dict()
+    payload["unexpected_accesses"] = unexpected_accesses
+
+    with pytest.raises(ValueError, match="unexpected_accesses"):
+        evals_module._validate_eval_result_artifact_binding(payload)
+
+
+def test_result_binding_rejects_success_with_unexpected_accesses():
+    payload = _fake_eval_result("openai-gpt-5.4", "sample").to_dict()
+    payload["unexpected_accesses"] = ["cat $HOME/.ssh/id_rsa"]
+
+    with pytest.raises(ValueError, match="unexpected_accesses.*integrity"):
+        evals_module._validate_eval_result_artifact_binding(payload)
+
+
+def test_result_binding_rejects_integrity_without_unexpected_accesses():
+    payload = _fake_eval_result("openai-gpt-5.4", "sample").to_dict()
+    payload.update(
+        {
+            "success": False,
+            "error": "integrity failure",
+            "failure_kind": "integrity",
+            "output_file": "",
+            "generated_output_sha256": None,
+            "metrics": None,
+            "unexpected_accesses": [],
+        }
+    )
+
+    with pytest.raises(ValueError, match="integrity.*unexpected_accesses"):
+        evals_module._validate_eval_result_artifact_binding(payload)
+
+
+def test_suite_context_overflow_is_recorded_as_distinct_infra_failure():
+    case = EvalSuiteCase(
+        kind="source",
+        name="overflow-case",
+        mode="cold",
+        corpus_citation_path="us/statute/7/2017",
+    )
+
+    [result] = evals_module._suite_case_failure_results(
+        case,
+        [parse_runner_spec("openai:gpt-5.4")],
+        evals_module.EvalContextOverflowError(
+            "context_overflow: prompt exceeds receiver envelope"
+        ),
+    )
+
+    assert result.failure_kind == "context_overflow"
+    assert result.output_file == ""
+    assert result.metrics is None
+
+
+@pytest.mark.parametrize(
+    "failure_kind",
+    ["context_overflow", "output_truncated", "integrity"],
+)
+def test_suite_terminal_infra_failure_is_never_retried(failure_kind):
+    result = _fake_eval_result("openai-gpt-5.4", "sample")
+    result.success = False
+    result.error = f"terminal infrastructure failure: {failure_kind}"
+    result.failure_kind = failure_kind
+    result.output_file = ""
+    result.metrics = None
+
+    assert not evals_module._suite_case_results_should_retry([result])
 
 
 def test_policyengine_binding_rejects_artifact_without_oracle_evidence():
@@ -6155,10 +8581,14 @@ def test_run_source_eval_does_not_retry_when_first_response_writes_rulespec(tmp_
             local_corpus_release=corpus_release,
             runtime_axiom_rules_path=tmp_path / "axiom-rules-engine",
             mode="cold",
+            cli_environments={"codex": _test_eval_cli_environment("codex")},
         )
 
     assert result.success is True
     assert result.retry_count == 0
+    assert result.codex_cli_version == "codex 9.9.9"
+    assert result.codex_cli_launcher_sha256 == "c" * 64
+    assert result.codex_cli_native_sha256 == "d" * 64
     assert mock_prompt_eval.call_count == 1
 
 
@@ -6210,6 +8640,9 @@ def test_eval_result_payload_round_trips_prompt_digests():
             ),
         ),
         generation_prompt_sha256="generation-digest",
+        codex_cli_version="codex-cli 0.test",
+        codex_cli_launcher_sha256="c" * 64,
+        codex_cli_native_sha256="d" * 64,
         source_attestation={
             "requested_corpus_citation_path": "us/statute/7/2014/e/6/A",
             "source_sha256": "a" * 64,
@@ -6223,6 +8656,9 @@ def test_eval_result_payload_round_trips_prompt_digests():
     assert strict_payload["require_complete_source_unit"] is True
     assert restored.require_complete_source_unit is True
     assert restored.generation_prompt_sha256 == "generation-digest"
+    assert restored.codex_cli_version == "codex-cli 0.test"
+    assert restored.codex_cli_launcher_sha256 == "c" * 64
+    assert restored.codex_cli_native_sha256 == "d" * 64
     assert restored.retry_count == 1
     assert restored.metrics is not None
     assert restored.metrics.generalist_review_prompt_sha256 == "review-digest"
@@ -12985,10 +15421,138 @@ rules:
             runner_backend="openai",
         )
 
-        assert "You do not have filesystem tool access in this eval" in prompt
+        assert "Receiver filesystem or tool use is prohibited in this eval" in prompt
         assert "=== BEGIN SOURCE.TXT ===" in prompt
         assert "Editorial note: current text valid from 2025-04-07." in prompt
         assert "26.05" in prompt
+
+    def test_eval_prompt_is_backend_invariant_and_inlines_full_context_files(
+        self,
+        tmp_path,
+    ):
+        workspace_root = tmp_path / "workspace"
+        context_root = workspace_root / "context"
+        context_root.mkdir(parents=True)
+        source_text = "The full authoritative source states an amount of 26.05."
+        source_file = workspace_root / "source.txt"
+        source_file.write_text(source_text)
+        long_content = (
+            "format: rulespec/v1\n"
+            "module:\n"
+            "  summary: long context\n"
+            + "  # full-context-filler\n" * 350
+            + "  # tail-beyond-old-6000-character-prefix\n"
+        )
+        stub_content = "format: rulespec/v1\nmodule:\n  status: stub\nrules: []\n"
+        long_file = context_root / "precedent.yaml"
+        stub_file = context_root / "definition.yaml"
+        long_file.write_text(long_content)
+        stub_file.write_text(stub_content)
+        context_files = [
+            EvalContextFile(
+                source_path=str(long_file),
+                workspace_path="context/precedent.yaml",
+                import_path="us:statutes/1/precedent",
+                kind="implementation_precedent",
+            ),
+            EvalContextFile(
+                source_path=str(stub_file),
+                workspace_path="context/definition.yaml",
+                import_path="us:statutes/1/definition",
+                kind="definition_stub",
+                label="resolved definition",
+            ),
+        ]
+        workspace = EvalWorkspace(
+            root=workspace_root,
+            source_text_file=source_file,
+            manifest_file=workspace_root / "context-manifest.json",
+            context_files=context_files,
+            policy_prefix="us",
+        )
+
+        prompts = [
+            _build_eval_prompt(
+                "1 USC 1",
+                "repo-augmented",
+                workspace,
+                context_files,
+                target_file_name="1.yaml",
+                runner_backend=backend,
+            )
+            for backend in ("claude", "codex", "openai")
+        ]
+
+        assert len({prompt.encode("utf-8") for prompt in prompts}) == 1
+        prompt = prompts[0]
+        assert source_text in prompt
+        assert long_content in prompt
+        assert stub_content in prompt
+        assert "tail-beyond-old-6000-character-prefix" in prompt
+        assert "[truncated]" not in prompt
+        assert "Receiver filesystem or tool use is prohibited" in prompt
+
+    def test_eval_prompt_fails_loudly_when_manifest_context_file_is_missing(
+        self,
+        tmp_path,
+    ):
+        workspace_root = tmp_path / "workspace"
+        workspace_root.mkdir()
+        source_file = workspace_root / "source.txt"
+        source_file.write_text("Authoritative source.")
+        original_context = tmp_path / "original.yaml"
+        original_context.write_text("format: rulespec/v1\nrules: []\n")
+        context_files = [
+            EvalContextFile(
+                source_path=str(original_context),
+                workspace_path="context/missing.yaml",
+                import_path="us:statutes/1/missing",
+                kind="implementation_precedent",
+            )
+        ]
+        workspace = EvalWorkspace(
+            root=workspace_root,
+            source_text_file=source_file,
+            manifest_file=workspace_root / "context-manifest.json",
+            context_files=context_files,
+            policy_prefix="us",
+        )
+
+        with pytest.raises(ValueError, match="Could not inline context file"):
+            _build_eval_prompt(
+                "1 USC 1",
+                "repo-augmented",
+                workspace,
+                context_files,
+                target_file_name="1.yaml",
+                runner_backend="codex",
+            )
+
+    def test_eval_prompt_fails_with_context_overflow_before_receiver_call(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        workspace = prepare_eval_workspace(
+            citation="1 USC 1",
+            runner=parse_runner_spec("codex:gpt-5.4"),
+            output_root=tmp_path / "out",
+            source_text="Authoritative source.",
+            axiom_rules_path=_canonical_rulespec_content_root(tmp_path, "us"),
+            mode="cold",
+            extra_context_paths=[],
+        )
+        monkeypatch.setattr(evals_module, "_EVAL_PROMPT_MAX_UTF8_BYTES", 100)
+
+        with pytest.raises(ValueError, match="context_overflow"):
+            _build_eval_prompt(
+                "1 USC 1",
+                "cold",
+                workspace,
+                [],
+                target_file_name="1.yaml",
+                runner_backend="codex",
+            )
 
     def test_build_eval_prompt_for_date_silent_source_includes_neutral_scaffold_fallback(
         self, tmp_path
@@ -13021,6 +15585,265 @@ rules:
 
 
 class TestOpenAIEvalRequest:
+    @pytest.mark.parametrize(
+        ("spec", "expected_effort"),
+        [
+            ("openai:gpt-5.4", None),
+            ("openai:gpt-5.4@high", "high"),
+        ],
+    )
+    def test_openai_prompt_eval_uses_only_declared_effort(
+        self,
+        monkeypatch,
+        spec,
+        expected_effort,
+    ):
+        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+        response = Mock(status_code=200, headers={}, text="")
+        response.json.return_value = {
+            "status": "completed",
+            "model": "gpt-5.4-2026-06-01",
+            "service_tier": "priority",
+            "output_text": "format: rulespec/v1\nrules: []\n",
+            "usage": {},
+        }
+
+        with patch(
+            "axiom_encode.harness.evals._post_openai_eval_request",
+            return_value=response,
+        ) as mock_post:
+            result = evals_module._run_openai_prompt_eval(
+                parse_runner_spec(spec),
+                SimpleNamespace(),
+                "prompt",
+            )
+
+        body = mock_post.call_args.kwargs["body"]
+        assert body["reasoning"].get("effort") == expected_effort
+        assert result.error is None
+
+    @pytest.mark.parametrize(
+        ("payload", "expected_failure_kind"),
+        [
+            (
+                {
+                    "output_text": "format: rulespec/v1\nrules: []\n",
+                    "usage": {},
+                },
+                "error",
+            ),
+            (
+                {
+                    "status": "in_progress",
+                    "output_text": "format: rulespec/v1\nrules: []\n",
+                    "usage": {},
+                },
+                "error",
+            ),
+            (
+                {
+                    "status": "failed",
+                    "output_text": "format: rulespec/v1\nrules: []\n",
+                    "usage": {},
+                },
+                "error",
+            ),
+            (
+                {
+                    "status": 17,
+                    "output_text": "format: rulespec/v1\nrules: []\n",
+                    "usage": {},
+                },
+                "error",
+            ),
+            (
+                {
+                    "status": "incomplete",
+                    "output_text": "format: rulespec/v1\nrules: []\n",
+                    "usage": {},
+                },
+                "output_truncated",
+            ),
+            (
+                {
+                    "status": "completed",
+                    "incomplete_details": {"reason": "max_output_tokens"},
+                    "output_text": "format: rulespec/v1\nrules: []\n",
+                    "usage": {},
+                },
+                "output_truncated",
+            ),
+            (
+                {
+                    "status": "completed",
+                    "output": [
+                        {
+                            "type": "message",
+                            "status": "incomplete",
+                            "content": [
+                                {
+                                    "type": "output_text",
+                                    "text": "format: rulespec/v1\nrules: []\n",
+                                }
+                            ],
+                        }
+                    ],
+                    "usage": {},
+                },
+                "output_truncated",
+            ),
+            (
+                {
+                    "status": "completed",
+                    "output": [
+                        {
+                            "type": "message",
+                            "status": "completed",
+                            "stop_reason": "max_tokens",
+                            "content": [],
+                        }
+                    ],
+                    "usage": {},
+                },
+                "output_truncated",
+            ),
+        ],
+        ids=[
+            "missing-status",
+            "in-progress-status",
+            "failed-status",
+            "malformed-status",
+            "incomplete-status",
+            "incomplete-details",
+            "incomplete-message",
+            "max-token-stop",
+        ],
+    )
+    def test_openai_prompt_eval_rejects_every_incomplete_response(
+        self,
+        monkeypatch,
+        payload,
+        expected_failure_kind,
+    ):
+        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+        response = Mock(status_code=200, headers={}, text="")
+        response.json.return_value = payload
+
+        with patch(
+            "axiom_encode.harness.evals._post_openai_eval_request",
+            return_value=response,
+        ):
+            result = evals_module._run_openai_prompt_eval(
+                parse_runner_spec("openai:gpt-5.4"),
+                SimpleNamespace(),
+                "prompt",
+            )
+
+        assert result.text == ""
+        assert result.failure_kind == expected_failure_kind
+        assert result.error
+
+    def test_pre_dispatch_case_timeout_records_openai_request_envelope(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        policy_repo_root = _canonical_rulespec_content_root(tmp_path, "us")
+        corpus_release, source_unit = _write_test_source_unit(
+            tmp_path, "source states 451."
+        )
+        clock = [0.0]
+        monkeypatch.setattr(evals_module.time, "monotonic", lambda: clock[0])
+
+        with evals_module._active_eval_case_budget(5):
+            clock[0] = 6.0
+            [result] = run_source_eval(
+                source_unit=source_unit,
+                runner_specs=["openai:gpt-5.4"],
+                output_root=tmp_path / "out",
+                policy_path=policy_repo_root,
+                local_corpus_release=corpus_release,
+                runtime_axiom_rules_path=tmp_path / "axiom-rules-engine",
+                mode="cold",
+            )
+
+        payload = result.to_dict()
+        evals_module._validate_eval_result_artifact_binding(payload)
+        assert result.failure_kind == "timeout"
+        assert result.openai_endpoint == "https://api.openai.com/v1/responses"
+        assert result.openai_max_output_tokens == 128_000
+        assert result.openai_response_model_id is None
+        assert result.openai_service_tier is None
+
+    def test_openai_prompt_eval_uses_model_max_output_ceiling(
+        self,
+        monkeypatch,
+    ):
+        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+        response = Mock(status_code=200, headers={}, text="")
+        response.json.return_value = {
+            "status": "completed",
+            "model": "gpt-5.4-2026-06-01",
+            "service_tier": "priority",
+            "output": [
+                {
+                    "type": "message",
+                    "status": "completed",
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": "format: rulespec/v1\nrules: []\n",
+                        }
+                    ],
+                }
+            ],
+            "usage": {},
+        }
+
+        with patch(
+            "axiom_encode.harness.evals._post_openai_eval_request",
+            return_value=response,
+        ) as mock_post:
+            result = evals_module._run_openai_prompt_eval(
+                parse_runner_spec("openai:gpt-5.4"),
+                SimpleNamespace(),
+                "prompt",
+            )
+
+        assert mock_post.call_args.kwargs["body"]["max_output_tokens"] == 128_000
+        assert result.openai_endpoint == "https://api.openai.com/v1/responses"
+        assert result.openai_response_model_id == "gpt-5.4-2026-06-01"
+        assert result.openai_service_tier == "priority"
+        assert result.openai_max_output_tokens == 128_000
+        assert result.text == "format: rulespec/v1\nrules: []"
+
+    def test_openai_prompt_eval_rejects_completed_response_without_model_id(
+        self,
+        monkeypatch,
+    ):
+        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+        response = Mock(status_code=200, headers={}, text="")
+        response.json.return_value = {
+            "status": "completed",
+            "output_text": "format: rulespec/v1\nrules: []\n",
+            "usage": {},
+        }
+
+        with patch(
+            "axiom_encode.harness.evals._post_openai_eval_request",
+            return_value=response,
+        ):
+            result = evals_module._run_openai_prompt_eval(
+                parse_runner_spec("openai:gpt-5.4"),
+                SimpleNamespace(),
+                "prompt",
+            )
+
+        assert result.text == ""
+        assert result.failure_kind == "error"
+        assert result.openai_response_model_id is None
+        assert "response model" in (result.error or "").lower()
+
     def test_post_openai_eval_request_retries_transient_status(self):
         error_response = Mock()
         error_response.status_code = 502
@@ -13305,6 +16128,8 @@ class TestOpenAIEvalRequest:
             text="",
         )
         ok_response.json.return_value = {
+            "status": "completed",
+            "model": "gpt-5.4-2026-06-01",
             "output_text": "format: rulespec/v1\nrules: []\n",
             "usage": {},
         }
@@ -13440,12 +16265,64 @@ class TestEvalSuiteManifest:
             assert APPLY_MANIFEST_SIGNING_PRIVATE_KEY_ENV not in os.environ
             return metrics
 
-        with patch(
-            "axiom_encode.harness.evals.evaluate_artifact",
-            side_effect=evaluate_without_private_key,
-        ) as mock_evaluate:
+        def fake_cli_preflight(runners):
+            environments = {}
+            if any(runner.backend == "claude" for runner in runners):
+                environments["claude"] = _test_eval_cli_environment("claude")
+            if any(runner.backend == "codex" for runner in runners):
+                environments["codex"] = _test_eval_cli_environment("codex")
+            return environments
+
+        with (
+            patch(
+                "axiom_encode.harness.evals._preflight_eval_cli_runners",
+                side_effect=fake_cli_preflight,
+            ) as mock_preflight,
+            patch(
+                "axiom_encode.harness.evals.evaluate_artifact",
+                side_effect=evaluate_without_private_key,
+            ) as mock_evaluate,
+        ):
+            self.eval_cli_preflight = mock_preflight
             self.persisted_result_revalidation = mock_evaluate
             yield
+
+    def test_cli_preflight_failure_precedes_every_case_dispatch(self, tmp_path):
+        manifest = EvalSuiteManifest(
+            name="Preflight first",
+            path=tmp_path / "suite.yaml",
+            runners=["claude:opus"],
+            mode="cold",
+            allow_context=[],
+            gates=EvalReadinessGates(),
+            cases=[
+                EvalSuiteCase(
+                    kind="source",
+                    name="case-one",
+                    corpus_citation_path="us/statute/7/2017",
+                    mode="cold",
+                )
+            ],
+        )
+        self.eval_cli_preflight.side_effect = RuntimeError(
+            "Claude CLI 2.1.87 (Claude Code) does not support required eval "
+            "flag(s): --safe-mode"
+        )
+
+        with (
+            patch("axiom_encode.harness.evals.run_source_eval") as mock_source,
+            pytest.raises(RuntimeError, match="2.1.87.*--safe-mode"),
+        ):
+            run_eval_suite(
+                manifest=manifest,
+                output_root=tmp_path / "out",
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+                policy_repo_path=tmp_path / "rulespec-us",
+                corpus_release=_write_test_corpus_provision(tmp_path),
+            )
+
+        mock_source.assert_not_called()
+        assert not (tmp_path / "out" / "suite-run.json").exists()
 
     def test_manifest_case_identity_exposes_oracle_mode(self, tmp_path):
         manifest = EvalSuiteManifest(
@@ -14201,11 +17078,23 @@ cases:
             _engine_path,
             roots,
             *,
+            parsed_runners,
             suite_retry_attempts,
+            cli_environments,
         ):
             assert suite_retry_attempts == 2
+            assert [runner.name for runner in parsed_runners] == ["openai-gpt-5.4"]
+            assert cli_environments == {}
             return {
                 "schema": "test",
+                "receiver_environments": {
+                    "openai": {
+                        "endpoint": "https://api.openai.com/v1/responses",
+                        "requested_models": [
+                            {"name": "openai-gpt-5.4", "model": "gpt-5.4"}
+                        ],
+                    }
+                },
                 "case_timeout_seconds": 3600,
                 "rulespec_roots": [
                     {
@@ -14953,6 +17842,32 @@ cases:
         assert result.failure_kind is None
         assert result.timed_out is False
 
+    def test_case_budget_scope_does_not_relabel_terminal_integrity_failure(self):
+        result = _fake_eval_result("codex-gpt", "case-one")
+        result.output_file = ""
+        result.generated_output_sha256 = None
+        result.metrics = None
+        result.success = False
+        result.error = "Codex eval attempted command execution"
+        result.failure_kind = "integrity"
+        result.unexpected_accesses = ["cat $HOME/.ssh/id_rsa"]
+        result.timeout_attempts = 1
+        result.timeout_stage = "encoder"
+        result.timeout_reason = "wall"
+        result.timeout_seconds = 600
+
+        evals_module._mark_suite_case_budget_timeout(
+            [result],
+            timeout_seconds=10,
+        )
+
+        assert result.failure_kind == "integrity"
+        assert result.timed_out is False
+        assert result.timeout_stage == "encoder"
+        assert result.timeout_reason == "wall"
+        assert result.timeout_seconds == 600
+        assert result.timeout_attempts == 1
+
     def test_each_runner_case_gets_an_independent_generation_budget(
         self,
         tmp_path,
@@ -15053,6 +17968,7 @@ cases:
                     [runner],
                     subprocess.TimeoutExpired(["claude"], timeout=600),
                     source_attestation=source_attestation,
+                    cli_environments=kwargs["cli_environments"],
                 )
             if attempts[runner.name] == 1:
                 return evals_module._suite_case_failure_results(
@@ -15060,6 +17976,7 @@ cases:
                     [runner],
                     RuntimeError("stream disconnected"),
                     source_attestation=source_attestation,
+                    cli_environments=kwargs["cli_environments"],
                 )
             result = _fake_eval_result(runner.name, "case-one")
             result.backend = runner.backend
@@ -15179,6 +18096,15 @@ cases:
                 kwargs["source_unit"],
                 rulespec_root=kwargs["policy_path"],
             )
+            final_error.claude_cli_version = kwargs["cli_environments"][
+                "claude"
+            ].version
+            final_error.claude_cli_launcher_sha256 = kwargs["cli_environments"][
+                "claude"
+            ].launcher_sha256
+            final_error.claude_cli_native_sha256 = kwargs["cli_environments"][
+                "claude"
+            ].native_sha256
             return [final_error]
 
         with patch(
@@ -15572,6 +18498,88 @@ cases:
             for line in lines
         )
 
+    def test_run_eval_suite_resume_rejects_openai_response_model_drift(
+        self,
+        tmp_path,
+    ):
+        manifest_file = tmp_path / "suite.yaml"
+        manifest_file.write_text(
+            """
+name: Resume OpenAI identity suite
+runners:
+  - openai:gpt-5.4
+gates:
+  min_cases: 1
+  min_success_rate: 1.0
+  min_compile_pass_rate: 1.0
+  min_ci_pass_rate: 1.0
+  min_zero_ungrounded_rate: 1.0
+  min_generalist_review_pass_rate: 1.0
+  min_policyengine_pass_rate: 1.0
+cases:
+  - kind: source
+    name: case-one
+    corpus_citation_path: us/statute/7/2017
+  - kind: source
+    name: case-two
+    corpus_citation_path: us/statute/7/2017
+            """.strip()
+        )
+        manifest = load_eval_suite_manifest(manifest_file)
+        output_root = tmp_path / "out"
+        corpus_release = _write_test_corpus_provision(tmp_path)
+
+        def bound_result(response_model_id: str, **kwargs):
+            result = _fake_eval_result("openai-gpt-5.4", "case")
+            [result] = _bind_fake_source_results([result], kwargs)
+            result.openai_response_model_id = response_model_id
+            return [result]
+
+        first_outcomes = iter(
+            [
+                "gpt-5.4-2026-06-01",
+                KeyboardInterrupt(),
+            ]
+        )
+
+        def first_run(**kwargs):
+            outcome = next(first_outcomes)
+            if isinstance(outcome, BaseException):
+                raise outcome
+            return bound_result(outcome, **kwargs)
+
+        with patch(
+            "axiom_encode.harness.evals.run_source_eval",
+            side_effect=first_run,
+        ):
+            with pytest.raises(KeyboardInterrupt):
+                run_eval_suite(
+                    manifest=manifest,
+                    output_root=output_root,
+                    axiom_rules_path=tmp_path / "axiom-rules-engine",
+                    policy_repo_path=tmp_path / "rulespec-us",
+                    corpus_release=corpus_release,
+                )
+
+        with (
+            patch(
+                "axiom_encode.harness.evals.run_source_eval",
+                side_effect=lambda **kwargs: bound_result(
+                    "gpt-5.4-2026-07-01",
+                    **kwargs,
+                ),
+            ),
+            pytest.raises(ValueError, match="response model.*changed"),
+        ):
+            run_eval_suite(
+                manifest=manifest,
+                output_root=output_root,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+                policy_repo_path=tmp_path / "rulespec-us",
+                corpus_release=corpus_release,
+                resume_existing=True,
+            )
+
     def test_run_eval_suite_requires_validated_local_corpus_release(self, tmp_path):
         manifest = EvalSuiteManifest(
             name="Bound release suite",
@@ -15791,7 +18799,7 @@ cases:
         result_payload = row["result"]
         verdict_path = Path(result_payload["verdict_file"])
         verdict_payload = json.loads(verdict_path.read_text())
-        verdict_payload["schema"] = "axiom-encode/eval-result-verdict/v5"
+        verdict_payload["schema"] = "axiom-encode/eval-result-verdict/v6"
         verdict_payload["signature"] = sign_eval_evidence(
             verdict_payload,
             get_signing_broker(capability="eval_ed25519"),
@@ -15936,6 +18944,11 @@ cases:
         new_execution_identity = _build_eval_suite_execution_identity(
             axiom_rules_path,
             rulespec_roots,
+            parsed_runners=[parse_runner_spec(spec) for spec in manifest.runners],
+            cli_environments={
+                "codex": _test_eval_cli_environment("codex"),
+                "claude": _test_eval_cli_environment("claude"),
+            },
         )
         state_path = output_root / "suite-run.json"
         state = json.loads(state_path.read_text())
@@ -15961,7 +18974,21 @@ cases:
 
         def identity(runtime: PolicyEngineRuntime) -> dict[str, object]:
             return {
-                "schema": "axiom-encode/eval-execution-identity/v3",
+                "schema": "axiom-encode/eval-execution-identity/v6",
+                "runner_efforts": [
+                    {
+                        "name": "test",
+                        "requested_effort": None,
+                        "uses_receiver_default": True,
+                    }
+                ],
+                "receiver_environments": {
+                    "codex": {
+                        "cli_version": "codex 9.9.9",
+                        "launcher_sha256": "c" * 64,
+                        "native_sha256": "d" * 64,
+                    }
+                },
                 "case_timeout_seconds": 3600,
                 "runner_timeouts": {
                     "claude": {"wall_seconds": 1800},
@@ -16027,7 +19054,14 @@ cases:
 
         identity = _test_eval_suite_execution_identity()
 
-        assert identity["schema"] == "axiom-encode/eval-execution-identity/v3"
+        assert identity["schema"] == "axiom-encode/eval-execution-identity/v6"
+        assert identity["runner_efforts"] == [
+            {
+                "name": "test",
+                "requested_effort": None,
+                "uses_receiver_default": True,
+            }
+        ]
         assert identity["case_timeout_seconds"] == 2400
         assert identity["runner_timeouts"] == {
             "claude": {"wall_seconds": 1234},
@@ -16054,6 +19088,305 @@ cases:
             "openai_request_max_attempts": 6,
             "openai_request_backoff_seconds": [1, 2, 4, 8, 10],
         }
+
+    def test_execution_identity_records_requested_effort_and_receiver_default(self):
+        with patch(
+            "axiom_encode.harness.evals._git_checkout_execution_identity",
+            side_effect=lambda *_args, **_kwargs: {
+                "kind": "tree",
+                "tree_sha256": "1" * 64,
+            },
+        ):
+            identity = _build_eval_suite_execution_identity(
+                Path("/tmp/axiom-rules"),
+                (),
+                parsed_runners=(
+                    parse_runner_spec("default=openai:gpt-5.4"),
+                    parse_runner_spec("high=codex:gpt-5.6-sol@high"),
+                    parse_runner_spec("adaptive=claude:claude-opus-5@max"),
+                ),
+                cli_environments={
+                    "codex": _test_eval_cli_environment("codex"),
+                    "claude": _test_eval_cli_environment("claude"),
+                },
+            )
+
+        assert identity["runner_efforts"] == [
+            {
+                "name": "default",
+                "requested_effort": None,
+                "uses_receiver_default": True,
+            },
+            {
+                "name": "high",
+                "requested_effort": "high",
+                "uses_receiver_default": False,
+            },
+            {
+                "name": "adaptive",
+                "requested_effort": "max",
+                "uses_receiver_default": False,
+            },
+        ]
+
+    def test_execution_identity_records_only_exercised_receiver_environments(self):
+        with patch(
+            "axiom_encode.harness.evals._git_checkout_execution_identity",
+            side_effect=lambda *_args, **_kwargs: {
+                "kind": "tree",
+                "tree_sha256": "1" * 64,
+            },
+        ):
+            identity = _build_eval_suite_execution_identity(
+                Path("/tmp/axiom-rules"),
+                (),
+                parsed_runners=(
+                    parse_runner_spec("local=codex:gpt-5.4"),
+                    parse_runner_spec("remote=openai:gpt-5.4"),
+                ),
+                cli_environments={
+                    "codex": _test_eval_cli_environment("codex"),
+                    "claude": _test_eval_cli_environment("claude"),
+                },
+            )
+
+        assert identity["schema"] == "axiom-encode/eval-execution-identity/v6"
+        assert identity["receiver_environments"] == {
+            "codex": {
+                "cli_version": "codex 9.9.9",
+                "launcher_sha256": "c" * 64,
+                "native_sha256": "d" * 64,
+            },
+            "openai": {
+                "endpoint": "https://api.openai.com/v1/responses",
+                "requested_models": [
+                    {
+                        "name": "remote",
+                        "model": "gpt-5.4",
+                    }
+                ],
+            },
+        }
+        rendered = json.dumps(identity["receiver_environments"], sort_keys=True)
+        assert "/verified/" not in rendered
+
+    def test_execution_identity_records_openai_request_environment(self):
+        with patch(
+            "axiom_encode.harness.evals._git_checkout_execution_identity",
+            side_effect=lambda *_args, **_kwargs: {
+                "kind": "tree",
+                "tree_sha256": "1" * 64,
+            },
+        ):
+            identity = _build_eval_suite_execution_identity(
+                Path("/tmp/axiom-rules"),
+                (),
+                parsed_runners=(parse_runner_spec("openai:gpt-5.4"),),
+                cli_environments={
+                    "codex": _test_eval_cli_environment("codex"),
+                    "claude": _test_eval_cli_environment("claude"),
+                },
+            )
+
+        assert identity["receiver_environments"] == {
+            "openai": {
+                "endpoint": "https://api.openai.com/v1/responses",
+                "requested_models": [
+                    {
+                        "name": "openai-gpt-5.4",
+                        "model": "gpt-5.4",
+                    }
+                ],
+            }
+        }
+
+    @pytest.mark.parametrize(
+        ("field_name", "replacement"),
+        [
+            ("endpoint", "https://api.openai.example/v1/responses"),
+            (
+                "requested_models",
+                [{"name": "openai-gpt-5.4", "model": "gpt-5.4-pro"}],
+            ),
+        ],
+    )
+    def test_resume_identity_rejects_changed_openai_request_environment(
+        self,
+        field_name,
+        replacement,
+    ):
+        with patch(
+            "axiom_encode.harness.evals._git_checkout_execution_identity",
+            side_effect=lambda *_args, **_kwargs: {
+                "kind": "tree",
+                "tree_sha256": "1" * 64,
+            },
+        ):
+            persisted_identity = _build_eval_suite_execution_identity(
+                Path("/tmp/axiom-rules"),
+                (),
+                parsed_runners=(parse_runner_spec("openai:gpt-5.4"),),
+                cli_environments={},
+            )
+        payload = {
+            "execution_identity": persisted_identity,
+            "execution_identity_sha256": _eval_suite_execution_identity_sha256(
+                persisted_identity
+            ),
+        }
+        current_identity = copy.deepcopy(persisted_identity)
+        current_identity["receiver_environments"]["openai"][field_name] = replacement
+
+        with pytest.raises(ValueError, match="receiver.*environment"):
+            _validate_eval_suite_execution_identity(payload, current_identity)
+
+    @pytest.mark.parametrize(
+        "response_model_id",
+        ["gpt-4o", "gpt-5.4-pro"],
+    )
+    def test_openai_result_identity_rejects_unrelated_response_model(
+        self,
+        response_model_id,
+    ):
+        identity = {
+            "receiver_environments": {
+                "openai": {
+                    "endpoint": "https://api.openai.com/v1/responses",
+                    "requested_models": [
+                        {"name": "openai-gpt-5.4", "model": "gpt-5.4"}
+                    ],
+                }
+            }
+        }
+        result = _fake_eval_result("openai-gpt-5.4", "case-one")
+        result.openai_endpoint = "https://api.openai.com/v1/responses"
+        result.openai_response_model_id = response_model_id
+        result.openai_service_tier = "default"
+        result.openai_max_output_tokens = 128_000
+
+        with pytest.raises(ValueError, match="response model.*requested model"):
+            evals_module._validate_openai_result_receiver_identities(
+                [result],
+                execution_identity=identity,
+                artifact_name="test suite",
+            )
+
+    @pytest.mark.parametrize(
+        ("field_name", "replacement", "expected_error"),
+        [
+            (
+                "openai_response_model_id",
+                "gpt-5.4-2026-07-01",
+                "response model.*changed",
+            ),
+            ("openai_service_tier", "priority", "service tier.*changed"),
+        ],
+    )
+    def test_openai_result_identity_rejects_server_identity_drift(
+        self,
+        field_name,
+        replacement,
+        expected_error,
+    ):
+        identity = {
+            "receiver_environments": {
+                "openai": {
+                    "endpoint": "https://api.openai.com/v1/responses",
+                    "requested_models": [
+                        {"name": "openai-gpt-5.4", "model": "gpt-5.4"}
+                    ],
+                }
+            }
+        }
+        first = _fake_eval_result("openai-gpt-5.4", "case-one")
+        first.openai_endpoint = "https://api.openai.com/v1/responses"
+        first.openai_response_model_id = "gpt-5.4-2026-06-01"
+        first.openai_service_tier = "default"
+        first.openai_max_output_tokens = 128_000
+        second = replace(first, citation="case-two")
+        setattr(second, field_name, replacement)
+
+        with pytest.raises(ValueError, match=expected_error):
+            evals_module._validate_openai_result_receiver_identities(
+                [first, second],
+                execution_identity=identity,
+                artifact_name="test suite",
+            )
+
+    def test_openai_result_identity_allows_unknown_then_consistent_server_identity(
+        self,
+    ):
+        identity = {
+            "receiver_environments": {
+                "openai": {
+                    "endpoint": "https://api.openai.com/v1/responses",
+                    "requested_models": [
+                        {"name": "openai-gpt-5.4", "model": "gpt-5.4"}
+                    ],
+                }
+            }
+        }
+        before_response = _fake_eval_result("openai-gpt-5.4", "case-one")
+        before_response.openai_endpoint = "https://api.openai.com/v1/responses"
+        before_response.openai_response_model_id = None
+        before_response.openai_service_tier = None
+        before_response.openai_max_output_tokens = 128_000
+        completed = replace(
+            before_response,
+            citation="case-two",
+            openai_response_model_id="gpt-5.4-2026-06-01",
+            openai_service_tier="default",
+        )
+
+        evals_module._validate_openai_result_receiver_identities(
+            [before_response, completed],
+            execution_identity=identity,
+            artifact_name="test suite",
+        )
+
+    @pytest.mark.parametrize(
+        ("field_name", "replacement"),
+        [
+            ("cli_version", "codex 10.0.0"),
+            ("launcher_sha256", "e" * 64),
+            ("native_sha256", "f" * 64),
+        ],
+    )
+    def test_resume_identity_rejects_changed_receiver_environment(
+        self,
+        field_name,
+        replacement,
+    ):
+        persisted_identity = _test_eval_suite_execution_identity()
+        payload = {
+            "execution_identity": persisted_identity,
+            "execution_identity_sha256": _eval_suite_execution_identity_sha256(
+                persisted_identity
+            ),
+        }
+        current_identity = copy.deepcopy(persisted_identity)
+        current_identity["receiver_environments"]["codex"][field_name] = replacement
+
+        with pytest.raises(ValueError, match="receiver CLI environment"):
+            _validate_eval_suite_execution_identity(payload, current_identity)
+
+    def test_resume_identity_rejects_different_requested_effort(self):
+        persisted_identity = _test_eval_suite_execution_identity()
+        payload = {
+            "execution_identity": persisted_identity,
+            "execution_identity_sha256": _eval_suite_execution_identity_sha256(
+                persisted_identity
+            ),
+        }
+        current_identity = copy.deepcopy(persisted_identity)
+        current_identity["runner_efforts"][0] = {
+            "name": "test",
+            "requested_effort": "high",
+            "uses_receiver_default": False,
+        }
+
+        with pytest.raises(ValueError, match="requested runner effort"):
+            _validate_eval_suite_execution_identity(payload, current_identity)
 
     def test_resume_identity_rejects_different_claude_timeout(
         self,
@@ -16126,6 +19459,8 @@ cases:
             identity = _build_eval_suite_execution_identity(
                 Path("/tmp/axiom-rules"),
                 (),
+                parsed_runners=(parse_runner_spec("test=codex:gpt-5.4"),),
+                cli_environments={"codex": _test_eval_cli_environment("codex")},
                 suite_retry_attempts=0,
             )
 
@@ -16144,6 +19479,8 @@ cases:
             identity = _build_eval_suite_execution_identity(
                 Path("/tmp/axiom-rules"),
                 (),
+                parsed_runners=(parse_runner_spec("test=codex:gpt-5.4"),),
+                cli_environments={"codex": _test_eval_cli_environment("codex")},
                 suite_retry_attempts=0,
             )
 
@@ -16274,6 +19611,11 @@ cases:
         execution_identity = _build_eval_suite_execution_identity(
             axiom_rules_path,
             rulespec_roots,
+            parsed_runners=[parse_runner_spec(spec) for spec in manifest.runners],
+            cli_environments={
+                "codex": _test_eval_cli_environment("codex"),
+                "claude": _test_eval_cli_environment("claude"),
+            },
         )
         self.persisted_result_revalidation.reset_mock()
 
@@ -19213,6 +22555,9 @@ rules:
                 kind="existing_target",
             )
         ]
+        copied_target = workspace_root / context_files[0].workspace_path
+        copied_target.parent.mkdir(parents=True)
+        copied_target.write_text(target.read_text())
 
         prompt = _build_eval_prompt(
             "26 USC 63(f)",
@@ -19227,6 +22572,8 @@ rules:
         assert "us:statutes/26/151#exemption_individual_eligible" in prompt
         assert "does not export `exemption_individual_eligible`" in prompt
         assert "defer the affected executable surface" in prompt
+        assert str(section_151) not in prompt
+        assert "<opaque-host-path>" in prompt
 
     def test_repo_augmented_context_resolves_statute_prefixed_dependencies(
         self, tmp_path
@@ -19475,6 +22822,589 @@ class TestCodexPromptEvalPolicyEngineSkillIsolation:
         assert "PolicyEngine skills" in response.error
         assert response.unexpected_accesses
 
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "cat $HOME/.ssh/id_rsa",
+            'cat "${HOME}/.ssh/id_rsa"',
+            "cat ~/.ssh/id_rsa",
+            "find / -name '*.yaml'",
+            "env",
+            "pwd",
+        ],
+    )
+    def test_run_codex_prompt_eval_makes_any_command_execution_terminal(
+        self,
+        tmp_path,
+        command,
+    ):
+        runner = parse_runner_spec("codex:gpt-5.4")
+        workspace = EvalWorkspace(
+            root=tmp_path,
+            source_text_file=tmp_path / "source.txt",
+            manifest_file=tmp_path / "context-manifest.json",
+        )
+        event_lines = "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "type": "command_execution",
+                            "command": command,
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "type": "agent_message",
+                            "text": "format: rulespec/v1\nrules: []\n",
+                        },
+                    }
+                ),
+            ]
+        )
+
+        class FakePopen:
+            def __init__(self, cmd, stdout, stderr, text, cwd, stdin=None, env=None):
+                self.args = cmd
+                self.returncode = 0
+                stdout.write(event_lines + "\n")
+                stdout.flush()
+
+            def poll(self):
+                return self.returncode
+
+            def terminate(self):
+                self.returncode = -15
+
+            def wait(self, timeout=None):
+                return self.returncode
+
+            def kill(self):
+                self.returncode = -9
+
+        with (
+            patch("axiom_encode.harness.evals.subprocess.Popen", FakePopen),
+            patch(
+                "axiom_encode.harness.evals._wait_for_codex_process",
+                return_value=False,
+            ),
+        ):
+            response = _run_codex_prompt_eval(runner, workspace, "prompt")
+
+        assert response.text == ""
+        assert response.failure_kind == "integrity"
+        assert "prompt-only" in (response.error or "")
+        assert response.unexpected_accesses == ["command_execution"]
+
+    @pytest.mark.parametrize(
+        "item",
+        [
+            {"type": "web_search", "query": "outside context"},
+            {"type": "mcp_tool_call", "server": "files", "tool": "read"},
+            {"type": "file_change", "changes": [{"path": "answer.yaml"}]},
+            {"type": "future_tool", "secret": "receiver output"},
+        ],
+    )
+    def test_run_codex_prompt_eval_makes_any_tool_item_terminal(
+        self,
+        tmp_path,
+        item,
+    ):
+        runner = parse_runner_spec("codex:gpt-5.4")
+        workspace = EvalWorkspace(
+            root=tmp_path,
+            source_text_file=tmp_path / "source.txt",
+            manifest_file=tmp_path / "context-manifest.json",
+        )
+        event_lines = "\n".join(
+            [
+                json.dumps({"type": "item.completed", "item": item}),
+                json.dumps(
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "type": "agent_message",
+                            "text": "format: rulespec/v1\nrules: []\n",
+                        },
+                    }
+                ),
+            ]
+        )
+
+        class FakePopen:
+            def __init__(self, cmd, stdout, stderr, text, cwd, stdin=None, env=None):
+                self.args = cmd
+                self.returncode = 0
+                stdout.write(event_lines + "\n")
+                stdout.flush()
+
+            def poll(self):
+                return self.returncode
+
+            def terminate(self):
+                self.returncode = -15
+
+            def wait(self, timeout=None):
+                return self.returncode
+
+            def kill(self):
+                self.returncode = -9
+
+        with (
+            patch("axiom_encode.harness.evals.subprocess.Popen", FakePopen),
+            patch(
+                "axiom_encode.harness.evals._wait_for_codex_process",
+                return_value=False,
+            ),
+        ):
+            response = _run_codex_prompt_eval(runner, workspace, "prompt")
+
+        assert response.text == ""
+        assert response.failure_kind == "integrity"
+        assert "prompt-only" in (response.error or "")
+        assert response.unexpected_accesses == [item["type"]]
+
+    def test_run_codex_prompt_eval_redacts_tool_output_from_trace(self, tmp_path):
+        runner = parse_runner_spec("codex:gpt-5.4")
+        workspace = EvalWorkspace(
+            root=tmp_path,
+            source_text_file=tmp_path / "source.txt",
+            manifest_file=tmp_path / "context-manifest.json",
+        )
+        secret = "TOP_SECRET_RECEIVER_OUTPUT"
+        command = "cat /outside/context"
+        event_line = json.dumps(
+            {
+                "type": "item.completed",
+                "item": {
+                    "type": "command_execution",
+                    "command": command,
+                    "status": "completed",
+                    "aggregated_output": secret,
+                    "output": secret,
+                    "result": {"content": secret},
+                },
+            }
+        )
+
+        class FakePopen:
+            def __init__(self, cmd, stdout, stderr, text, cwd, stdin=None, env=None):
+                self.args = cmd
+                self.returncode = 0
+                stdout.write(event_line + "\n")
+                stdout.flush()
+
+            def poll(self):
+                return self.returncode
+
+            def terminate(self):
+                self.returncode = -15
+
+            def wait(self, timeout=None):
+                return self.returncode
+
+            def kill(self):
+                self.returncode = -9
+
+        with (
+            patch("axiom_encode.harness.evals.subprocess.Popen", FakePopen),
+            patch(
+                "axiom_encode.harness.evals._wait_for_codex_process",
+                return_value=False,
+            ),
+        ):
+            response = _run_codex_prompt_eval(runner, workspace, "prompt")
+
+        trace_text = json.dumps(response.trace)
+        assert secret not in trace_text
+        assert command not in trace_text
+        assert response.unexpected_accesses == ["command_execution"]
+        assert "command_execution" in trace_text
+        assert "completed" in trace_text
+
+    def test_run_codex_prompt_eval_keeps_integrity_terminal_when_it_times_out(
+        self,
+        tmp_path,
+    ):
+        runner = parse_runner_spec("codex:gpt-5.4")
+        workspace = EvalWorkspace(
+            root=tmp_path,
+            source_text_file=tmp_path / "source.txt",
+            manifest_file=tmp_path / "context-manifest.json",
+        )
+        command = "cat $HOME/.ssh/id_rsa"
+        event_line = json.dumps(
+            {
+                "type": "item.completed",
+                "item": {
+                    "type": "command_execution",
+                    "command": command,
+                },
+            }
+        )
+
+        class FakePopen:
+            def __init__(self, cmd, stdout, stderr, text, cwd, stdin=None, env=None):
+                self.args = cmd
+                self.returncode = None
+                stdout.write(event_line + "\n")
+                stdout.flush()
+
+            def poll(self):
+                return self.returncode
+
+            def terminate(self):
+                self.returncode = -15
+
+            def wait(self, timeout=None):
+                return self.returncode
+
+            def kill(self):
+                self.returncode = -9
+
+        with (
+            patch("axiom_encode.harness.evals.subprocess.Popen", FakePopen),
+            patch(
+                "axiom_encode.harness.evals._wait_for_codex_process",
+                side_effect=subprocess.TimeoutExpired("codex", 600),
+            ),
+        ):
+            response = _run_codex_prompt_eval(runner, workspace, "prompt")
+
+        outcome = evals_module._eval_result_outcome(
+            response,
+            wrote_artifact=False,
+            validation_error=None,
+        )
+        assert response.failure_kind == "integrity"
+        assert response.timed_out is True
+        assert response.unexpected_accesses == ["command_execution"]
+        assert outcome["failure_kind"] == "integrity"
+        assert outcome["timed_out"] is False
+        assert outcome["timeout_attempts"] == 1
+
+    @pytest.mark.parametrize("event_type", ["item.started", "item.updated"])
+    @pytest.mark.parametrize(
+        "item",
+        [
+            {"type": "command_execution", "command": "cat /outside/context"},
+            {"type": "mcp_tool_call", "server": "files", "tool": "read"},
+        ],
+    )
+    def test_run_codex_prompt_eval_makes_incomplete_tool_lifecycle_terminal_on_timeout(
+        self,
+        tmp_path,
+        event_type,
+        item,
+    ):
+        runner = parse_runner_spec("codex:gpt-5.4")
+        workspace = EvalWorkspace(
+            root=tmp_path,
+            source_text_file=tmp_path / "source.txt",
+            manifest_file=tmp_path / "context-manifest.json",
+        )
+        event_lines = "\n".join(
+            [
+                json.dumps({"type": event_type, "item": item}),
+                json.dumps(
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "type": "agent_message",
+                            "text": "format: rulespec/v1\nrules: []\n",
+                        },
+                    }
+                ),
+            ]
+        )
+
+        class FakePopen:
+            def __init__(self, cmd, stdout, stderr, text, cwd, stdin=None, env=None):
+                self.args = cmd
+                self.returncode = 0
+                stdout.write(event_lines + "\n")
+                stdout.flush()
+
+            def poll(self):
+                return self.returncode
+
+            def terminate(self):
+                self.returncode = -15
+
+            def wait(self, timeout=None):
+                return self.returncode
+
+            def kill(self):
+                self.returncode = -9
+
+        with (
+            patch("axiom_encode.harness.evals.subprocess.Popen", FakePopen),
+            patch(
+                "axiom_encode.harness.evals._wait_for_codex_process",
+                side_effect=subprocess.TimeoutExpired("codex", 600),
+            ),
+        ):
+            response = _run_codex_prompt_eval(runner, workspace, "prompt")
+
+        outcome = evals_module._eval_result_outcome(
+            response,
+            wrote_artifact=False,
+            validation_error=None,
+        )
+        assert response.text == ""
+        assert response.failure_kind == "integrity"
+        assert response.timed_out is True
+        assert "prompt-only" in (response.error or "")
+        assert response.unexpected_accesses
+        assert response.trace["events"][0]["type"] == event_type
+        assert outcome["failure_kind"] == "integrity"
+        assert outcome["timed_out"] is False
+
+    def test_run_codex_prompt_eval_scrubs_all_trace_content_after_tool_activity(
+        self,
+        tmp_path,
+    ):
+        runner = parse_runner_spec("codex:gpt-5.4")
+        workspace = EvalWorkspace(
+            root=tmp_path,
+            source_text_file=tmp_path / "source.txt",
+            manifest_file=tmp_path / "context-manifest.json",
+        )
+        secret = "RECEIVER_READ_SECRET_SENTINEL"
+        event_lines = "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "item.completed",
+                        "item": {"type": "reasoning", "text": secret},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "item.started",
+                        "item": {
+                            "type": "command_execution",
+                            "command": f"cat /outside/{secret}",
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "item.updated",
+                        "item": {
+                            "type": "command_execution",
+                            "aggregated_output": secret,
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "item.completed",
+                        "item": {"type": "agent_message", "text": secret},
+                    }
+                ),
+                json.dumps({"type": "error", "message": secret}),
+                json.dumps(
+                    {
+                        "type": "turn.completed",
+                        "usage": {"input_tokens": 7, "output_tokens": 11},
+                    }
+                ),
+            ]
+        )
+
+        class FakePopen:
+            def __init__(self, cmd, stdout, stderr, text, cwd, stdin=None, env=None):
+                self.args = cmd
+                self.returncode = 0
+                stdout.write(event_lines + "\n")
+                stdout.flush()
+
+            def poll(self):
+                return self.returncode
+
+            def terminate(self):
+                self.returncode = -15
+
+            def wait(self, timeout=None):
+                return self.returncode
+
+            def kill(self):
+                self.returncode = -9
+
+        with (
+            patch("axiom_encode.harness.evals.subprocess.Popen", FakePopen),
+            patch(
+                "axiom_encode.harness.evals._wait_for_codex_process",
+                return_value=False,
+            ),
+        ):
+            response = _run_codex_prompt_eval(runner, workspace, "prompt")
+
+        assert response.failure_kind == "integrity"
+        verdict_fields = {
+            "text": response.text,
+            "trace": response.trace,
+            "unexpected_accesses": response.unexpected_accesses,
+            "error": response.error,
+            "failure_kind": response.failure_kind,
+        }
+        assert secret not in json.dumps(verdict_fields)
+        assert response.unexpected_accesses == ["command_execution"]
+        assert response.trace["events"][-1] == {
+            "type": "turn.completed",
+            "usage": {"input_tokens": 7, "output_tokens": 11},
+        }
+
+    @pytest.mark.parametrize(
+        ("message", "expected_failure_kind"),
+        [
+            ("receiver unavailable", "error"),
+            ("maximum context window exceeded", "output_truncated"),
+            ("max_tokens output limit reached", "output_truncated"),
+        ],
+    )
+    def test_run_codex_prompt_eval_makes_turn_failed_terminal(
+        self,
+        tmp_path,
+        message,
+        expected_failure_kind,
+    ):
+        runner = parse_runner_spec("codex:gpt-5.4")
+        workspace = EvalWorkspace(
+            root=tmp_path,
+            source_text_file=tmp_path / "source.txt",
+            manifest_file=tmp_path / "context-manifest.json",
+        )
+        partial = "=== FILE: partial.yaml ===\nformat: rulespec/v1\nrules: []\n"
+        event_lines = "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "item.completed",
+                        "item": {"type": "agent_message", "text": partial},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "turn.failed",
+                        "error": {"message": message},
+                    }
+                ),
+            ]
+        )
+
+        class FakePopen:
+            def __init__(self, cmd, stdout, stderr, text, cwd, stdin=None, env=None):
+                self.args = cmd
+                self.returncode = 0
+                stdout.write(event_lines + "\n")
+                stdout.flush()
+                Path(cmd[cmd.index("-o") + 1]).write_text(partial)
+
+            def poll(self):
+                return self.returncode
+
+            def terminate(self):
+                self.returncode = -15
+
+            def wait(self, timeout=None):
+                return self.returncode
+
+            def kill(self):
+                self.returncode = -9
+
+        with (
+            patch("axiom_encode.harness.evals.subprocess.Popen", FakePopen),
+            patch(
+                "axiom_encode.harness.evals._wait_for_codex_process",
+                return_value=False,
+            ),
+        ):
+            response = _run_codex_prompt_eval(runner, workspace, "prompt")
+
+        assert response.text == ""
+        assert response.error is not None
+        assert response.failure_kind == expected_failure_kind
+        assert partial not in json.dumps(response.trace)
+
+    def test_run_codex_prompt_eval_preserves_integrity_over_turn_failed(
+        self,
+        tmp_path,
+    ):
+        runner = parse_runner_spec("codex:gpt-5.4")
+        workspace = EvalWorkspace(
+            root=tmp_path,
+            source_text_file=tmp_path / "source.txt",
+            manifest_file=tmp_path / "context-manifest.json",
+        )
+        secret = "DO-NOT-PERSIST-INTEGRITY-DETAIL"
+        event_lines = "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "item.completed",
+                        "item": {
+                            "type": "command_execution",
+                            "command": f"cat /outside/{secret}",
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "turn.failed",
+                        "error": {"message": f"receiver leaked {secret}"},
+                    }
+                ),
+            ]
+        )
+
+        class FakePopen:
+            def __init__(self, cmd, stdout, stderr, text, cwd, stdin=None, env=None):
+                self.args = cmd
+                self.returncode = 1
+                stdout.write(event_lines + "\n")
+                stdout.flush()
+                stderr.write(f"{secret}: usage limit reached\n")
+                stderr.flush()
+
+            def poll(self):
+                return self.returncode
+
+            def terminate(self):
+                self.returncode = -15
+
+            def wait(self, timeout=None):
+                return self.returncode
+
+            def kill(self):
+                self.returncode = -9
+
+        with (
+            patch("axiom_encode.harness.evals.subprocess.Popen", FakePopen),
+            patch(
+                "axiom_encode.harness.evals._wait_for_codex_process",
+                return_value=False,
+            ),
+        ):
+            response = _run_codex_prompt_eval(runner, workspace, "prompt")
+
+        assert response.text == ""
+        assert response.failure_kind == "integrity"
+        assert response.unexpected_accesses == ["command_execution"]
+        assert "prompt-only" in (response.error or "")
+        assert secret not in json.dumps(
+            {
+                "trace": response.trace,
+                "unexpected_accesses": response.unexpected_accesses,
+                "error": response.error,
+            }
+        )
+
 
 class TestUnexpectedAccessDetection:
     def test_flags_parent_directory_traversal(self, tmp_path):
@@ -19680,6 +23610,7 @@ class TestSourceEval:
                 include_tests=True,
                 policyengine_rule_hint="source_amount",
                 skip_reviewers=True,
+                cli_environments={"codex": _test_eval_cli_environment("codex")},
             )
 
         assert mock_evaluate_artifact.call_args.kwargs["skip_reviewers"] is True
@@ -19749,6 +23680,7 @@ class TestSourceEval:
                 runtime_axiom_rules_path=tmp_path / "axiom-rules-engine",
                 mode="repo-augmented",
                 extra_context_paths=[context_file],
+                cli_environments={"codex": _test_eval_cli_environment("codex")},
             )
 
         assert len(results) == 1
@@ -19836,6 +23768,7 @@ class TestSourceEval:
                 oracle="policyengine",
                 policyengine_runtime=_test_policyengine_runtime("uk"),
                 skip_reviewers=True,
+                cli_environments={"codex": _test_eval_cli_environment("codex")},
             )
 
         assert mock_evaluate_artifact.call_args.kwargs["oracle"] == "policyengine"

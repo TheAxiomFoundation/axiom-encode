@@ -571,6 +571,18 @@ class AgentSDKBackend(EncoderBackend):
                 messages=[{"role": "user", "content": prompt}],
             )
 
+            stop_reason = getattr(response, "stop_reason", None)
+            if stop_reason in {"max_tokens", "model_context_window_exceeded"}:
+                return EncoderResponse(
+                    rulespec_content="",
+                    success=False,
+                    error=(
+                        "Agent API response was truncated "
+                        f"(stop_reason={stop_reason}); refusing partial output"
+                    ),
+                    duration_ms=int((time.time() - start) * 1000),
+                )
+
             result_content = ""
             for block in response.content:
                 if hasattr(block, "text"):

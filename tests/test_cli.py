@@ -157,6 +157,7 @@ from axiom_encode.cli import (
     _resolve_applied_manifest_placement,
     _resolve_encode_replacement_target,
     _resolve_explicit_policy_repo_for_corpus_source,
+    _result_codex_cli_provenance,
     _rewrite_gpt_runner_backend,
     _rewrite_import_output_test_input_refs,
     _rewrite_judgment_conditional_formulas,
@@ -230,6 +231,8 @@ from axiom_encode.cli import (
     cmd_cloud_queue,
     cmd_compile,
     cmd_encode,
+    cmd_eval,
+    cmd_eval_source,
     cmd_eval_suite,
     cmd_eval_suite_archive,
     cmd_eval_suite_report,
@@ -287,11 +290,13 @@ from axiom_encode.harness.eval_evidence import EVAL_EVIDENCE_PRIVATE_KEY_ENV
 from axiom_encode.harness.evals import (
     CorpusSourceUnit,
     EvalArtifactMetrics,
+    EvalCliEnvironment,
     _bind_eval_result_payload,
     _build_eval_suite_manifest_identity,
     _eval_result_from_payload,
     _signed_eval_result_verdict_evidence_payload,
     load_eval_suite_manifest,
+    parse_runner_spec,
     resolve_corpus_source_unit,
     summarize_readiness,
 )
@@ -487,9 +492,37 @@ def _test_eval_evidence_keys(monkeypatch):
 
 def _test_eval_runner_identity(spec: str) -> dict[str, str]:
     alias, target = spec.split("=", 1) if "=" in spec else ("", spec)
-    backend, model = target.split(":", 1)
+    backend, model_and_effort = target.split(":", 1)
+    model, separator, _effort = model_and_effort.rpartition("@")
+    if not separator:
+        model = model_and_effort
     name = alias or f"{backend}-{model}"
     return {"name": name, "backend": backend, "model": model}
+
+
+def _test_eval_cli_environments() -> dict[str, EvalCliEnvironment]:
+    """Return complete path-bound test doubles for both local receivers."""
+
+    return {
+        "claude": EvalCliEnvironment(
+            backend="claude",
+            executable="/tools/claude",
+            version="2.1.test (Claude Code)",
+            executable_sha256="a" * 64,
+            launcher_sha256="a" * 64,
+            native_executable="/tools/vendor/claude",
+            native_sha256="b" * 64,
+        ),
+        "codex": EvalCliEnvironment(
+            backend="codex",
+            executable="/tools/codex",
+            version="codex-cli 0.test",
+            executable_sha256="c" * 64,
+            launcher_sha256="c" * 64,
+            native_executable="/tools/vendor/codex",
+            native_sha256="d" * 64,
+        ),
+    }
 
 
 def _write_test_eval_artifacts(root: Path, name: str) -> dict[str, str]:
@@ -513,9 +546,33 @@ def _write_test_eval_artifacts(root: Path, name: str) -> dict[str, str]:
     }
 
 
+def _complete_test_eval_result_payload(result: dict) -> dict:
+    """Fill the mandatory v7 integrity and effective-environment evidence."""
+
+    result.setdefault("unexpected_accesses", [])
+    if result.get("backend") == "claude":
+        result.setdefault("claude_cli_version", "2.1.test (Claude Code)")
+        result.setdefault("claude_cli_launcher_sha256", "a" * 64)
+        result.setdefault("claude_cli_native_sha256", "b" * 64)
+    elif result.get("backend") == "codex":
+        result.setdefault("codex_cli_version", "codex-cli 0.test")
+        result.setdefault("codex_cli_launcher_sha256", "c" * 64)
+        result.setdefault("codex_cli_native_sha256", "d" * 64)
+    elif result.get("backend") == "openai":
+        result.setdefault(
+            "openai_endpoint",
+            "https://api.openai.com/v1/responses",
+        )
+        result.setdefault("openai_response_model_id", result.get("model"))
+        result.setdefault("openai_service_tier", "default")
+        result.setdefault("openai_max_output_tokens", 128_000)
+    return result
+
+
 def _bind_test_eval_verdict(result: dict, root: Path, name: str) -> dict:
     """Add the independent validator-verdict artifact required by suite admission."""
 
+    _complete_test_eval_result_payload(result)
     result.setdefault("admission", {})
     payload = _bind_eval_result_payload(result)
     rehydrated = _eval_result_from_payload(payload)
@@ -603,8 +660,42 @@ def _fake_verified_eval_suite_artifacts(
         "policyengine_runtime_pin_sha256": "d" * 64,
         "validation_waiver_set_sha256": "8" * 64,
     }
+    receiver_environments = {
+        backend: {
+            "cli_version": environment.version,
+            "launcher_sha256": environment.launcher_sha256,
+            "native_sha256": environment.native_sha256,
+        }
+        for backend, environment in _test_eval_cli_environments().items()
+        if any(identity["backend"] == backend for identity in runner_identities)
+    }
+    openai_runners = [
+        {"name": identity["name"], "model": identity["model"]}
+        for identity in runner_identities
+        if identity["backend"] == "openai"
+    ]
+    if openai_runners:
+        receiver_environments["openai"] = {
+            "endpoint": "https://api.openai.com/v1/responses",
+            "requested_models": openai_runners,
+        }
     execution_identity = {
-        "schema": "axiom-encode/eval-execution-identity/v3",
+        "schema": "axiom-encode/eval-execution-identity/v6",
+        "runner_efforts": [
+            {
+                "name": identity["name"],
+                "requested_effort": (
+                    spec.rpartition("@")[2] if "@" in spec.rsplit(":", 1)[1] else None
+                ),
+                "uses_receiver_default": "@" not in spec.rsplit(":", 1)[1],
+            }
+            for spec, identity in zip(
+                effective_runners,
+                runner_identities,
+                strict=True,
+            )
+        ],
+        "receiver_environments": receiver_environments,
         "case_timeout_seconds": 3600,
         "runner_timeouts": {
             "claude": {"wall_seconds": 1800},
@@ -700,9 +791,34 @@ def _fake_verified_eval_suite_artifacts(
     result_index = 0
     for case_index in sorted(completed_case_indexes):
         case = manifest.cases[case_index - 1]
-        for _runner in runner_identities:
+        for runner_identity in runner_identities:
             result = results[result_index]
             result_index += 1
+            backend = runner_identity["backend"]
+            if isinstance(result, dict):
+                _complete_test_eval_result_payload(result)
+            elif backend == "claude":
+                result.claude_cli_version = "2.1.test (Claude Code)"
+                result.claude_cli_launcher_sha256 = "a" * 64
+                result.claude_cli_native_sha256 = "b" * 64
+            elif backend == "codex":
+                result.codex_cli_version = "codex-cli 0.test"
+                result.codex_cli_launcher_sha256 = "c" * 64
+                result.codex_cli_native_sha256 = "d" * 64
+            elif backend == "openai":
+                result.openai_endpoint = "https://api.openai.com/v1/responses"
+                result.openai_response_model_id = result.model
+                result.openai_service_tier = "default"
+                result.openai_max_output_tokens = 128_000
+            if not isinstance(result, dict):
+                result.unexpected_accesses = []
+                to_dict_return_value = getattr(
+                    getattr(result, "to_dict", None),
+                    "return_value",
+                    None,
+                )
+                if isinstance(to_dict_return_value, dict):
+                    _complete_test_eval_result_payload(to_dict_return_value)
             admission = {
                 "schema": "axiom-encode/eval-result-admission/v2",
                 "run": {
@@ -1781,6 +1897,19 @@ def test_clean_encoder_provenance_uses_verified_workflow_checkout(
     assert provenance["version_commit"] == commit
 
 
+def test_apply_provenance_adapter_projects_native_receiver_digest():
+    result = SimpleNamespace(
+        codex_cli_version="codex-cli 0.test",
+        codex_cli_launcher_sha256="a" * 64,
+        codex_cli_native_sha256="b" * 64,
+    )
+
+    assert _result_codex_cli_provenance(result) == (
+        "codex-cli 0.test",
+        "b" * 64,
+    )
+
+
 def _write_active_corpus_row(
     corpus_root: Path,
     citation_path: str,
@@ -2780,6 +2909,110 @@ def test_eval_citations_require_one_canonical_policy_content_root(tmp_path):
         )
 
 
+class TestDirectEvalCliPreflight:
+    @staticmethod
+    def _cli_environments() -> dict[str, EvalCliEnvironment]:
+        return _test_eval_cli_environments()
+
+    def test_cmd_eval_preflights_effective_runners_and_binds_environments(
+        self, tmp_path
+    ):
+        corpus_path = tmp_path / "axiom-corpus"
+        axiom_rules_path = tmp_path / "axiom-rules-engine"
+        policy_repo_path = tmp_path / "rulespec-us" / "us"
+        for path in (corpus_path, axiom_rules_path, policy_repo_path):
+            path.mkdir(parents=True)
+        runners = ["claude:claude-opus-5@high", "codex:custom-model@low"]
+        environments = self._cli_environments()
+        args = SimpleNamespace(
+            runner=runners,
+            gpt_backend=None,
+            rulespec_dependency_root=[],
+            corpus_path=corpus_path,
+            axiom_rules_path=axiom_rules_path,
+            policy_repo_path=policy_repo_path.parent,
+            citations=["us/statute/1"],
+            output=tmp_path / "out",
+            mode="repo-augmented",
+            allow_context=[],
+            require_complete_source_unit=False,
+            json=True,
+        )
+
+        with (
+            patch(
+                "axiom_encode.cli._preflight_eval_cli_runners",
+                return_value=environments,
+            ) as preflight,
+            patch(
+                "axiom_encode.cli._eval_policy_repo_for_citations",
+                return_value=policy_repo_path,
+            ),
+            patch(
+                "axiom_encode.cli.load_rulespec_local_corpus_release",
+                return_value=object(),
+            ),
+            patch("axiom_encode.cli.run_model_eval", return_value=[]) as run_eval,
+            patch.dict(os.environ, {}, clear=True),
+        ):
+            cmd_eval(args)
+
+        preflight.assert_called_once_with([parse_runner_spec(spec) for spec in runners])
+        assert run_eval.call_args.kwargs["cli_environments"] is environments
+
+    def test_cmd_eval_source_preflights_effective_runners_and_binds_environments(
+        self, tmp_path
+    ):
+        corpus_path = tmp_path / "axiom-corpus"
+        axiom_rules_path = tmp_path / "axiom-rules-engine"
+        policy_repo_path = tmp_path / "rulespec-us" / "us"
+        for path in (corpus_path, axiom_rules_path, policy_repo_path):
+            path.mkdir(parents=True)
+        runners = ["claude:claude-opus-5@max", "codex:custom-model@high"]
+        environments = self._cli_environments()
+        source_unit = object()
+        args = SimpleNamespace(
+            runner=runners,
+            gpt_backend=None,
+            rulespec_dependency_root=[],
+            corpus_path=corpus_path,
+            corpus_citation_path="us/statute/1",
+            axiom_rules_path=axiom_rules_path,
+            policy_repo_path=policy_repo_path.parent,
+            output=tmp_path / "out",
+            mode="repo-augmented",
+            allow_context=[],
+            policyengine_rule_hint=None,
+            require_complete_source_unit=False,
+            json=True,
+        )
+
+        with (
+            patch(
+                "axiom_encode.cli._preflight_eval_cli_runners",
+                return_value=environments,
+            ) as preflight,
+            patch(
+                "axiom_encode.cli._resolve_explicit_policy_repo_for_corpus_source",
+                return_value=policy_repo_path,
+            ),
+            patch(
+                "axiom_encode.cli.load_rulespec_local_corpus_release",
+                return_value=object(),
+            ),
+            patch(
+                "axiom_encode.cli.resolve_corpus_source_unit",
+                return_value=source_unit,
+            ),
+            patch("axiom_encode.cli.run_source_eval", return_value=[]) as run_eval,
+            patch.dict(os.environ, {}, clear=True),
+        ):
+            cmd_eval_source(args)
+
+        preflight.assert_called_once_with([parse_runner_spec(spec) for spec in runners])
+        assert run_eval.call_args.kwargs["cli_environments"] is environments
+
+
 class TestCmdEvalSuite:
     @pytest.fixture(autouse=True)
     def _bind_named_corpus_release(self, tmp_path, monkeypatch):
@@ -2797,6 +3030,117 @@ class TestCmdEvalSuite:
             "axiom_encode.cli._eval_suite_corpus_release",
             lambda *_args, **_kwargs: fake_release,
         )
+        test_environments = _test_eval_cli_environments()
+
+        def preflight(runners):
+            exercised_backends = {runner.backend for runner in runners}
+            return {
+                backend: environment
+                for backend, environment in test_environments.items()
+                if backend in exercised_backends
+            }
+
+        monkeypatch.setattr(
+            "axiom_encode.cli._preflight_eval_cli_runners",
+            preflight,
+        )
+
+    def test_preflights_effective_receivers_once_and_shares_exact_environment(
+        self,
+        tmp_path,
+    ):
+        manifest_file = tmp_path / "suite.yaml"
+        manifest_file.write_text(
+            "name: receiver-bound\n"
+            "runners:\n"
+            "  - codex:gpt-5.4\n"
+            "  - alternate=codex:gpt-5.4@high\n"
+            "  - openai:gpt-5.4\n"
+            "cases:\n"
+            "  - kind: source\n"
+            "    corpus_citation_path: us/statute/7/2017\n"
+        )
+        args = SimpleNamespace(
+            manifest=manifest_file,
+            output=tmp_path / "out",
+            corpus_path=tmp_path / "axiom-corpus",
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            policy_repo_path=self.policy_repo_path,
+            json=True,
+            resume=False,
+            auto_resume_attempts=0,
+            auto_resume_delay_seconds=0,
+        )
+        args.axiom_rules_path.mkdir()
+        args.corpus_path.mkdir(exist_ok=True)
+        codex_environment = EvalCliEnvironment(
+            backend="codex",
+            executable="/tools/codex",
+            version="codex 9.9.9",
+            executable_sha256="a" * 64,
+            launcher_sha256="a" * 64,
+            native_executable="/tools/vendor/codex",
+            native_sha256="b" * 64,
+        )
+        environments = {"codex": codex_environment}
+        payload = {
+            "schema": "axiom-encode/eval-suite-results/v8",
+            "manifest": {},
+            "evidence": {},
+            "coverage": {},
+            "results": [],
+            "readiness": {},
+            "all_ready": False,
+        }
+
+        with (
+            patch("axiom_encode.cli.load_eval_suite_manifest") as mock_load,
+            patch(
+                "axiom_encode.cli._preflight_eval_cli_runners",
+                return_value=environments,
+            ) as preflight,
+            patch("axiom_encode.cli.run_eval_suite", return_value=[]) as run_suite,
+            patch(
+                "axiom_encode.cli._load_verified_eval_suite_artifacts",
+                return_value={
+                    "results": [],
+                    "completed_case_indexes": set(),
+                    "run_state": {},
+                },
+            ) as verify_suite,
+            patch(
+                "axiom_encode.cli._build_eval_suite_payload",
+                return_value=payload,
+            ),
+        ):
+            mock_load.return_value.name = "receiver-bound"
+            mock_load.return_value.path = manifest_file
+            mock_load.return_value.runners = [
+                "codex:gpt-5.4",
+                "alternate=codex:gpt-5.4@high",
+                "openai:gpt-5.4",
+            ]
+            mock_load.return_value.cases = [
+                SimpleNamespace(
+                    kind="source",
+                    name="case-a",
+                    corpus_citation_path="us/statute/7/2017",
+                    citation=None,
+                    oracle="none",
+                )
+            ]
+            mock_load.return_value.gates = MagicMock()
+
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_eval_suite(args)
+
+        assert exc_info.value.code == 1
+        expected_runners = [
+            parse_runner_spec(spec) for spec in mock_load.return_value.runners
+        ]
+        preflight.assert_called_once_with(expected_runners)
+        assert run_suite.call_args.kwargs["cli_environments"] is environments
+        assert verify_suite.call_args.kwargs["cli_environments"] is environments
 
     def test_exits_nonzero_when_runner_is_not_ready(self, tmp_path, capsys):
         manifest_file = tmp_path / "suite.yaml"
@@ -3277,10 +3621,10 @@ class TestCmdEvalSuite:
             run_state=verified["run_state"],
             completed_case_indexes=set(),
         )
-        assert payload["schema"] == "axiom-encode/eval-suite-results/v6"
+        assert payload["schema"] == "axiom-encode/eval-suite-results/v8"
         assert payload["evidence"]["schema"] == ("axiom-encode/eval-suite-evidence/v5")
         assert _eval_suite_summary_payload(payload)["schema"] == (
-            "axiom-encode/eval-suite-summary/v6"
+            "axiom-encode/eval-suite-summary/v8"
         )
 
         assert payload["coverage"]["complete"] is False
@@ -3295,6 +3639,7 @@ class TestCmdEvalSuite:
         from axiom_encode.harness.evals import (
             _build_eval_suite_execution_identity,
             _eval_suite_execution_identity_sha256,
+            parse_runner_spec,
         )
 
         output_root = tmp_path / "suite"
@@ -3309,6 +3654,8 @@ class TestCmdEvalSuite:
             persisted_identity = _build_eval_suite_execution_identity(
                 tmp_path / "axiom-rules-engine",
                 (),
+                parsed_runners=(parse_runner_spec("codex:gpt-5.4"),),
+                cli_environments=_test_eval_cli_environments(),
                 suite_retry_attempts=0,
             )
         run_state = {
@@ -3342,6 +3689,18 @@ class TestCmdEvalSuite:
                 return_value=persisted_identity,
             ) as mock_build_identity,
             patch(
+                "axiom_encode.cli._preflight_eval_cli_runners",
+                side_effect=AssertionError(
+                    "historical verification must not probe a live receiver"
+                ),
+            ) as mock_preflight,
+            patch(
+                "axiom_encode.harness.evals._preflight_eval_cli_runners",
+                side_effect=AssertionError(
+                    "historical verification must not probe a live receiver"
+                ),
+            ) as mock_harness_preflight,
+            patch(
                 "axiom_encode.cli._load_eval_suite_resume_state",
                 return_value=(
                     "12345678-1234-4234-8234-123456789abc",
@@ -3362,7 +3721,13 @@ class TestCmdEvalSuite:
             )
 
         assert verified["complete"] is True
+        mock_preflight.assert_not_called()
+        mock_harness_preflight.assert_not_called()
         assert mock_build_identity.call_args.kwargs["suite_retry_attempts"] == 0
+        assert (
+            mock_build_identity.call_args.kwargs["receiver_environments"]
+            == (persisted_identity["receiver_environments"])
+        )
 
 
 class TestCmdEvalSuiteReport:
@@ -3728,7 +4093,7 @@ class TestCmdEvalSuiteReport:
             cmd_eval_suite_report(args)
         assert exc_info.value.code == 1
         assert (
-            "runner evidence differs from the signed manifest declaration"
+            "malformed or mismatched receiver environment for 'openai'"
             in capsys.readouterr().out
         )
 
@@ -3758,6 +4123,8 @@ class TestCmdEvalSuiteReport:
             "axiom-encode/eval-suite-results/v3",
             "axiom-encode/eval-suite-results/v4",
             "axiom-encode/eval-suite-results/v5",
+            "axiom-encode/eval-suite-results/v6",
+            "axiom-encode/eval-suite-results/v7",
         ],
     )
     def test_rejects_legacy_result_payload_without_translation(
@@ -3801,6 +4168,18 @@ class TestCmdEvalSuiteReport:
 
 
 class TestCmdEvalSuiteRevalidate:
+    @pytest.fixture(autouse=True)
+    def _forbid_receiver_preflight(self, monkeypatch):
+        def fail_preflight(_runners):
+            raise AssertionError(
+                "historical revalidation must not probe a live receiver"
+            )
+
+        monkeypatch.setattr(
+            "axiom_encode.cli._preflight_eval_cli_runners",
+            fail_preflight,
+        )
+
     @pytest.mark.parametrize("persisted_identity", [None, "wrong-release"])
     def test_revalidation_rejects_missing_or_changed_release_identity(
         self,
@@ -4030,6 +4409,7 @@ class TestCmdEvalSuiteRevalidate:
                 ),
             },
         }
+        _complete_test_eval_result_payload(stale_result)
         (source_output / "suite-results.jsonl").write_text(
             json.dumps(
                 {
@@ -4276,7 +4656,445 @@ class TestCmdEvalSuiteRevalidate:
         assert not list(output.rglob("*.tmp"))
 
 
+def _archive_registry_legacy_metadata(*, generation: int = 2) -> dict:
+    """Return one exact historical schema-less archive-index row."""
+
+    metadata = {
+        "archived_at": "2026-04-10T12:31:00+00:00",
+        "source_output": "/tmp/eval-output",
+        "archive_dir": "/tmp/eval-archives/eval-output",
+        "manifest": {"name": "Archive registry test"},
+        "status": "completed",
+        "started_at": "2026-04-10T12:00:00+00:00",
+        "finished_at": "2026-04-10T12:30:00+00:00",
+        "total_cases": 1,
+        "completed_cases": 1,
+        "result_count": 1,
+        "all_ready": True,
+        "rewritten_files": ["results.json"],
+    }
+    if generation == 2:
+        metadata.update(
+            {
+                "run_id": "12345678-1234-4234-8234-123456789abc",
+                "evidence_sha256": "a" * 64,
+                "results_sha256": "b" * 64,
+            }
+        )
+    elif generation != 1:
+        raise ValueError(f"Unknown archive metadata fixture generation: {generation}")
+    return metadata
+
+
+def _archive_registry_modern_metadata(*, archive_name: str = "modern") -> dict:
+    """Return one valid versioned archive-index metadata row."""
+
+    return {
+        **_archive_registry_legacy_metadata(),
+        "schema": "axiom-encode/eval-suite-archive-metadata/v1",
+        "archive_dir": f"/tmp/eval-archives/{archive_name}",
+        "manifest": {
+            "name": "Archive registry test",
+            "effective_runners": [
+                "codex-gpt-5.4=codex:gpt-5.4@high",
+                "claude-claude-opus-4-1=claude:claude-opus-4-1",
+            ],
+            "effective_runner_identities": [
+                {
+                    "name": "codex-gpt-5.4",
+                    "backend": "codex",
+                    "model": "gpt-5.4",
+                },
+                {
+                    "name": "claude-claude-opus-4-1",
+                    "backend": "claude",
+                    "model": "claude-opus-4-1",
+                },
+            ],
+        },
+        "results_schema": "axiom-encode/eval-suite-results/v8",
+        "summary_schema": "axiom-encode/eval-suite-summary/v8",
+        "execution_identity_schema": ("axiom-encode/eval-execution-identity/v6"),
+        "execution_identity_sha256": "c" * 64,
+        "runner_efforts": [
+            {
+                "name": "codex-gpt-5.4",
+                "requested_effort": "high",
+                "uses_receiver_default": False,
+            },
+            {
+                "name": "claude-claude-opus-4-1",
+                "requested_effort": None,
+                "uses_receiver_default": True,
+            },
+        ],
+    }
+
+
+def _archive_registry_migration_boundary(legacy_rows: int) -> dict:
+    """Return the one allowed legacy-to-versioned index boundary."""
+
+    return {
+        "schema": "axiom-encode/eval-suite-archive-index-migration/v1",
+        "from_metadata_schema": "unversioned-known-legacy",
+        "to_metadata_schema": "axiom-encode/eval-suite-archive-metadata/v1",
+        "legacy_rows": legacy_rows,
+    }
+
+
 class TestCmdEvalSuiteArchive:
+    def test_archive_metadata_stamps_payload_and_effort_identity_schemas(
+        self,
+        tmp_path,
+    ):
+        import axiom_encode.cli as cli_module
+
+        archive_dir = tmp_path / "staged"
+        archive_dir.mkdir()
+        source_root = tmp_path / "source"
+        published_archive_dir = tmp_path / "archives" / "suite"
+        execution_identity = {
+            "schema": "axiom-encode/eval-execution-identity/v6",
+            "receiver_environments": {
+                "claude": {
+                    "cli_version": "2.1.test (Claude Code)",
+                    "launcher_sha256": "a" * 64,
+                    "native_sha256": "b" * 64,
+                },
+                "codex": {
+                    "cli_version": "codex-cli 0.test",
+                    "launcher_sha256": "c" * 64,
+                    "native_sha256": "d" * 64,
+                },
+            },
+            "runner_efforts": [
+                {
+                    "name": "claude-claude-opus-4-1",
+                    "requested_effort": None,
+                    "uses_receiver_default": True,
+                },
+                {
+                    "name": "codex-gpt-5.4",
+                    "requested_effort": "xhigh",
+                    "uses_receiver_default": False,
+                },
+            ],
+        }
+        execution_identity_sha256 = _eval_suite_json_sha256(execution_identity)
+        evidence = {
+            "sha256": "a" * 64,
+            "execution_identity": execution_identity,
+            "execution_identity_sha256": execution_identity_sha256,
+        }
+        (archive_dir / "suite-run.json").write_text(
+            json.dumps(
+                {
+                    "manifest": {
+                        "name": "Versioned archive",
+                        "effective_runners": [
+                            "claude-claude-opus-4-1=claude:claude-opus-4-1",
+                            "codex-gpt-5.4=codex:gpt-5.4@xhigh",
+                        ],
+                        "effective_runner_identities": [
+                            {
+                                "name": "claude-claude-opus-4-1",
+                                "backend": "claude",
+                                "model": "claude-opus-4-1",
+                            },
+                            {
+                                "name": "codex-gpt-5.4",
+                                "backend": "codex",
+                                "model": "gpt-5.4",
+                            },
+                        ],
+                    },
+                    "status": "completed",
+                    "run_id": "12345678-1234-4234-8234-123456789abc",
+                    "started_at": "2026-04-10T12:00:00+00:00",
+                    "finished_at": "2026-04-10T12:30:00+00:00",
+                    "total_cases": 2,
+                    "completed_cases": 2,
+                    "result_count": 2,
+                }
+            )
+            + "\n"
+        )
+        (archive_dir / "results.json").write_text(
+            json.dumps(
+                {
+                    "schema": "axiom-encode/eval-suite-results/v8",
+                    "manifest": {"name": "Versioned archive"},
+                    "evidence": evidence,
+                    "coverage": {"results_sha256": "b" * 64},
+                    "results": [{}, {}],
+                }
+            )
+            + "\n"
+        )
+        (archive_dir / "summary.json").write_text(
+            json.dumps(
+                {
+                    "schema": "axiom-encode/eval-suite-summary/v8",
+                    "manifest": {"name": "Versioned archive"},
+                    "evidence": evidence,
+                    "all_ready": True,
+                }
+            )
+            + "\n"
+        )
+
+        metadata = cli_module._build_eval_suite_archive_metadata(
+            archive_dir,
+            source_root,
+            ["results.json"],
+            published_archive_dir=published_archive_dir,
+        )
+
+        assert metadata["schema"] == ("axiom-encode/eval-suite-archive-metadata/v1")
+        assert metadata["results_schema"] == ("axiom-encode/eval-suite-results/v8")
+        assert metadata["summary_schema"] == ("axiom-encode/eval-suite-summary/v8")
+        assert metadata["execution_identity_schema"] == (
+            "axiom-encode/eval-execution-identity/v6"
+        )
+        assert metadata["execution_identity_sha256"] == (execution_identity_sha256)
+        assert metadata["runner_efforts"] == execution_identity["runner_efforts"]
+
+    def test_archive_metadata_rejects_inconsistent_execution_identity_digest(
+        self,
+        tmp_path,
+    ):
+        import axiom_encode.cli as cli_module
+
+        archive_dir = tmp_path / "staged"
+        archive_dir.mkdir()
+        evidence = {
+            "sha256": "a" * 64,
+            "execution_identity": {
+                "schema": "axiom-encode/eval-execution-identity/v6",
+                "receiver_environments": {
+                    "codex": {
+                        "cli_version": "codex-cli 0.test",
+                        "launcher_sha256": "c" * 64,
+                        "native_sha256": "d" * 64,
+                    }
+                },
+                "runner_efforts": [
+                    {
+                        "name": "codex-gpt-5.4",
+                        "requested_effort": None,
+                        "uses_receiver_default": True,
+                    }
+                ],
+            },
+            "execution_identity_sha256": "f" * 64,
+        }
+        (archive_dir / "results.json").write_text(
+            json.dumps(
+                {
+                    "schema": "axiom-encode/eval-suite-results/v8",
+                    "evidence": evidence,
+                    "coverage": {"results_sha256": "b" * 64},
+                    "results": [],
+                }
+            )
+            + "\n"
+        )
+        (archive_dir / "summary.json").write_text(
+            json.dumps(
+                {
+                    "schema": "axiom-encode/eval-suite-summary/v8",
+                    "evidence": evidence,
+                }
+            )
+            + "\n"
+        )
+
+        with pytest.raises(ValueError, match="execution identity digest"):
+            cli_module._build_eval_suite_archive_metadata(
+                archive_dir,
+                tmp_path / "source",
+                [],
+            )
+
+    def test_archive_index_inserts_one_boundary_after_known_legacy_rows(
+        self,
+        tmp_path,
+    ):
+        import axiom_encode.cli as cli_module
+
+        archive_root = tmp_path / "archives"
+        archive_root.mkdir()
+        legacy_rows = [
+            _archive_registry_legacy_metadata(generation=1),
+            _archive_registry_legacy_metadata(generation=2),
+        ]
+        (archive_root / "index.jsonl").write_text(
+            "".join(json.dumps(row, sort_keys=True) + "\n" for row in legacy_rows)
+        )
+
+        first_modern = _archive_registry_modern_metadata(archive_name="first")
+        second_modern = _archive_registry_modern_metadata(archive_name="second")
+        with cli_module._locked_eval_suite_archive_root(archive_root) as root_fd:
+            cli_module._update_eval_suite_archive_index(root_fd, first_modern)
+            cli_module._update_eval_suite_archive_index(root_fd, second_modern)
+
+        index_rows = [
+            json.loads(line)
+            for line in (archive_root / "index.jsonl").read_text().splitlines()
+        ]
+        assert index_rows == [
+            *legacy_rows,
+            _archive_registry_migration_boundary(legacy_rows=2),
+            first_modern,
+            second_modern,
+        ]
+
+    @pytest.mark.parametrize(
+        ("rows", "error"),
+        [
+            (
+                [
+                    _archive_registry_legacy_metadata(),
+                    _archive_registry_modern_metadata(),
+                ],
+                "missing a migration boundary",
+            ),
+            (
+                [
+                    _archive_registry_modern_metadata(),
+                    _archive_registry_legacy_metadata(),
+                ],
+                "legacy metadata after versioned metadata",
+            ),
+            (
+                [
+                    _archive_registry_legacy_metadata(),
+                    _archive_registry_migration_boundary(legacy_rows=1),
+                    _archive_registry_migration_boundary(legacy_rows=1),
+                    _archive_registry_modern_metadata(),
+                ],
+                "duplicate migration boundary",
+            ),
+            (
+                [
+                    _archive_registry_migration_boundary(legacy_rows=0),
+                    _archive_registry_modern_metadata(),
+                ],
+                "migration boundary before legacy metadata",
+            ),
+            (
+                [
+                    _archive_registry_legacy_metadata(),
+                    _archive_registry_migration_boundary(legacy_rows=1),
+                ],
+                "migration boundary is not followed",
+            ),
+            (
+                [
+                    {
+                        **_archive_registry_legacy_metadata(),
+                        "unexpected": True,
+                    }
+                ],
+                "unrecognized legacy metadata shape",
+            ),
+            (
+                [
+                    _archive_registry_legacy_metadata(),
+                    _archive_registry_migration_boundary(legacy_rows=2),
+                    _archive_registry_modern_metadata(),
+                ],
+                "migration boundary legacy row count",
+            ),
+        ],
+    )
+    def test_archive_index_rejects_malformed_or_unmarked_generations(
+        self,
+        tmp_path,
+        rows,
+        error,
+    ):
+        import axiom_encode.cli as cli_module
+
+        archive_root = tmp_path / "archives"
+        archive_root.mkdir()
+        (archive_root / "index.jsonl").write_text(
+            "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows)
+        )
+
+        with (
+            cli_module._locked_eval_suite_archive_root(archive_root) as root_fd,
+            pytest.raises(ValueError, match=error),
+        ):
+            cli_module._read_eval_suite_archive_index(root_fd)
+
+    @pytest.mark.parametrize(
+        ("mutate", "error"),
+        [
+            (
+                lambda metadata: metadata.update(
+                    results_schema="axiom-encode/eval-suite-results/v7"
+                ),
+                "results schema",
+            ),
+            (
+                lambda metadata: metadata.update(
+                    execution_identity_schema=(
+                        "axiom-encode/eval-execution-identity/v4"
+                    )
+                ),
+                "execution identity schema",
+            ),
+            (
+                lambda metadata: metadata["runner_efforts"][0].update(
+                    uses_receiver_default=True
+                ),
+                "receiver-default marker",
+            ),
+            (
+                lambda metadata: metadata["runner_efforts"][0].update(
+                    name="unrelated-runner"
+                ),
+                "runner effort identity",
+            ),
+            (
+                lambda metadata: metadata["runner_efforts"][0].update(
+                    requested_effort="banana"
+                ),
+                "requested effort",
+            ),
+            (
+                lambda metadata: metadata["manifest"]["effective_runners"].__setitem__(
+                    0,
+                    "codex-gpt-5.4=codex:gpt-5.4@low",
+                ),
+                "effective runner.*effort identity",
+            ),
+            (
+                lambda metadata: metadata.update(unexpected=True),
+                "unexpected fields",
+            ),
+        ],
+    )
+    def test_archive_index_rejects_invalid_versioned_metadata(
+        self,
+        tmp_path,
+        mutate,
+        error,
+    ):
+        import axiom_encode.cli as cli_module
+
+        archive_root = tmp_path / "archives"
+        archive_root.mkdir()
+        metadata = _archive_registry_modern_metadata()
+        mutate(metadata)
+
+        with (
+            cli_module._locked_eval_suite_archive_root(archive_root) as root_fd,
+            pytest.raises(ValueError, match=error),
+        ):
+            cli_module._update_eval_suite_archive_index(root_fd, metadata)
+
     @pytest.mark.parametrize("kind", ["file", "directory"])
     def test_archive_rejects_unreferenced_symlink_descendants(
         self,
@@ -4426,7 +5244,7 @@ class TestCmdEvalSuiteArchive:
         (source_output / "summary.json").write_text(
             json.dumps(
                 {
-                    "schema": "axiom-encode/eval-suite-summary/v6",
+                    "schema": "axiom-encode/eval-suite-summary/v8",
                     "manifest": payload["manifest"],
                     "evidence": payload["evidence"],
                     "coverage": payload["coverage"],
@@ -4580,6 +5398,10 @@ class TestCmdEvalSuiteArchive:
                 "axiom_encode.cli._snapshot_verified_eval_suite_archive_files",
                 return_value={Path("suite-run.json"): b"{}\n"},
             ),
+            patch(
+                "axiom_encode.cli._build_eval_suite_archive_metadata",
+                return_value=_archive_registry_modern_metadata(),
+            ),
             pytest.raises(SystemExit) as exc_info,
         ):
             cmd_eval_suite_archive(args)
@@ -4631,6 +5453,10 @@ class TestCmdEvalSuiteArchive:
             patch(
                 "axiom_encode.cli._rewrite_archived_eval_suite_json_files",
                 return_value=[],
+            ),
+            patch(
+                "axiom_encode.cli._build_eval_suite_archive_metadata",
+                return_value=_archive_registry_modern_metadata(),
             ),
             pytest.raises(SystemExit) as exc_info,
         ):
@@ -4688,6 +5514,10 @@ class TestCmdEvalSuiteArchive:
             patch(
                 "axiom_encode.cli._rewrite_archived_eval_suite_json_files",
                 return_value=[],
+            ),
+            patch(
+                "axiom_encode.cli._build_eval_suite_archive_metadata",
+                return_value=_archive_registry_modern_metadata(),
             ),
             patch(
                 "axiom_encode.cli._fsync_eval_suite_archive_tree",
@@ -4911,7 +5741,7 @@ class TestCmdEvalSuiteArchive:
         (source_output / "summary.json").write_text(
             json.dumps(
                 {
-                    "schema": "axiom-encode/eval-suite-summary/v6",
+                    "schema": "axiom-encode/eval-suite-summary/v8",
                     "manifest": current_payload["manifest"],
                     "evidence": current_payload["evidence"],
                     "coverage": current_payload["coverage"],
@@ -11542,6 +12372,7 @@ class TestCmdEncode:
         )
 
         encoder_root = Path(__file__).resolve().parents[1]
+        self.cli_environments = _test_eval_cli_environments()
 
         def test_git_checkout_identity(raw_checkout, *, pathspecs=()):
             checkout = Path(raw_checkout).resolve()
@@ -11603,7 +12434,12 @@ class TestCmdEncode:
                 "axiom_encode.cli._rulespec_companion_test_failures",
                 return_value=[],
             ),
+            patch(
+                "axiom_encode.cli._preflight_eval_cli_runners",
+                return_value=self.cli_environments,
+            ) as cli_preflight,
         ):
+            self.cli_preflight = cli_preflight
             from axiom_encode.toolchain import (
                 load_rulespec_local_corpus_release as load_verified_release,
             )
@@ -11875,6 +12711,10 @@ class TestCmdEncode:
             mock_run.call_args.kwargs["runtime_axiom_rules_path"]
             == args.axiom_rules_path
         )
+        assert mock_run.call_args.kwargs["cli_environments"] is self.cli_environments
+        self.cli_preflight.assert_called_once_with(
+            [parse_runner_spec("codex:test-model")]
+        )
 
     def test_encode_escalates_after_n_validator_failures(self, tmp_path):
         args = self._make_args(
@@ -11904,6 +12744,16 @@ class TestCmdEncode:
             ("validator rejected generated section",),
             ("validator rejected generated section",),
         ]
+        assert all(
+            item.kwargs["cli_environments"] is self.cli_environments
+            for item in mock_run.call_args_list
+        )
+        self.cli_preflight.assert_called_once_with(
+            [
+                parse_runner_spec(f"codex:{DEFAULT_OPENAI_MODEL}"),
+                parse_runner_spec(f"codex:{DEFAULT_OPENAI_ESCALATION_MODEL}"),
+            ]
+        )
         assert mock_validate.call_count == 3
         mock_apply.assert_called_once()
         assert mock_apply.call_args.args[0].model == DEFAULT_OPENAI_ESCALATION_MODEL

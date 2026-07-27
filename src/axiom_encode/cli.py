@@ -169,6 +169,8 @@ from .harness.eval_evidence import isolated_eval_evidence_signer
 from .harness.evals import (
     _DEFAULT_SUITE_RETRY_ATTEMPTS,
     _EVAL_RESULT_ARTIFACT_SPECS,
+    EVAL_EXECUTION_IDENTITY_SCHEMA,
+    EvalCliEnvironment,
     _bind_eval_result_payload,
     _build_eval_suite_execution_identity,
     _build_eval_suite_manifest_identity,
@@ -181,7 +183,9 @@ from .harness.evals import (
     _eval_suite_rulespec_roots,
     _git_checkout_execution_identity,
     _load_eval_suite_resume_state,
+    _preflight_eval_cli_runners,
     _render_eval_result_verdict_evidence,
+    _resolve_eval_cli_environments,
     _rulespec_root_execution_identity,
     _source_metadata_citation_path,
     _source_metadata_with_attestation,
@@ -2023,7 +2027,11 @@ def main():
         "--runner",
         action="append",
         default=[],
-        help=f"Runner spec [name=]backend:model. Defaults to claude:opus and {DEFAULT_GPT_RUNNER}",
+        help=(
+            "Runner spec [name=]backend:model[@effort]. Omission uses the "
+            "receiver default; effort records a request and Claude may remain "
+            f"adaptive. Defaults to claude:opus and {DEFAULT_GPT_RUNNER}"
+        ),
     )
     _add_gpt_backend_argument(eval_parser)
     eval_parser.add_argument(
@@ -2084,7 +2092,11 @@ def main():
         "--runner",
         action="append",
         default=[],
-        help=f"Runner spec [name=]backend:model. Defaults to claude:opus and {DEFAULT_GPT_RUNNER}",
+        help=(
+            "Runner spec [name=]backend:model[@effort]. Omission uses the "
+            "receiver default; effort records a request and Claude may remain "
+            f"adaptive. Defaults to claude:opus and {DEFAULT_GPT_RUNNER}"
+        ),
     )
     _add_gpt_backend_argument(eval_source_parser)
     eval_source_parser.add_argument(
@@ -19677,6 +19689,12 @@ def _cmd_encode_with_authoritative_rulespec_roots(
             backend=args.backend,
             model=config.escalation_model,
         )
+    preflight_runner_specs = [f"{args.backend}:{config.initial_model}"]
+    if config.enabled and config.escalation_model != config.initial_model:
+        preflight_runner_specs.append(f"{args.backend}:{config.escalation_model}")
+    cli_environments = _preflight_eval_cli_runners(
+        [parse_runner_spec(spec) for spec in preflight_runner_specs]
+    )
     failed_attempts: tuple[_FailedEncodeAttempt, ...] = ()
     current_model = config.initial_model
 
@@ -19688,6 +19706,7 @@ def _cmd_encode_with_authoritative_rulespec_roots(
             defer_logging=config.enabled,
             apply_signing_broker=apply_signing_broker,
             resolved_policy_checkout_path=resolved_policy_checkout_path,
+            cli_environments=cli_environments,
         )
         next_model = None
         if _encode_attempt_was_validator_rejected(
@@ -19796,6 +19815,7 @@ def _run_encode_attempt(
     defer_logging: bool = True,
     apply_signing_broker: SigningBroker | None = None,
     resolved_policy_checkout_path: Path | None = None,
+    cli_environments: Mapping[str, EvalCliEnvironment] | None = None,
 ) -> _EncodeAttemptExecution:
     """Run one generation through the existing standalone and apply gates."""
     if getattr(args, "apply", False) is True and not apply_signing_broker:
@@ -19899,6 +19919,7 @@ def _run_encode_attempt(
             else None
         ),
         validation_retry_feedback=_encode_validation_retry_feedback(prior_attempts),
+        cli_environments=cli_environments,
     )
 
     result = results[0]
@@ -39664,13 +39685,35 @@ def _apply_result_metadata(result) -> dict[str, object]:
 
 def _result_codex_cli_provenance(result) -> tuple[str | None, str | None]:
     version = getattr(result, "codex_cli_version", None)
-    digest = getattr(result, "codex_cli_sha256", None)
+    launcher_digest = getattr(result, "codex_cli_launcher_sha256", None)
+    native_digest = getattr(result, "codex_cli_native_sha256", None)
+    legacy_digest = getattr(result, "codex_cli_sha256", None)
     # Test doubles and legacy result objects expose arbitrary/missing attributes;
     # both absent means the unchanged API/non-Codex path.
-    if not isinstance(version, str) and not isinstance(digest, str):
+    if (
+        not isinstance(version, str)
+        and not isinstance(native_digest, str)
+        and not isinstance(legacy_digest, str)
+    ):
         return None, None
     if not isinstance(version, str) or not version.strip():
         raise RuntimeError("Codex CLI provenance has no canonical version")
+
+    if isinstance(native_digest, str):
+        if re.fullmatch(r"[0-9a-f]{64}", native_digest) is None:
+            raise RuntimeError("Codex CLI provenance has no canonical native sha256")
+        if (
+            not isinstance(launcher_digest, str)
+            or re.fullmatch(r"[0-9a-f]{64}", launcher_digest) is None
+        ):
+            raise RuntimeError("Codex CLI provenance has no canonical launcher sha256")
+        if isinstance(legacy_digest, str) and legacy_digest != native_digest:
+            raise RuntimeError("Codex CLI provenance digests disagree")
+        # The applied-manifest v5 contract retains its historical field name.
+        # Project the receiver digest into that field, never the launcher digest.
+        return version.strip(), native_digest
+
+    digest = legacy_digest
     if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
         raise RuntimeError("Codex CLI provenance has no canonical sha256")
     return version.strip(), digest
@@ -46980,6 +47023,9 @@ def cmd_eval(args):
     runners = _effective_runner_specs(
         args.runner or ["claude:opus", DEFAULT_GPT_RUNNER], args
     )
+    cli_environments = _preflight_eval_cli_runners(
+        [parse_runner_spec(spec) for spec in runners]
+    )
     rulespec_dependency_roots = _rulespec_dependency_roots_from_args(args)
     corpus_path = _resolve_explicit_existing_directory(
         args.corpus_path,
@@ -47012,6 +47058,7 @@ def cmd_eval(args):
         require_complete_source_unit=(
             getattr(args, "require_complete_source_unit", False) is True
         ),
+        cli_environments=cli_environments,
     )
 
     if args.json:
@@ -47053,6 +47100,9 @@ def cmd_eval_source(args):
     runners = _effective_runner_specs(
         args.runner or ["claude:opus", DEFAULT_GPT_RUNNER], args
     )
+    cli_environments = _preflight_eval_cli_runners(
+        [parse_runner_spec(spec) for spec in runners]
+    )
     rulespec_dependency_roots = _rulespec_dependency_roots_from_args(args)
     corpus_path = _resolve_explicit_existing_directory(
         args.corpus_path,
@@ -47093,6 +47143,7 @@ def cmd_eval_source(args):
         require_complete_source_unit=(
             getattr(args, "require_complete_source_unit", False) is True
         ),
+        cli_environments=cli_environments,
     )
 
     if args.json:
@@ -47171,6 +47222,26 @@ def _serialize_eval_result(result) -> dict:
             "generation_prompt_sha256": getattr(
                 result, "generation_prompt_sha256", None
             ),
+            "claude_cli_version": getattr(result, "claude_cli_version", None),
+            "claude_cli_launcher_sha256": getattr(
+                result, "claude_cli_launcher_sha256", None
+            ),
+            "claude_cli_native_sha256": getattr(
+                result, "claude_cli_native_sha256", None
+            ),
+            "codex_cli_version": getattr(result, "codex_cli_version", None),
+            "codex_cli_launcher_sha256": getattr(
+                result, "codex_cli_launcher_sha256", None
+            ),
+            "codex_cli_native_sha256": getattr(result, "codex_cli_native_sha256", None),
+            "openai_endpoint": getattr(result, "openai_endpoint", None),
+            "openai_response_model_id": getattr(
+                result, "openai_response_model_id", None
+            ),
+            "openai_service_tier": getattr(result, "openai_service_tier", None),
+            "openai_max_output_tokens": getattr(
+                result, "openai_max_output_tokens", None
+            ),
             "retry_count": getattr(result, "retry_count", 0),
             "admission": getattr(result, "admission", None),
             "metrics": getattr(result, "metrics", None),
@@ -47228,8 +47299,8 @@ def _serialize_readiness_summary(summary) -> dict:
 
 
 _EVAL_SUITE_EVIDENCE_SCHEMA = "axiom-encode/eval-suite-evidence/v5"
-_EVAL_SUITE_RESULTS_SCHEMA = "axiom-encode/eval-suite-results/v6"
-_EVAL_SUITE_SUMMARY_SCHEMA = "axiom-encode/eval-suite-summary/v6"
+_EVAL_SUITE_RESULTS_SCHEMA = "axiom-encode/eval-suite-results/v8"
+_EVAL_SUITE_SUMMARY_SCHEMA = "axiom-encode/eval-suite-summary/v8"
 _EVAL_SUITE_REVALIDATION_MARKER = ".eval-suite-revalidation.json"
 
 
@@ -47303,6 +47374,7 @@ def _load_verified_eval_suite_artifacts(
     policyengine_runtime: PolicyEngineRuntime | None = None,
     revalidate_persisted_results: bool = True,
     suite_retry_attempts: int | None = None,
+    cli_environments: Mapping[str, EvalCliEnvironment] | None = None,
 ) -> dict[str, object]:
     """Load one suite output only after the harness validates every identity."""
 
@@ -47327,33 +47399,42 @@ def _load_verified_eval_suite_artifacts(
         max_bytes=256 * 1024 * 1024,
         required=False,
     )
+    try:
+        persisted_run_state = json.loads((state_raw_before or b"").decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("suite-run.json is malformed") from exc
+    if not isinstance(persisted_run_state, dict):
+        raise ValueError("suite-run.json must contain a JSON object")
+    persisted_identity = persisted_run_state.get("execution_identity")
+    persisted_identity_sha256 = persisted_run_state.get("execution_identity_sha256")
+    if (
+        not isinstance(persisted_identity, dict)
+        or not isinstance(persisted_identity_sha256, str)
+        or persisted_identity_sha256
+        != _eval_suite_execution_identity_sha256(persisted_identity)
+    ):
+        raise ValueError("suite-run.json has an inconsistent execution identity digest")
+
     if suite_retry_attempts is None:
-        try:
-            persisted_run_state = json.loads((state_raw_before or b"").decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise ValueError("suite-run.json is malformed") from exc
-        if not isinstance(persisted_run_state, dict):
-            raise ValueError("suite-run.json must contain a JSON object")
         if persisted_run_state.get("status") != "completed":
             raise ValueError(
                 "Incomplete eval-suite verification requires the current "
                 "suite_retry_attempts"
             )
-        persisted_identity = persisted_run_state.get("execution_identity")
-        persisted_identity_sha256 = persisted_run_state.get("execution_identity_sha256")
-        if (
-            not isinstance(persisted_identity, dict)
-            or not isinstance(persisted_identity_sha256, str)
-            or persisted_identity_sha256
-            != _eval_suite_execution_identity_sha256(persisted_identity)
-        ):
-            raise ValueError(
-                "suite-run.json has an inconsistent execution identity digest"
-            )
         suite_retry_attempts = _suite_retry_attempts_from_execution_identity(
             persisted_identity,
             artifact_name="suite-run.json execution identity",
         )
+    live_cli_environments = (
+        _resolve_eval_cli_environments(parsed_runners, cli_environments)
+        if cli_environments is not None
+        else None
+    )
+    persisted_receiver_environments = (
+        None
+        if live_cli_environments is not None
+        else persisted_identity.get("receiver_environments")
+    )
     manifest_identity = _build_eval_suite_manifest_identity(manifest)
     rulespec_roots = _eval_suite_rulespec_roots(manifest, policy_repo_path)
     policyengine_cases = [
@@ -47374,6 +47455,9 @@ def _load_verified_eval_suite_artifacts(
     execution_identity = _build_eval_suite_execution_identity(
         axiom_rules_path,
         rulespec_roots,
+        parsed_runners=parsed_runners,
+        cli_environments=live_cli_environments,
+        receiver_environments=persisted_receiver_environments,
         policyengine_runtime=policyengine_runtime if policyengine_cases else None,
         suite_retry_attempts=suite_retry_attempts,
     )
@@ -47935,9 +48019,12 @@ def cmd_eval_suite(args):
     auto_resume_delay_seconds = max(getattr(args, "auto_resume_delay_seconds", 0), 0)
     resume_existing = getattr(args, "resume", False)
     recovery_count = 0
+    parsed_runners = [parse_runner_spec(spec) for spec in effective_runners]
+    cli_environments: dict[str, EvalCliEnvironment] = {}
 
     while True:
         try:
+            cli_environments = _preflight_eval_cli_runners(parsed_runners)
             results = run_eval_suite(
                 manifest=manifest,
                 output_root=args.output,
@@ -47946,6 +48033,7 @@ def cmd_eval_suite(args):
                 corpus_release=corpus_release,
                 policyengine_runtime=policyengine_runtime,
                 resume_existing=resume_existing,
+                cli_environments=cli_environments,
             )
         except KeyboardInterrupt:
             raise
@@ -47994,6 +48082,7 @@ def cmd_eval_suite(args):
             policyengine_runtime=policyengine_runtime,
             require_complete=False,
             suite_retry_attempts=_DEFAULT_SUITE_RETRY_ATTEMPTS,
+            cli_environments=cli_environments,
         )
     except ValueError as exc:
         print(str(exc))
@@ -48376,7 +48465,7 @@ def _load_verified_eval_suite_archive_payload(
     corpus_path: Path,
     policyengine_runtime_root: Path | None = None,
 ) -> dict:
-    """Verify a complete suite against current live inputs before archiving."""
+    """Verify a complete suite against live inputs and its persisted receiver."""
 
     state_raw = _read_eval_suite_artifact_bytes(
         source_output,
@@ -48489,6 +48578,56 @@ _EVAL_SUITE_ARCHIVE_CONTROL_FILES = {
 }
 _EVAL_SUITE_ARCHIVE_COMPANION_TEST_MAX_BYTES = 32 * 1024 * 1024
 _EVAL_SUITE_ARCHIVE_INDEX_MAX_BYTES = 64 * 1024 * 1024
+_EVAL_SUITE_ARCHIVE_METADATA_SCHEMA = "axiom-encode/eval-suite-archive-metadata/v1"
+_EVAL_SUITE_ARCHIVE_INDEX_MIGRATION_SCHEMA = (
+    "axiom-encode/eval-suite-archive-index-migration/v1"
+)
+_EVAL_SUITE_ARCHIVE_RESULTS_SCHEMA = _EVAL_SUITE_RESULTS_SCHEMA
+_EVAL_SUITE_ARCHIVE_SUMMARY_SCHEMA = _EVAL_SUITE_SUMMARY_SCHEMA
+_EVAL_SUITE_ARCHIVE_EXECUTION_IDENTITY_SCHEMA = EVAL_EXECUTION_IDENTITY_SCHEMA
+_EVAL_SUITE_ARCHIVE_LEGACY_METADATA_V1_FIELDS = frozenset(
+    {
+        "archived_at",
+        "source_output",
+        "archive_dir",
+        "manifest",
+        "status",
+        "started_at",
+        "finished_at",
+        "total_cases",
+        "completed_cases",
+        "result_count",
+        "all_ready",
+        "rewritten_files",
+    }
+)
+_EVAL_SUITE_ARCHIVE_LEGACY_METADATA_V2_FIELDS = frozenset(
+    {
+        *_EVAL_SUITE_ARCHIVE_LEGACY_METADATA_V1_FIELDS,
+        "run_id",
+        "evidence_sha256",
+        "results_sha256",
+    }
+)
+_EVAL_SUITE_ARCHIVE_METADATA_FIELDS = frozenset(
+    {
+        *_EVAL_SUITE_ARCHIVE_LEGACY_METADATA_V2_FIELDS,
+        "schema",
+        "results_schema",
+        "summary_schema",
+        "execution_identity_schema",
+        "execution_identity_sha256",
+        "runner_efforts",
+    }
+)
+_EVAL_SUITE_ARCHIVE_INDEX_MIGRATION_FIELDS = frozenset(
+    {
+        "schema",
+        "from_metadata_schema",
+        "to_metadata_schema",
+        "legacy_rows",
+    }
+)
 
 
 def _eval_suite_archive_relative_path(
@@ -48820,6 +48959,334 @@ def _rewrite_archived_eval_suite_json_files(
     return rewritten_files
 
 
+def _is_eval_suite_archive_sha256(value: object) -> bool:
+    """Return whether a registry value is one canonical SHA-256 digest."""
+
+    return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+
+
+def _validate_eval_suite_archive_common_metadata(
+    metadata: dict,
+    *,
+    require_digests: bool,
+) -> None:
+    """Validate fields shared by historical and versioned archive metadata."""
+
+    for field in ("archived_at", "source_output", "archive_dir"):
+        value = metadata.get(field)
+        if not isinstance(value, str) or not value:
+            raise ValueError(f"Eval-suite archive metadata has malformed {field}")
+    if not isinstance(metadata.get("manifest"), dict):
+        raise ValueError("Eval-suite archive metadata has malformed manifest")
+    for field in ("status", "started_at", "finished_at"):
+        value = metadata.get(field)
+        if value is not None and (not isinstance(value, str) or not value):
+            raise ValueError(f"Eval-suite archive metadata has malformed {field}")
+    for field in (
+        "total_cases",
+        "completed_cases",
+        "result_count",
+    ):
+        value = metadata.get(field)
+        if value is not None and (
+            isinstance(value, bool) or not isinstance(value, int) or value < 0
+        ):
+            raise ValueError(f"Eval-suite archive metadata has malformed {field}")
+    all_ready = metadata.get("all_ready")
+    if all_ready is not None and not isinstance(all_ready, bool):
+        raise ValueError("Eval-suite archive metadata has malformed all_ready")
+    rewritten_files = metadata.get("rewritten_files")
+    if (
+        not isinstance(rewritten_files, list)
+        or any(not isinstance(item, str) or not item for item in rewritten_files)
+        or len(rewritten_files) != len(set(rewritten_files))
+    ):
+        raise ValueError("Eval-suite archive metadata has malformed rewritten_files")
+
+    if "run_id" in metadata:
+        run_id = metadata.get("run_id")
+        if run_id is not None and (not isinstance(run_id, str) or not run_id):
+            raise ValueError("Eval-suite archive metadata has malformed run_id")
+    for field in ("evidence_sha256", "results_sha256"):
+        if field not in metadata:
+            continue
+        value = metadata.get(field)
+        if (require_digests or value is not None) and not (
+            _is_eval_suite_archive_sha256(value)
+        ):
+            raise ValueError(f"Eval-suite archive metadata has malformed {field}")
+
+
+def _validated_eval_suite_archive_runner_efforts(
+    runner_efforts: object,
+) -> list[dict]:
+    """Return an exact copy of one valid persisted receiver-effort identity."""
+
+    if not isinstance(runner_efforts, list) or not runner_efforts:
+        raise ValueError("Eval-suite archive metadata has malformed runner efforts")
+    validated: list[dict] = []
+    names: set[str] = set()
+    expected_fields = {
+        "name",
+        "requested_effort",
+        "uses_receiver_default",
+    }
+    for index, effort in enumerate(runner_efforts, start=1):
+        if not isinstance(effort, dict) or set(effort) != expected_fields:
+            raise ValueError(
+                f"Eval-suite archive metadata has malformed runner effort {index}"
+            )
+        name = effort.get("name")
+        requested_effort = effort.get("requested_effort")
+        uses_receiver_default = effort.get("uses_receiver_default")
+        if not isinstance(name, str) or not name or name in names:
+            raise ValueError(
+                "Eval-suite archive metadata has malformed runner effort "
+                f"name at index {index}"
+            )
+        if requested_effort is not None and (
+            not isinstance(requested_effort, str) or not requested_effort
+        ):
+            raise ValueError(
+                "Eval-suite archive metadata has malformed requested effort "
+                f"at index {index}"
+            )
+        if not isinstance(uses_receiver_default, bool) or uses_receiver_default != (
+            requested_effort is None
+        ):
+            raise ValueError(
+                "Eval-suite archive metadata has inconsistent receiver-default "
+                f"marker at runner effort {index}"
+            )
+        names.add(name)
+        validated.append(copy.deepcopy(effort))
+    return validated
+
+
+def _validate_eval_suite_archive_effort_identity(
+    manifest: object,
+    runner_efforts: list[dict],
+) -> None:
+    """Bind archived effort choices to the manifest's exact runner specs."""
+
+    if not isinstance(manifest, dict):
+        raise ValueError("Eval-suite archive metadata has malformed manifest")
+    effective_runners = manifest.get("effective_runners")
+    if (
+        not isinstance(effective_runners, list)
+        or not effective_runners
+        or any(not isinstance(spec, str) or not spec for spec in effective_runners)
+    ):
+        raise ValueError(
+            "Eval-suite archive metadata is missing effective runner specs"
+        )
+    runner_identities = manifest.get("effective_runner_identities")
+    if not isinstance(runner_identities, list) or not runner_identities:
+        raise ValueError(
+            "Eval-suite archive metadata is missing effective runner identities"
+        )
+    expected_fields = {"name", "backend", "model"}
+    validated_runners: list[dict] = []
+    names: set[str] = set()
+    for index, runner in enumerate(runner_identities, start=1):
+        if not isinstance(runner, dict) or set(runner) != expected_fields:
+            raise ValueError(
+                "Eval-suite archive metadata has malformed effective runner "
+                f"identity {index}"
+            )
+        name = runner.get("name")
+        backend = runner.get("backend")
+        model = runner.get("model")
+        if (
+            not isinstance(name, str)
+            or not name
+            or name in names
+            or backend not in {"claude", "codex", "openai"}
+            or not isinstance(model, str)
+            or not model
+        ):
+            raise ValueError(
+                "Eval-suite archive metadata has malformed effective runner "
+                f"identity {index}"
+            )
+        names.add(name)
+        validated_runners.append(runner)
+    if [effort["name"] for effort in runner_efforts] != [
+        runner["name"] for runner in validated_runners
+    ]:
+        raise ValueError(
+            "Eval-suite archive metadata runner effort identity differs from "
+            "its effective runner identities"
+        )
+    for runner, effort in zip(validated_runners, runner_efforts, strict=True):
+        runner_spec = f"{runner['name']}={runner['backend']}:{runner['model']}"
+        if effort["requested_effort"] is not None:
+            runner_spec += f"@{effort['requested_effort']}"
+        try:
+            parsed_runner = parse_runner_spec(runner_spec)
+        except ValueError as exc:
+            raise ValueError(
+                "Eval-suite archive metadata has unsupported requested effort "
+                f"for runner {runner['name']}"
+            ) from exc
+        if (
+            parsed_runner.name != runner["name"]
+            or parsed_runner.backend != runner["backend"]
+            or parsed_runner.model != runner["model"]
+            or parsed_runner.effort != effort["requested_effort"]
+        ):
+            raise ValueError(
+                "Eval-suite archive metadata runner effort identity is inconsistent"
+            )
+    if len(effective_runners) != len(validated_runners):
+        raise ValueError(
+            "Eval-suite archive metadata effective runner specs differ from "
+            "its effective runner identities"
+        )
+    for spec, runner, effort in zip(
+        effective_runners,
+        validated_runners,
+        runner_efforts,
+        strict=True,
+    ):
+        try:
+            parsed_runner = parse_runner_spec(spec)
+        except ValueError as exc:
+            raise ValueError(
+                "Eval-suite archive metadata has malformed effective runner spec"
+            ) from exc
+        if (
+            parsed_runner.name != runner["name"]
+            or parsed_runner.backend != runner["backend"]
+            or parsed_runner.model != runner["model"]
+        ):
+            raise ValueError(
+                "Eval-suite archive metadata effective runner specs differ from "
+                "its effective runner identities"
+            )
+        if parsed_runner.effort != effort["requested_effort"]:
+            raise ValueError(
+                "Eval-suite archive metadata effective runner effort identity "
+                "differs from its recorded execution identity"
+            )
+
+
+def _validate_eval_suite_archive_metadata(metadata: object) -> None:
+    """Require one exact versioned archive-registry metadata row."""
+
+    if not isinstance(metadata, dict):
+        raise ValueError("Eval-suite archive metadata must be a JSON object")
+    fields = set(metadata)
+    unexpected = sorted(fields - _EVAL_SUITE_ARCHIVE_METADATA_FIELDS)
+    if unexpected:
+        raise ValueError(
+            "Eval-suite archive metadata has unexpected fields: "
+            + ", ".join(unexpected)
+        )
+    missing = sorted(_EVAL_SUITE_ARCHIVE_METADATA_FIELDS - fields)
+    if missing:
+        raise ValueError(
+            "Eval-suite archive metadata is missing fields: " + ", ".join(missing)
+        )
+    if metadata.get("schema") != _EVAL_SUITE_ARCHIVE_METADATA_SCHEMA:
+        raise ValueError("Eval-suite archive metadata uses an unsupported schema")
+    if metadata.get("results_schema") != _EVAL_SUITE_ARCHIVE_RESULTS_SCHEMA:
+        raise ValueError(
+            "Eval-suite archive metadata uses an unsupported results schema"
+        )
+    if metadata.get("summary_schema") != _EVAL_SUITE_ARCHIVE_SUMMARY_SCHEMA:
+        raise ValueError(
+            "Eval-suite archive metadata uses an unsupported summary schema"
+        )
+    if (
+        metadata.get("execution_identity_schema")
+        != _EVAL_SUITE_ARCHIVE_EXECUTION_IDENTITY_SCHEMA
+    ):
+        raise ValueError(
+            "Eval-suite archive metadata uses an unsupported execution identity schema"
+        )
+    if not _is_eval_suite_archive_sha256(metadata.get("execution_identity_sha256")):
+        raise ValueError(
+            "Eval-suite archive metadata has malformed execution identity digest"
+        )
+    _validate_eval_suite_archive_common_metadata(
+        metadata,
+        require_digests=True,
+    )
+    runner_efforts = _validated_eval_suite_archive_runner_efforts(
+        metadata.get("runner_efforts")
+    )
+    _validate_eval_suite_archive_effort_identity(
+        metadata.get("manifest"),
+        runner_efforts,
+    )
+
+
+def _validate_eval_suite_archive_legacy_metadata(metadata: dict) -> None:
+    """Accept only the two exact schema-less archive metadata generations."""
+
+    fields = frozenset(metadata)
+    if fields not in {
+        _EVAL_SUITE_ARCHIVE_LEGACY_METADATA_V1_FIELDS,
+        _EVAL_SUITE_ARCHIVE_LEGACY_METADATA_V2_FIELDS,
+    }:
+        raise ValueError(
+            "Eval-suite archive index has an unrecognized legacy metadata shape"
+        )
+    _validate_eval_suite_archive_common_metadata(
+        metadata,
+        require_digests=False,
+    )
+
+
+def _eval_suite_archive_index_migration_boundary(legacy_rows: int) -> dict:
+    """Build the sole marker separating known legacy and versioned rows."""
+
+    return {
+        "schema": _EVAL_SUITE_ARCHIVE_INDEX_MIGRATION_SCHEMA,
+        "from_metadata_schema": "unversioned-known-legacy",
+        "to_metadata_schema": _EVAL_SUITE_ARCHIVE_METADATA_SCHEMA,
+        "legacy_rows": legacy_rows,
+    }
+
+
+def _validate_eval_suite_archive_index_migration_boundary(
+    row: dict,
+    *,
+    observed_legacy_rows: int,
+) -> None:
+    """Validate one migration marker against the preceding legacy segment."""
+
+    if set(row) != _EVAL_SUITE_ARCHIVE_INDEX_MIGRATION_FIELDS:
+        raise ValueError("Eval-suite archive index has a malformed migration boundary")
+    legacy_rows = row.get("legacy_rows")
+    if (
+        isinstance(legacy_rows, bool)
+        or not isinstance(legacy_rows, int)
+        or legacy_rows <= 0
+    ):
+        raise ValueError("Eval-suite archive index has a malformed migration boundary")
+    if row != _eval_suite_archive_index_migration_boundary(observed_legacy_rows):
+        if legacy_rows != observed_legacy_rows:
+            raise ValueError(
+                "Eval-suite archive index migration boundary legacy row count "
+                "is inconsistent"
+            )
+        raise ValueError("Eval-suite archive index has a malformed migration boundary")
+
+
+def _load_eval_suite_archive_json_object(path: Path, *, artifact_name: str) -> dict:
+    """Load one required archive control object."""
+
+    try:
+        payload = json.loads(path.read_text())
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Archived {artifact_name} is malformed") from exc
+    if not isinstance(payload, dict):
+        raise ValueError(f"Archived {artifact_name} must contain a JSON object")
+    return payload
+
+
 def _build_eval_suite_archive_metadata(
     archive_dir: Path,
     source_root: Path,
@@ -48827,15 +49294,68 @@ def _build_eval_suite_archive_metadata(
     *,
     published_archive_dir: Path | None = None,
 ) -> dict:
-    """Build a compact metadata record for an archived suite snapshot."""
+    """Build versioned metadata bound to the archived suite and effort identity."""
+
     published_dir = published_archive_dir or archive_dir
     state_path = archive_dir / "suite-run.json"
-    summary_path = archive_dir / "summary.json"
-    results_path = archive_dir / "results.json"
+    state = (
+        _load_eval_suite_archive_json_object(
+            state_path,
+            artifact_name="suite-run.json",
+        )
+        if state_path.exists()
+        else {}
+    )
+    summary = _load_eval_suite_archive_json_object(
+        archive_dir / "summary.json",
+        artifact_name="summary.json",
+    )
+    results = _load_eval_suite_archive_json_object(
+        archive_dir / "results.json",
+        artifact_name="results.json",
+    )
+    results_schema = results.get("schema")
+    summary_schema = summary.get("schema")
+    if results_schema != _EVAL_SUITE_ARCHIVE_RESULTS_SCHEMA:
+        raise ValueError("Archived results.json uses an unsupported results schema")
+    if summary_schema != _EVAL_SUITE_ARCHIVE_SUMMARY_SCHEMA:
+        raise ValueError("Archived summary.json uses an unsupported summary schema")
 
-    state = json.loads(state_path.read_text()) if state_path.exists() else {}
-    summary = json.loads(summary_path.read_text()) if summary_path.exists() else {}
-    results = json.loads(results_path.read_text()) if results_path.exists() else {}
+    evidence = results.get("evidence")
+    if not isinstance(evidence, dict):
+        raise ValueError("Archived results.json has malformed execution evidence")
+    if summary.get("evidence") != evidence:
+        raise ValueError(
+            "Archived summary.json execution evidence differs from results.json"
+        )
+    execution_identity = evidence.get("execution_identity")
+    execution_identity_sha256 = evidence.get("execution_identity_sha256")
+    if not isinstance(execution_identity, dict):
+        raise ValueError("Archived results.json has malformed execution identity")
+    if (
+        execution_identity.get("schema")
+        != _EVAL_SUITE_ARCHIVE_EXECUTION_IDENTITY_SCHEMA
+    ):
+        raise ValueError(
+            "Archived results.json uses an unsupported execution identity schema"
+        )
+    if not isinstance(
+        execution_identity_sha256, str
+    ) or execution_identity_sha256 != _eval_suite_execution_identity_sha256(
+        execution_identity
+    ):
+        raise ValueError(
+            "Archived results.json has an inconsistent execution identity digest"
+        )
+    runner_efforts = _validated_eval_suite_archive_runner_efforts(
+        execution_identity.get("runner_efforts")
+    )
+    coverage = results.get("coverage")
+    if not isinstance(coverage, dict):
+        raise ValueError("Archived results.json has malformed coverage")
+    result_rows = results.get("results")
+    if not isinstance(result_rows, list):
+        raise ValueError("Archived results.json has malformed results")
     manifest = (
         state.get("manifest")
         or summary.get("manifest")
@@ -48843,7 +49363,8 @@ def _build_eval_suite_archive_metadata(
         or {}
     )
 
-    return {
+    metadata = {
+        "schema": _EVAL_SUITE_ARCHIVE_METADATA_SCHEMA,
         "archived_at": _utc_now_iso(),
         "source_output": str(source_root),
         "archive_dir": str(published_dir),
@@ -48854,14 +49375,19 @@ def _build_eval_suite_archive_metadata(
         "finished_at": state.get("finished_at"),
         "total_cases": state.get("total_cases"),
         "completed_cases": state.get("completed_cases"),
-        "result_count": state.get(
-            "result_count", len(results.get("results", []) or [])
-        ),
+        "result_count": state.get("result_count", len(result_rows)),
         "all_ready": summary.get("all_ready"),
-        "evidence_sha256": (results.get("evidence") or {}).get("sha256"),
-        "results_sha256": (results.get("coverage") or {}).get("results_sha256"),
-        "rewritten_files": rewritten_files,
+        "evidence_sha256": evidence.get("sha256"),
+        "results_sha256": coverage.get("results_sha256"),
+        "rewritten_files": list(rewritten_files),
+        "results_schema": results_schema,
+        "summary_schema": summary_schema,
+        "execution_identity_schema": execution_identity["schema"],
+        "execution_identity_sha256": execution_identity_sha256,
+        "runner_efforts": runner_efforts,
     }
+    _validate_eval_suite_archive_metadata(metadata)
+    return metadata
 
 
 @contextlib.contextmanager
@@ -48968,15 +49494,15 @@ def _fsync_eval_suite_archive_tree(root: Path) -> None:
             os.close(directory_fd)
 
 
-def _read_eval_suite_archive_index(root_fd: int) -> bytes:
-    """Safely read and validate the current archive index, if present."""
+def _read_eval_suite_archive_index(root_fd: int) -> tuple[bytes, int]:
+    """Read the index and return bytes plus legacy rows awaiting a boundary."""
 
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
     flags |= getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
     try:
         index_fd = os.open("index.jsonl", flags, dir_fd=root_fd)
     except FileNotFoundError:
-        return b""
+        return b"", 0
     except OSError as exc:
         raise ValueError("Eval-suite archive index cannot be opened safely") from exc
     try:
@@ -49008,6 +49534,9 @@ def _read_eval_suite_archive_index(root_fd: int) -> bytes:
         text = raw.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise ValueError("Eval-suite archive index is not valid UTF-8") from exc
+    legacy_rows = 0
+    saw_migration_boundary = False
+    saw_versioned_metadata = False
     for line_number, line in enumerate(text.splitlines(), start=1):
         if not line.strip():
             continue
@@ -49021,16 +49550,87 @@ def _read_eval_suite_archive_index(root_fd: int) -> bytes:
             raise ValueError(
                 f"Eval-suite archive index has a non-object row at line {line_number}"
             )
-    return raw
+        schema = row.get("schema")
+        if schema is None:
+            if saw_versioned_metadata:
+                raise ValueError(
+                    "Eval-suite archive index has legacy metadata after versioned "
+                    f"metadata at line {line_number}"
+                )
+            if saw_migration_boundary:
+                raise ValueError(
+                    "Eval-suite archive index has legacy metadata after its "
+                    f"migration boundary at line {line_number}"
+                )
+            _validate_eval_suite_archive_legacy_metadata(row)
+            legacy_rows += 1
+            continue
+        if schema == _EVAL_SUITE_ARCHIVE_INDEX_MIGRATION_SCHEMA:
+            if saw_migration_boundary:
+                raise ValueError(
+                    "Eval-suite archive index has a duplicate migration boundary "
+                    f"at line {line_number}"
+                )
+            if saw_versioned_metadata:
+                raise ValueError(
+                    "Eval-suite archive index has a migration boundary after "
+                    f"versioned metadata at line {line_number}"
+                )
+            if not legacy_rows:
+                raise ValueError(
+                    "Eval-suite archive index has a migration boundary before "
+                    f"legacy metadata at line {line_number}"
+                )
+            _validate_eval_suite_archive_index_migration_boundary(
+                row,
+                observed_legacy_rows=legacy_rows,
+            )
+            saw_migration_boundary = True
+            continue
+        if schema == _EVAL_SUITE_ARCHIVE_METADATA_SCHEMA:
+            _validate_eval_suite_archive_metadata(row)
+            if legacy_rows and not saw_migration_boundary:
+                raise ValueError(
+                    "Eval-suite archive index is missing a migration boundary "
+                    f"before versioned metadata at line {line_number}"
+                )
+            saw_versioned_metadata = True
+            continue
+        raise ValueError(
+            "Eval-suite archive index uses an unsupported row schema "
+            f"at line {line_number}"
+        )
+    if saw_migration_boundary and not saw_versioned_metadata:
+        raise ValueError(
+            "Eval-suite archive index migration boundary is not followed by "
+            "versioned metadata"
+        )
+    return raw, legacy_rows if not saw_versioned_metadata else 0
 
 
 def _update_eval_suite_archive_index(root_fd: int, metadata: dict) -> None:
     """Atomically replace the safe local index with one appended metadata row."""
 
-    raw = _read_eval_suite_archive_index(root_fd)
+    _validate_eval_suite_archive_metadata(metadata)
+    raw, legacy_rows = _read_eval_suite_archive_index(root_fd)
     if raw and not raw.endswith(b"\n"):
         raw += b"\n"
-    updated = raw + (json.dumps(metadata, sort_keys=True) + "\n").encode("utf-8")
+    migration_boundary = (
+        (
+            json.dumps(
+                _eval_suite_archive_index_migration_boundary(legacy_rows),
+                sort_keys=True,
+            )
+            + "\n"
+        ).encode("utf-8")
+        if legacy_rows
+        else b""
+    )
+    updated = (
+        raw
+        + migration_boundary
+        + (json.dumps(metadata, sort_keys=True) + "\n").encode("utf-8")
+    )
     if len(updated) > _EVAL_SUITE_ARCHIVE_INDEX_MAX_BYTES:
         raise ValueError("Eval-suite archive index exceeds its safety limit")
 
