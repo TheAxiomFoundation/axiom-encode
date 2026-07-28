@@ -2,11 +2,11 @@
 
 ## State
 
-The requested head passes the merge, version, CLI, and routing confirmation
-checks. The full CLI file collected all 1,108 expected tests: 1,107 passed and
-the sandbox explicitly skipped the set-user-ID mode-bit test because it blocks
-that filesystem operation. Diff-scope audit and final independent review are
-next; no PR branch, remote, or GitHub writes will be made.
+Confirmation is complete with verdict `APPROVE`. The requested head passes the
+merge, pin, version, CLI, routing, signing-path, and diff-scope checks. Full
+`tests/test_cli.py` collected all 1,108 expected tests: 1,107 passed and the
+sandbox explicitly skipped the set-user-ID mode-bit test because it blocks
+that filesystem operation. No PR branch, remote, or GitHub writes were made.
 
 ## Done
 
@@ -53,12 +53,29 @@ next; no PR branch, remote, or GitHub writes will be made.
   both `statutes/26/36B.yaml` and already-prefixed
   `uk/statutes/26/36B.yaml` map to manifest path
   `uk/statutes/26/36B.yaml` at the checkout root.
+- Ran the explicit two-case jurisdiction routing selection; both US and UK
+  cases passed. The US case retains
+  `us-sc/policies/dss/snap-policy-manual/page-159.yaml` and its
+  `us-sc:policies/dss/snap-policy-manual/page-159` citation.
 - Spot-checked the passing ProgramSpec signing case: it writes
   `.axiom/encoding-manifests/programs/us-sc/snap/fy-2026.json`, cites
   `programs/us-sc/snap/fy-2026`, records applied path
   `programs/us-sc/snap/fy-2026.yaml`, and contains a nonempty signature.
+- Audited the exact `origin/main..e9af588e` two-dot diff and
+  `git diff --check`. It is clean and contains only the intended nine files:
+  the tracked `PROGRESS.md`, issue changelog, version trio, routing
+  implementation, and two routing test files. No manifest or `.axiom` file is
+  changed.
+- Completed an independent read-only scope audit. It independently confirmed
+  the merge topology, main pin equality, `0.2.1415` metadata/runtime, terminal
+  bump scope, nine-file diff, and clean diff check, with no actionable finding.
+- Attempted a second live remote freshness check through shell Git, public web,
+  and an in-app browser. Those read-only paths were unavailable in this
+  environment; the locally fetched `origin/main` ref remains the exact merge
+  second parent.
+- Wrote the final verdict and evidence digest to `WORKER-REPORT.md`.
 
 ## Next
 
-- Audit the exact two-dot diff, complete an independent review cycle, and write
-  and commit `WORKER-REPORT.md`.
+- No review work remains; commit this final ledger and report, then deliver the
+  verdict.
