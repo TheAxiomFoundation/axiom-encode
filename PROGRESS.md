@@ -74,8 +74,8 @@ that filesystem operation. No PR branch, remote, or GitHub writes were made.
   environment; the locally fetched `origin/main` ref remains the exact merge
   second parent.
 - Wrote the final verdict and evidence digest to `WORKER-REPORT.md`.
+- Committed the final report and completed ledger at `71024503`.
 
 ## Next
 
-- No review work remains; commit this final ledger and report, then deliver the
-  verdict.
+- No review work remains; deliver the verdict.
