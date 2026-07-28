@@ -2,10 +2,10 @@
 
 ## State
 
-Review in progress on throwaway branch `review/pr-1322-blind`. Routing and the
-SC end-to-end claim are passing so far, but the requested head is not currently
-merge-clean and has branch-only version-provenance failures. No PR branch,
-remote, or GitHub writes are permitted.
+Review complete on throwaway branch `review/pr-1322-blind`. The verdict is
+`REQUEST-CHANGES`: routing, parity, and the SC end-to-end claim pass, but the
+requested head is not merge-clean and has eight branch-only exact-version
+parity failures. No PR branch, remote, or GitHub writes were made.
 
 ## Done
 
@@ -23,6 +23,8 @@ remote, or GitHub writes are permitted.
   regression-bearing parent is `e8e59b6d`.
 - Ran the six-case fail-first selection at `e8e59b6d`: 6 failed. Ran the same
   selection at the requested head: 6 passed.
+- Ran the same selection at the literal requested-head parent `abb37e20`: 6
+  passed, confirming that only the implementation-parent run is fail-first.
 - Inspected the head-produced ProgramSpec manifest. It is placed at
   `.axiom/encoding-manifests/programs/us-sc/snap/fy-2026.json`, cites
   `programs/us-sc/snap/fy-2026`, and lists
@@ -78,8 +80,16 @@ remote, or GitHub writes are permitted.
   baseline is 10.
 - Confirmed the terminal three-file bump itself follows convention, but recent
   merged PR 1321 also updated every hardcoded runtime-pin test; this PR did not.
+- Completed an independent final challenge review. It confirmed both blockers,
+  found no additional routing defect, and required only wording precision:
+  classify the eight failures as exact-version parity failures and the extra
+  two-dot files as reverse deltas from a stale branch, not PR-authored files.
+- Wrote the final verdict and evidence digest to `WORKER-REPORT.md`.
 
 ## Next
 
-- Run an independent review-fix cycle over the evidence and findings.
-- Write and commit `WORKER-REPORT.md` with the final verdict and evidence.
+- Rebase or merge current `origin/main`, preserving PR 1321 and resolving the
+  version trio/oracle lock.
+- Update all exact-version runtime-pin assertions to the resolved terminal
+  encoder version.
+- Rerun focused and full gates, then repeat the required independent cycle.
