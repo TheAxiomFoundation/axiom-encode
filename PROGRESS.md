@@ -2,10 +2,11 @@
 
 ## State
 
-The requested head passes the merge-topology, main-pin-preservation, and
-version-consistency checks. Scoped test execution is next on disposable branch
-`review/pr-1322-round-2-confirm`; no PR branch, remote, or GitHub writes will
-be made.
+The requested head passes the merge, version, CLI, and routing confirmation
+checks. The full CLI file collected all 1,108 expected tests: 1,107 passed and
+the sandbox explicitly skipped the set-user-ID mode-bit test because it blocks
+that filesystem operation. Diff-scope audit and final independent review are
+next; no PR branch, remote, or GitHub writes will be made.
 
 ## Done
 
@@ -36,10 +37,28 @@ be made.
 - Independently parsed and imported the checkout: pyproject, package
   `__version__`, lock, runtime import, and installed distribution metadata all
   report `0.2.1415`.
+- Ran
+  `tests/test_cli.py::test_current_encoder_affecting_changes_are_behind_version_bump`;
+  it passed.
+- Ran full `tests/test_cli.py` twice. Both runs collected the expected 1,108
+  tests and finished with 1,107 passed, one explicit environment skip, and no
+  failures. The skipped node is
+  `TestCmdEncode::test_apply_transaction_rejects_special_target_mode_bits`;
+  this sandbox rejects `chmod 4755` with `Operation not permitted`, and the
+  test is designed to skip when the filesystem cannot preserve that bit.
+- Reran the exact round-1 six-case regression selection: four checkout-root
+  source types plus ProgramSpec writer and checkout-root manifest placement.
+  All six passed.
+- Spot-checked jurisdiction-prefixed UK placement in the passing selection:
+  both `statutes/26/36B.yaml` and already-prefixed
+  `uk/statutes/26/36B.yaml` map to manifest path
+  `uk/statutes/26/36B.yaml` at the checkout root.
+- Spot-checked the passing ProgramSpec signing case: it writes
+  `.axiom/encoding-manifests/programs/us-sc/snap/fy-2026.json`, cites
+  `programs/us-sc/snap/fy-2026`, records applied path
+  `programs/us-sc/snap/fy-2026.yaml`, and contains a nonempty signature.
 
 ## Next
 
-- Run the version-bump gate and full `tests/test_cli.py`.
-- Rerun the six routing regressions and spot-check the requested paths.
 - Audit the exact two-dot diff, complete an independent review cycle, and write
   and commit `WORKER-REPORT.md`.
