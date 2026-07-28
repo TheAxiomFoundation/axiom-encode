@@ -44562,6 +44562,9 @@ def _rulespec_apply_content_root(
     """Return the jurisdiction content root for live generated writes."""
     repo_path = Path(policy_repo_path)
     if relative_output is not None:
+        output_parts = Path(relative_output).parts
+        if output_parts and output_parts[0] in RULESPEC_SOURCE_ROOTS:
+            return repo_path
         output_jurisdiction = _relative_output_jurisdiction_prefix(relative_output)
         jurisdiction = _repo_jurisdiction_prefix(repo_path)
         if output_jurisdiction and (
@@ -48712,6 +48715,8 @@ def _relative_rulespec_import_target(relative_output: Path) -> str:
 def _rulespec_anchor_base_for_output(repo_path: Path, relative_output: Path) -> str:
     target_path = relative_output.with_suffix("")
     parts = target_path.parts
+    if parts and parts[0] == "programs":
+        return target_path.as_posix()
     if len(parts) > 1 and parts[0] not in RULESPEC_SOURCE_ROOTS:
         jurisdiction = parts[0]
         target = Path(*parts[1:]).as_posix()
