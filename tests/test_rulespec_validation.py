@@ -5925,7 +5925,7 @@ def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.1621"')
+        .startswith('__version__ = "0.2.1622"')
     )
 
 
@@ -6157,13 +6157,13 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.1621"
+    assert encoder_package["version"] == "0.2.1622"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.1621"
+    assert project["project"]["version"] == "0.2.1622"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.1621"')
+        .startswith('__version__ = "0.2.1622"')
     )
 
 
@@ -6425,13 +6425,13 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.1621"
+    assert encoder_package["version"] == "0.2.1622"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.1621"
+    assert project["project"]["version"] == "0.2.1622"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.1621"')
+        .startswith('__version__ = "0.2.1622"')
     )
 
 
@@ -12393,6 +12393,49 @@ rules:
     assert any(
         "Interval table re-encoding required" in issue for issue in result.issues
     )
+
+
+def test_rulespec_ci_reports_static_test_coverage_when_compile_fails(
+    tmp_path,
+    monkeypatch,
+):
+    rulespec_file = tmp_path / "rules.yaml"
+    rulespec_file.write_text("format: rulespec/v1\nrules: []\n")
+    rulespec_file.with_name("rules.test.yaml").write_text("[]\n")
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    def failed_compile(_rules_file, _output_path):
+        return (
+            subprocess.CompletedProcess(
+                ["axiom-rules-engine"],
+                1,
+                "",
+                "invalid formula",
+            ),
+            None,
+        )
+
+    monkeypatch.setattr(pipeline, "_compile_rulespec_to_artifact", failed_compile)
+    monkeypatch.setattr(
+        validator_pipeline,
+        "find_exception_test_coverage_issues",
+        lambda _content, _cases: ["seeded paired-exception coverage issue"],
+    )
+    monkeypatch.setattr(
+        validator_pipeline,
+        "find_zero_branch_test_coverage_issues",
+        lambda _content, _cases: ["seeded zero-branch coverage issue"],
+    )
+
+    result = pipeline._run_rulespec_ci(rulespec_file)
+
+    assert any("compile failed: invalid formula" in issue for issue in result.issues)
+    assert "seeded paired-exception coverage issue" in result.issues
+    assert "seeded zero-branch coverage issue" in result.issues
 
 
 def test_rulespec_grounding_rejects_ungrounded_index_like_integer_outputs():
