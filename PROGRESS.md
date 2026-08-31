@@ -3,11 +3,12 @@
 ## State
 
 - Branch: `fix/1558-waiver-toolchain-transition`.
-- Starting commit and locally cached `origin/main`: `f1bfe0a47ee7a9123d56e00a5c41edb6f272ea21`.
-- Resumed at `f03d4f9b4a9fcfa1bbe7195c80fab6e15e5322c0`; the current commit is not approved.
-- Three modified test files contain 673 preserved lines of additional adversarial coverage; none were reset or cleaned.
+- Live-fetched `origin/main` and merge base: `f1bfe0a47ee7a9123d56e00a5c41edb6f272ea21`.
+- Resumed implementation: `f03d4f9b4a9fcfa1bbe7195c80fab6e15e5322c0`; resumed tracking head: `00de31256addce7c0b8f1d82a3b97b7779925cc5`; neither is approved.
+- Salvage ref `refs/codex-salvage/fix-1558-waiver-toolchain-transition-20260830-212600-98091` resolves to `3ee0586841748ca3a57c92088b226d7f8f1799cc`.
+- Three modified test files contain the salvage ref's exact 673-line adversarial patch; none were reset or cleaned.
 - Pending creation is byte-bound, but pure pending-to-active consumption still accepts semantic evidence without requiring the protected-base/head waiver and toolchain snapshots.
-- GitHub network access and GitNexus's home-directory registry are unavailable in the current sandbox; retry remote comparison, push, and draft-PR creation after local checks are green.
+- `git fetch --prune origin` succeeds, but GitHub API access and the GitNexus command registry are unavailable in this sandbox; retry issue/PR inspection, push, and draft-PR creation after local checks are green.
 
 ## Done
 
@@ -15,6 +16,7 @@
 - Confirmed the surviving patch covers the toolchain digest-rebind helper, protected-base audit wiring, initial tests, README guidance, CI-parity dependency note, and changelog.
 - Passed 435 focused tests across validation-waiver semantics, toolchain binding, stable evidence reads, and audit CLI integration.
 - Read both independent review reports and reproduced their core blocker in the implementation: the consumption branch bypasses exact byte/toolchain binding.
+- Re-read the assignment, repository `AGENTS.md`, generated repository context, commit history, live-fetched upstream, salvage commit, and exact worktree-to-salvage comparison on 2026-08-31.
 - Read the complete surviving uncommitted test diff and retained the useful semantic-no-op, expiry, toolchain-formatting, evidence-mutation, and transition cases for reconciliation.
 - Confirmed the creation contract must remain exactly one new pending field in the exact waiver/toolchain pair, with active state and corpus pins unchanged and both raw snapshots bound.
 
