@@ -838,6 +838,67 @@ def test_audit_requires_protected_base_toolchain_for_direct_calls(tmp_path: Path
         )
 
 
+@pytest.mark.parametrize("binding_side", ["protected-base", "head"])
+@pytest.mark.parametrize("audit_shape", ["empty-ledger", "empty-partition"])
+def test_audit_rejects_bad_waiver_binding_before_empty_execution(
+    tmp_path: Path,
+    capsys,
+    binding_side: str,
+    audit_shape: str,
+):
+    module_paths = ("us/statutes/unwaived.yaml",)
+    waiver = "validate_failures: {}\n"
+    if audit_shape == "empty-partition":
+        module_path = "us/statutes/module.yaml"
+        module_paths = (module_path,)
+        waiver = _waiver_yaml({module_path: {"active": ("a", None)}})
+    root, corpus, base_file, base_toolchain, changed_file = (
+        _transition_audit_fixture(
+            tmp_path,
+            base_waiver=waiver,
+            head_waiver=waiver,
+            module_paths=module_paths,
+            changed_paths=(),
+        )
+    )
+    target_toolchain = (
+        base_toolchain
+        if binding_side == "protected-base"
+        else root / ".axiom/toolchain.toml"
+    )
+    bound_waiver = (
+        base_file
+        if binding_side == "protected-base"
+        else root / "known-validation-gaps.yaml"
+    )
+    actual_digest = hashlib.sha256(bound_waiver.read_bytes()).hexdigest()
+    target_toolchain.write_text(
+        target_toolchain.read_text().replace(actual_digest, "f" * 64)
+    )
+    args = _audit_args(
+        root,
+        base_file,
+        changed_file,
+        corpus,
+        protected_base_toolchain=base_toolchain,
+    )
+    if audit_shape == "empty-partition":
+        args.partition_key = "shard-b"
+        args.partition_keys_json = '["shard-a", "shard-b"]'
+
+    exit_code = cli._cmd_validation_waivers_audit(args)
+
+    report = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert report["success"] is False
+    assert report["checked"] == 0
+    assert any(
+        f"{binding_side} toolchain does not bind the exact {binding_side} waiver bytes"
+        in error
+        for error in report["errors"]
+    )
+
+
 @pytest.mark.parametrize(
     "third_path",
     [

@@ -49,8 +49,11 @@
 - Repository-wide Ruff, compileall, and `git diff --check` passed; both historical workflow fixture SHA-256 values remain unchanged.
 - Reinspected the complete prior assignment, repository instructions, clean branch state, 17-commit history, last fetched base, salvage ref, progress ledger, and both independent review locations at resumed head `b4139370`.
 - Confirmed the salvage ref `3ee05868` is a divergent recovery snapshot, not an ancestor of the current head; its useful 673-line test patch was reconciled separately in `c32b6f4a`, followed by the implementation and validation checkpoints.
+- Fresh independent review reproduced the prior direct-audit blocker: an empty ledger or empty matrix partition can skip both protected-base and head waiver/toolchain binding when no module executes.
+- Added four failing pre-partition regressions covering bad base/head bindings across empty-ledger and empty-partition audits (`4 failed` against the incomplete audit gate).
 
 ## Next
 
+- Make exact base/head pair binding unconditional before audit partitioning or execution, then rerun the focused transition matrix.
 - Re-run the version-provenance test and complete the broad test matrix, then complete independent review-fix cycles on a frozen head.
 - Verify commit messages and PR body, refresh live upstream, push, and open a draft PR linked to #1558 only if every required check remains green; do not merge.
