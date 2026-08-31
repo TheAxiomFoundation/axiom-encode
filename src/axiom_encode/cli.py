@@ -17,6 +17,7 @@ import contextlib
 import copy
 import csv
 import difflib
+import errno
 import fcntl
 import hashlib
 import json
@@ -7979,13 +7980,17 @@ def _scheduled_dependent_manifest_issue(
             max_bytes=1024 * 1024,
             required_mode=0o644,
         )
-        json.loads(manifest_raw.decode("utf-8"))
+        json.loads(
+            manifest_raw.decode("utf-8"),
+            object_pairs_hook=_unique_json_object,
+        )
     except (
         OSError,
         UnsafeCorpusPathError,
         UnicodeError,
         json.JSONDecodeError,
         RecursionError,
+        ValueError,
     ):
         return "has no readable fresh v5 model manifest"
     verified, _root_prefix, _digest, issues = (
@@ -8771,9 +8776,7 @@ def _creation_live_manifest_claimants(
                 raise RuntimeError("Creation manifest census contains an unsafe entry")
             manifest_count += 1
             if manifest_count > _MANIFEST_OWNERSHIP_CENSUS_MAX_FILES:
-                raise RuntimeError(
-                    "Creation manifest ownership scan is oversized"
-                )
+                raise RuntimeError("Creation manifest ownership scan is oversized")
             try:
                 raw = read_bounded_regular_file(
                     checkout_root,
@@ -8783,13 +8786,8 @@ def _creation_live_manifest_claimants(
                     required_mode=0o644,
                 )
                 total_manifest_bytes += len(raw)
-                if (
-                    total_manifest_bytes
-                    > _MANIFEST_OWNERSHIP_CENSUS_MAX_TOTAL_BYTES
-                ):
-                    raise RuntimeError(
-                        "Creation manifest ownership scan is oversized"
-                    )
+                if total_manifest_bytes > _MANIFEST_OWNERSHIP_CENSUS_MAX_TOTAL_BYTES:
+                    raise RuntimeError("Creation manifest ownership scan is oversized")
                 payload = json.loads(
                     raw.decode("utf-8"),
                     object_pairs_hook=_unique_json_object,
@@ -9382,13 +9380,17 @@ def _legacy_replacement_pending_paths(
                     max_bytes=4 * 1024 * 1024,
                     required_mode=0o644,
                 )
-                payload = json.loads(manifest_raw.decode("utf-8"))
+                payload = json.loads(
+                    manifest_raw.decode("utf-8"),
+                    object_pairs_hook=_unique_json_object,
+                )
             except (
                 OSError,
                 UnsafeCorpusPathError,
                 UnicodeError,
                 json.JSONDecodeError,
                 RecursionError,
+                ValueError,
             ):
                 continue
             if (
@@ -9459,13 +9461,17 @@ def _legacy_replacement_pending_paths(
                 max_bytes=4 * 1024 * 1024,
                 required_mode=0o644,
             )
-            receipt = json.loads(receipt_raw.decode("utf-8"))
+            receipt = json.loads(
+                receipt_raw.decode("utf-8"),
+                object_pairs_hook=_unique_json_object,
+            )
         except (
             OSError,
             UnsafeCorpusPathError,
             UnicodeError,
             json.JSONDecodeError,
             RecursionError,
+            ValueError,
         ):
             pending.append(f"invalid:{manifest_label}")
             continue
@@ -9705,13 +9711,17 @@ def _legacy_replacement_pending_paths(
                 max_bytes=4 * 1024 * 1024,
                 required_mode=0o644,
             )
-            receipt = json.loads(receipt_raw.decode("utf-8"))
+            receipt = json.loads(
+                receipt_raw.decode("utf-8"),
+                object_pairs_hook=_unique_json_object,
+            )
         except (
             OSError,
             UnsafeCorpusPathError,
             UnicodeError,
             json.JSONDecodeError,
             RecursionError,
+            ValueError,
         ):
             pending.append(f"invalid:{receipt_label}")
             continue
@@ -20407,7 +20417,9 @@ def _rulespec_migration_base_blob(
     return _rulespec_migration_git_bytes(repo_path, "show", f"{commit}:{path_text}")
 
 
-def _rulespec_migration_base_identity(repo_path: Path) -> tuple[str, str]:
+def _rulespec_git_head_tree_identity(repo_path: Path) -> tuple[str, str]:
+    """Read the immutable HEAD/tree identity without making a cleanliness claim."""
+
     head = _rulespec_migration_git(repo_path, "rev-parse", "HEAD").strip()
     tree = _rulespec_migration_git(repo_path, "rev-parse", "HEAD^{tree}").strip()
     if (
@@ -20415,6 +20427,11 @@ def _rulespec_migration_base_identity(repo_path: Path) -> tuple[str, str]:
         or re.fullmatch(r"[0-9a-f]{40}", tree) is None
     ):
         raise RuntimeError("RuleSpec checkout has a malformed HEAD or tree identity")
+    return head, tree
+
+
+def _rulespec_migration_base_identity(repo_path: Path) -> tuple[str, str]:
+    head, tree = _rulespec_git_head_tree_identity(repo_path)
     status = _rulespec_migration_git(
         repo_path,
         "status",
@@ -27965,8 +27982,19 @@ class _EncodeCreationContract(NamedTuple):
     orphan_manifest: Path | None
 
 
+class _AuthenticatedLegacyPendingState(NamedTuple):
+    """Bind one scheduled dependent to its signed cascade authority."""
+
+    sha256: str
+    owner_manifest: Path
+    owner_manifest_sha256: str
+    receipt_path: Path
+    receipt_sha256: str
+    guard_files: tuple[tuple[Path, str | None], ...]
+
+
 class _EncodeExistingTargetContract(NamedTuple):
-    """Bind one ordinary replacement group to an immutable clean Git base."""
+    """Bind one ordinary replacement group to an immutable Git base."""
 
     base_commit: str
     base_tree: str
@@ -27978,6 +28006,12 @@ class _EncodeExistingTargetContract(NamedTuple):
     canonical_manifest_sha256: str | None
     orphan_manifest: Path | None
     base_manifest_claimants: tuple[Path, ...]
+    authenticated_pending_state_sha256: str | None = None
+    authenticated_pending_owner_manifest: Path | None = None
+    authenticated_pending_owner_manifest_sha256: str | None = None
+    authenticated_pending_receipt_path: Path | None = None
+    authenticated_pending_receipt_sha256: str | None = None
+    authenticated_pending_guard_files: tuple[tuple[Path, str | None], ...] = ()
 
 
 _LEGACY_REPLACEMENT_ATTR = "_axiom_legacy_replacement_contract"
@@ -28183,6 +28217,1353 @@ def _require_legacy_replacement_clean_checkout(checkout_root: Path) -> None:
         )
 
 
+_AUTHENTICATED_PENDING_STATE_MAX_PATHS = 8192
+_AUTHENTICATED_PENDING_STATE_MAX_FILE_BYTES = 16 * 1024 * 1024
+
+
+def _parse_authenticated_pending_path(raw: object, *, label: str) -> Path:
+    """Parse one exact receipt- or Git-owned repository-relative path."""
+
+    if (
+        not isinstance(raw, str)
+        or not raw
+        or raw != unicodedata.normalize("NFC", raw)
+        or "\\" in raw
+        or any(
+            unicodedata.category(character) in {"Cc", "Cf", "Cs", "Zl", "Zp"}
+            for character in raw
+        )
+    ):
+        raise RuntimeError(f"{label} contains a noncanonical repository path")
+    path = Path(raw)
+    if (
+        path.is_absolute()
+        or path.as_posix() != raw
+        or any(part in {"", ".", ".."} for part in path.parts)
+    ):
+        raise RuntimeError(f"{label} contains a noncanonical repository path")
+    return path
+
+
+def _authenticated_pending_git_changes(
+    checkout_root: Path,
+    *,
+    allowed_apply_transaction_paths: Collection[Path] = (),
+) -> dict[Path, str]:
+    """Return an exact bounded census of tracked, untracked, and ignored changes."""
+
+    changed: dict[Path, str] = {}
+    initial_head_tree = _rulespec_git_head_tree_identity(checkout_root)
+    initial_status = _rulespec_migration_git_bytes(
+        checkout_root,
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=all",
+        "--ignored=matching",
+    )
+    allowed_internal = frozenset(allowed_apply_transaction_paths)
+    if any(
+        path.is_absolute()
+        or path == _APPLY_TRANSACTION_DIRECTORY
+        or _APPLY_TRANSACTION_DIRECTORY not in path.parents
+        for path in allowed_internal
+    ):
+        raise RuntimeError(
+            "Explicit replacement apply-transaction census allowlist is malformed"
+        )
+
+    staged = _rulespec_migration_git_bytes(
+        checkout_root,
+        "diff",
+        "--cached",
+        "--name-only",
+        "-z",
+        "HEAD",
+        "--",
+    )
+    if staged:
+        raise RuntimeError(
+            "Explicit replacement authenticated pending state cannot contain staged "
+            "or index-only changes"
+        )
+    if _rulespec_migration_tracked_files(
+        checkout_root
+    ) != _rulespec_migration_tracked_files_at_ref(checkout_root, "HEAD"):
+        raise RuntimeError(
+            "Explicit replacement authenticated pending state requires an index "
+            "identical to HEAD"
+        )
+    index_records = _rulespec_migration_git_bytes(
+        checkout_root,
+        "ls-files",
+        "-v",
+        "-z",
+    )
+    for record in (item for item in index_records.split(b"\0") if item):
+        if len(record) < 3 or record[1:2] != b" " or record[:1] != b"H":
+            raise RuntimeError(
+                "Explicit replacement authenticated pending state cannot contain "
+                "assume-unchanged, skip-worktree, or ambiguous index entries"
+            )
+
+    def add_path(raw: bytes, state: str) -> None:
+        if len(changed) >= _AUTHENTICATED_PENDING_STATE_MAX_PATHS:
+            raise RuntimeError(
+                "Explicit replacement pending-state census exceeds its path limit"
+            )
+        try:
+            decoded = raw.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise RuntimeError(
+                "Explicit replacement pending-state Git path is not UTF-8"
+            ) from exc
+        path = _parse_authenticated_pending_path(
+            decoded,
+            label="Explicit replacement pending-state Git census",
+        )
+        if path in allowed_internal:
+            return
+        if path in changed:
+            raise RuntimeError(
+                "Explicit replacement pending-state Git census contains a duplicate "
+                f"path: {path.as_posix()}"
+            )
+        changed[path] = state
+
+    tracked_raw = _rulespec_migration_git_bytes(
+        checkout_root,
+        "diff",
+        "--name-status",
+        "-z",
+        "--no-renames",
+        "HEAD",
+        "--",
+    )
+    tracked_records = tracked_raw.split(b"\0")
+    if tracked_records and tracked_records[-1] == b"":
+        tracked_records.pop()
+    if len(tracked_records) % 2:
+        raise RuntimeError(
+            "Explicit replacement pending-state tracked Git census is malformed"
+        )
+    for index in range(0, len(tracked_records), 2):
+        try:
+            state = tracked_records[index].decode("ascii")
+        except UnicodeDecodeError as exc:
+            raise RuntimeError(
+                "Explicit replacement pending-state tracked status is malformed"
+            ) from exc
+        if state not in {"A", "D", "M"}:
+            raise RuntimeError(
+                "Explicit replacement pending state contains an unsupported tracked "
+                f"change: {state or '<empty>'}"
+            )
+        add_path(tracked_records[index + 1], state)
+
+    raw_untracked = _rulespec_migration_git_bytes(
+        checkout_root,
+        "ls-files",
+        "--others",
+        "--exclude-standard",
+        "-z",
+        "--",
+    )
+    for raw_path in (item for item in raw_untracked.split(b"\0") if item):
+        add_path(raw_path, "?")
+    ignored = _rulespec_migration_git_bytes(
+        checkout_root,
+        "ls-files",
+        "--others",
+        "--ignored",
+        "--exclude-standard",
+        "-z",
+        "--",
+    )
+    ignored_paths: list[Path] = []
+    for raw_path in (item for item in ignored.split(b"\0") if item):
+        try:
+            decoded = raw_path.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise RuntimeError(
+                "Explicit replacement pending-state ignored Git path is not UTF-8"
+            ) from exc
+        ignored_path = _parse_authenticated_pending_path(
+            decoded,
+            label="Explicit replacement pending-state ignored Git census",
+        )
+        if ignored_path in allowed_internal:
+            continue
+        ignored_paths.append(ignored_path)
+    if ignored_paths:
+        raise RuntimeError(
+            "Explicit replacement authenticated pending state cannot contain ignored "
+            "checkout files"
+        )
+    final_staged = _rulespec_migration_git_bytes(
+        checkout_root,
+        "diff",
+        "--cached",
+        "--name-only",
+        "-z",
+        "HEAD",
+        "--",
+    )
+    final_index_records = _rulespec_migration_git_bytes(
+        checkout_root,
+        "ls-files",
+        "-v",
+        "-z",
+    )
+    final_status = _rulespec_migration_git_bytes(
+        checkout_root,
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=all",
+        "--ignored=matching",
+    )
+    final_head_tree = _rulespec_git_head_tree_identity(checkout_root)
+    if (
+        final_staged
+        or final_index_records != index_records
+        or final_status != initial_status
+        or final_head_tree != initial_head_tree
+        or _rulespec_migration_tracked_files(checkout_root)
+        != _rulespec_migration_tracked_files_at_ref(checkout_root, "HEAD")
+    ):
+        raise RuntimeError(
+            "Explicit replacement authenticated pending Git state changed during "
+            "its exact census"
+        )
+    return changed
+
+
+def _authenticated_pending_receipt_paths(
+    receipt: Mapping[str, object],
+    *,
+    checkout_root: Path,
+    signing_broker: SigningBroker | Ed25519PublicKey,
+    outer_manifest: Path,
+    outer_manifest_sha256: str,
+    receipt_path: Path,
+    receipt_sha256: str,
+) -> tuple[dict[Path, str], dict[Path, str], set[Path]]:
+    """Classify live paths, signed base hashes, and current absences."""
+
+    live: dict[Path, str] = {
+        outer_manifest: outer_manifest_sha256,
+        receipt_path: receipt_sha256,
+    }
+    base: dict[Path, str] = {}
+
+    def add_record_paths(
+        value: object,
+        destination: dict[Path, str],
+        *,
+        label: str,
+        hash_field: str = "sha256",
+    ) -> None:
+        if not isinstance(value, list):
+            raise RuntimeError(f"{label} is malformed")
+        for item in value:
+            if (
+                not isinstance(item, dict)
+                or "path" not in item
+                or _SHA256_HEX_PATTERN.fullmatch(str(item.get(hash_field) or ""))
+                is None
+            ):
+                raise RuntimeError(f"{label} is malformed")
+            path = _parse_authenticated_pending_path(item["path"], label=label)
+            digest = str(item[hash_field])
+            previous = destination.get(path)
+            if previous is not None and previous != digest:
+                raise RuntimeError(f"{label} contains conflicting path hashes")
+            destination[path] = digest
+
+    def add_manifest_record(
+        value: object,
+        destination: dict[Path, str],
+        *,
+        label: str,
+    ) -> None:
+        if (
+            not isinstance(value, dict)
+            or _SHA256_HEX_PATTERN.fullmatch(str(value.get("sha256") or "")) is None
+        ):
+            raise RuntimeError(f"{label} is malformed")
+        path = _parse_authenticated_pending_path(value.get("path"), label=label)
+        digest = str(value["sha256"])
+        previous = destination.get(path)
+        if previous is not None and previous != digest:
+            raise RuntimeError(f"{label} contains conflicting path hashes")
+        destination[path] = digest
+
+    legacy = receipt.get("legacy")
+    replacement = receipt.get("replacement")
+    if not isinstance(legacy, dict) or not isinstance(replacement, dict):
+        raise RuntimeError("Authenticated legacy pending receipt is malformed")
+    add_manifest_record(
+        legacy.get("manifest"),
+        base,
+        label="Authenticated legacy pending legacy manifest",
+    )
+    add_record_paths(
+        legacy.get("files"),
+        base,
+        label="Authenticated legacy pending legacy files",
+    )
+    add_record_paths(
+        replacement.get("live_files"),
+        live,
+        label="Authenticated legacy pending live files",
+    )
+    add_record_paths(
+        replacement.get("rewrites"),
+        live,
+        label="Authenticated legacy pending rewrites",
+        hash_field="after_sha256",
+    )
+    add_record_paths(
+        replacement.get("rewrites"),
+        base,
+        label="Authenticated legacy pending rewrite base files",
+        hash_field="before_sha256",
+    )
+    model_manifest_path = replacement.get("model_manifest_path")
+    model_manifest = _parse_authenticated_pending_path(
+        model_manifest_path,
+        label="Authenticated legacy pending model manifest",
+    )
+    if model_manifest != outer_manifest:
+        raise RuntimeError(
+            "Authenticated legacy pending model manifest differs from its signed owner"
+        )
+
+    destination_predecessors = replacement.get("destination_predecessor_files", [])
+    add_record_paths(
+        destination_predecessors,
+        base,
+        label="Authenticated legacy pending destination predecessors",
+    )
+    metadata_reconciliations = replacement.get("metadata_reconciliations", [])
+    add_record_paths(
+        metadata_reconciliations,
+        live,
+        label="Authenticated legacy pending metadata reconciliations",
+        hash_field="after_sha256",
+    )
+    add_record_paths(
+        metadata_reconciliations,
+        base,
+        label="Authenticated legacy pending metadata base files",
+        hash_field="before_sha256",
+    )
+
+    exact_dependents = replacement.get("exact_dependents", [])
+    if not isinstance(exact_dependents, list):
+        raise RuntimeError("Authenticated legacy exact dependents are malformed")
+    for dependent in exact_dependents:
+        if not isinstance(dependent, dict):
+            raise RuntimeError("Authenticated legacy exact dependent is malformed")
+        primary = _parse_authenticated_pending_path(
+            dependent.get("primary"),
+            label="Authenticated legacy exact-dependent primary",
+        )
+        add_manifest_record(
+            dependent.get("legacy_manifest"),
+            base,
+            label="Authenticated legacy exact-dependent manifest",
+        )
+        add_record_paths(
+            dependent.get("legacy_files"),
+            base,
+            label="Authenticated legacy exact-dependent legacy files",
+        )
+        add_record_paths(
+            dependent.get("live_files"),
+            live,
+            label="Authenticated legacy exact-dependent live files",
+        )
+        add_record_paths(
+            dependent.get("rewrites"),
+            live,
+            label="Authenticated legacy exact-dependent rewrites",
+            hash_field="after_sha256",
+        )
+        add_record_paths(
+            dependent.get("rewrites"),
+            base,
+            label="Authenticated legacy exact-dependent rewrite base files",
+            hash_field="before_sha256",
+        )
+        exact_manifest_path = _applied_encoding_manifest_path(primary)
+        try:
+            exact_manifest_raw = read_bounded_regular_file(
+                checkout_root,
+                checkout_root / exact_manifest_path,
+                label="authenticated legacy exact-dependent manifest",
+                max_bytes=1024 * 1024,
+                required_mode=0o644,
+            )
+            exact_manifest = json.loads(
+                exact_manifest_raw.decode("utf-8"),
+                object_pairs_hook=_unique_json_object,
+            )
+        except (
+            OSError,
+            UnsafeCorpusPathError,
+            UnicodeError,
+            json.JSONDecodeError,
+            RecursionError,
+            ValueError,
+        ) as exc:
+            raise RuntimeError(
+                "Authenticated legacy exact-dependent manifest is unreadable"
+            ) from exc
+        legacy_manifest = dependent.get("legacy_manifest")
+        expected_migration = {
+            "receipt_path": receipt_path.as_posix(),
+            "receipt_sha256": receipt_sha256,
+            "primary": primary.as_posix(),
+            "legacy_manifest_path": (
+                legacy_manifest.get("path")
+                if isinstance(legacy_manifest, dict)
+                else None
+            ),
+            "legacy_manifest_sha256": (
+                legacy_manifest.get("sha256")
+                if isinstance(legacy_manifest, dict)
+                else None
+            ),
+        }
+        if (
+            not isinstance(exact_manifest, dict)
+            or set(exact_manifest) != _LEGACY_EXACT_DEPENDENT_APPLY_MANIFEST_FIELDS
+            or exact_manifest.get("schema_version") != APPLIED_ENCODING_MANIFEST_SCHEMA
+            or exact_manifest.get("tool")
+            != APPLIED_ENCODING_LEGACY_EXACT_DEPENDENT_TOOL
+            or exact_manifest.get("applied_files") != dependent.get("live_files")
+            or exact_manifest.get("legacy_migration") != expected_migration
+            or _applied_encoding_manifest_signature_issue(
+                exact_manifest,
+                signing_broker,
+            )
+        ):
+            raise RuntimeError(
+                "Authenticated legacy exact-dependent manifest is invalid"
+            )
+        live[exact_manifest_path] = hashlib.sha256(exact_manifest_raw).hexdigest()
+
+    retained_successors = replacement.get("retained_successors", [])
+    if not isinstance(retained_successors, list):
+        raise RuntimeError("Authenticated legacy retained successors are malformed")
+    for successor in retained_successors:
+        if not isinstance(successor, dict):
+            raise RuntimeError("Authenticated legacy retained successor is malformed")
+        add_manifest_record(
+            successor.get("legacy_manifest"),
+            base,
+            label="Authenticated legacy retained-successor legacy manifest",
+        )
+        add_manifest_record(
+            successor.get("successor_manifest"),
+            base,
+            label="Authenticated legacy retained-successor predecessor manifest",
+        )
+        add_record_paths(
+            successor.get("legacy_files"),
+            base,
+            label="Authenticated legacy retained-successor legacy files",
+        )
+        add_record_paths(
+            successor.get("successor_files"),
+            live,
+            label="Authenticated legacy retained-successor live files",
+        )
+        add_record_paths(
+            successor.get("successor_files"),
+            base,
+            label="Authenticated legacy retained-successor base files",
+        )
+        successor_manifest = successor.get("successor_manifest")
+        successor_manifest_path = _parse_authenticated_pending_path(
+            (
+                successor_manifest.get("path")
+                if isinstance(successor_manifest, dict)
+                else None
+            ),
+            label="Authenticated legacy retained-successor manifest",
+        )
+        try:
+            retained_manifest_raw = read_bounded_regular_file(
+                checkout_root,
+                checkout_root / successor_manifest_path,
+                label="authenticated legacy retained-successor manifest",
+                max_bytes=1024 * 1024,
+                required_mode=0o644,
+            )
+            retained_manifest = json.loads(
+                retained_manifest_raw.decode("utf-8"),
+                object_pairs_hook=_unique_json_object,
+            )
+        except (
+            OSError,
+            UnsafeCorpusPathError,
+            UnicodeError,
+            json.JSONDecodeError,
+            RecursionError,
+            ValueError,
+        ) as exc:
+            raise RuntimeError(
+                "Authenticated legacy retained-successor manifest is unreadable"
+            ) from exc
+        legacy_manifest = successor.get("legacy_manifest")
+        expected_migration = {
+            "receipt_path": receipt_path.as_posix(),
+            "receipt_sha256": receipt_sha256,
+            "source": successor.get("source"),
+            "destination": successor.get("destination"),
+            "legacy_manifest_path": (
+                legacy_manifest.get("path")
+                if isinstance(legacy_manifest, dict)
+                else None
+            ),
+            "legacy_manifest_sha256": (
+                legacy_manifest.get("sha256")
+                if isinstance(legacy_manifest, dict)
+                else None
+            ),
+            "successor_manifest_sha256": (
+                successor_manifest.get("sha256")
+                if isinstance(successor_manifest, dict)
+                else None
+            ),
+        }
+        if (
+            not isinstance(retained_manifest, dict)
+            or set(retained_manifest)
+            != _LEGACY_RETAINED_SUCCESSOR_APPLY_MANIFEST_FIELDS
+            or retained_manifest.get("schema_version")
+            != APPLIED_ENCODING_MANIFEST_SCHEMA
+            or retained_manifest.get("tool")
+            != APPLIED_ENCODING_LEGACY_RETAINED_SUCCESSOR_TOOL
+            or retained_manifest.get("applied_files")
+            != successor.get("successor_files")
+            or retained_manifest.get("legacy_migration") != expected_migration
+            or retained_manifest.get("retained_successor_manifest")
+            != (
+                successor_manifest.get("payload")
+                if isinstance(successor_manifest, dict)
+                else None
+            )
+            or _applied_encoding_manifest_signature_issue(
+                retained_manifest,
+                signing_broker,
+            )
+        ):
+            raise RuntimeError(
+                "Authenticated legacy retained-successor manifest is invalid"
+            )
+        live[successor_manifest_path] = hashlib.sha256(
+            retained_manifest_raw
+        ).hexdigest()
+
+    return live, base, set(base) - set(live)
+
+
+def _authenticated_scheduled_dependent_state(
+    checkout_root: Path,
+    receipt: Mapping[str, object],
+    outer: Mapping[str, object],
+    *,
+    signing_broker: SigningBroker | Ed25519PublicKey,
+    local_corpus_release: LocalCorpusRelease,
+) -> tuple[
+    dict[Path, str],
+    dict[Path, str],
+    set[Path],
+    set[Path],
+    set[Path],
+]:
+    """Bind live/base/absent paths and every scheduled group state."""
+
+    replacement = receipt.get("replacement")
+    execution = receipt.get("validation_execution")
+    expected_encoder_identity = (
+        execution.get("axiom_encode") if isinstance(execution, dict) else None
+    )
+    scheduled = (
+        replacement.get("scheduled_dependents")
+        if isinstance(replacement, dict)
+        else None
+    )
+    if not isinstance(scheduled, list) or not isinstance(
+        expected_encoder_identity, dict
+    ):
+        raise RuntimeError(
+            "Authenticated legacy scheduled-dependent state is malformed"
+        )
+    repository = receipt.get("repository")
+    base_commit = (
+        repository.get("base_commit") if isinstance(repository, dict) else None
+    )
+    if (
+        not isinstance(base_commit, str)
+        or re.fullmatch(r"[0-9a-f]{40}", base_commit) is None
+    ):
+        raise RuntimeError("Authenticated legacy scheduled-dependent base is malformed")
+    live: dict[Path, str] = {}
+    base: dict[Path, str] = {}
+    absent: set[Path] = set()
+    pending: set[Path] = set()
+    scheduled_primaries: set[Path] = set()
+    for dependent in scheduled:
+        if (
+            not isinstance(dependent, dict)
+            or set(dependent) != {"primary", "files"}
+            or not isinstance(dependent.get("files"), list)
+            or not dependent["files"]
+        ):
+            raise RuntimeError(
+                "Authenticated legacy scheduled-dependent group is malformed"
+            )
+        primary = _parse_authenticated_pending_path(
+            dependent.get("primary"),
+            label="Authenticated legacy scheduled-dependent primary",
+        )
+        if primary in scheduled_primaries:
+            raise RuntimeError(
+                "Authenticated legacy scheduled-dependent primary is duplicated"
+            )
+        scheduled_primaries.add(primary)
+        manifest_path = _applied_encoding_manifest_path(primary)
+        group_base_hashes: dict[Path, str] = {}
+        for group_path in (primary, companion_path(primary), manifest_path):
+            try:
+                group_base_raw = _rulespec_migration_base_blob(
+                    checkout_root,
+                    base_commit,
+                    group_path,
+                )
+            except RuntimeError:
+                continue
+            group_base_hashes[group_path] = hashlib.sha256(group_base_raw).hexdigest()
+        group_hashes: dict[str, str] = {}
+        group_pending = False
+        group_resolved = False
+        for item in dependent["files"]:
+            if (
+                not isinstance(item, dict)
+                or set(item) != {"path", "before_sha256", "replacements"}
+                or _SHA256_HEX_PATTERN.fullmatch(str(item.get("before_sha256") or ""))
+                is None
+            ):
+                raise RuntimeError(
+                    "Authenticated legacy scheduled-dependent evidence is malformed"
+                )
+            path = _parse_authenticated_pending_path(
+                item.get("path"),
+                label="Authenticated legacy scheduled-dependent evidence",
+            )
+            before_sha256 = str(item["before_sha256"])
+            previous_base = base.get(path)
+            if previous_base is not None and previous_base != before_sha256:
+                raise RuntimeError(
+                    "Authenticated legacy scheduled-dependent base hashes conflict"
+                )
+            base[path] = before_sha256
+            try:
+                raw = read_bounded_regular_file(
+                    checkout_root,
+                    checkout_root / path,
+                    label="authenticated legacy scheduled-dependent file",
+                    max_bytes=_AUTHENTICATED_PENDING_STATE_MAX_FILE_BYTES,
+                    required_mode=0o644,
+                )
+            except (OSError, UnsafeCorpusPathError) as exc:
+                raise RuntimeError(
+                    "Authenticated legacy scheduled-dependent file is unreadable"
+                ) from exc
+            digest = hashlib.sha256(raw).hexdigest()
+            if digest == before_sha256:
+                group_pending = True
+                live[path] = digest
+            else:
+                group_resolved = True
+                group_hashes[path.as_posix()] = digest
+        if group_pending and group_resolved:
+            raise RuntimeError(
+                "Authenticated legacy scheduled-dependent group is partially resolved"
+            )
+        for path, digest in group_base_hashes.items():
+            previous_base = base.get(path)
+            if previous_base is not None and previous_base != digest:
+                raise RuntimeError(
+                    "Authenticated legacy scheduled-dependent group base conflicts"
+                )
+            base[path] = digest
+        if group_pending:
+            for path, digest in group_base_hashes.items():
+                try:
+                    current = read_bounded_regular_file(
+                        checkout_root,
+                        checkout_root / path,
+                        label="authenticated pending scheduled-dependent group file",
+                        max_bytes=_AUTHENTICATED_PENDING_STATE_MAX_FILE_BYTES,
+                        required_mode=0o644,
+                    )
+                except (OSError, UnsafeCorpusPathError) as exc:
+                    raise RuntimeError(
+                        "Authenticated legacy pending scheduled-dependent group "
+                        "file is unreadable"
+                    ) from exc
+                if hashlib.sha256(current).hexdigest() != digest:
+                    raise RuntimeError(
+                        "Authenticated legacy pending scheduled-dependent group "
+                        f"changed outside its signed transition: {path.as_posix()}"
+                    )
+                live[path] = digest
+            if manifest_path not in group_base_hashes:
+                manifest_absolute = checkout_root / manifest_path
+                if manifest_absolute.exists() or manifest_absolute.is_symlink():
+                    raise RuntimeError(
+                        "Authenticated legacy pending scheduled-dependent manifest "
+                        "is not absent at its signed base"
+                    )
+                absent.add(manifest_path)
+            pending.add(primary)
+            pending.update(
+                _parse_authenticated_pending_path(
+                    item["path"],
+                    label="Authenticated legacy scheduled-dependent evidence",
+                )
+                for item in dependent["files"]
+                if isinstance(item, dict)
+            )
+            continue
+
+        issue = _scheduled_dependent_manifest_issue(
+            checkout_root,
+            primary=primary.as_posix(),
+            live_hashes=group_hashes,
+            signing_broker=signing_broker,
+            expected_waiver_set_sha256=str(
+                outer.get(VALIDATION_WAIVER_SET_SHA256_FIELD) or ""
+            ),
+            expected_encoder_identity=expected_encoder_identity,
+            local_corpus_release=local_corpus_release,
+        )
+        if issue:
+            raise RuntimeError(
+                "Authenticated legacy resolved scheduled-dependent manifest is "
+                f"invalid: {issue}"
+            )
+        try:
+            manifest_raw = read_bounded_regular_file(
+                checkout_root,
+                checkout_root / manifest_path,
+                label="authenticated resolved scheduled-dependent manifest",
+                max_bytes=1024 * 1024,
+                required_mode=0o644,
+            )
+            manifest = json.loads(
+                manifest_raw.decode("utf-8"),
+                object_pairs_hook=_unique_json_object,
+            )
+        except (
+            OSError,
+            UnsafeCorpusPathError,
+            UnicodeError,
+            json.JSONDecodeError,
+            RecursionError,
+            ValueError,
+        ) as exc:
+            raise RuntimeError(
+                "Authenticated legacy resolved scheduled-dependent manifest is "
+                "unreadable"
+            ) from exc
+        applied_files = (
+            manifest.get("applied_files") if isinstance(manifest, dict) else None
+        )
+        if not isinstance(applied_files, list):
+            raise RuntimeError(
+                "Authenticated legacy resolved scheduled-dependent inventory is "
+                "malformed"
+            )
+        live[manifest_path] = hashlib.sha256(manifest_raw).hexdigest()
+        for item in applied_files:
+            if (
+                not isinstance(item, dict)
+                or set(item) != {"path", "sha256"}
+                or _SHA256_HEX_PATTERN.fullmatch(str(item.get("sha256") or "")) is None
+            ):
+                raise RuntimeError(
+                    "Authenticated legacy resolved scheduled-dependent inventory is "
+                    "malformed"
+                )
+            path = _parse_authenticated_pending_path(
+                item.get("path"),
+                label="Authenticated resolved scheduled-dependent inventory",
+            )
+            digest = str(item["sha256"])
+            previous = live.get(path)
+            if previous is not None and previous != digest:
+                raise RuntimeError(
+                    "Authenticated resolved scheduled-dependent inventory has "
+                    "conflicting hashes"
+                )
+            live[path] = digest
+        for path, digest in group_base_hashes.items():
+            if path in live:
+                continue
+            try:
+                current = read_bounded_regular_file(
+                    checkout_root,
+                    checkout_root / path,
+                    label="authenticated resolved scheduled-dependent retained file",
+                    max_bytes=_AUTHENTICATED_PENDING_STATE_MAX_FILE_BYTES,
+                    required_mode=0o644,
+                )
+            except (OSError, UnsafeCorpusPathError) as exc:
+                raise RuntimeError(
+                    "Authenticated legacy resolved scheduled-dependent retained "
+                    "file is unreadable"
+                ) from exc
+            if hashlib.sha256(current).hexdigest() != digest:
+                raise RuntimeError(
+                    "Authenticated legacy resolved scheduled-dependent changed an "
+                    f"unmanifested group file: {path.as_posix()}"
+                )
+            live[path] = digest
+    return live, base, absent, pending, scheduled_primaries
+
+
+def _authenticated_pending_expected_git_changes(
+    checkout_root: Path,
+    *,
+    live: Mapping[Path, str],
+    base: Mapping[Path, str],
+) -> dict[Path, str]:
+    """Derive the only Git census permitted by signed base/live authority."""
+
+    expected: dict[Path, str] = {}
+    base_tracked = _rulespec_migration_tracked_files_at_ref(checkout_root, "HEAD")
+    for path, base_sha256 in base.items():
+        live_sha256 = live.get(path)
+        if live_sha256 is None:
+            expected[path] = "D"
+        elif live_sha256 != base_sha256:
+            expected[path] = "M"
+    for path in set(live) - set(base):
+        if path in base_tracked:
+            raise RuntimeError(
+                "Explicit replacement authenticated live path lacks signed base "
+                f"evidence: {path.as_posix()}"
+            )
+        expected[path] = "?"
+    return expected
+
+
+def _authenticated_legacy_pending_state(
+    checkout_root: Path,
+    primary: Path,
+    *,
+    local_corpus_release: LocalCorpusRelease,
+) -> _AuthenticatedLegacyPendingState:
+    """Bind one dirty checkout to current-HEAD signed pending replacement state."""
+
+    changed = _authenticated_pending_git_changes(checkout_root)
+    if not changed:
+        raise RuntimeError(
+            "Explicit replacement pending-state admission requires a dirty checkout"
+        )
+    locked_head, locked_tree = _rulespec_git_head_tree_identity(checkout_root)
+    pending_raw = _legacy_replacement_pending_paths(
+        checkout_root,
+        local_corpus_release=local_corpus_release,
+    )
+    if not pending_raw or any(item.startswith("invalid:") for item in pending_raw):
+        raise RuntimeError(
+            "Explicit replacement requires an exact clean HEAD or an entirely "
+            "valid authenticated legacy pending state"
+        )
+    pending_paths = {
+        _parse_authenticated_pending_path(
+            item,
+            label="Authenticated legacy pending-path census",
+        )
+        for item in pending_raw
+    }
+    target_group = {primary, companion_path(primary)}
+    if not target_group & pending_paths or target_group & set(changed):
+        raise RuntimeError(
+            "Explicit replacement target is not an unchanged authenticated legacy "
+            "pending dependent"
+        )
+
+    try:
+        signing_broker = _applied_encoding_manifest_verifier()
+    except SigningBrokerError as exc:
+        raise RuntimeError(
+            "Explicit replacement cannot verify authenticated legacy pending state"
+        ) from exc
+    try:
+        expected_waiver_set_sha256 = verify_rulespec_validation_waiver_set(
+            checkout_root
+        )
+    except ValueError as exc:
+        raise RuntimeError(
+            "Explicit replacement cannot verify its RuleSpec waiver-set binding"
+        ) from exc
+    manifest_root = checkout_root / APPLIED_ENCODING_MANIFEST_DIR
+    candidates = sorted(manifest_root.rglob("*.json")) if manifest_root.is_dir() else []
+    if len(candidates) > _MANIFEST_OWNERSHIP_CENSUS_MAX_FILES:
+        raise RuntimeError(
+            "Explicit replacement authenticated pending manifest census is oversized"
+        )
+
+    target_owners: list[
+        tuple[
+            Path,
+            str,
+            Path,
+            str,
+            dict[Path, str],
+            dict[Path, str],
+            set[Path],
+            set[Path],
+        ]
+    ] = []
+    for manifest_path in candidates:
+        manifest_relative = manifest_path.relative_to(checkout_root)
+        try:
+            outer_raw = read_bounded_regular_file(
+                checkout_root,
+                manifest_path,
+                label="authenticated legacy pending outer manifest",
+                max_bytes=4 * 1024 * 1024,
+                required_mode=0o644,
+            )
+            outer = json.loads(
+                outer_raw.decode("utf-8"),
+                object_pairs_hook=_unique_json_object,
+            )
+        except (
+            OSError,
+            UnsafeCorpusPathError,
+            UnicodeError,
+            json.JSONDecodeError,
+            RecursionError,
+            ValueError,
+        ):
+            continue
+        if (
+            not isinstance(outer, dict)
+            or outer.get("tool") != APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL
+        ):
+            continue
+        if (
+            outer.get("schema_version") != APPLIED_ENCODING_MANIFEST_SCHEMA
+            or outer.get(VALIDATION_WAIVER_SET_SHA256_FIELD)
+            != expected_waiver_set_sha256
+            or set(outer) != _LEGACY_REPLACEMENT_APPLY_MANIFEST_FIELDS
+            or _applied_encoding_manifest_signature_issue(outer, signing_broker)
+        ):
+            raise RuntimeError(
+                "Explicit replacement authenticated legacy pending manifest is invalid"
+            )
+        binding = outer.get("replacement")
+        if not isinstance(binding, dict) or set(binding) != {
+            "receipt_path",
+            "receipt_sha256",
+            "legacy_manifest_path",
+            "legacy_manifest_sha256",
+        }:
+            raise RuntimeError(
+                "Explicit replacement authenticated legacy pending binding is malformed"
+            )
+        receipt_relative = _parse_authenticated_pending_path(
+            binding.get("receipt_path"),
+            label="Authenticated legacy pending receipt binding",
+        )
+        if (
+            receipt_relative.parent != APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR
+            or receipt_relative.suffix != ".json"
+        ):
+            raise RuntimeError(
+                "Explicit replacement authenticated legacy pending receipt path is invalid"
+            )
+        try:
+            receipt_raw = read_bounded_regular_file(
+                checkout_root,
+                checkout_root / receipt_relative,
+                label="authenticated legacy pending receipt",
+                max_bytes=4 * 1024 * 1024,
+                required_mode=0o644,
+            )
+            receipt = json.loads(
+                receipt_raw.decode("utf-8"),
+                object_pairs_hook=_unique_json_object,
+            )
+        except (
+            OSError,
+            UnsafeCorpusPathError,
+            UnicodeError,
+            json.JSONDecodeError,
+            RecursionError,
+            ValueError,
+        ) as exc:
+            raise RuntimeError(
+                "Explicit replacement authenticated legacy pending receipt is unreadable"
+            ) from exc
+        receipt_sha256 = hashlib.sha256(receipt_raw).hexdigest()
+        if (
+            not isinstance(receipt, dict)
+            or set(receipt) != _LEGACY_REPLACEMENT_RECEIPT_FIELDS
+            or receipt.get("schema_version")
+            != APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA
+            or receipt.get("tool") != APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL
+            or binding.get("receipt_sha256") != receipt_sha256
+            or _applied_encoding_manifest_signature_issue(receipt, signing_broker)
+        ):
+            raise RuntimeError(
+                "Explicit replacement authenticated legacy pending receipt is invalid"
+            )
+        receipt_execution = receipt.get("validation_execution")
+        expected_encoder_identity = (
+            receipt_execution.get("axiom_encode")
+            if isinstance(receipt_execution, dict)
+            else None
+        )
+        semantic_issues = [
+            *_applied_manifest_exact_schema_issues(
+                outer,
+                manifest_label=manifest_relative.as_posix(),
+            ),
+            *(
+                _applied_manifest_tool_execution_issues(
+                    outer,
+                    manifest_label=manifest_relative.as_posix(),
+                    expected_encoder_identity=expected_encoder_identity,
+                )
+                if isinstance(expected_encoder_identity, dict)
+                else [f"{manifest_relative.as_posix()} lacks signed encoder identity"]
+            ),
+            *_legacy_replacement_manifest_issues(
+                outer,
+                repo_path=checkout_root,
+                manifest_label=manifest_relative.as_posix(),
+                signing_broker=signing_broker,
+                expected_waiver_set_sha256=expected_waiver_set_sha256,
+                local_corpus_release=local_corpus_release,
+            ),
+        ]
+        if semantic_issues:
+            raise RuntimeError(
+                "Explicit replacement authenticated legacy pending provenance is "
+                "invalid: " + "; ".join(semantic_issues)
+            )
+        replacement = receipt.get("replacement")
+        if (
+            not isinstance(replacement, dict)
+            or replacement.get("model_manifest_path") != manifest_relative.as_posix()
+        ):
+            raise RuntimeError(
+                "Explicit replacement authenticated legacy pending owner is invalid"
+            )
+        live, base, receipt_absent = _authenticated_pending_receipt_paths(
+            receipt,
+            checkout_root=checkout_root,
+            signing_broker=signing_broker,
+            outer_manifest=manifest_relative,
+            outer_manifest_sha256=hashlib.sha256(outer_raw).hexdigest(),
+            receipt_path=receipt_relative,
+            receipt_sha256=receipt_sha256,
+        )
+        (
+            scheduled_live,
+            scheduled_base,
+            scheduled_absent,
+            receipt_pending,
+            scheduled_primaries,
+        ) = _authenticated_scheduled_dependent_state(
+            checkout_root,
+            receipt,
+            outer,
+            signing_broker=signing_broker,
+            local_corpus_release=local_corpus_release,
+        )
+        for path, digest in scheduled_live.items():
+            previous = live.get(path)
+            if previous is not None and previous != digest:
+                raise RuntimeError(
+                    "Authenticated legacy pending receipt and resolved dependent "
+                    "disagree on a live file hash"
+                )
+            live[path] = digest
+        for path, digest in scheduled_base.items():
+            previous = base.get(path)
+            if previous is not None and previous != digest:
+                raise RuntimeError(
+                    "Authenticated legacy pending receipt and scheduled dependent "
+                    "disagree on a base file hash"
+                )
+            base[path] = digest
+        repository = receipt.get("repository")
+        is_current_base = (
+            isinstance(repository, dict)
+            and repository.get("base_commit") == locked_head
+            and repository.get("head_commit") == locked_head
+            and repository.get("base_tree") == locked_tree
+        )
+        if (
+            is_current_base
+            and primary in scheduled_primaries
+            and target_group & receipt_pending
+        ):
+            target_owners.append(
+                (
+                    manifest_relative,
+                    hashlib.sha256(outer_raw).hexdigest(),
+                    receipt_relative,
+                    receipt_sha256,
+                    live,
+                    base,
+                    receipt_absent | scheduled_absent,
+                    receipt_pending,
+                )
+            )
+
+    if len(target_owners) != 1:
+        raise RuntimeError(
+            "Explicit replacement pending target must be uniquely bound to one signed "
+            "current-HEAD legacy receipt"
+        )
+    (
+        owner_manifest,
+        owner_manifest_sha256,
+        receipt_path,
+        receipt_sha256,
+        authorized_live,
+        authorized_base,
+        authorized_absent,
+        _current_pending,
+    ) = target_owners[0]
+    if authorized_absent & set(authorized_live):
+        raise RuntimeError(
+            "Explicit replacement authenticated authority requires a path to be "
+            "both live and absent"
+        )
+    changed_paths = set(changed)
+    unauthorized = changed_paths - set(authorized_live) - authorized_absent
+    if unauthorized:
+        raise RuntimeError(
+            "Explicit replacement pending state contains a path not authorized by a "
+            "signed current-HEAD receipt: "
+            + ", ".join(path.as_posix() for path in sorted(unauthorized))
+        )
+    expected_changes = _authenticated_pending_expected_git_changes(
+        checkout_root,
+        live=authorized_live,
+        base=authorized_base,
+    )
+    if changed != expected_changes:
+        raise RuntimeError(
+            "Explicit replacement pending Git census does not exactly match its "
+            "signed base/live transition"
+        )
+
+    base_tracked = _rulespec_migration_tracked_files_at_ref(
+        checkout_root,
+        locked_head,
+    )
+    for target_path in {
+        *target_group,
+        _applied_encoding_manifest_path(primary),
+    }:
+        absolute = checkout_root / target_path
+        base_mode = base_tracked.get(target_path)
+        if base_mode is None:
+            if absolute.exists() or absolute.is_symlink():
+                raise RuntimeError(
+                    "Explicit replacement pending target group differs from HEAD: "
+                    f"{target_path.as_posix()}"
+                )
+            continue
+        if base_mode != "100644":
+            raise RuntimeError(
+                "Explicit replacement pending target group is not regular at HEAD"
+            )
+        try:
+            live_raw = read_bounded_regular_file(
+                checkout_root,
+                absolute,
+                label="authenticated pending target base file",
+                max_bytes=_AUTHENTICATED_PENDING_STATE_MAX_FILE_BYTES,
+                required_mode=0o644,
+            )
+            base_raw = _rulespec_migration_base_blob(
+                checkout_root,
+                locked_head,
+                target_path,
+            )
+        except (OSError, UnsafeCorpusPathError, RuntimeError) as exc:
+            raise RuntimeError(
+                "Explicit replacement pending target group cannot be compared to HEAD"
+            ) from exc
+        if live_raw != base_raw:
+            raise RuntimeError(
+                "Explicit replacement pending target group changed before planning: "
+                f"{target_path.as_posix()}"
+            )
+
+    for path, expected_sha256 in sorted(
+        authorized_live.items(), key=lambda item: item[0].as_posix()
+    ):
+        try:
+            raw = read_bounded_regular_file(
+                checkout_root,
+                checkout_root / path,
+                label="authenticated legacy signed live file",
+                max_bytes=_AUTHENTICATED_PENDING_STATE_MAX_FILE_BYTES,
+                required_mode=0o644,
+            )
+        except (OSError, UnsafeCorpusPathError) as exc:
+            raise RuntimeError(
+                "Explicit replacement authenticated signed live file is unreadable: "
+                f"{path.as_posix()}"
+            ) from exc
+        if hashlib.sha256(raw).hexdigest() != expected_sha256:
+            raise RuntimeError(
+                "Explicit replacement authenticated signed live file hash is stale: "
+                f"{path.as_posix()}"
+            )
+    for path, expected_sha256 in sorted(
+        authorized_base.items(), key=lambda item: item[0].as_posix()
+    ):
+        try:
+            base_raw = _rulespec_migration_base_blob(
+                checkout_root,
+                locked_head,
+                path,
+            )
+        except RuntimeError as exc:
+            raise RuntimeError(
+                "Explicit replacement authenticated signed base file is absent: "
+                f"{path.as_posix()}"
+            ) from exc
+        if hashlib.sha256(base_raw).hexdigest() != expected_sha256:
+            raise RuntimeError(
+                "Explicit replacement authenticated signed base hash is stale: "
+                f"{path.as_posix()}"
+            )
+    for path in sorted(authorized_absent, key=Path.as_posix):
+        absolute = checkout_root / path
+        if absolute.exists() or absolute.is_symlink():
+            raise RuntimeError(
+                "Explicit replacement authenticated signed deletion is still live: "
+                f"{path.as_posix()}"
+            )
+    for path in set(authorized_live) - set(authorized_base):
+        if path in base_tracked:
+            raise RuntimeError(
+                "Explicit replacement authenticated signed live file lacks its "
+                f"tracked base proof: {path.as_posix()}"
+            )
+
+    snapshots: list[dict[str, object]] = []
+    for path, state in sorted(changed.items(), key=lambda item: item[0].as_posix()):
+        absolute = checkout_root / path
+        if path in authorized_absent:
+            if state != "D" or absolute.exists() or absolute.is_symlink():
+                raise RuntimeError(
+                    "Explicit replacement signed pending deletion has an invalid live "
+                    f"state: {path.as_posix()}"
+                )
+            snapshots.append(
+                {"path": path.as_posix(), "git_state": state, "deleted": True}
+            )
+            continue
+        if state == "D":
+            raise RuntimeError(
+                "Explicit replacement signed pending live file was deleted: "
+                f"{path.as_posix()}"
+            )
+        raw = read_bounded_regular_file(
+            checkout_root,
+            absolute,
+            label="authenticated legacy pending live file",
+            max_bytes=_AUTHENTICATED_PENDING_STATE_MAX_FILE_BYTES,
+            required_mode=0o644,
+        )
+        snapshots.append(
+            {
+                "path": path.as_posix(),
+                "git_state": state,
+                "sha256": hashlib.sha256(raw).hexdigest(),
+                "size": len(raw),
+            }
+        )
+
+    if _authenticated_pending_git_changes(checkout_root) != changed:
+        raise RuntimeError(
+            "Explicit replacement authenticated pending Git state changed during census"
+        )
+    final_head, final_tree = _rulespec_git_head_tree_identity(checkout_root)
+    final_pending = _legacy_replacement_pending_paths(
+        checkout_root,
+        local_corpus_release=local_corpus_release,
+    )
+    if (final_head, final_tree) != (
+        locked_head,
+        locked_tree,
+    ) or final_pending != pending_raw:
+        raise RuntimeError(
+            "Explicit replacement authenticated pending state changed during census"
+        )
+    fingerprint = {
+        "schema": "axiom-encode/authenticated-legacy-pending-state/v1",
+        "base_commit": locked_head,
+        "base_tree": locked_tree,
+        "owner_manifest": owner_manifest.as_posix(),
+        "owner_manifest_sha256": owner_manifest_sha256,
+        "receipt_path": receipt_path.as_posix(),
+        "receipt_sha256": receipt_sha256,
+        "base_files": [
+            {"path": path.as_posix(), "sha256": digest}
+            for path, digest in sorted(
+                authorized_base.items(), key=lambda item: item[0].as_posix()
+            )
+        ],
+        "pending_paths": sorted(pending_raw),
+        "changes": snapshots,
+    }
+    canonical = json.dumps(
+        fingerprint,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    guard_files = tuple(
+        sorted(
+            (
+                *((path, digest) for path, digest in authorized_live.items()),
+                *((path, None) for path in authorized_absent),
+            ),
+            key=lambda item: item[0].as_posix(),
+        )
+    )
+    return _AuthenticatedLegacyPendingState(
+        sha256=hashlib.sha256(canonical).hexdigest(),
+        owner_manifest=owner_manifest,
+        owner_manifest_sha256=owner_manifest_sha256,
+        receipt_path=receipt_path,
+        receipt_sha256=receipt_sha256,
+        guard_files=guard_files,
+    )
+
+
 def _require_locked_legacy_replacement_base(
     checkout_root: Path,
     contract: _LegacyReplacementContract,
@@ -28261,11 +29642,55 @@ def _require_creation_target_base(
 def _require_existing_target_identity(
     checkout_root: Path,
     contract: _EncodeExistingTargetContract,
+    *,
+    local_corpus_release: LocalCorpusRelease | None = None,
 ) -> None:
-    """Reprove one ordinary replacement group at its immutable clean base."""
+    """Reprove one ordinary replacement group at its immutable admitted base."""
 
+    pending_bound = contract.authenticated_pending_state_sha256 is not None
+    pending_owner_fields = (
+        contract.authenticated_pending_owner_manifest,
+        contract.authenticated_pending_owner_manifest_sha256,
+        contract.authenticated_pending_receipt_path,
+        contract.authenticated_pending_receipt_sha256,
+    )
+    pending_guard_paths = [
+        path for path, _digest in contract.authenticated_pending_guard_files
+    ]
+    pending_contract_malformed = (
+        (pending_bound and any(value is None for value in pending_owner_fields))
+        or (
+            not pending_bound
+            and any(value is not None for value in pending_owner_fields)
+        )
+        or (pending_bound and not contract.authenticated_pending_guard_files)
+        or (not pending_bound and bool(contract.authenticated_pending_guard_files))
+        or len(set(pending_guard_paths)) != len(pending_guard_paths)
+        or any(
+            path.is_absolute()
+            or any(part in {"", ".", ".."} for part in path.parts)
+            or (digest is not None and re.fullmatch(r"[0-9a-f]{64}", digest) is None)
+            for path, digest in contract.authenticated_pending_guard_files
+        )
+        or (
+            pending_bound
+            and (
+                (
+                    contract.authenticated_pending_owner_manifest,
+                    contract.authenticated_pending_owner_manifest_sha256,
+                )
+                not in contract.authenticated_pending_guard_files
+                or (
+                    contract.authenticated_pending_receipt_path,
+                    contract.authenticated_pending_receipt_sha256,
+                )
+                not in contract.authenticated_pending_guard_files
+            )
+        )
+    )
     if (
-        re.fullmatch(r"[0-9a-f]{40}", contract.base_commit) is None
+        pending_contract_malformed
+        or re.fullmatch(r"[0-9a-f]{40}", contract.base_commit) is None
         or re.fullmatch(r"[0-9a-f]{40}", contract.base_tree) is None
         or re.fullmatch(r"[0-9a-f]{64}", contract.primary_sha256) is None
         or (
@@ -28274,8 +29699,13 @@ def _require_existing_target_identity(
         )
         or (
             contract.canonical_manifest_sha256 is not None
+            and re.fullmatch(r"[0-9a-f]{64}", contract.canonical_manifest_sha256)
+            is None
+        )
+        or (
+            contract.authenticated_pending_state_sha256 is not None
             and re.fullmatch(
-                r"[0-9a-f]{64}", contract.canonical_manifest_sha256
+                r"[0-9a-f]{64}", contract.authenticated_pending_state_sha256
             )
             is None
         )
@@ -28302,19 +29732,52 @@ def _require_existing_target_identity(
     ):
         raise RuntimeError("Explicit replacement target contract is malformed")
 
-    if _rulespec_migration_git_bytes(
-        checkout_root,
-        "status",
-        "--porcelain=v1",
-        "-z",
-        "--untracked-files=all",
-        "--ignored=matching",
-    ):
-        raise RuntimeError(
-            "Explicit replacement requires an exact clean HEAD with no tracked, "
-            "untracked, or ignored checkout files"
+    if contract.authenticated_pending_state_sha256 is None:
+        if _rulespec_migration_git_bytes(
+            checkout_root,
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all",
+            "--ignored=matching",
+        ):
+            raise RuntimeError(
+                "Explicit replacement requires an exact clean HEAD with no tracked, "
+                "untracked, or ignored checkout files"
+            )
+    else:
+        if local_corpus_release is None:
+            raise RuntimeError(
+                "Explicit replacement authenticated pending state requires the "
+                "signed local corpus release"
+            )
+        current_pending_state = _authenticated_legacy_pending_state(
+            checkout_root,
+            contract.primary,
+            local_corpus_release=local_corpus_release,
         )
-    locked_head, locked_tree = _rulespec_migration_base_identity(checkout_root)
+        if (
+            current_pending_state.sha256 != contract.authenticated_pending_state_sha256
+            or current_pending_state.owner_manifest
+            != contract.authenticated_pending_owner_manifest
+            or current_pending_state.owner_manifest_sha256
+            != contract.authenticated_pending_owner_manifest_sha256
+            or current_pending_state.receipt_path
+            != contract.authenticated_pending_receipt_path
+            or current_pending_state.receipt_sha256
+            != contract.authenticated_pending_receipt_sha256
+            or current_pending_state.guard_files
+            != contract.authenticated_pending_guard_files
+        ):
+            raise RuntimeError(
+                "Explicit replacement authenticated legacy pending state changed "
+                "after planning"
+            )
+    locked_head, locked_tree = (
+        _rulespec_migration_base_identity(checkout_root)
+        if contract.authenticated_pending_state_sha256 is None
+        else _rulespec_git_head_tree_identity(checkout_root)
+    )
     if locked_head != contract.base_commit or locked_tree != contract.base_tree:
         raise RuntimeError(
             "Explicit replacement RuleSpec HEAD/tree changed after planning"
@@ -28331,19 +29794,14 @@ def _require_existing_target_identity(
     ) -> None:
         absolute = checkout_root / relative
         if expected_sha256 is None:
-            if (
-                relative in tracked
-                or absolute.exists()
-                or absolute.is_symlink()
-            ):
+            if relative in tracked or absolute.exists() or absolute.is_symlink():
                 raise RuntimeError(
                     f"Explicit replacement {label} appeared after planning"
                 )
             return
         if tracked.get(relative) != "100644":
             raise RuntimeError(
-                f"Explicit replacement {label} is no longer an exact tracked "
-                "0644 file"
+                f"Explicit replacement {label} is no longer an exact tracked 0644 file"
             )
         try:
             raw = read_bounded_regular_file(
@@ -28358,9 +29816,7 @@ def _require_existing_target_identity(
                 f"Explicit replacement {label} cannot be reproved"
             ) from exc
         if hashlib.sha256(raw).hexdigest() != expected_sha256:
-            raise RuntimeError(
-                f"Explicit replacement {label} changed after planning"
-            )
+            raise RuntimeError(f"Explicit replacement {label} changed after planning")
 
     require_group_file(
         contract.primary,
@@ -28463,25 +29919,321 @@ def _require_existing_target_final_ownership(
         )
 
 
+def _require_existing_pending_authority_after_install(
+    checkout_root: Path,
+    contract: _EncodeExistingTargetContract,
+    *,
+    local_corpus_release: LocalCorpusRelease,
+    allowed_apply_transaction_paths: Collection[Path] | None = None,
+) -> None:
+    """Reprove the signed cascade after the selected dependent resolves."""
+
+    if contract.authenticated_pending_state_sha256 is None:
+        return
+    owner_relative = contract.authenticated_pending_owner_manifest
+    owner_sha256 = contract.authenticated_pending_owner_manifest_sha256
+    receipt_relative = contract.authenticated_pending_receipt_path
+    receipt_sha256 = contract.authenticated_pending_receipt_sha256
+    if (
+        owner_relative is None
+        or owner_sha256 is None
+        or receipt_relative is None
+        or receipt_sha256 is None
+    ):
+        raise RuntimeError("Explicit replacement pending authority is malformed")
+    locked_head, locked_tree = _rulespec_git_head_tree_identity(checkout_root)
+    if (locked_head, locked_tree) != (contract.base_commit, contract.base_tree):
+        raise RuntimeError(
+            "Explicit replacement RuleSpec HEAD/tree changed during installation"
+        )
+    try:
+        signing_broker = _applied_encoding_manifest_verifier()
+        owner_raw = read_bounded_regular_file(
+            checkout_root,
+            checkout_root / owner_relative,
+            label="authenticated pending owner after install",
+            max_bytes=4 * 1024 * 1024,
+            required_mode=0o644,
+        )
+        receipt_raw = read_bounded_regular_file(
+            checkout_root,
+            checkout_root / receipt_relative,
+            label="authenticated pending receipt after install",
+            max_bytes=4 * 1024 * 1024,
+            required_mode=0o644,
+        )
+        outer = json.loads(
+            owner_raw.decode("utf-8"),
+            object_pairs_hook=_unique_json_object,
+        )
+        receipt = json.loads(
+            receipt_raw.decode("utf-8"),
+            object_pairs_hook=_unique_json_object,
+        )
+    except (
+        OSError,
+        SigningBrokerError,
+        UnsafeCorpusPathError,
+        UnicodeError,
+        json.JSONDecodeError,
+        RecursionError,
+        ValueError,
+    ) as exc:
+        raise RuntimeError(
+            "Explicit replacement pending authority is unreadable after install"
+        ) from exc
+    if (
+        hashlib.sha256(owner_raw).hexdigest() != owner_sha256
+        or hashlib.sha256(receipt_raw).hexdigest() != receipt_sha256
+        or not isinstance(outer, dict)
+        or not isinstance(receipt, dict)
+    ):
+        raise RuntimeError(
+            "Explicit replacement pending authority changed during installation"
+        )
+    binding = outer.get("replacement")
+    receipt_execution = receipt.get("validation_execution")
+    expected_encoder_identity = (
+        receipt_execution.get("axiom_encode")
+        if isinstance(receipt_execution, dict)
+        else None
+    )
+    expected_waiver_set_sha256 = verify_rulespec_validation_waiver_set(checkout_root)
+    issues = [
+        *(
+            []
+            if outer.get("schema_version") == APPLIED_ENCODING_MANIFEST_SCHEMA
+            else [f"{owner_relative.as_posix()} is not a current-v5 manifest"]
+        ),
+        *_applied_manifest_exact_schema_issues(
+            outer,
+            manifest_label=owner_relative.as_posix(),
+        ),
+        *(
+            _applied_manifest_tool_execution_issues(
+                outer,
+                manifest_label=owner_relative.as_posix(),
+                expected_encoder_identity=expected_encoder_identity,
+            )
+            if isinstance(expected_encoder_identity, dict)
+            else [f"{owner_relative.as_posix()} lacks signed encoder identity"]
+        ),
+        *_legacy_replacement_manifest_issues(
+            outer,
+            repo_path=checkout_root,
+            manifest_label=owner_relative.as_posix(),
+            signing_broker=signing_broker,
+            expected_waiver_set_sha256=expected_waiver_set_sha256,
+            local_corpus_release=local_corpus_release,
+        ),
+    ]
+    if (
+        not isinstance(binding, dict)
+        or binding.get("receipt_path") != receipt_relative.as_posix()
+        or binding.get("receipt_sha256") != receipt_sha256
+    ):
+        issues.append(
+            f"{owner_relative.as_posix()} changed its authenticated receipt binding"
+        )
+    if issues:
+        raise RuntimeError(
+            "Explicit replacement pending authority is invalid after install: "
+            + "; ".join(issues)
+        )
+    receipt_live, receipt_base, receipt_absent = _authenticated_pending_receipt_paths(
+        receipt,
+        checkout_root=checkout_root,
+        signing_broker=signing_broker,
+        outer_manifest=owner_relative,
+        outer_manifest_sha256=owner_sha256,
+        receipt_path=receipt_relative,
+        receipt_sha256=receipt_sha256,
+    )
+    (
+        scheduled_live,
+        scheduled_base,
+        scheduled_absent,
+        pending,
+        scheduled_primaries,
+    ) = _authenticated_scheduled_dependent_state(
+        checkout_root,
+        receipt,
+        outer,
+        signing_broker=signing_broker,
+        local_corpus_release=local_corpus_release,
+    )
+    authorized_live = dict(receipt_live)
+    authorized_base = dict(receipt_base)
+    for path, digest in scheduled_live.items():
+        previous = authorized_live.get(path)
+        if previous is not None and previous != digest:
+            raise RuntimeError(
+                "Explicit replacement post-install live authority conflicts"
+            )
+        authorized_live[path] = digest
+    for path, digest in scheduled_base.items():
+        previous = authorized_base.get(path)
+        if previous is not None and previous != digest:
+            raise RuntimeError(
+                "Explicit replacement post-install base authority conflicts"
+            )
+        authorized_base[path] = digest
+    authorized_absent = receipt_absent | scheduled_absent
+    if authorized_absent & set(authorized_live):
+        raise RuntimeError(
+            "Explicit replacement post-install authority requires a path to be "
+            "both live and absent"
+        )
+    if contract.primary not in scheduled_primaries or contract.primary in pending:
+        raise RuntimeError(
+            "Explicit replacement selected dependent did not resolve under its "
+            "authenticated cascade"
+        )
+    pending_census = _legacy_replacement_pending_paths(
+        checkout_root,
+        local_corpus_release=local_corpus_release,
+    )
+    invalid = [item for item in pending_census if item.startswith("invalid:")]
+    if invalid:
+        raise RuntimeError(
+            "Explicit replacement left invalid signed cascade state: "
+            + ", ".join(invalid)
+        )
+    for path, expected_sha256 in authorized_live.items():
+        try:
+            raw = read_bounded_regular_file(
+                checkout_root,
+                checkout_root / path,
+                label="authenticated post-install signed live file",
+                max_bytes=_AUTHENTICATED_PENDING_STATE_MAX_FILE_BYTES,
+                required_mode=0o644,
+            )
+        except (OSError, UnsafeCorpusPathError) as exc:
+            raise RuntimeError(
+                "Explicit replacement post-install signed live file is unreadable: "
+                f"{path.as_posix()}"
+            ) from exc
+        if hashlib.sha256(raw).hexdigest() != expected_sha256:
+            raise RuntimeError(
+                "Explicit replacement post-install signed live hash is stale: "
+                f"{path.as_posix()}"
+            )
+    for path, expected_sha256 in authorized_base.items():
+        try:
+            base_raw = _rulespec_migration_base_blob(
+                checkout_root,
+                contract.base_commit,
+                path,
+            )
+        except RuntimeError as exc:
+            raise RuntimeError(
+                "Explicit replacement post-install signed base file is absent: "
+                f"{path.as_posix()}"
+            ) from exc
+        if hashlib.sha256(base_raw).hexdigest() != expected_sha256:
+            raise RuntimeError(
+                "Explicit replacement post-install signed base hash is stale: "
+                f"{path.as_posix()}"
+            )
+    for path in authorized_absent:
+        absolute = checkout_root / path
+        if absolute.exists() or absolute.is_symlink():
+            raise RuntimeError(
+                "Explicit replacement post-install signed absence is occupied: "
+                f"{path.as_posix()}"
+            )
+    selected_transition_paths = {
+        contract.primary,
+        contract.companion,
+        contract.canonical_manifest,
+    }
+    for path, expected_sha256 in contract.authenticated_pending_guard_files:
+        if path in selected_transition_paths:
+            continue
+        absolute = checkout_root / path
+        snapshot = _apply_transaction_file_snapshot(absolute)
+        actual_sha256 = snapshot[1] if snapshot is not None else None
+        actual_mode = snapshot[2] if snapshot is not None else None
+        if actual_sha256 != expected_sha256 or (
+            expected_sha256 is not None and actual_mode != 0o644
+        ):
+            raise RuntimeError(
+                "Explicit replacement non-target cascade state changed during "
+                f"installation: {path.as_posix()}"
+            )
+    if allowed_apply_transaction_paths is None:
+        return
+    expected_changes = _authenticated_pending_expected_git_changes(
+        checkout_root,
+        live=authorized_live,
+        base=authorized_base,
+    )
+    final_changes = _authenticated_pending_git_changes(
+        checkout_root,
+        allowed_apply_transaction_paths=allowed_apply_transaction_paths,
+    )
+    if final_changes != expected_changes:
+        expected_rendered = ", ".join(
+            f"{state}:{path.as_posix()}"
+            for path, state in sorted(
+                expected_changes.items(), key=lambda item: item[0].as_posix()
+            )
+        )
+        actual_rendered = ", ".join(
+            f"{state}:{path.as_posix()}"
+            for path, state in sorted(
+                final_changes.items(), key=lambda item: item[0].as_posix()
+            )
+        )
+        raise RuntimeError(
+            "Explicit replacement post-install Git census does not exactly match "
+            "its signed base/live transition "
+            f"(expected [{expected_rendered}], found [{actual_rendered}])"
+        )
+    terminal_head, terminal_tree = _rulespec_git_head_tree_identity(checkout_root)
+    if (terminal_head, terminal_tree) != (contract.base_commit, contract.base_tree):
+        raise RuntimeError(
+            "Explicit replacement RuleSpec HEAD/tree changed during terminal census"
+        )
+
+
 def _capture_existing_target_contract(
     checkout_root: Path,
     primary: Path,
+    *,
+    local_corpus_release: LocalCorpusRelease | None = None,
 ) -> _EncodeExistingTargetContract:
     """Capture and immediately reprove an ordinary replacement base group."""
 
-    if _rulespec_migration_git_bytes(
-        checkout_root,
-        "status",
-        "--porcelain=v1",
-        "-z",
-        "--untracked-files=all",
-        "--ignored=matching",
-    ):
-        raise RuntimeError(
-            "Explicit replacement requires an exact clean HEAD with no tracked, "
-            "untracked, or ignored checkout files"
+    dirty = bool(
+        _rulespec_migration_git_bytes(
+            checkout_root,
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all",
+            "--ignored=matching",
         )
-    base_commit, base_tree = _rulespec_migration_base_identity(checkout_root)
+    )
+    if dirty and local_corpus_release is None:
+        raise RuntimeError(
+            "Explicit replacement authenticated pending state requires the signed "
+            "local corpus release"
+        )
+    authenticated_pending_state = (
+        _authenticated_legacy_pending_state(
+            checkout_root,
+            primary,
+            local_corpus_release=local_corpus_release,
+        )
+        if dirty and local_corpus_release is not None
+        else None
+    )
+    base_commit, base_tree = (
+        _rulespec_migration_base_identity(checkout_root)
+        if authenticated_pending_state is None
+        else _rulespec_git_head_tree_identity(checkout_root)
+    )
     tracked = _rulespec_migration_tracked_files(checkout_root)
     companion = companion_path(primary)
     canonical_manifest = _applied_encoding_manifest_path(primary)
@@ -28571,8 +30323,42 @@ def _capture_existing_target_contract(
         canonical_manifest_sha256=canonical_manifest_sha256,
         orphan_manifest=orphan_manifest,
         base_manifest_claimants=claimants,
+        authenticated_pending_state_sha256=(
+            authenticated_pending_state.sha256
+            if authenticated_pending_state is not None
+            else None
+        ),
+        authenticated_pending_owner_manifest=(
+            authenticated_pending_state.owner_manifest
+            if authenticated_pending_state is not None
+            else None
+        ),
+        authenticated_pending_owner_manifest_sha256=(
+            authenticated_pending_state.owner_manifest_sha256
+            if authenticated_pending_state is not None
+            else None
+        ),
+        authenticated_pending_receipt_path=(
+            authenticated_pending_state.receipt_path
+            if authenticated_pending_state is not None
+            else None
+        ),
+        authenticated_pending_receipt_sha256=(
+            authenticated_pending_state.receipt_sha256
+            if authenticated_pending_state is not None
+            else None
+        ),
+        authenticated_pending_guard_files=(
+            authenticated_pending_state.guard_files
+            if authenticated_pending_state is not None
+            else ()
+        ),
     )
-    _require_existing_target_identity(checkout_root, contract)
+    _require_existing_target_identity(
+        checkout_root,
+        contract,
+        local_corpus_release=local_corpus_release,
+    )
     return contract
 
 
@@ -31120,6 +32906,7 @@ def _resolve_encode_replacement_target(
         existing_contract = _capture_existing_target_contract(
             policy_checkout_path,
             checkout_relative,
+            local_corpus_release=corpus_release,
         )
     except RuntimeError as exc:
         raise ValueError(str(exc)) from exc
@@ -55103,8 +56890,14 @@ def _remove_planned_apply_transaction_directories(
         try:
             directory.rmdir()
         except OSError as exc:
+            if exc.errno in {errno.ENOTEMPTY, errno.EEXIST}:
+                # A concurrent actor may create an unrelated file after this
+                # transaction created the directory. Preserve that external
+                # state while still completing rollback of transaction-owned
+                # files and removal of the durable journal.
+                continue
             raise RuntimeError(
-                f"Cannot clean non-empty apply transaction directory: {directory}"
+                f"Cannot clean apply transaction directory: {directory}"
             ) from exc
         _fsync_directory(directory.parent)
 
@@ -55534,6 +57327,7 @@ def _install_apply_transaction(
     expected_originals: Mapping[Path, str | None] | None = None,
     pre_install_check: Callable[[], None] | None = None,
     post_install_check: Callable[[], None] | None = None,
+    final_install_check: Callable[[frozenset[Path]], None] | None = None,
     authorized_pre_monorepo_manifest_deletions: Collection[Path] = (),
 ) -> None:
     """Durably install a byte-exact set with killed-process recovery."""
@@ -55558,6 +57352,13 @@ def _install_apply_transaction(
         Path(os.path.abspath(Path(target).expanduser())): digest
         for target, digest in (expected_originals or {}).items()
     }
+    if len(normalized_expected) > _AUTHENTICATED_PENDING_STATE_MAX_PATHS:
+        raise RuntimeError("RuleSpec apply transaction has too many original guards")
+    if any(
+        digest is not None and _SHA256_HEX_PATTERN.fullmatch(digest) is None
+        for digest in normalized_expected.values()
+    ):
+        raise RuntimeError("RuleSpec apply transaction has a malformed original guard")
     authorized_orphan_deletions = frozenset(
         Path(_apply_transaction_relative_path(checkout_root, Path(target)))
         for target in authorized_pre_monorepo_manifest_deletions
@@ -55570,11 +57371,28 @@ def _install_apply_transaction(
         )
         for target, _raw in normalized_files
     }
+    mutation_targets = set(relative_targets)
+    guarded_originals = {
+        target: digest
+        for target, digest in normalized_expected.items()
+        if target not in mutation_targets
+    }
+    guarded_modes: dict[Path, int | None] = {}
 
     with _exclusive_apply_transaction_lock(checkout_root):
         _recover_apply_transaction_locked(checkout_root)
         if pre_install_check is not None:
             pre_install_check()
+        for target, expected_digest in guarded_originals.items():
+            _apply_transaction_relative_path(checkout_root, target)
+            _ensure_safe_apply_target(checkout_root, target)
+            snapshot = _apply_transaction_file_snapshot(target)
+            actual_digest = snapshot[1] if snapshot is not None else None
+            if actual_digest != expected_digest:
+                raise RuntimeError(
+                    f"Apply authority guard changed after validation: {target}"
+                )
+            guarded_modes[target] = snapshot[2] if snapshot is not None else None
 
         created_directories = _planned_apply_transaction_directories(
             checkout_root,
@@ -55733,6 +57551,28 @@ def _install_apply_transaction(
                     raise RuntimeError(
                         f"Apply transaction final state changed before commit: {target}"
                     )
+            for target, expected_digest in guarded_originals.items():
+                _ensure_safe_apply_target(checkout_root, target)
+                snapshot = _apply_transaction_file_snapshot(target)
+                expected_mode = guarded_modes[target]
+                if not _apply_transaction_snapshot_matches(
+                    snapshot,
+                    digest=expected_digest,
+                    mode=expected_mode if expected_mode is not None else 0o644,
+                ):
+                    raise RuntimeError(
+                        f"Apply authority guard changed before commit: {target}"
+                    )
+            if final_install_check is not None:
+                transaction_census_paths = {
+                    _APPLY_TRANSACTION_DIRECTORY / "journal.json",
+                    *(
+                        _APPLY_TRANSACTION_DIRECTORY / "backups" / str(backup)
+                        for entry in entries
+                        if (backup := entry.get("backup")) is not None
+                    ),
+                }
+                final_install_check(frozenset(transaction_census_paths))
             journal["state"] = "committed"
             _write_apply_transaction_journal(transaction_dir, journal)
             _remove_apply_transaction_directory(transaction_dir)
@@ -55806,6 +57646,12 @@ def _require_apply_post_install_closure(
 
     content_root = _rulespec_apply_content_root(policy_repo_path, relative_output)
     final_release = load_rulespec_local_corpus_release(content_root, corpus_path)
+    if existing is not None:
+        _require_existing_pending_authority_after_install(
+            _rulespec_checkout_root(content_root),
+            existing,
+            local_corpus_release=final_release,
+        )
     artifact_snapshot = _build_apply_validation_snapshot(
         result,
         output_root=output_root,
@@ -56095,6 +57941,10 @@ def _apply_generated_encoding_result(
     axiom_encode_git = _require_clean_axiom_encode_git_provenance()
     backend = str(getattr(result, "backend", "") or "").strip().lower()
     supplemental_files = dict(supplemental_files or {})
+    local_corpus_release = load_rulespec_local_corpus_release(
+        content_root,
+        corpus_path,
+    )
     legacy_replacement = _result_legacy_replacement_contract(result)
     if legacy_replacement is not None and not isinstance(
         legacy_replacement,
@@ -56130,7 +57980,11 @@ def _apply_generated_encoding_result(
                 "Explicit replacement target differs from its authenticated path: "
                 f"{relative_output}"
             )
-        _require_existing_target_identity(checkout_root, existing)
+        _require_existing_target_identity(
+            checkout_root,
+            existing,
+            local_corpus_release=local_corpus_release,
+        )
 
     supplemental_source_issues = _supplemental_source_attestation_issues(
         supplemental_files,
@@ -56162,10 +58016,6 @@ def _apply_generated_encoding_result(
     if companion_issue is not None:
         raise RuntimeError(companion_issue)
 
-    local_corpus_release = load_rulespec_local_corpus_release(
-        content_root,
-        corpus_path,
-    )
     _require_unchanged_successful_apply_validation(
         result,
         output_root=output_root,
@@ -56375,6 +58225,18 @@ def _apply_generated_encoding_result(
             )
         assert receipt_relative is not None
         expected_originals[checkout_root / receipt_relative] = None
+    if existing is not None:
+        for relative, digest in existing.authenticated_pending_guard_files:
+            guarded_path = checkout_root / relative
+            if (
+                guarded_path in expected_originals
+                and expected_originals[guarded_path] != digest
+            ):
+                raise RuntimeError(
+                    "Explicit replacement authority guard conflicts with the "
+                    f"planned target state: {relative.as_posix()}"
+                )
+            expected_originals[guarded_path] = digest
     new_manifest_applied_files = {
         (Path(content_root.name) / relative_path).as_posix()
         for relative_path in planned
@@ -56383,6 +58245,10 @@ def _apply_generated_encoding_result(
     def pre_install_check() -> None:
         # The transaction lock is now held. Recheck the live destination so a
         # concurrent manifest expansion after staging cannot be overwritten.
+        locked_release = load_rulespec_local_corpus_release(
+            content_root,
+            corpus_path,
+        )
         if legacy_replacement is not None:
             _require_locked_legacy_replacement_base(
                 checkout_root,
@@ -56391,17 +58257,17 @@ def _apply_generated_encoding_result(
         if creation is not None:
             _require_creation_target_base(checkout_root, creation)
         if existing is not None:
-            _require_existing_target_identity(checkout_root, existing)
+            _require_existing_target_identity(
+                checkout_root,
+                existing,
+                local_corpus_release=locked_release,
+            )
         if legacy_replacement is None:
             _require_applied_manifest_not_shrunk(
                 manifest_path,
                 new_applied_files=new_manifest_applied_files,
                 allow_shrink=allow_shrink,
             )
-        locked_release = load_rulespec_local_corpus_release(
-            content_root,
-            corpus_path,
-        )
         _require_staged_manifest_matches_validation_snapshot(
             result,
             model_manifest_bytes,
@@ -56446,12 +58312,29 @@ def _apply_generated_encoding_result(
             existing=existing,
         )
 
+    def final_install_check(
+        allowed_apply_transaction_paths: frozenset[Path],
+    ) -> None:
+        if existing is None or existing.authenticated_pending_state_sha256 is None:
+            return
+        final_release = load_rulespec_local_corpus_release(
+            content_root,
+            corpus_path,
+        )
+        _require_existing_pending_authority_after_install(
+            checkout_root,
+            existing,
+            local_corpus_release=final_release,
+            allowed_apply_transaction_paths=allowed_apply_transaction_paths,
+        )
+
     _install_apply_transaction(
         transaction_files,
         checkout_root=checkout_root,
         expected_originals=expected_originals,
         pre_install_check=pre_install_check,
         post_install_check=post_install_check,
+        final_install_check=final_install_check,
         authorized_pre_monorepo_manifest_deletions=(
             authorized_pre_monorepo_manifest_deletions
         ),
@@ -57213,6 +59096,7 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
             _require_existing_target_identity(
                 _rulespec_checkout_root(policy_content_root),
                 existing,
+                local_corpus_release=local_corpus_release,
             )
         except (RuntimeError, ValueError) as exc:
             return False, [str(exc)], {}

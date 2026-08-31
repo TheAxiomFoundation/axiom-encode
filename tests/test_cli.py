@@ -63,9 +63,11 @@ from axiom_encode.cli import (
     _apply_encoder_execution_identity,
     _apply_generated_encoding_result,
     _apply_legacy_exact_dependent_proof_excerpt_reanchors,
+    _authenticated_pending_git_changes,
     _build_eval_suite_payload,
     _build_eval_suite_report,
     _canonical_rulespec_compile_path,
+    _capture_existing_target_contract,
     _changed_manifest_group_files,
     _closest_exact_source_excerpt,
     _collapse_additive_versioned_derived_formulas,
@@ -189,6 +191,7 @@ from axiom_encode.cli import (
     _require_clean_axiom_encode_git_provenance,
     _require_creation_target_base,
     _require_creation_target_final_ownership,
+    _require_existing_pending_authority_after_install,
     _require_existing_target_final_ownership,
     _require_existing_target_identity,
     _required_deferred_output_contract_issues,
@@ -13473,9 +13476,26 @@ class TestCmdEncode:
             companion.write_text(
                 f"- name: companion reference\n  source: {old_reference}\n"
             )
+        second_relative = Path("us/policies/income_tax/dependent_two.yaml")
+        second_target = args.policy_repo_path / second_relative
+        second_target.write_text(
+            "format: rulespec/v1\n"
+            "module:\n"
+            "  source_verification:\n"
+            "    corpus_citation_path: us/statute/26/1/j/2\n"
+            "imports:\n"
+            f"  - {old_reference}\n"
+            "rules: []\n"
+        )
         old_source = args.policy_repo_path / "us/statutes/47:32.yaml"
         old_source.parent.mkdir(parents=True)
-        old_source.write_text("format: rulespec/v1\nrules: []\n")
+        old_source.write_text(
+            "format: rulespec/v1\n"
+            "module:\n"
+            "  source_verification:\n"
+            "    corpus_citation_path: us/statute/26/1/j/2\n"
+            "rules: []\n"
+        )
         old_source_sha256 = hashlib.sha256(old_source.read_bytes()).hexdigest()
         old_manifest = (
             args.policy_repo_path / ".axiom/encoding-manifests/us/statutes/47:32.json"
@@ -13504,10 +13524,8 @@ class TestCmdEncode:
             )
             + "\n"
         )
-        old_manifest_sha256 = hashlib.sha256(old_manifest.read_bytes()).hexdigest()
         evidence_path = companion if reference_in_companion else target
         evidence_relative = evidence_path.relative_to(args.policy_repo_path)
-        before = hashlib.sha256(evidence_path.read_bytes()).hexdigest()
         _git(args.policy_repo_path, "init", "-b", "main")
         _git(args.policy_repo_path, "config", "user.email", "test@example.com")
         _git(args.policy_repo_path, "config", "user.name", "Test User")
@@ -13523,114 +13541,107 @@ class TestCmdEncode:
             "rev-parse",
             "HEAD^{tree}",
         ).stdout.strip()
-        old_source.unlink()
-        old_manifest.unlink()
-        encoder_execution_identity = {
-            **TEST_PINNED_ENCODER_IDENTITY,
-            "identity_source": "git",
-        }
-        encoder_git = {
-            "root": "/repo/axiom-encode",
-            "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
-            "dirty_tracked": False,
-            "version": AXIOM_ENCODE_TEST_VERSION,
-            "version_commit": "b" * 40,
-            "identity_source": "git",
-        }
-        replacements = [{"from": old_reference, "to": new_reference, "count": 1}]
-        receipt_relative = Path(".axiom/legacy-replacements") / f"{'a' * 64}.json"
-        receipt_path = args.policy_repo_path / receipt_relative
-        receipt_path.parent.mkdir(parents=True)
-        receipt = {
-            "schema_version": ("axiom-encode/legacy-fresh-reencode-receipt/v1"),
-            "generated_at": "2026-07-28T00:00:00+00:00",
-            "tool": ("axiom-encode encode --apply --replace-legacy-rulespec-path"),
-            "repository": {
-                "base_commit": base_commit,
-                "head_commit": base_commit,
-                "base_tree": base_tree,
-            },
-            "axiom_encode_version": AXIOM_ENCODE_TEST_VERSION,
-            "axiom_encode_git": encoder_git,
-            "validation_waiver_set_sha256": TEST_VALIDATION_WAIVER_SHA256,
-            "corpus_release": {},
-            "validation_execution": {
-                "axiom_encode": encoder_execution_identity,
-            },
-            "legacy": {
-                "owner_class": "v1-manual-hmac-untrusted",
-                "trusted_generated_provenance": False,
-                "manifest": {
-                    "path": ".axiom/encoding-manifests/us/statutes/47:32.json",
-                    "sha256": old_manifest_sha256,
+        from axiom_encode.cli import _resolve_legacy_replacement_contract
+
+        source_unit = resolve_corpus_source_unit(
+            "us/statute/26/1/j/2",
+            args.corpus_release,
+        )
+        legacy_contract = _resolve_legacy_replacement_contract(
+            source_raw=Path("us/statutes/47:32.yaml"),
+            destination_raw=Path("us/statutes/47/32.yaml"),
+            policy_checkout_path=args.policy_repo_path,
+            policy_repo_path=args.policy_repo_path / "us",
+            source_unit=source_unit,
+            corpus_release=args.corpus_release,
+            scheduled_dependent_paths=(dependent_relative, second_relative),
+        )
+        assert (legacy_contract.base_commit, legacy_contract.base_tree) == (
+            base_commit,
+            base_tree,
+        )
+        legacy_generated = args.output / "codex-test-model" / "statutes/47/32.yaml"
+        legacy_generated.parent.mkdir(parents=True)
+        legacy_generated.write_text(
+            "format: rulespec/v1\n"
+            "module:\n"
+            "  source_verification:\n"
+            "    corpus_citation_path: us/statute/26/1/j/2\n"
+            "rules: []\n"
+        )
+        legacy_result = self._make_eval_result(True)
+        legacy_result.output_file = str(legacy_generated)
+        legacy_result.generation_prompt_sha256 = "legacy-source-prompt-sha"
+        legacy_result._axiom_legacy_replacement_contract = legacy_contract
+        legacy_result.trace_file = str(tmp_path / "legacy-source-trace.json")
+        Path(legacy_result.trace_file).write_text("{}\n")
+        legacy_result.source_attestation = dict(source_unit.source_attestation)
+        legacy_source_text = tmp_path / "legacy-source.txt"
+        legacy_source_text.write_text(source_unit.body)
+        legacy_context = tmp_path / "legacy-source-context.json"
+        legacy_context.write_text(
+            json.dumps({"source_text_file": legacy_source_text.name}) + "\n"
+        )
+        legacy_result.context_manifest_file = str(legacy_context)
+        legacy_result.context_manifest_sha256 = hashlib.sha256(
+            legacy_context.read_bytes()
+        ).hexdigest()
+        legacy_result.source_attestation["generation_input_sha256"] = hashlib.sha256(
+            source_unit.body.encode()
+        ).hexdigest()
+        self._record_apply_validation(
+            legacy_result,
+            output_root=args.output,
+            policy_repo_path=args.policy_repo_path / "us",
+            corpus_path=args.corpus_path,
+        )
+        with (
+            patch(
+                "axiom_encode.cli._git_repo_provenance",
+                return_value={
+                    "root": "/repo/axiom-encode",
+                    "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
+                    "dirty_tracked": False,
                 },
-                "files": [
-                    {
-                        "path": "us/statutes/47:32.yaml",
-                        "sha256": old_source_sha256,
-                    }
-                ],
-            },
-            "replacement": {
-                "source": "us/statutes/47:32.yaml",
-                "destination": "us/statutes/47/32.yaml",
-                "model_manifest_path": (
-                    ".axiom/encoding-manifests/us/statutes/47/32.json"
-                ),
-                "model_manifest_sha256": hashlib.sha256(
-                    (
-                        json.dumps(
-                            {"applied_files": []},
-                            indent=2,
-                            sort_keys=True,
-                        )
-                        + "\n"
-                    ).encode()
-                ).hexdigest(),
-                "live_files": [],
-                "rewrites": [],
-                "scheduled_dependents": [
-                    {
-                        "primary": dependent_relative.as_posix(),
-                        "files": [
-                            {
-                                "path": evidence_relative.as_posix(),
-                                "before_sha256": before,
-                                "replacements": replacements,
-                            }
-                        ],
-                    }
-                ],
-            },
-            "replacement_manifest": {"applied_files": []},
-        }
-        _sign_applied_encoding_manifest(receipt, TEST_APPLY_SIGNING_BROKER)
-        receipt_path.write_text(json.dumps(receipt) + "\n")
-        outer = {
-            "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
-            "generated_at": "2026-07-28T00:00:00+00:00",
-            "tool": ("axiom-encode encode --apply --replace-legacy-rulespec-path"),
-            "axiom_encode_version": AXIOM_ENCODE_TEST_VERSION,
-            "axiom_encode_git": encoder_git,
-            "validation_waiver_set_sha256": TEST_VALIDATION_WAIVER_SHA256,
-            "applied_files": [],
-            "replacement_manifest": {"applied_files": []},
-            "replacement": {
-                "receipt_path": receipt_relative.as_posix(),
-                "receipt_sha256": hashlib.sha256(receipt_path.read_bytes()).hexdigest(),
-                "legacy_manifest_path": (
-                    ".axiom/encoding-manifests/us/statutes/47:32.json"
-                ),
-                "legacy_manifest_sha256": old_manifest_sha256,
-            },
-            "source_attestation": {},
-        }
-        _sign_applied_encoding_manifest(outer, TEST_APPLY_SIGNING_BROKER)
+            ),
+            patch(
+                "axiom_encode.cli._require_axiom_encode_version_provenance",
+                return_value={
+                    "version": AXIOM_ENCODE_TEST_VERSION,
+                    "version_commit": "f" * 40,
+                    "identity_source": "git",
+                },
+            ),
+        ):
+            _apply_generated_encoding_result(
+                legacy_result,
+                output_root=args.output,
+                policy_repo_path=args.policy_repo_path / "us",
+                corpus_path=args.corpus_path,
+                run_id="signed-pending-cascade",
+                signing_broker=TEST_APPLY_SIGNING_BROKER,
+            )
+
         outer_path = (
             args.policy_repo_path / ".axiom/encoding-manifests/us/statutes/47/32.json"
         )
-        outer_path.parent.mkdir(parents=True)
-        outer_path.write_text(json.dumps(outer) + "\n")
+        outer = json.loads(outer_path.read_text())
+        receipt_relative = Path(outer["replacement"]["receipt_path"])
+        receipt_path = args.policy_repo_path / receipt_relative
+        assert not old_source.exists()
+        assert not old_manifest.exists()
+        verified, _root, _digest, provenance_issues = (
+            _load_verified_applied_encoding_manifest_payload(
+                args.policy_repo_path,
+                outer_path.relative_to(args.policy_repo_path).as_posix(),
+                signing_broker=TEST_APPLY_SIGNING_BROKER,
+                expected_waiver_set_sha256=TEST_VALIDATION_WAIVER_SHA256,
+                expected_encoder_identity=TEST_PINNED_ENCODER_IDENTITY,
+                local_corpus_release=args.corpus_release,
+            )
+        )
+        assert provenance_issues == []
+        assert verified == outer
 
         generated = (
             args.output / "codex-test-model" / "policies/income_tax/dependent.yaml"
@@ -13691,9 +13702,185 @@ class TestCmdEncode:
             "axiom_encode.cli._applied_encoding_manifest_verifier",
             return_value=TEST_APPLY_SIGNING_BROKER,
         ):
-            assert _legacy_replacement_pending_paths(args.policy_repo_path) == [
-                evidence_relative.as_posix()
+            assert _legacy_replacement_pending_paths(
+                args.policy_repo_path,
+                local_corpus_release=args.corpus_release,
+            ) == [
+                evidence_relative.as_posix(),
+                second_relative.as_posix(),
             ]
+
+        with patch(
+            "axiom_encode.cli._applied_encoding_manifest_verifier",
+            return_value=TEST_APPLY_SIGNING_BROKER,
+        ):
+            pending_contract = _capture_existing_target_contract(
+                args.policy_repo_path,
+                dependent_relative,
+                local_corpus_release=args.corpus_release,
+            )
+            assert pending_contract.authenticated_pending_state_sha256 is not None
+            assert pending_contract.authenticated_pending_owner_manifest == (
+                outer_path.relative_to(args.policy_repo_path)
+            )
+            assert pending_contract.authenticated_pending_owner_manifest_sha256 == (
+                hashlib.sha256(outer_path.read_bytes()).hexdigest()
+            )
+            assert pending_contract.authenticated_pending_receipt_path == (
+                receipt_relative
+            )
+            assert pending_contract.authenticated_pending_receipt_sha256 == (
+                hashlib.sha256(receipt_path.read_bytes()).hexdigest()
+            )
+            assert (
+                _applied_encoding_manifest_path(second_relative),
+                None,
+            ) in pending_contract.authenticated_pending_guard_files
+
+            original_outer = outer_path.read_bytes()
+            assert original_outer.startswith(b"{")
+            outer_path.write_bytes(
+                b'{"schema_version":"attacker-duplicate",' + original_outer[1:]
+            )
+            with pytest.raises(RuntimeError, match="valid authenticated"):
+                _require_existing_target_identity(
+                    args.policy_repo_path,
+                    pending_contract,
+                    local_corpus_release=args.corpus_release,
+                )
+            outer_path.write_bytes(original_outer)
+
+            original_receipt = receipt_path.read_bytes()
+            assert original_receipt.startswith(b"{")
+            receipt_path.write_bytes(
+                b'{"schema_version":"attacker-duplicate",' + original_receipt[1:]
+            )
+            with pytest.raises(RuntimeError, match="valid authenticated"):
+                _require_existing_target_identity(
+                    args.policy_repo_path,
+                    pending_contract,
+                    local_corpus_release=args.corpus_release,
+                )
+            receipt_path.write_bytes(original_receipt)
+
+            downgraded_receipt = json.loads(original_receipt)
+            assert downgraded_receipt["schema_version"].endswith("/v7")
+            downgraded_receipt["schema_version"] = (
+                downgraded_receipt["schema_version"].removesuffix("/v7") + "/v6"
+            )
+            _sign_applied_encoding_manifest(
+                downgraded_receipt,
+                TEST_APPLY_SIGNING_BROKER,
+            )
+            receipt_path.write_text(json.dumps(downgraded_receipt) + "\n")
+            downgraded_outer = json.loads(original_outer)
+            downgraded_outer["replacement"]["receipt_sha256"] = hashlib.sha256(
+                receipt_path.read_bytes()
+            ).hexdigest()
+            _sign_applied_encoding_manifest(
+                downgraded_outer,
+                TEST_APPLY_SIGNING_BROKER,
+            )
+            outer_path.write_text(json.dumps(downgraded_outer) + "\n")
+            with pytest.raises(RuntimeError, match="pending receipt is invalid"):
+                _capture_existing_target_contract(
+                    args.policy_repo_path,
+                    dependent_relative,
+                    local_corpus_release=args.corpus_release,
+                )
+            receipt_path.write_bytes(original_receipt)
+            outer_path.write_bytes(original_outer)
+
+            malformed_outer = json.loads(original_outer)
+            malformed_outer["schema_version"] = "not-current-v5"
+            _sign_applied_encoding_manifest(
+                malformed_outer,
+                TEST_APPLY_SIGNING_BROKER,
+            )
+            outer_path.write_text(json.dumps(malformed_outer) + "\n")
+            with pytest.raises(RuntimeError, match="pending manifest is invalid"):
+                _require_existing_target_identity(
+                    args.policy_repo_path,
+                    pending_contract,
+                    local_corpus_release=args.corpus_release,
+                )
+            outer_path.write_bytes(original_outer)
+
+            original_target = target.read_bytes()
+            _git(
+                args.policy_repo_path,
+                "update-index",
+                "--assume-unchanged",
+                dependent_relative.as_posix(),
+            )
+            target.write_bytes(original_target + b"# hidden mutation\n")
+            with pytest.raises(RuntimeError, match="assume-unchanged"):
+                _capture_existing_target_contract(
+                    args.policy_repo_path,
+                    dependent_relative,
+                    local_corpus_release=args.corpus_release,
+                )
+            target.write_bytes(original_target)
+            _git(
+                args.policy_repo_path,
+                "update-index",
+                "--no-assume-unchanged",
+                dependent_relative.as_posix(),
+            )
+
+            unrelated = args.policy_repo_path / "unrelated.txt"
+            unrelated.write_text("not receipt-authorized\n")
+            with pytest.raises(RuntimeError, match="not authorized"):
+                _require_existing_target_identity(
+                    args.policy_repo_path,
+                    pending_contract,
+                    local_corpus_release=args.corpus_release,
+                )
+            unrelated.unlink()
+
+            staged = args.policy_repo_path / "staged.txt"
+            staged.write_text("not receipt-authorized\n")
+            _git(args.policy_repo_path, "add", staged.name)
+            with pytest.raises(RuntimeError, match="staged or index-only"):
+                _require_existing_target_identity(
+                    args.policy_repo_path,
+                    pending_contract,
+                    local_corpus_release=args.corpus_release,
+                )
+            _git(args.policy_repo_path, "rm", "--cached", "-q", staged.name)
+            staged.unlink()
+
+            exclude = args.policy_repo_path / ".git/info/exclude"
+            original_exclude = exclude.read_text()
+            exclude.write_text(original_exclude + "ignored-state.txt\n")
+            ignored = args.policy_repo_path / "ignored-state.txt"
+            ignored.write_text("ignored but not authorized\n")
+            with pytest.raises(RuntimeError, match="ignored checkout files"):
+                _require_existing_target_identity(
+                    args.policy_repo_path,
+                    pending_contract,
+                    local_corpus_release=args.corpus_release,
+                )
+            ignored.unlink()
+            exclude.write_text(original_exclude)
+
+            receipt_path.write_bytes(original_receipt + b" ")
+            with pytest.raises(RuntimeError, match="valid authenticated"):
+                _require_existing_target_identity(
+                    args.policy_repo_path,
+                    pending_contract,
+                    local_corpus_release=args.corpus_release,
+                )
+            receipt_path.write_bytes(original_receipt)
+
+            with pytest.raises(RuntimeError, match="contract is malformed"):
+                _require_existing_target_identity(
+                    args.policy_repo_path,
+                    pending_contract._replace(
+                        authenticated_pending_state_sha256="not-a-digest"
+                    ),
+                    local_corpus_release=args.corpus_release,
+                )
 
         with (
             patch("axiom_encode.cli.run_model_eval", return_value=[result]),
@@ -13737,7 +13924,49 @@ class TestCmdEncode:
             "axiom_encode.cli._applied_encoding_manifest_verifier",
             return_value=TEST_APPLY_SIGNING_BROKER,
         ):
-            assert _legacy_replacement_pending_paths(args.policy_repo_path) == []
+            assert _legacy_replacement_pending_paths(
+                args.policy_repo_path,
+                local_corpus_release=args.corpus_release,
+            ) == [second_relative.as_posix()]
+            second_contract = _capture_existing_target_contract(
+                args.policy_repo_path,
+                second_relative,
+                local_corpus_release=args.corpus_release,
+            )
+            assert second_contract.authenticated_pending_state_sha256 is not None
+            terminal_race = args.policy_repo_path / "terminal-race.txt"
+            original_pending_census = _legacy_replacement_pending_paths
+
+            def inject_after_pending_census(*call_args, **call_kwargs):
+                census = original_pending_census(*call_args, **call_kwargs)
+                terminal_race.write_text("created after provenance scan\n")
+                return census
+
+            with (
+                patch(
+                    "axiom_encode.cli._legacy_replacement_pending_paths",
+                    side_effect=inject_after_pending_census,
+                ),
+                pytest.raises(RuntimeError, match="Git census"),
+            ):
+                _require_existing_pending_authority_after_install(
+                    args.policy_repo_path,
+                    pending_contract,
+                    local_corpus_release=args.corpus_release,
+                    allowed_apply_transaction_paths=frozenset(),
+                )
+            assert terminal_race.read_text() == "created after provenance scan\n"
+            terminal_race.unlink()
+
+            resolved_bytes = target.read_bytes()
+            target.write_bytes(resolved_bytes + b"# post-resolution tamper\n")
+            with pytest.raises(RuntimeError, match="valid authenticated"):
+                _require_existing_target_identity(
+                    args.policy_repo_path,
+                    second_contract,
+                    local_corpus_release=args.corpus_release,
+                )
+            target.write_bytes(resolved_bytes)
         dependent_payload = json.loads(dependent_manifest.read_text())
         historical_commit = "c" * 40
         historical_version = "0.1.0"
@@ -13759,8 +13988,12 @@ class TestCmdEncode:
             "axiom_encode.cli._applied_encoding_manifest_verifier",
             return_value=TEST_APPLY_SIGNING_BROKER,
         ):
-            assert _legacy_replacement_pending_paths(args.policy_repo_path) == [
-                f"invalid:{dependent_relative.as_posix()}"
+            assert _legacy_replacement_pending_paths(
+                args.policy_repo_path,
+                local_corpus_release=args.corpus_release,
+            ) == [
+                f"invalid:{dependent_relative.as_posix()}",
+                second_relative.as_posix(),
             ]
 
     @pytest.mark.parametrize(
@@ -16595,9 +16828,29 @@ rules:
             target.relative_to(checkout).as_posix(),
             target_test.relative_to(checkout).as_posix(),
         }
-        receipt = json.loads(
-            (checkout / outer["replacement"]["receipt_path"]).read_text()
+        receipt_relative = Path(outer["replacement"]["receipt_path"])
+        receipt_path = checkout / receipt_relative
+        receipt = json.loads(receipt_path.read_text())
+        from axiom_encode.cli import _authenticated_pending_receipt_paths
+
+        live_hashes, base_hashes, absent_paths = _authenticated_pending_receipt_paths(
+            receipt,
+            checkout_root=checkout,
+            signing_broker=TEST_APPLY_SIGNING_BROKER,
+            outer_manifest=canonical_manifest.relative_to(checkout),
+            outer_manifest_sha256=_sha256_file(canonical_manifest),
+            receipt_path=receipt_relative,
+            receipt_sha256=_sha256_file(receipt_path),
         )
+        target_relative = target.relative_to(checkout)
+        test_relative = target_test.relative_to(checkout)
+        assert base_hashes[target_relative] == hashlib.sha256(old_target).hexdigest()
+        assert live_hashes[target_relative] == _sha256_file(target)
+        assert base_hashes[target_relative] != live_hashes[target_relative]
+        assert base_hashes[test_relative] == legacy_files[test_relative.as_posix()]
+        assert live_hashes[test_relative] == _sha256_file(target_test)
+        assert target_relative not in absent_paths
+        assert test_relative not in absent_paths
         replacement_execution = receipt["replacement_manifest"]["validation_execution"]
         assert replacement_execution["schema"] == (
             "axiom-encode/apply-validation-execution/v2"
@@ -17414,6 +17667,80 @@ rules:
         outer = json.loads(destination_manifest.read_text())
         receipt_path = checkout / outer["replacement"]["receipt_path"]
         receipt = json.loads(receipt_path.read_text())
+        from axiom_encode.cli import _authenticated_pending_receipt_paths
+
+        live_hashes, base_hashes, absent_paths = _authenticated_pending_receipt_paths(
+            receipt,
+            checkout_root=checkout,
+            signing_broker=TEST_APPLY_SIGNING_BROKER,
+            outer_manifest=destination_manifest.relative_to(checkout),
+            outer_manifest_sha256=_sha256_file(destination_manifest),
+            receipt_path=receipt_path.relative_to(checkout),
+            receipt_sha256=_sha256_file(receipt_path),
+        )
+        exact_wrapper_raw = dependent_manifest.read_bytes()
+        assert exact_wrapper_raw.startswith(b"{")
+        dependent_manifest.write_bytes(
+            b'{"schema_version":"attacker-duplicate",' + exact_wrapper_raw[1:]
+        )
+        with pytest.raises(
+            RuntimeError, match="exact-dependent manifest is unreadable"
+        ):
+            _authenticated_pending_receipt_paths(
+                receipt,
+                checkout_root=checkout,
+                signing_broker=TEST_APPLY_SIGNING_BROKER,
+                outer_manifest=destination_manifest.relative_to(checkout),
+                outer_manifest_sha256=_sha256_file(destination_manifest),
+                receipt_path=receipt_path.relative_to(checkout),
+                receipt_sha256=_sha256_file(receipt_path),
+            )
+        dependent_manifest.write_bytes(exact_wrapper_raw)
+
+        retained_wrapper = retained_manifests[0][1]
+        retained_wrapper_raw = retained_wrapper.read_bytes()
+        assert retained_wrapper_raw.startswith(b"{")
+        retained_wrapper.write_bytes(
+            b'{"schema_version":"attacker-duplicate",' + retained_wrapper_raw[1:]
+        )
+        with pytest.raises(
+            RuntimeError,
+            match="retained-successor manifest is unreadable",
+        ):
+            _authenticated_pending_receipt_paths(
+                receipt,
+                checkout_root=checkout,
+                signing_broker=TEST_APPLY_SIGNING_BROKER,
+                outer_manifest=destination_manifest.relative_to(checkout),
+                outer_manifest_sha256=_sha256_file(destination_manifest),
+                receipt_path=receipt_path.relative_to(checkout),
+                receipt_sha256=_sha256_file(receipt_path),
+            )
+        retained_wrapper.write_bytes(retained_wrapper_raw)
+
+        dependent_path = dependent.relative_to(checkout)
+        dependent_manifest_path = dependent_manifest.relative_to(checkout)
+        assert (
+            base_hashes[dependent_path] == hashlib.sha256(dependent_before).hexdigest()
+        )
+        assert live_hashes[dependent_path] == _sha256_file(dependent)
+        assert (
+            base_hashes[dependent_manifest_path]
+            == hashlib.sha256(dependent_manifest_before).hexdigest()
+        )
+        assert live_hashes[dependent_manifest_path] == _sha256_file(dependent_manifest)
+        retained_manifest_path = retained_manifests[0][1]
+        retained_manifest_relative = retained_manifest_path.relative_to(checkout)
+        assert (
+            base_hashes[retained_manifest_relative]
+            == hashlib.sha256(
+                retained_successor_originals[retained_manifest_path]
+            ).hexdigest()
+        )
+        assert live_hashes[retained_manifest_relative] == _sha256_file(
+            retained_manifest_path
+        )
+        assert source_relative in absent_paths
         assert receipt["schema_version"].endswith("/v7")
         assert len(receipt["replacement"]["retained_successors"]) == 4
         assert {
@@ -18072,6 +18399,210 @@ rules:
 
         assert first.read_bytes() == b"original rule\n"
         assert second.read_bytes() == b"original manifest\n"
+
+    @pytest.mark.parametrize("guard_mutation", ["replace", "delete"])
+    def test_apply_transaction_rolls_back_when_authority_guard_changes(
+        self,
+        tmp_path,
+        guard_mutation,
+    ):
+        checkout = tmp_path / "rulespec-us"
+        target = checkout / "us/statutes/26/1.yaml"
+        manifest = checkout / ".axiom/encoding-manifests/us/statutes/26/1.json"
+        receipt = checkout / ".axiom/legacy-replacements" / ("a" * 64 + ".json")
+        target.parent.mkdir(parents=True)
+        receipt.parent.mkdir(parents=True)
+        target.write_bytes(b"original rule\n")
+        receipt.write_bytes(b"signed receipt\n")
+        receipt_sha256 = hashlib.sha256(receipt.read_bytes()).hexdigest()
+
+        def mutate_guard_after_install():
+            if guard_mutation == "replace":
+                receipt.write_bytes(b"concurrent receipt mutation\n")
+            else:
+                receipt.unlink()
+
+        with pytest.raises(RuntimeError, match="authority guard changed"):
+            _install_apply_transaction(
+                [(target, b"new rule\n"), (manifest, b"new manifest\n")],
+                checkout_root=checkout,
+                expected_originals={
+                    target: hashlib.sha256(b"original rule\n").hexdigest(),
+                    manifest: None,
+                    receipt: receipt_sha256,
+                },
+                post_install_check=mutate_guard_after_install,
+            )
+
+        assert target.read_bytes() == b"original rule\n"
+        assert not manifest.exists()
+        if guard_mutation == "replace":
+            assert receipt.read_bytes() == b"concurrent receipt mutation\n"
+        else:
+            assert not receipt.exists()
+        assert not (checkout / ".axiom/.apply-transaction").exists()
+
+    def test_apply_transaction_rejects_initial_authority_guard_mismatch(self, tmp_path):
+        checkout = tmp_path / "rulespec-us"
+        target = checkout / "us/statutes/26/1.yaml"
+        receipt = checkout / ".axiom/legacy-replacements" / ("a" * 64 + ".json")
+        target.parent.mkdir(parents=True)
+        receipt.parent.mkdir(parents=True)
+        target.write_bytes(b"original rule\n")
+        receipt.write_bytes(b"changed before lock census\n")
+
+        with pytest.raises(RuntimeError, match="authority guard changed"):
+            _install_apply_transaction(
+                [(target, b"new rule\n")],
+                checkout_root=checkout,
+                expected_originals={
+                    target: hashlib.sha256(b"original rule\n").hexdigest(),
+                    receipt: hashlib.sha256(b"expected signed receipt\n").hexdigest(),
+                },
+            )
+
+        assert target.read_bytes() == b"original rule\n"
+        assert receipt.read_bytes() == b"changed before lock census\n"
+        assert not (checkout / ".axiom/.apply-transaction").exists()
+
+    @pytest.mark.parametrize(
+        "concurrent_change",
+        (
+            "pending_manifest",
+            "untracked_manifest",
+            "ignored_manifest",
+            "staged_blob",
+            "index_flag",
+        ),
+    )
+    def test_apply_transaction_final_git_census_rolls_back_concurrent_change(
+        self,
+        tmp_path,
+        concurrent_change,
+    ):
+        checkout = tmp_path / "rulespec-us"
+        target = checkout / "us/statutes/26/1.yaml"
+        remaining = checkout / "us/policies/remaining.yaml"
+        manifest = checkout / ".axiom/encoding-manifests/us/statutes/26/1.json"
+        target.parent.mkdir(parents=True)
+        remaining.parent.mkdir(parents=True)
+        target.write_bytes(b"original rule\n")
+        remaining.write_bytes(b"remaining rule\n")
+        _git(checkout, "init", "-b", "main")
+        _git(checkout, "config", "user.email", "test@example.com")
+        _git(checkout, "config", "user.name", "Test User")
+        _git(checkout, "add", ".")
+        _git(checkout, "commit", "-m", "base")
+        concurrent_path = (
+            checkout / _applied_encoding_manifest_path(remaining.relative_to(checkout))
+            if concurrent_change == "pending_manifest"
+            else checkout / ".axiom/encoding-manifests/us/unrelated.json"
+        )
+        if concurrent_change == "ignored_manifest":
+            exclude = checkout / ".git/info/exclude"
+            exclude.write_text(
+                exclude.read_text() + ".axiom/encoding-manifests/us/unrelated.json\n"
+            )
+
+        def inject_concurrent_change():
+            if concurrent_change in {
+                "pending_manifest",
+                "untracked_manifest",
+                "ignored_manifest",
+            }:
+                concurrent_path.parent.mkdir(parents=True, exist_ok=True)
+                concurrent_path.write_text('{"concurrent":true}\n')
+            elif concurrent_change == "staged_blob":
+                concurrent_path.parent.mkdir(parents=True, exist_ok=True)
+                concurrent_path.write_text('{"concurrent":true}\n')
+                _git(
+                    checkout,
+                    "add",
+                    concurrent_path.relative_to(checkout).as_posix(),
+                )
+            else:
+                _git(
+                    checkout,
+                    "update-index",
+                    "--assume-unchanged",
+                    remaining.relative_to(checkout).as_posix(),
+                )
+
+        def require_exact_final_census(
+            allowed_apply_transaction_paths: frozenset[Path],
+        ):
+            changes = _authenticated_pending_git_changes(
+                checkout,
+                allowed_apply_transaction_paths=allowed_apply_transaction_paths,
+            )
+            expected = {
+                target.relative_to(checkout): "M",
+                manifest.relative_to(checkout): "?",
+            }
+            if changes != expected:
+                raise RuntimeError("concurrent checkout change survived")
+
+        with pytest.raises(
+            RuntimeError,
+            match="apply transaction failed",
+        ) as exc_info:
+            _install_apply_transaction(
+                [(target, b"new rule\n"), (manifest, b"new manifest\n")],
+                checkout_root=checkout,
+                expected_originals={
+                    target: hashlib.sha256(b"original rule\n").hexdigest(),
+                    manifest: None,
+                    **(
+                        {concurrent_path: None}
+                        if concurrent_change == "pending_manifest"
+                        else {}
+                    ),
+                },
+                post_install_check=inject_concurrent_change,
+                final_install_check=require_exact_final_census,
+            )
+
+        assert "durable recovery failed" not in str(exc_info.value)
+        assert target.read_bytes() == b"original rule\n"
+        assert not manifest.exists()
+        if concurrent_change != "index_flag":
+            assert concurrent_path.exists()
+        assert not (checkout / ".axiom/.apply-transaction").exists()
+
+    def test_authenticated_pending_git_census_rejects_midscan_change(self, tmp_path):
+        import axiom_encode.cli as cli_module
+
+        checkout = tmp_path / "rulespec-us"
+        tracked = checkout / "us/statutes/26/1.yaml"
+        tracked.parent.mkdir(parents=True)
+        tracked.write_text("base\n")
+        _git(checkout, "init", "-b", "main")
+        _git(checkout, "config", "user.email", "test@example.com")
+        _git(checkout, "config", "user.name", "Test User")
+        _git(checkout, "add", ".")
+        _git(checkout, "commit", "-m", "base")
+        original_git_bytes = cli_module._rulespec_migration_git_bytes
+        raced = False
+
+        def inject_during_census(repo_path, *args):
+            nonlocal raced
+            result = original_git_bytes(repo_path, *args)
+            if not raced and args[:2] == ("diff", "--cached"):
+                raced = True
+                (checkout / "midscan.txt").write_text("concurrent\n")
+            return result
+
+        with (
+            patch(
+                "axiom_encode.cli._rulespec_migration_git_bytes",
+                side_effect=inject_during_census,
+            ),
+            pytest.raises(RuntimeError, match="changed during its exact census"),
+        ):
+            _authenticated_pending_git_changes(checkout)
+
+        assert raced is True
+        assert (checkout / "midscan.txt").exists()
 
     def test_atomic_replace_persists_each_new_parent_directory(self, tmp_path):
         from axiom_encode.cli import _atomic_replace_bytes
@@ -41346,9 +41877,7 @@ class TestEncodeReplacementTarget:
             {"path": companion.relative_to(checkout).as_posix()},
         ]
         canonical = checkout / _applied_encoding_manifest_path(primary)
-        duplicate = (
-            checkout / ".axiom/encoding-manifests/us-nc/policies/coowner.json"
-        )
+        duplicate = checkout / ".axiom/encoding-manifests/us-nc/policies/coowner.json"
         for manifest in (canonical, duplicate):
             manifest.parent.mkdir(parents=True, exist_ok=True)
             manifest.write_text(json.dumps({"applied_files": applied_files}) + "\n")
@@ -41518,9 +42047,7 @@ class TestEncodeReplacementTarget:
         manifest = checkout / contract.canonical_manifest
         coowner = checkout / ".axiom/encoding-manifests/us-nc/policies/coowner.json"
         owner_bytes = (
-            json.dumps(
-                {"applied_files": [{"path": contract.primary.as_posix()}]}
-            )
+            json.dumps({"applied_files": [{"path": contract.primary.as_posix()}]})
             + "\n"
         ).encode()
 
@@ -41579,10 +42106,7 @@ class TestEncodeReplacementTarget:
         root = checkout / ".axiom/encoding-manifests/us/policies"
         root.mkdir(parents=True)
         raw = b'{"applied_files": []}\n'
-        assert (
-            cli_module._MANIFEST_OWNERSHIP_CENSUS_MAX_TOTAL_BYTES
-            == 64 * 1024 * 1024
-        )
+        assert cli_module._MANIFEST_OWNERSHIP_CENSUS_MAX_TOTAL_BYTES == 64 * 1024 * 1024
         monkeypatch.setattr(
             cli_module,
             "_MANIFEST_OWNERSHIP_CENSUS_MAX_TOTAL_BYTES",
@@ -42544,10 +43068,7 @@ class TestEncodeReplacementTarget:
 
         with pytest.raises(
             (ValueError, UnsafeCorpusPathError),
-            match=(
-                "existing checkout-relative|safely open|"
-                "exact tracked regular 0644"
-            ),
+            match=("existing checkout-relative|safely open|exact tracked regular 0644"),
         ):
             _resolve_encode_replacement_target(
                 args,
