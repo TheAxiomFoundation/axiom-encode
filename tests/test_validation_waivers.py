@@ -636,7 +636,8 @@ def test_active_can_only_change_by_consuming_exact_base_pending():
             **evidence,
         )
         assert any(
-            "exact pending-consumption path set" in issue for issue in scope_issues
+            "exact authenticated pending-consumption path set" in issue
+            for issue in scope_issues
         )
     direct_change = protected_base_transition_issues(
         _set(_entry(PATH, active=active)),
@@ -701,6 +702,50 @@ def test_pending_consumption_binds_semantics_to_exact_base_and_head_bytes():
         today=TODAY,
     )
     assert any("head waiver semantics do not match" in issue for issue in stale_head)
+
+
+def test_pending_consumption_accepts_only_caller_authenticated_path_closure():
+    active = _metadata("a")
+    pending = _metadata("b")
+    base = _set(_entry(PATH, active=active, pending=pending))
+    head = _set(_entry(PATH, active=pending))
+    base_waivers = _valid_yaml(active=True, pending=True).encode()
+    head_waivers = _consumed_yaml().encode()
+    manifest_path = ".axiom/encoding-manifests/change.json"
+    closure = {
+        PATH,
+        "known-validation-gaps.yaml",
+        ".axiom/toolchain.toml",
+        manifest_path,
+    }
+    evidence = {
+        "base_waiver_bytes": base_waivers,
+        "head_waiver_bytes": head_waivers,
+        "base_toolchain_bytes": _toolchain_bytes(base_waivers),
+        "head_toolchain_bytes": _toolchain_bytes(head_waivers),
+    }
+
+    assert (
+        protected_base_transition_issues(
+            base,
+            head,
+            changed_paths=closure,
+            pending_consumption_expected_paths=closure,
+            today=TODAY,
+            **evidence,
+        )
+        == ()
+    )
+    missing_module = closure - {PATH}
+    issues = protected_base_transition_issues(
+        base,
+        head,
+        changed_paths=missing_module,
+        pending_consumption_expected_paths=missing_module,
+        today=TODAY,
+        **evidence,
+    )
+    assert any("must include its waiver, toolchain" in issue for issue in issues)
 
 
 def test_pending_consumption_rejects_multiple_and_mixed_waiver_entry_changes():

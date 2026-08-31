@@ -559,6 +559,7 @@ def protected_base_transition_issues(
     head_waiver_bytes: bytes | None = None,
     base_toolchain_bytes: bytes | None = None,
     head_toolchain_bytes: bytes | None = None,
+    pending_consumption_expected_paths: set[str] | frozenset[str] | None = None,
     today: date | None = None,
 ) -> tuple[str, ...]:
     """Return fail-closed protected-base waiver transition violations."""
@@ -681,12 +682,24 @@ def protected_base_transition_issues(
                     f"{consumption_path}: pending approval expired on "
                     f"{base_entry.pending.expires}"
                 )
-            expected_paths = frozenset({waiver_path, toolchain_path, consumption_path})
+            required_paths = frozenset(
+                {waiver_path, toolchain_path, consumption_path}
+            )
+            expected_paths = (
+                required_paths
+                if pending_consumption_expected_paths is None
+                else frozenset(pending_consumption_expected_paths)
+            )
+            if not required_paths <= expected_paths:
+                issues.append(
+                    "pending-to-active consumption's authenticated path closure "
+                    "must include its waiver, toolchain, and consumed module"
+                )
             if changed != expected_paths:
                 issues.append(
                     "pending-to-active consumption requires the exact "
-                    "pending-consumption path set "
-                    f"({waiver_path}, {toolchain_path}, and {consumption_path})"
+                    "authenticated pending-consumption path set "
+                    f"(expected={sorted(expected_paths)}, actual={sorted(changed)})"
                 )
         issues.extend(
             _transition_byte_binding_issues(
@@ -747,6 +760,7 @@ def validate_protected_base_transition(
     head_waiver_bytes: bytes | None = None,
     base_toolchain_bytes: bytes | None = None,
     head_toolchain_bytes: bytes | None = None,
+    pending_consumption_expected_paths: set[str] | frozenset[str] | None = None,
     today: date | None = None,
 ) -> None:
     issues = protected_base_transition_issues(
@@ -759,6 +773,7 @@ def validate_protected_base_transition(
         head_waiver_bytes=head_waiver_bytes,
         base_toolchain_bytes=base_toolchain_bytes,
         head_toolchain_bytes=head_toolchain_bytes,
+        pending_consumption_expected_paths=pending_consumption_expected_paths,
         today=today,
     )
     if issues:

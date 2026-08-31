@@ -27,6 +27,7 @@
 - Made the audit interface require protected-base toolchain evidence and explicit `nul-v1` changed paths, parse semantics from the five captured buffers, and recheck both bytes and filesystem identities.
 - Passed `134` focused audit CLI, parallel-audit, and public command-plane tests after the mandatory evidence update.
 - Derived the audit's corpus release identity from the captured head waiver/toolchain pair and threaded it through serial, parallel, and isolated execution, eliminating those downstream live evidence rereads (`182` focused tests passed).
+- Generalized pending consumption to an exact caller-authenticated changed-path closure while requiring that closure to contain the waiver, toolchain, and consumed module; direct callers retain the strict three-path default (`94` focused core/toolchain tests passed).
 - Confirmed the creation contract must remain exactly one new pending field in the exact waiver/toolchain pair, with active state and corpus pins unchanged and both raw snapshots bound.
 
 ## Next
