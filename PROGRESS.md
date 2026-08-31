@@ -88,13 +88,14 @@
   historical provenance.
 - Ran the documentation/layout/non-interference and related migration/run-log/
   Supabase regressions: 128 passed; focused Ruff, compileall, and diff checks passed.
+- Advanced the package, exported `__version__`, and lockfile together from
+  `0.2.1750` to `0.2.1751` for the cleanup feature.
 
 ## Next
 
 - Review and commit the dedicated artifact transport and signer/publisher workflow.
-- Bump the package version, run focused workflow/transport tests and the full local
-  check matrix, then conduct the required independent review-fix cycle until no
-  actionable findings remain.
+- Run focused workflow/transport tests and the full local check matrix, then conduct
+  the required independent review-fix cycle until no actionable findings remain.
 - Re-verify exact commit messages and draft PR body, update this file after each
   coherent commit, and produce the frozen-review report with exact base/head,
   checks, and residual risks.
