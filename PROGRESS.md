@@ -41,8 +41,11 @@
 - Passed all `36` CI-parity tests, including real Git byte preservation, ref movement, adversarial newline paths, size caps, fail-closed materialization, non-0644/symlink/missing evidence, and ambient `GIT_DIR`/`GIT_WORK_TREE` redirection, plus targeted Ruff, on 2026-08-31.
 - Updated the README, CI-parity guide, shared toolchain helper documentation, and issue changelog to one exact creation/consumption contract, including the signed v5 generated closure, byte/digest proof, NUL-v1 transport, stability rechecks, Git blob modes, and the blocked workflow dependency.
 - Passed `84` focused toolchain and CI-parity tests, targeted Ruff, focused compileall, and `git diff --check` after the documentation alignment.
+- The first broad-suite pass reached the intentional encoder-version provenance gate (`94 passed, 1 failed`) and required a synchronized version bump because this branch changes encoder-affecting files after `0.2.1750`.
+- Bumped `pyproject.toml`, `src/axiom_encode/__init__.py`, and the root `uv.lock` package entry together to `0.2.1751`.
+- Repository-wide Ruff, compileall, and `git diff --check` passed; both historical workflow fixture SHA-256 values remain unchanged.
 
 ## Next
 
-- Run the complete relevant focused and broad check matrix, then complete independent review-fix cycles on a frozen head.
+- Re-run the version-provenance test and complete the broad test matrix, then complete independent review-fix cycles on a frozen head.
 - Verify commit messages and PR body, refresh live upstream, push, and open a draft PR linked to #1558 only if every required check remains green; do not merge.
