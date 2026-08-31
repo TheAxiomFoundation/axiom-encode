@@ -39,7 +39,7 @@ on:
         required: false
         type: string
       source_bundle_json:
-        description: JSON citation array, canonical_refresh_bundle object, or atomic-source-transaction/v2 envelope for an independent refresh transaction
+        description: JSON citation array, canonical_refresh_bundle object, or atomic-source-transaction/v2 envelope; explicit targets require v2 target_operation=create|replace, and nonlegacy create/replace targets require source and refresh lanes to land separately
         required: false
         default: "[]"
         type: string
@@ -49,7 +49,7 @@ on:
         default: "[]"
         type: string
       replace_rulespec_path:
-        description: Existing target, or unique canonical destination for a legacy replacement
+        description: Explicit target whose v2 target_operation must match pinned-base presence (create for an absent policies target; replace for an existing or legacy destination)
         required: false
         type: string
       replace_legacy_rulespec_path:
@@ -425,6 +425,11 @@ jobs:
               axiom-encode/scripts/prepare_signed_backfill.py \
               split-atomic-source-input "${ATOMIC_SOURCE_JSON:-[]}"
           )"
+          if [ -n "$REPLACE_RULESPEC_PATH" ]; then
+            python axiom-encode/scripts/prepare_signed_backfill.py \
+              split-atomic-source-input --require-v2 \
+              "${ATOMIC_SOURCE_JSON:-[]}" > /dev/null
+          fi
           source_bundle_json="$(jq -cer '.source_bundle' \
             <<< "$atomic_source_payload")"
           canonical_refresh_bundle_json="$(jq -cer '.canonical_refresh_bundle' \
@@ -622,14 +627,76 @@ jobs:
               axiom-encode/scripts/prepare_signed_backfill.py \
               split-atomic-source-input "${ATOMIC_SOURCE_JSON:-[]}"
           )"
+          if [ -n "$REPLACE_RULESPEC_PATH" ]; then
+            axiom-encode/.venv/bin/python \
+              axiom-encode/scripts/prepare_signed_backfill.py \
+              split-atomic-source-input --require-v2 \
+              "${ATOMIC_SOURCE_JSON:-[]}" > /dev/null
+          fi
           source_bundle_json="$(jq -cer '.source_bundle' \
             <<< "$atomic_source_payload")"
           canonical_refresh_bundle_json="$(jq -cer '.canonical_refresh_bundle' \
             <<< "$atomic_source_payload")"
           primary_required_test_cases_json="$(jq -cer \
             '.primary_required_test_cases' <<< "$atomic_source_payload")"
+          target_operation="$(jq -er '.target_operation' <<< "$atomic_source_payload")"
+          case "$target_operation" in
+            create|replace) ;;
+            *) echo "atomic source target operation is malformed" >&2; exit 1 ;;
+          esac
+          target_exists=false
+          if [ -n "$REPLACE_RULESPEC_PATH" ] && \
+             { [ -e "$RULESPEC_CHECKOUT/$REPLACE_RULESPEC_PATH" ] || \
+               [ -L "$RULESPEC_CHECKOUT/$REPLACE_RULESPEC_PATH" ]; }; then
+            target_exists=true
+          fi
+          if [ -n "$REPLACE_LEGACY_RULESPEC_PATH" ]; then
+            if [ "$target_operation" != "replace" ] || \
+               [ -z "$REPLACE_RULESPEC_PATH" ] || \
+               [ ! -f "$RULESPEC_CHECKOUT/$REPLACE_LEGACY_RULESPEC_PATH" ]; then
+              echo "legacy replacement requires target_operation=replace and a present source" >&2
+              exit 1
+            fi
+          elif [ -n "$REPLACE_RULESPEC_PATH" ]; then
+            if [ "$target_operation" = "create" ] && \
+               [ "$target_exists" = "true" ]; then
+              echo "target_operation=create requires an absent pinned target" >&2
+              exit 1
+            fi
+            if [ "$target_operation" = "replace" ] && \
+               [ "$target_exists" = "false" ]; then
+              echo "target_operation=replace requires a present pinned target" >&2
+              exit 1
+            fi
+          elif [ "$target_operation" = "create" ]; then
+            echo "target_operation=create requires an explicit RuleSpec target" >&2
+            exit 1
+          fi
+          if [ "$canonical_refresh_bundle_json" != "[]" ] && \
+             [ "$target_operation" != "replace" ]; then
+            echo "canonical refresh requires target_operation=replace" >&2
+            exit 1
+          fi
+          if [ "$source_bundle_json" != "[]" ] && \
+             [ -n "$REPLACE_LEGACY_RULESPEC_PATH" ]; then
+            echo "source bundles require legacy replacements to merge first" >&2
+            exit 1
+          fi
+          if [ -n "$REPLACE_RULESPEC_PATH" ] && \
+             [ -z "$REPLACE_LEGACY_RULESPEC_PATH" ] && \
+             [ "$target_operation" = "replace" ] && \
+             { [ "$source_bundle_json" != "[]" ] || \
+               [ "$canonical_refresh_bundle_json" != "[]" ]; }; then
+            echo "nonlegacy explicit target_operation=replace cannot use source_bundle or a nonempty canonical_refresh_bundle until signed replacement_target evidence and expected-parent lineage are enforced" >&2
+            exit 1
+          fi
+          printf '%s\n' "$primary_required_test_cases_json" \
+            > "$RUNNER_TEMP/primary-required-test-cases.json"
+          printf '%s\n' "$target_operation" \
+            > "$RUNNER_TEMP/target-operation.txt"
           canonical_refresh_primary_required_test_cases_json="$primary_required_test_cases_json"
-          if [ -n "${REPAIR_RUN_ID:-}" ]; then
+          if [ -n "${REPAIR_RUN_ID:-}" ] && \
+             [ -f "$RULESPEC_CHECKOUT/$REPLACE_RULESPEC_PATH" ]; then
             canonical_refresh_primary_required_test_cases_json="[]"
           fi
           source_bundle_args=(
@@ -660,7 +727,8 @@ jobs:
               --primary-citation "$CITATION" \
               --primary-rulespec-path "$REPLACE_RULESPEC_PATH" \
               --primary-required-test-cases-json \
-                "$canonical_refresh_primary_required_test_cases_json"
+                "$canonical_refresh_primary_required_test_cases_json" \
+              --target-operation "$target_operation"
           )"
           existing_import_args=(
             axiom-encode/.venv/bin/python
@@ -721,16 +789,6 @@ jobs:
             echo "source bundles require legacy replacements to merge first" >&2
             exit 1
           fi
-          if [ "$normalized_source_bundle" != "[]" ] && \
-             [ -n "$REPLACE_RULESPEC_PATH" ] && \
-             { [ -n "$DEPENDENT_CITATION" ] || \
-               [ -n "$SECOND_DEPENDENT_CITATION" ] || \
-               [ -n "$LEGACY_EXACT_DEPENDENT_RULESPEC_PATH" ] || \
-               [ -n "$SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH" ] || \
-               [ "${#retained_successor_paths[@]}" -gt 0 ]; }; then
-            echo "source-bundle replacements cannot include dependent migrations" >&2
-            exit 1
-          fi
           if [ -n "$QUEUE_ID" ] && \
             { [ "$normalized_canonical_refresh_bundle" != "[]" ] || \
               [ "$normalized_source_bundle" != "[]" ] || \
@@ -779,6 +837,10 @@ jobs:
           release_commit="$(axiom-encode/.venv/bin/python "$materializer" \
             materialize --toolchain "$toolchain" --response "$response" \
             --corpus-root axiom-corpus)"
+          release_object="axiom-corpus/releases/$release_name/$release_sha.json"
+          test -f "$release_object"
+          test ! -L "$release_object"
+          chmod 0444 "$release_object"
           rm -f "$response" "$public_object"
           trap - EXIT
           if [[ ! "$release_commit" =~ ^[0-9a-f]{40}$ ]]; then
@@ -805,6 +867,29 @@ jobs:
           CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-buildid=' \
             -o "$RUNNER_TEMP/axiom-encode-apply-signer" \
             ./cmd/axiom-encode-apply-signer
+          CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-buildid=' \
+            -o "$RUNNER_TEMP/axiom-encode-process-guardian" \
+            ./cmd/axiom-encode-process-guardian
+          sudo useradd --system --user-group --no-create-home \
+            --home-dir /nonexistent --shell /usr/sbin/nologin axiom-verifier
+          sudo useradd --system --user-group --no-create-home \
+            --home-dir /nonexistent --shell /usr/sbin/nologin axiom-signer
+          runner_uid="$(id -u)"
+          runner_gid="$(id -g)"
+          verifier_uid="$(id -u axiom-verifier)"
+          verifier_gid="$(id -g axiom-verifier)"
+          signer_uid="$(id -u axiom-signer)"
+          signer_gid="$(id -g axiom-signer)"
+          test "$verifier_uid" -ne 0
+          test "$verifier_gid" -ne 0
+          test "$verifier_uid" -ne "$runner_uid"
+          test "$verifier_gid" -ne "$runner_gid"
+          test "$signer_uid" -ne 0
+          test "$signer_gid" -ne 0
+          test "$signer_uid" -ne "$verifier_uid"
+          test "$signer_gid" -ne "$verifier_gid"
+          test "$signer_uid" -ne "$runner_uid"
+          test "$signer_gid" -ne "$runner_gid"
           sudo chown 0:0 /opt
           sudo chmod go-w /opt
           sudo rm -rf /opt/axiom-verification
@@ -820,11 +905,23 @@ jobs:
             --encoder-git-root "$GITHUB_WORKSPACE/axiom-encode" \
             --encoder-commit "$GITHUB_SHA" \
             --encoder-origin-repository github.com/TheAxiomFoundation/axiom-encode
-          sudo install -o root -g root -m 0755 \
+          sudo install -o root -g root -m 0555 \
             "$RUNNER_TEMP/axiom-encode-apply-signer" \
             /opt/axiom-verification/axiom-encode-apply-signer
+          sudo install -o root -g root -m 0555 \
+            "$RUNNER_TEMP/axiom-encode-process-guardian" \
+            /opt/axiom-verification/axiom-encode-process-guardian
           sudo chown -R 0:0 /opt/axiom-verification
           sudo chmod -R go-w /opt/axiom-verification
+          sudo chmod 0555 \
+            /opt/axiom-verification/axiom-encode-signing-supervisor
+          for protected_binary in \
+            /opt/axiom-verification/axiom-encode-signing-supervisor \
+            /opt/axiom-verification/axiom-encode-apply-signer \
+            /opt/axiom-verification/axiom-encode-process-guardian; do
+            test "$(stat -c '%u:%g:%a' "$protected_binary")" = "0:0:555"
+            test "$("$protected_binary" --build-kind)" = production
+          done
 
       - name: Verify protected RuleSpec routing
         env:
@@ -952,14 +1049,29 @@ jobs:
             "$workflow_python" -I "$backfill_helper" \
               split-atomic-source-input "${ATOMIC_SOURCE_JSON:-[]}"
           )"
+          if [ -n "$REPLACE_RULESPEC_PATH" ]; then
+            "$workflow_python" -I "$backfill_helper" \
+              split-atomic-source-input --require-v2 \
+              "${ATOMIC_SOURCE_JSON:-[]}" > /dev/null
+          fi
           source_bundle_json="$(jq -cer '.source_bundle' \
             <<< "$atomic_source_payload")"
           canonical_refresh_bundle_json="$(jq -cer '.canonical_refresh_bundle' \
             <<< "$atomic_source_payload")"
           primary_required_test_cases_json="$(jq -cer \
             '.primary_required_test_cases' <<< "$atomic_source_payload")"
+          target_operation="$(jq -er '.target_operation' <<< "$atomic_source_payload")"
+          case "$target_operation" in
+            create|replace) ;;
+            *) echo "atomic source target operation is malformed" >&2; exit 1 ;;
+          esac
+          if [ "$(cat "$RUNNER_TEMP/target-operation.txt")" != "$target_operation" ]; then
+            echo "persisted target operation differs from atomic source input" >&2
+            exit 1
+          fi
           canonical_refresh_primary_required_test_cases_json="$primary_required_test_cases_json"
-          if [ "${REPAIR_TESTS_ONLY:-false}" = "true" ]; then
+          if [ "${REPAIR_TESTS_ONLY:-false}" = "true" ] && \
+             [ -f "$RULESPEC_CHECKOUT/$REPLACE_RULESPEC_PATH" ]; then
             canonical_refresh_primary_required_test_cases_json="[]"
           fi
           source_bundle_args=(
@@ -982,7 +1094,8 @@ jobs:
               --primary-citation "$CITATION" \
               --primary-rulespec-path "$REPLACE_RULESPEC_PATH" \
               --primary-required-test-cases-json \
-                "$canonical_refresh_primary_required_test_cases_json"
+                "$canonical_refresh_primary_required_test_cases_json" \
+              --target-operation "$target_operation"
           )"
           printf '%s\n' "$normalized_canonical_refresh_bundle" \
             > "$RUNNER_TEMP/canonical-refresh-bundle.json"
@@ -1032,7 +1145,11 @@ jobs:
             > "$RUNNER_TEMP/existing-signed-import-paths.txt"
 
           if [ -s "$RUNNER_TEMP/existing-signed-import-paths.txt" ]; then
+            verifier_uid="$(id -u axiom-verifier)"
+            verifier_gid="$(id -g axiom-verifier)"
             signed_import_args=(
+              sudo /opt/axiom-verification/axiom-encode-process-guardian
+              run --uid "$verifier_uid" --gid "$verifier_gid" --
               /opt/axiom-verification/axiom-encode-signing-supervisor
               --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json
               --trusted-python-runtime-root /opt/axiom-verification/python
@@ -1103,6 +1220,114 @@ jobs:
           RULESPEC_REF: ${{ inputs.rulespec_ref }}
         run: |
           set -euo pipefail
+          runner_uid="$(id -u)"
+          runner_gid="$(id -g)"
+          verifier_uid="$(id -u axiom-verifier)"
+          verifier_gid="$(id -g axiom-verifier)"
+          signer_uid="$(id -u axiom-signer)"
+          signer_gid="$(id -g axiom-signer)"
+          verifier_generation_db="$RUNNER_TEMP/encodings.db"
+          verifier_boundary_initialized=false
+          model_inputs_sealed=false
+          verifier_guardian=(
+            sudo /opt/axiom-verification/axiom-encode-process-guardian
+            run --uid "$verifier_uid" --gid "$verifier_gid" --
+          )
+          verifier_supervisor=(
+            "${verifier_guardian[@]}"
+            /opt/axiom-verification/axiom-encode-signing-supervisor
+            --trusted-signing-roots
+            /opt/axiom-verification/signing-trust-roots.json
+            --trusted-python-runtime-root
+            /opt/axiom-verification/python
+            --trusted-python-import-root
+            /opt/axiom-verification/python/lib/python3.13/site-packages
+            --trusted-python-package-root
+            /opt/axiom-verification/python/lib/python3.13/site-packages/axiom_encode
+          )
+          run_verifier_axiom() (
+            unset AXIOM_ENCODE_APPLY_SIGNING_KEY
+            "${verifier_supervisor[@]}" -- \
+              /opt/axiom-verification/axiom-encode "$@"
+          )
+          require_split_signing_identities() {
+            test "$verifier_uid" -ne 0
+            test "$verifier_gid" -ne 0
+            test "$verifier_uid" -ne "$runner_uid"
+            test "$verifier_gid" -ne "$runner_gid"
+            test "$signer_uid" -ne 0
+            test "$signer_gid" -ne 0
+            test "$signer_uid" -ne "$verifier_uid"
+            test "$signer_gid" -ne "$verifier_gid"
+            test "$signer_uid" -ne "$runner_uid"
+            test "$signer_gid" -ne "$runner_gid"
+          }
+          initialize_verifier_boundary() {
+            if [ "$verifier_boundary_initialized" = "true" ]; then
+              return
+            fi
+            # BEGIN TARGETED_REENCODE_VERIFIER_UID_BOUNDARY
+            test "$verifier_uid" -ne "$runner_uid"
+            /opt/axiom-verification/python/bin/python -I - \
+              "$RUNNER_TEMP" "$runner_uid" \
+              "$GITHUB_ENV" "$GITHUB_PATH" "$GITHUB_OUTPUT" \
+              "$GITHUB_STEP_SUMMARY" <<'PY'
+          import os
+          import stat
+          import sys
+          from pathlib import Path
+
+          runner_temp = Path(sys.argv[1])
+          runner_uid = int(sys.argv[2])
+          command_root = runner_temp / "_runner_file_commands"
+
+          def require_runner_directory(path: Path, label: str) -> None:
+              if not path.is_absolute() or path.is_symlink():
+                  raise SystemExit(f"{label} is not an exact absolute directory")
+              try:
+                  metadata = path.lstat()
+                  resolved = path.resolve(strict=True)
+              except OSError as exc:
+                  raise SystemExit(f"{label} is unavailable") from exc
+              if resolved != path or not stat.S_ISDIR(metadata.st_mode):
+                  raise SystemExit(f"{label} is not a canonical directory")
+              if metadata.st_uid != runner_uid or metadata.st_mode & 0o022:
+                  raise SystemExit(f"{label} is writable outside the runner UID")
+
+          require_runner_directory(runner_temp, "runner temp")
+          require_runner_directory(command_root, "runner command root")
+          supplied = [Path(value) for value in sys.argv[3:]]
+          if len(set(supplied)) != 4:
+              raise SystemExit("runner command files are not four distinct paths")
+          for path in supplied:
+              if path.parent != command_root or path.is_symlink():
+                  raise SystemExit("runner command file escapes its protected root")
+              try:
+                  metadata = path.lstat()
+              except OSError as exc:
+                  raise SystemExit("runner command file is unavailable") from exc
+              if (
+                  not stat.S_ISREG(metadata.st_mode)
+                  or metadata.st_uid != runner_uid
+                  or metadata.st_mode & 0o022
+              ):
+                  raise SystemExit("runner command file is writable outside the runner UID")
+          for path in command_root.iterdir():
+              metadata = path.lstat()
+              if (
+                  path.is_symlink()
+                  or not stat.S_ISREG(metadata.st_mode)
+                  or metadata.st_uid != runner_uid
+                  or metadata.st_mode & 0o022
+              ):
+                  raise SystemExit("runner command root contains an unsafe entry")
+          PY
+            test ! -e "$verifier_generation_db"
+            sudo install -o axiom-verifier -g axiom-verifier -m 0600 \
+              /dev/null "$verifier_generation_db"
+            verifier_boundary_initialized=true
+            # END TARGETED_REENCODE_VERIFIER_UID_BOUNDARY
+          }
           : "${REPAIR_TESTS_ONLY:=false}"
           : "${QUEUE_ID:=}"
           : "${REPLACE_RULESPEC_PATH:=}"
@@ -1142,16 +1367,19 @@ jobs:
             local required_test_cases_json="${9:-[]}"
             local review_finding_path=""
             local review_contract_json=""
-            mkdir -p "$RUNNER_TEMP/generated/$output_lane"
+            initialize_verifier_boundary
+            local output_root="$RUNNER_TEMP/generated/$output_lane"
+            mkdir -p "$output_root"
+            sudo chown -hR axiom-verifier:axiom-verifier "$output_root"
             local -a args=(
               /opt/axiom-verification/axiom-encode encode
               --backend openai
               --corpus-path "$GITHUB_WORKSPACE/axiom-corpus"
               --axiom-rules-engine-path "$GITHUB_WORKSPACE/axiom-rules-engine"
               --policy-repo-path "$RULESPEC_CHECKOUT"
-              --output "$RUNNER_TEMP/generated/$output_lane"
+              --output "$output_root"
               --emit-final-rejected-candidate \
-                "$RUNNER_TEMP/generated/$output_lane/final-rejected-candidate"
+                "$output_root/final-rejected-candidate"
               --mode repo-augmented
               --require-complete-source-unit
               --db "$RUNNER_TEMP/encodings.db"
@@ -1160,10 +1388,40 @@ jobs:
             if [ "$target_only" = "true" ]; then
               args+=(--apply-target-only)
             fi
-            if [ -n "$replacement_path" ]; then
-              args+=(--replace-rulespec-path "$replacement_path")
+            if [ "$output_lane" = "target" ] && \
+               [ "$target_operation" = "create" ] && \
+               { [ -z "$replacement_path" ] || [ -n "$legacy_source_path" ] || \
+                 [ "$canonical_refresh_bundle_json" != "[]" ]; }; then
+              echo "target_operation=create requires a nonlegacy explicit target without canonical refresh" >&2
+              exit 1
             fi
-            if [ -n "$replacement_path" ] && [ -z "$legacy_source_path" ]; then
+            if [ -n "$replacement_path" ]; then
+              target_exists=false
+              if [ -e "$RULESPEC_CHECKOUT/$replacement_path" ] || \
+                 [ -L "$RULESPEC_CHECKOUT/$replacement_path" ]; then
+                target_exists=true
+              fi
+              if [ -n "$legacy_source_path" ]; then
+                if [ "$target_operation" != "replace" ]; then
+                  echo "legacy replacement requires target_operation=replace" >&2
+                  exit 1
+                fi
+                args+=(--replace-rulespec-path "$replacement_path")
+              elif [ "$target_operation" = "create" ] && \
+                   [ "$target_exists" = "false" ]; then
+                args+=(--create-rulespec-path "$replacement_path")
+              elif [ "$target_operation" = "replace" ] && \
+                   [ "$target_exists" = "true" ]; then
+                args+=(--replace-rulespec-path "$replacement_path")
+              else
+                echo "target_operation does not match the pinned target existence" >&2
+                exit 1
+              fi
+            fi
+            if [ -n "$replacement_path" ] && \
+               [ -z "$legacy_source_path" ] && \
+               { [ -e "$RULESPEC_CHECKOUT/$replacement_path" ] || \
+                 [ -L "$RULESPEC_CHECKOUT/$replacement_path" ]; }; then
               shrink_authorized="$(
                 "$workflow_python" "$backfill_helper" \
                   authorize-legacy-index-manifest-shrink \
@@ -1224,15 +1482,25 @@ jobs:
               review_finding_dir="$(mktemp -d "$RUNNER_TEMP/axiom-targeted-review-finding.XXXXXX")"
               review_finding_path="$review_finding_dir/review-finding.txt"
               printf '%s\n' "$review_finding" > "$review_finding_path"
+              chmod 0555 "$review_finding_dir"
+              chmod 0444 "$review_finding_path"
               args+=(--review-findings "$review_finding_path")
             fi
-            if [ "$deferred_output_contracts_json" != "[]" ] || \
+            if [ -n "$replacement_path" ] || \
+               [ "$deferred_output_contracts_json" != "[]" ] || \
                [ "$required_test_cases_json" != "[]" ]; then
+              local review_contract_schema
+              if [ -n "$replacement_path" ]; then
+                review_contract_schema="axiom-encode/review-contract/v3"
+              elif [ "$required_test_cases_json" = "[]" ]; then
+                review_contract_schema="axiom-encode/review-contract/v1"
+              else
+                review_contract_schema="axiom-encode/review-contract/v2"
+              fi
               review_contract_json="$(
                 jq -cn \
-                  --arg schema "$([ "$required_test_cases_json" = "[]" ] \
-                    && printf '%s' 'axiom-encode/review-contract/v1' \
-                    || printf '%s' 'axiom-encode/review-contract/v2')" \
+                  --arg schema "$review_contract_schema" \
+                  --arg target_operation "$target_operation" \
                   --arg citation "$citation" \
                   --arg rulespec_path "$replacement_path" \
                   --argjson required_deferred_outputs \
@@ -1243,8 +1511,11 @@ jobs:
                     citation: $citation,
                     rulespec_path: $rulespec_path,
                     required_deferred_outputs: $required_deferred_outputs
-                  } + if $schema == "axiom-encode/review-contract/v2"
+                  } + if $schema == "axiom-encode/review-contract/v2" or $schema == "axiom-encode/review-contract/v3"
                     then {required_test_cases: $required_test_cases}
+                    else {}
+                    end + if $schema == "axiom-encode/review-contract/v3"
+                    then {target_operation: $target_operation}
                     else {}
                     end'
               )"
@@ -1272,7 +1543,42 @@ jobs:
             fi
             args+=("$citation")
 
-            /opt/axiom-verification/axiom-encode-apply-signer run \
+            if [ "$model_inputs_sealed" = "false" ]; then
+              for sealed_input in \
+                "$GITHUB_WORKSPACE/axiom-encode" \
+                "$GITHUB_WORKSPACE/axiom-corpus" \
+                "$GITHUB_WORKSPACE/axiom-rules-engine"; do
+                test -z "$(git -C "$sealed_input" config --local --get-regexp \
+                  '^(credential|http\..*\.extraheader|url\.)' || true)"
+              done
+              sudo chown -hR root:root \
+                "$GITHUB_WORKSPACE/axiom-encode" \
+                "$GITHUB_WORKSPACE/axiom-corpus" \
+                "$GITHUB_WORKSPACE/axiom-rules-engine"
+              sudo chmod -R a+rX,go-w \
+                "$GITHUB_WORKSPACE/axiom-encode" \
+                "$GITHUB_WORKSPACE/axiom-corpus" \
+                "$GITHUB_WORKSPACE/axiom-rules-engine"
+              if [ -n "${REPAIR_CANDIDATE_ROOT:-}" ]; then
+                test "$(realpath "$REPAIR_CANDIDATE_ROOT")" = \
+                  "$(realpath "$RUNNER_TEMP/repair-candidate")"
+                sudo chown -hR root:root "$REPAIR_CANDIDATE_ROOT"
+                sudo chmod -R a+rX,go-w "$REPAIR_CANDIDATE_ROOT"
+              fi
+              model_inputs_sealed=true
+            fi
+            sudo chown -hR axiom-verifier:axiom-verifier "$RULESPEC_CHECKOUT"
+            require_split_signing_identities
+            set +e
+            sudo \
+              --preserve-env=AXIOM_ENCODE_APPLY_SIGNING_KEY,OPENAI_API_KEY,GITHUB_ACTIONS,GITHUB_REPOSITORY,GITHUB_WORKFLOW_REF,GITHUB_EVENT_NAME,GITHUB_SHA,GITHUB_RUN_ID,GITHUB_WORKSPACE \
+              /opt/axiom-verification/axiom-encode-process-guardian \
+              run-root-controller -- \
+              /opt/axiom-verification/axiom-encode-apply-signer run \
+              --signer-uid "$signer_uid" \
+              --signer-gid "$signer_gid" \
+              --supervisor-uid "$verifier_uid" \
+              --supervisor-gid "$verifier_gid" \
               --scope apply_ed25519 \
               --key-env AXIOM_ENCODE_APPLY_SIGNING_KEY \
               --supervisor /opt/axiom-verification/axiom-encode-signing-supervisor \
@@ -1284,6 +1590,11 @@ jobs:
               --allowed-workflow-ref TheAxiomFoundation/axiom-encode/.github/workflows/targeted-signed-reencode.yml@refs/heads/main \
               --allowed-event-name workflow_dispatch \
               -- "${args[@]}"
+            local encode_status="$?"
+            set -e
+            if [ "$encode_status" -ne 0 ]; then
+              return "$encode_status"
+            fi
           }
 
           if [ -n "$DEPENDENT_REVIEW_FINDING" ] && [ -z "$DEPENDENT_CITATION" ]; then
@@ -1390,14 +1701,28 @@ jobs:
             "$workflow_python" "$backfill_helper" split-atomic-source-input \
               "${ATOMIC_SOURCE_JSON:-[]}"
           )"
+          if [ -n "$REPLACE_RULESPEC_PATH" ]; then
+            "$workflow_python" "$backfill_helper" split-atomic-source-input \
+              --require-v2 "${ATOMIC_SOURCE_JSON:-[]}" > /dev/null
+          fi
           source_bundle_json="$(jq -cer '.source_bundle' \
             <<< "$atomic_source_payload")"
           canonical_refresh_bundle_json="$(jq -cer '.canonical_refresh_bundle' \
             <<< "$atomic_source_payload")"
           primary_required_test_cases_json="$(jq -cer \
             '.primary_required_test_cases' <<< "$atomic_source_payload")"
+          target_operation="$(jq -er '.target_operation' <<< "$atomic_source_payload")"
+          case "$target_operation" in
+            create|replace) ;;
+            *) echo "atomic source target operation is malformed" >&2; exit 1 ;;
+          esac
+          printf '%s\n' "$primary_required_test_cases_json" \
+            > "$RUNNER_TEMP/primary-required-test-cases.json"
+          printf '%s\n' "$target_operation" \
+            > "$RUNNER_TEMP/target-operation.txt"
           canonical_refresh_primary_required_test_cases_json="$primary_required_test_cases_json"
-          if [ "$REPAIR_TESTS_ONLY" = "true" ]; then
+          if [ "$REPAIR_TESTS_ONLY" = "true" ] && \
+             [ -f "$RULESPEC_CHECKOUT/$REPLACE_RULESPEC_PATH" ]; then
             canonical_refresh_primary_required_test_cases_json="[]"
           fi
           source_bundle_args=(
@@ -1417,8 +1742,9 @@ jobs:
               "$canonical_refresh_bundle_json" \
               --primary-citation "$CITATION" \
               --primary-rulespec-path "$REPLACE_RULESPEC_PATH" \
-              --primary-required-test-cases-json \
-                "$canonical_refresh_primary_required_test_cases_json"
+            --primary-required-test-cases-json \
+              "$canonical_refresh_primary_required_test_cases_json" \
+            --target-operation "$target_operation"
           )"
           verified_canonical_refresh_bundle="$(tr -d '\n' \
             < "$RUNNER_TEMP/canonical-refresh-bundle.json")"
@@ -1516,35 +1842,16 @@ jobs:
             echo "source bundles require legacy replacements to merge first" >&2
             exit 1
           fi
-          if [ "$source_bundle_enabled" = "true" ] && \
-             [ -n "$REPLACE_RULESPEC_PATH" ] && \
-             { [ -n "$DEPENDENT_CITATION" ] || \
-               [ -n "$SECOND_DEPENDENT_CITATION" ] || \
-               [ -n "$LEGACY_EXACT_DEPENDENT_RULESPEC_PATH" ] || \
-               [ -n "$SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH" ] || \
-               [ "$retained_successor_count" -gt 0 ]; }; then
-            echo "source-bundle replacements cannot include dependent migrations" >&2
-            exit 1
-          fi
-
           checkpoint_signed_changes() {
             local message="$1"
             local guard_json="$RUNNER_TEMP/checkpoint-guard-generated.json"
             local guard_stderr="$RUNNER_TEMP/checkpoint-guard-generated.stderr.log"
             set +e
-            (
-              unset AXIOM_ENCODE_APPLY_SIGNING_KEY
-              /opt/axiom-verification/axiom-encode-signing-supervisor \
-                --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
-                --trusted-python-runtime-root /opt/axiom-verification/python \
-                --trusted-python-import-root /opt/axiom-verification/python/lib/python3.13/site-packages \
-                --trusted-python-package-root /opt/axiom-verification/python/lib/python3.13/site-packages/axiom_encode \
-                -- /opt/axiom-verification/axiom-encode guard-generated \
-                --repo "$RULESPEC_CHECKOUT" \
-                --corpus-path "$GITHUB_WORKSPACE/axiom-corpus" \
-                --expected-encoder-checkout "$GITHUB_WORKSPACE/axiom-encode" \
-                --json
-            ) > "$guard_json" 2> "$guard_stderr"
+            run_verifier_axiom guard-generated \
+              --repo "$RULESPEC_CHECKOUT" \
+              --corpus-path "$GITHUB_WORKSPACE/axiom-corpus" \
+              --expected-encoder-checkout "$GITHUB_WORKSPACE/axiom-encode" \
+              --json > "$guard_json" 2> "$guard_stderr"
             local guard_status="$?"
             set -e
             if [ -s "$guard_stderr" ]; then
@@ -1575,13 +1882,17 @@ jobs:
             if [ "$guard_status" -ne 0 ]; then
               return "$guard_status"
             fi
-            git -C "$RULESPEC_CHECKOUT" diff --check
-            "$workflow_python" "$backfill_helper" stage "$RULESPEC_CHECKOUT"
-            git -C "$RULESPEC_CHECKOUT" \
-              -c core.hooksPath=/dev/null \
-              -c user.name=axiom-encode-bot \
-              -c user.email=axiom-encode-bot@users.noreply.github.com \
-              commit -m "$message"
+            printf 'Creating protected checkpoint: %s\n' "$message"
+            run_verifier_axiom checkpoint-signed-backfill \
+              --repo "$RULESPEC_CHECKOUT" \
+              --corpus-path "$GITHUB_WORKSPACE/axiom-corpus" \
+              > "$RUNNER_TEMP/final-checkpoint.json"
+            jq -e '
+              type == "object"
+              and keys == ["commit", "tree"]
+              and (.commit | test("^[0-9a-f]{40}$"))
+              and (.tree | test("^[0-9a-f]{40}$"))
+            ' "$RUNNER_TEMP/final-checkpoint.json" > /dev/null
           }
 
           if [ "$canonical_refresh_enabled" = "true" ]; then
@@ -1613,9 +1924,9 @@ jobs:
                 "$refresh_rulespec_path" "" false \
                 "$refresh_deferred_output_contracts" \
                 "$refresh_required_test_cases"
-              "$workflow_python" "$backfill_helper" \
-                reconcile-retired-manifest-inventory \
-                "$RULESPEC_CHECKOUT" "$refresh_rulespec_path"
+              run_verifier_axiom reconcile-retired-manifest-inventory \
+                --repo "$RULESPEC_CHECKOUT" \
+                --target-rulespec-path "$refresh_rulespec_path"
               checkpoint_signed_changes \
                 "Refresh signed canonical module for ${refresh_citation}"
               cp "$RUNNER_TEMP/checkpoint-guard-generated.json" \
@@ -1624,21 +1935,6 @@ jobs:
             done < <(jq -c '.[]' \
               "$RUNNER_TEMP/canonical-refresh-bundle.json")
           else
-            if [ "$source_bundle_enabled" = "true" ] && \
-               [ -n "$REPLACE_RULESPEC_PATH" ] && \
-               [ -z "$REPLACE_LEGACY_RULESPEC_PATH" ]; then
-              run_signed_encode \
-                "$CITATION" "$REVIEW_FINDING" false target-preflight \
-                "$REPLACE_RULESPEC_PATH" "" false
-              "$workflow_python" "$backfill_helper" \
-                reconcile-retired-manifest-inventory \
-                "$RULESPEC_CHECKOUT" "$REPLACE_RULESPEC_PATH"
-              checkpoint_signed_changes \
-                "Canonicalize signed replacement target before source bundle"
-              cp "$RUNNER_TEMP/checkpoint-guard-generated.json" \
-                "$RUNNER_TEMP/target-preflight-guard-generated.json"
-            fi
-
             source_index=0
             while IFS= read -r source_citation; do
               source_index=$((source_index + 1))
@@ -1681,15 +1977,12 @@ jobs:
             if [ "$source_bundle_enabled" = "false" ] && \
                [ -n "$REPLACE_RULESPEC_PATH" ] && \
                [ -z "$REPLACE_LEGACY_RULESPEC_PATH" ]; then
-              "$workflow_python" "$backfill_helper" \
-                reconcile-retired-manifest-inventory \
-                "$RULESPEC_CHECKOUT" "$REPLACE_RULESPEC_PATH"
+              run_verifier_axiom reconcile-retired-manifest-inventory \
+                --repo "$RULESPEC_CHECKOUT" \
+                --target-rulespec-path "$REPLACE_RULESPEC_PATH"
             fi
-
-            if [ "$source_bundle_enabled" = "true" ]; then
-              checkpoint_signed_changes \
-                "Compose signed source bundle for ${CITATION}"
-            fi
+            checkpoint_signed_changes \
+              "Complete signed target transaction for ${CITATION}"
           fi
 
       - name: Summarize model spend
@@ -1711,8 +2004,12 @@ jobs:
           RULESPEC_CHECKOUT: ${{ github.workspace }}/rulespec-${{ inputs.country }}
           RULESPEC_REF: ${{ inputs.rulespec_ref }}
         run: |
+          verifier_uid="$(id -u axiom-verifier)"
+          verifier_gid="$(id -g axiom-verifier)"
           set +e
-          /opt/axiom-verification/axiom-encode-signing-supervisor \
+          sudo /opt/axiom-verification/axiom-encode-process-guardian run \
+            --uid "$verifier_uid" --gid "$verifier_gid" -- \
+            /opt/axiom-verification/axiom-encode-signing-supervisor \
             --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
             --trusted-python-runtime-root /opt/axiom-verification/python \
             --trusted-python-import-root /opt/axiom-verification/python/lib/python3.13/site-packages \
@@ -1731,7 +2028,6 @@ jobs:
             fi
             exit "$guard_status"
           fi
-          git -C "$RULESPEC_CHECKOUT" diff --check
 
       - name: Verify existing signed import integrity
         id: verify_existing_signed_import_integrity
@@ -1741,7 +2037,11 @@ jobs:
         run: |
           set -euo pipefail
           if [ -s "$RUNNER_TEMP/existing-signed-import-paths.txt" ]; then
+            verifier_uid="$(id -u axiom-verifier)"
+            verifier_gid="$(id -g axiom-verifier)"
             signed_import_args=(
+              sudo /opt/axiom-verification/axiom-encode-process-guardian
+              run --uid "$verifier_uid" --gid "$verifier_gid" --
               /opt/axiom-verification/axiom-encode-signing-supervisor
               --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json
               --trusted-python-runtime-root /opt/axiom-verification/python
@@ -1771,10 +2071,12 @@ jobs:
       - name: Package exact generated changes
         id: package_exact_generated_changes
         env:
+          ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
           CITATION: ${{ inputs.citation }}
           DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
           DEPENDENT_REVIEW_FINDING: ${{ inputs.dependent_review_finding }}
           DEPENDENT_REVIEW_FINDING_PRESENT: ${{ inputs.dependent_review_finding != '' }}
+          EXISTING_SIGNED_IMPORTS_JSON: ${{ inputs.existing_signed_imports_json }}
           SECOND_DEPENDENT_CITATION: ${{ inputs.second_dependent_citation }}
           SECOND_DEPENDENT_REVIEW_FINDING: ${{ inputs.second_dependent_review_finding }}
           SECOND_DEPENDENT_REVIEW_FINDING_PRESENT: ${{ inputs.second_dependent_review_finding != '' }}
@@ -1798,25 +2100,237 @@ jobs:
           LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON: ${{ inputs.legacy_retained_successor_rulespec_paths_json }}
           RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
           RULESPEC_REF: ${{ inputs.rulespec_ref }}
+          CORPUS_REF: ${{ inputs.corpus_ref }}
+          RULES_ENGINE_REF: ${{ inputs.rules_engine_ref }}
         run: |
           set -euo pipefail
           workflow_python=(/opt/axiom-verification/python/bin/python -I)
           if [ ! -x "${workflow_python[0]}" ]; then
             workflow_python=("${AXIOM_TEST_PYTHON:-python}")
           fi
+          # BEGIN TARGETED_REENCODE_IMMUTABLE_SNAPSHOT
           artifact="$RUNNER_TEMP/targeted-reencode"
           mkdir -p "$artifact"
-          git -C "$RULESPEC_CHECKOUT" diff --binary --full-index \
-            "$RULESPEC_REF" > "$artifact/tracked.patch"
-          git -C "$RULESPEC_CHECKOUT" ls-files --others --exclude-standard -z \
-            | tar -C "$RULESPEC_CHECKOUT" --null -czf "$artifact/untracked.tar.gz" --files-from -
-          git -C "$RULESPEC_CHECKOUT" status --short > "$artifact/status.txt"
-          git -C "$RULESPEC_CHECKOUT" diff --name-status \
+          live_rulespec_checkout="$(realpath "$RULESPEC_CHECKOUT")"
+          rulespec_checkout_name="${live_rulespec_checkout##*/}"
+          case "$rulespec_checkout_name" in
+            (rulespec-[a-z][a-z]) ;;
+            (*)
+              echo "RuleSpec checkout name is not canonical" >&2
+              exit 1
+              ;;
+          esac
+          verifier_uid="$(id -u axiom-verifier)"
+          verifier_gid="$(id -g axiom-verifier)"
+          verifier_guardian=(
+            sudo /opt/axiom-verification/axiom-encode-process-guardian
+            run --uid "$verifier_uid" --gid "$verifier_gid" --
+          )
+          test "$(stat -c '%u' "$live_rulespec_checkout")" = "$verifier_uid"
+          jq -e '
+            type == "object"
+            and keys == ["commit", "tree"]
+            and (.commit | test("^[0-9a-f]{40}$"))
+            and (.tree | test("^[0-9a-f]{40}$"))
+          ' "$RUNNER_TEMP/final-checkpoint.json" > /dev/null
+          live_rulespec_head_after="$(jq -r '.commit' \
+            "$RUNNER_TEMP/final-checkpoint.json")"
+          captured_rulespec_tree="$(jq -r '.tree' \
+            "$RUNNER_TEMP/final-checkpoint.json")"
+          snapshot_parent="/opt/axiom-verification/targeted-reencode-snapshot-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          snapshot_checkout="$snapshot_parent/$rulespec_checkout_name"
+          snapshot_corpus="$snapshot_parent/axiom-corpus"
+          snapshot_encoder="$snapshot_parent/axiom-encode"
+          protected_git_home="$snapshot_parent/git-home"
+          test ! -e "$snapshot_parent"
+          sudo mkdir -m 0711 "$snapshot_parent"
+          sudo mkdir -m 0700 "$protected_git_home"
+          snapshot_git=(sudo env -i HOME="$protected_git_home" \
+            PATH=/usr/bin:/bin /usr/bin/git)
+          "${snapshot_git[@]}" clone --no-checkout \
+            "https://github.com/TheAxiomFoundation/${rulespec_checkout_name}.git" \
+            "$snapshot_checkout"
+          "${snapshot_git[@]}" -C "$snapshot_checkout" checkout --detach \
+            "$RULESPEC_REF"
+          "${snapshot_git[@]}" clone --no-checkout \
+            "https://github.com/TheAxiomFoundation/axiom-corpus.git" \
+            "$snapshot_corpus"
+          "${snapshot_git[@]}" -C "$snapshot_corpus" checkout --detach \
+            "$CORPUS_REF"
+          "${snapshot_git[@]}" clone --no-checkout \
+            "https://github.com/TheAxiomFoundation/axiom-encode.git" \
+            "$snapshot_encoder"
+          "${snapshot_git[@]}" -C "$snapshot_encoder" checkout --detach \
+            "$GITHUB_SHA"
+          copy_worktree_tool="$snapshot_encoder/scripts/copy_untrusted_rulespec_worktree.py"
+          test "$(stat -c '%u:%a' "$copy_worktree_tool")" = "0:644"
+          sudo /opt/axiom-verification/python/bin/python -I \
+            "$copy_worktree_tool" \
+            "$live_rulespec_checkout" "$snapshot_checkout" \
+            --source-owner-uid "$verifier_uid" \
+            > "$RUNNER_TEMP/worktree-copy.json"
+          jq -e '
+            type == "object"
+            and keys == ["bytes", "files", "inventory_sha256", "schema"]
+            and .schema == "axiom-encode/untrusted-worktree-copy/v1"
+            and (.bytes | type == "number" and . >= 0)
+            and (.files | type == "number" and . >= 1)
+            and (.inventory_sha256 | test("^[0-9a-f]{64}$"))
+          ' "$RUNNER_TEMP/worktree-copy.json" > /dev/null
+          printf '%s\n' "$live_rulespec_head_after" \
+            > "$artifact/rulespec-generated-head.txt"
+          # TARGETED_REENCODE_SNAPSHOT_CAPTURED
+          mapfile -t snapshot_release_pin < <(
+            sudo /opt/axiom-verification/python/bin/python -I \
+              "$snapshot_encoder/scripts/materialize_corpus_release.py" pin \
+              --toolchain "$snapshot_checkout/.axiom/toolchain.toml"
+          )
+          if [ "${#snapshot_release_pin[@]}" -ne 2 ]; then
+            echo "protected RuleSpec toolchain did not yield one release pin" >&2
+            exit 1
+          fi
+          release_name="${snapshot_release_pin[0]}"
+          release_sha="${snapshot_release_pin[1]}"
+          live_release_object="$GITHUB_WORKSPACE/axiom-corpus/releases/${release_name}/${release_sha}.json"
+          protected_release_response="$snapshot_parent/release-response.json"
+          sudo /opt/axiom-verification/python/bin/python -I - \
+            "$live_release_object" "$protected_release_response" <<'PY'
+          import json
+          import os
+          import stat
+          import sys
+          from pathlib import Path
+
+          source = Path(sys.argv[1])
+          destination = Path(sys.argv[2])
+          flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW
+          descriptor = os.open(source, flags)
+          try:
+              metadata = os.fstat(descriptor)
+              if not stat.S_ISREG(metadata.st_mode):
+                  raise SystemExit("live corpus release object is not regular")
+              if metadata.st_size > 16 * 1024 * 1024:
+                  raise SystemExit("live corpus release object exceeds 16 MiB")
+              chunks = []
+              remaining = 16 * 1024 * 1024 + 1
+              while remaining:
+                  chunk = os.read(descriptor, min(1024 * 1024, remaining))
+                  if not chunk:
+                      break
+                  chunks.append(chunk)
+                  remaining -= len(chunk)
+              raw = b"".join(chunks)
+          finally:
+              os.close(descriptor)
+          if len(raw) > 16 * 1024 * 1024:
+              raise SystemExit("live corpus release object exceeds 16 MiB")
+          try:
+              payload = json.loads(raw)
+          except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+              raise SystemExit("live corpus release object is invalid JSON") from exc
+          if not isinstance(payload, dict):
+              raise SystemExit("live corpus release object is not an object")
+          response = json.dumps(
+              [{"release_object": payload}],
+              separators=(",", ":"),
+              sort_keys=True,
+          ).encode("utf-8")
+          output = os.open(
+              destination,
+              os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW,
+              0o600,
+          )
+          with os.fdopen(output, "wb", closefd=True) as stream:
+              stream.write(response)
+              stream.flush()
+              os.fsync(stream.fileno())
+          PY
+          sudo chown -hR axiom-verifier:axiom-verifier \
+            "$snapshot_checkout" "$snapshot_corpus" \
+            "$protected_git_home" "$protected_release_response"
+          snapshot_git=(sudo -u axiom-verifier -- env -i \
+            HOME="$protected_git_home" PATH=/usr/bin:/bin /usr/bin/git)
+          snapshot_release_commit="$(
+            sudo -u axiom-verifier -- \
+              /opt/axiom-verification/python/bin/python -I \
+              "$snapshot_encoder/scripts/materialize_corpus_release.py" \
+              materialize \
+              --toolchain "$snapshot_checkout/.axiom/toolchain.toml" \
+              --response "$protected_release_response" \
+              --corpus-root "$snapshot_corpus"
+          )"
+          if [[ ! "$snapshot_release_commit" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "protected corpus release provenance is malformed" >&2
+            exit 1
+          fi
+          "${snapshot_git[@]}" -C "$snapshot_corpus" merge-base --is-ancestor \
+            "$snapshot_release_commit" HEAD
+          sudo rm -f "$protected_release_response"
+          sudo chown -hR root:root \
+            "$snapshot_corpus" "$snapshot_encoder" "$protected_git_home"
+          sudo chmod -R a+rX,go-w \
+            "$snapshot_corpus" "$snapshot_encoder" "$protected_git_home"
+          protected_release_object="$snapshot_corpus/releases/$release_name/$release_sha.json"
+          test -f "$protected_release_object"
+          test ! -L "$protected_release_object"
+          sudo chmod 0444 "$protected_release_object"
+          test "$(stat -c '%u:%a' "$protected_release_object")" = "0:444"
+          sudo chmod 0755 "$protected_git_home"
+          SNAPSHOT_GIT_HOME="$protected_git_home"
+          export SNAPSHOT_GIT_HOME
+          RULESPEC_CHECKOUT="$snapshot_checkout"
+          export RULESPEC_CHECKOUT
+          RULESPEC_CORPUS_CHECKOUT="$snapshot_corpus"
+          export RULESPEC_CORPUS_CHECKOUT
+          PROTECTED_ENCODER_CHECKOUT="$snapshot_encoder"
+          export PROTECTED_ENCODER_CHECKOUT
+          RULESPEC_GENERATED_HEAD="$live_rulespec_head_after"
+          export RULESPEC_GENERATED_HEAD
+          # END TARGETED_REENCODE_IMMUTABLE_SNAPSHOT
+          "${verifier_guardian[@]}" \
+            /opt/axiom-verification/axiom-encode-signing-supervisor \
+            --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
+            --trusted-python-runtime-root /opt/axiom-verification/python \
+            --trusted-python-import-root /opt/axiom-verification/python/lib/python3.13/site-packages \
+            --trusted-python-package-root /opt/axiom-verification/python/lib/python3.13/site-packages/axiom_encode \
+            -- /opt/axiom-verification/axiom-encode stage-signed-backfill \
+            --repo "$RULESPEC_CHECKOUT" \
+            --corpus-path "$RULESPEC_CORPUS_CHECKOUT"
+          staged_snapshot_tree="$("${snapshot_git[@]}" \
+            -C "$RULESPEC_CHECKOUT" write-tree)"
+          case "$staged_snapshot_tree" in
+            (*[!0-9a-f]*|'')
+              echo "staged RuleSpec snapshot tree is malformed" >&2
+              exit 1
+              ;;
+          esac
+          test "$staged_snapshot_tree" = "$captured_rulespec_tree"
+          "${verifier_guardian[@]}" \
+            /opt/axiom-verification/axiom-encode-signing-supervisor \
+            --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
+            --trusted-python-runtime-root /opt/axiom-verification/python \
+            --trusted-python-import-root /opt/axiom-verification/python/lib/python3.13/site-packages \
+            --trusted-python-package-root /opt/axiom-verification/python/lib/python3.13/site-packages/axiom_encode \
+            -- /opt/axiom-verification/axiom-encode guard-generated \
+            --repo "$RULESPEC_CHECKOUT" \
+            --corpus-path "$RULESPEC_CORPUS_CHECKOUT" \
+            --expected-encoder-checkout "$PROTECTED_ENCODER_CHECKOUT" \
+            --base-ref "$RULESPEC_REF" \
+            --json > "$RUNNER_TEMP/guard-generated.json"
+          "${snapshot_git[@]}" -C "$RULESPEC_CHECKOUT" status --short \
+            > "$artifact/status.txt"
+          "${snapshot_git[@]}" -C "$RULESPEC_CHECKOUT" diff --name-status \
             "$RULESPEC_REF" HEAD >> "$artifact/status.txt"
           cp "$RUNNER_TEMP/guard-generated.json" "$artifact/guard-generated.json"
           cp "$RUNNER_TEMP/source-bundle.json" "$artifact/source-bundle.json"
           cp "$RUNNER_TEMP/canonical-refresh-bundle.json" \
             "$artifact/canonical-refresh-bundle.json"
+          cp "$RUNNER_TEMP/primary-required-test-cases.json" \
+            "$artifact/primary-required-test-cases.json"
+          cp "$RUNNER_TEMP/target-operation.txt" \
+            "$artifact/target-operation.txt"
+          cp "$RUNNER_TEMP/worktree-copy.json" \
+            "$artifact/worktree-copy.json"
           cp "$RUNNER_TEMP/existing-signed-imports.json" \
             "$artifact/existing-signed-imports.json"
           cp "$RUNNER_TEMP/existing-signed-import-inventory.json" \
@@ -1835,12 +2349,10 @@ jobs:
           if [ -f "$RUNNER_TEMP/target-guard-generated.json" ]; then
             cp "$RUNNER_TEMP/target-guard-generated.json" "$artifact/"
           fi
-          if [ -f "$RUNNER_TEMP/target-preflight-guard-generated.json" ]; then
-            cp "$RUNNER_TEMP/target-preflight-guard-generated.json" "$artifact/"
-          fi
-          "${workflow_python[@]}" - \
-            "$artifact/context-manifest.json" \
-            "$artifact/apply-manifests.json" <<'PY'
+          verify_targeted_context() {
+            "${context_python[@]}" - \
+              "$artifact/context-manifest.json" \
+              "$artifact/apply-manifests.json" <<'PY'
           import hashlib
           import json
           import os
@@ -1858,14 +2370,66 @@ jobs:
               RECEIPT_SCHEMAS,
               RECEIPT_SCHEMAS_WITH_RETAINED_SUCCESSORS,
           )
+          from axiom_encode.prepare_signed_backfill import (
+              _normalize_required_test_cases,
+              parse_existing_signed_imports,
+              parse_source_bundle,
+              split_atomic_source_input,
+          )
           from axiom_encode.rulespec_path_migration import (
               canonical_destination,
               rewrite_exact_references,
           )
 
+          artifact_root = Path(sys.argv[1]).resolve().parent
+          git_environment = {
+              "HOME": os.environ.get(
+                  "SNAPSHOT_GIT_HOME", os.environ["RUNNER_TEMP"]
+              ),
+              "PATH": "/opt/axiom-verification/python/bin",
+          }
+
+          def unique_json_object(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result:
+                      raise ValueError(f"duplicate JSON key: {key}")
+                  result[key] = value
+              return result
+
+          def load_unambiguous_json(raw, *, label):
+              try:
+                  return json.loads(raw, object_pairs_hook=unique_json_object)
+              except (
+                  UnicodeDecodeError,
+                  json.JSONDecodeError,
+                  RecursionError,
+                  TypeError,
+                  ValueError,
+              ) as exc:
+                  raise SystemExit(f"{label} is not unambiguous JSON") from exc
+
+          def canonical_json(value, *, label):
+              try:
+                  return json.dumps(
+                      value,
+                      allow_nan=False,
+                      ensure_ascii=False,
+                      separators=(",", ":"),
+                      sort_keys=True,
+                  )
+              except (TypeError, ValueError) as exc:
+                  raise SystemExit(f"{label} is not canonical JSON") from exc
+
           def git_paths(*args):
               output = subprocess.check_output(
-                  ["git", "-C", os.environ["RULESPEC_CHECKOUT"], *args]
+                  [
+                      "/opt/axiom-verification/python/bin/git",
+                      "-C",
+                      os.environ["RULESPEC_CHECKOUT"],
+                      *args,
+                  ],
+                  env=git_environment,
               )
               return {
                   Path(value.decode("utf-8"))
@@ -1883,7 +2447,7 @@ jobs:
                   raise SystemExit(f"{label} path is not canonical")
               completed = subprocess.run(
                   [
-                      "git",
+                      "/opt/axiom-verification/python/bin/git",
                       "-C",
                       os.environ["RULESPEC_CHECKOUT"],
                       "show",
@@ -1891,6 +2455,7 @@ jobs:
                   ],
                   check=False,
                   capture_output=True,
+                  env=git_environment,
               )
               if completed.returncode != 0:
                   raise SystemExit(f"{label} is absent from the base commit")
@@ -1952,16 +2517,12 @@ jobs:
               )
               if value
           ]
-          try:
-              retained_successor_paths = json.loads(
-                  os.environ.get(
-                      "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON", "[]"
-                  )
-              )
-          except json.JSONDecodeError as exc:
-              raise SystemExit(
-                  "retained successor inputs are not valid JSON"
-              ) from exc
+          retained_successor_paths = load_unambiguous_json(
+              os.environ.get(
+                  "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON", "[]"
+              ),
+              label="retained successor inputs",
+          )
           if not isinstance(retained_successor_paths, list):
               raise SystemExit("retained successor inputs are not a JSON array")
           normalized_retained_successor_paths = []
@@ -1999,12 +2560,15 @@ jobs:
                   )
               normalized_replacement_path = candidate.as_posix()
           expected_citations = {os.environ["CITATION"]}
-          canonical_refresh_path = (
-              Path(os.environ["RUNNER_TEMP"])
-              / "canonical-refresh-bundle.json"
-          )
-          canonical_refresh_items = json.loads(
-              canonical_refresh_path.read_text()
+          canonical_refresh_path = artifact_root / "canonical-refresh-bundle.json"
+          canonical_refresh_items = load_unambiguous_json(
+              read_bounded_regular(
+                  artifact_root,
+                  canonical_refresh_path.name,
+                  label="normalized canonical refresh bundle",
+                  max_bytes=1024 * 1024,
+              ),
+              label="normalized canonical refresh bundle",
           )
           if not isinstance(canonical_refresh_items, list) or not all(
               isinstance(item, dict)
@@ -2099,16 +2663,354 @@ jobs:
               for item in canonical_refresh_items
           ):
               raise SystemExit("normalized canonical refresh bundle is malformed")
+          primary_required_test_cases_path = (
+              artifact_root / "primary-required-test-cases.json"
+          )
+          if primary_required_test_cases_path.exists():
+              primary_required_test_cases = load_unambiguous_json(
+                  read_bounded_regular(
+                      artifact_root,
+                      primary_required_test_cases_path.name,
+                      label="normalized primary required test cases",
+                      max_bytes=1024 * 1024,
+                  ),
+                  label="normalized primary required test cases",
+              )
+          else:
+              primary_required_test_cases = []
+          if (
+              not isinstance(primary_required_test_cases, list)
+              or len(primary_required_test_cases) > 32
+              or not all(
+                  isinstance(case, dict)
+                  and set(case)
+                  == {"name", "period", "input", "required_output"}
+                  and isinstance(case["name"], str)
+                  and case["name"]
+                  and isinstance(case["period"], dict)
+                  and isinstance(case["input"], dict)
+                  and len(case["input"]) <= 64
+                  and isinstance(case["required_output"], dict)
+                  and case["required_output"]
+                  and len(case["required_output"]) <= 64
+                  for case in primary_required_test_cases
+              )
+              or len({case["name"] for case in primary_required_test_cases})
+              != len(primary_required_test_cases)
+          ):
+              raise SystemExit("normalized primary required test cases are malformed")
+          try:
+              primary_required_test_cases = list(
+                  _normalize_required_test_cases(
+                      primary_required_test_cases,
+                      label="normalized primary required test cases",
+                  )
+              )
+              for index, item in enumerate(canonical_refresh_items):
+                  item["required_test_cases"] = list(
+                      _normalize_required_test_cases(
+                          item["required_test_cases"],
+                          label=(
+                              "normalized canonical refresh required test cases "
+                              f"#{index + 1}"
+                          ),
+                      )
+                  )
+          except ValueError as exc:
+              raise SystemExit(
+                  "normalized required test cases failed final bounded validation"
+              ) from exc
+          if canonical_refresh_items and (
+              primary_required_test_cases
+              != canonical_refresh_items[0]["required_test_cases"]
+          ):
+              raise SystemExit(
+                  "primary required test cases differ from the canonical refresh target"
+              )
+          target_operation_path = artifact_root / "target-operation.txt"
+          if normalized_replacement_path:
+              try:
+                  target_operation = read_bounded_regular(
+                      artifact_root,
+                      target_operation_path.name,
+                      label="target operation",
+                      max_bytes=16,
+                  ).decode("ascii").strip()
+              except (OSError, UnicodeDecodeError) as exc:
+                  raise SystemExit("target operation is malformed") from exc
+              if target_operation not in {"create", "replace"}:
+                  raise SystemExit("target operation is malformed")
+          else:
+              target_operation = None
+          if target_operation == "create":
+              target_without_suffix = Path(
+                  normalized_replacement_path
+              ).with_suffix("")
+              target_module = (
+                  f"{target_without_suffix.parts[0]}:"
+                  f"{Path(*target_without_suffix.parts[1:]).as_posix()}"
+              )
+              target_output_prefix = f"{target_module}#"
+              if not primary_required_test_cases or any(
+                  not any(
+                      output.startswith(target_output_prefix)
+                      and len(output) > len(target_output_prefix)
+                      for output in case["required_output"]
+                  )
+                  for case in primary_required_test_cases
+              ):
+                  raise SystemExit(
+                      "creation required test cases do not witness the exact target"
+                  )
+          try:
+              immutable_atomic_source = split_atomic_source_input(
+                  os.environ.get("ATOMIC_SOURCE_JSON", "[]"),
+                  require_v2=bool(normalized_replacement_path),
+              )
+          except ValueError as exc:
+              raise SystemExit(
+                  "atomic source input failed final trusted reparse"
+              ) from exc
+          if normalized_replacement_path and (
+              immutable_atomic_source.get("target_operation") != target_operation
+          ):
+              raise SystemExit(
+                  "persisted target operation differs from atomic source input"
+              )
+          try:
+              immutable_primary_required_test_cases = list(
+                  _normalize_required_test_cases(
+                      immutable_atomic_source.get("primary_required_test_cases"),
+                      label="atomic source primary required test cases",
+                  )
+              )
+          except ValueError as exc:
+              raise SystemExit(
+                  "atomic source required test cases failed final bounded validation"
+              ) from exc
+          if canonical_json(
+              immutable_primary_required_test_cases,
+              label="atomic source primary required test cases",
+          ) != canonical_json(
+              primary_required_test_cases,
+              label="persisted primary required test cases",
+          ):
+              raise SystemExit(
+                  "persisted primary required test cases differ from atomic source input"
+              )
+          immutable_refresh_bundle = immutable_atomic_source.get(
+              "canonical_refresh_bundle"
+          )
+          if not isinstance(immutable_refresh_bundle, list):
+              raise SystemExit("atomic source canonical refresh bundle is malformed")
+          immutable_refresh_intent = []
+          for refresh_item in immutable_refresh_bundle:
+              if (
+                  not isinstance(refresh_item, dict)
+                  or not {"citation", "replace_rulespec_path"}.issubset(
+                      refresh_item
+                  )
+                  or not set(refresh_item).issubset(
+                      {
+                          "citation",
+                          "replace_rulespec_path",
+                          "review_finding",
+                          "deferred_output_contracts",
+                          "required_test_cases",
+                      }
+                  )
+              ):
+                  raise SystemExit(
+                      "atomic source canonical refresh bundle is malformed"
+                  )
+              immutable_refresh_intent.append(
+                  {
+                      "citation": refresh_item["citation"],
+                      "rulespec_path": refresh_item["replace_rulespec_path"],
+                      "review_finding": refresh_item.get("review_finding"),
+                      "deferred_output_contracts": refresh_item.get(
+                          "deferred_output_contracts", []
+                      ),
+                      "required_test_cases": list(
+                          _normalize_required_test_cases(
+                              refresh_item.get("required_test_cases", []),
+                              label=(
+                                  "atomic source canonical refresh required test "
+                                  "cases"
+                              ),
+                          )
+                      ),
+                  }
+              )
+          persisted_refresh_intent = [
+              {
+                  "citation": item["citation"],
+                  "rulespec_path": item["rulespec_path"],
+                  "review_finding": item["review_finding"],
+                  "deferred_output_contracts": item[
+                      "deferred_output_contracts"
+                  ],
+                  "required_test_cases": item["required_test_cases"],
+              }
+              for item in canonical_refresh_items[1:]
+          ]
+          if canonical_json(
+              immutable_refresh_intent,
+              label="atomic source canonical refresh intent",
+          ) != canonical_json(
+              persisted_refresh_intent,
+              label="persisted canonical refresh intent",
+          ):
+              raise SystemExit(
+                  "persisted canonical refresh bundle differs from atomic source input"
+              )
+          expected_creation_target = None
+          if target_operation == "create":
+              target_path = Path(normalized_replacement_path)
+              try:
+                  base_tree = subprocess.check_output(
+                      [
+                          "/usr/bin/git",
+                          "-c",
+                          (
+                              "safe.directory="
+                              f"{os.environ['RULESPEC_CHECKOUT']}"
+                          ),
+                          "-C",
+                          os.environ["RULESPEC_CHECKOUT"],
+                          "rev-parse",
+                          f"{os.environ['RULESPEC_REF']}^{{tree}}",
+                      ],
+                      env=git_environment,
+                      text=True,
+                  ).strip()
+              except subprocess.CalledProcessError as exc:
+                  raise SystemExit(
+                      "cannot resolve the explicit creation base tree"
+                  ) from exc
+              canonical_manifest = (
+                  Path(".axiom/encoding-manifests") / target_path
+              ).with_suffix(".json")
+              orphan_manifest = None
+              if (
+                  len(target_path.parts) >= 3
+                  and target_path.parts[0] == "us"
+                  and target_path.parts[1] in {"policies", "statutes"}
+              ):
+                  orphan_manifest = (
+                      Path(".axiom/encoding-manifests")
+                      / Path(*target_path.parts[1:])
+                  ).with_suffix(".json")
+              expected_creation_target = {
+                  "base_commit": os.environ["RULESPEC_REF"],
+                  "base_tree": base_tree,
+                  "primary": target_path.as_posix(),
+                  "companion": target_path.with_name(
+                      f"{target_path.stem}.test.yaml"
+                  ).as_posix(),
+                  "canonical_manifest": canonical_manifest.as_posix(),
+                  "orphan_manifest": (
+                      orphan_manifest.as_posix()
+                      if orphan_manifest is not None
+                      else None
+                  ),
+              }
           expected_citations.update(
               item["citation"] for item in canonical_refresh_items
           )
-          source_bundle_path = Path(os.environ["RUNNER_TEMP"]) / "source-bundle.json"
-          source_bundle_citations = json.loads(source_bundle_path.read_text())
+          source_bundle_path = artifact_root / "source-bundle.json"
+          source_bundle_citations = load_unambiguous_json(
+              read_bounded_regular(
+                  artifact_root,
+                  source_bundle_path.name,
+                  label="normalized source bundle",
+                  max_bytes=1024 * 1024,
+              ),
+              label="normalized source bundle",
+          )
           if not isinstance(source_bundle_citations, list) or not all(
               isinstance(item, str) and item for item in source_bundle_citations
           ):
               raise SystemExit("normalized source bundle is malformed")
+          try:
+              immutable_source_bundle = list(
+                  parse_source_bundle(
+                      json.dumps(
+                          immutable_atomic_source.get("source_bundle"),
+                          ensure_ascii=False,
+                          separators=(",", ":"),
+                      ),
+                      primary_citation=os.environ["CITATION"],
+                      excluded_citations=tuple(
+                          citation
+                          for citation in (
+                              dependent_citation,
+                              second_dependent_citation,
+                          )
+                          if citation
+                      ),
+                  )
+              )
+          except ValueError as exc:
+              raise SystemExit(
+                  "atomic source source bundle failed final trusted reparse"
+              ) from exc
+          if immutable_source_bundle != source_bundle_citations:
+              raise SystemExit(
+                  "persisted source bundle differs from atomic source input"
+              )
           expected_citations.update(source_bundle_citations)
+          excluded_import_paths = tuple(
+              value
+              for value in (
+                  normalized_replacement_path,
+                  legacy_source_path,
+                  *exact_dependent_paths,
+                  *normalized_retained_successor_paths,
+              )
+              if value
+          )
+          try:
+              expected_existing_imports = [
+                  path.as_posix()
+                  for path in parse_existing_signed_imports(
+                      Path(os.environ["RULESPEC_CHECKOUT"]),
+                      os.environ.get("EXISTING_SIGNED_IMPORTS_JSON", "[]"),
+                      primary_citation=os.environ["CITATION"],
+                      source_bundle_citations=tuple(source_bundle_citations),
+                      excluded_citations=tuple(
+                          citation
+                          for citation in (
+                              dependent_citation,
+                              second_dependent_citation,
+                          )
+                          if citation
+                      ),
+                      excluded_rulespec_paths=excluded_import_paths,
+                  )
+              ]
+          except (OSError, ValueError, json.JSONDecodeError) as exc:
+              raise SystemExit(
+                  "existing signed imports failed final trusted reparse"
+              ) from exc
+          existing_import_bytes = read_bounded_regular(
+              artifact_root,
+              Path("existing-signed-imports.json"),
+              label="normalized existing signed imports",
+              max_bytes=1024 * 1024,
+          )
+          expected_existing_import_bytes = (
+              json.dumps(
+                  expected_existing_imports,
+                  ensure_ascii=False,
+                  separators=(",", ":"),
+              )
+              + "\n"
+          ).encode("utf-8")
+          if existing_import_bytes != expected_existing_import_bytes:
+              raise SystemExit(
+                  "persisted existing signed imports differ from dispatch input"
+              )
           if dependent_citation:
               expected_citations.add(dependent_citation)
           if second_dependent_citation:
@@ -2116,13 +3018,14 @@ jobs:
 
           matches = {}
           for relative_path in sorted(manifest_paths):
-              payload = json.loads(
+              payload = load_unambiguous_json(
                   read_bounded_regular(
                       os.environ["RULESPEC_CHECKOUT"],
                       relative_path,
                       label="changed apply manifest",
                       max_bytes=1024 * 1024,
-                  ).decode("utf-8")
+                  ),
+                  label="changed apply manifest",
               )
               effective = payload
               if (
@@ -2162,20 +3065,14 @@ jobs:
           def normalized_review_contract(refresh_item):
               deferred = refresh_item["deferred_output_contracts"]
               required_cases = refresh_item["required_test_cases"]
-              if not deferred and not required_cases:
-                  return None
               payload = {
-                  "schema": (
-                      "axiom-encode/review-contract/v2"
-                      if required_cases
-                      else "axiom-encode/review-contract/v1"
-                  ),
+                  "schema": "axiom-encode/review-contract/v3",
                   "citation": refresh_item["citation"],
                   "rulespec_path": refresh_item["rulespec_path"],
                   "required_deferred_outputs": deferred,
+                  "required_test_cases": required_cases,
+                  "target_operation": "replace",
               }
-              if required_cases:
-                  payload["required_test_cases"] = required_cases
               return payload
 
           expected = []
@@ -2211,6 +3108,16 @@ jobs:
                       )
                   )
           else:
+              primary_review_contract = None
+              if normalized_replacement_path:
+                  primary_review_contract = {
+                      "schema": "axiom-encode/review-contract/v3",
+                      "citation": os.environ["CITATION"],
+                      "rulespec_path": normalized_replacement_path,
+                      "required_deferred_outputs": [],
+                      "required_test_cases": primary_required_test_cases,
+                      "target_operation": target_operation,
+                  }
               expected.append(
                   (
                       os.environ["CITATION"],
@@ -2220,7 +3127,7 @@ jobs:
                       normalized_replacement_path or None,
                       None,
                       None,
-                      None,
+                      primary_review_contract,
                   )
               )
           for source_index, source_citation in enumerate(
@@ -2331,6 +3238,11 @@ jobs:
                   replacement = applied_manifest.get("replacement")
                   if not isinstance(replacement, dict):
                       raise SystemExit("legacy replacement binding is malformed")
+                  if evidence_manifest.get("target_operation") != "replace":
+                      raise SystemExit(
+                          "legacy replacement model manifest target operation differs "
+                          "from the signed atomic-source transaction"
+                      )
                   receipt_path_raw = replacement.get("receipt_path")
                   if not isinstance(receipt_path_raw, str):
                       raise SystemExit("legacy replacement receipt path is malformed")
@@ -2360,7 +3272,10 @@ jobs:
                       raise SystemExit(
                           "legacy replacement receipt digest does not match"
                       )
-                  receipt = json.loads(receipt_bytes)
+                  receipt = load_unambiguous_json(
+                      receipt_bytes,
+                      label="legacy replacement receipt",
+                  )
                   receipt_replacement = receipt.get("replacement")
                   receipt_schema = receipt.get("schema_version")
                   if receipt_schema not in RECEIPT_SCHEMAS:
@@ -2657,7 +3572,10 @@ jobs:
                           label="legacy retained successor manifest",
                           max_bytes=1024 * 1024,
                       )
-                      retained_manifest = json.loads(retained_manifest_bytes)
+                      retained_manifest = load_unambiguous_json(
+                          retained_manifest_bytes,
+                          label="legacy retained successor manifest",
+                      )
                       migration = retained_manifest.get("legacy_migration")
                       if (
                           retained_manifest.get("tool")
@@ -2717,7 +3635,10 @@ jobs:
                           label="legacy exact dependent manifest",
                           max_bytes=1024 * 1024,
                       )
-                      exact_manifest = json.loads(exact_manifest_bytes)
+                      exact_manifest = load_unambiguous_json(
+                          exact_manifest_bytes,
+                          label="legacy exact dependent manifest",
+                      )
                       migration = exact_manifest.get("legacy_migration")
                       if (
                           exact_manifest.get("tool")
@@ -2857,6 +3778,45 @@ jobs:
                           "replacement apply manifest primary path does not "
                           "match the requested RuleSpec target"
                       )
+              if (
+                  isinstance(expected_review_contract, dict)
+                  and expected_review_contract.get("schema")
+                  == "axiom-encode/review-contract/v3"
+              ):
+                  expected_operation = expected_review_contract["target_operation"]
+                  creation_target = evidence_manifest.get("creation_target")
+                  if evidence_manifest.get("target_operation") != expected_operation or (
+                      expected_operation == "create"
+                      and creation_target != expected_creation_target
+                  ) or (
+                      expected_operation == "replace"
+                      and creation_target is not None
+                  ):
+                      raise SystemExit(
+                          "signed apply manifest target operation differs from "
+                          "the normalized review contract"
+                      )
+              if (
+                  lane == "target"
+                  and normalized_replacement_path
+                  and not legacy_source_path
+              ):
+                  creation_target = applied_manifest.get("creation_target")
+                  if applied_manifest.get("target_operation") != target_operation or (
+                      target_operation == "create"
+                      and (
+                          creation_target != expected_creation_target
+                          or relative_path.as_posix()
+                          != expected_creation_target["canonical_manifest"]
+                      )
+                  ) or (
+                      target_operation == "replace"
+                      and creation_target is not None
+                  ):
+                      raise SystemExit(
+                          "applied manifest target operation differs from the "
+                          "signed atomic-source transaction"
+                      )
               context_path = Path(
                   evidence_manifest["context_manifest_file"]
               ).resolve()
@@ -2878,7 +3838,10 @@ jobs:
               ):
                   raise SystemExit("signed context manifest digest does not match")
 
-              context_payload = json.loads(context_bytes)
+              context_payload = load_unambiguous_json(
+                  context_bytes,
+                  label="signed context manifest",
+              )
               if context_payload.get("citation") != citation:
                   raise SystemExit(
                       "signed context manifest citation does not match"
@@ -2992,20 +3955,84 @@ jobs:
               + "\n",
               encoding="utf-8",
           )
+          if os.environ.get("SEALED_ARTIFACT_REVALIDATION") == "1":
+              expected_artifact_names = {
+                  "apply-manifests.json",
+                  "canonical-refresh-bundle.json",
+                  "existing-signed-imports.json",
+                  "guard-generated.json",
+                  "metadata.json",
+                  "primary-required-test-cases.json",
+                  "rulespec-generated-head.txt",
+                  "rulespec-tree.txt",
+                  "signed-import-inventory.json",
+                  "source-bundle.json",
+                  "status.txt",
+                  "target-operation.txt",
+                  "worktree-copy.json",
+              }
+              expected_artifact_names.update(
+                  destination.name
+                  for _, _, destination, _, _, _, _, _ in expected
+              )
+              if legacy_source_path:
+                  expected_artifact_names.add("legacy-replacement-receipt.json")
+              actual_artifact_names = {path.name for path in artifact_root.iterdir()}
+              if actual_artifact_names != expected_artifact_names:
+                  extra = sorted(actual_artifact_names - expected_artifact_names)
+                  missing = sorted(expected_artifact_names - actual_artifact_names)
+                  raise SystemExit(
+                      "sealed artifact inventory differs from this transaction: "
+                      f"extra={extra}, missing={missing}"
+                  )
+          if (
+              normalized_replacement_path
+              and not legacy_source_path
+              and target_operation == "replace"
+              and (
+                  immutable_source_bundle
+                  or source_bundle_citations
+                  or immutable_refresh_bundle
+                  or len(canonical_refresh_items) > 1
+              )
+          ):
+              raise SystemExit(
+                  "nonlegacy explicit target_operation=replace cannot use "
+                  "source_bundle or a nonempty canonical_refresh_bundle until "
+                  "signed replacement_target evidence and expected-parent lineage "
+                  "are enforced"
+              )
           PY
-          "${workflow_python[@]}" - "$artifact/metadata.json" <<'PY'
+          }
+          context_python=("${workflow_python[@]}")
+          verify_targeted_context
+          # END TARGETED_REENCODE_CONTEXT_VERIFIER
+          validated_snapshot_tree="$("${snapshot_git[@]}" \
+            -C "$RULESPEC_CHECKOUT" write-tree)"
+          test "$validated_snapshot_tree" = "$staged_snapshot_tree"
+          "${snapshot_git[@]}" -C "$RULESPEC_CHECKOUT" diff --quiet --
+          test -z "$("${snapshot_git[@]}" -C "$RULESPEC_CHECKOUT" \
+            ls-files --others)"
+          printf '%s\n' "$validated_snapshot_tree" \
+            > "$artifact/rulespec-tree.txt"
+          write_targeted_metadata() {
+            "${metadata_python[@]}" - "$artifact/metadata.json" <<'PY'
           import hashlib
           import json
           import os
           import re
-          import subprocess
           import sys
           from pathlib import Path
 
-          def rev(path):
-              return subprocess.check_output(
-                  ["git", "-C", path, "rev-parse", "HEAD"], text=True
-              ).strip()
+          artifact_root = Path(sys.argv[1]).resolve().parent
+          rulespec_generated_head = os.environ.get("RULESPEC_GENERATED_HEAD", "")
+          if re.fullmatch(r"[0-9a-f]{40}", rulespec_generated_head) is None:
+              raise SystemExit("captured generated RuleSpec head is malformed")
+          rulespec_validated_tree = (
+              artifact_root / "rulespec-tree.txt"
+          ).read_text(encoding="ascii").strip()
+          if re.fullmatch(r"[0-9a-f]{40}", rulespec_validated_tree) is None:
+              raise SystemExit("validated RuleSpec tree is malformed")
 
           repair_run_id = os.environ.get("REPAIR_RUN_ID") or None
           repair_candidate = None
@@ -3052,27 +4079,22 @@ jobs:
               "schema": "axiom-encode/targeted-reencode-artifact/v1",
               "citation": os.environ["CITATION"],
               "canonical_refresh_bundle": json.loads(
-                  (
-                      Path(os.environ["RUNNER_TEMP"])
-                      / "canonical-refresh-bundle.json"
-                  ).read_text(encoding="utf-8")
+                  (artifact_root / "canonical-refresh-bundle.json").read_text(
+                      encoding="utf-8"
+                  )
               ),
               "source_bundle": json.loads(
-                  (
-                      Path(os.environ["RUNNER_TEMP"]) / "source-bundle.json"
-                  ).read_text(encoding="utf-8")
+                  (artifact_root / "source-bundle.json").read_text(
+                      encoding="utf-8"
+                  )
               ),
               "existing_signed_imports": json.loads(
-                  (
-                      Path(os.environ["RUNNER_TEMP"])
-                      / "existing-signed-imports.json"
-                  ).read_text(encoding="utf-8")
+                  (artifact_root / "existing-signed-imports.json").read_text(
+                      encoding="utf-8"
+                  )
               ),
               "signed_import_inventory_sha256": hashlib.sha256(
-                  (
-                      Path(os.environ["RUNNER_TEMP"])
-                      / "existing-signed-import-inventory.json"
-                  ).read_bytes()
+                  (artifact_root / "signed-import-inventory.json").read_bytes()
               ).hexdigest(),
               "dependent_citation": os.environ.get("DEPENDENT_CITATION") or None,
               "second_dependent_citation": (
@@ -3109,10 +4131,11 @@ jobs:
                   os.environ.get("QUEUE_MANIFEST_SHA256") or None
               ),
               "rulespec_base": os.environ["RULESPEC_REF"],
-              "rulespec_generated_head": rev(os.environ["RULESPEC_CHECKOUT"]),
-              "encoder_commit": rev("axiom-encode"),
-              "corpus_commit": rev("axiom-corpus"),
-              "rules_engine_commit": rev("axiom-rules-engine"),
+              "rulespec_generated_head": rulespec_generated_head,
+              "rulespec_validated_tree": rulespec_validated_tree,
+              "encoder_commit": os.environ["GITHUB_SHA"],
+              "corpus_commit": os.environ["CORPUS_REF"],
+              "rules_engine_commit": os.environ["RULES_ENGINE_REF"],
               "workflow_run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
               "workflow_run_id": os.environ["GITHUB_RUN_ID"],
           }
@@ -3120,7 +4143,129 @@ jobs:
               json.dump(payload, stream, indent=2, sort_keys=True)
               stream.write("\n")
           PY
+          }
+          metadata_python=("${workflow_python[@]}")
+          write_targeted_metadata
           test -s "$artifact/status.txt"
+          seal_tool="$snapshot_encoder/scripts/seal_targeted_reencode_artifact.py"
+          sealed_artifact="$snapshot_parent/artifact"
+          sudo /opt/axiom-verification/python/bin/python -I "$seal_tool" copy \
+            --exclude-guard-logs "$artifact" "$sealed_artifact"
+          artifact="$sealed_artifact"
+          "${verifier_guardian[@]}" \
+            /opt/axiom-verification/axiom-encode-signing-supervisor \
+            --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
+            --trusted-python-runtime-root /opt/axiom-verification/python \
+            --trusted-python-import-root /opt/axiom-verification/python/lib/python3.13/site-packages \
+            --trusted-python-package-root /opt/axiom-verification/python/lib/python3.13/site-packages/axiom_encode \
+            -- /opt/axiom-verification/axiom-encode guard-generated \
+            --repo "$RULESPEC_CHECKOUT" \
+            --corpus-path "$RULESPEC_CORPUS_CHECKOUT" \
+            --expected-encoder-checkout "$PROTECTED_ENCODER_CHECKOUT" \
+            --base-ref "$RULESPEC_REF" \
+            --json | sudo tee "$artifact/guard-generated.json" > /dev/null
+          sudo /usr/bin/jq -e \
+            'type == "array" and all(.[]; type == "string" and length > 0)' \
+            "$artifact/existing-signed-imports.json" > /dev/null
+          mapfile -t protected_existing_import_paths < <(sudo /usr/bin/jq -r '.[]' \
+            "$artifact/existing-signed-imports.json")
+          if [ "${#protected_existing_import_paths[@]}" -gt 0 ]; then
+            protected_import_args=(
+              "${verifier_guardian[@]}"
+              /opt/axiom-verification/axiom-encode-signing-supervisor
+              --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json
+              --trusted-python-runtime-root /opt/axiom-verification/python
+              --trusted-python-import-root /opt/axiom-verification/python/lib/python3.13/site-packages
+              --trusted-python-package-root /opt/axiom-verification/python/lib/python3.13/site-packages/axiom_encode
+              -- /opt/axiom-verification/axiom-encode signed-import-inventory
+              --repo "$RULESPEC_CHECKOUT"
+              --corpus-path "$RULESPEC_CORPUS_CHECKOUT"
+              --base-ref "$RULESPEC_REF"
+              --expected-encoder-checkout "$PROTECTED_ENCODER_CHECKOUT"
+              --json
+            )
+            for protected_import_path in "${protected_existing_import_paths[@]}"; do
+              protected_import_args+=(--rulespec-path "$protected_import_path")
+            done
+            "${protected_import_args[@]}" | sudo tee \
+              "$artifact/signed-import-inventory.json" > /dev/null
+          else
+            sudo /opt/axiom-verification/python/bin/python -I - \
+              "$RULESPEC_REF" "$artifact/signed-import-inventory.json" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          Path(sys.argv[2]).write_text(
+              json.dumps(
+                  {
+                      "items": [],
+                      "rulespec_base": sys.argv[1],
+                      "schema": "axiom-encode/signed-import-inventory/v1",
+                      "verifier_encoder_identity": None,
+                  },
+                  indent=2,
+                  sort_keys=True,
+              )
+              + "\n",
+              encoding="utf-8",
+          )
+          PY
+          fi
+          {
+            sudo env -i HOME=/nonexistent PATH=/usr/bin:/bin \
+              /usr/bin/git -c "safe.directory=$RULESPEC_CHECKOUT" \
+              -C "$RULESPEC_CHECKOUT" status --short
+            sudo env -i HOME=/nonexistent PATH=/usr/bin:/bin \
+              /usr/bin/git -c "safe.directory=$RULESPEC_CHECKOUT" \
+              -C "$RULESPEC_CHECKOUT" diff --name-status \
+              "$RULESPEC_REF" HEAD
+          } | sudo tee "$artifact/status.txt" > /dev/null
+          printf '%s\n' "$RULESPEC_GENERATED_HEAD" | sudo tee \
+            "$artifact/rulespec-generated-head.txt" > /dev/null
+          printf '%s\n' "$validated_snapshot_tree" | sudo tee \
+            "$artifact/rulespec-tree.txt" > /dev/null
+          preserved_context_env="ATOMIC_SOURCE_JSON,CITATION,CORPUS_REF"
+          preserved_context_env+=",DEPENDENT_CITATION,DEPENDENT_REVIEW_FINDING"
+          preserved_context_env+=",EXISTING_SIGNED_IMPORTS_JSON"
+          preserved_context_env+=",GITHUB_RUN_ATTEMPT,GITHUB_RUN_ID,GITHUB_SHA"
+          preserved_context_env+=",LEGACY_EXACT_DEPENDENT_RULESPEC_PATH"
+          preserved_context_env+=",LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON"
+          preserved_context_env+=",PR_BASE_BRANCH,PROTECTED_ENCODER_CHECKOUT"
+          preserved_context_env+=",QUEUE_ID,QUEUE_ITEM_GENERATION_SHA256"
+          preserved_context_env+=",QUEUE_ITEM_ID,QUEUE_MANIFEST_SHA256"
+          preserved_context_env+=",REPAIR_CANDIDATE_PATH,REPAIR_CANDIDATE_RUNNER"
+          preserved_context_env+=",REPAIR_CANDIDATE_RULESPEC_SHA256"
+          preserved_context_env+=",REPAIR_CANDIDATE_SOURCE_RULESPEC_REF"
+          preserved_context_env+=",REPAIR_CANDIDATE_TESTS_SHA256,REPAIR_RUN_ID"
+          preserved_context_env+=",REPLACE_LEGACY_RULESPEC_PATH"
+          preserved_context_env+=",REPLACE_RULESPEC_PATH,REVIEW_FINDING"
+          preserved_context_env+=",RULESPEC_CHECKOUT,RULESPEC_GENERATED_HEAD"
+          preserved_context_env+=",RULESPEC_REF,RULES_ENGINE_REF,RUNNER_TEMP"
+          preserved_context_env+=",SEALED_ARTIFACT_REVALIDATION"
+          preserved_context_env+=",SECOND_DEPENDENT_CITATION"
+          preserved_context_env+=",SECOND_DEPENDENT_REVIEW_FINDING"
+          preserved_context_env+=",SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH"
+          preserved_context_env+=",SNAPSHOT_GIT_HOME"
+          sealed_python=(sudo "--preserve-env=$preserved_context_env" \
+            /opt/axiom-verification/python/bin/python -I)
+          SEALED_ARTIFACT_REVALIDATION=1
+          export SEALED_ARTIFACT_REVALIDATION
+          context_python=("${sealed_python[@]}")
+          verify_targeted_context
+          metadata_python=("${sealed_python[@]}")
+          write_targeted_metadata
+          test "$validated_snapshot_tree" = \
+            "$("${snapshot_git[@]}" -C "$RULESPEC_CHECKOUT" write-tree)"
+          "${snapshot_git[@]}" -C "$RULESPEC_CHECKOUT" diff --quiet --
+          test -z "$("${snapshot_git[@]}" -C "$RULESPEC_CHECKOUT" \
+            ls-files --others)"
+          artifact_manifest_sha256="$(sudo \
+            /opt/axiom-verification/python/bin/python -I "$seal_tool" \
+            seal "$artifact")"
+          test "$artifact_manifest_sha256" = "$(sudo \
+            /opt/axiom-verification/python/bin/python -I "$seal_tool" \
+            verify --require-root-owned "$artifact")"
 
       - name: Commit reviewed lane changes locally
         id: commit_reviewed_lane_changes
@@ -3128,37 +4273,76 @@ jobs:
         env:
           COUNTRY: ${{ inputs.country }}
           CITATION: ${{ inputs.citation }}
-          RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
+          RULESPEC_REF: ${{ inputs.rulespec_ref }}
         run: |
           set -euo pipefail
-          workflow_python=(/opt/axiom-verification/python/bin/python -I)
-          if [ ! -x "${workflow_python[0]}" ]; then
-            workflow_python=("${AXIOM_TEST_PYTHON:-python}")
-          fi
-          branch="$("${workflow_python[@]}" \
-            axiom-encode/scripts/prepare_signed_backfill.py branch-name \
-            "$COUNTRY" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT")"
-          git -C "$RULESPEC_CHECKOUT" switch -c "$branch"
-          if jq -e 'length > 0' \
-               "$RUNNER_TEMP/source-bundle.json" > /dev/null || \
-             jq -e 'length > 0' \
-               "$RUNNER_TEMP/canonical-refresh-bundle.json" > /dev/null; then
-            test -z "$(git -C "$RULESPEC_CHECKOUT" status --porcelain)"
-          else
+          snapshot_parent="/opt/axiom-verification/targeted-reencode-snapshot-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          RULESPEC_CHECKOUT="$snapshot_parent/rulespec-${COUNTRY}"
+          RULESPEC_CORPUS_CHECKOUT="$snapshot_parent/axiom-corpus"
+          PROTECTED_ENCODER_CHECKOUT="$snapshot_parent/axiom-encode"
+          protected_git_home="$snapshot_parent/git-home"
+          artifact="$snapshot_parent/artifact"
+          seal_tool="$PROTECTED_ENCODER_CHECKOUT/scripts/seal_targeted_reencode_artifact.py"
+          verifier_uid="$(id -u axiom-verifier)"
+          verifier_gid="$(id -g axiom-verifier)"
+          verifier_guardian=(
+            sudo /opt/axiom-verification/axiom-encode-process-guardian
+            run --uid "$verifier_uid" --gid "$verifier_gid" --
+          )
+          snapshot_git=(sudo -u axiom-verifier -- env -i \
+            HOME="$protected_git_home" PATH=/usr/bin:/bin /usr/bin/git)
+          artifact_manifest_sha256="$(sudo \
+            /opt/axiom-verification/python/bin/python -I "$seal_tool" \
+            verify --require-root-owned "$artifact")"
+          validated_tree="$("${snapshot_git[@]}" -C "$RULESPEC_CHECKOUT" \
+            write-tree)"
+          "${verifier_guardian[@]}" \
             /opt/axiom-verification/axiom-encode-signing-supervisor \
-              --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
-              --trusted-python-runtime-root /opt/axiom-verification/python \
-              --trusted-python-import-root /opt/axiom-verification/python/lib/python3.13/site-packages \
-              --trusted-python-package-root /opt/axiom-verification/python/lib/python3.13/site-packages/axiom_encode \
-              -- /opt/axiom-verification/axiom-encode stage-signed-backfill \
-              --repo "$RULESPEC_CHECKOUT" \
-              --corpus-path "$GITHUB_WORKSPACE/axiom-corpus"
-            git -C "$RULESPEC_CHECKOUT" \
-              -c core.hooksPath=/dev/null \
-              -c user.name=axiom-encode-bot \
-              -c user.email=axiom-encode-bot@users.noreply.github.com \
-              commit -m "Add signed encoding manifest for ${CITATION}"
-          fi
+            --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
+            --trusted-python-runtime-root /opt/axiom-verification/python \
+            --trusted-python-import-root /opt/axiom-verification/python/lib/python3.13/site-packages \
+            --trusted-python-package-root /opt/axiom-verification/python/lib/python3.13/site-packages/axiom_encode \
+            -- /opt/axiom-verification/axiom-encode stage-signed-backfill \
+            --repo "$RULESPEC_CHECKOUT" \
+            --corpus-path "$RULESPEC_CORPUS_CHECKOUT"
+          test "$("${snapshot_git[@]}" -C "$RULESPEC_CHECKOUT" write-tree)" = \
+            "$validated_tree"
+          "${verifier_guardian[@]}" \
+            /opt/axiom-verification/axiom-encode-signing-supervisor \
+            --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
+            --trusted-python-runtime-root /opt/axiom-verification/python \
+            --trusted-python-import-root /opt/axiom-verification/python/lib/python3.13/site-packages \
+            --trusted-python-package-root /opt/axiom-verification/python/lib/python3.13/site-packages/axiom_encode \
+            -- /opt/axiom-verification/axiom-encode guard-generated \
+            --repo "$RULESPEC_CHECKOUT" \
+            --corpus-path "$RULESPEC_CORPUS_CHECKOUT" \
+            --expected-encoder-checkout "$PROTECTED_ENCODER_CHECKOUT" \
+            --base-ref "$RULESPEC_REF"
+          "${snapshot_git[@]}" -C "$RULESPEC_CHECKOUT" \
+            -c core.hooksPath=/dev/null \
+            -c user.name=axiom-encode-bot \
+            -c user.email=axiom-encode-bot@users.noreply.github.com \
+            commit -m "Add signed encoding manifest for ${CITATION}" \
+            -m "Axiom-Artifact-Manifest-SHA256: ${artifact_manifest_sha256}"
+          publication_commit="$("${snapshot_git[@]}" \
+            -C "$RULESPEC_CHECKOUT" rev-parse HEAD)"
+          test "$("${snapshot_git[@]}" -C "$RULESPEC_CHECKOUT" \
+            rev-parse HEAD^)" = "$RULESPEC_REF"
+          test "$("${snapshot_git[@]}" -C "$RULESPEC_CHECKOUT" \
+            rev-parse HEAD^{tree})" = "$validated_tree"
+          test -z "$("${snapshot_git[@]}" -C "$RULESPEC_CHECKOUT" \
+            status --porcelain)"
+          publication_tree="$("${snapshot_git[@]}" -C "$RULESPEC_CHECKOUT" \
+            rev-parse HEAD^{tree})"
+          test "$("${snapshot_git[@]}" -C "$RULESPEC_CHECKOUT" \
+            log -1 --format=%B | tail -n 1)" = \
+            "Axiom-Artifact-Manifest-SHA256: ${artifact_manifest_sha256}"
+          sudo /opt/axiom-verification/python/bin/python -I "$seal_tool" \
+            write-publication-witness "$artifact" \
+            "$snapshot_parent/publication-witness.json" \
+            --base-commit "$RULESPEC_REF" \
+            --publication-commit "$publication_commit" \
+            --publication-tree "$publication_tree"
 
       - name: Push lane branch and open draft pull request
         id: publish_lane_pull_request
@@ -3179,7 +4363,6 @@ jobs:
           QUEUE_ITEM_GENERATION_SHA256: ${{ inputs.queue_item_generation_sha256 }}
           QUEUE_MANIFEST_SHA256: ${{ inputs.queue_manifest_sha256 }}
           REPAIR_RUN_ID: ${{ inputs.repair_run_id }}
-          RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
         run: |
           set -euo pipefail
           test -n "$GH_TOKEN"
@@ -3188,18 +4371,65 @@ jobs:
             workflow_python=("${AXIOM_TEST_PYTHON:-python}")
           fi
           repo="TheAxiomFoundation/rulespec-${COUNTRY}"
-          git -C "$RULESPEC_CHECKOUT" fetch --no-tags origin \
-            "+refs/heads/${PR_BASE_BRANCH}:refs/remotes/origin/${PR_BASE_BRANCH}"
-          test "$(git -C "$RULESPEC_CHECKOUT" rev-parse \
-            "refs/remotes/origin/${PR_BASE_BRANCH}")" = "$RULESPEC_REF"
+          snapshot_parent="/opt/axiom-verification/targeted-reencode-snapshot-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          RULESPEC_CHECKOUT="$snapshot_parent/rulespec-${COUNTRY}"
+          artifact="$snapshot_parent/artifact"
+          publication_witness="$snapshot_parent/publication-witness.json"
+          publication_receipt="$snapshot_parent/publication-receipt.json"
+          seal_tool="$snapshot_parent/axiom-encode/scripts/seal_targeted_reencode_artifact.py"
+          publish_git_home="$snapshot_parent/publish-git-home"
+          publish_git_config="$publish_git_home/.gitconfig"
+          test ! -e "$publish_git_home"
+          test -x /usr/bin/gh
+          test "$(stat -c '%u:%a' /usr/bin/gh)" = "0:755"
+          sudo mkdir -m 0755 "$publish_git_home"
+          sudo /usr/bin/git config --file "$publish_git_config" --add \
+            credential.https://github.com.helper ""
+          sudo /usr/bin/git config --file "$publish_git_config" --add \
+            credential.https://github.com.helper \
+            "!/usr/bin/gh auth git-credential"
+          sudo chown root:root "$publish_git_config"
+          sudo chmod 0444 "$publish_git_config"
+          mapfile -t protected_helpers < <(/usr/bin/git config \
+            --file "$publish_git_config" --get-all \
+            credential.https://github.com.helper)
+          test "${#protected_helpers[@]}" -eq 2
+          test -z "${protected_helpers[0]}"
+          test "${protected_helpers[1]}" = \
+            "!/usr/bin/gh auth git-credential"
+          test "$(stat -c '%u:%a' "$publish_git_home")" = "0:755"
+          test "$(stat -c '%u:%a' "$publish_git_config")" = "0:444"
+          test "$(/usr/bin/git config --file "$publish_git_config" \
+            --name-only --list | sort -u)" = \
+            "credential.https://github.com.helper"
+          publish_git=(env -i HOME=/nonexistent GH_TOKEN="$GH_TOKEN" \
+            GIT_CONFIG_GLOBAL="$publish_git_config" GIT_CONFIG_NOSYSTEM=1 \
+            GIT_OPTIONAL_LOCKS=0 GIT_TERMINAL_PROMPT=0 \
+            PATH=/usr/bin:/bin /usr/bin/git)
+          protected_gh=(env -i HOME=/nonexistent GH_TOKEN="$GH_TOKEN" \
+            GH_PROMPT_DISABLED=1 PATH=/usr/bin:/bin \
+            /usr/bin/gh api --hostname github.com)
+          protected_git=("${publish_git[@]}" \
+            -c "safe.directory=$RULESPEC_CHECKOUT" -C "$RULESPEC_CHECKOUT")
+          test "$("${protected_git[@]}" remote get-url origin)" = \
+            "https://github.com/${repo}.git"
+          test -z "$("${protected_git[@]}" config --local --get-regexp \
+            '^(credential|http|url)\.' || true)"
+          remote_base="$("${publish_git[@]}" ls-remote --exit-code \
+            "https://github.com/${repo}.git" \
+            "refs/heads/${PR_BASE_BRANCH}")"
+          read -r remote_base_sha remote_base_ref <<< "$remote_base"
+          test "$remote_base_sha" = "$RULESPEC_REF"
+          test "$remote_base_ref" = "refs/heads/${PR_BASE_BRANCH}"
           branch="$("${workflow_python[@]}" \
-            axiom-encode/scripts/prepare_signed_backfill.py branch-name \
+            "$snapshot_parent/axiom-encode/scripts/prepare_signed_backfill.py" \
+            branch-name \
             "$COUNTRY" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT")"
-          source_bundle="$(tr -d '\n' < "$RUNNER_TEMP/source-bundle.json")"
+          source_bundle="$(tr -d '\n' < "$artifact/source-bundle.json")"
           canonical_refresh_bundle="$(tr -d '\n' \
-            < "$RUNNER_TEMP/canonical-refresh-bundle.json")"
+            < "$artifact/canonical-refresh-bundle.json")"
           existing_signed_imports="$(tr -d '\n' \
-            < "$RUNNER_TEMP/existing-signed-imports.json")"
+            < "$artifact/existing-signed-imports.json")"
           body="$(printf '%s\n' \
             '## Signed apply manifest' \
             '' \
@@ -3221,52 +4451,116 @@ jobs:
             "Axiom Encode run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
             '' \
             'This draft PR was produced by the protected country-general signed-apply workflow. Review all RuleSpec and manifest changes before marking it ready.')"
-          gh auth setup-git
-          git -C "$RULESPEC_CHECKOUT" -c core.hooksPath=/dev/null push \
-            "https://github.com/${repo}.git" "HEAD:refs/heads/${branch}"
-          gh api --method POST "repos/${repo}/pulls" \
+          expected_rulespec_tree="$(tr -d '\n' \
+            < "$artifact/rulespec-tree.txt")"
+          artifact_manifest_sha256="$(sudo \
+            /opt/axiom-verification/python/bin/python -I "$seal_tool" \
+            verify --require-root-owned "$artifact")"
+          publication_commit="$(jq -r '.publication_commit' \
+            "$publication_witness")"
+          if [[ ! "$publication_commit" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "protected publication commit is malformed" >&2
+            exit 1
+          fi
+          test "$("${protected_git[@]}" rev-parse HEAD)" = \
+            "$publication_commit"
+          publication_tree="$("${protected_git[@]}" rev-parse HEAD^{tree})"
+          test "$("${protected_git[@]}" rev-parse HEAD^)" = "$RULESPEC_REF"
+          jq -e \
+            --arg artifact_manifest_sha256 "$artifact_manifest_sha256" \
+            --arg base "$RULESPEC_REF" \
+            --arg commit "$publication_commit" \
+            --arg tree "$publication_tree" \
+            '.schema == "axiom-encode/protected-publication-witness/v1" and
+             .artifact_manifest_sha256 == $artifact_manifest_sha256 and
+             .base_commit == $base and .publication_commit == $commit and
+             .publication_tree == $tree' \
+            "$publication_witness" > /dev/null
+          test "$("${protected_git[@]}" log -1 --format=%B | tail -n 1)" = \
+            "Axiom-Artifact-Manifest-SHA256: ${artifact_manifest_sha256}"
+          jq -e \
+            --arg tree "$publication_tree" \
+            '.rulespec_validated_tree == $tree' \
+            "$artifact/metadata.json" > /dev/null
+          test "$publication_tree" = "$expected_rulespec_tree"
+          test -z "$("${protected_git[@]}" status --porcelain)"
+          "${protected_git[@]}" -c core.hooksPath=/dev/null push \
+            "https://github.com/${repo}.git" \
+            "${publication_commit}:refs/heads/${branch}"
+          lane_pull_request="$("${protected_gh[@]}" --method POST \
+            "repos/${repo}/pulls" \
             -f title="Add signed encoding manifest for ${CITATION}" \
             -f head="TheAxiomFoundation:${branch}" \
             -f base="$PR_BASE_BRANCH" \
             -f body="$body" \
-            -F draft=true > "$RUNNER_TEMP/lane-pull-request.json"
+            -F draft=true)"
+          published_head="$("${publish_git[@]}" ls-remote --exit-code \
+            "https://github.com/${repo}.git" "refs/heads/${branch}")"
+          read -r published_head_sha published_head_ref <<< "$published_head"
           if ! jq -e \
-            --arg branch "$PR_BASE_BRANCH" \
-            --arg sha "$RULESPEC_REF" \
-            '.base.ref == $branch and .base.sha == $sha' \
-            "$RUNNER_TEMP/lane-pull-request.json" > /dev/null; then
-            pr_number="$(jq -r '.number // empty' \
-              "$RUNNER_TEMP/lane-pull-request.json")"
+            --arg base_branch "$PR_BASE_BRANCH" \
+            --arg base_sha "$RULESPEC_REF" \
+            --arg head_branch "$branch" \
+            --arg head_sha "$publication_commit" \
+            --arg repo "$repo" \
+            '(.number | type) == "number" and .number > 0 and
+             .draft == true and .state == "open" and
+             .base.ref == $base_branch and .base.sha == $base_sha and
+             .base.repo.full_name == $repo and
+             .head.ref == $head_branch and .head.sha == $head_sha and
+             .head.repo.full_name == $repo' \
+            <<< "$lane_pull_request" > /dev/null; then
+            pr_number="$(jq -r '.number // empty' <<< "$lane_pull_request")"
             if test -n "$pr_number"; then
-              gh api --method PATCH "repos/${repo}/pulls/${pr_number}" \
+              "${protected_gh[@]}" --method PATCH \
+                "repos/${repo}/pulls/${pr_number}" \
                 -f state=closed || echo "warning: failed to close stale-base PR" >&2
             fi
-            git -C "$RULESPEC_CHECKOUT" push \
+            "${publish_git[@]}" push \
               "https://github.com/${repo}.git" \
               ":refs/heads/${branch}" ||
               echo "warning: failed to delete stale-base lane branch" >&2
-            echo "created pull request does not target the reviewed base SHA" >&2
+            echo "created pull request does not bind the reviewed base and head" >&2
             exit 1
           fi
-          cp "$RUNNER_TEMP/lane-pull-request.json" \
-            "$RUNNER_TEMP/targeted-reencode/lane-pull-request.json"
+          test "$published_head_sha" = "$publication_commit"
+          test "$published_head_ref" = "refs/heads/${branch}"
+          printf '%s\n' "$lane_pull_request" | sudo \
+            /opt/axiom-verification/python/bin/python -I "$seal_tool" \
+            write-publication-receipt "$publication_receipt" \
+            --base-branch "$PR_BASE_BRANCH" \
+            --base-commit "$RULESPEC_REF" \
+            --head-branch "$branch" \
+            --head-commit "$publication_commit" \
+            --repository "$repo"
 
       - name: Finalize signed re-encode artifact checksums
         id: finalize_signed_reencode_artifact
         run: |
           set -euo pipefail
-          artifact="$RUNNER_TEMP/targeted-reencode"
-          (
-            cd "$artifact"
-            sha256sum * > SHA256SUMS
-          )
+          snapshot_parent="/opt/axiom-verification/targeted-reencode-snapshot-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          artifact="$snapshot_parent/artifact"
+          seal_tool="$snapshot_parent/axiom-encode/scripts/seal_targeted_reencode_artifact.py"
+          sudo /opt/axiom-verification/python/bin/python -I "$seal_tool" \
+            verify --require-root-owned "$artifact"
 
       - name: Upload signed re-encode artifact
         id: upload_signed_reencode_artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: targeted-reencode-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/targeted-reencode
+          path: /opt/axiom-verification/targeted-reencode-snapshot-${{ github.run_id }}-${{ github.run_attempt }}/artifact
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload protected publication witnesses
+        if: ${{ inputs.open_pr }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: targeted-reencode-publication-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            /opt/axiom-verification/targeted-reencode-snapshot-${{ github.run_id }}-${{ github.run_attempt }}/publication-witness.json
+            /opt/axiom-verification/targeted-reencode-snapshot-${{ github.run_id }}-${{ github.run_attempt }}/publication-receipt.json
           if-no-files-found: error
           retention-days: 90
 
@@ -3494,7 +4788,6 @@ jobs:
           guard_candidates = [
               guard_root / "guard-generated.json",
               guard_root / "checkpoint-guard-generated.json",
-              guard_root / "target-preflight-guard-generated.json",
               *[
                   guard_root / f"source-{index:02d}-guard-generated.json"
                   for index in range(1, 17)

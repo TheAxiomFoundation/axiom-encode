@@ -10,12 +10,16 @@ from pathlib import Path, PurePosixPath
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from axiom_encode.cli import _legacy_replacement_manifest_issues
+from axiom_encode.cli import (
+    _legacy_replacement_manifest_issues,
+    _parse_deferred_output_review_contract_json,
+)
 from axiom_encode.legacy_replacement import (
     migrate_legacy_exact_dependent_source_verification,
     receipt_identity_payload,
     receipt_identity_sha256,
 )
+from axiom_encode.prepare_signed_backfill import _safe_relative_path
 from scripts.prepare_signed_backfill import (
     MAX_CANONICAL_REFRESH_BUNDLE_CITATIONS,
     MAX_DEFERRED_OUTPUT_REVIEW_CONTRACT_JSON_BYTES,
@@ -178,11 +182,17 @@ def test_authorize_legacy_index_manifest_shrink_rejects_malformed_embedded_path(
         )
 
 
+def test_safe_relative_path_rejects_noncanonical_unicode_alias() -> None:
+    with pytest.raises(ValueError, match="not a safe repository-relative path"):
+        _safe_relative_path("us/policies/cafe\u0301.yaml", label="test path")
+
+
 def test_split_atomic_source_input_preserves_legacy_source_array() -> None:
     assert split_atomic_source_input('["us-ri/statute/44-30-1"]') == {
         "canonical_refresh_bundle": [],
         "primary_required_test_cases": [],
         "source_bundle": ["us-ri/statute/44-30-1"],
+        "target_operation": "replace",
     }
 
 
@@ -198,7 +208,20 @@ def test_split_atomic_source_input_selects_canonical_refresh_mode() -> None:
         "canonical_refresh_bundle": [addition],
         "primary_required_test_cases": [],
         "source_bundle": [],
+        "target_operation": "replace",
     }
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        '["us-ri/statute/44-30-1"]',
+        json.dumps({"canonical_refresh_bundle": []}),
+    ],
+)
+def test_split_atomic_source_input_require_v2_rejects_legacy_wrappers(raw: str) -> None:
+    with pytest.raises(ValueError, match="explicit RuleSpec targets require"):
+        split_atomic_source_input(raw, require_v2=True)
 
 
 def test_split_atomic_source_input_selects_v2_structured_refresh_mode() -> None:
@@ -214,16 +237,41 @@ def test_split_atomic_source_input_selects_v2_structured_refresh_mode() -> None:
     }
     payload = {
         "schema": "axiom-encode/atomic-source-transaction/v2",
+        "target_operation": "replace",
         "source_bundle": [],
         "canonical_refresh_bundle": [],
         "primary_required_test_cases": [required_case],
     }
 
-    assert split_atomic_source_input(json.dumps(payload)) == {
+    assert split_atomic_source_input(json.dumps(payload), require_v2=True) == {
         "canonical_refresh_bundle": [],
         "primary_required_test_cases": [required_case],
         "source_bundle": [],
+        "target_operation": "replace",
     }
+
+
+def test_split_atomic_source_input_rejects_source_bundle_with_creation() -> None:
+    required_case = {
+        "name": "source-grounded creation case",
+        "period": {
+            "period_kind": "tax_year",
+            "start": "2026-01-01",
+            "end": "2026-12-31",
+        },
+        "input": {"income": 100},
+        "required_output": {"income": 100},
+    }
+    payload = {
+        "schema": "axiom-encode/atomic-source-transaction/v2",
+        "target_operation": "create",
+        "source_bundle": ["us-ri/statute/44-30-1"],
+        "canonical_refresh_bundle": [],
+        "primary_required_test_cases": [required_case],
+    }
+
+    with pytest.raises(ValueError, match="land its signed source bundle before"):
+        split_atomic_source_input(json.dumps(payload))
 
 
 @pytest.mark.parametrize("period_kind", ["month", "benefit_week"])
@@ -242,6 +290,49 @@ def test_required_test_case_normalization_accepts_engine_period_kinds(
     }
 
     assert _normalize_required_test_cases([case], label="test") == (case,)
+
+
+def test_prepare_and_cli_normalize_relation_bearing_creation_case_identically() -> None:
+    module = "us-la:policies/income_tax/activity_pipeline"
+    case = {
+        "name": "one owner and one activity",
+        "period": {
+            "period_kind": "tax_year",
+            "start": "2026-01-01",
+            "end": "2026-12-31",
+        },
+        "input": {
+            f"{module}#relation.activity_of_owner": [
+                {
+                    "owner_id": "owner-1",
+                    "activity_id": "activity-1",
+                    "entity_form": "s_corporation",
+                    "material_participation": True,
+                }
+            ]
+        },
+        "required_output": {f"{module}#qbi_amount": 100},
+    }
+    normalized = _normalize_required_test_cases([case], label="test")
+    parsed = _parse_deferred_output_review_contract_json(
+        json.dumps(
+            {
+                "schema": "axiom-encode/review-contract/v3",
+                "citation": "us-la/statute/47:294",
+                "rulespec_path": "us-la/policies/income_tax/activity_pipeline.yaml",
+                "required_deferred_outputs": [],
+                "required_test_cases": [case],
+                "target_operation": "create",
+            }
+        )
+    )
+
+    assert normalized[0]["input"] == parsed.required_test_cases[0].input
+    assert normalized[0]["required_output"] == (
+        parsed.required_test_cases[0].required_output
+    )
+    relation_rows = normalized[0]["input"][f"{module}#relation.activity_of_owner"]
+    assert type(relation_rows[0]["material_participation"]) is bool
 
 
 @pytest.mark.parametrize(
@@ -282,7 +373,7 @@ def test_split_atomic_source_input_cli_emits_normalized_object(
 
     assert capsys.readouterr().out == (
         '{"canonical_refresh_bundle":[],"primary_required_test_cases":[],'
-        '"source_bundle":["us-ri/statute/44-30-1"]}\n'
+        '"source_bundle":["us-ri/statute/44-30-1"],"target_operation":"replace"}\n'
     )
 
 
@@ -686,6 +777,110 @@ def test_parse_canonical_refresh_bundle_accepts_empty_default(tmp_path: Path) ->
         )
         == ()
     )
+
+
+def test_parse_canonical_refresh_bundle_binds_explicit_policy_test_contract(
+    tmp_path: Path,
+) -> None:
+    repo = _canonical_refresh_repo(tmp_path)
+    cases = [
+        {
+            "name": "source-grounded explicit policy case",
+            "period": {
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            "input": {
+                "us-la:policies/income_tax/pilot_liability_pipeline#input.amount": 100
+            },
+            "required_output": {
+                "us-la:policies/income_tax/pilot_liability_pipeline#amount": 100
+            },
+        }
+    ]
+
+    assert (
+        parse_canonical_refresh_bundle(
+            repo,
+            "[]",
+            primary_citation="us-la/statute/47:294",
+            primary_rulespec_path=(
+                "us-la/policies/income_tax/pilot_liability_pipeline.yaml"
+            ),
+            primary_required_test_cases_json=json.dumps(cases),
+            target_operation="create",
+        )
+        == ()
+    )
+
+
+def test_parse_canonical_refresh_bundle_rejects_imported_only_creation_witness(
+    tmp_path: Path,
+) -> None:
+    repo = _canonical_refresh_repo(tmp_path)
+    cases = [
+        {
+            "name": "imported output only",
+            "period": {
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            "input": {},
+            "required_output": {"us:statutes/26/199A#qbi_deduction": 100},
+        }
+    ]
+
+    with pytest.raises(ValueError, match="exact created module"):
+        parse_canonical_refresh_bundle(
+            repo,
+            "[]",
+            primary_citation="us-la/statute/47:294",
+            primary_rulespec_path=(
+                "us-la/policies/income_tax/pilot_liability_pipeline.yaml"
+            ),
+            primary_required_test_cases_json=json.dumps(cases),
+            target_operation="create",
+        )
+
+
+@pytest.mark.parametrize(
+    "primary_rulespec_path",
+    [
+        "us-la/statutes/47/294-policy.yaml",
+        "us/policies/income_tax/pilot_liability_pipeline.yaml",
+        "us-la/policies/income_tax/pilot_liability_pipeline.test.yaml",
+        "us-la/policies/income_tax/Pilot_Liability_Pipeline.yaml",
+    ],
+)
+def test_parse_canonical_refresh_bundle_rejects_unsafe_explicit_policy_contract(
+    tmp_path: Path,
+    primary_rulespec_path: str,
+) -> None:
+    repo = _canonical_refresh_repo(tmp_path)
+    cases = [
+        {
+            "name": "one",
+            "period": {
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            "input": {"input": 1},
+            "required_output": {"output": 1},
+        }
+    ]
+
+    with pytest.raises(ValueError, match="explicit primary RuleSpec path"):
+        parse_canonical_refresh_bundle(
+            repo,
+            "[]",
+            primary_citation="us-la/statute/47:294",
+            primary_rulespec_path=primary_rulespec_path,
+            primary_required_test_cases_json=json.dumps(cases),
+            target_operation="create",
+        )
 
 
 def test_parse_canonical_refresh_bundle_bounds_total_modules(tmp_path: Path) -> None:

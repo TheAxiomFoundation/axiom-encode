@@ -337,6 +337,51 @@ def _safe_load_unique_keys(content: str) -> Any:
     return yaml.load(content, Loader=_UniqueKeySafeLoader)
 
 
+_MAX_COMPANION_YAML_DEPTH = 16
+_MAX_COMPANION_YAML_CONTAINER_ITEMS = 256
+_MAX_COMPANION_YAML_NODES = 8192
+
+
+def _bounded_companion_yaml_structure_issue(value: Any) -> str | None:
+    """Reject cyclic or oversized companion YAML before recursive analyzers run."""
+
+    nodes = 0
+    active_containers: set[int] = set()
+
+    def visit(item: Any, *, depth: int) -> str | None:
+        nonlocal nodes
+        nodes += 1
+        if nodes > _MAX_COMPANION_YAML_NODES:
+            return "node budget exceeded"
+        if depth > _MAX_COMPANION_YAML_DEPTH:
+            return "nesting depth exceeded"
+        if item is None or isinstance(item, (str, bool, int, float, date)):
+            return None
+        if not isinstance(item, (dict, list)):
+            return f"unsupported value type {type(item).__name__}"
+        if len(item) > _MAX_COMPANION_YAML_CONTAINER_ITEMS:
+            return "container item budget exceeded"
+        identity = id(item)
+        if identity in active_containers:
+            return "cyclic alias graph"
+        active_containers.add(identity)
+        try:
+            children = (
+                (child for pair in item.items() for child in pair)
+                if isinstance(item, dict)
+                else iter(item)
+            )
+            for child in children:
+                issue = visit(child, depth=depth + 1)
+                if issue is not None:
+                    return issue
+        finally:
+            active_containers.remove(identity)
+        return None
+
+    return visit(value, depth=0)
+
+
 def _yaml_parse_issue(path: Path, exc: BaseException) -> str:
     return f"{path.name} YAML parse failed: {exc}"
 
@@ -28407,6 +28452,9 @@ class ValidatorPipeline:
         cases: list[Any],
     ) -> list[str]:
         """Run compact RuleSpec `.test.yaml` cases against the compiled artifact."""
+        structure_issue = _bounded_companion_yaml_structure_issue(cases)
+        if structure_issue is not None:
+            return [f"RuleSpec test YAML structure is invalid: {structure_issue}."]
         issues: list[str] = []
         binary: Path | None = None
         derived_by_key, parameter_by_key = self._rulespec_program_maps(compiled_payload)
@@ -28886,9 +28934,16 @@ class ValidatorPipeline:
         if test_path.exists():
             try:
                 payload = _safe_load_unique_keys(test_path.read_text())
-            except (yaml.YAMLError, ValueError) as exc:
+            except (yaml.YAMLError, ValueError, RecursionError) as exc:
                 issues.append(_yaml_parse_issue(test_path, exc))
             else:
+                structure_issue = _bounded_companion_yaml_structure_issue(payload)
+                if structure_issue is not None:
+                    issues.append(
+                        f"{test_path.name} YAML structure is invalid: "
+                        f"{structure_issue}."
+                    )
+                    payload = None
                 if payload in (None, ""):
                     if not self._is_nonassertable_rulespec_artifact(rules_file):
                         issues.append("No tests found.")

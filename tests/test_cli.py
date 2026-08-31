@@ -5,6 +5,7 @@ Tests all CLI commands using subprocess invocation and direct function calls.
 All external dependencies are mocked.
 """
 
+import argparse
 import copy
 import hashlib
 import json
@@ -36,6 +37,8 @@ from axiom_encode import __version__ as AXIOM_ENCODE_TEST_VERSION
 from axiom_encode.cli import (
     _APPLY_TRANSACTION_SCHEMA,
     _APPLY_VALIDATION_SNAPSHOT_ATTR,
+    _CREATION_TARGET_ATTR,
+    _EXISTING_TARGET_ATTR,
     _IMMUTABLE_RULESPEC_SHA256_ATTR,
     _PRESERVED_COMPANION_TESTS_ATTR,
     _REPLACEMENT_OVERLAY_SCOPE_ATTR,
@@ -54,6 +57,7 @@ from axiom_encode.cli import (
     _applied_encoding_manifest_path,
     _applied_encoding_manifest_signature_issue,
     _applied_encoding_manifest_verifier,
+    _applied_manifest_exact_schema_issues,
     _applied_manifest_paths_for_files,
     _applied_manifest_source_attestation_issues,
     _apply_encoder_execution_identity,
@@ -71,12 +75,16 @@ from axiom_encode.cli import (
     _complete_missing_local_test_inputs,
     _convert_indexed_parameter_values_to_derived_formulas,
     _convert_versioned_boolean_parameters_to_indicators,
+    _creation_live_manifest_claimants,
+    _creation_target_base_identity_conflicts,
     _current_guard_encoder_execution_identity,
     _declared_rule_subsection_source_text,
     _default_generated_test_input_value,
     _DeferredOutputReviewContract,
     _discover_rulespec_test_files,
     _effective_runner_specs,
+    _EncodeCreationContract,
+    _EncodeExistingTargetContract,
     _ensure_no_unmanifested_preexisting_rulespec_changes,
     _ensure_rulespec_import,
     _eval_suite_json_sha256,
@@ -91,6 +99,7 @@ from axiom_encode.cli import (
     _generated_result_source_metadata,
     _git_changed_files,
     _grounded_formula_literal_for_scalar_expression,
+    _guard_creation_manifest_base_issues,
     _has_zero_output_test,
     _hoist_nested_test_tables,
     _immutable_planned_rulespec_digest_issue,
@@ -115,7 +124,10 @@ from axiom_encode.cli import (
     _parameter_only_companion_snapshot_cases,
     _parse_child_fragment_reencoding_issue,
     _parse_child_numeric_reencoding_issue,
+    _parse_create_rulespec_path,
     _person_scoped_definition_issue_names,
+    _pre_monorepo_orphan_absence_path,
+    _pre_monorepo_orphan_manifest_path,
     _promote_boolean_comparison_predicates_to_judgment,
     _qualify_deferred_output_subsection_paths,
     _quote_unquoted_source_scalars,
@@ -175,6 +187,10 @@ from axiom_encode.cli import (
     _repair_upstream_placement_duplicate_imports,
     _require_axiom_encode_version_provenance,
     _require_clean_axiom_encode_git_provenance,
+    _require_creation_target_base,
+    _require_creation_target_final_ownership,
+    _require_existing_target_final_ownership,
+    _require_existing_target_identity,
     _required_deferred_output_contract_issues,
     _required_generated_import_issues,
     _RequiredTestCaseContract,
@@ -194,6 +210,7 @@ from axiom_encode.cli import (
     _rulespec_file_for_absolute_module_ref,
     _rulespec_module_source_path,
     _rulespec_scalar_matches,
+    _rulespec_target_filesystem_identity_conflicts,
     _safe_wrapped_direct_source_match,
     _sha256_file,
     _sha256_text,
@@ -254,6 +271,7 @@ from axiom_encode.cli import (
     _validated_eval_suite_report_payload,
     _write_applied_encoding_manifest,
     cmd_calibration,
+    cmd_checkpoint_signed_backfill,
     cmd_cloud_queue,
     cmd_compile,
     cmd_encode,
@@ -271,6 +289,7 @@ from axiom_encode.cli import (
     cmd_normalize_proof_atom_kinds,
     cmd_oracle_candidates,
     cmd_oracle_coverage,
+    cmd_reconcile_retired_manifest_inventory,
     cmd_retire,
     cmd_runs,
     cmd_session_end,
@@ -13641,6 +13660,12 @@ class TestCmdEncode:
             "us/statute/26/1/j/2",
             args.corpus_release,
         )
+        args.review_contract_json = _DeferredOutputReviewContract(
+            citation=source_unit.requested,
+            rulespec_path=dependent_relative.as_posix(),
+            required_deferred_outputs=(),
+            target_operation="replace",
+        )
         result.source_attestation = dict(source_unit.source_attestation)
         source_text = tmp_path / "pending-dependent-source.txt"
         source_text.write_text(source_unit.body)
@@ -14276,6 +14301,57 @@ rules:
             call.kwargs["required_test_case_contracts"]
             for call in mock_run.call_args_list
         ] == [(expected_case,)] * 2
+
+    @pytest.mark.parametrize("unsigned_field", ["entity_id", "id", "owner_id"])
+    def test_required_case_contract_rejects_unsigned_entity_selector(
+        self, tmp_path, unsigned_field
+    ):
+        output = "us:statutes/26/1/j/2#standard_deduction"
+        input_key = "us:statutes/26/1/j/2#input.single_status"
+        required_case = _RequiredTestCaseContract(
+            name="exact 2025 case",
+            period={
+                "period_kind": "tax_year",
+                "start": "2025-01-01",
+                "end": "2025-12-31",
+            },
+            input={input_key: True},
+            required_output={output: 12500},
+        )
+        contract = _DeferredOutputReviewContract(
+            citation="26 USC 1(j)(2)",
+            rulespec_path="us/statutes/26/1/j/2.yaml",
+            required_deferred_outputs=(),
+            required_test_cases=(required_case,),
+        )
+        generated = tmp_path / "us/statutes/26/1/j/2.yaml"
+        generated.parent.mkdir(parents=True)
+        generated.write_text("format: rulespec/v1\nmodule: {}\nrules: []\n")
+        generated.with_suffix(".test.yaml").write_text(
+            json.dumps(
+                [
+                    {
+                        "name": required_case.name,
+                        "period": required_case.period,
+                        "input": required_case.input,
+                        "output": {output: 12500},
+                        unsigned_field: "attacker-selected-owner",
+                    }
+                ]
+            )
+        )
+
+        issues = _required_deferred_output_contract_issues(
+            generated,
+            contract,
+            citation=contract.citation,
+            rulespec_path=contract.rulespec_path,
+        )
+
+        assert issues == [
+            "[required-test-case-contract] companion case 'exact 2025 case' "
+            f"contains unsigned top-level field(s): {unsigned_field}"
+        ]
 
     def test_encode_retry_feedback_includes_actionable_ci_issue(self):
         import axiom_encode.cli as cli_module
@@ -14959,6 +15035,7 @@ rules:
             rulespec_path="us/regulations/7/273/4.yaml",
             required_deferred_outputs=(),
             required_test_cases=(test_case,),
+            target_operation="replace",
         )
         args = SimpleNamespace(
             repair_candidate_tests_only=True,
@@ -14973,6 +15050,21 @@ rules:
 
         args.repair_candidate_path = Path("us/regulations/7/273/4.yaml")
         cli_module._validate_tests_only_repair_contract(args, candidate)
+
+        creation_contract = contract._replace(
+            rulespec_path="us/policies/income_tax/new_liability.yaml",
+            target_operation="create",
+        )
+        creation_args = SimpleNamespace(
+            repair_candidate_tests_only=True,
+            review_contract_json=creation_contract,
+            repair_candidate_path=Path("policies/income_tax/new_liability.yaml"),
+            replace_rulespec_path=None,
+            create_rulespec_path=Path("us/policies/income_tax/new_liability.yaml"),
+            citation="us/regulation/7/273/4",
+            apply=True,
+        )
+        cli_module._validate_tests_only_repair_contract(creation_args, candidate)
 
         args.repair_candidate_path = Path("us-ny/regulations/7/273/4.yaml")
         with pytest.raises(ValueError, match="replacement path mismatch"):
@@ -16054,18 +16146,216 @@ rules:
             },
         ]
 
+    def test_apply_creates_authenticated_absent_policy_target(self, tmp_path):
+        output_root = tmp_path / "out"
+        checkout = tmp_path / "rulespec-us"
+        content_root = checkout / "us-ny"
+        relative = Path("policies/income_tax/new_liability.yaml")
+        generated = output_root / "codex-test-model" / relative
+        generated.parent.mkdir(parents=True)
+        generated.write_text("format: rulespec/v1\nrules: []\n")
+        generated.with_name("new_liability.test.yaml").write_text("[]\n")
+        content_root.mkdir(parents=True)
+        result = self._make_eval_result(True)
+        result.output_file = str(generated)
+        result.context_manifest_file = str(tmp_path / "context.json")
+        result.trace_file = str(tmp_path / "trace.json")
+        result.generation_prompt_sha256 = "prompt-sha"
+        self._write_result_context(result, tmp_path)
+        Path(result.trace_file).write_text("{}\n")
+        corpus_path, result.source_attestation = self._bind_apply_source_release(
+            checkout,
+            tmp_path,
+            citation_path="us-ny/statute/20/1",
+        )
+        _git(checkout, "init", "-q")
+        _git(checkout, "config", "user.email", "test@example.com")
+        _git(checkout, "config", "user.name", "Test")
+        _git(checkout, "add", ".")
+        _git(checkout, "commit", "-qm", "clean creation base")
+        base_commit = _git(checkout, "rev-parse", "HEAD").stdout.strip()
+        base_tree = _git(checkout, "rev-parse", "HEAD^{tree}").stdout.strip()
+        primary = Path("us-ny") / relative
+        setattr(
+            result,
+            _CREATION_TARGET_ATTR,
+            _EncodeCreationContract(
+                base_commit=base_commit,
+                base_tree=base_tree,
+                primary=primary,
+                companion=primary.with_name("new_liability.test.yaml"),
+                canonical_manifest=_applied_encoding_manifest_path(primary),
+                orphan_manifest=_pre_monorepo_orphan_manifest_path(primary),
+            ),
+        )
+        setattr(result, _REPLACEMENT_OVERLAY_SCOPE_ATTR, True)
+        self._record_apply_validation(
+            result,
+            output_root=output_root,
+            policy_repo_path=content_root,
+            corpus_path=corpus_path,
+        )
+
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
+            ),
+            patch(
+                "axiom_encode.cli._git_repo_provenance",
+                return_value={
+                    "root": "/repo/axiom-encode",
+                    "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
+                    "dirty_tracked": False,
+                },
+            ),
+            patch(
+                "axiom_encode.cli._require_axiom_encode_version_provenance",
+                return_value={
+                    "version": AXIOM_ENCODE_TEST_VERSION,
+                    "version_commit": "version123",
+                    "identity_source": "git",
+                },
+            ),
+        ):
+            applied = _apply_generated_encoding_result(
+                result,
+                output_root=output_root,
+                policy_repo_path=content_root,
+                corpus_path=corpus_path,
+                run_id="new-policy",
+            )
+
+        target = content_root / relative
+        companion = target.with_name("new_liability.test.yaml")
+        manifest = checkout / _applied_encoding_manifest_path(primary)
+        assert applied == [target, companion, manifest]
+        payload = json.loads(manifest.read_text())
+        assert payload["schema_version"] == APPLIED_ENCODING_MANIFEST_SCHEMA
+        assert payload["validation_execution"]["rulespec_scope"] == (
+            "active_jurisdiction_and_country_ancestors"
+        )
+        assert {item["path"] for item in payload["applied_files"]} == {
+            primary.as_posix(),
+            primary.with_name("new_liability.test.yaml").as_posix(),
+        }
+
+    def test_apply_replaces_authenticated_existing_policy_target(self, tmp_path):
+        output_root = tmp_path / "out"
+        checkout = tmp_path / "rulespec-us"
+        content_root = checkout / "us-ny"
+        relative = Path("policies/income_tax/existing_liability.yaml")
+        generated = output_root / "codex-test-model" / relative
+        generated.parent.mkdir(parents=True)
+        generated.write_text("format: rulespec/v1\nrules: []\n# replacement\n")
+        generated.with_name("existing_liability.test.yaml").write_text("[]\n")
+        target = content_root / relative
+        companion = target.with_name("existing_liability.test.yaml")
+        target.parent.mkdir(parents=True)
+        target.write_text("format: rulespec/v1\nrules: []\n# original\n")
+        companion.write_text("[]\n")
+        result = self._make_eval_result(True)
+        result.output_file = str(generated)
+        result.context_manifest_file = str(tmp_path / "context.json")
+        result.trace_file = str(tmp_path / "trace.json")
+        result.generation_prompt_sha256 = "prompt-sha"
+        self._write_result_context(result, tmp_path)
+        Path(result.trace_file).write_text("{}\n")
+        corpus_path, result.source_attestation = self._bind_apply_source_release(
+            checkout,
+            tmp_path,
+            citation_path="us-ny/statute/20/1",
+        )
+        _git(checkout, "init", "-q")
+        _git(checkout, "config", "user.email", "test@example.com")
+        _git(checkout, "config", "user.name", "Test")
+        _git(checkout, "add", ".")
+        _git(checkout, "commit", "-qm", "clean replacement base")
+        base_commit = _git(checkout, "rev-parse", "HEAD").stdout.strip()
+        base_tree = _git(checkout, "rev-parse", "HEAD^{tree}").stdout.strip()
+        primary = Path("us-ny") / relative
+        contract = _EncodeExistingTargetContract(
+            base_commit=base_commit,
+            base_tree=base_tree,
+            primary=primary,
+            primary_sha256=_sha256_file(target),
+            companion=primary.with_name("existing_liability.test.yaml"),
+            companion_sha256=_sha256_file(companion),
+            canonical_manifest=_applied_encoding_manifest_path(primary),
+            canonical_manifest_sha256=None,
+            orphan_manifest=None,
+            base_manifest_claimants=(),
+        )
+        setattr(result, _EXISTING_TARGET_ATTR, contract)
+        setattr(result, _REPLACEMENT_OVERLAY_SCOPE_ATTR, True)
+        self._record_apply_validation(
+            result,
+            output_root=output_root,
+            policy_repo_path=content_root,
+            corpus_path=corpus_path,
+        )
+
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
+            ),
+            patch(
+                "axiom_encode.cli._git_repo_provenance",
+                return_value={
+                    "root": "/repo/axiom-encode",
+                    "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
+                    "dirty_tracked": False,
+                },
+            ),
+            patch(
+                "axiom_encode.cli._require_axiom_encode_version_provenance",
+                return_value={
+                    "version": AXIOM_ENCODE_TEST_VERSION,
+                    "version_commit": "version123",
+                    "identity_source": "git",
+                },
+            ),
+        ):
+            applied = _apply_generated_encoding_result(
+                result,
+                output_root=output_root,
+                policy_repo_path=content_root,
+                corpus_path=corpus_path,
+                run_id="replace-policy",
+            )
+
+        manifest = checkout / contract.canonical_manifest
+        assert applied == [target, companion, manifest]
+        assert _sha256_file(target) == _sha256_file(generated)
+        assert _sha256_file(target) != contract.primary_sha256
+        payload = json.loads(manifest.read_text())
+        assert payload["target_operation"] == "replace"
+        assert _creation_live_manifest_claimants(
+            checkout,
+            destination_paths={contract.primary, contract.companion},
+        ) == [contract.canonical_manifest]
+
+    @pytest.mark.parametrize("orphan_layout", [False, True])
     def test_apply_freshly_replaces_untrusted_v1_at_same_canonical_path(
         self,
         tmp_path,
+        orphan_layout,
     ):
         from axiom_encode.cli import _resolve_legacy_replacement_contract
         from axiom_encode.toolchain import load_rulespec_local_corpus_release
 
         output_root = tmp_path / "out"
         checkout = tmp_path / "rulespec-us"
-        content_root = checkout / "us-me"
+        jurisdiction = "us" if orphan_layout else "us-me"
+        content_root = checkout / jurisdiction
         relative = Path("policies/income_tax/pilot_liability_pipeline.yaml")
-        checkout_relative = Path("us-me") / relative
+        checkout_relative = Path(jurisdiction) / relative
+        source_citation = (
+            "us/guidance/irs/pilot-liability"
+            if orphan_layout
+            else "us-me/guidance/revenue/rate-schedule"
+        )
         target = content_root / relative
         target_test = target.with_name("pilot_liability_pipeline.test.yaml")
         target.parent.mkdir(parents=True)
@@ -16074,44 +16364,79 @@ rules:
             "module:\n"
             "  source_verification:\n"
             "    corpus_citation_paths:\n"
-            "      - us-me/guidance/revenue/rate-schedule\n"
-            "      - us-me/statute/36/5111\n"
-            "rules: []\n"
+            f"      - {source_citation}\n"
+            + ("" if orphan_layout else "      - us-me/statute/36/5111\n")
+            + "rules: []\n"
         )
         target_test.write_text("- name: old manual fixture\n")
         legacy_files = {
             path.relative_to(checkout).as_posix(): _sha256_file(path)
             for path in (target, target_test)
         }
-        manifest = (
-            checkout / ".axiom/encoding-manifests/us-me/policies/income_tax/"
-            "pilot_liability_pipeline.json"
+        canonical_manifest = checkout / _applied_encoding_manifest_path(
+            checkout_relative
         )
+        manifest = (
+            checkout / _pre_monorepo_orphan_manifest_path(checkout_relative)
+            if orphan_layout
+            else canonical_manifest
+        )
+        assert manifest is not None
         manifest.parent.mkdir(parents=True)
-        legacy_manifest = {
-            "schema_version": "axiom-encode/applied-rulespec/v1",
-            "tool": "axiom-encode sign-applied-files",
-            "backend": "manual",
-            "runner": "manual-attestation",
-            "applied_files": [
-                {"path": path, "sha256": digest}
-                for path, digest in legacy_files.items()
-            ],
-            "signature": {
-                "algorithm": "hmac-sha256",
-                "key_id": "axiom-encode-apply-v1",
-                "value": "untrusted-historical-evidence",
-            },
-        }
+        legacy_manifest = (
+            {
+                "schema_version": "axiom-encode/applied-rulespec/v1",
+                "tool": "axiom-encode encode --apply",
+                "backend": "codex",
+                "runner": "codex-gpt-5.5",
+                "model": "gpt-5.5",
+                "citation": relative.with_suffix("").as_posix(),
+                "run_id": None,
+                "generated_at": "2025-01-01T00:00:00+00:00",
+                "axiom_encode_version": "0.2.1",
+                "generated_output_root": "/tmp/historical-output",
+                "generated_output_file": None,
+                "generated_output_sha256": None,
+                "trace_file": None,
+                "trace_sha256": None,
+                "context_manifest_file": None,
+                "context_manifest_sha256": None,
+                "applied_files": [
+                    {"path": path.removeprefix("us/"), "sha256": digest}
+                    for path, digest in legacy_files.items()
+                ],
+                "signature": {
+                    "algorithm": "hmac-sha256",
+                    "key_id": "axiom-encode-apply-v1",
+                    "value": "a" * 64,
+                },
+            }
+            if orphan_layout
+            else {
+                "schema_version": "axiom-encode/applied-rulespec/v1",
+                "tool": "axiom-encode sign-applied-files",
+                "backend": "manual",
+                "runner": "manual-attestation",
+                "applied_files": [
+                    {"path": path, "sha256": digest}
+                    for path, digest in legacy_files.items()
+                ],
+                "signature": {
+                    "algorithm": "hmac-sha256",
+                    "key_id": "axiom-encode-apply-v1",
+                    "value": "untrusted-historical-evidence",
+                },
+            }
+        )
         manifest.write_text(json.dumps(legacy_manifest) + "\n")
         old_target = target.read_bytes()
         old_manifest = manifest.read_bytes()
 
-        source_text = "authoritative Maine schedule\n"
+        source_text = "authoritative schedule\n"
         corpus_path, source_attestation = self._bind_apply_source_release(
             checkout,
             tmp_path,
-            citation_path="us-me/guidance/revenue/rate-schedule",
+            citation_path=source_citation,
             source_text=source_text,
         )
         _git(checkout, "init", "-b", "main")
@@ -16125,7 +16450,7 @@ rules:
         ):
             release = load_rulespec_local_corpus_release(content_root, corpus_path)
         source_unit = resolve_corpus_source_unit(
-            "us-me/guidance/revenue/rate-schedule",
+            source_citation,
             release,
         )
         contract = _resolve_legacy_replacement_contract(
@@ -16143,7 +16468,7 @@ rules:
             "format: rulespec/v1\n"
             "module:\n"
             "  source_verification:\n"
-            "    corpus_citation_path: us-me/guidance/revenue/rate-schedule\n"
+            f"    corpus_citation_path: {source_citation}\n"
             "rules:\n"
             "  - name: me_2026_schedule_tax\n"
             "    kind: derived\n"
@@ -16255,11 +16580,13 @@ rules:
 
         assert target.read_bytes() != old_target
         assert target_test.read_bytes() == generated_test.read_bytes()
-        assert manifest.read_bytes() != old_manifest
-        assert applied[:3] == [target, target_test, manifest]
+        assert canonical_manifest.read_bytes() != old_manifest
+        assert applied[:3] == [target, target_test, canonical_manifest]
         assert len(applied) == 4
         assert applied[3].parent == checkout / ".axiom/legacy-replacements"
-        outer = json.loads(manifest.read_text())
+        if orphan_layout:
+            assert not manifest.exists()
+        outer = json.loads(canonical_manifest.read_text())
         assert outer["tool"] == (
             "axiom-encode encode --apply --replace-legacy-rulespec-path"
         )
@@ -16287,7 +16614,7 @@ rules:
         verified, _root, _digest, issues = (
             _load_verified_applied_encoding_manifest_payload(
                 checkout,
-                manifest.relative_to(checkout).as_posix(),
+                canonical_manifest.relative_to(checkout).as_posix(),
                 signing_broker=TEST_APPLY_SIGNING_BROKER,
                 expected_waiver_set_sha256=TEST_VALIDATION_WAIVER_SHA256,
                 expected_encoder_identity=TEST_PINNED_ENCODER_IDENTITY,
@@ -17782,6 +18109,294 @@ rules:
         assert not (checkout / "us/statutes").exists()
         assert not (checkout / ".axiom/.apply-transaction").exists()
 
+    @pytest.mark.parametrize(
+        "manifest_tail",
+        ["policies/income_tax/new", "statutes/26/25A"],
+    )
+    def test_apply_transaction_rolls_back_authorized_federal_orphan_manifest(
+        self, tmp_path, manifest_tail
+    ):
+        checkout = tmp_path / "rulespec-us"
+        orphan = checkout / f".axiom/encoding-manifests/{manifest_tail}.json"
+        canonical = checkout / f".axiom/encoding-manifests/us/{manifest_tail}.json"
+        receipt = checkout / ".axiom/legacy-replacements" / ("a" * 64 + ".json")
+        orphan.parent.mkdir(parents=True)
+        (checkout / "us").mkdir()
+        old = b'{"legacy":true}\n'
+        orphan.write_bytes(old)
+        orphan.chmod(0o644)
+
+        with pytest.raises(RuntimeError, match="post-install rejection"):
+            _install_apply_transaction(
+                [(orphan, None), (canonical, b"canonical\n"), (receipt, b"receipt\n")],
+                checkout_root=checkout,
+                expected_originals={orphan: hashlib.sha256(old).hexdigest()},
+                authorized_pre_monorepo_manifest_deletions=(orphan,),
+                post_install_check=lambda: (_ for _ in ()).throw(
+                    RuntimeError("post-install rejection")
+                ),
+            )
+
+        assert orphan.read_bytes() == old
+        assert not canonical.exists()
+        assert not receipt.exists()
+        assert not (checkout / ".axiom/.apply-transaction").exists()
+
+    @pytest.mark.parametrize(
+        ("state", "partial_apply"),
+        [
+            ("prepared", False),
+            ("applying", False),
+            ("applying", True),
+            ("committed", False),
+        ],
+    )
+    @pytest.mark.parametrize("manifest_tail", ["policies/foo", "statutes/26/25A"])
+    def test_apply_transaction_recovers_authorized_federal_orphan_journal_v3(
+        self, tmp_path, state, partial_apply, manifest_tail
+    ):
+        """Journal v3 is sufficient for safe rollback after a killed migration."""
+
+        checkout = tmp_path / "rulespec-us"
+        orphan_relative = f".axiom/encoding-manifests/{manifest_tail}.json"
+        canonical_relative = f".axiom/encoding-manifests/us/{manifest_tail}.json"
+        receipt_relative = ".axiom/legacy-replacements/" + "a" * 64 + ".json"
+        orphan = checkout / orphan_relative
+        canonical = checkout / canonical_relative
+        receipt = checkout / receipt_relative
+        old = b'{"legacy":true}\n'
+        new_manifest = b'{"canonical":true}\n'
+        new_receipt = b'{"receipt":true}\n'
+        orphan.parent.mkdir(parents=True)
+        (checkout / "us").mkdir()
+        orphan.write_bytes(old)
+        orphan.chmod(0o644)
+
+        transaction = checkout / ".axiom/.apply-transaction"
+        backups = transaction / "backups"
+        backups.mkdir(parents=True, mode=0o700)
+        transaction.chmod(0o700)
+        backups.chmod(0o700)
+        backup = backups / "000000.old"
+        backup.write_bytes(old)
+        backup.chmod(0o600)
+        entries = [
+            {
+                "path": orphan_relative,
+                "existed": True,
+                "mode": 0o644,
+                "old_sha256": hashlib.sha256(old).hexdigest(),
+                "backup": "000000.old",
+                "delete": True,
+                "new_sha256": None,
+            },
+            {
+                "path": canonical_relative,
+                "existed": False,
+                "mode": 0o644,
+                "old_sha256": None,
+                "backup": None,
+                "delete": False,
+                "new_sha256": hashlib.sha256(new_manifest).hexdigest(),
+            },
+            {
+                "path": receipt_relative,
+                "existed": False,
+                "mode": 0o644,
+                "old_sha256": None,
+                "backup": None,
+                "delete": False,
+                "new_sha256": hashlib.sha256(new_receipt).hexdigest(),
+            },
+        ]
+        journal = {
+            "schema": _APPLY_TRANSACTION_SCHEMA,
+            "state": state,
+            "created_directories": [],
+            "entries": entries,
+            "legacy_orphan_deletion": {
+                "path": orphan_relative,
+                "old_sha256": entries[0]["old_sha256"],
+                "canonical_manifest_path": canonical_relative,
+                "canonical_manifest_sha256": entries[1]["new_sha256"],
+                "receipt_path": receipt_relative,
+                "receipt_sha256": entries[2]["new_sha256"],
+            },
+        }
+        if state in {"applying", "committed"}:
+            orphan.unlink()
+            canonical.parent.mkdir(parents=True)
+            canonical.write_bytes(new_manifest)
+            canonical.chmod(0o644)
+            if not partial_apply:
+                receipt.parent.mkdir(parents=True)
+                receipt.write_bytes(new_receipt)
+                receipt.chmod(0o644)
+        journal_path = transaction / "journal.json"
+        journal_path.write_text(json.dumps(journal))
+        journal_path.chmod(0o600)
+
+        _recover_apply_transaction(checkout)
+
+        if state == "committed":
+            assert not orphan.exists()
+            assert canonical.read_bytes() == new_manifest
+            assert receipt.read_bytes() == new_receipt
+        else:
+            assert orphan.read_bytes() == old
+            assert not canonical.exists()
+            assert not receipt.exists()
+        assert not transaction.exists()
+
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "nfd-path",
+            "preexisting-successor",
+            "wrong-successor-mode",
+            "wrong-receipt-mode",
+            "preexisting-receipt",
+            "extra-receipt",
+            "mapping-flip",
+            "digest-flip",
+            "v2-downgrade",
+        ],
+    )
+    def test_apply_transaction_rejects_tampered_orphan_journal_v3(
+        self, tmp_path, mutation
+    ):
+        """Recovery never treats a mutable v3 orphan record as broad authority."""
+
+        checkout = tmp_path / "rulespec-us"
+        orphan_relative = ".axiom/encoding-manifests/policies/foo.json"
+        canonical_relative = ".axiom/encoding-manifests/us/policies/foo.json"
+        receipt_relative = ".axiom/legacy-replacements/" + "a" * 64 + ".json"
+        old = b"old\n"
+        new_manifest = b"manifest\n"
+        new_receipt = b"receipt\n"
+        orphan = checkout / orphan_relative
+        orphan.parent.mkdir(parents=True)
+        (checkout / "us").mkdir()
+        orphan.write_bytes(old)
+        orphan.chmod(0o644)
+        transaction = checkout / ".axiom/.apply-transaction"
+        backups = transaction / "backups"
+        backups.mkdir(parents=True, mode=0o700)
+        transaction.chmod(0o700)
+        backups.chmod(0o700)
+        (backups / "000000.old").write_bytes(old)
+        (backups / "000000.old").chmod(0o600)
+        entries = [
+            {
+                "path": orphan_relative,
+                "existed": True,
+                "mode": 0o644,
+                "old_sha256": hashlib.sha256(old).hexdigest(),
+                "backup": "000000.old",
+                "delete": True,
+                "new_sha256": None,
+            },
+            {
+                "path": canonical_relative,
+                "existed": False,
+                "mode": 0o644,
+                "old_sha256": None,
+                "backup": None,
+                "delete": False,
+                "new_sha256": hashlib.sha256(new_manifest).hexdigest(),
+            },
+            {
+                "path": receipt_relative,
+                "existed": False,
+                "mode": 0o644,
+                "old_sha256": None,
+                "backup": None,
+                "delete": False,
+                "new_sha256": hashlib.sha256(new_receipt).hexdigest(),
+            },
+        ]
+        journal = {
+            "schema": _APPLY_TRANSACTION_SCHEMA,
+            "state": "prepared",
+            "created_directories": [],
+            "entries": entries,
+            "legacy_orphan_deletion": {
+                "path": orphan_relative,
+                "old_sha256": entries[0]["old_sha256"],
+                "canonical_manifest_path": canonical_relative,
+                "canonical_manifest_sha256": entries[1]["new_sha256"],
+                "receipt_path": receipt_relative,
+                "receipt_sha256": entries[2]["new_sha256"],
+            },
+        }
+        if mutation == "nfd-path":
+            nfd = "cafe\u0301"
+            journal["entries"][0]["path"] = (
+                f".axiom/encoding-manifests/policies/{nfd}.json"
+            )
+            journal["entries"][1]["path"] = (
+                f".axiom/encoding-manifests/us/policies/{nfd}.json"
+            )
+            journal["legacy_orphan_deletion"]["path"] = journal["entries"][0]["path"]
+            journal["legacy_orphan_deletion"]["canonical_manifest_path"] = journal[
+                "entries"
+            ][1]["path"]
+        elif mutation == "preexisting-successor":
+            journal["entries"][1].update(
+                {
+                    "existed": True,
+                    "old_sha256": hashlib.sha256(b"old manifest\n").hexdigest(),
+                    "backup": "000001.old",
+                }
+            )
+            (backups / "000001.old").write_bytes(b"old manifest\n")
+            (backups / "000001.old").chmod(0o600)
+        elif mutation == "wrong-successor-mode":
+            journal["entries"][1]["mode"] = 0o600
+        elif mutation == "wrong-receipt-mode":
+            journal["entries"][2]["mode"] = 0o600
+        elif mutation == "preexisting-receipt":
+            journal["entries"][2].update(
+                {
+                    "existed": True,
+                    "old_sha256": hashlib.sha256(b"old receipt\n").hexdigest(),
+                    "backup": "000002.old",
+                }
+            )
+            (backups / "000002.old").write_bytes(b"old receipt\n")
+            (backups / "000002.old").chmod(0o600)
+        elif mutation == "extra-receipt":
+            journal["entries"].append(
+                {
+                    "path": ".axiom/legacy-replacements/" + "b" * 64 + ".json",
+                    "existed": False,
+                    "mode": 0o644,
+                    "old_sha256": None,
+                    "backup": None,
+                    "delete": False,
+                    "new_sha256": hashlib.sha256(b"extra\n").hexdigest(),
+                }
+            )
+        elif mutation == "mapping-flip":
+            journal["legacy_orphan_deletion"]["canonical_manifest_path"] = (
+                ".axiom/encoding-manifests/us/policies/other.json"
+            )
+        elif mutation == "digest-flip":
+            journal["legacy_orphan_deletion"]["receipt_sha256"] = "0" * 64
+        else:
+            journal["schema"] = "axiom-encode/apply-transaction/v2"
+            del journal["legacy_orphan_deletion"]
+
+        journal_path = transaction / "journal.json"
+        journal_path.write_text(json.dumps(journal))
+        journal_path.chmod(0o600)
+        with pytest.raises(
+            RuntimeError, match="journal target is not canonical|authority"
+        ):
+            _recover_apply_transaction(checkout)
+        assert journal_path.exists()
+        assert orphan.read_bytes() == old
+
     def test_apply_transaction_recovery_preflights_all_targets_before_mutation(
         self,
         tmp_path,
@@ -17808,6 +18423,7 @@ rules:
             "schema": _APPLY_TRANSACTION_SCHEMA,
             "state": "applying",
             "created_directories": [],
+            "legacy_orphan_deletion": None,
             "entries": [
                 {
                     "path": "us/statutes/26/1.yaml",
@@ -17851,6 +18467,7 @@ rules:
             "schema": _APPLY_TRANSACTION_SCHEMA,
             "state": "prepared",
             "created_directories": [],
+            "legacy_orphan_deletion": None,
             "entries": [
                 {
                     "path": ".github/workflows/hidden.yaml",
@@ -17917,6 +18534,7 @@ rules:
             "schema": _APPLY_TRANSACTION_SCHEMA,
             "state": "applying",
             "created_directories": [],
+            "legacy_orphan_deletion": None,
             "entries": [
                 {
                     "path": "us/statutes/26/1.yaml",
@@ -39985,6 +40603,422 @@ class TestResolverOwnedManifestWriter:
 
 
 class TestEncodeReplacementTarget:
+    def _creation_guard_fixture(self, tmp_path: Path):
+        checkout = tmp_path / "rulespec-us"
+        checkout.mkdir()
+        _git(checkout, "init", "-q")
+        _git(checkout, "config", "user.email", "test@example.com")
+        _git(checkout, "config", "user.name", "Test")
+        (checkout / "README.md").write_text("protected base\n")
+        _git(checkout, "add", "README.md")
+        _git(checkout, "commit", "-qm", "protected base")
+        base_commit = _git(checkout, "rev-parse", "HEAD").stdout.strip()
+        base_tree = _git(checkout, "rev-parse", "HEAD^{tree}").stdout.strip()
+        primary = Path("us-nc/policies/income_tax/pilot_liability_pipeline.yaml")
+        companion = primary.with_name(f"{primary.stem}.test.yaml")
+        manifest = _applied_encoding_manifest_path(primary)
+        (checkout / primary).parent.mkdir(parents=True)
+        (checkout / primary).write_text("format: rulespec/v1\nrules: []\n")
+        (checkout / companion).write_text("[]\n")
+        (checkout / manifest).parent.mkdir(parents=True)
+        (checkout / manifest).write_text(
+            json.dumps(
+                {
+                    "applied_files": [
+                        {"path": primary.as_posix()},
+                        {"path": companion.as_posix()},
+                    ]
+                }
+            )
+        )
+        payload = {
+            "target_operation": "create",
+            "applied_files": [
+                {
+                    "path": primary.as_posix(),
+                    "sha256": hashlib.sha256(
+                        (checkout / primary).read_bytes()
+                    ).hexdigest(),
+                },
+                {
+                    "path": companion.as_posix(),
+                    "sha256": hashlib.sha256(
+                        (checkout / companion).read_bytes()
+                    ).hexdigest(),
+                },
+            ],
+            "creation_target": {
+                "base_commit": base_commit,
+                "base_tree": base_tree,
+                "primary": primary.as_posix(),
+                "companion": companion.as_posix(),
+                "canonical_manifest": manifest.as_posix(),
+                "orphan_manifest": None,
+            },
+        }
+        return checkout, base_commit, primary, companion, manifest, payload
+
+    def test_creation_guard_reproves_exact_base_absence_and_live_owner(self, tmp_path):
+        import axiom_encode.cli as cli_module
+
+        checkout, base_commit, _primary, _companion, manifest, payload = (
+            self._creation_guard_fixture(tmp_path)
+        )
+
+        with patch.object(
+            cli_module,
+            "_rulespec_migration_git",
+            wraps=cli_module._rulespec_migration_git,
+        ) as migration_git:
+            assert (
+                _guard_creation_manifest_base_issues(
+                    checkout,
+                    base_ref=base_commit,
+                    manifest_path=manifest.as_posix(),
+                    payload=payload,
+                )
+                == []
+            )
+
+        rev_parse_calls = [
+            call_args.args[1:]
+            for call_args in migration_git.call_args_list
+            if call_args.args[1] == "rev-parse"
+        ]
+        assert rev_parse_calls[:2] == [
+            ("rev-parse", f"{base_commit}^{{commit}}"),
+            ("rev-parse", f"{base_commit}^{{tree}}"),
+        ]
+
+    def test_creation_guard_rejects_live_old_root_even_without_target_claim(
+        self, tmp_path
+    ):
+        checkout, base_commit, primary, _companion, manifest, payload = (
+            self._creation_guard_fixture(tmp_path)
+        )
+        old_root = _pre_monorepo_orphan_absence_path(primary)
+        assert old_root is not None
+        (checkout / old_root).parent.mkdir(parents=True, exist_ok=True)
+        (checkout / old_root).write_text(
+            json.dumps(
+                {
+                    "applied_files": [
+                        {"path": "us-nc/policies/income_tax/unrelated.yaml"}
+                    ]
+                }
+            )
+        )
+
+        issues = _guard_creation_manifest_base_issues(
+            checkout,
+            base_ref=base_commit,
+            manifest_path=manifest.as_posix(),
+            payload=payload,
+        )
+
+        assert issues == [
+            f"{manifest.as_posix()} creation old-root manifest is live: "
+            f"{old_root.as_posix()}"
+        ]
+
+    @pytest.mark.parametrize(
+        "alias",
+        [
+            "us-nc/policies/income_tax/Pilot_Liability_Pipeline.yaml",
+            (
+                ".axiom/encoding-manifests/us-nc/policies/Income_Tax/"
+                "pilot_liability_pipeline.json"
+            ),
+        ],
+    )
+    def test_creation_guard_rejects_live_target_group_identity_alias(
+        self, tmp_path, alias
+    ):
+        checkout, base_commit, _primary, _companion, manifest, payload = (
+            self._creation_guard_fixture(tmp_path)
+        )
+        alias_blob = (
+            subprocess.check_output(
+                ["git", "hash-object", "-w", "--stdin"],
+                cwd=checkout,
+                input=b"{}\n",
+            )
+            .decode()
+            .strip()
+        )
+        subprocess.run(
+            [
+                "git",
+                "update-index",
+                "--add",
+                "--cacheinfo",
+                "100644",
+                alias_blob,
+                alias,
+            ],
+            cwd=checkout,
+            check=True,
+        )
+
+        issues = _guard_creation_manifest_base_issues(
+            checkout,
+            base_ref=base_commit,
+            manifest_path=manifest.as_posix(),
+            payload=payload,
+        )
+
+        assert len(issues) == 1
+        assert "live filesystem-identity alias" in issues[0]
+        assert alias in issues[0]
+
+    def test_creation_guard_rejects_stale_signed_artifact_replay(self, tmp_path):
+        checkout, _base_commit, _primary, _companion, manifest, payload = (
+            self._creation_guard_fixture(tmp_path)
+        )
+        (checkout / "README.md").write_text("advanced base\n")
+        _git(checkout, "add", "README.md")
+        _git(checkout, "commit", "-qm", "advance protected base")
+
+        issues = _guard_creation_manifest_base_issues(
+            checkout,
+            base_ref="HEAD",
+            manifest_path=manifest.as_posix(),
+            payload=payload,
+        )
+
+        assert issues == [
+            f"{manifest.as_posix()} creation evidence does not match the guard "
+            "base commit/tree"
+        ]
+
+    @pytest.mark.parametrize("missing", ["primary", "companion"])
+    def test_creation_guard_requires_both_created_files(self, tmp_path, missing):
+        checkout, base_commit, primary, companion, manifest, payload = (
+            self._creation_guard_fixture(tmp_path)
+        )
+        missing_path = {"primary": primary, "companion": companion}[missing]
+        payload["applied_files"] = [
+            item
+            for item in payload["applied_files"]
+            if item["path"] != missing_path.as_posix()
+        ]
+
+        issues = _guard_creation_manifest_base_issues(
+            checkout,
+            base_ref=base_commit,
+            manifest_path=manifest.as_posix(),
+            payload=payload,
+        )
+
+        assert len(issues) == 1
+        assert "must claim its exact primary and companion" in issues[0]
+        assert missing_path.as_posix() in issues[0]
+
+    @pytest.mark.parametrize(
+        ("occupied_path", "message"),
+        [
+            (
+                "us-nc/policies/income_tax/pilot_liability_pipeline.yaml",
+                "was already occupied at the guard base",
+            ),
+            (
+                "us-nc/policies/income_tax/Pilot_Liability_Pipeline.yaml",
+                "had a filesystem-identity alias or occupied descendant",
+            ),
+            (
+                "us-nc/policies/income_tax/pilot_liability_pipeline.yaml/child",
+                "had a filesystem-identity alias or occupied descendant",
+            ),
+        ],
+    )
+    def test_creation_guard_rejects_base_occupancy_or_alias(
+        self, tmp_path, occupied_path, message
+    ):
+        checkout = tmp_path / "rulespec-us"
+        checkout.mkdir()
+        _git(checkout, "init", "-q")
+        _git(checkout, "config", "user.email", "test@example.com")
+        _git(checkout, "config", "user.name", "Test")
+        occupied = checkout / occupied_path
+        occupied.parent.mkdir(parents=True)
+        occupied.write_text("format: rulespec/v1\nrules: []\n")
+        _git(checkout, "add", ".")
+        _git(checkout, "commit", "-qm", "occupied base")
+        base_commit = _git(checkout, "rev-parse", "HEAD").stdout.strip()
+        base_tree = _git(checkout, "rev-parse", "HEAD^{tree}").stdout.strip()
+        primary = Path("us-nc/policies/income_tax/pilot_liability_pipeline.yaml")
+        if (checkout / primary).is_dir():
+            occupied.unlink()
+            (checkout / primary).rmdir()
+        companion = primary.with_name(f"{primary.stem}.test.yaml")
+        manifest = _applied_encoding_manifest_path(primary)
+        if not (checkout / primary).exists():
+            (checkout / primary).write_text("format: rulespec/v1\nrules: []\n")
+        (checkout / companion).write_text("[]\n")
+        (checkout / manifest).parent.mkdir(parents=True)
+        (checkout / manifest).write_text(
+            json.dumps({"applied_files": [{"path": primary.as_posix()}]})
+        )
+        payload = {
+            "target_operation": "create",
+            "applied_files": [
+                {
+                    "path": primary.as_posix(),
+                    "sha256": hashlib.sha256(
+                        (checkout / primary).read_bytes()
+                    ).hexdigest(),
+                },
+                {
+                    "path": companion.as_posix(),
+                    "sha256": hashlib.sha256(
+                        (checkout / companion).read_bytes()
+                    ).hexdigest(),
+                },
+            ],
+            "creation_target": {
+                "base_commit": base_commit,
+                "base_tree": base_tree,
+                "primary": primary.as_posix(),
+                "companion": companion.as_posix(),
+                "canonical_manifest": manifest.as_posix(),
+                "orphan_manifest": None,
+            },
+        }
+
+        issues = _guard_creation_manifest_base_issues(
+            checkout,
+            base_ref=base_commit,
+            manifest_path=manifest.as_posix(),
+            payload=payload,
+        )
+
+        assert len(issues) == 1
+        assert message in issues[0]
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("base_commit", "not-a-commit"),
+            ("base_tree", "not-a-tree"),
+            ("primary", "us-nc/policies/income_tax/Wrong.yaml"),
+            ("companion", "us-nc/policies/income_tax/wrong.test.yaml"),
+            (
+                "canonical_manifest",
+                ".axiom/encoding-manifests/us-nc/policies/income_tax/wrong.json",
+            ),
+            (
+                "orphan_manifest",
+                ".axiom/encoding-manifests/policies/income_tax/wrong.json",
+            ),
+        ],
+    )
+    def test_creation_manifest_schema_rejects_incoherent_target_identity(
+        self, field, value
+    ):
+        primary = Path("us-nc/policies/income_tax/pilot_liability_pipeline.yaml")
+        creation_target = {
+            "base_commit": "a" * 40,
+            "base_tree": "b" * 40,
+            "primary": primary.as_posix(),
+            "companion": primary.with_name(f"{primary.stem}.test.yaml").as_posix(),
+            "canonical_manifest": _applied_encoding_manifest_path(primary).as_posix(),
+            "orphan_manifest": None,
+        }
+        creation_target[field] = value
+
+        issues = _applied_manifest_exact_schema_issues(
+            {
+                "backend": "codex",
+                "tool": "axiom-encode encode --apply",
+                "target_operation": "create",
+                "creation_target": creation_target,
+            },
+            manifest_label="test manifest",
+        )
+
+        assert issues == ["test manifest creation evidence is malformed"]
+
+    @pytest.mark.parametrize(
+        "relative",
+        [
+            Path("us-ca/policies/income_tax/credit.yaml"),
+            Path("us/programs/income_tax/credit.yaml"),
+        ],
+    )
+    def test_orphan_v1_layout_is_federal_policies_or_statutes_only(self, relative):
+        assert _pre_monorepo_orphan_manifest_path(relative) is None
+
+    @pytest.mark.parametrize(
+        "tracked_alias",
+        [
+            "us-nc/policies/income_tax/Pilot_Liability_Pipeline.yaml",
+            "us-nc/policies/income_tax/pilot_liability_pipeline.yaml/child",
+            "us-nc/policies",
+            "us-nc/policies/income_tax/cafe\u0301.yaml",
+            "us-nc/policies/Income_Tax/existing.yaml",
+            "us-nc/policies/cafe\u0301/existing.yaml",
+        ],
+    )
+    def test_creation_rejects_casefold_or_unicode_base_tree_alias(self, tracked_alias):
+        primary = Path("us-nc/policies/income_tax/pilot_liability_pipeline.yaml")
+        if tracked_alias.endswith("cafe\u0301.yaml"):
+            primary = Path("us-nc/policies/income_tax/café.yaml")
+        elif "cafe\u0301/" in tracked_alias:
+            primary = Path("us-nc/policies/café/new.yaml")
+        protected = [
+            primary,
+            primary.with_name(f"{primary.stem}.test.yaml"),
+            _applied_encoding_manifest_path(primary),
+            _pre_monorepo_orphan_manifest_path(primary),
+        ]
+        assert _creation_target_base_identity_conflicts(
+            {Path(tracked_alias): "100644"},
+            [path for path in protected if path is not None],
+        ) == [Path(tracked_alias)]
+
+    @pytest.mark.parametrize("mode", ["120000", "160000"])
+    def test_creation_rejects_tracked_non_directory_proper_ancestor(self, mode):
+        primary = Path("us/policies/income_tax/new.yaml")
+        protected = [
+            primary,
+            primary.with_name(f"{primary.stem}.test.yaml"),
+            _applied_encoding_manifest_path(primary),
+        ]
+
+        assert _creation_target_base_identity_conflicts(
+            {Path("us/policies"): mode}, protected
+        ) == [Path("us/policies")]
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "us-nc/policies//income_tax/new.yaml",
+            "us-nc/policies/./income_tax/new.yaml",
+            "us-nc/policies/income_tax/../new.yaml",
+            "us-nc\\policies\\income_tax\\new.yaml",
+            " us-nc/policies/income_tax/new.yaml",
+            "us-nc/policies/income_tax/new.yaml\n",
+            "us-nc/policies/income_tax/new\u200b.yaml",
+            "us-nc/policies/income_tax/new.test.yaml",
+            "us-nc/policies/income tax/new.yaml",
+            "us-nc/policies/income_tax/new#credit.yaml",
+            "us-nc/policies/income_tax/new:credit.yaml",
+            "us-nc/policies/income_tax/caf\u00e9.yaml",
+            "us-nc/policies/income_tax/new.yml.yaml",
+            "us-nc/policies/income_tax/new.yaml.yaml",
+            "us-nc/policies/income_tax/CaseAlias.yaml",
+            "us-nc/policies/income_tax/cafe\u0301.yaml",
+        ],
+    )
+    def test_create_rulespec_path_parser_rejects_noncanonical_text(self, raw):
+        with pytest.raises(argparse.ArgumentTypeError):
+            _parse_create_rulespec_path(raw)
+
+    def test_create_rulespec_path_parser_preserves_canonical_text(self):
+        assert _parse_create_rulespec_path(
+            "us-nc/policies/income_tax/new.yaml"
+        ) == Path("us-nc/policies/income_tax/new.yaml")
+
     def _fixture(self, tmp_path: Path):
         checkout = tmp_path / "rulespec-us"
         content_root = checkout / "us-nc"
@@ -40001,6 +41035,11 @@ class TestEncodeReplacementTarget:
         )
         companion = target.with_name("pilot_liability_pipeline.test.yaml")
         companion.write_text("[]\n")
+        _git(checkout, "init", "-q")
+        _git(checkout, "config", "user.email", "test@example.com")
+        _git(checkout, "config", "user.name", "Test")
+        _git(checkout, "add", ".")
+        _git(checkout, "commit", "-qm", "existing replacement target")
         resolved_source = object()
         source_unit = SimpleNamespace(
             requested="us-nc/statute/105/105-153.7",
@@ -40020,6 +41059,62 @@ class TestEncodeReplacementTarget:
             ),
             apply=True,
             mode="repo-augmented",
+            review_contract_json=_DeferredOutputReviewContract(
+                citation=source_unit.requested,
+                rulespec_path="us-nc/policies/income_tax/pilot_liability_pipeline.yaml",
+                required_deferred_outputs=(),
+                target_operation="replace",
+            ),
+        )
+        return (
+            args,
+            checkout,
+            content_root,
+            target,
+            companion,
+            source_unit,
+            replacement_source,
+        )
+
+    def _create_fixture(self, tmp_path: Path):
+        (
+            args,
+            checkout,
+            content_root,
+            target,
+            companion,
+            source_unit,
+            replacement_source,
+        ) = self._fixture(tmp_path)
+        _git(
+            checkout,
+            "rm",
+            "-q",
+            target.relative_to(checkout).as_posix(),
+            companion.relative_to(checkout).as_posix(),
+        )
+        _git(checkout, "commit", "-qm", "empty protected base")
+        args.create_rulespec_path = args.replace_rulespec_path
+        args.replace_rulespec_path = None
+        args.review_contract_json = _DeferredOutputReviewContract(
+            citation=source_unit.requested,
+            rulespec_path=args.create_rulespec_path.as_posix(),
+            required_deferred_outputs=(),
+            required_test_cases=(
+                _RequiredTestCaseContract(
+                    name="source-grounded creation case",
+                    period={
+                        "period_kind": "tax_year",
+                        "start": "2026-01-01",
+                        "end": "2026-12-31",
+                    },
+                    input={"amount": 100},
+                    required_output={
+                        "us-nc:policies/income_tax/pilot_liability_pipeline#amount": 100
+                    },
+                ),
+            ),
+            target_operation="create",
         )
         return (
             args,
@@ -40059,6 +41154,411 @@ class TestEncodeReplacementTarget:
             "policies/income_tax/pilot_liability_pipeline.yaml"
         )
         assert resolved.context_paths == (target, companion)
+        assert resolved.existing == _EncodeExistingTargetContract(
+            base_commit=_git(checkout, "rev-parse", "HEAD").stdout.strip(),
+            base_tree=_git(checkout, "rev-parse", "HEAD^{tree}").stdout.strip(),
+            primary=target.relative_to(checkout),
+            primary_sha256=_sha256_file(target),
+            companion=companion.relative_to(checkout),
+            companion_sha256=_sha256_file(companion),
+            canonical_manifest=_applied_encoding_manifest_path(
+                target.relative_to(checkout)
+            ),
+            canonical_manifest_sha256=None,
+            orphan_manifest=None,
+            base_manifest_claimants=(),
+        )
+
+    @pytest.mark.parametrize("group_member", ["primary", "companion", "manifest"])
+    def test_ordinary_replacement_rejects_dirty_base_group(
+        self,
+        tmp_path,
+        group_member,
+    ):
+        (
+            args,
+            checkout,
+            content_root,
+            target,
+            companion,
+            source_unit,
+            replacement_source,
+        ) = self._fixture(tmp_path)
+        if group_member == "primary":
+            target.write_text(target.read_text() + "# uncommitted mutation\n")
+        elif group_member == "companion":
+            companion.write_text("- name: uncommitted mutation\n")
+        else:
+            manifest = checkout / _applied_encoding_manifest_path(
+                target.relative_to(checkout)
+            )
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text('{"applied_files": []}\n')
+
+        with (
+            patch(
+                "axiom_encode.cli.resolve_corpus_source_unit",
+                return_value=replacement_source,
+            ),
+            pytest.raises(ValueError, match="exact clean HEAD"),
+        ):
+            _resolve_encode_replacement_target(
+                args,
+                policy_checkout_path=checkout,
+                policy_repo_path=content_root,
+                source_unit=source_unit,
+                corpus_release=SimpleNamespace(),
+            )
+
+    def test_ordinary_replacement_accepts_exact_canonical_base_owner(self, tmp_path):
+        (
+            args,
+            checkout,
+            content_root,
+            target,
+            companion,
+            source_unit,
+            replacement_source,
+        ) = self._fixture(tmp_path)
+        primary = target.relative_to(checkout)
+        canonical_manifest = _applied_encoding_manifest_path(primary)
+        manifest = checkout / canonical_manifest
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text(
+            json.dumps(
+                {
+                    "applied_files": [
+                        {"path": primary.as_posix()},
+                        {"path": companion.relative_to(checkout).as_posix()},
+                    ]
+                }
+            )
+            + "\n"
+        )
+        _git(checkout, "add", ".")
+        _git(checkout, "commit", "-qm", "canonical replacement owner")
+
+        with patch(
+            "axiom_encode.cli.resolve_corpus_source_unit",
+            return_value=replacement_source,
+        ):
+            resolved = _resolve_encode_replacement_target(
+                args,
+                policy_checkout_path=checkout,
+                policy_repo_path=content_root,
+                source_unit=source_unit,
+                corpus_release=SimpleNamespace(),
+            )
+
+        assert resolved is not None and resolved.existing is not None
+        assert resolved.existing.canonical_manifest_sha256 == _sha256_file(manifest)
+        assert resolved.existing.base_manifest_claimants == (canonical_manifest,)
+
+    def test_ordinary_replacement_rejects_unchanged_duplicate_base_owner(
+        self, tmp_path
+    ):
+        (
+            args,
+            checkout,
+            content_root,
+            target,
+            companion,
+            source_unit,
+            replacement_source,
+        ) = self._fixture(tmp_path)
+        primary = target.relative_to(checkout)
+        applied_files = [
+            {"path": primary.as_posix()},
+            {"path": companion.relative_to(checkout).as_posix()},
+        ]
+        canonical = checkout / _applied_encoding_manifest_path(primary)
+        duplicate = (
+            checkout / ".axiom/encoding-manifests/us-nc/policies/coowner.json"
+        )
+        for manifest in (canonical, duplicate):
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text(json.dumps({"applied_files": applied_files}) + "\n")
+        _git(checkout, "add", ".")
+        _git(checkout, "commit", "-qm", "duplicate replacement owners")
+
+        with (
+            patch(
+                "axiom_encode.cli.resolve_corpus_source_unit",
+                return_value=replacement_source,
+            ),
+            pytest.raises(
+                ValueError,
+                match="either no base manifest owner or its exact canonical owner",
+            ),
+        ):
+            _resolve_encode_replacement_target(
+                args,
+                policy_checkout_path=checkout,
+                policy_repo_path=content_root,
+                source_unit=source_unit,
+                corpus_release=SimpleNamespace(),
+            )
+
+    @pytest.mark.parametrize("group_member", ["primary", "companion", "manifest"])
+    def test_locked_recheck_rejects_stealth_group_digest_mutation(
+        self,
+        tmp_path,
+        group_member,
+    ):
+        (
+            args,
+            checkout,
+            content_root,
+            target,
+            companion,
+            source_unit,
+            replacement_source,
+        ) = self._fixture(tmp_path)
+        primary = target.relative_to(checkout)
+        canonical_manifest = _applied_encoding_manifest_path(primary)
+        manifest = checkout / canonical_manifest
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text(
+            json.dumps(
+                {
+                    "applied_files": [
+                        {"path": primary.as_posix()},
+                        {"path": companion.relative_to(checkout).as_posix()},
+                    ]
+                }
+            )
+            + "\n"
+        )
+        _git(checkout, "add", ".")
+        _git(checkout, "commit", "-qm", "replacement owner base")
+        with patch(
+            "axiom_encode.cli.resolve_corpus_source_unit",
+            return_value=replacement_source,
+        ):
+            resolved = _resolve_encode_replacement_target(
+                args,
+                policy_checkout_path=checkout,
+                policy_repo_path=content_root,
+                source_unit=source_unit,
+                corpus_release=SimpleNamespace(),
+            )
+        assert resolved is not None and resolved.existing is not None
+        mutated = {
+            "primary": target,
+            "companion": companion,
+            "manifest": manifest,
+        }[group_member]
+        relative = mutated.relative_to(checkout)
+        _git(checkout, "update-index", "--assume-unchanged", relative.as_posix())
+        mutated.write_bytes(mutated.read_bytes() + b" \n")
+        assert _git(checkout, "status", "--porcelain").stdout == ""
+
+        with pytest.raises(
+            RuntimeError,
+            match=(
+                "primary changed|companion changed|canonical owner manifest changed"
+            ),
+        ):
+            _require_existing_target_identity(checkout, resolved.existing)
+
+    def test_ordinary_replacement_transaction_completes_with_sole_owner(self, tmp_path):
+        (
+            args,
+            checkout,
+            content_root,
+            target,
+            companion,
+            source_unit,
+            replacement_source,
+        ) = self._fixture(tmp_path)
+        with patch(
+            "axiom_encode.cli.resolve_corpus_source_unit",
+            return_value=replacement_source,
+        ):
+            resolved = _resolve_encode_replacement_target(
+                args,
+                policy_checkout_path=checkout,
+                policy_repo_path=content_root,
+                source_unit=source_unit,
+                corpus_release=SimpleNamespace(),
+            )
+        assert resolved is not None and resolved.existing is not None
+        contract = resolved.existing
+        manifest = checkout / contract.canonical_manifest
+        new_primary = target.read_bytes() + b"# encoded replacement\n"
+        new_manifest = (
+            json.dumps(
+                {
+                    "applied_files": [
+                        {"path": contract.primary.as_posix()},
+                        {"path": contract.companion.as_posix()},
+                    ]
+                }
+            )
+            + "\n"
+        ).encode()
+
+        _install_apply_transaction(
+            [(target, new_primary), (manifest, new_manifest)],
+            checkout_root=checkout,
+            expected_originals={target: contract.primary_sha256, manifest: None},
+            pre_install_check=lambda: _require_existing_target_identity(
+                checkout, contract
+            ),
+            post_install_check=lambda: _require_existing_target_final_ownership(
+                checkout, contract
+            ),
+        )
+
+        assert target.read_bytes() == new_primary
+        assert manifest.read_bytes() == new_manifest
+        assert _creation_live_manifest_claimants(
+            checkout,
+            destination_paths={contract.primary, contract.companion},
+        ) == [contract.canonical_manifest]
+
+    def test_ordinary_replacement_rolls_back_late_duplicate_owner(self, tmp_path):
+        (
+            args,
+            checkout,
+            content_root,
+            target,
+            _companion,
+            source_unit,
+            replacement_source,
+        ) = self._fixture(tmp_path)
+        with patch(
+            "axiom_encode.cli.resolve_corpus_source_unit",
+            return_value=replacement_source,
+        ):
+            resolved = _resolve_encode_replacement_target(
+                args,
+                policy_checkout_path=checkout,
+                policy_repo_path=content_root,
+                source_unit=source_unit,
+                corpus_release=SimpleNamespace(),
+            )
+        assert resolved is not None and resolved.existing is not None
+        contract = resolved.existing
+        original = target.read_bytes()
+        manifest = checkout / contract.canonical_manifest
+        coowner = checkout / ".axiom/encoding-manifests/us-nc/policies/coowner.json"
+        owner_bytes = (
+            json.dumps(
+                {"applied_files": [{"path": contract.primary.as_posix()}]}
+            )
+            + "\n"
+        ).encode()
+
+        def inject_duplicate_owner() -> None:
+            coowner.parent.mkdir(parents=True, exist_ok=True)
+            coowner.write_bytes(owner_bytes)
+            _require_existing_target_final_ownership(checkout, contract)
+
+        with pytest.raises(RuntimeError, match="final manifest ownership is ambiguous"):
+            _install_apply_transaction(
+                [(target, original + b"# replacement\n"), (manifest, owner_bytes)],
+                checkout_root=checkout,
+                expected_originals={target: contract.primary_sha256, manifest: None},
+                pre_install_check=lambda: _require_existing_target_identity(
+                    checkout, contract
+                ),
+                post_install_check=inject_duplicate_owner,
+            )
+
+        assert target.read_bytes() == original
+        assert not manifest.exists()
+        assert coowner.is_file()
+
+    def test_live_manifest_claimant_census_enforces_global_file_cap(
+        self, tmp_path, monkeypatch
+    ):
+        import axiom_encode.cli as cli_module
+
+        checkout = tmp_path / "rulespec-us"
+        root = checkout / ".axiom/encoding-manifests/us/policies"
+        root.mkdir(parents=True)
+        assert cli_module._MANIFEST_OWNERSHIP_CENSUS_MAX_FILES == 4096
+        monkeypatch.setattr(
+            cli_module,
+            "_MANIFEST_OWNERSHIP_CENSUS_MAX_FILES",
+            2,
+        )
+        for index in range(3):
+            (root / f"owner-{index}.json").write_text("{}\n")
+
+        with pytest.raises(
+            RuntimeError,
+            match="manifest ownership scan is oversized",
+        ):
+            _creation_live_manifest_claimants(
+                checkout,
+                destination_paths={Path("us/policies/example.yaml")},
+            )
+
+    def test_live_manifest_claimant_census_enforces_cumulative_byte_cap(
+        self, tmp_path, monkeypatch
+    ):
+        import axiom_encode.cli as cli_module
+
+        checkout = tmp_path / "rulespec-us"
+        root = checkout / ".axiom/encoding-manifests/us/policies"
+        root.mkdir(parents=True)
+        raw = b'{"applied_files": []}\n'
+        assert (
+            cli_module._MANIFEST_OWNERSHIP_CENSUS_MAX_TOTAL_BYTES
+            == 64 * 1024 * 1024
+        )
+        monkeypatch.setattr(
+            cli_module,
+            "_MANIFEST_OWNERSHIP_CENSUS_MAX_TOTAL_BYTES",
+            len(raw) + 1,
+        )
+        (root / "owner-1.json").write_bytes(raw)
+        (root / "owner-2.json").write_bytes(raw)
+
+        with pytest.raises(
+            RuntimeError,
+            match="manifest ownership scan is oversized",
+        ):
+            _creation_live_manifest_claimants(
+                checkout,
+                destination_paths={Path("us/policies/example.yaml")},
+            )
+
+    @pytest.mark.parametrize("bound", ["directories", "entries"])
+    def test_live_manifest_claimant_census_bounds_empty_tree_walk(
+        self, tmp_path, monkeypatch, bound
+    ):
+        import axiom_encode.cli as cli_module
+
+        checkout = tmp_path / "rulespec-us"
+        root = checkout / ".axiom/encoding-manifests"
+        root.mkdir(parents=True)
+        if bound == "directories":
+            monkeypatch.setattr(
+                cli_module,
+                "_MANIFEST_OWNERSHIP_CENSUS_MAX_DIRECTORIES",
+                2,
+            )
+            (root / "one/two").mkdir(parents=True)
+        else:
+            monkeypatch.setattr(
+                cli_module,
+                "_MANIFEST_OWNERSHIP_CENSUS_MAX_ENTRIES",
+                2,
+            )
+            for name in ("one", "two", "three"):
+                (root / name).mkdir()
+
+        with pytest.raises(
+            RuntimeError,
+            match="manifest ownership walk is oversized",
+        ):
+            _creation_live_manifest_claimants(
+                checkout,
+                destination_paths={Path("us/policies/example.yaml")},
+            )
 
     def test_accepts_requested_child_with_resolved_parent_fallback(self, tmp_path):
         (
@@ -40089,6 +41589,530 @@ class TestEncodeReplacementTarget:
         assert resolved.relative_output == Path(
             "policies/income_tax/pilot_liability_pipeline.yaml"
         )
+
+    def test_accepts_exact_tracked_uppercase_statutory_target(self, tmp_path):
+        (
+            args,
+            checkout,
+            content_root,
+            target,
+            companion,
+            source_unit,
+            replacement_source,
+        ) = self._fixture(tmp_path)
+        uppercase = content_root / "statutes/26/25A.yaml"
+        uppercase_companion = uppercase.with_name("25A.test.yaml")
+        uppercase.parent.mkdir(parents=True)
+        _git(
+            checkout,
+            "mv",
+            target.relative_to(checkout),
+            uppercase.relative_to(checkout),
+        )
+        _git(
+            checkout,
+            "mv",
+            companion.relative_to(checkout),
+            uppercase_companion.relative_to(checkout),
+        )
+        _git(checkout, "commit", "-qm", "uppercase statutory target")
+        args.replace_rulespec_path = uppercase.relative_to(checkout)
+        args.review_contract_json = args.review_contract_json._replace(
+            rulespec_path=args.replace_rulespec_path.as_posix()
+        )
+
+        with patch(
+            "axiom_encode.cli.resolve_corpus_source_unit",
+            return_value=replacement_source,
+        ):
+            resolved = _resolve_encode_replacement_target(
+                args,
+                policy_checkout_path=checkout,
+                policy_repo_path=content_root,
+                source_unit=source_unit,
+                corpus_release=SimpleNamespace(),
+            )
+
+        assert resolved is not None
+        assert resolved.relative_output == Path("statutes/26/25A.yaml")
+
+    def test_accepts_explicit_absent_policy_target(self, tmp_path):
+        (
+            args,
+            checkout,
+            content_root,
+            _target,
+            _companion,
+            source_unit,
+            _replacement_source,
+        ) = self._create_fixture(tmp_path)
+
+        resolved = _resolve_encode_replacement_target(
+            args,
+            policy_checkout_path=checkout,
+            policy_repo_path=content_root,
+            source_unit=source_unit,
+            corpus_release=SimpleNamespace(),
+        )
+
+        assert resolved is not None
+        assert resolved.relative_output == Path(
+            "policies/income_tax/pilot_liability_pipeline.yaml"
+        )
+        assert resolved.context_paths == ()
+
+    def test_rejects_unbound_blind_explicit_absent_policy_target(self, tmp_path):
+        (
+            args,
+            checkout,
+            content_root,
+            _target,
+            _companion,
+            source_unit,
+            _replacement_source,
+        ) = self._create_fixture(tmp_path)
+        args.review_contract_json = args.review_contract_json._replace(
+            required_test_cases=()
+        )
+
+        with pytest.raises(
+            ValueError, match="nonempty structured review test contract"
+        ):
+            _resolve_encode_replacement_target(
+                args,
+                policy_checkout_path=checkout,
+                policy_repo_path=content_root,
+                source_unit=source_unit,
+                corpus_release=SimpleNamespace(),
+            )
+
+    def test_explicit_create_rejects_imported_only_review_witness(self, tmp_path):
+        args, checkout, content_root, *_rest = self._create_fixture(tmp_path)
+        args.review_contract_json = args.review_contract_json._replace(
+            required_test_cases=tuple(
+                case._replace(
+                    required_output={"us:statutes/26/199A#qbi_deduction": 100}
+                )
+                for case in args.review_contract_json.required_test_cases
+            )
+        )
+
+        with pytest.raises(ValueError, match="exact created module"):
+            _resolve_encode_replacement_target(
+                args,
+                policy_checkout_path=checkout,
+                policy_repo_path=content_root,
+                source_unit=SimpleNamespace(),
+                corpus_release=SimpleNamespace(),
+            )
+
+    @pytest.mark.parametrize(
+        ("attribute", "value", "match"),
+        [
+            ("apply", False, "requires --apply"),
+            ("mode", "cold", "requires --mode repo-augmented"),
+            (
+                "create_rulespec_path",
+                Path("us-nc/statutes/105/105-153.7.yaml"),
+                "limited to the policies/ root",
+            ),
+            (
+                "create_rulespec_path",
+                Path("us-or/policies/income_tax/new.yaml"),
+                "new policies/ checkout-relative primary RuleSpec",
+            ),
+        ],
+    )
+    def test_rejects_unsafe_explicit_create_invocation(
+        self,
+        tmp_path,
+        attribute,
+        value,
+        match,
+    ):
+        args, checkout, content_root, *_rest = self._create_fixture(tmp_path)
+        setattr(args, attribute, value)
+
+        with pytest.raises(ValueError, match=match):
+            _resolve_encode_replacement_target(
+                args,
+                policy_checkout_path=checkout,
+                policy_repo_path=content_root,
+                source_unit=SimpleNamespace(),
+                corpus_release=SimpleNamespace(),
+            )
+
+    def test_rejects_simultaneous_create_and_replace_options(self, tmp_path):
+        args, checkout, content_root, *_rest = self._create_fixture(tmp_path)
+        args.replace_rulespec_path = args.create_rulespec_path
+
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            _resolve_encode_replacement_target(
+                args,
+                policy_checkout_path=checkout,
+                policy_repo_path=content_root,
+                source_unit=SimpleNamespace(),
+                corpus_release=SimpleNamespace(),
+            )
+
+    @pytest.mark.parametrize("operation", ["create", "replace"])
+    def test_rejects_operation_bound_contract_without_explicit_target(
+        self, tmp_path, operation
+    ):
+        args, checkout, content_root, *_rest = self._fixture(tmp_path)
+        args.replace_rulespec_path = None
+        args.review_contract_json = args.review_contract_json._replace(
+            target_operation=operation
+        )
+
+        with pytest.raises(
+            ValueError, match="require an explicit create or replacement"
+        ):
+            _resolve_encode_replacement_target(
+                args,
+                policy_checkout_path=checkout,
+                policy_repo_path=content_root,
+                source_unit=SimpleNamespace(),
+                corpus_release=SimpleNamespace(),
+            )
+
+    @pytest.mark.parametrize(
+        "occupied_kind",
+        ["primary", "companion", "canonical-manifest", "orphan-manifest"],
+    )
+    def test_explicit_create_rejects_any_exact_existing_owner(
+        self,
+        tmp_path,
+        occupied_kind,
+    ):
+        (
+            args,
+            checkout,
+            content_root,
+            target,
+            companion,
+            _source_unit,
+            _replacement_source,
+        ) = self._create_fixture(tmp_path)
+        occupied_paths = {
+            "primary": target,
+            "companion": companion,
+            "canonical-manifest": (
+                checkout / ".axiom/encoding-manifests/us-nc/policies/income_tax/"
+                "pilot_liability_pipeline.json"
+            ),
+            "orphan-manifest": (
+                checkout / ".axiom/encoding-manifests/policies/income_tax/"
+                "pilot_liability_pipeline.json"
+            ),
+        }
+        occupied = occupied_paths[occupied_kind]
+        occupied.parent.mkdir(parents=True, exist_ok=True)
+        occupied.write_text("occupied\n")
+
+        with pytest.raises(ValueError, match="requires an absent primary"):
+            _resolve_encode_replacement_target(
+                args,
+                policy_checkout_path=checkout,
+                policy_repo_path=content_root,
+                source_unit=SimpleNamespace(),
+                corpus_release=SimpleNamespace(),
+            )
+
+    @pytest.mark.parametrize(
+        "occupied_kind",
+        ["primary", "companion", "canonical-manifest", "orphan-manifest"],
+    )
+    def test_explicit_create_rejects_exact_indirect_owner(
+        self, tmp_path, occupied_kind
+    ):
+        (
+            args,
+            checkout,
+            content_root,
+            target,
+            companion,
+            source_unit,
+            _replacement_source,
+        ) = self._create_fixture(tmp_path)
+        occupied_paths = {
+            "primary": target,
+            "companion": companion,
+            "canonical-manifest": (
+                checkout / ".axiom/encoding-manifests/us-nc/policies/income_tax/"
+                "pilot_liability_pipeline.json"
+            ),
+            "orphan-manifest": (
+                checkout / ".axiom/encoding-manifests/policies/income_tax/"
+                "pilot_liability_pipeline.json"
+            ),
+        }
+        occupied = occupied_paths[occupied_kind]
+        outside = tmp_path / f"outside-{occupied_kind}"
+        outside.write_text("outside\n")
+        occupied.parent.mkdir(parents=True, exist_ok=True)
+        occupied.symlink_to(outside)
+        _git(checkout, "add", ".")
+        _git(checkout, "commit", "-qm", f"indirect {occupied_kind}")
+
+        with pytest.raises(ValueError, match="requires an absent primary"):
+            _resolve_encode_replacement_target(
+                args,
+                policy_checkout_path=checkout,
+                policy_repo_path=content_root,
+                source_unit=source_unit,
+                corpus_release=SimpleNamespace(),
+            )
+
+    @pytest.mark.parametrize(
+        "occupied_kind",
+        ["primary", "companion", "canonical-manifest", "orphan-manifest"],
+    )
+    def test_locked_creation_recheck_preserves_late_occupant(
+        self, tmp_path, occupied_kind
+    ):
+        (
+            args,
+            checkout,
+            content_root,
+            _target,
+            _companion,
+            source_unit,
+            _replacement_source,
+        ) = self._create_fixture(tmp_path)
+        resolved = _resolve_encode_replacement_target(
+            args,
+            policy_checkout_path=checkout,
+            policy_repo_path=content_root,
+            source_unit=source_unit,
+            corpus_release=SimpleNamespace(),
+        )
+        assert resolved is not None and resolved.creation is not None
+        protected_paths = {
+            "primary": resolved.creation.primary,
+            "companion": resolved.creation.companion,
+            "canonical-manifest": resolved.creation.canonical_manifest,
+            "orphan-manifest": (
+                resolved.creation.orphan_manifest
+                or _pre_monorepo_orphan_absence_path(resolved.creation.primary)
+            ),
+        }
+        occupied_relative = protected_paths[occupied_kind]
+        assert occupied_relative is not None
+        occupied = checkout / occupied_relative
+        occupied.parent.mkdir(parents=True, exist_ok=True)
+        occupied.write_text("late occupant\n")
+
+        with pytest.raises(ValueError, match="exact clean HEAD"):
+            _require_creation_target_base(checkout, resolved.creation)
+
+        assert occupied.read_text() == "late occupant\n"
+
+    def test_creation_final_ownership_rejects_late_orphan_and_coowner(self, tmp_path):
+        (
+            args,
+            checkout,
+            content_root,
+            _target,
+            _companion,
+            source_unit,
+            _replacement_source,
+        ) = self._create_fixture(tmp_path)
+        resolved = _resolve_encode_replacement_target(
+            args,
+            policy_checkout_path=checkout,
+            policy_repo_path=content_root,
+            source_unit=source_unit,
+            corpus_release=SimpleNamespace(),
+        )
+        assert resolved is not None and resolved.creation is not None
+        contract = resolved.creation
+        canonical = checkout / contract.canonical_manifest
+        canonical.parent.mkdir(parents=True)
+        canonical.write_text(
+            json.dumps({"applied_files": [{"path": contract.primary.as_posix()}]})
+        )
+        coowner = checkout / ".axiom/encoding-manifests/us-nc/policies/coowner.json"
+        coowner.parent.mkdir(parents=True, exist_ok=True)
+        coowner.write_text(
+            json.dumps(
+                {"evidence": {"applied_files": [{"path": contract.primary.as_posix()}]}}
+            ).replace("/", "\\/")
+        )
+
+        with pytest.raises(RuntimeError, match="final manifest ownership is ambiguous"):
+            _require_creation_target_final_ownership(checkout, contract)
+
+        coowner.unlink()
+        orphan_relative = contract.orphan_manifest or _pre_monorepo_orphan_absence_path(
+            contract.primary
+        )
+        assert orphan_relative is not None
+        orphan = checkout / orphan_relative
+        orphan.parent.mkdir(parents=True, exist_ok=True)
+        orphan.write_text("{}")
+        with pytest.raises(RuntimeError, match="old-root manifest appeared"):
+            _require_creation_target_final_ownership(checkout, contract)
+
+    def test_creation_transaction_rolls_back_late_coowner(self, tmp_path):
+        (
+            args,
+            checkout,
+            content_root,
+            _target,
+            _companion,
+            source_unit,
+            _replacement_source,
+        ) = self._create_fixture(tmp_path)
+        resolved = _resolve_encode_replacement_target(
+            args,
+            policy_checkout_path=checkout,
+            policy_repo_path=content_root,
+            source_unit=source_unit,
+            corpus_release=SimpleNamespace(),
+        )
+        assert resolved is not None and resolved.creation is not None
+        contract = resolved.creation
+        primary = checkout / contract.primary
+        companion = checkout / contract.companion
+        manifest = checkout / contract.canonical_manifest
+        coowner = checkout / ".axiom/encoding-manifests/us-nc/policies/coowner.json"
+
+        def inject_late_coowner() -> None:
+            coowner.parent.mkdir(parents=True, exist_ok=True)
+            coowner.write_text(
+                json.dumps(
+                    {
+                        "nested": {
+                            "applied_files": [{"path": contract.primary.as_posix()}]
+                        }
+                    }
+                )
+            )
+            _require_creation_target_final_ownership(checkout, contract)
+
+        with pytest.raises(RuntimeError, match="final manifest ownership is ambiguous"):
+            _install_apply_transaction(
+                [
+                    (primary, b"format: rulespec/v1\nrules: []\n"),
+                    (companion, b"[]\n"),
+                    (manifest, b'{"applied_files": []}\n'),
+                ],
+                checkout_root=checkout,
+                expected_originals={primary: None, companion: None, manifest: None},
+                pre_install_check=lambda: _require_creation_target_base(
+                    checkout, contract
+                ),
+                post_install_check=inject_late_coowner,
+            )
+
+        assert not primary.exists()
+        assert not companion.exists()
+        assert not manifest.exists()
+        assert coowner.is_file()
+
+    @pytest.mark.parametrize(
+        "ancestor_kind",
+        ["policy-parent", "canonical-manifest-root", "orphan-manifest-root"],
+    )
+    def test_explicit_create_rejects_indirect_target_ancestor(
+        self, tmp_path, ancestor_kind
+    ):
+        (
+            args,
+            checkout,
+            content_root,
+            target,
+            _companion,
+            source_unit,
+            _replacement_source,
+        ) = self._create_fixture(tmp_path)
+        outside = tmp_path / f"outside-{ancestor_kind}"
+        outside.mkdir()
+        ancestors = {
+            "policy-parent": target.parent,
+            "canonical-manifest-root": (
+                checkout / ".axiom/encoding-manifests/us-nc/policies"
+            ),
+            "orphan-manifest-root": checkout / ".axiom/encoding-manifests/policies",
+        }
+        indirect = ancestors[ancestor_kind]
+        if indirect.exists():
+            indirect.rmdir()
+        indirect.parent.mkdir(parents=True, exist_ok=True)
+        indirect.symlink_to(outside, target_is_directory=True)
+        _git(checkout, "add", ".")
+        _git(checkout, "commit", "-qm", f"indirect {ancestor_kind}")
+
+        with pytest.raises(ValueError, match="path contains a symlink"):
+            _resolve_encode_replacement_target(
+                args,
+                policy_checkout_path=checkout,
+                policy_repo_path=content_root,
+                source_unit=source_unit,
+                corpus_release=SimpleNamespace(),
+            )
+
+    @pytest.mark.parametrize(
+        ("requested", "claimed", "match"),
+        [
+            (
+                "us-nc/policies/income_tax/pilot_liability_pipeline.yaml",
+                "us-nc/policies/income_tax/pilot_liability_pipeline.yaml",
+                "already has base manifest ownership",
+            ),
+            (
+                "us-nc/policies/income_tax/caf\u00e9.yaml",
+                "us-nc/policies/income_tax/cafe\u0301.yaml",
+                "canonical relative primary YAML path",
+            ),
+            (
+                "us-nc/policies/income_tax/casealias.yaml",
+                "us-nc/policies/income_tax/CaseAlias.yaml",
+                "already has base manifest ownership",
+            ),
+        ],
+    )
+    def test_explicit_create_rejects_indirect_base_manifest_claimant(
+        self, tmp_path, requested, claimed, match
+    ):
+        args, checkout, content_root, *_rest = self._create_fixture(tmp_path)
+        args.create_rulespec_path = Path(requested)
+        requested_path = Path(requested)
+        requested_module = (
+            f"{requested_path.parts[0]}:"
+            f"{Path(*requested_path.parts[1:]).with_suffix('').as_posix()}"
+        )
+        args.review_contract_json = args.review_contract_json._replace(
+            rulespec_path=requested,
+            required_test_cases=tuple(
+                case._replace(required_output={f"{requested_module}#amount": 100})
+                for case in args.review_contract_json.required_test_cases
+            ),
+        )
+        claimant = checkout / ".axiom/encoding-manifests/us-nc/policies/legacy.json"
+        claimant.parent.mkdir(parents=True)
+        claimant.write_text(
+            json.dumps(
+                {
+                    "applied_files": [
+                        {"path": Path(claimed).relative_to("us-nc").as_posix()}
+                    ]
+                }
+            )
+            + "\n"
+        )
+        _git(checkout, "add", ".")
+        _git(checkout, "commit", "-qm", "historical target claimant")
+
+        with pytest.raises(ValueError, match=match):
+            _resolve_encode_replacement_target(
+                args,
+                policy_checkout_path=checkout,
+                policy_repo_path=content_root,
+                source_unit=SimpleNamespace(),
+                corpus_release=SimpleNamespace(),
+            )
 
     @pytest.mark.parametrize(
         ("attribute", "value", "match"),
@@ -40147,6 +42171,228 @@ class TestEncodeReplacementTarget:
                 corpus_release=SimpleNamespace(),
             )
 
+    def test_replacement_rejects_casefold_alias(self, tmp_path):
+        (
+            args,
+            checkout,
+            content_root,
+            _target,
+            _companion,
+            source_unit,
+            _replacement_source,
+        ) = self._fixture(tmp_path)
+        args.replace_rulespec_path = Path(
+            "us-nc/policies/income_tax/Pilot_Liability_Pipeline.yaml"
+        )
+
+        with pytest.raises(ValueError, match="exact tracked regular 0644"):
+            _resolve_encode_replacement_target(
+                args,
+                policy_checkout_path=checkout,
+                policy_repo_path=content_root,
+                source_unit=source_unit,
+                corpus_release=SimpleNamespace(),
+            )
+
+    def test_replacement_rejects_coexisting_tracked_casefold_alias(self, tmp_path):
+        (
+            args,
+            checkout,
+            content_root,
+            target,
+            _companion,
+            source_unit,
+            _replacement_source,
+        ) = self._fixture(tmp_path)
+        blob = _git(checkout, "hash-object", "-w", target).stdout.strip()
+        alias = "us-nc/policies/income_tax/Pilot_Liability_Pipeline.yaml"
+        _git(checkout, "update-index", "--add", "--cacheinfo", f"100644,{blob},{alias}")
+
+        with pytest.raises(ValueError, match="filesystem-identity alias"):
+            _resolve_encode_replacement_target(
+                args,
+                policy_checkout_path=checkout,
+                policy_repo_path=content_root,
+                source_unit=source_unit,
+                corpus_release=SimpleNamespace(),
+            )
+
+    def test_replacement_rejects_ignored_casefold_manifest_alias(self, tmp_path):
+        (
+            args,
+            checkout,
+            content_root,
+            _target,
+            _companion,
+            source_unit,
+            _replacement_source,
+        ) = self._fixture(tmp_path)
+        (checkout / ".gitignore").write_text(
+            ".axiom/encoding-manifests/\n", encoding="utf-8"
+        )
+        alias = (
+            checkout / ".axiom/encoding-manifests/us-nc/policies/income_tax/"
+            "Pilot_Liability_Pipeline.json"
+        )
+        alias.parent.mkdir(parents=True)
+        alias.write_text("{}\n", encoding="utf-8")
+
+        with pytest.raises(ValueError, match="live filesystem-identity alias"):
+            _resolve_encode_replacement_target(
+                args,
+                policy_checkout_path=checkout,
+                policy_repo_path=content_root,
+                source_unit=source_unit,
+                corpus_release=SimpleNamespace(),
+            )
+
+    def test_live_identity_census_rejects_nfc_alias(self, tmp_path):
+        checkout = tmp_path / "rulespec-us"
+        alias = checkout / "us/policies/cafe\u0301.yaml"
+        alias.parent.mkdir(parents=True)
+        alias.write_text("format: rulespec/v1\nrules: []\n", encoding="utf-8")
+        expected = Path("us/policies/caf\u00e9.yaml")
+
+        conflicts = _rulespec_target_filesystem_identity_conflicts(
+            checkout,
+            [expected],
+        )
+
+        assert conflicts == [Path("us/policies/cafe\u0301.yaml")]
+
+    def test_live_identity_census_rejects_scanned_ancestor_rename_swap(
+        self, tmp_path, monkeypatch
+    ):
+        checkout = tmp_path / "rulespec-us"
+        target = checkout / "us/policies/example.yaml"
+        target.parent.mkdir(parents=True)
+        target.write_text("format: rulespec/v1\nrules: []\n", encoding="utf-8")
+        original_open = os.open
+        swapped = False
+
+        def swap_after_scan(path, flags, mode=0o777, *, dir_fd=None):
+            nonlocal swapped
+            if path == "us" and dir_fd is not None and not swapped:
+                swapped = True
+                original = checkout / "us"
+                original.rename(checkout / "us-before-census-swap")
+                original.mkdir()
+            return original_open(path, flags, mode, dir_fd=dir_fd)
+
+        monkeypatch.setattr("axiom_encode.cli.os.open", swap_after_scan)
+
+        with pytest.raises(
+            RuntimeError,
+            match=("RuleSpec target identity path changed during census: us$"),
+        ):
+            _rulespec_target_filesystem_identity_conflicts(
+                checkout,
+                [Path("us/policies/example.yaml")],
+            )
+
+        assert swapped is True
+
+    def test_replacement_transaction_rolls_back_late_ignored_alias(self, tmp_path):
+        (
+            args,
+            checkout,
+            content_root,
+            target,
+            _companion,
+            source_unit,
+            replacement_source,
+        ) = self._fixture(tmp_path)
+        with patch(
+            "axiom_encode.cli.resolve_corpus_source_unit",
+            return_value=replacement_source,
+        ):
+            resolved = _resolve_encode_replacement_target(
+                args,
+                policy_checkout_path=checkout,
+                policy_repo_path=content_root,
+                source_unit=source_unit,
+                corpus_release=SimpleNamespace(),
+            )
+        assert resolved is not None and resolved.existing is not None
+        contract = resolved.existing
+        original = target.read_bytes()
+        alias = (
+            checkout / ".axiom/encoding-manifests/us-nc/policies/income_tax/"
+            "Pilot_Liability_Pipeline.json"
+        )
+
+        def inject_alias_and_recheck() -> None:
+            alias.parent.mkdir(parents=True, exist_ok=True)
+            alias.write_text("{}\n", encoding="utf-8")
+            _require_existing_target_final_ownership(checkout, contract)
+
+        with pytest.raises(RuntimeError, match="live filesystem-identity alias"):
+            _install_apply_transaction(
+                [(target, b"format: rulespec/v1\nrules: []\n")],
+                checkout_root=checkout,
+                expected_originals={target: hashlib.sha256(original).hexdigest()},
+                pre_install_check=lambda: _require_existing_target_identity(
+                    checkout, contract
+                ),
+                post_install_check=inject_alias_and_recheck,
+            )
+
+        assert target.read_bytes() == original
+        assert alias.is_file()
+
+    def test_ordinary_replacement_rejects_any_pre_monorepo_owner(self, tmp_path):
+        (
+            args,
+            checkout,
+            _content_root,
+            target,
+            companion,
+            source_unit,
+            _replacement_source,
+        ) = self._fixture(tmp_path)
+        content_root = checkout / "us"
+        federal_target = content_root / "policies/income_tax/qbi.yaml"
+        federal_companion = federal_target.with_name("qbi.test.yaml")
+        federal_target.parent.mkdir(parents=True)
+        _git(
+            checkout,
+            "mv",
+            target.relative_to(checkout),
+            federal_target.relative_to(checkout),
+        )
+        _git(
+            checkout,
+            "mv",
+            companion.relative_to(checkout),
+            federal_companion.relative_to(checkout),
+        )
+        orphan = checkout / ".axiom/encoding-manifests/policies/income_tax/qbi.json"
+        orphan.parent.mkdir(parents=True)
+        orphan.write_text(
+            json.dumps(
+                {
+                    "schema_version": "axiom-encode/applied-rulespec/v5",
+                    "deterministic_execution": {"unsupported": True},
+                }
+            )
+            + "\n"
+        )
+        _git(checkout, "add", ".")
+        _git(checkout, "commit", "-qm", "federal target with old-root owner")
+        args.replace_rulespec_path = federal_target.relative_to(checkout)
+        args.review_contract_json = args.review_contract_json._replace(
+            rulespec_path=args.replace_rulespec_path.as_posix()
+        )
+
+        with pytest.raises(ValueError, match="use --replace-legacy-rulespec-path"):
+            _resolve_encode_replacement_target(
+                args,
+                policy_checkout_path=checkout,
+                policy_repo_path=content_root,
+                source_unit=source_unit,
+                corpus_release=SimpleNamespace(),
+            )
+
     @pytest.mark.parametrize("symlink_kind", ["target", "companion"])
     def test_rejects_symlinked_replacement_context(self, tmp_path, symlink_kind):
         (
@@ -40169,7 +42415,7 @@ class TestEncodeReplacementTarget:
                 "axiom_encode.cli.resolve_corpus_source_unit",
                 return_value=replacement_source,
             ),
-            pytest.raises(UnsafeCorpusPathError, match="safely open"),
+            pytest.raises(ValueError, match="filesystem-identity alias"),
         ):
             _resolve_encode_replacement_target(
                 args,
@@ -40198,7 +42444,7 @@ class TestEncodeReplacementTarget:
         target.parent.rmdir()
         target.parent.symlink_to(outside_parent)
 
-        with pytest.raises(UnsafeCorpusPathError, match="safely open"):
+        with pytest.raises(ValueError, match="filesystem-identity alias"):
             _resolve_encode_replacement_target(
                 args,
                 policy_checkout_path=checkout,
@@ -40224,7 +42470,10 @@ class TestEncodeReplacementTarget:
 
         with pytest.raises(
             (ValueError, UnsafeCorpusPathError),
-            match="existing checkout-relative|safely open",
+            match=(
+                "existing checkout-relative|safely open|"
+                "exact tracked regular 0644"
+            ),
         ):
             _resolve_encode_replacement_target(
                 args,
@@ -43047,6 +45296,77 @@ rules: []
             cmd_stage_signed_backfill(args)
 
         stage.assert_called_once_with(repo, corpus_root=corpus)
+
+    def test_checkpoint_signed_backfill_uses_fixed_clean_commit_contract(
+        self, capsys, tmp_path
+    ):
+        repo = tmp_path / "rulespec-us"
+        corpus = tmp_path / "axiom-corpus"
+        args = SimpleNamespace(repo=repo, corpus_path=corpus)
+
+        with (
+            patch(
+                "axiom_encode.cli._resolve_canonical_rulespec_checkout",
+                return_value=repo,
+            ),
+            patch(
+                "axiom_encode.prepare_signed_backfill.stage_authorized_changes"
+            ) as stage,
+            patch("axiom_encode.cli.subprocess.run") as run,
+            patch(
+                "axiom_encode.cli.subprocess.check_output",
+                side_effect=[
+                    "a" * 40 + "\n",
+                    "b" * 40 + "\n",
+                    "c" * 40 + "\n",
+                    "b" * 40 + "\n",
+                    "",
+                ],
+            ),
+        ):
+            cmd_checkpoint_signed_backfill(args)
+
+        stage.assert_called_once_with(repo, corpus_root=corpus)
+        assert run.call_args_list[0].args[0] == [
+            "git",
+            "-C",
+            str(repo),
+            "diff",
+            "--check",
+        ]
+        assert run.call_args_list[1].args[0] == [
+            "git",
+            "-C",
+            str(repo),
+            "update-ref",
+            "HEAD",
+            "c" * 40,
+            "a" * 40,
+        ]
+        assert json.loads(capsys.readouterr().out) == {
+            "commit": "c" * 40,
+            "tree": "b" * 40,
+        }
+
+    def test_reconcile_retired_manifest_runs_packaged_contract(self, tmp_path):
+        repo = tmp_path / "rulespec-us"
+        target = "us/policies/example.yaml"
+        args = SimpleNamespace(repo=repo, target_rulespec_path=target)
+
+        with (
+            patch(
+                "axiom_encode.cli._resolve_canonical_rulespec_checkout",
+                return_value=repo,
+            ),
+            patch(
+                "axiom_encode.prepare_signed_backfill."
+                "reconcile_retired_manifest_inventory",
+                return_value=None,
+            ) as reconcile,
+        ):
+            cmd_reconcile_retired_manifest_inventory(args)
+
+        reconcile.assert_called_once_with(repo, target)
 
 
 class TestApplyDependencyValidation:

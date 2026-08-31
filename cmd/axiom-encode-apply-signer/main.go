@@ -21,7 +21,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"os"
+	"runtime"
 )
 
 const buildKind = "production"
@@ -45,6 +47,12 @@ func main() {
 		os.Exit(2)
 	}
 	if os.Args[1] == "serve" || os.Args[1] == "run" {
+		if os.Args[1] == "run" {
+			// PR_SET_NO_NEW_PRIVS is per-thread on Linux. Keep the launcher on
+			// this OS thread from hardening through both child execs so neither
+			// the signer nor the verifier can miss the inherited restriction.
+			runtime.LockOSThread()
+		}
 		// Harden before ANY argument parsing or key handling. execve reset
 		// PR_SET_DUMPABLE to 1; on the launcher path the signing key is already
 		// resident in this process's inherited environment. Denying core dumps,
@@ -129,6 +137,11 @@ func parseRunOptions(arguments []string) (runOptions, error) {
 	trustRoots := flags.String("trusted-signing-roots", "", "protected three-root trust config for the supervisor")
 	packageRoot := flags.String("trusted-python-package-root", "", "supervisor --trusted-python-package-root")
 	repository := flags.String("expected-github-repository", "", "required GITHUB_REPOSITORY value")
+	allowLocalDev := flags.Bool("allow-local-dev", false, "run an unprivileged local launcher with a throwaway signer key")
+	signerUID := flags.Uint64("signer-uid", math.MaxUint64, "numeric non-root UID for the leaf signer")
+	signerGID := flags.Uint64("signer-gid", math.MaxUint64, "numeric non-root GID for the leaf signer")
+	supervisorUID := flags.Uint64("supervisor-uid", math.MaxUint64, "numeric non-root UID for the verifier supervisor")
+	supervisorGID := flags.Uint64("supervisor-gid", math.MaxUint64, "numeric non-root GID for the verifier supervisor")
 	var runtimeRoots multiFlag
 	var importRoots multiFlag
 	var refs multiFlag
@@ -150,6 +163,17 @@ func parseRunOptions(arguments []string) (runOptions, error) {
 	if *trustRoots == "" {
 		return runOptions{}, fmt.Errorf("--trusted-signing-roots is required")
 	}
+	parsedSignerUID, parsedSignerGID, parsedSupervisorUID, parsedSupervisorGID, err :=
+		parseLauncherIdentities(
+			*allowLocalDev,
+			*signerUID,
+			*signerGID,
+			*supervisorUID,
+			*supervisorGID,
+		)
+	if err != nil {
+		return runOptions{}, err
+	}
 	return runOptions{
 		scope:              *scope,
 		keyEnv:             *keyEnv,
@@ -158,13 +182,67 @@ func parseRunOptions(arguments []string) (runOptions, error) {
 		pythonRuntimeRoots: runtimeRoots,
 		pythonImportRoots:  importRoots,
 		pythonPackageRoot:  *packageRoot,
+		allowLocalDev:      *allowLocalDev,
+		signerUID:          parsedSignerUID,
+		signerGID:          parsedSignerGID,
+		supervisorUID:      parsedSupervisorUID,
+		supervisorGID:      parsedSupervisorGID,
 		binding: contextBinding{
 			expectedRepository:  *repository,
 			allowedWorkflowRefs: refs,
 			allowedEventNames:   events,
-			// The launcher is CI-only; local-dev bypass lives on the leaf signer.
-			allowLocalDev: false,
+			allowLocalDev:       *allowLocalDev,
 		},
 		command: command,
 	}, nil
+}
+
+func parseLauncherIdentities(
+	allowLocalDev bool,
+	signerUID, signerGID, supervisorUID, supervisorGID uint64,
+) (uint32, uint32, uint32, uint32, error) {
+	values := []struct {
+		name  string
+		value uint64
+	}{
+		{name: "--signer-uid", value: signerUID},
+		{name: "--signer-gid", value: signerGID},
+		{name: "--supervisor-uid", value: supervisorUID},
+		{name: "--supervisor-gid", value: supervisorGID},
+	}
+	if allowLocalDev {
+		for _, item := range values {
+			if item.value != math.MaxUint64 {
+				return 0, 0, 0, 0, fmt.Errorf(
+					"%s is refused with --allow-local-dev; local mode does not change identity",
+					item.name,
+				)
+			}
+		}
+		return 0, 0, 0, 0, nil
+	}
+	for _, item := range values {
+		if item.value == math.MaxUint64 {
+			return 0, 0, 0, 0, fmt.Errorf("%s is required", item.name)
+		}
+		// 0xffffffff is the kernel's "do not change this ID" sentinel. It
+		// must not be accepted as a numeric child identity.
+		if item.value == 0 || item.value >= math.MaxUint32 {
+			return 0, 0, 0, 0, fmt.Errorf(
+				"%s must be a non-zero unsigned 32-bit integer", item.name,
+			)
+		}
+	}
+	if signerUID == supervisorUID {
+		return 0, 0, 0, 0, fmt.Errorf(
+			"--signer-uid and --supervisor-uid must identify distinct accounts",
+		)
+	}
+	if signerGID == supervisorGID {
+		return 0, 0, 0, 0, fmt.Errorf(
+			"--signer-gid and --supervisor-gid must identify distinct groups",
+		)
+	}
+	return uint32(signerUID), uint32(signerGID),
+		uint32(supervisorUID), uint32(supervisorGID), nil
 }

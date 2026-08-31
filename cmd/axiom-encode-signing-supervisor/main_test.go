@@ -7,8 +7,11 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"os"
+	"os/exec"
 	"strings"
+	"syscall"
 	"testing"
 
 	"golang.org/x/sys/unix"
@@ -398,6 +401,7 @@ func TestCleanChildEnvironmentSetsTrustedRuntimeMarker(t *testing.T) {
 	want := map[string]string{
 		trustedRuntimeEnv:  "1",
 		brokerActiveEnv:    "1",
+		brokerFDEnv:        "3",
 		"PYTHONUNBUFFERED": "1",
 	}
 	for name, value := range want {
@@ -418,6 +422,67 @@ func TestCleanChildEnvironmentSetsTrustedRuntimeMarker(t *testing.T) {
 		if strings.HasPrefix(entry, trustedRuntimeEnv+"=") && entry != trustedRuntimeEnv+"=1" {
 			t.Fatalf("trusted-runtime marker must be exactly 1, got %q", entry)
 		}
+	}
+}
+
+func TestExitLikeTrustedCommandHelper(t *testing.T) {
+	mode := os.Getenv("AXIOM_EXIT_LIKE_TRUSTED_COMMAND_TEST")
+	if mode == "" {
+		return
+	}
+	var command *exec.Cmd
+	switch mode {
+	case "status":
+		command = exec.Command("/bin/sh", "-c", "exit 23")
+	case "signal":
+		command = exec.Command("/bin/sh", "-c", "kill -TERM $$")
+	default:
+		t.Fatalf("unknown exit test mode %q", mode)
+	}
+	err := command.Run()
+	if err == nil {
+		t.Fatal("exit test command unexpectedly succeeded")
+	}
+	if !exitLikeTrustedCommand(err) {
+		t.Fatal("trusted command exit was not recognized")
+	}
+}
+
+func TestExitLikeTrustedCommandPreservesStatusAndSignal(t *testing.T) {
+	for _, testCase := range []struct {
+		mode       string
+		exitStatus int
+		signal     syscall.Signal
+	}{
+		{mode: "status", exitStatus: 23},
+		{mode: "signal", signal: syscall.SIGTERM},
+	} {
+		t.Run(testCase.mode, func(t *testing.T) {
+			command := exec.Command(
+				os.Args[0],
+				"-test.run=^TestExitLikeTrustedCommandHelper$",
+			)
+			command.Env = append(
+				os.Environ(),
+				"AXIOM_EXIT_LIKE_TRUSTED_COMMAND_TEST="+testCase.mode,
+			)
+			err := command.Run()
+			var exitError *exec.ExitError
+			if !errors.As(err, &exitError) {
+				t.Fatalf("expected helper exit error, got %v", err)
+			}
+			status, ok := exitError.ProcessState.Sys().(syscall.WaitStatus)
+			if !ok {
+				t.Fatalf("unexpected helper wait status %#v", exitError.ProcessState.Sys())
+			}
+			if testCase.signal != 0 {
+				if !status.Signaled() || status.Signal() != testCase.signal {
+					t.Fatalf("expected signal %v, got %v", testCase.signal, status)
+				}
+			} else if !status.Exited() || status.ExitStatus() != testCase.exitStatus {
+				t.Fatalf("expected exit %d, got %v", testCase.exitStatus, status)
+			}
+		})
 	}
 }
 

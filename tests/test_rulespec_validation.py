@@ -659,6 +659,30 @@ rules:
     )
 
 
+def test_validator_bounds_deep_companion_yaml_recursion_failure(tmp_path):
+    policy_repo, rules_file = _canonical_rulespec_test_file(tmp_path)
+    rules_file.write_text("format: rulespec/v1\nrules: []\n")
+    rules_file.with_name("rules.test.yaml").write_text("- " * 600 + "leaf\n")
+
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        enable_oracles=False,
+    )
+
+    result = pipeline._run_ci(rules_file)
+
+    recursion_issues = [
+        issue
+        for issue in result.issues
+        if issue.startswith("rules.test.yaml YAML parse failed:")
+    ]
+    assert recursion_issues == [
+        "rules.test.yaml YAML parse failed: maximum recursion depth exceeded"
+    ]
+    assert len(recursion_issues[0]) < 128
+
+
 def test_validator_validate_requires_bound_local_release(tmp_path):
     rules_file = tmp_path / "rulespec-us" / "statutes" / "26" / "1.yaml"
     rules_file.parent.mkdir(parents=True)
@@ -6426,7 +6450,7 @@ def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.1748"')
+        .startswith('__version__ = "0.2.1749"')
     )
 
 
@@ -6658,13 +6682,13 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.1748"
+    assert encoder_package["version"] == "0.2.1749"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.1748"
+    assert project["project"]["version"] == "0.2.1749"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.1748"')
+        .startswith('__version__ = "0.2.1749"')
     )
 
 
@@ -6926,13 +6950,13 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.1748"
+    assert encoder_package["version"] == "0.2.1749"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.1748"
+    assert project["project"]["version"] == "0.2.1749"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.1748"')
+        .startswith('__version__ = "0.2.1749"')
     )
 
 

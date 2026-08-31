@@ -9,12 +9,12 @@ import contextlib
 import hashlib
 import io
 import json
-import math
 import os
 import re
 import stat
 import subprocess
 import tokenize
+import unicodedata
 from datetime import date
 from pathlib import Path, PurePosixPath
 
@@ -68,6 +68,7 @@ MAX_REQUIRED_TEST_CASE_FIELDS = 64
 MAX_DEFERRED_OUTPUT_REVIEW_CONTRACT_JSON_BYTES = 64 * 1024
 DEFERRED_OUTPUT_REVIEW_CONTRACT_SCHEMA = "axiom-encode/review-contract/v1"
 STRUCTURED_REVIEW_CONTRACT_SCHEMA = "axiom-encode/review-contract/v2"
+TARGET_OPERATION_REVIEW_CONTRACT_SCHEMA = "axiom-encode/review-contract/v3"
 REVIEWED_RULESPEC_REFS = frozenset(
     {
         (
@@ -319,19 +320,38 @@ def citation_rulespec_path(citation: str) -> PurePosixPath:
     return PurePosixPath(jurisdiction) / relative
 
 
-def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
-    """Split the bounded dispatch input into exactly one atomic source mode."""
+def split_atomic_source_input(
+    atomic_source_json: str, *, require_v2: bool = False
+) -> dict[str, object]:
+    """Split the bounded dispatch input into refresh and source/test components."""
 
     if not isinstance(atomic_source_json, str):
         raise ValueError("atomic source JSON must be a string")
     if len(atomic_source_json.encode("utf-8")) > MAX_SOURCE_BUNDLE_JSON_BYTES:
         raise ValueError("atomic source JSON exceeds the maximum input size")
     payload = _load_unambiguous_json(atomic_source_json, label="atomic source JSON")
+    if require_v2 and (
+        not isinstance(payload, dict)
+        or set(payload)
+        != {
+            "schema",
+            "source_bundle",
+            "canonical_refresh_bundle",
+            "primary_required_test_cases",
+            "target_operation",
+        }
+        or payload.get("schema") != "axiom-encode/atomic-source-transaction/v2"
+    ):
+        raise ValueError(
+            "explicit RuleSpec targets require an exact "
+            "atomic-source-transaction/v2 envelope"
+        )
     if isinstance(payload, list):
         return {
             "canonical_refresh_bundle": [],
             "primary_required_test_cases": [],
             "source_bundle": payload,
+            "target_operation": "replace",
         }
     if isinstance(payload, dict) and set(payload) == {"canonical_refresh_bundle"}:
         refresh_bundle = payload["canonical_refresh_bundle"]
@@ -341,12 +361,14 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
             "canonical_refresh_bundle": refresh_bundle,
             "primary_required_test_cases": [],
             "source_bundle": [],
+            "target_operation": "replace",
         }
     v2_fields = {
         "schema",
         "source_bundle",
         "canonical_refresh_bundle",
         "primary_required_test_cases",
+        "target_operation",
     }
     if (
         not isinstance(payload, dict)
@@ -360,19 +382,30 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
     refresh_bundle = payload["canonical_refresh_bundle"]
     source_bundle = payload["source_bundle"]
     primary_required_test_cases = payload["primary_required_test_cases"]
+    target_operation = payload["target_operation"]
     if not all(
         isinstance(value, list)
         for value in (refresh_bundle, source_bundle, primary_required_test_cases)
     ):
         raise ValueError("atomic source transaction bundle fields must be arrays")
-    if source_bundle and (refresh_bundle or primary_required_test_cases):
+    if source_bundle and refresh_bundle:
         raise ValueError(
-            "atomic source transaction must select exactly one source mode"
+            "atomic source transaction cannot combine source and canonical refresh "
+            "bundles"
+        )
+    if target_operation not in {"create", "replace"}:
+        raise ValueError("atomic source transaction target_operation is invalid")
+    if target_operation == "create" and source_bundle:
+        raise ValueError(
+            "atomic source transaction must land its signed source bundle before "
+            "explicit RuleSpec creation so creation evidence remains bound to the "
+            "reviewed PR base"
         )
     return {
         "canonical_refresh_bundle": refresh_bundle,
         "primary_required_test_cases": primary_required_test_cases,
         "source_bundle": source_bundle,
+        "target_operation": target_operation,
     }
 
 
@@ -562,6 +595,12 @@ def _normalize_required_test_cases(
 ) -> tuple[dict[str, object], ...]:
     """Validate bounded exact companion-case admission requirements."""
 
+    from axiom_encode.review_contract_values import (
+        ReviewContractValueBudget,
+        ReviewContractValueError,
+        normalize_review_contract_value,
+    )
+
     if not isinstance(value, list) or len(value) > MAX_REQUIRED_TEST_CASES:
         raise ValueError(
             f"{label} must be an array with at most {MAX_REQUIRED_TEST_CASES} entries"
@@ -630,6 +669,7 @@ def _normalize_required_test_cases(
         if period_start > period_end:
             raise ValueError(f"{case_label} period start must not follow end")
         normalized_fields: dict[str, dict[str, object]] = {}
+        value_budget = ReviewContractValueBudget()
         for field_name in ("input", "required_output"):
             mapping = item[field_name]
             if (
@@ -641,39 +681,15 @@ def _normalize_required_test_cases(
                     f"{case_label} {field_name} must be an object with at "
                     f"most {MAX_REQUIRED_TEST_CASE_FIELDS} fields"
                 )
-            normalized_mapping: dict[str, object] = {}
-            for key, field_value in mapping.items():
-                if (
-                    not isinstance(key, str)
-                    or not key
-                    or key != key.strip()
-                    or any(
-                        ord(character) < 32 or ord(character) == 127
-                        for character in key
-                    )
-                ):
-                    raise ValueError(
-                        f"{case_label} {field_name} keys must be normalized strings"
-                    )
-                if not isinstance(field_value, (str, int, float, bool)) or (
-                    isinstance(field_value, float) and not math.isfinite(field_value)
-                ):
-                    raise ValueError(
-                        f"{case_label} {field_name} values must be finite JSON scalars"
-                    )
-                if isinstance(field_value, str) and (
-                    field_value != field_value.strip()
-                    or "\r" in field_value
-                    or any(
-                        (ord(character) < 32 and character not in {"\n", "\t"})
-                        or ord(character) == 127
-                        for character in field_value
-                    )
-                ):
-                    raise ValueError(
-                        f"{case_label} {field_name} string values must be normalized"
-                    )
-                normalized_mapping[key] = field_value
+            try:
+                normalized_mapping = normalize_review_contract_value(
+                    mapping,
+                    label=f"{case_label} {field_name}",
+                    budget=value_budget,
+                )
+            except ReviewContractValueError as exc:
+                raise ValueError(str(exc)) from exc
+            assert isinstance(normalized_mapping, dict)
             normalized_fields[field_name] = normalized_mapping
         normalized_period = {
             "period_kind": period["period_kind"],
@@ -701,23 +717,36 @@ def _validate_wrapped_review_contract_size(
     deferred_output_contracts: tuple[dict[str, str], ...],
     required_test_cases: tuple[dict[str, object], ...],
     label: str,
+    target_operation: str | None = None,
 ) -> None:
     """Keep helper normalization within the installed CLI's exact size bound."""
 
-    if not deferred_output_contracts and not required_test_cases:
+    if (
+        target_operation is None
+        and not deferred_output_contracts
+        and not required_test_cases
+    ):
         return
     payload: dict[str, object] = {
         "schema": (
-            STRUCTURED_REVIEW_CONTRACT_SCHEMA
-            if required_test_cases
-            else DEFERRED_OUTPUT_REVIEW_CONTRACT_SCHEMA
+            TARGET_OPERATION_REVIEW_CONTRACT_SCHEMA
+            if target_operation is not None
+            else (
+                STRUCTURED_REVIEW_CONTRACT_SCHEMA
+                if required_test_cases
+                else DEFERRED_OUTPUT_REVIEW_CONTRACT_SCHEMA
+            )
         ),
         "citation": citation,
         "rulespec_path": path.as_posix(),
         "required_deferred_outputs": list(deferred_output_contracts),
     }
-    if required_test_cases:
+    if required_test_cases or target_operation is not None:
         payload["required_test_cases"] = list(required_test_cases)
+    if target_operation is not None:
+        if target_operation not in {"create", "replace"}:
+            raise ValueError(f"{label} target operation is invalid")
+        payload["target_operation"] = target_operation
     wrapped_contract = json.dumps(
         payload,
         ensure_ascii=False,
@@ -736,6 +765,7 @@ def parse_canonical_refresh_bundle(
     primary_citation: str,
     primary_rulespec_path: str,
     primary_required_test_cases_json: str = "[]",
+    target_operation: str = "replace",
 ) -> tuple[dict[str, str | None], ...]:
     """Validate independent existing canonical modules for atomic fresh encoding."""
 
@@ -774,7 +804,11 @@ def parse_canonical_refresh_bundle(
         ),
         label="primary required test cases",
     )
-    if not payload and not primary_required_test_cases:
+    if target_operation not in {"create", "replace"}:
+        raise ValueError("canonical refresh target operation is invalid")
+    if not payload and not primary_required_test_cases and not primary_rulespec_path:
+        if target_operation == "create":
+            raise ValueError("creation requires an explicit primary RuleSpec path")
         return ()
 
     repo = repo.resolve(strict=True)
@@ -798,6 +832,97 @@ def parse_canonical_refresh_bundle(
         label="canonical refresh primary RuleSpec",
     )
     expected_primary_path = citation_rulespec_path(primary_citation)
+    primary_absolute = repo / primary_path
+    if (
+        not payload
+        and not primary_required_test_cases
+        and target_operation == "replace"
+        and primary_absolute.is_file()
+        and not primary_absolute.is_symlink()
+    ):
+        _validate_wrapped_review_contract_size(
+            citation=primary_citation,
+            path=primary_path,
+            deferred_output_contracts=(),
+            required_test_cases=(),
+            label="explicit primary replacement",
+            target_operation="replace",
+        )
+        return ()
+    if target_operation == "create":
+        if payload:
+            raise ValueError("canonical refresh cannot create a new primary target")
+        if (
+            len(primary_path.parts) < 3
+            or primary_path.parts[0] != primary_jurisdiction
+            or primary_path.parts[1] != "policies"
+            or primary_path.suffix != ".yaml"
+            or primary_path.name.endswith(".test.yaml")
+            or primary_path.as_posix() != primary_path.as_posix().casefold()
+        ):
+            raise ValueError(
+                "explicit primary RuleSpec path must be a canonical "
+                "checkout-relative policies/ module"
+            )
+        if not primary_required_test_cases:
+            raise ValueError(
+                "explicit primary RuleSpec creation requires nonempty reviewed "
+                "test cases"
+            )
+        created_module = (
+            f"{primary_path.parts[0]}:"
+            f"{PurePosixPath(*primary_path.parts[1:]).with_suffix('').as_posix()}"
+        )
+        created_output_prefix = f"{created_module}#"
+        for index, case in enumerate(primary_required_test_cases):
+            required_output = case["required_output"]
+            assert isinstance(required_output, dict)
+            if not any(
+                output.startswith(created_output_prefix)
+                and len(output) > len(created_output_prefix)
+                for output in required_output
+            ):
+                raise ValueError(
+                    "explicit primary RuleSpec creation test case "
+                    f"#{index + 1} must require an output from the exact created "
+                    f"module {created_module}"
+                )
+        _validate_wrapped_review_contract_size(
+            citation=primary_citation,
+            path=primary_path,
+            deferred_output_contracts=(),
+            required_test_cases=primary_required_test_cases,
+            label="explicit primary",
+            target_operation="create",
+        )
+        # The normal target lane consumes this contract.  It is not a
+        # canonical-refresh predecessor because an explicit policies/ target
+        # may be absent whether or not it matches citation path mapping.
+        return ()
+    if not payload and primary_path != expected_primary_path:
+        if (
+            len(primary_path.parts) < 3
+            or primary_path.parts[0] != primary_jurisdiction
+            or primary_path.parts[1] != "policies"
+            or primary_path.suffix != ".yaml"
+            or primary_path.name.endswith(".test.yaml")
+            or primary_path.as_posix() != primary_path.as_posix().casefold()
+            or not primary_absolute.is_file()
+            or primary_absolute.is_symlink()
+        ):
+            raise ValueError(
+                "explicit replacement RuleSpec path must be a present canonical "
+                "checkout-relative policies/ module"
+            )
+        _validate_wrapped_review_contract_size(
+            citation=primary_citation,
+            path=primary_path,
+            deferred_output_contracts=(),
+            required_test_cases=primary_required_test_cases,
+            label="explicit replacement primary",
+            target_operation="replace",
+        )
+        return ()
     if primary_path != expected_primary_path:
         raise ValueError(
             "canonical refresh primary path must equal the citation's canonical "
@@ -810,6 +935,7 @@ def parse_canonical_refresh_bundle(
         deferred_output_contracts=(),
         required_test_cases=primary_required_test_cases,
         label="canonical refresh primary",
+        target_operation="replace",
     )
     requested: list[
         tuple[
@@ -942,6 +1068,7 @@ def parse_canonical_refresh_bundle(
             path=path,
             deferred_output_contracts=tuple(normalized_contracts),
             required_test_cases=required_test_cases,
+            target_operation="replace",
             label=label,
         )
         if citation in seen_citations or path in seen_paths:
@@ -1239,6 +1366,7 @@ def verify_canonical_refresh_target(
         path=rulespec_path,
         deferred_output_contracts=tuple(deferred_output_contracts),
         required_test_cases=required_test_cases,
+        target_operation="replace",
         label="canonical refresh target",
     )
     if (
@@ -1582,7 +1710,15 @@ def _safe_relative_path(value: object, *, label: str) -> PurePosixPath:
         raise ValueError(f"{label} must be a string")
     path = PurePosixPath(value)
     if (
-        path.is_absolute()
+        not value
+        or value != value.strip()
+        or value != unicodedata.normalize("NFC", value)
+        or "\\" in value
+        or any(
+            unicodedata.category(character) in {"Cc", "Cf", "Cs", "Zl", "Zp"}
+            for character in value
+        )
+        or path.is_absolute()
         or path.as_posix() != value
         or any(part in {"", ".", ".."} for part in path.parts)
         or not path.parts
@@ -4054,6 +4190,11 @@ def main() -> None:
             '{"canonical_refresh_bundle":[...]} object'
         ),
     )
+    atomic_source_parser.add_argument(
+        "--require-v2",
+        action="store_true",
+        help="reject legacy source-array/canonical-refresh wrappers",
+    )
     canonical_refresh_parser = subparsers.add_parser(
         "parse-canonical-refresh-bundle",
         help=(
@@ -4072,6 +4213,11 @@ def main() -> None:
         "--primary-required-test-cases-json",
         default="[]",
         help="bounded JSON array of exact companion cases required for the primary",
+    )
+    canonical_refresh_parser.add_argument(
+        "--target-operation",
+        choices=("create", "replace"),
+        default="replace",
     )
     canonical_refresh_target_parser = subparsers.add_parser(
         "verify-canonical-refresh-target",
@@ -4178,7 +4324,9 @@ def main() -> None:
         elif args.command == "split-atomic-source-input":
             print(
                 json.dumps(
-                    split_atomic_source_input(args.atomic_source_json),
+                    split_atomic_source_input(
+                        args.atomic_source_json, require_v2=args.require_v2
+                    ),
                     separators=(",", ":"),
                     sort_keys=True,
                 )
@@ -4206,6 +4354,7 @@ def main() -> None:
                         primary_required_test_cases_json=(
                             args.primary_required_test_cases_json
                         ),
+                        target_operation=args.target_operation,
                     ),
                     separators=(",", ":"),
                 )

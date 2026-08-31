@@ -1,1 +1,1 @@
-Validate and checkpoint signed canonical replacement targets before applying source bundles, while requiring legacy path migrations to complete in a separate signed transaction.
+Fail closed on nonlegacy explicit replacement combined with source-bundle or nonempty canonical-refresh work until signed `replacement_target` base evidence and expected-parent lineage can authenticate every lane; direct target-first replacement with existing signed imports and dependents remains available.

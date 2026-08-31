@@ -1,0 +1,1 @@
+Run targeted signed publication through distinct verifier and leaf-signer identities under a root-identity launcher and outer subreaper, revoke signing on verifier stop or exit, isolate runner command files and root-owned pinned inputs, drain Linux encoder descendants before success, and bind the exact reviewed Git tree to a root-sealed audit artifact and draft-PR receipt.

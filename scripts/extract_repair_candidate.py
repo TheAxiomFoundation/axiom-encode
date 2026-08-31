@@ -272,6 +272,7 @@ def _repair_lane_for_atomic_source(
         "canonical_refresh_bundle": [],
         "primary_required_test_cases": [],
         "source_bundle": [],
+        "target_operation": "replace",
     }:
         raise ValueError(
             "legacy repair metadata cannot bind a nonempty atomic source input"

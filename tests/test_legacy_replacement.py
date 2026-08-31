@@ -15,6 +15,7 @@ from axiom_encode.cli import (
     _legacy_destination_manifest_claimants_at_base,
     _legacy_metadata_reconciliation_bytes,
     _legacy_replacement_authoritative_map,
+    _require_legacy_orphan_target_final_ownership,
     _require_locked_legacy_replacement_base,
     _resolve_legacy_replacement_contract,
 )
@@ -311,6 +312,58 @@ def _generated_manifest_issues(payload: object) -> list[str]:
     )
 
 
+def _orphan_generated_manifest() -> dict[str, object]:
+    payload = _generated_manifest()
+    payload.pop("axiom_encode_git")
+    payload.pop("generation_prompt_sha256")
+    payload.update(
+        {
+            "citation": "policies/irs/rev-proc-2025-32/earned-income-credit",
+            "run_id": None,
+            "generated_output_file": None,
+            "generated_output_sha256": None,
+            "trace_file": None,
+            "trace_sha256": None,
+            "context_manifest_file": None,
+            "context_manifest_sha256": None,
+            "applied_files": [
+                {
+                    "path": ("policies/irs/rev-proc-2025-32/earned-income-credit.yaml"),
+                    "sha256": "a" * 64,
+                },
+                {
+                    "path": (
+                        "policies/irs/rev-proc-2025-32/earned-income-credit.test.yaml"
+                    ),
+                    "sha256": "b" * 64,
+                },
+            ],
+        }
+    )
+    return payload
+
+
+def _orphan_generated_manifest_issues(
+    payload: object,
+    *,
+    allow_orphan_layout: bool = True,
+) -> list[str]:
+    return legacy_generated_manifest_issues(
+        payload,
+        expected_files={
+            ("us/policies/irs/rev-proc-2025-32/earned-income-credit.yaml"): "a" * 64,
+            ("us/policies/irs/rev-proc-2025-32/earned-income-credit.test.yaml"): "b"
+            * 64,
+        },
+        expected_primary_path=(
+            "us/policies/irs/rev-proc-2025-32/earned-income-credit.yaml"
+        ),
+        expected_citation="us/guidance/irs/rev-proc-2025-32/page-14",
+        jurisdiction_prefix="us",
+        allow_orphan_layout=allow_orphan_layout,
+    )
+
+
 def test_generated_manifest_admits_uniform_jurisdiction_relative_scope() -> None:
     assert _generated_manifest_issues(_generated_manifest()) == []
 
@@ -378,6 +431,117 @@ def test_generated_manifest_rejects_unknown_provenance_fields() -> None:
     assert any(
         "encoder identity is malformed" in issue
         for issue in _generated_manifest_issues(payload)
+    )
+
+
+def test_orphan_generated_manifest_requires_explicit_layout_admission() -> None:
+    payload = _orphan_generated_manifest()
+
+    assert _orphan_generated_manifest_issues(payload) == []
+    assert any(
+        "fields are noncanonical" in issue
+        for issue in _orphan_generated_manifest_issues(
+            payload,
+            allow_orphan_layout=False,
+        )
+    )
+
+
+def test_orphan_generated_manifest_rejects_newer_full_generated_shape() -> None:
+    payload = _orphan_generated_manifest()
+    full_shape = _generated_manifest()
+    payload.update(
+        {
+            "axiom_encode_git": full_shape["axiom_encode_git"],
+            "generation_prompt_sha256": full_shape["generation_prompt_sha256"],
+            "run_id": full_shape["run_id"],
+            "generated_output_file": full_shape["generated_output_file"],
+            "generated_output_sha256": full_shape["generated_output_sha256"],
+            "trace_file": full_shape["trace_file"],
+            "trace_sha256": full_shape["trace_sha256"],
+            "context_manifest_file": full_shape["context_manifest_file"],
+            "context_manifest_sha256": full_shape["context_manifest_sha256"],
+        }
+    )
+
+    assert any(
+        "fields are noncanonical" in issue
+        for issue in _orphan_generated_manifest_issues(payload)
+    )
+
+
+def test_orphan_layout_rejects_manual_v1_owner_class() -> None:
+    assert legacy_v1_manifest_issues(
+        _manual_manifest(),
+        expected_files={
+            "us/policies/income_tax/example.yaml": "a" * 64,
+            "us/policies/income_tax/example.test.yaml": "b" * 64,
+        },
+        expected_primary_path="us/policies/income_tax/example.yaml",
+        expected_citation="us/statute/26/1",
+        jurisdiction_prefix="us",
+        allow_orphan_layout=True,
+    ) == [
+        "pre-monorepo orphan ownership is limited to the exact historical "
+        "generated manifest shape"
+    ]
+
+
+def test_orphan_layout_rejects_manual_v1_receipt_owner_class() -> None:
+    assert legacy_receipt_v1_manifest_issues(
+        _manual_manifest(),
+        owner_class="v1-manual-hmac-untrusted",
+        expected_files={
+            "us/policies/income_tax/example.yaml": "a" * 64,
+            "us/policies/income_tax/example.test.yaml": "b" * 64,
+        },
+        expected_primary_path="us/policies/income_tax/example.yaml",
+        expected_citation="us/statute/26/1",
+        jurisdiction_prefix="us",
+        allow_orphan_layout=True,
+    ) == [
+        "pre-monorepo orphan ownership is limited to the exact historical "
+        "generated manifest shape"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "match"),
+    [
+        ("citation", "policies/irs/rev-proc-2025-32/other", "citation is stale"),
+        ("run_id", "forged-run", "run id is malformed"),
+        (
+            "generated_output_file",
+            "/tmp/forged.yaml",
+            "generated_output_file binding is malformed",
+        ),
+        (
+            "generated_output_sha256",
+            "a" * 64,
+            "historical null shape",
+        ),
+        ("generated_output_root", None, "generation binding is malformed"),
+        ("unknown_provenance", True, "fields are noncanonical"),
+    ],
+)
+def test_orphan_generated_manifest_rejects_shape_mutations(
+    field: str,
+    value: object,
+    match: str,
+) -> None:
+    payload = _orphan_generated_manifest()
+    payload[field] = value
+
+    assert any(match in issue for issue in _orphan_generated_manifest_issues(payload))
+
+
+def test_orphan_generated_manifest_rejects_applied_file_hash_mutation() -> None:
+    payload = _orphan_generated_manifest()
+    payload["applied_files"][0]["sha256"] = "9" * 64
+
+    assert any(
+        "exact old primary/test bytes" in issue
+        for issue in _orphan_generated_manifest_issues(payload)
     )
 
 
@@ -870,7 +1034,7 @@ def test_contract_admits_cryptographically_verified_retained_successor(
     ]
 
 
-def test_destination_manifest_claimant_scan_is_one_conservative_base_query(
+def test_destination_manifest_claimant_scan_reads_canonical_base_manifests(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -878,12 +1042,22 @@ def test_destination_manifest_claimant_scan_is_one_conservative_base_query(
     claimant = Path(".axiom/encoding-manifests/us/statutes/claimant.json")
     commands: list[list[str]] = []
 
+    tree_record = (
+        f"100644 blob {'c' * 40} 42\tus/statutes/42/1437c-1.yaml\0"
+        f"100644 blob {'b' * 40} 123\t{claimant.as_posix()}\0"
+    ).encode()
+    payload = b'{"applied_files":[{"path":"us/statutes/42/1437c-1.yaml"}]}'
+
     def run(command, **_kwargs):
         commands.append(command)
+        if command[3] == "cat-file":
+            stdout = f"{'b' * 40} blob {len(payload)}\n".encode() + payload + b"\n"
+        else:
+            stdout = tree_record
         return subprocess.CompletedProcess(
             command,
             0,
-            stdout=f"{base_commit}:{claimant.as_posix()}\0".encode(),
+            stdout=stdout,
             stderr=b"",
         )
 
@@ -897,8 +1071,9 @@ def test_destination_manifest_claimant_scan_is_one_conservative_base_query(
             Path("us/statutes/42/1437c-1.test.yaml"),
         },
     ) == [claimant]
-    assert len(commands) == 1
-    assert commands[0][3:9] == ["grep", "-z", "-l", "-a", "-F", "-e"]
+    assert len(commands) == 2
+    assert all("grep" not in command for command in commands)
+    assert commands[0][3:8] == ["ls-tree", "-r", "-l", "-z", "--full-tree"]
 
 
 @pytest.mark.parametrize(
@@ -1216,6 +1391,53 @@ def _in_place_legacy_checkout(
     return checkout, content_root, source
 
 
+def _orphan_in_place_legacy_checkout(
+    tmp_path: Path,
+) -> tuple[Path, Path, SimpleNamespace]:
+    checkout = tmp_path / "rulespec-us"
+    content_root = checkout / "us"
+    relative = Path("us/policies/irs/rev-proc-2025-32/earned-income-credit.yaml")
+    primary = checkout / relative
+    companion = primary.with_name("earned-income-credit.test.yaml")
+    primary.parent.mkdir(parents=True)
+    primary.write_text(
+        "format: rulespec/v1\n"
+        "module:\n"
+        "  source_verification:\n"
+        "    corpus_citation_paths:\n"
+        "      - us/guidance/irs/rev-proc-2025-32/page-14\n"
+        "      - us/statute/26/32\n"
+        "rules: []\n"
+    )
+    companion.write_text("[]\n")
+    payload = _orphan_generated_manifest()
+    payload["applied_files"] = [
+        {
+            "path": path.relative_to(content_root).as_posix(),
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+        for path in (primary, companion)
+    ]
+    manifest = (
+        checkout / ".axiom/encoding-manifests/policies/irs/rev-proc-2025-32/"
+        "earned-income-credit.json"
+    )
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(json.dumps(payload) + "\n")
+    _git(checkout, "init", "-q")
+    _git(checkout, "config", "user.email", "test@example.com")
+    _git(checkout, "config", "user.name", "Test")
+    _git(checkout, "add", ".")
+    _git(checkout, "commit", "-qm", "pre-monorepo orphan base")
+    source = SimpleNamespace(
+        requested="us/guidance/irs/rev-proc-2025-32/page-14",
+        citation_path="us/guidance/irs/rev-proc-2025-32/page-14",
+        body="official revenue procedure",
+        resolved_source=object(),
+    )
+    return checkout, content_root, source
+
+
 def test_contract_binds_in_place_plural_source_and_unmarked_v1(
     tmp_path: Path,
 ) -> None:
@@ -1239,6 +1461,381 @@ def test_contract_binds_in_place_plural_source_and_unmarked_v1(
         relative,
         relative.with_name("pilot_liability_pipeline.test.yaml"),
     ]
+
+
+def test_contract_migrates_exact_pre_monorepo_orphan_manifest(
+    tmp_path: Path,
+) -> None:
+    checkout, content_root, source = _orphan_in_place_legacy_checkout(tmp_path)
+    relative = Path("us/policies/irs/rev-proc-2025-32/earned-income-credit.yaml")
+    with patch("axiom_encode.cli.resolve_corpus_source_unit", return_value=source):
+        contract = _resolve_legacy_replacement_contract(
+            source_raw=relative,
+            destination_raw=relative,
+            policy_checkout_path=checkout,
+            policy_repo_path=content_root,
+            source_unit=source,
+            corpus_release=SimpleNamespace(),
+        )
+
+    assert contract.legacy_manifest.path == Path(
+        ".axiom/encoding-manifests/policies/irs/rev-proc-2025-32/"
+        "earned-income-credit.json"
+    )
+    assert contract.source == relative
+    assert contract.destination == relative
+
+
+@pytest.mark.parametrize("identity_variant", ["casefold", "nfd"])
+@pytest.mark.parametrize(
+    "protected_kind",
+    ["primary", "companion", "canonical-manifest", "orphan-manifest"],
+)
+def test_orphan_final_ownership_rejects_every_live_identity_alias(
+    tmp_path: Path,
+    identity_variant: str,
+    protected_kind: str,
+) -> None:
+    checkout = tmp_path / "rulespec-us"
+    stem = "caf\u00e9"
+    alias_stem = "CAF\u00c9" if identity_variant == "casefold" else "cafe\u0301"
+    destination = Path(f"us/statutes/26/{stem}.yaml")
+    companion = destination.with_name(f"{stem}.test.yaml")
+    canonical_manifest = Path(
+        f".axiom/encoding-manifests/us/statutes/26/{stem}.json"
+    )
+    orphan_manifest = Path(
+        f".axiom/encoding-manifests/statutes/26/{stem}.json"
+    )
+    for relative, payload in (
+        (destination, b"format: rulespec/v1\nrules: []\n"),
+        (companion, b"[]\n"),
+        (
+            canonical_manifest,
+            (
+                json.dumps(
+                    {
+                        "applied_files": [
+                            {"path": destination.as_posix()},
+                            {"path": companion.as_posix()},
+                        ]
+                    }
+                )
+                + "\n"
+            ).encode(),
+        ),
+    ):
+        path = checkout / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(payload)
+    _git(checkout, "init", "-q")
+    _git(checkout, "config", "user.email", "test@example.com")
+    _git(checkout, "config", "user.name", "Test")
+    _git(checkout, "config", "core.precomposeunicode", "false")
+    _git(checkout, "add", ".")
+    _git(checkout, "commit", "-qm", "canonical orphan migration")
+    contract = LegacyReplacementContract(
+        base_commit="a" * 40,
+        base_tree="b" * 40,
+        source=destination,
+        destination=destination,
+        legacy_manifest=LegacyReplacementFile(
+            orphan_manifest,
+            "c" * 64,
+            b"{}\n",
+        ),
+        deleted_files=(),
+        rewrites=(),
+        scheduled_dependents=(),
+        exact_dependents=(),
+    )
+    _require_legacy_orphan_target_final_ownership(checkout, contract)
+
+    aliases = {
+        "primary": destination.with_name(f"{alias_stem}.yaml"),
+        "companion": destination.with_name(f"{alias_stem}.test.yaml"),
+        "canonical-manifest": canonical_manifest.with_name(f"{alias_stem}.json"),
+        "orphan-manifest": orphan_manifest.with_name(f"{alias_stem}.json"),
+    }
+    alias = aliases[protected_kind]
+    blob = subprocess.check_output(
+        ["git", "hash-object", "-w", checkout / destination],
+        cwd=checkout,
+        text=True,
+    ).strip()
+    _git(
+        checkout,
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        f"100644,{blob},{alias.as_posix()}",
+    )
+
+    with pytest.raises(RuntimeError, match="live filesystem-identity alias"):
+        _require_legacy_orphan_target_final_ownership(checkout, contract)
+
+
+def test_contract_rejects_pre_monorepo_orphan_with_nested_v5_coowner(
+    tmp_path: Path,
+) -> None:
+    checkout, content_root, source = _orphan_in_place_legacy_checkout(tmp_path)
+    relative = Path("us/policies/irs/rev-proc-2025-32/earned-income-credit.yaml")
+    coowner = checkout / ".axiom/encoding-manifests/us/policies/other-owner.json"
+    coowner.parent.mkdir(parents=True)
+    coowner_payload = json.dumps(
+        {
+            "schema_version": "axiom-encode/applied-rulespec/v5",
+            "evidence": {
+                "applied_files": [
+                    {"path": relative.as_posix(), "sha256": "a" * 64},
+                    {
+                        "path": relative.with_name(
+                            "earned-income-credit.test.yaml"
+                        ).as_posix(),
+                        "sha256": "b" * 64,
+                    },
+                ]
+            },
+        }
+    )
+    # The semantic parser—not raw grep—must see this escaped v5 co-owner.
+    coowner.write_text(
+        coowner_payload.replace(
+            relative.as_posix(), relative.as_posix().replace("/", "\\/")
+        )
+        + "\n"
+    )
+    _git(checkout, "add", ".")
+    _git(checkout, "commit", "-qm", "nested v5 co-owner")
+
+    with (
+        patch("axiom_encode.cli.resolve_corpus_source_unit", return_value=source),
+        pytest.raises(ValueError, match="does not have unique base ownership"),
+    ):
+        _resolve_legacy_replacement_contract(
+            source_raw=relative,
+            destination_raw=relative,
+            policy_checkout_path=checkout,
+            policy_repo_path=content_root,
+            source_unit=source,
+            corpus_release=SimpleNamespace(),
+        )
+
+
+def test_contract_rejects_duplicate_key_pre_monorepo_orphan_manifest(
+    tmp_path: Path,
+) -> None:
+    checkout, content_root, source = _orphan_in_place_legacy_checkout(tmp_path)
+    relative = Path("us/policies/irs/rev-proc-2025-32/earned-income-credit.yaml")
+    manifest = (
+        checkout / ".axiom/encoding-manifests/policies/irs/rev-proc-2025-32/"
+        "earned-income-credit.json"
+    )
+    payload = json.loads(manifest.read_text())
+    assert isinstance(payload, dict)
+    applied_files = payload.pop("applied_files")
+    manifest.write_text(
+        json.dumps(payload, sort_keys=True)[:-1]
+        + ',"applied_files":[],"applied_files":'
+        + json.dumps(applied_files, sort_keys=True)
+        + "}\n"
+    )
+    _git(checkout, "add", ".")
+    _git(checkout, "commit", "-qm", "ambiguous orphan ownership manifest")
+
+    with (
+        patch("axiom_encode.cli.resolve_corpus_source_unit", return_value=source),
+        pytest.raises(ValueError, match="legacy ownership manifest is not valid"),
+    ):
+        _resolve_legacy_replacement_contract(
+            source_raw=relative,
+            destination_raw=relative,
+            policy_checkout_path=checkout,
+            policy_repo_path=content_root,
+            source_unit=source,
+            corpus_release=SimpleNamespace(),
+        )
+
+
+def test_contract_rejects_ambiguous_canonical_and_orphan_manifest_owners(
+    tmp_path: Path,
+) -> None:
+    checkout, content_root, source = _orphan_in_place_legacy_checkout(tmp_path)
+    canonical = (
+        checkout / ".axiom/encoding-manifests/us/policies/irs/rev-proc-2025-32/"
+        "earned-income-credit.json"
+    )
+    canonical.parent.mkdir(parents=True)
+    canonical.write_text("{}\n")
+    _git(checkout, "add", ".")
+    _git(checkout, "commit", "-qm", "ambiguous canonical owner")
+    relative = Path("us/policies/irs/rev-proc-2025-32/earned-income-credit.yaml")
+
+    with (
+        patch("axiom_encode.cli.resolve_corpus_source_unit", return_value=source),
+        pytest.raises(ValueError, match="ambiguous between canonical"),
+    ):
+        _resolve_legacy_replacement_contract(
+            source_raw=relative,
+            destination_raw=relative,
+            policy_checkout_path=checkout,
+            policy_repo_path=content_root,
+            source_unit=source,
+            corpus_release=SimpleNamespace(),
+        )
+
+
+def test_contract_rejects_untracked_manifest_before_owner_classification(
+    tmp_path: Path,
+) -> None:
+    checkout, content_root, source = _orphan_in_place_legacy_checkout(tmp_path)
+    canonical = (
+        checkout / ".axiom/encoding-manifests/us/policies/irs/rev-proc-2025-32/"
+        "earned-income-credit.json"
+    )
+    canonical.parent.mkdir(parents=True)
+    canonical.write_text("{}\n")
+    relative = Path("us/policies/irs/rev-proc-2025-32/earned-income-credit.yaml")
+
+    with (
+        patch("axiom_encode.cli.resolve_corpus_source_unit", return_value=source),
+        pytest.raises(ValueError, match="exact clean HEAD"),
+    ):
+        _resolve_legacy_replacement_contract(
+            source_raw=relative,
+            destination_raw=relative,
+            policy_checkout_path=checkout,
+            policy_repo_path=content_root,
+            source_unit=source,
+            corpus_release=SimpleNamespace(),
+        )
+
+
+def test_receipt_authority_reconstructs_pre_monorepo_orphan_owner(
+    tmp_path: Path,
+) -> None:
+    checkout, _content_root, _source = _orphan_in_place_legacy_checkout(tmp_path)
+    source = Path("us/policies/irs/rev-proc-2025-32/earned-income-credit.yaml")
+    companion = source.with_name("earned-income-credit.test.yaml")
+    orphan_manifest = Path(
+        ".axiom/encoding-manifests/policies/irs/rev-proc-2025-32/"
+        "earned-income-credit.json"
+    )
+    canonical_manifest = Path(
+        ".axiom/encoding-manifests/us/policies/irs/rev-proc-2025-32/"
+        "earned-income-credit.json"
+    )
+    legacy = {
+        "owner_class": "v1-hmac-untrusted",
+        "trusted_generated_provenance": False,
+        "manifest": {
+            "path": orphan_manifest.as_posix(),
+            "sha256": hashlib.sha256(
+                (checkout / orphan_manifest).read_bytes()
+            ).hexdigest(),
+        },
+        "files": [
+            {
+                "path": path.as_posix(),
+                "sha256": hashlib.sha256((checkout / path).read_bytes()).hexdigest(),
+            }
+            for path in (source, companion)
+        ],
+    }
+    replacement = {
+        "source": source.as_posix(),
+        "destination": source.as_posix(),
+        "model_manifest_path": canonical_manifest.as_posix(),
+    }
+    base_commit = subprocess.run(
+        ["git", "-C", str(checkout), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    replacements, issues = _legacy_replacement_authoritative_map(
+        checkout,
+        base_commit=base_commit,
+        manifest_label=canonical_manifest.as_posix(),
+        legacy=legacy,
+        replacement=replacement,
+    )
+
+    assert issues == []
+    assert replacements == {}
+
+
+def test_receipt_authority_rejects_pre_monorepo_orphan_with_nested_v5_coowner(
+    tmp_path: Path,
+) -> None:
+    checkout, _content_root, _source = _orphan_in_place_legacy_checkout(tmp_path)
+    source = Path("us/policies/irs/rev-proc-2025-32/earned-income-credit.yaml")
+    companion = source.with_name("earned-income-credit.test.yaml")
+    orphan_manifest = Path(
+        ".axiom/encoding-manifests/policies/irs/rev-proc-2025-32/"
+        "earned-income-credit.json"
+    )
+    canonical_manifest = Path(
+        ".axiom/encoding-manifests/us/policies/irs/rev-proc-2025-32/"
+        "earned-income-credit.json"
+    )
+    coowner = checkout / ".axiom/encoding-manifests/us/policies/co-owner.json"
+    coowner.parent.mkdir(parents=True)
+    coowner.write_text(
+        json.dumps(
+            {
+                "schema_version": "axiom-encode/applied-rulespec/v5",
+                "nested": {
+                    "applied_files": [
+                        {"path": source.as_posix(), "sha256": "a" * 64},
+                        {"path": companion.as_posix(), "sha256": "b" * 64},
+                    ]
+                },
+            }
+        )
+        + "\n"
+    )
+    _git(checkout, "add", ".")
+    _git(checkout, "commit", "-qm", "receipt nested v5 co-owner")
+    legacy = {
+        "owner_class": "v1-hmac-untrusted",
+        "trusted_generated_provenance": False,
+        "manifest": {
+            "path": orphan_manifest.as_posix(),
+            "sha256": hashlib.sha256(
+                (checkout / orphan_manifest).read_bytes()
+            ).hexdigest(),
+        },
+        "files": [
+            {
+                "path": path.as_posix(),
+                "sha256": hashlib.sha256((checkout / path).read_bytes()).hexdigest(),
+            }
+            for path in (source, companion)
+        ],
+    }
+    replacement = {
+        "source": source.as_posix(),
+        "destination": source.as_posix(),
+        "model_manifest_path": canonical_manifest.as_posix(),
+    }
+    base_commit = subprocess.run(
+        ["git", "-C", str(checkout), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    _replacements, issues = _legacy_replacement_authoritative_map(
+        checkout,
+        base_commit=base_commit,
+        manifest_label=canonical_manifest.as_posix(),
+        legacy=legacy,
+        replacement=replacement,
+    )
+
+    assert any("does not have unique base ownership" in issue for issue in issues)
 
 
 def test_contract_rejects_in_place_source_choice_outside_first_legacy_slot(
