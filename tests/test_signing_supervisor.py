@@ -13,6 +13,7 @@ import struct
 import subprocess
 import sys
 import tarfile
+import tempfile
 import threading
 import uuid
 from base64 import b64decode, b64encode
@@ -1040,8 +1041,12 @@ def test_subscription_refuses_unsafe_auth_outbox(
         outbox = tmp_path / "out.json"
         os.mkfifo(outbox)
     elif outbox_kind == "socket":
-        socket_directory = Path.cwd() / f".outbox-{os.getpid()}"
-        socket_directory.mkdir(mode=0o700)
+        socket_parent = (
+            Path("/private/tmp") if Path("/private/tmp").is_dir() else Path("/tmp")
+        )
+        socket_directory = Path(
+            tempfile.mkdtemp(prefix="ae-outbox-", dir=socket_parent)
+        )
         outbox = socket_directory / "o"
         outbox_socket = socket.socket(socket.AF_UNIX)
         try:
