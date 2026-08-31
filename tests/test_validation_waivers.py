@@ -503,6 +503,57 @@ def test_pending_creation_rejects_replacement_mixed_deltas_and_noops():
     assert any("semantic no-op" in issue for issue in semantic_noop)
 
 
+def test_digest_rebind_rejects_equal_semantics_with_different_waiver_bytes():
+    active = _metadata("a")
+    base = _set(_entry(PATH, active=active))
+    head = _set(_entry(PATH, active=active))
+    base_waivers = _valid_yaml(active=True, pending=False).encode()
+    head_waivers = base_waivers + b"# formatting-only rewrite\n"
+
+    issues = protected_base_transition_issues(
+        base,
+        head,
+        changed_paths={"known-validation-gaps.yaml", ".axiom/toolchain.toml"},
+        base_waiver_bytes=base_waivers,
+        head_waiver_bytes=head_waivers,
+        base_toolchain_bytes=_toolchain_bytes(base_waivers),
+        head_toolchain_bytes=_toolchain_bytes(head_waivers),
+        today=TODAY,
+    )
+
+    assert any("semantic no-op" in issue for issue in issues)
+
+
+@pytest.mark.parametrize("expiry", [TODAY - timedelta(days=1), TODAY])
+def test_pending_creation_rejects_expired_new_approval(expiry: date):
+    active = _metadata("a")
+    pending = _metadata("b", expires=expiry.isoformat())
+    base = _set(_entry(PATH, active=active))
+    head = _set(_entry(PATH, active=active, pending=pending))
+    base_waivers = _valid_yaml(active=True, pending=False).encode()
+    head_waivers = (
+        "validate_failures:\n"
+        f"  {PATH}:\n"
+        "    active:\n      "
+        + _metadata_yaml("a")
+        + "    pending:\n      "
+        + _metadata_yaml("b", expires=expiry.isoformat())
+    ).encode()
+
+    issues = protected_base_transition_issues(
+        base,
+        head,
+        changed_paths={"known-validation-gaps.yaml", ".axiom/toolchain.toml"},
+        base_waiver_bytes=base_waivers,
+        head_waiver_bytes=head_waivers,
+        base_toolchain_bytes=_toolchain_bytes(base_waivers),
+        head_toolchain_bytes=_toolchain_bytes(head_waivers),
+        today=TODAY,
+    )
+
+    assert any("new pending approval expired" in issue for issue in issues)
+
+
 def test_pending_creation_binds_semantics_to_the_exact_waiver_bytes():
     base = _set(_entry(PATH, active=_metadata("a")))
     head = _set(_entry(PATH, active=_metadata("a"), pending=_metadata("b")))

@@ -102,6 +102,141 @@ def test_pending_waiver_digest_transition_rejects_every_other_toolchain_edit(
     assert any(expected in issue for issue in issues)
 
 
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "whitespace",
+        "key-order",
+        "quote-style",
+        "leading-comment",
+        "inline-comment",
+        "crlf",
+        "final-newline",
+    ],
+)
+def test_pending_waiver_digest_transition_rejects_semantic_toml_reformatting(
+    mutation: str,
+):
+    base_waivers = b"validate_failures: {}\n"
+    head_waivers = b"validate_failures:\n  us/statutes/26/1.yaml:\n    pending: {}\n"
+    base_toolchain = _toolchain_bytes(base_waivers)
+    head_toolchain = _toolchain_bytes(head_waivers)
+
+    if mutation == "whitespace":
+        head_toolchain = head_toolchain.replace(
+            b'axiom_corpus_release = "',
+            b'axiom_corpus_release    =    "',
+        )
+    elif mutation == "key-order":
+        table, release, content, waiver = head_toolchain.splitlines(keepends=True)
+        head_toolchain = b"".join((table, content, release, waiver))
+    elif mutation == "quote-style":
+        head_toolchain = head_toolchain.replace(
+            f'"{RELEASE_NAME}"'.encode(),
+            f"'{RELEASE_NAME}'".encode(),
+        )
+    elif mutation == "leading-comment":
+        head_toolchain = b"# semantically inert\n" + head_toolchain
+    elif mutation == "inline-comment":
+        head_toolchain = head_toolchain.replace(
+            f'axiom_corpus_release = "{RELEASE_NAME}"\n'.encode(),
+            f'axiom_corpus_release = "{RELEASE_NAME}" # same value\n'.encode(),
+        )
+    elif mutation == "crlf":
+        head_toolchain = head_toolchain.replace(b"\n", b"\r\n")
+    elif mutation == "final-newline":
+        head_toolchain = head_toolchain.removesuffix(b"\n")
+
+    assert validation_waiver_digest_transition_issues(
+        base_toolchain=base_toolchain,
+        head_toolchain=head_toolchain,
+        base_waivers=base_waivers,
+        head_waivers=head_waivers,
+    ) == (
+        "head toolchain bytes may change only the canonical "
+        "validation_waiver_set_sha256 value",
+    )
+
+
+def test_pending_waiver_digest_transition_preserves_unusual_base_formatting():
+    base_waivers = b"validate_failures: {}\n"
+    head_waivers = b"validate_failures:\n  us/statutes/26/1.yaml:\n    pending: {}\n"
+    base_digest = hashlib.sha256(base_waivers).hexdigest()
+    head_digest = hashlib.sha256(head_waivers).hexdigest()
+    base_toolchain = (
+        "# existing toolchain formatting\r\n"
+        "[toolchain] # retained table comment\r\n"
+        "validation_waiver_set_sha256\t = \t"
+        f'"{base_digest}" # exact waiver bytes\r\n'
+        f"axiom_corpus_release_content_sha256 = '{'a' * 64}'\r\n"
+        f"axiom_corpus_release = '{RELEASE_NAME}'"
+    ).encode()
+    head_toolchain = base_toolchain.replace(
+        base_digest.encode(),
+        head_digest.encode(),
+        1,
+    )
+
+    assert (
+        validation_waiver_digest_transition_issues(
+            base_toolchain=base_toolchain,
+            head_toolchain=head_toolchain,
+            base_waivers=base_waivers,
+            head_waivers=head_waivers,
+        )
+        == ()
+    )
+
+
+@pytest.mark.parametrize("side", ["protected-base", "head"])
+@pytest.mark.parametrize(
+    ("digest_kind", "bad_digest"),
+    [
+        ("wrong", "0" * 64),
+        ("uppercase", "A" * 64),
+        ("nonhex", "g" * 64),
+        ("short", "a" * 63),
+    ],
+)
+def test_pending_waiver_digest_transition_rejects_wrong_or_malformed_digest(
+    side: str,
+    digest_kind: str,
+    bad_digest: str,
+):
+    base_waivers = b"validate_failures: {}\n"
+    head_waivers = b"validate_failures:\n  us/statutes/26/1.yaml:\n    pending: {}\n"
+    base_toolchain = _toolchain_bytes(base_waivers)
+    head_toolchain = _toolchain_bytes(head_waivers)
+    target_waivers = base_waivers if side == "protected-base" else head_waivers
+    actual_digest = hashlib.sha256(target_waivers).hexdigest().encode()
+    if side == "protected-base":
+        base_toolchain = base_toolchain.replace(
+            actual_digest,
+            bad_digest.encode(),
+            1,
+        )
+    else:
+        head_toolchain = head_toolchain.replace(
+            actual_digest,
+            bad_digest.encode(),
+            1,
+        )
+
+    issues = validation_waiver_digest_transition_issues(
+        base_toolchain=base_toolchain,
+        head_toolchain=head_toolchain,
+        base_waivers=base_waivers,
+        head_waivers=head_waivers,
+    )
+
+    expected = (
+        f"{side} toolchain does not bind the exact {side} waiver bytes"
+        if digest_kind == "wrong"
+        else f"{side} toolchain is invalid"
+    )
+    assert any(expected in issue for issue in issues)
+
+
 def test_pending_waiver_digest_transition_rejects_semantic_noop():
     waivers = b"validate_failures: {}\n"
     toolchain = _toolchain_bytes(waivers)
