@@ -11,6 +11,7 @@
 - Stable transition snapshots now carry exact filesystem identity as well as bytes, so a later same-byte path replacement cannot satisfy the recheck.
 - Contract decision: consumption cannot be a waiver/toolchain-only pull request; it must be induced by the exact consumed module and rebind the exact waiver/toolchain pair. The reusable workflow's current `{waiver, toolchain}`-only activation draft is incompatible and must be corrected before pinning.
 - The inspected reusable-workflow sibling head `3e7976cc2aaab4e3e712285814e335493187a950` is not compatible: it loses NUL framing, omits protected-base toolchain evidence, accepts the wrong consumption shape, and lacks exact Git object-mode proof. No workflow pin or historical fixture is being changed until that dependency implements this contract.
+- Both supported historical workflow pins explicitly declare immutable transition evidence unsupported. Local CI now runs the current library's stricter immutable-evidence compatibility check without claiming that the hosted historical workflows implement it.
 - `git fetch --prune origin` succeeds, but GitHub API access and the GitNexus command registry were unavailable during the initial resume inspection; retry issue/PR inspection, push, and draft-PR creation after local checks are green.
 
 ## Done
@@ -35,9 +36,11 @@
 - Hardened semantic-no-op rejection so an envelope that claims waiver and toolchain changes cannot pass merely because unrelated paths also changed.
 - Added real Git repository and linked-worktree integration coverage for creation and consumption, including signed manifests, invalid signatures, stale or omitted modules, NUL-delimited adversarial paths, immutable base blobs, materialized evidence mutations, and same-byte atomic replacements across every protected evidence file.
 - Passed `181` focused core/audit/Git integration tests and all `91` `guard-generated` tests, plus targeted Ruff, on 2026-08-31.
+- Hardened local CI evidence materialization by freezing base and head commits, neutralizing ambient Git routing/configuration, requiring bounded exact `100644` base waiver/toolchain blobs, preserving raw changed paths as capped NUL-v1 bytes, and passing frozen commits to selection and guard execution.
+- Kept both historical workflow fixtures unchanged and marked their immutable-transition capability false; the strict local invocation is labeled a compatibility check rather than hosted parity.
+- Passed all `36` CI-parity tests, including real Git byte preservation, ref movement, adversarial newline paths, size caps, fail-closed materialization, non-0644/symlink/missing evidence, and ambient `GIT_DIR`/`GIT_WORK_TREE` redirection, plus targeted Ruff, on 2026-08-31.
 
 ## Next
 
-- Align local CI-parity execution with strict byte-preserving protected-base toolchain evidence and `nul-v1` paths while explicitly recording that historical workflow pins predate and do not claim the new transition capability.
 - Update documentation and changelog to the exact creation/consumption contract without changing incompatible workflow pins or historical fixtures.
 - Run focused and broad checks, complete independent review-fix cycles, verify commit messages and PR body, then refresh/push/open a draft PR linked to #1558 without merging.

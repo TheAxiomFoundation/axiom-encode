@@ -34,6 +34,8 @@ import yaml
 
 from axiom_encode import __version__
 from axiom_encode.toolchain import (
+    MAX_RULESPEC_TOOLCHAIN_BYTES,
+    MAX_VALIDATION_WAIVER_SET_BYTES,
     RuleSpecToolchain,
     load_rulespec_local_corpus_release,
     load_rulespec_toolchain,
@@ -42,6 +44,7 @@ from axiom_encode.toolchain import (
 )
 
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+GIT_OBJECT_ID_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 WORKFLOW_RE = re.compile(
     r"TheAxiomFoundation/\.github/\.github/workflows/"
     r"validate-rulespec\.yml@(?P<sha>[0-9a-f]{40})$"
@@ -64,6 +67,7 @@ class WorkflowGateParameters:
 class SupportedWorkflowPin:
     fixture: str
     gate_parameters: WorkflowGateParameters
+    immutable_waiver_transition_evidence: bool
 
 
 SUPPORTED_WORKFLOW_PINS: dict[str, SupportedWorkflowPin] = {
@@ -72,12 +76,14 @@ SUPPORTED_WORKFLOW_PINS: dict[str, SupportedWorkflowPin] = {
         gate_parameters=WorkflowGateParameters(
             exclude_programs_from_money_atom_check=True
         ),
+        immutable_waiver_transition_evidence=False,
     ),
     "34bcfab235c585c47292c95f51be1a4f4f91d29e": SupportedWorkflowPin(
         fixture="validate-rulespec-34bcfab2.yml",
         gate_parameters=WorkflowGateParameters(
             exclude_programs_from_money_atom_check=False
         ),
+        immutable_waiver_transition_evidence=False,
     ),
 }
 
@@ -391,16 +397,168 @@ def resolve_dependency_paths(args: argparse.Namespace, repo: Path) -> dict[str, 
     }
 
 
+def _git_environment() -> dict[str, str]:
+    """Return an environment unable to redirect Git away from the checkout."""
+
+    environment = dict(os.environ)
+    for name in tuple(environment):
+        if name.startswith("GIT_"):
+            environment.pop(name)
+    environment.update(
+        {
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_SYSTEM": os.devnull,
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_LITERAL_PATHSPECS": "1",
+            "GIT_TERMINAL_PROMPT": "0",
+            "GIT_NO_REPLACE_OBJECTS": "1",
+            "GIT_OPTIONAL_LOCKS": "0",
+        }
+    )
+    return environment
+
+
 def _git(
     repo: Path, *arguments: str, check: bool = True
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["git", "-C", str(repo), *arguments],
         check=check,
+        env=_git_environment(),
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
+
+
+def _git_bytes(
+    repo: Path, *arguments: str, check: bool = True
+) -> subprocess.CompletedProcess[bytes]:
+    """Run Git without a text codec so evidence bytes remain exact."""
+
+    return subprocess.run(
+        ["git", "-C", str(repo), *arguments],
+        check=check,
+        env=_git_environment(),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+
+def _freeze_git_commit(repo: Path, ref: str) -> str:
+    """Resolve one caller base ref exactly once to an immutable commit."""
+
+    if not ref or any(
+        ord(character) < 32 or ord(character) == 127 for character in ref
+    ):
+        raise ValueError("CI base ref is empty or contains control characters")
+    result = _git(
+        repo,
+        "rev-parse",
+        "--verify",
+        "--end-of-options",
+        f"{ref}^{{commit}}",
+        check=False,
+    )
+    commit = result.stdout.strip()
+    if result.returncode or GIT_OBJECT_ID_RE.fullmatch(commit) is None:
+        detail = result.stderr.strip()
+        raise ValueError(detail or f"CI base ref did not resolve to a commit: {ref}")
+    return commit
+
+
+def _git_regular_blob(
+    repo: Path,
+    commit: str,
+    relative_path: str,
+    *,
+    max_bytes: int,
+) -> bytes:
+    """Read one bounded exact-0644 blob from a frozen Git commit."""
+
+    relative = PurePosixPath(relative_path)
+    if (
+        relative.is_absolute()
+        or relative.as_posix() != relative_path
+        or any(part in {"", ".", ".."} for part in relative.parts)
+    ):
+        raise ValueError(f"Protected-base path is not canonical: {relative_path}")
+    listing = _git_bytes(
+        repo,
+        "ls-tree",
+        "-l",
+        "-z",
+        "--full-tree",
+        commit,
+        "--",
+        relative_path,
+        check=False,
+    )
+    if listing.returncode:
+        detail = os.fsdecode(listing.stderr).strip()
+        raise ValueError(detail or "Protected-base Git tree cannot be read")
+    records = [record for record in listing.stdout.split(b"\0") if record]
+    if len(records) != 1:
+        raise ValueError(
+            f"Protected base does not contain exactly one {relative_path}"
+        )
+    try:
+        metadata, encoded_path = records[0].split(b"\t", 1)
+        mode, object_type, object_id, raw_size = metadata.decode("ascii").split()
+        listed_path = encoded_path.decode("utf-8")
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise ValueError("Protected-base Git tree entry is malformed") from exc
+    if (
+        mode != "100644"
+        or object_type != "blob"
+        or GIT_OBJECT_ID_RE.fullmatch(object_id) is None
+        or listed_path != relative_path
+    ):
+        raise ValueError(
+            f"Protected-base path is not an exact regular 0644 blob: {relative_path}"
+        )
+    try:
+        size = int(raw_size)
+    except ValueError as exc:
+        raise ValueError("Protected-base Git blob size is malformed") from exc
+    if size < 0 or size > max_bytes:
+        raise ValueError(
+            f"Protected-base blob exceeds the {max_bytes}-byte limit: {relative_path}"
+        )
+    raw = _git_bytes(repo, "cat-file", "blob", object_id, check=False)
+    if raw.returncode:
+        detail = os.fsdecode(raw.stderr).strip()
+        raise ValueError(detail or "Protected-base Git blob cannot be read")
+    if len(raw.stdout) != size or len(raw.stdout) > max_bytes:
+        raise ValueError(
+            f"Protected-base blob size changed while reading: {relative_path}"
+        )
+    return raw.stdout
+
+
+def _changed_paths_nul(repo: Path, base_commit: str, head_commit: str) -> bytes:
+    """Return the exact Git NUL-v1 transport between frozen commits."""
+
+    result = _git_bytes(
+        repo,
+        "diff",
+        "--name-only",
+        "-z",
+        "--no-renames",
+        "--diff-filter=ACMRTD",
+        base_commit,
+        head_commit,
+        check=False,
+    )
+    if result.returncode:
+        detail = os.fsdecode(result.stderr).strip()
+        raise ValueError(detail or "Git changed-path evidence cannot be read")
+    if len(result.stdout) > MAX_VALIDATION_WAIVER_SET_BYTES:
+        raise ValueError(
+            "Git changed-path evidence exceeds the "
+            f"{MAX_VALIDATION_WAIVER_SET_BYTES}-byte limit"
+        )
+    return result.stdout
 
 
 def verify_dependency_checkout(
@@ -638,7 +796,9 @@ def resolve_roots(repo: Path, raw: str) -> tuple[str, ...]:
     return tuple(candidates)
 
 
-def _changed_paths(repo: Path, base_ref: str) -> tuple[str, ...]:
+def _changed_paths(
+    repo: Path, base_ref: str, head_ref: str = "HEAD"
+) -> tuple[str, ...]:
     result = _git(
         repo,
         "diff",
@@ -646,13 +806,19 @@ def _changed_paths(repo: Path, base_ref: str) -> tuple[str, ...]:
         "--no-renames",
         "--diff-filter=ACMRTD",
         base_ref,
-        "HEAD",
+        head_ref,
     )
     return tuple(line for line in result.stdout.splitlines() if line)
 
 
-def select_targets(repo: Path, base_ref: str, roots: Sequence[str]) -> Selection:
-    changed = _changed_paths(repo, base_ref)
+def select_targets(
+    repo: Path,
+    base_ref: str,
+    roots: Sequence[str],
+    *,
+    head_ref: str = "HEAD",
+) -> Selection:
+    changed = _changed_paths(repo, base_ref, head_ref)
     mode = "changed"
     if any(path.startswith(".github/workflows/") for path in changed):
         mode = "full-toolchain-bump"
@@ -1006,10 +1172,13 @@ def execute_gates(
     roots: tuple[str, ...],
 ) -> list[GateResult]:
     repo = args.repo.resolve()
-    selection = select_targets(repo, args.base_ref, roots)
+    base_commit = _freeze_git_commit(repo, args.base_ref)
+    head_commit = _freeze_git_commit(repo, "HEAD")
+    selection = select_targets(repo, base_commit, roots, head_ref=head_commit)
     results: list[GateResult] = []
     specs = {spec.key: spec for spec in CI_GATE_REGISTRY}
-    gate_parameters = SUPPORTED_WORKFLOW_PINS[caller.workflow_sha].gate_parameters
+    workflow_pin = SUPPORTED_WORKFLOW_PINS[caller.workflow_sha]
+    gate_parameters = workflow_pin.gate_parameters
     if (
         caller.run_pytest
         and (repo / "tests").is_dir()
@@ -1055,12 +1224,29 @@ def execute_gates(
         # handing its files to the audit CLI.
         temp = Path(temp_name).resolve(strict=True)
         protected = temp / "protected-known-validation-gaps.yaml"
-        changed = temp / "waiver-changed-paths.txt"
-        base = _git(
-            repo, "show", f"{args.base_ref}:known-validation-gaps.yaml", check=False
-        )
-        protected.write_text(base.stdout)
-        changed.write_text("\n".join(_changed_paths(repo, args.base_ref)) + "\n")
+        protected_toolchain = temp / "protected-toolchain.toml"
+        changed = temp / "waiver-changed-paths.nul"
+        evidence_error: str | None = None
+        try:
+            protected.write_bytes(
+                _git_regular_blob(
+                    repo,
+                    base_commit,
+                    "known-validation-gaps.yaml",
+                    max_bytes=MAX_VALIDATION_WAIVER_SET_BYTES,
+                )
+            )
+            protected_toolchain.write_bytes(
+                _git_regular_blob(
+                    repo,
+                    base_commit,
+                    ".axiom/toolchain.toml",
+                    max_bytes=MAX_RULESPEC_TOOLCHAIN_BYTES,
+                )
+            )
+            changed.write_bytes(_changed_paths_nul(repo, base_commit, head_commit))
+        except (OSError, ValueError) as exc:
+            evidence_error = str(exc)
         waiver_command = [
             "validation-waivers",
             "audit",
@@ -1070,26 +1256,36 @@ def execute_gates(
             str(paths["corpus"]),
             "--protected-base",
             str(protected),
+            "--protected-base-toolchain",
+            str(protected_toolchain),
             "--changed-paths",
             str(changed),
+            "--changed-paths-format",
+            "nul-v1",
             "--axiom-rules-engine-path",
             str(paths["engine"]),
         ]
         code, output = (
             (
                 1,
-                "ValidationWaiverBaseMissing: protected base must contain known-validation-gaps.yaml\n",
+                f"ValidationWaiverEvidenceError: {evidence_error}\n",
             )
-            if base.returncode
+            if evidence_error is not None
             else _run_cli(waiver_command)
         )
+        waiver_note = "library-level verification; no signing capability acquired"
+        if not workflow_pin.immutable_waiver_transition_evidence:
+            waiver_note = (
+                "local immutable-evidence compatibility check; pinned historical "
+                "workflow lacks this evidence and is not transition-compatible"
+            )
         results.append(
             _result(
                 specs["validation_waivers"],
                 code,
                 output,
                 waiver_command,
-                note="library-level verification; no signing capability acquired",
+                note=waiver_note,
             )
         )
         if caller.run_generated_guard:
@@ -1098,9 +1294,9 @@ def execute_gates(
                 "--repo",
                 str(repo),
                 "--base-ref",
-                args.base_ref,
+                base_commit,
                 "--head-ref",
-                "HEAD",
+                head_commit,
                 "--corpus-path",
                 str(paths["corpus"]),
                 "--expected-encoder-checkout",
@@ -1131,7 +1327,7 @@ def execute_gates(
             specs["select_targets"],
             0,
             selection_output,
-            ["selection", "--base-ref", args.base_ref, "--roots", *roots],
+            ["selection", "--base-ref", base_commit, "--roots", *roots],
         )
     )
     skipped = set()
@@ -1337,6 +1533,7 @@ def run_ci(args: argparse.Namespace) -> int:
                 f"in {caller.path}; this axiom-encode release implements "
                 f"these pins: {supported}"
             )
+        args.base_ref = _freeze_git_commit(repo, args.base_ref)
         verify_toolchain_base_binding(repo, args.base_ref)
         toolchain = load_rulespec_toolchain(repo)
         verify_rulespec_validation_waiver_set(repo)

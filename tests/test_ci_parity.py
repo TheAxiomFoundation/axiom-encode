@@ -16,6 +16,9 @@ from axiom_encode.ci_parity import (
     CallerConfig,
     DependencyMismatch,
     Selection,
+    _changed_paths_nul,
+    _freeze_git_commit,
+    _git_regular_blob,
     _run_pinned_cli,
     acquire_release_object,
     ci_verdict,
@@ -31,6 +34,8 @@ from axiom_encode.ci_parity import (
     workflow_gate_coverage,
 )
 from axiom_encode.toolchain import (
+    MAX_RULESPEC_TOOLCHAIN_BYTES,
+    MAX_VALIDATION_WAIVER_SET_BYTES,
     RuleSpecToolchain,
     load_rulespec_toolchain,
     verify_rulespec_validation_waiver_set,
@@ -198,6 +203,17 @@ def test_supported_workflow_fixtures_have_only_known_divergence() -> None:
     assert new == old
 
 
+def test_historical_workflow_pins_do_not_claim_immutable_transition_evidence() -> None:
+    for pin in SUPPORTED_WORKFLOW_PINS.values():
+        assert pin.immutable_waiver_transition_evidence is False
+        invocations = workflow_axiom_invocations(FIXTURES / pin.fixture)
+        waiver_flags = next(
+            flags for command, flags in invocations if command == "validation-waivers"
+        )
+        assert "--protected-base-toolchain" not in waiver_flags
+        assert "--changed-paths-format" not in waiver_flags
+
+
 def _git(path: Path, *args: str) -> str:
     return subprocess.run(
         ["git", "-C", str(path), *args],
@@ -205,6 +221,123 @@ def _git(path: Path, *args: str) -> str:
         text=True,
         stdout=subprocess.PIPE,
     ).stdout.strip()
+
+
+def _ci_evidence_repo(tmp_path: Path) -> tuple[Path, str, bytes, bytes]:
+    repo = tmp_path / "rulespec-zz"
+    (repo / ".axiom").mkdir(parents=True)
+    protected_waivers = b"validate_failures: {}\r\n# exact base bytes"
+    protected_toolchain = b"[toolchain]\r\n# exact base bytes"
+    (repo / "known-validation-gaps.yaml").write_bytes(protected_waivers)
+    (repo / ".axiom" / "toolchain.toml").write_bytes(protected_toolchain)
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.email", "test@example.com")
+    _git(repo, "config", "user.name", "Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "base")
+    return repo, _git(repo, "rev-parse", "HEAD"), protected_waivers, protected_toolchain
+
+
+def test_ci_evidence_uses_frozen_exact_blobs_and_nul_paths(tmp_path: Path) -> None:
+    repo, base, protected_waivers, protected_toolchain = _ci_evidence_repo(tmp_path)
+    _git(repo, "branch", "base-proof", base)
+    frozen_base = _freeze_git_commit(repo, "base-proof")
+    (repo / "known-validation-gaps.yaml").write_bytes(b"validate_failures: {}\n")
+    (repo / ".axiom" / "toolchain.toml").write_bytes(b"[toolchain]\n")
+    adversarial = repo / "dk" / "statutes" / "line\nbreak.yaml"
+    adversarial.parent.mkdir(parents=True)
+    adversarial.write_bytes(b"version: 1\n")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "head")
+    head = _freeze_git_commit(repo, "HEAD")
+    _git(repo, "branch", "-f", "base-proof", head)
+
+    assert frozen_base == base
+    assert _git_regular_blob(
+        repo,
+        frozen_base,
+        "known-validation-gaps.yaml",
+        max_bytes=MAX_VALIDATION_WAIVER_SET_BYTES,
+    ) == protected_waivers
+    assert _git_regular_blob(
+        repo,
+        frozen_base,
+        ".axiom/toolchain.toml",
+        max_bytes=MAX_RULESPEC_TOOLCHAIN_BYTES,
+    ) == protected_toolchain
+    assert _changed_paths_nul(repo, frozen_base, head) == (
+        b".axiom/toolchain.toml\0"
+        b"dk/statutes/line\nbreak.yaml\0"
+        b"known-validation-gaps.yaml\0"
+    )
+
+
+@pytest.mark.parametrize(
+    ("relative_path", "violation"),
+    [
+        ("known-validation-gaps.yaml", "executable"),
+        ("known-validation-gaps.yaml", "symlink"),
+        ("known-validation-gaps.yaml", "missing"),
+        (".axiom/toolchain.toml", "executable"),
+        (".axiom/toolchain.toml", "symlink"),
+        (".axiom/toolchain.toml", "missing"),
+    ],
+)
+def test_ci_evidence_rejects_non_regular_or_missing_base_blobs(
+    tmp_path: Path, relative_path: str, violation: str
+) -> None:
+    repo, _, _, _ = _ci_evidence_repo(tmp_path)
+    path = repo / relative_path
+    if violation == "executable":
+        _git(repo, "update-index", "--chmod=+x", relative_path)
+    elif violation == "symlink":
+        path.unlink()
+        path.symlink_to("redirected")
+        _git(repo, "add", "--", relative_path)
+    else:
+        path.unlink()
+        _git(repo, "add", "--all", "--", relative_path)
+    _git(repo, "commit", "-qm", violation)
+    commit = _freeze_git_commit(repo, "HEAD")
+
+    with pytest.raises(ValueError, match="exactly one|exact regular 0644"):
+        _git_regular_blob(
+            repo,
+            commit,
+            relative_path,
+            max_bytes=MAX_VALIDATION_WAIVER_SET_BYTES,
+        )
+
+
+def test_ci_evidence_ignores_ambient_git_repo_redirection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target, target_head, target_waivers, _ = _ci_evidence_repo(tmp_path / "target")
+    redirect, _, _, _ = _ci_evidence_repo(tmp_path / "redirect")
+    monkeypatch.setenv("GIT_DIR", str(redirect / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(redirect))
+
+    assert _freeze_git_commit(target, "HEAD") == target_head
+    assert _git_regular_blob(
+        target,
+        target_head,
+        "known-validation-gaps.yaml",
+        max_bytes=MAX_VALIDATION_WAIVER_SET_BYTES,
+    ) == target_waivers
+
+
+def test_ci_evidence_caps_changed_path_transport(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "axiom_encode.ci_parity._git_bytes",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            [], 0, b"x" * (MAX_VALIDATION_WAIVER_SET_BYTES + 1), b""
+        ),
+    )
+
+    with pytest.raises(ValueError, match="changed-path evidence exceeds"):
+        _changed_paths_nul(tmp_path, "a" * 40, "b" * 40)
 
 
 def test_ref_mismatch_names_both_shas_and_caller(tmp_path: Path) -> None:
@@ -369,7 +502,7 @@ def test_changed_target_selection_matches_companion_and_excludes_programs(
     program.write_text("version: 1\n")
     monkeypatch.setattr(
         "axiom_encode.ci_parity._changed_paths",
-        lambda _repo, _base: (
+        lambda _repo, _base, *_: (
             "zz/statutes/benefit.test.yaml",
             "zz/programs/composition.yaml",
         ),
@@ -528,9 +661,17 @@ def test_execute_gates_preserves_order_and_uses_pin_gate_parameters(
     )
     args = Namespace(repo=repo, base_ref="origin/main")
     calls = []
+    base_commit = "b" * 40
+    protected_waivers = b"validate_failures: {}\r\n"
+    protected_toolchain = b"[toolchain]\r\n"
+    changed_paths = b"dk/statutes/benefit.test.yaml\0"
+    captured_waiver_evidence = {}
+    monkeypatch.setattr(
+        "axiom_encode.ci_parity._freeze_git_commit", lambda *_: base_commit
+    )
     monkeypatch.setattr(
         "axiom_encode.ci_parity.select_targets",
-        lambda *_: Selection("changed", (), (test_file,)),
+        lambda *_, **__: Selection("changed", (), (test_file,)),
     )
     monkeypatch.setattr("axiom_encode.ci_parity._changed_paths", lambda *_: ())
     monkeypatch.setattr("axiom_encode.ci_parity._obsolete_gate", lambda _: (0, "ok"))
@@ -541,9 +682,29 @@ def test_execute_gates_preserves_order_and_uses_pin_gate_parameters(
             [], 0, "waivers: {}\n", ""
         ),
     )
+    monkeypatch.setattr(
+        "axiom_encode.ci_parity._git_regular_blob",
+        lambda _repo, _commit, relative_path, **_kwargs: (
+            protected_waivers
+            if relative_path == "known-validation-gaps.yaml"
+            else protected_toolchain
+        ),
+    )
+    monkeypatch.setattr(
+        "axiom_encode.ci_parity._changed_paths_nul",
+        lambda *_: changed_paths,
+    )
 
     def fake_cli(arguments, *, environment=None):
         calls.append((list(arguments), environment))
+        if arguments[:2] == ["validation-waivers", "audit"]:
+            for flag in (
+                "--protected-base",
+                "--protected-base-toolchain",
+                "--changed-paths",
+            ):
+                path = Path(arguments[arguments.index(flag) + 1])
+                captured_waiver_evidence[flag] = path.read_bytes()
         return 0, "ok\n"
 
     monkeypatch.setattr("axiom_encode.ci_parity._run_cli", fake_cli)
@@ -553,6 +714,23 @@ def test_execute_gates_preserves_order_and_uses_pin_gate_parameters(
     assert [result.gate for result in results] == [
         gate.key for gate in CI_GATE_REGISTRY
     ]
+    waiver_result = next(
+        result for result in results if result.gate == "validation_waivers"
+    )
+    assert waiver_result.command[waiver_result.command.index("--changed-paths-format") + 1] == "nul-v1"
+    assert waiver_result.note == (
+        "local immutable-evidence compatibility check; pinned historical "
+        "workflow lacks this evidence and is not transition-compatible"
+    )
+    assert captured_waiver_evidence == {
+        "--protected-base": protected_waivers,
+        "--protected-base-toolchain": protected_toolchain,
+        "--changed-paths": changed_paths,
+    }
+    selection_result = next(
+        result for result in results if result.gate == "select_targets"
+    )
+    assert selection_result.command[2] == base_commit
     companion = next(call for call in calls if call[0][0] == "test")
     assert companion[0][-1] == "statutes/benefit.test.yaml"
     assert companion[1] == {
@@ -566,6 +744,60 @@ def test_execute_gates_preserves_order_and_uses_pin_gate_parameters(
     assert bool(money_atom_calls) is programs_in_money_atom_check
     if money_atom_calls:
         assert str(program_file) in money_atom_calls[0][0]
+
+
+def test_execute_gates_does_not_invoke_audit_with_invalid_base_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "rulespec-dk"
+    repo.mkdir()
+    paths = {
+        name: tmp_path / name
+        for name in ("encode", "engine", "corpus", "rulespec_us")
+    }
+    caller = CallerConfig(
+        tmp_path / "caller.yml",
+        "615c1df9b9ace7deea84da65efd137f46f8bad2b",
+        {name: "a" * 40 for name in paths},
+        "dk",
+        False,
+        False,
+        run_pytest=False,
+        run_money_atom_check=False,
+    )
+    calls = []
+    monkeypatch.setattr(
+        "axiom_encode.ci_parity._freeze_git_commit", lambda *_: "b" * 40
+    )
+    monkeypatch.setattr(
+        "axiom_encode.ci_parity.select_targets",
+        lambda *_, **__: Selection("changed", (), ()),
+    )
+    monkeypatch.setattr("axiom_encode.ci_parity._obsolete_gate", lambda _: (0, "ok"))
+    monkeypatch.setattr("axiom_encode.ci_parity._layout_gate", lambda *_: (0, "ok"))
+    monkeypatch.setattr(
+        "axiom_encode.ci_parity._git_regular_blob",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            ValueError("protected base mode is invalid")
+        ),
+    )
+
+    def fake_cli(arguments, *, environment=None):
+        calls.append((list(arguments), environment))
+        return 0, "ok\n"
+
+    monkeypatch.setattr("axiom_encode.ci_parity._run_cli", fake_cli)
+
+    results = execute_gates(
+        Namespace(repo=repo, base_ref="origin/main"), caller, paths, ("dk",)
+    )
+
+    waiver_result = next(
+        result for result in results if result.gate == "validation_waivers"
+    )
+    assert waiver_result.status == "FAIL"
+    assert "protected base mode is invalid" in waiver_result.output
+    assert not any(call[0][:2] == ["validation-waivers", "audit"] for call in calls)
 
 
 def test_pinned_classifier_rejects_ambient_oracles_dependency(
