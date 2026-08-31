@@ -64,6 +64,9 @@ func runServe(options serveOptions, environment func(string) string, auditWriter
 			"axiom-apply-signer local-dev throwaway public key (base64): %s\n",
 			base64.StdEncoding.EncodeToString(rawPublicKey(privateKey)),
 		)
+		if err := signalReady(options.readyFD); err != nil {
+			return err
+		}
 	} else {
 		if options.keyFD < 0 {
 			return errors.New("--key-fd is required in CI mode")

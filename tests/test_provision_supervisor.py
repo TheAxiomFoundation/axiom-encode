@@ -34,6 +34,21 @@ sys.modules[_SPEC.name] = provisioner
 _SPEC.loader.exec_module(provisioner)
 
 
+def _trusted_git() -> Path:
+    """Return a root-owned Git executable suitable for wrapper tests."""
+
+    candidates = [Path("/usr/bin/git")]
+    discovered = shutil.which("git")
+    if discovered is not None:
+        candidates.append(Path(discovered).resolve())
+    for candidate in dict.fromkeys(candidates):
+        try:
+            return provisioner._resolve_trusted_git(candidate)
+        except SystemExit:
+            continue
+    pytest.skip("No root-owned Git executable is available")
+
+
 class TestPathInside:
     def test_absolute_outside(self, tmp_path):
         runtime = (tmp_path / "runtime").resolve()
@@ -338,10 +353,7 @@ class TestSanePrefixPreflight:
 
 class TestTrustedGit:
     def test_accepts_root_owned_system_git(self):
-        git = shutil.which("git")
-        if git is None:
-            pytest.skip("Git is required")
-        resolved = Path(git).resolve()
+        resolved = _trusted_git()
         assert provisioner._resolve_trusted_git(resolved) == resolved
 
     def test_rejects_relative_path(self):
@@ -349,19 +361,15 @@ class TestTrustedGit:
             provisioner._resolve_trusted_git(Path("git"))
 
     def test_rejects_symlinked_path(self, tmp_path):
-        git = shutil.which("git")
-        if git is None:
-            pytest.skip("Git is required")
+        git = _trusted_git()
         alias = tmp_path / "git"
-        alias.symlink_to(Path(git).resolve())
+        alias.symlink_to(git)
         with pytest.raises(SystemExit, match="contains a symlink"):
             provisioner._resolve_trusted_git(alias)
 
     @pytest.mark.parametrize("symlink", [False, True])
     def test_installed_wrapper_refuses_existing_path(self, tmp_path, symlink):
-        git = shutil.which("git")
-        if git is None:
-            pytest.skip("Git is required")
+        git = _trusted_git()
         tool_directory = tmp_path / "tools"
         tool_directory.mkdir()
         wrapper = tool_directory / "git"
@@ -376,7 +384,7 @@ class TestTrustedGit:
             provisioner._install_trusted_git_wrapper(
                 tool_directory,
                 Path(sys.executable).resolve(),
-                provisioner._resolve_trusted_git(Path(git).resolve()),
+                git,
             )
 
         assert sentinel.read_text() == "unchanged\n"
@@ -384,15 +392,13 @@ class TestTrustedGit:
             assert wrapper.read_text() == "unchanged\n"
 
     def test_installed_wrapper_blocks_local_executable_config(self, tmp_path):
-        git = shutil.which("git")
-        if git is None:
-            pytest.skip("Git is required")
+        git = _trusted_git()
         destination = tmp_path / "destination"
         destination.mkdir()
         wrapper = provisioner._install_trusted_git_wrapper(
             destination,
             Path(sys.executable).resolve(),
-            provisioner._resolve_trusted_git(Path(git).resolve()),
+            git,
         )
         repository = tmp_path / "rulespec-us"
         subprocess.run([git, "init", "--quiet", str(repository)], check=True)
@@ -831,15 +837,13 @@ class TestTrustedGit:
         assert not marker.exists()
 
     def test_installed_wrapper_stages_only_explicit_safe_paths(self, tmp_path):
-        git = shutil.which("git")
-        if git is None:
-            pytest.skip("Git is required")
+        git = _trusted_git()
         destination = tmp_path / "destination"
         destination.mkdir()
         wrapper = provisioner._install_trusted_git_wrapper(
             destination,
             Path(sys.executable).resolve(),
-            provisioner._resolve_trusted_git(Path(git).resolve()),
+            git,
         )
         repository = (tmp_path / "rulespec-us").resolve()
         subprocess.run([git, "init", "--quiet", str(repository)], check=True)
@@ -1025,15 +1029,13 @@ class TestTrustedGit:
             _rulespec_migration_tracked_files,
         )
 
-        git = shutil.which("git")
-        if git is None:
-            pytest.skip("Git is required")
+        git = _trusted_git()
         destination = tmp_path / "destination"
         destination.mkdir()
         provisioner._install_trusted_git_wrapper(
             destination,
             Path(sys.executable).resolve(),
-            provisioner._resolve_trusted_git(Path(git).resolve()),
+            git,
         )
         repository = tmp_path / "rulespec-us"
         subprocess.run([git, "init", "--quiet", str(repository)], check=True)
@@ -1113,15 +1115,13 @@ class TestTrustedGit:
         )
 
     def test_installed_wrapper_disables_partial_clone_lazy_fetch(self, tmp_path):
-        git = shutil.which("git")
-        if git is None:
-            pytest.skip("Git is required")
+        git = _trusted_git()
         destination = tmp_path / "destination"
         destination.mkdir()
         wrapper = provisioner._install_trusted_git_wrapper(
             destination,
             Path(sys.executable).resolve(),
-            provisioner._resolve_trusted_git(Path(git).resolve()),
+            git,
         )
         source = tmp_path / "source"
         subprocess.run([git, "init", "--quiet", str(source)], check=True)
@@ -1195,15 +1195,13 @@ class TestTrustedGit:
         )
 
     def test_installed_wrapper_disables_replacement_objects(self, tmp_path):
-        git = shutil.which("git")
-        if git is None:
-            pytest.skip("Git is required")
+        git = _trusted_git()
         destination = tmp_path / "destination"
         destination.mkdir()
         wrapper = provisioner._install_trusted_git_wrapper(
             destination,
             Path(sys.executable).resolve(),
-            provisioner._resolve_trusted_git(Path(git).resolve()),
+            git,
         )
         repository = tmp_path / "repository"
         subprocess.run([git, "init", "--quiet", str(repository)], check=True)
@@ -1238,15 +1236,13 @@ class TestTrustedGit:
         assert wrapped.stdout == original
 
     def test_installed_wrapper_disables_log_signature_verification(self, tmp_path):
-        git = shutil.which("git")
-        if git is None:
-            pytest.skip("Git is required")
+        git = _trusted_git()
         destination = tmp_path / "destination"
         destination.mkdir()
         wrapper = provisioner._install_trusted_git_wrapper(
             destination,
             Path(sys.executable).resolve(),
-            provisioner._resolve_trusted_git(Path(git).resolve()),
+            git,
         )
         repository = tmp_path / "repository"
         subprocess.run([git, "init", "--quiet", str(repository)], check=True)

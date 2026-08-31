@@ -3,9 +3,9 @@
 // axiom-encode-signing-supervisor is the compiled trust boundary for signed
 // Axiom Encode operations. Private keys remain inside external signers. The
 // supervisor accepts only operation-scoped signer sockets, provisions a separate
-// broker over an anonymous socketpair, then replaces itself with a validated
-// Python interpreter running the protected pre-attachment bootstrap. Neither raw
-// private key bytes nor private-key environment variables enter Go or Python.
+// broker over an anonymous socketpair, then supervises a validated Python
+// interpreter running the protected pre-attachment bootstrap. Neither raw private
+// key bytes nor private-key environment variables enter Go or Python.
 package main
 
 import (
@@ -25,6 +25,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -416,9 +417,38 @@ func main() {
 		return
 	}
 	if err := supervise(os.Args[1:]); err != nil {
+		if exitLikeTrustedCommand(err) {
+			return
+		}
 		fmt.Fprintf(os.Stderr, "signing supervisor: %v\n", err)
 		os.Exit(2)
 	}
+}
+
+func exitLikeTrustedCommand(err error) bool {
+	var exitError *exec.ExitError
+	if !errors.As(err, &exitError) {
+		return false
+	}
+	status, ok := exitError.ProcessState.Sys().(syscall.WaitStatus)
+	if !ok {
+		os.Exit(2)
+	}
+	if status.Exited() {
+		os.Exit(status.ExitStatus())
+	}
+	if status.Signaled() {
+		terminationSignal := status.Signal()
+		signal.Reset(terminationSignal)
+		if killErr := syscall.Kill(os.Getpid(), terminationSignal); killErr == nil {
+			// A process-directed fatal signal should be delivered immediately. The
+			// bounded pause leaves a fallback for an unexpectedly blocked signal.
+			time.Sleep(100 * time.Millisecond)
+		}
+		os.Exit(128 + int(terminationSignal))
+	}
+	os.Exit(2)
+	return true
 }
 
 func parseOptions(arguments []string) (options, error) {
@@ -564,9 +594,12 @@ func parseBrokerOptions(arguments []string) (brokerOptions, error) {
 	return parsed, nil
 }
 
-func supervise(arguments []string) error {
+func supervise(arguments []string) (resultErr error) {
 	if err := hardenProcess(); err != nil {
 		return fmt.Errorf("could not harden supervisor process: %w", err)
+	}
+	if err := prepareDescendantContainment(); err != nil {
+		return fmt.Errorf("could not prepare descendant containment: %w", err)
 	}
 	for name := range privateEnvironmentNames {
 		if _, present := os.LookupEnv(name); present {
@@ -612,12 +645,24 @@ func supervise(arguments []string) error {
 	if err != nil {
 		return err
 	}
-	cleanupBroker := true
+	broker := &signingBrokerLifecycle{
+		connection: connection,
+		process:    brokerProcess,
+	}
 	defer func() {
-		if cleanupBroker {
-			_ = connection.Close()
-			_ = brokerProcess.Kill()
-			_, _ = brokerProcess.Wait()
+		if broker.cleaned {
+			return
+		}
+		if cleanupErr := broker.cleanup(); cleanupErr != nil {
+			if resultErr != nil {
+				resultErr = fmt.Errorf(
+					"signing broker cleanup failed after %v: %w",
+					resultErr,
+					cleanupErr,
+				)
+			} else {
+				resultErr = fmt.Errorf("signing broker cleanup failed: %w", cleanupErr)
+			}
 		}
 	}()
 
@@ -664,34 +709,111 @@ func supervise(arguments []string) error {
 	}
 	childEnvironment := cleanChildEnvironment(
 		brokerProcess.Pid,
-		capabilityFD,
+		brokerServerFD,
 		filepath.Dir(parsed.command[0]),
 		trustedHome,
 	)
 	if parsed.codexAuthPath != "" {
 		return superviseWithCodexSubscription(
-			parsed, connection, childEnvironment, capabilityFD,
+			parsed, broker, childEnvironment, capabilityFD,
 		)
 	}
-
-	// Clear close-on-exec only for the one-generation capability and seal every
-	// other inherited descriptor. Retaining the socket's existing descriptor
-	// avoids replacing a Go runtime kqueue/epoll descriptor immediately before
-	// exec. Python marks the capability close-on-exec as soon as its entrypoint
-	// attaches; model subprocesses therefore cannot inherit it.
-	if err := makeInheritable(capabilityFD); err != nil {
-		return fmt.Errorf("could not prepare signing capability: %w", err)
+	commandErr, containmentErr := runTrustedCommand(
+		parsed,
+		broker,
+		childEnvironment,
+		capabilityFD,
+	)
+	if cleanupErr := finishTrustedCommandCleanup(broker, containmentErr); cleanupErr != nil {
+		return cleanupErr
 	}
-	if err := sealOtherDescriptors(capabilityFD); err != nil {
-		return fmt.Errorf("could not seal inherited descriptors: %w", err)
-	}
+	return commandErr
+}
 
-	cleanupBroker = false
-	if err := syscall.Exec(parsed.command[0], parsed.command, childEnvironment); err != nil {
-		cleanupBroker = true
-		return fmt.Errorf("could not execute trusted Python bootstrap: %w", err)
+type signingBrokerLifecycle struct {
+	connection       *os.File
+	process          *os.Process
+	connectionClosed bool
+	cleaned          bool
+	cleanupErr       error
+}
+
+func (broker *signingBrokerLifecycle) closeConnection() error {
+	if broker == nil || broker.connectionClosed {
+		return nil
+	}
+	broker.connectionClosed = true
+	return broker.connection.Close()
+}
+
+func (broker *signingBrokerLifecycle) cleanup() error {
+	if broker == nil {
+		return nil
+	}
+	if broker.cleaned {
+		return broker.cleanupErr
+	}
+	broker.cleaned = true
+	var cleanupErrors []error
+	if err := broker.closeConnection(); err != nil && !errors.Is(err, os.ErrInvalid) {
+		cleanupErrors = append(cleanupErrors, fmt.Errorf("could not close broker connection: %w", err))
+	}
+	if broker.process != nil {
+		if err := broker.process.Kill(); err != nil &&
+			!errors.Is(err, os.ErrProcessDone) && !errors.Is(err, syscall.ESRCH) {
+			cleanupErrors = append(cleanupErrors, fmt.Errorf("could not terminate signing broker: %w", err))
+		}
+		if _, err := broker.process.Wait(); err != nil {
+			cleanupErrors = append(cleanupErrors, fmt.Errorf("could not reap signing broker: %w", err))
+		}
+	}
+	if err := drainContainedDescendants(0); err != nil {
+		cleanupErrors = append(cleanupErrors, fmt.Errorf("could not drain broker descendants: %w", err))
+	}
+	broker.cleanupErr = errors.Join(cleanupErrors...)
+	return broker.cleanupErr
+}
+
+func finishTrustedCommandCleanup(
+	broker *signingBrokerLifecycle,
+	containmentErr error,
+) error {
+	brokerErr := broker.cleanup()
+	if cleanupErr := errors.Join(containmentErr, brokerErr); cleanupErr != nil {
+		return fmt.Errorf("trusted generation cleanup failed: %w", cleanupErr)
 	}
 	return nil
+}
+
+func runTrustedCommand(
+	parsed options,
+	broker *signingBrokerLifecycle,
+	environment []string,
+	capabilityFD int,
+) (error, error) {
+	command := exec.Command(parsed.command[0], parsed.command[1:]...)
+	command.Env = environment
+	command.Stdin, command.Stdout, command.Stderr = os.Stdin, os.Stdout, os.Stderr
+	// ExtraFiles maps the sole encoder capability to descriptor 3. The original
+	// socket descriptor remains close-on-exec, so its ambient descriptor number
+	// cannot cross the boundary as a second broker handle.
+	command.ExtraFiles = []*os.File{broker.connection}
+	configureContainedCommand(command)
+	if err := sealOtherDescriptors(capabilityFD); err != nil {
+		return fmt.Errorf("could not seal inherited descriptors: %w", err), nil
+	}
+	if err := command.Start(); err != nil {
+		return fmt.Errorf("could not execute trusted Python bootstrap: %w", err), nil
+	}
+	connectionErr := broker.closeConnection()
+	commandErr, containmentErr := waitContainedCommand(command, broker.process.Pid)
+	if connectionErr != nil && !errors.Is(connectionErr, os.ErrInvalid) {
+		containmentErr = errors.Join(
+			containmentErr,
+			fmt.Errorf("could not close supervisor broker connection: %w", connectionErr),
+		)
+	}
+	return commandErr, containmentErr
 }
 
 func loadTrustedCodexCLI(path string) (trustedCodexCLI, error) {
@@ -890,7 +1012,12 @@ func publishCredential(sourcePath, outboxPath string, owner os.FileInfo) error {
 	return nil
 }
 
-func superviseWithCodexSubscription(parsed options, connection *os.File, environment []string, capabilityFD int) error {
+func superviseWithCodexSubscription(
+	parsed options,
+	broker *signingBrokerLifecycle,
+	environment []string,
+	capabilityFD int,
+) error {
 	config, err := loadTrustedCodexCLI(parsed.codexCLIConfigPath)
 	if err != nil {
 		return err
@@ -932,19 +1059,15 @@ func superviseWithCodexSubscription(parsed options, connection *os.File, environ
 		trustedCodexVersionEnv+"="+config.Version,
 		trustedCodexSHA256Env+"="+config.SHA256,
 	)
-	for index, entry := range environment {
-		if strings.HasPrefix(entry, brokerFDEnv+"=") {
-			environment[index] = brokerFDEnv + "=3"
-		}
+	commandErr, containmentErr := runTrustedCommand(
+		parsed,
+		broker,
+		environment,
+		capabilityFD,
+	)
+	if cleanupErr := finishTrustedCommandCleanup(broker, containmentErr); cleanupErr != nil {
+		return cleanupErr
 	}
-	command := exec.Command(parsed.command[0], parsed.command[1:]...)
-	command.Env = environment
-	command.Stdin, command.Stdout, command.Stderr = os.Stdin, os.Stdout, os.Stderr
-	command.ExtraFiles = []*os.File{connection}
-	if err := sealOtherDescriptors(capabilityFD); err != nil {
-		return fmt.Errorf("could not seal inherited descriptors: %w", err)
-	}
-	commandErr := command.Run()
 	refreshed := filepath.Join(home, "auth.json")
 	if err := publishCredential(refreshed, parsed.codexAuthOutbox, authMetadata); err != nil {
 		return err
@@ -1370,22 +1493,6 @@ func cleanChildEnvironment(
 	return environment
 }
 
-func makeInheritable(descriptor int) error {
-	if descriptor < 3 {
-		return errors.New("signing capability descriptor must be greater than 2")
-	}
-	_, _, errno := syscall.Syscall(
-		syscall.SYS_FCNTL,
-		uintptr(descriptor),
-		uintptr(syscall.F_SETFD),
-		0,
-	)
-	if errno != 0 {
-		return errno
-	}
-	return nil
-}
-
 func sealOtherDescriptors(keep int) error {
 	directory := "/proc/self/fd"
 	if _, err := os.Stat(directory); err != nil {
@@ -1409,8 +1516,8 @@ func sealOtherDescriptors(keep int) error {
 			continue
 		}
 		// Do not close Go's kqueue/epoll descriptors while the runtime is still
-		// active. Mark every non-capability descriptor close-on-exec instead;
-		// syscall.Exec then gives Python exactly stdio plus descriptor 3.
+		// active. Mark every non-capability descriptor close-on-exec instead; the
+		// child receives the capability only through ExtraFiles at descriptor 3.
 		syscall.CloseOnExec(descriptor)
 	}
 	return nil

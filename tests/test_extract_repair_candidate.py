@@ -254,6 +254,7 @@ def test_rejects_noncanonical_state_rulespec_path(replace_rulespec_path):
                 "source_bundle": [],
                 "canonical_refresh_bundle": [],
                 "primary_required_test_cases": [],
+                "target_operation": "replace",
             }
         ),
     ],
@@ -312,6 +313,7 @@ def test_extracts_exactly_bound_source_preflight_candidate(tmp_path):
             "source_bundle": ["us/statute/7/2015/f"],
             "canonical_refresh_bundle": [],
             "primary_required_test_cases": [],
+            "target_operation": "replace",
         }
     )
     archive, metadata = _archive(tmp_path)
@@ -333,6 +335,7 @@ def test_rejects_source_preflight_candidate_for_different_bundle(tmp_path):
             "source_bundle": ["us/statute/7/2015/f"],
             "canonical_refresh_bundle": [],
             "primary_required_test_cases": [],
+            "target_operation": "replace",
         }
     )
     archive, metadata = _archive(tmp_path)
@@ -351,6 +354,40 @@ def test_rejects_source_preflight_candidate_for_different_bundle(tmp_path):
                         "source_bundle": ["us/guidance/different"],
                         "canonical_refresh_bundle": [],
                         "primary_required_test_cases": [],
+                        "target_operation": "replace",
+                    }
+                ),
+            )
+        )
+
+
+def test_rejects_source_preflight_candidate_for_different_target_operation(tmp_path):
+    atomic_source_input = json.dumps(
+        {
+            "schema": "axiom-encode/atomic-source-transaction/v2",
+            "source_bundle": [],
+            "canonical_refresh_bundle": [],
+            "primary_required_test_cases": [],
+            "target_operation": "replace",
+        }
+    )
+    archive, metadata = _archive(tmp_path)
+    replacement = _rewrite_as_source_preflight(
+        archive, tmp_path / "source-preflight.tar", metadata, atomic_source_input
+    )
+
+    with pytest.raises(ValueError, match="metadata mismatch: atomic_source_input"):
+        extract_candidate(
+            _args(
+                tmp_path,
+                replacement,
+                atomic_source_json=json.dumps(
+                    {
+                        "schema": "axiom-encode/atomic-source-transaction/v2",
+                        "source_bundle": [],
+                        "canonical_refresh_bundle": [],
+                        "primary_required_test_cases": [],
+                        "target_operation": "create",
                     }
                 ),
             )
@@ -369,6 +406,7 @@ def test_rejects_source_preflight_lane_without_expected_source(tmp_path):
                 "source_bundle": [],
                 "canonical_refresh_bundle": [],
                 "primary_required_test_cases": [],
+                "target_operation": "replace",
             }
         ),
     )
@@ -535,6 +573,7 @@ def test_rejects_incompatible_prior_run_mode(tmp_path, field, value):
                             "required_output": {"us:test#output": 1},
                         }
                     ],
+                    "target_operation": "replace",
                 }
             ),
             "metadata mismatch: atomic_source_input",
@@ -572,16 +611,20 @@ def test_rejects_expected_canonical_refresh_bundle(tmp_path):
                         "source_bundle": [],
                         "canonical_refresh_bundle": [{"citation": "x"}],
                         "primary_required_test_cases": [],
+                        "target_operation": "replace",
                     }
                 ),
             )
         )
 
 
-def test_rejects_expected_source_bundle_mixed_with_required_tests(tmp_path):
+def test_rejects_legacy_repair_with_source_bundle_and_required_tests(tmp_path):
     archive, _ = _archive(tmp_path)
 
-    with pytest.raises(ValueError, match="expected atomic source input is invalid"):
+    with pytest.raises(
+        ValueError,
+        match="legacy repair metadata cannot bind a nonempty atomic source input",
+    ):
         extract_candidate(
             _args(
                 tmp_path,
@@ -603,6 +646,7 @@ def test_rejects_expected_source_bundle_mixed_with_required_tests(tmp_path):
                                 "required_output": {"us:test#output": 1},
                             }
                         ],
+                        "target_operation": "replace",
                     }
                 ),
             )

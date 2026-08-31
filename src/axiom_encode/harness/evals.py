@@ -1573,6 +1573,7 @@ def run_model_eval(
     review_findings_paths: list[Path] | None = None,
     require_complete_source_unit: bool = False,
     target_relative_output: Path | None = None,
+    target_operation: str | None = None,
     validation_retry_feedback: Sequence[str] = (),
     required_deferred_output_contracts: Sequence[tuple[str, str]] = (),
     required_test_case_contracts: Sequence[Mapping[str, object]] = (),
@@ -1592,6 +1593,10 @@ def run_model_eval(
         raise ValueError(
             "Replacement overlay scope requires an explicit target RuleSpec output"
         )
+    if target_operation is not None and target_operation not in {"create", "replace"}:
+        raise ValueError("Eval target operation is invalid")
+    if target_operation is not None and target_relative_output is None:
+        raise ValueError("Eval target operation requires an explicit target output")
     if repair_candidate_tests_only and validation_retry_candidate is None:
         raise ValueError("Tests-only repair requires a validation retry candidate")
     if repair_candidate_tests_only and validation_retry_candidate.tests is None:
@@ -1629,6 +1634,7 @@ def run_model_eval(
                         review_findings_paths=review_findings_paths or [],
                         require_complete_source_unit=require_complete_source_unit,
                         target_relative_output=target_relative_output,
+                        target_operation=target_operation,
                         validation_retry_feedback=validation_retry_feedback,
                         required_deferred_output_contracts=(
                             required_deferred_output_contracts
@@ -8720,16 +8726,25 @@ def _eval_review_contract_manifest_payload(
     rulespec_path: str,
     required_deferred_output_contracts: Sequence[tuple[str, str]],
     required_test_case_contracts: Sequence[Mapping[str, object]],
+    target_operation: str | None = None,
 ) -> dict[str, object] | None:
     """Build the exact contract bound into signed per-lane context evidence."""
 
-    if not required_deferred_output_contracts and not required_test_case_contracts:
+    if (
+        target_operation is None
+        and not required_deferred_output_contracts
+        and not required_test_case_contracts
+    ):
         return None
     payload: dict[str, object] = {
         "schema": (
-            "axiom-encode/review-contract/v2"
-            if required_test_case_contracts
-            else "axiom-encode/review-contract/v1"
+            "axiom-encode/review-contract/v3"
+            if target_operation is not None
+            else (
+                "axiom-encode/review-contract/v2"
+                if required_test_case_contracts
+                else "axiom-encode/review-contract/v1"
+            )
         ),
         "citation": citation,
         "rulespec_path": rulespec_path,
@@ -8738,10 +8753,12 @@ def _eval_review_contract_manifest_payload(
             for output, reason in required_deferred_output_contracts
         ],
     }
-    if required_test_case_contracts:
+    if required_test_case_contracts or target_operation is not None:
         payload["required_test_cases"] = [
             dict(contract) for contract in required_test_case_contracts
         ]
+    if target_operation is not None:
+        payload["target_operation"] = target_operation
     return payload
 
 
@@ -8764,6 +8781,7 @@ def _run_single_eval(
     review_findings_paths: list[Path] | None = None,
     require_complete_source_unit: bool = False,
     target_relative_output: Path | None = None,
+    target_operation: str | None = None,
     validation_retry_feedback: Sequence[str] = (),
     required_deferred_output_contracts: Sequence[tuple[str, str]] = (),
     required_test_case_contracts: Sequence[Mapping[str, object]] = (),
@@ -8808,6 +8826,7 @@ def _run_single_eval(
         rulespec_path=(Path(policy_path.name) / relative_output).as_posix(),
         required_deferred_output_contracts=required_deferred_output_contracts,
         required_test_case_contracts=required_test_case_contracts,
+        target_operation=target_operation,
     )
     workspace = prepare_eval_workspace(
         citation=citation,

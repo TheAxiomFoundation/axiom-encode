@@ -8,10 +8,10 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"syscall"
-	"time"
 )
 
 // runOptions configures the launcher: the process manager that pre-opens the
@@ -25,8 +25,20 @@ type runOptions struct {
 	pythonRuntimeRoots []string
 	pythonImportRoots  []string
 	pythonPackageRoot  string
+	allowLocalDev      bool
+	signerUID          uint32
+	signerGID          uint32
+	supervisorUID      uint32
+	supervisorGID      uint32
 	binding            contextBinding
 	command            []string
+}
+
+type supervisorEvent struct {
+	code    int32
+	stopped bool
+	reaped  bool
+	waitErr error
 }
 
 // forwardedContextEnvironment is the exact, minimal set of variables the signer
@@ -55,6 +67,17 @@ func runLauncher(options runOptions, environment func(string) string) (int, erro
 	if _, err := options.binding.validate(environment); err != nil {
 		return 0, err
 	}
+	if err := validateLauncherSecurity(options); err != nil {
+		return 0, err
+	}
+	trustedSupervisor, err := validateSupervisorExecutable(options)
+	if err != nil {
+		return 0, err
+	}
+	options.supervisor = trustedSupervisor
+	// An inherited SIG_IGN/SA_NOCLDWAIT disposition would let the kernel reap
+	// either protected child before waitid/Wait can pin and inspect it.
+	signal.Reset(syscall.SIGCHLD)
 
 	// The signer is always this same trusted binary in `serve` mode, referenced
 	// by its running inode (not a swappable on-disk path): the raw key pipe is
@@ -121,27 +144,70 @@ func runLauncher(options runOptions, environment func(string) string) (int, erro
 
 	supervisorCommand, err := startSupervisor(options, supervisorSocket)
 	if err != nil {
-		_ = signerCommand.Process.Kill()
-		_, _ = signerCommand.Process.Wait()
-		return 0, err
+		return 0, errors.Join(err, terminateSigner(signerCommand))
 	}
 	_ = supervisorSocket.Close()
 
-	supervisorErr := supervisorCommand.Wait()
+	supervisorGroupVerified, groupErr := verifySupervisorProcessGroup(supervisorCommand)
+	event, observationErr := waitForSupervisorEvent(supervisorCommand)
+	// Revoke the signing capability before any potentially blocking supervisor
+	// cleanup. A verifier-controlled SIGSTOP is a compromise event, not a pause.
+	// Signal the distinct-UID signer first, then the whole supervisor group,
+	// before waiting on either process; a stuck reap must not delay revocation or
+	// verifier-tree teardown.
+	signerKillErr := killSigner(signerCommand)
+	groupCleanupErr := terminateSupervisorProcessGroup(
+		supervisorCommand,
+		supervisorGroupVerified && !event.reaped,
+	)
+	signerReapErr := reapSigner(signerCommand)
+	supervisorErr := event.waitErr
+	if !event.reaped {
+		supervisorErr = supervisorCommand.Wait()
+	}
 	exitCode := 0
 	if supervisorErr != nil {
 		var exitError *exec.ExitError
 		if errors.As(supervisorErr, &exitError) {
-			exitCode = exitError.ExitCode()
+			exitCode = supervisedCommandExitCode(exitError)
 		} else {
 			exitCode = 1
 		}
 	}
 
-	// The broker closes when the supervisor tree exits, so the signer observes
-	// EOF and returns. Give it a short grace period, then force teardown.
-	waitOrKill(signerCommand, 5*time.Second)
+	if event.stopped {
+		observationErr = errors.Join(
+			observationErr,
+			fmt.Errorf("trusted signing supervisor stopped (waitid code %d)", event.code),
+		)
+	}
+	if cleanupErr := errors.Join(
+		groupErr,
+		observationErr,
+		signerKillErr,
+		groupCleanupErr,
+		signerReapErr,
+	); cleanupErr != nil {
+		return 0, cleanupErr
+	}
 	return exitCode, nil
+}
+
+func supervisedCommandExitCode(exitError *exec.ExitError) int {
+	if exitError == nil {
+		return 1
+	}
+	status, ok := exitError.ProcessState.Sys().(syscall.WaitStatus)
+	if !ok {
+		return 1
+	}
+	if status.Exited() {
+		return status.ExitStatus()
+	}
+	if status.Signaled() {
+		return 128 + int(status.Signal())
+	}
+	return 1
 }
 
 func readAndClearKeyEnvironment(name string) ([]byte, error) {
@@ -187,11 +253,15 @@ func startSigner(
 	for _, event := range options.binding.allowedEventNames {
 		arguments = append(arguments, "--allowed-event-name", event)
 	}
+	if options.allowLocalDev {
+		arguments = append(arguments, "--allow-local-dev")
+	}
 	command := exec.Command(signerExecutable, arguments...)
 	command.Env = minimalSignerEnvironment(environment)
 	command.ExtraFiles = []*os.File{signerSocket, keyRead, readyWrite}
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
+	configureSignerCommand(command, options)
 	if err := command.Start(); err != nil {
 		return nil, fmt.Errorf("could not start external signer: %w", err)
 	}
@@ -241,6 +311,7 @@ func startSupervisor(options runOptions, supervisorSocket *os.File) (*exec.Cmd, 
 	command.Stdin = os.Stdin
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
+	configureSupervisorCommand(command, options)
 	if err := command.Start(); err != nil {
 		return nil, fmt.Errorf("could not start trusted signing supervisor: %w", err)
 	}
@@ -282,18 +353,32 @@ func writeAllFile(file *os.File, data []byte) error {
 	return nil
 }
 
-func waitOrKill(command *exec.Cmd, grace time.Duration) {
-	done := make(chan struct{})
-	go func() {
-		_, _ = command.Process.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(grace):
-		_ = command.Process.Kill()
-		<-done
+func terminateSigner(command *exec.Cmd) error {
+	return errors.Join(killSigner(command), reapSigner(command))
+}
+
+func killSigner(command *exec.Cmd) error {
+	if command == nil || command.Process == nil {
+		return nil
 	}
+	if err := command.Process.Kill(); err != nil &&
+		!errors.Is(err, os.ErrProcessDone) && !errors.Is(err, syscall.ESRCH) {
+		return fmt.Errorf("could not terminate signer: %w", err)
+	}
+	return nil
+}
+
+func reapSigner(command *exec.Cmd) error {
+	if command == nil || command.Process == nil {
+		return nil
+	}
+	if err := command.Wait(); err != nil {
+		var exitError *exec.ExitError
+		if !errors.As(err, &exitError) {
+			return fmt.Errorf("could not reap signer: %w", err)
+		}
+	}
+	return nil
 }
 
 // defaultSignerExecutable returns a reference to this binary's own running image

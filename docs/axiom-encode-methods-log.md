@@ -37,6 +37,57 @@ As of 2026-04-10:
   - `results.json`
   - `summary.json`
 
+## 2026-08-30: Protected encoding gained explicit policy targets and old-root receipt recovery
+
+- Hypothesis:
+  - A composed policy module whose legal source citation does not map to its
+    intended `policies/` path should still be generated only through the
+    protected encoder, with the same signed import and review contracts as an
+    existing target. Historical modules stranded behind old-root v1 manifests
+    should be recoverable only from exact Git/source evidence, never by treating
+    their HMAC as trusted provenance.
+- Effect:
+  - Added a one-target `--create-rulespec-path` apply contract restricted to an
+    absent, same-jurisdiction `policies/` primary and companion, with both
+    manifest layouts and all base-manifest claimants required absent.
+  - Routed explicit targets through the existing main-branch external Ed25519
+    signer with atomic-source/v2 `target_operation` and per-lane review-contract/v3
+    evidence; base existence is checked against that signed intent rather than
+    selecting create or replace implicitly. This preserves existing and legacy
+    targets, signed direct-import requirements, and structured source-grounded
+    test contracts.
+  - Required every creation test case to witness an output from the exact new
+    module and admitted bounded, recursively type-exact entity/relation values
+    in those signed cases. The PR guard reproves the signed absence boundary
+    against one snapshotted base commit and rejects live old-root, casefold, and
+    Unicode path aliases.
+  - Rejected nonempty source bundles combined with creation before encoding or
+    signing. Source modules must land with their own signed receipts first;
+    otherwise intermediate source commits would move clean HEAD away from the
+    reviewed PR base. A future base-A transaction design is required to combine
+    those operations safely.
+  - Gated nonlegacy explicit replacement combined with a source bundle or
+    nonempty canonical-refresh bundle at both normalized dispatch and final trusted
+    artifact reparse. Direct replacement still admits existing signed imports
+    and executes before the existing dependent lanes. Multi-lane replacement
+    remains deferred until signed `replacement_target` base evidence and
+    expected-parent lineage authenticate every intermediate commit.
+  - Admitted only the exact pre-monorepo old-root generated-v1 manifest path and
+    historical null-artifact shape for in-place fresh replacement, with clean-HEAD
+    hashes and canonical-owner ambiguity rejection. The old HMAC remains
+    untrusted and is replaced by normal signed v5 provenance.
+  - Kept general ordered multi-target policy cascades out of scope: the existing
+    citation-derived/two-dependent lanes do not provide a transaction-wide
+    authentication boundary for an arbitrary explicit target graph.
+- Evidence:
+  - Focused implementation suite: run the protected target, CLI, workflow, and
+    receipt suites recorded with this change before release.
+  - [trusted-signing-supervisor.md](trusted-signing-supervisor.md)
+  - [cli.py](../src/axiom_encode/cli.py)
+  - [legacy_replacement.py](../src/axiom_encode/legacy_replacement.py)
+  - [test_legacy_replacement.py](../tests/test_legacy_replacement.py)
+  - [test_signing_supervisor.py](../tests/test_signing_supervisor.py)
+
 ## 2026-05-04: Eval-backed encode runs gained linked session telemetry and repair manifests
 
 - Primary commit: `c6f21b2` `Log encode sessions for eval runs`

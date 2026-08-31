@@ -92,6 +92,32 @@ LEGACY_GENERATED_FIELDS: Final = frozenset(
         "trace_sha256",
     }
 )
+# The first generated v1 manifests predated Git/prompt bindings and could be
+# stranded at the pre-monorepo manifest root when their RuleSpec files were
+# moved below a jurisdiction directory.  This exact historical shape is
+# admissible only when the caller separately proves that orphan placement.
+LEGACY_ORPHAN_GENERATED_FIELDS: Final = frozenset(
+    {
+        "applied_files",
+        "axiom_encode_version",
+        "backend",
+        "citation",
+        "context_manifest_file",
+        "context_manifest_sha256",
+        "generated_at",
+        "generated_output_file",
+        "generated_output_root",
+        "generated_output_sha256",
+        "model",
+        "run_id",
+        "runner",
+        "schema_version",
+        "signature",
+        "tool",
+        "trace_file",
+        "trace_sha256",
+    }
+)
 LEGACY_GENERATED_GIT_FIELDS: Final = frozenset(
     {"commit", "dirty_tracked", "root", "version", "version_commit"}
 )
@@ -425,19 +451,29 @@ def legacy_generated_manifest_issues(
     expected_primary_path: str,
     expected_citation: str,
     jurisdiction_prefix: str,
+    allow_orphan_layout: bool = False,
 ) -> list[str]:
     """Require one strict historical generated-v1 shape as untrusted evidence.
 
     The historical HMAC is deliberately not verified or treated as authority.
     Authority comes from the caller's separately authorized Git base and exact
     blob hashes.  This parser only establishes that those blobs have the known
-    generated-v1 ownership shape and bind the expected source identity.
+    generated-v1 ownership shape and bind either the expected source identity
+    or, for the narrowly admitted orphan layout, its historical target identity.
     """
 
     if not isinstance(payload, dict):
         return ["legacy ownership manifest is not a JSON object"]
     issues: list[str] = []
-    if set(payload) != LEGACY_GENERATED_FIELDS:
+    payload_fields = set(payload)
+    # The caller has already authenticated the sole legacy root placement. It
+    # is not a permissive fallback: that placement admits only the original
+    # pre-monorepo, null-artifact shape.
+    orphan_layout = allow_orphan_layout
+    expected_fields = (
+        LEGACY_ORPHAN_GENERATED_FIELDS if orphan_layout else LEGACY_GENERATED_FIELDS
+    )
+    if payload_fields != expected_fields:
         issues.append("legacy generated ownership manifest fields are noncanonical")
     if payload.get("schema_version") != LEGACY_MANIFEST_SCHEMA:
         issues.append("legacy ownership manifest is not schema v1")
@@ -521,20 +557,39 @@ def legacy_generated_manifest_issues(
         canonical_citation = normalize_corpus_identifier(expected_citation)
     except (TypeError, ValueError):
         canonical_citation = ""
-    if not canonical_citation or payload.get("citation") != canonical_citation:
+    historical_target_citation = ""
+    primary_path = Path(expected_primary_path)
+    if (
+        orphan_layout
+        and primary_path.parts
+        and primary_path.parts[0] == jurisdiction_prefix
+        and primary_path.suffix == ".yaml"
+    ):
+        historical_target_citation = (
+            Path(*primary_path.parts[1:]).with_suffix("").as_posix()
+        )
+    if not canonical_citation or payload.get("citation") not in {
+        canonical_citation,
+        historical_target_citation if orphan_layout else canonical_citation,
+    }:
         issues.append("legacy generated ownership manifest citation is stale")
 
     primary_digest = canonical_files.get(expected_primary_path)
-    if (
-        primary_digest is None
-        or payload.get("generated_output_sha256") != primary_digest
+    if primary_digest is None or (
+        not orphan_layout and payload.get("generated_output_sha256") != primary_digest
     ):
         issues.append("legacy generated ownership manifest output digest is stale")
+    if orphan_layout and payload.get("generated_output_sha256") is not None:
+        issues.append(
+            "legacy orphan ownership manifest output digest must use its historical null shape"
+        )
 
     if not isinstance(model, str) or not model.strip():
         issues.append("legacy generated ownership manifest model is malformed")
     run_id = payload.get("run_id")
-    if not isinstance(run_id, str) or not run_id.strip():
+    if (orphan_layout and run_id is not None) or (
+        not orphan_layout and (not isinstance(run_id, str) or not run_id.strip())
+    ):
         issues.append("legacy generated ownership manifest run id is malformed")
     generated_at = payload.get("generated_at")
     try:
@@ -550,21 +605,22 @@ def legacy_generated_manifest_issues(
 
     version = payload.get("axiom_encode_version")
     git_identity = payload.get("axiom_encode_git")
-    if (
-        not isinstance(version, str)
-        or not version.strip()
-        or not isinstance(git_identity, dict)
-        or set(git_identity) != LEGACY_GENERATED_GIT_FIELDS
-        or not isinstance(git_identity.get("commit"), str)
-        or re.fullmatch(r"[0-9a-f]{40}", str(git_identity.get("commit"))) is None
-        or git_identity.get("dirty_tracked") is not False
-        or not isinstance(git_identity.get("root"), str)
-        or not git_identity.get("root")
-        or git_identity.get("version") != version
-        or not isinstance(git_identity.get("version_commit"), str)
-        or re.fullmatch(r"[0-9a-f]{40}", str(git_identity.get("version_commit")))
-        is None
-    ):
+    malformed_encoder_identity = not isinstance(version, str) or not version.strip()
+    if not orphan_layout:
+        malformed_encoder_identity = malformed_encoder_identity or (
+            not isinstance(git_identity, dict)
+            or set(git_identity) != LEGACY_GENERATED_GIT_FIELDS
+            or not isinstance(git_identity.get("commit"), str)
+            or re.fullmatch(r"[0-9a-f]{40}", str(git_identity.get("commit"))) is None
+            or git_identity.get("dirty_tracked") is not False
+            or not isinstance(git_identity.get("root"), str)
+            or not git_identity.get("root")
+            or git_identity.get("version") != version
+            or not isinstance(git_identity.get("version_commit"), str)
+            or re.fullmatch(r"[0-9a-f]{40}", str(git_identity.get("version_commit")))
+            is None
+        )
+    if malformed_encoder_identity:
         issues.append(
             "legacy generated ownership manifest encoder identity is malformed"
         )
@@ -576,21 +632,28 @@ def legacy_generated_manifest_issues(
     ):
         path_value = payload.get(path_field)
         digest_value = payload.get(digest_field)
-        if (
-            not isinstance(path_value, str)
-            or not path_value.strip()
-            or not isinstance(digest_value, str)
-            or _SHA256.fullmatch(digest_value) is None
-        ):
+        if orphan_layout:
+            malformed_binding = path_value is not None or digest_value is not None
+        else:
+            malformed_binding = (
+                not isinstance(path_value, str)
+                or not path_value.strip()
+                or not isinstance(digest_value, str)
+                or _SHA256.fullmatch(digest_value) is None
+            )
+        if malformed_binding:
             issues.append(
                 f"legacy generated ownership manifest {path_field} binding is malformed"
             )
-    if (
-        not isinstance(payload.get("generated_output_root"), str)
-        or not payload.get("generated_output_root")
-        or not isinstance(payload.get("generation_prompt_sha256"), str)
-        or _SHA256.fullmatch(str(payload.get("generation_prompt_sha256"))) is None
-    ):
+    malformed_generation_binding = not isinstance(
+        payload.get("generated_output_root"), str
+    ) or not payload.get("generated_output_root")
+    if not orphan_layout:
+        malformed_generation_binding = malformed_generation_binding or (
+            not isinstance(payload.get("generation_prompt_sha256"), str)
+            or _SHA256.fullmatch(str(payload.get("generation_prompt_sha256"))) is None
+        )
+    if malformed_generation_binding:
         issues.append(
             "legacy generated ownership manifest generation binding is malformed"
         )
@@ -605,6 +668,7 @@ def legacy_v1_manifest_issues(
     expected_citation: str,
     jurisdiction_prefix: str,
     allow_unmarked_manual_exception: bool = False,
+    allow_orphan_layout: bool = False,
 ) -> list[str]:
     """Dispatch only the two explicitly supported historical v1 owner classes."""
 
@@ -613,6 +677,24 @@ def legacy_v1_manifest_issues(
     tool = payload.get("tool")
     backend = payload.get("backend")
     runner = payload.get("runner")
+    if allow_orphan_layout:
+        if not (
+            tool == LEGACY_GENERATED_TOOL
+            and isinstance(backend, str)
+            and backend in LEGACY_GENERATED_BACKENDS
+        ):
+            return [
+                "pre-monorepo orphan ownership is limited to the exact historical "
+                "generated manifest shape"
+            ]
+        return legacy_generated_manifest_issues(
+            payload,
+            expected_files=expected_files,
+            expected_primary_path=expected_primary_path,
+            expected_citation=expected_citation,
+            jurisdiction_prefix=jurisdiction_prefix,
+            allow_orphan_layout=True,
+        )
     if (
         tool == "axiom-encode sign-applied-files"
         or backend == "manual"
@@ -632,6 +714,7 @@ def legacy_v1_manifest_issues(
             expected_primary_path=expected_primary_path,
             expected_citation=expected_citation,
             jurisdiction_prefix=jurisdiction_prefix,
+            allow_orphan_layout=allow_orphan_layout,
         )
     return ["legacy ownership manifest class is unsupported"]
 
@@ -645,9 +728,15 @@ def legacy_receipt_v1_manifest_issues(
     expected_citation: str,
     jurisdiction_prefix: str,
     allow_unmarked_manual_exception: bool = False,
+    allow_orphan_layout: bool = False,
 ) -> list[str]:
     """Preserve old manual receipts without permitting owner-class relabeling."""
 
+    if allow_orphan_layout and owner_class != LEGACY_OWNER_CLASS:
+        return [
+            "pre-monorepo orphan ownership is limited to the exact historical "
+            "generated manifest shape"
+        ]
     if owner_class == LEGACY_MANUAL_OWNER_CLASS:
         return legacy_manual_manifest_issues(
             payload,
@@ -662,6 +751,7 @@ def legacy_receipt_v1_manifest_issues(
             expected_citation=expected_citation,
             jurisdiction_prefix=jurisdiction_prefix,
             allow_unmarked_manual_exception=allow_unmarked_manual_exception,
+            allow_orphan_layout=allow_orphan_layout,
         )
     return ["legacy receipt ownership class is unsupported"]
 

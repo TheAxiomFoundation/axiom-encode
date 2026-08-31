@@ -7,6 +7,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"net"
 	"os"
 	"os/exec"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 )
 
 func socketPairFiles(t *testing.T) (*os.File, *os.File, error) {
@@ -80,14 +82,54 @@ func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
 
-func ciEnvironmentPairs() []string {
+func TestParseRunOptionsRequiresSplitProductionIdentities(t *testing.T) {
+	base := []string{
+		"--scope", "apply_ed25519",
+		"--key-env", "KEY",
+		"--supervisor", "/opt/axiom-encode-signing-supervisor",
+		"--trusted-signing-roots", "/opt/trust",
+		"--", "/opt/axiom-encode", "encode", "x", "--apply",
+	}
+	invalidPrefixes := [][]string{
+		nil,
+		{"--signer-uid", "0", "--signer-gid", "1001", "--supervisor-uid", "1002", "--supervisor-gid", "1002"},
+		{"--signer-uid", "1001", "--signer-gid", "1001", "--supervisor-uid", "1001", "--supervisor-gid", "1002"},
+		{"--signer-uid", "1001", "--signer-gid", "1001", "--supervisor-uid", "1002", "--supervisor-gid", "1001"},
+		{"--signer-uid", "4294967295", "--signer-gid", "1001", "--supervisor-uid", "1002", "--supervisor-gid", "1002"},
+		{"--allow-local-dev", "--signer-uid", "1001"},
+	}
+	for _, prefix := range invalidPrefixes {
+		arguments := append(append([]string(nil), prefix...), base...)
+		if _, err := parseRunOptions(arguments); err == nil {
+			t.Fatalf("expected invalid identity arguments to fail: %q", prefix)
+		}
+	}
+
+	productionPrefix := []string{
+		"--signer-uid", "1001", "--signer-gid", "2001",
+		"--supervisor-uid", "1002", "--supervisor-gid", "2002",
+	}
+	production, err := parseRunOptions(append(productionPrefix, base...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if production.signerUID != 1001 || production.signerGID != 2001 ||
+		production.supervisorUID != 1002 || production.supervisorGID != 2002 ||
+		production.allowLocalDev {
+		t.Fatalf("unexpected production identity parsing: %#v", production)
+	}
+
+	local, err := parseRunOptions(append([]string{"--allow-local-dev"}, base...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !local.allowLocalDev || local.signerUID != 0 || local.supervisorUID != 0 {
+		t.Fatalf("unexpected local identity parsing: %#v", local)
+	}
+}
+
+func localLauncherEnvironmentPairs() []string {
 	return []string{
-		"GITHUB_ACTIONS=true",
-		"GITHUB_REPOSITORY=TheAxiomFoundation/rulespec-uk",
-		"GITHUB_WORKFLOW_REF=TheAxiomFoundation/rulespec-uk/.github/workflows/bulk-encode.yml@refs/heads/main",
-		"GITHUB_EVENT_NAME=workflow_dispatch",
-		"GITHUB_SHA=deadbeef",
-		"GITHUB_RUN_ID=99",
 		"PATH=" + os.Getenv("PATH"),
 	}
 }
@@ -103,6 +145,7 @@ func TestLauncherKeepsKeyOutOfSupervisorEnvironment(t *testing.T) {
 
 	command := exec.Command(applySignerBinary,
 		"run",
+		"--allow-local-dev",
 		"--scope", "apply_ed25519",
 		"--key-env", "APPLY_SIGNER_TEST_KEY",
 		"--supervisor", supervisor,
@@ -112,7 +155,7 @@ func TestLauncherKeepsKeyOutOfSupervisorEnvironment(t *testing.T) {
 		"--allowed-event-name", "workflow_dispatch",
 		"--", "/opt/axiom-signing/axiom-encode", "encode", "uk/statute/toy", "--apply",
 	)
-	command.Env = append(ciEnvironmentPairs(), "APPLY_SIGNER_TEST_KEY="+seedB64)
+	command.Env = append(localLauncherEnvironmentPairs(), "APPLY_SIGNER_TEST_KEY="+seedB64)
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("launcher failed: %v\n%s", err, output)
@@ -179,6 +222,7 @@ func TestLauncherForwardsCompleteSourceUnitArgumentToSupervisor(t *testing.T) {
 			supervisor := stubSupervisorArgv(t, dump)
 			launcherArguments := []string{
 				"run",
+				"--allow-local-dev",
 				"--scope", "apply_ed25519",
 				"--key-env", "APPLY_SIGNER_TEST_KEY",
 				"--supervisor", supervisor,
@@ -191,7 +235,7 @@ func TestLauncherForwardsCompleteSourceUnitArgumentToSupervisor(t *testing.T) {
 			launcherArguments = append(launcherArguments, test.command...)
 			command := exec.Command(applySignerBinary, launcherArguments...)
 			command.Env = append(
-				ciEnvironmentPairs(),
+				localLauncherEnvironmentPairs(),
 				"APPLY_SIGNER_TEST_KEY="+seedB64,
 			)
 			output, err := command.CombinedOutput()
@@ -274,9 +318,42 @@ func TestSignalReadyNoGateIsNoOp(t *testing.T) {
 	}
 }
 
+func TestTerminateSignerHasNoPostSupervisorGraceWindow(t *testing.T) {
+	command := exec.Command(
+		os.Args[0],
+		"-test.run=^TestTerminateSignerHelper$",
+	)
+	command.Env = append(os.Environ(), "AXIOM_TERMINATE_SIGNER_HELPER=1")
+	if err := command.Start(); err != nil {
+		t.Fatal(err)
+	}
+	pid := command.Process.Pid
+	started := time.Now()
+	terminateSigner(command)
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("signer teardown retained a grace window: %s", elapsed)
+	}
+	if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
+		t.Fatalf("signer survived immediate teardown: %v", err)
+	}
+}
+
+func TestTerminateSignerHelper(t *testing.T) {
+	if os.Getenv("AXIOM_TERMINATE_SIGNER_HELPER") != "1" {
+		return
+	}
+	for {
+		time.Sleep(time.Hour)
+	}
+}
+
 func TestLauncherRefusesOutsideActions(t *testing.T) {
 	command := exec.Command(applySignerBinary,
 		"run",
+		"--signer-uid", "1234",
+		"--signer-gid", "1234",
+		"--supervisor-uid", "5678",
+		"--supervisor-gid", "5678",
 		"--scope", "apply_ed25519",
 		"--key-env", "APPLY_SIGNER_TEST_KEY",
 		"--supervisor", "/bin/true",

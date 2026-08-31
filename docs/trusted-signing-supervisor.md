@@ -183,6 +183,25 @@ Linux and macOS set the core limit to zero. Linux sets
 unprivileged identity after re-exec. Only the broker receives the external
 signer descriptors, and it exits when the anonymous Python capability closes.
 
+The supervisor remains resident while the encoder runs. On Linux it becomes a
+child subreaper before either the broker or encoder starts, puts the encoder in
+a new process group, observes the leader exit without reaping it, kills that
+pinned process group, and repeatedly kills/reaps adopted descendants before a
+signature or successful status can be published. This includes descendants
+that escape the original group through `setsid` and double-forking. Cleanup
+failure overrides the encoder result; otherwise the original exit code or
+signal is preserved. The production runner is Linux. macOS retains the resident
+supervisor and process-group separation but has no equivalent child-subreaper
+facility, so local macOS runs do not make the stronger descendant-drain claim.
+
+The isolated runtime's Git broker accepts only its existing read/write command
+allowlist. An optional `-C` repository must be an absolute, normalized,
+realpath-identical existing directory. The broker then supplies an exact
+command-scoped `safe.directory` value to the root-owned Git binary. This lets a
+dedicated verifier UID inspect root-owned pinned encoder/corpus snapshots without
+consulting global/system Git configuration or admitting caller-provided `-c`
+options, symlink aliases, or wildcard safe directories.
+
 ## Production external apply-signer (`cmd/axiom-encode-apply-signer`)
 
 The supervisor and broker never hold a private key: they connect out to an
@@ -194,8 +213,11 @@ supervisor inside GitHub Actions. It is what makes an autonomous, signed
 environment.
 
 The binary has two subcommands and a single production build (its `--build-kind`
-is always `production`; there is no fixture policy because it validates no
-filesystem trust chain — it is an unprivileged leaf that holds one key).
+is always `production`). The `serve` subprocess is an unprivileged leaf that
+holds one key. Production `run` is deliberately different: it retains a root
+identity long enough to create two children under distinct, explicit non-root
+signer and verifier identities and to revoke both capabilities if either
+supervised boundary is compromised.
 
 ### `serve` — the leaf signer
 
@@ -272,10 +294,20 @@ The launcher is the process manager the deployment model calls for. It:
    `--apply-signer-fd 3`, the trusted-python flags, and the `-- axiom-encode
    encode … --apply` command, passing through the environment the encoder needs
    (model API keys, corpus/engine paths) but not the key (already cleared); and
-5. propagates the supervisor's exit code and tears the signer down.
+5. observes the verifier supervisor with `waitid(WEXITED|WSTOPPED|WNOWAIT)`;
+   a stop is a compromise event, not a pause. It kills the distinct-UID signer
+   first, kills the verifier supervisor's process group, reaps both children,
+   and only then propagates success or the supervisor's exit status.
 
-The supervisor performs its own forbidden-private-key-environment rejection and
-per-child scrub, so the launcher is a wiring layer, not a second trust boundary.
+Production `run` requires real, effective, and saved root UID/GID; effective
+`CAP_KILL`, `CAP_SETUID`, and `CAP_SETGID`; empty inheritable and ambient
+capability sets; and four explicit, nonzero signer/verifier UID/GID values with
+the two identities distinct. Both children receive empty supplementary groups
+and a parent-death signal. The supervisor executable must be a symlink-free,
+root-owned, non-writable static ELF named
+`axiom-encode-signing-supervisor`. The supervisor still performs its own
+forbidden-private-key-environment rejection and per-child scrub; these checks are
+independent layers rather than substitutes for the launcher's identity boundary.
 
 ### ChatGPT subscription generation
 
@@ -341,10 +373,32 @@ execution path are unchanged.
 ### Workflow deployment and secrets discipline
 
 The signed-apply leg runs the same provisioning as the verification supervisor
-(`scripts/provision_verification_supervisor.py`, a root-owned tree), then invokes
-`axiom-encode-apply-signer run …` in place of a bare supervisor call. The private
-key reaches the job only as a secret bound to that one step's `env:`; the launcher
-consumes and clears it.
+(`scripts/provision_verification_supervisor.py`, a root-owned tree), installs
+static, root-owned guardian, launcher, and supervisor binaries, and creates
+separate non-login `axiom-signer` and `axiom-verifier` accounts. It verifies that
+their UID/GID values differ from each other and from the ordinary runner before
+invocation. A root-identity outer process guardian then runs the root-identity
+launcher, which drops only the leaf signer and verifier supervisor to their
+dedicated identities. Verification-only commands use the guardian's ordinary
+`run --uid/--gid` mode under `axiom-verifier` and receive no signing descriptor.
+
+The outer guardian is a root child subreaper. It accepts only a protected native
+`axiom-encode-apply-signer run` target in root-controller mode, refuses
+`--allow-local-dev`, and drains the entire launcher tree before returning. This
+closes the same-UID escape in which an untrusted verifier could stop its launcher,
+kill an inner supervisor, and retain the broker descriptor in a detached
+descendant. The verifier cannot signal either the root launcher or the distinct-
+UID signer; a stop or exit of the verifier supervisor causes immediate signer
+revocation and verifier-group teardown, while the outer guardian kills and reaps
+escaped descendants before publication resumes.
+
+The private key reaches the job only as a secret bound to that one step's
+`env:`. The runner shell passes it through the non-dumpable root guardian to the
+root launcher; those already-trusted ancestor processes retain their inherited
+environment until they exit. The launcher consumes the value and removes it
+from its own environment before spawning either child, so no signer/verifier
+descendant inherits the environment variable. No model process receives the key
+or runs with the signer, launcher, runner, or root identity.
 
 **The signing leg must run only on `workflow_dispatch` or `schedule` from the
 main-branch workflow definition, never on `pull_request`.** GitHub does not expose
@@ -354,6 +408,92 @@ PR-modified workflow text can never see the secret. The signer's own event-name
 binding (refusing `pull_request*` beneath the allowlist) and workflow-ref
 allowlist (pinned to `@refs/heads/main`) enforce this a second time, independently
 of the YAML.
+
+#### Explicit policy targets
+
+The targeted signed-reencode workflow's `replace_rulespec_path` dispatch input
+names one explicit target, while the exact atomic-source/v2 envelope
+authenticates `target_operation: create|replace`. Existence at the pinned base
+is only a consistency check: it never infers the operation. The workflow and
+CLI pass the corresponding explicit create/replace flag, bind the operation in
+the per-lane review-contract/v3 context, and record it in the signed v5 apply
+manifest. The CLI
+admits creation only with `encode --apply --mode repo-augmented`, under the
+requested jurisdiction's `policies/` root, and only when the primary, companion,
+canonical manifest, pre-monorepo manifest placement, and every base-manifest
+claim are absent. Required signed imports and structured review/test contracts
+remain bound by the same externally signed apply lane. Every creation case must
+assert an output from the exact new module; bounded nested values let that
+signed witness include entity/relation rows without weakening exact type or
+shape matching.
+
+This is deliberately a one-target primitive. Creation requires every source
+module and signed import to be present at the reviewed PR base. A nonempty
+citation-derived source bundle combined with `target_operation: create` is
+rejected before encoding or signing: committing source imports first would move
+the encoder's clean HEAD away from the reviewed base and make the creation
+receipt describe the wrong absence boundary. Supporting both in one run requires
+a future transaction-wide design that reproves base-A absence across signed
+intermediate commits. Ordered dependent policy changes likewise require a
+bundle schema that binds every explicit citation/path/import/review lane and its
+final validation boundary.
+
+Ordinary nonlegacy replacement is also limited to one direct target lane. It may
+reuse already signed imports and may run before the existing dependent lanes,
+but a nonempty source bundle or canonical-refresh dispatch bundle is rejected
+both during normalized dispatch validation and during final trusted artifact
+reparse. Those intermediate commits do not yet carry signed
+`replacement_target` base evidence or expected-parent lineage, so accepting them
+would leave the target's original ownership/digest boundary unauthenticated
+across lanes. Bundled replacement remains gated until both contracts exist;
+source and refresh lanes must land in separate signed transactions meanwhile.
+
+An in-place legacy replacement may also consume the exact generated-v1 manifest
+shape stranded at the old manifest root by the documented federal consolidation.
+Admission is limited to `us/{policies,statutes}/...` and its deterministic old-root
+counterpart,
+the historical field/null-artifact shape, clean-HEAD file hashes, and no
+coexisting canonical owner. The old HMAC is never trusted: the completed fresh
+replacement receives the normal v5 Ed25519 apply manifest and signed migration
+receipt.
+
+#### Protected publication snapshot
+
+The targeted workflow reconstructs the captured RuleSpec Git tree under a
+root-owned snapshot parent and gives only that one checkout to a dedicated
+`axiom-verifier` system UID. The encoder, corpus checkout, runtime, and artifact
+directory remain root-owned; the one materialized corpus release object is
+made root-owned `0444` so the verifier can read but not replace it. Protected
+stage/guard runs consume the pinned encoder through the trusted Git broker
+described above.
+
+Every untrusted encoder/model invocation also runs as `axiom-verifier`, never as
+the GitHub runner UID. Before the first invocation, the workflow verifies that
+the runner temporary directory, `_runner_file_commands` directory, and the four
+active `GITHUB_ENV`, `GITHUB_PATH`, `GITHUB_OUTPUT`, and `GITHUB_STEP_SUMMARY`
+files are canonical, runner-owned, distinct where required, and not writable by
+group or other identities. Among workflow mutation surfaces, only the scoped
+RuleSpec checkout, generation database, and lane output are writable by
+`axiom-verifier`; pinned encoder, corpus, rules-engine, and repair inputs are
+root-owned and read-only to it. The supervisor may also create its documented
+verifier-owned per-run scratch home, and the unprivileged UID retains ordinary
+OS temporary-directory access; neither is accepted as a publication input.
+Consequently a model process cannot persist `BASH_ENV`, `PATH`, or another
+command-file mutation into a later runner step. Ownership of generated outputs
+never returns to the runner. After the resident Linux supervisor has drained
+the model's complete descendant set, a bounded root process copies only regular,
+single-link worktree files into a fresh protected clone without reading the
+model-owned `.git`; protected staging must reproduce the checkpoint tree before
+publication can continue.
+
+Audit output first crosses a bounded flat-file copier, is revalidated against
+the exact signed transaction, and is then sealed root-owned and read-only with
+a canonical content manifest. The reviewed Git tree and artifact-manifest
+digest are bound into a root-written publication witness and commit trailer.
+Publication pushes that exact commit SHA through a root-owned credential
+configuration and uses an environment-cleared GitHub API client; the returned
+draft PR must bind the reviewed base, head, and repository before a separate
+root-written receipt is accepted. Artifact upload reads only the sealed copy.
 
 ### Threat model
 

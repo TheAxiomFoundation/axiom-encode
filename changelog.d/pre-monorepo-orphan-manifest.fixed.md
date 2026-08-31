@@ -1,0 +1,1 @@
+Authenticate and migrate the exact old-root generated-v1 manifest shape left behind by country-monorepo moves during an in-place fresh replacement, limited to the historical subset with null artifact path/digest fields and a nonempty generated-output root.

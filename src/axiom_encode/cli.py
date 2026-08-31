@@ -39,7 +39,7 @@ from dataclasses import asdict, is_dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation, localcontext
 from pathlib import Path
-from typing import Any, Callable, NamedTuple, Protocol
+from typing import Any, Callable, Collection, NamedTuple, Protocol
 
 # receipt is pinned to an exact version and artifact hashes in uv.lock. Any
 # upgrade must rerun this repository's signature tests at the new pin first.
@@ -414,6 +414,12 @@ from .retry_feedback import (
     VALIDATION_RETRY_FEEDBACK_MAX_TOTAL_CHARS,
     bounded_validation_retry_feedback_item,
 )
+from .review_contract_values import (
+    ReviewContractValueBudget,
+    ReviewContractValueError,
+    normalize_review_contract_value,
+    review_contract_values_exactly_equal,
+)
 from .rules_engine_compat import run_rulespec_compile
 from .rulespec_path_migration import (
     MIGRATION_TOOL as APPLIED_ENCODING_PATH_MIGRATION_TOOL,
@@ -536,6 +542,18 @@ _MODEL_APPLY_MANIFEST_FIELDS = frozenset(
         "signature",
     }
 )
+# Immutable-base claimant censuses are reused by resolver, receipt, and locked
+# apply checks in one process.  The key includes the canonical checkout and
+# immutable commit; bounded eviction prevents a long-lived CLI from retaining
+# unbounded manifest metadata.
+_LEGACY_DESTINATION_MANIFEST_OWNERSHIP_CACHE: dict[
+    tuple[str, str], tuple[tuple[Path, frozenset[str]], ...]
+] = {}
+_MANIFEST_OWNERSHIP_CENSUS_MAX_FILES = 4096
+_MANIFEST_OWNERSHIP_CENSUS_MAX_TOTAL_BYTES = 64 * 1024 * 1024
+_MANIFEST_OWNERSHIP_CENSUS_MAX_FILE_BYTES = 16 * 1024 * 1024
+_MANIFEST_OWNERSHIP_CENSUS_MAX_DIRECTORIES = 4096
+_MANIFEST_OWNERSHIP_CENSUS_MAX_ENTRIES = 8192
 _RETIRE_APPLY_MANIFEST_FIELDS = frozenset(
     {
         "schema_version",
@@ -1134,6 +1152,7 @@ _MAX_REQUIRED_TEST_CASE_FIELDS = 64
 _MAX_REQUIRED_DEFERRED_OUTPUT_CONTRACT_JSON_BYTES = 64 * 1024
 _DEFERRED_OUTPUT_REVIEW_CONTRACT_SCHEMA = "axiom-encode/review-contract/v1"
 _STRUCTURED_REVIEW_CONTRACT_SCHEMA = "axiom-encode/review-contract/v2"
+_TARGET_OPERATION_REVIEW_CONTRACT_SCHEMA = "axiom-encode/review-contract/v3"
 
 
 class _RequiredTestCaseContract(NamedTuple):
@@ -1148,6 +1167,77 @@ class _DeferredOutputReviewContract(NamedTuple):
     rulespec_path: str
     required_deferred_outputs: tuple[tuple[str, str], ...]
     required_test_cases: tuple[_RequiredTestCaseContract, ...] = ()
+    target_operation: str | None = None
+
+
+def _parse_create_rulespec_path(raw: str) -> Path:
+    """Parse one non-normalizing explicit creation path from CLI text."""
+
+    if (
+        not isinstance(raw, str)
+        or not raw
+        or raw != raw.strip()
+        or raw != unicodedata.normalize("NFC", raw)
+        or raw != raw.casefold()
+        or "\\" in raw
+        or any(
+            unicodedata.category(character) in {"Cc", "Cf", "Cs", "Zl", "Zp"}
+            for character in raw
+        )
+    ):
+        raise argparse.ArgumentTypeError(
+            "create RuleSpec path must be normalized repository-relative text"
+        )
+    path = Path(raw)
+    if (
+        path.is_absolute()
+        or path.as_posix() != raw
+        or any(part in {"", ".", ".."} for part in path.parts)
+        or any(re.fullmatch(r"[a-z0-9_.~-]+", part) is None for part in path.parts)
+        or path.suffix != RULESPEC_FILE_SUFFIX
+        or path.name.endswith(RULESPEC_TEST_FILE_SUFFIX)
+        or path.stem.rsplit(".", 1)[-1] in {"test", "yaml", "yml"}
+    ):
+        raise argparse.ArgumentTypeError(
+            "create RuleSpec path must be one canonical relative primary YAML path"
+        )
+    return path
+
+
+def _creation_review_test_contract_issues(
+    rulespec_path: str,
+    required_test_cases: Sequence[_RequiredTestCaseContract],
+) -> list[str]:
+    """Require every creation witness to exercise the exact new module."""
+
+    try:
+        path = _parse_create_rulespec_path(rulespec_path)
+    except argparse.ArgumentTypeError as exc:
+        return [str(exc)]
+    if len(path.parts) < 3 or path.parts[1] != "policies":
+        return [
+            "target_operation=create review contract rulespec_path must name a "
+            "canonical policies/ primary RuleSpec"
+        ]
+    module = f"{path.parts[0]}:{Path(*path.parts[1:]).with_suffix('').as_posix()}"
+    prefix = f"{module}#"
+    if not required_test_cases:
+        return [
+            "target_operation=create review contract must require a test case "
+            f"that exercises the created module {module}"
+        ]
+    issues: list[str] = []
+    for index, case in enumerate(required_test_cases):
+        if not any(
+            output.startswith(prefix) and len(output) > len(prefix)
+            for output in case.required_output
+        ):
+            issues.append(
+                f"review contract test case #{index + 1} for "
+                "target_operation=create must require an output from the exact "
+                f"created module {module}"
+            )
+    return issues
 
 
 def _parse_deferred_output_review_contract_json(
@@ -1188,6 +1278,7 @@ def _parse_deferred_output_review_contract_json(
         "required_deferred_outputs",
     }
     v2_fields = {*v1_fields, "required_test_cases"}
+    v3_fields = {*v2_fields, "target_operation"}
     if schema == _DEFERRED_OUTPUT_REVIEW_CONTRACT_SCHEMA:
         if set(payload) != v1_fields:
             raise argparse.ArgumentTypeError(
@@ -1199,6 +1290,17 @@ def _parse_deferred_output_review_contract_json(
             raise argparse.ArgumentTypeError(
                 "v2 review contract must contain exactly schema, citation, "
                 "rulespec_path, required_deferred_outputs, and required_test_cases"
+            )
+    elif schema == _TARGET_OPERATION_REVIEW_CONTRACT_SCHEMA:
+        if set(payload) != v3_fields:
+            raise argparse.ArgumentTypeError(
+                "v3 review contract must contain exactly schema, citation, "
+                "rulespec_path, required_deferred_outputs, required_test_cases, "
+                "and target_operation"
+            )
+        if payload["target_operation"] not in {"create", "replace"}:
+            raise argparse.ArgumentTypeError(
+                "v3 review contract target_operation is invalid"
             )
     else:
         raise argparse.ArgumentTypeError("review contract schema is unsupported")
@@ -1272,7 +1374,10 @@ def _parse_deferred_output_review_contract_json(
         contracts.append((output, reason))
 
     required_test_cases: list[_RequiredTestCaseContract] = []
-    if schema == _STRUCTURED_REVIEW_CONTRACT_SCHEMA:
+    if schema in {
+        _STRUCTURED_REVIEW_CONTRACT_SCHEMA,
+        _TARGET_OPERATION_REVIEW_CONTRACT_SCHEMA,
+    }:
         payload_test_cases = payload["required_test_cases"]
         if (
             not isinstance(payload_test_cases, list)
@@ -1282,7 +1387,11 @@ def _parse_deferred_output_review_contract_json(
                 "review contract required_test_cases must be an array with at most "
                 f"{_MAX_REQUIRED_TEST_CASE_CONTRACTS} entries"
             )
-        if not contracts and not payload_test_cases:
+        if (
+            schema == _STRUCTURED_REVIEW_CONTRACT_SCHEMA
+            and not contracts
+            and not payload_test_cases
+        ):
             raise argparse.ArgumentTypeError(
                 "v2 review contract must require a deferred output or test case"
             )
@@ -1356,6 +1465,7 @@ def _parse_deferred_output_review_contract_json(
                 )
 
             normalized_fields: dict[str, dict[str, object]] = {}
+            value_budget = ReviewContractValueBudget()
             for field in ("input", "required_output"):
                 mapping = item[field]
                 if (
@@ -1367,39 +1477,15 @@ def _parse_deferred_output_review_contract_json(
                         f"{label} {field} must be an object with at most "
                         f"{_MAX_REQUIRED_TEST_CASE_FIELDS} fields"
                     )
-                normalized: dict[str, object] = {}
-                for key, value in mapping.items():
-                    if (
-                        not isinstance(key, str)
-                        or not key
-                        or key != key.strip()
-                        or any(
-                            ord(character) < 32 or ord(character) == 127
-                            for character in key
-                        )
-                    ):
-                        raise argparse.ArgumentTypeError(
-                            f"{label} {field} keys must be normalized strings"
-                        )
-                    if not isinstance(value, (str, int, float, bool)) or (
-                        isinstance(value, float) and not math.isfinite(value)
-                    ):
-                        raise argparse.ArgumentTypeError(
-                            f"{label} {field} values must be finite JSON scalars"
-                        )
-                    if isinstance(value, str) and (
-                        value != value.strip()
-                        or "\r" in value
-                        or any(
-                            (ord(character) < 32 and character not in {"\n", "\t"})
-                            or ord(character) == 127
-                            for character in value
-                        )
-                    ):
-                        raise argparse.ArgumentTypeError(
-                            f"{label} {field} string values must be normalized"
-                        )
-                    normalized[key] = value
+                try:
+                    normalized = normalize_review_contract_value(
+                        mapping,
+                        label=f"{label} {field}",
+                        budget=value_budget,
+                    )
+                except ReviewContractValueError as exc:
+                    raise argparse.ArgumentTypeError(str(exc)) from exc
+                assert isinstance(normalized, dict)
                 normalized_fields[field] = normalized
             required_test_cases.append(
                 _RequiredTestCaseContract(
@@ -1409,11 +1495,26 @@ def _parse_deferred_output_review_contract_json(
                     required_output=normalized_fields["required_output"],
                 )
             )
+    if (
+        schema == _TARGET_OPERATION_REVIEW_CONTRACT_SCHEMA
+        and payload["target_operation"] == "create"
+    ):
+        creation_test_issues = _creation_review_test_contract_issues(
+            rulespec_path,
+            required_test_cases,
+        )
+        if creation_test_issues:
+            raise argparse.ArgumentTypeError("; ".join(creation_test_issues))
     return _DeferredOutputReviewContract(
         citation=citation,
         rulespec_path=rulespec_path,
         required_deferred_outputs=tuple(contracts),
         required_test_cases=tuple(required_test_cases),
+        target_operation=(
+            payload["target_operation"]
+            if schema == _TARGET_OPERATION_REVIEW_CONTRACT_SCHEMA
+            else None
+        ),
     )
 
 
@@ -1490,9 +1591,6 @@ def _required_deferred_output_contract_issues(
             "required test-case contract expected a companion YAML case array",
         ]
 
-    def values_equal(actual: object, expected: object) -> bool:
-        return type(actual) is type(expected) and actual == expected
-
     for required in contract.required_test_cases:
         matches = [
             item
@@ -1506,23 +1604,44 @@ def _required_deferred_output_contract_issues(
             )
             continue
         candidate = matches[0]
-        unsigned_runtime_fields = sorted(
-            field
-            for field in ("tables", "inputs", "oracle_inputs")
-            if field in candidate
+        unsigned_top_level_fields = sorted(
+            set(candidate) - {"name", "period", "input", "output"}
         )
-        if unsigned_runtime_fields:
+        if unsigned_top_level_fields:
             issues.append(
                 "[required-test-case-contract] companion case "
-                f"{required.name!r} contains unsigned runtime input field(s): "
-                + ", ".join(unsigned_runtime_fields)
+                f"{required.name!r} contains unsigned top-level field(s): "
+                + ", ".join(unsigned_top_level_fields)
             )
-        if candidate.get("period") != required.period:
+        if not review_contract_values_exactly_equal(
+            candidate.get("period"), required.period
+        ):
             issues.append(
                 "[required-test-case-contract] companion case "
                 f"{required.name!r} period does not exactly match the signed contract"
             )
         candidate_input = candidate.get("input")
+        candidate_output = candidate.get("output")
+        candidate_value_budget = ReviewContractValueBudget()
+        try:
+            if isinstance(candidate_input, dict):
+                candidate_input = normalize_review_contract_value(
+                    candidate_input,
+                    label=f"companion case {required.name!r} input",
+                    budget=candidate_value_budget,
+                )
+            if isinstance(candidate_output, dict):
+                candidate_output = normalize_review_contract_value(
+                    candidate_output,
+                    label=f"companion case {required.name!r} output",
+                    budget=candidate_value_budget,
+                )
+        except ReviewContractValueError as exc:
+            issues.append(
+                "[required-test-case-contract] companion case "
+                f"{required.name!r} contains an invalid bounded JSON value: {exc}"
+            )
+            continue
         candidate_input_keys = (
             set(candidate_input) if isinstance(candidate_input, dict) else set()
         )
@@ -1533,7 +1652,7 @@ def _required_deferred_output_contract_issues(
             for key, expected in required.input.items()
             if isinstance(candidate_input, dict)
             and key in candidate_input
-            and not values_equal(candidate_input[key], expected)
+            and not review_contract_values_exactly_equal(candidate_input[key], expected)
         )
         if (
             not isinstance(candidate_input, dict)
@@ -1553,13 +1672,12 @@ def _required_deferred_output_contract_issues(
                 f"{required.name!r} input map does not exactly match the signed contract"
                 + (f" ({'; '.join(details)})" if details else "")
             )
-        candidate_output = candidate.get("output")
         missing_or_changed_outputs = [
             key
             for key, expected in required.required_output.items()
             if not isinstance(candidate_output, dict)
             or key not in candidate_output
-            or not values_equal(candidate_output[key], expected)
+            or not review_contract_values_exactly_equal(candidate_output[key], expected)
         ]
         if missing_or_changed_outputs:
             issues.append(
@@ -2378,6 +2496,37 @@ def main():
     )
     _add_required_corpus_path_argument(stage_signed_backfill_parser)
 
+    checkpoint_signed_backfill_parser = subparsers.add_parser(
+        "checkpoint-signed-backfill",
+        help=(
+            "Reverify, stage, and commit one exact signed publication checkpoint "
+            "inside the protected verifier boundary"
+        ),
+    )
+    checkpoint_signed_backfill_parser.add_argument(
+        "--repo",
+        type=Path,
+        required=True,
+        help="Exact canonical rulespec-<country> checkout to checkpoint",
+    )
+    _add_required_corpus_path_argument(checkpoint_signed_backfill_parser)
+
+    reconcile_retired_manifest_parser = subparsers.add_parser(
+        "reconcile-retired-manifest-inventory",
+        help="Remove only an authenticated retired manifest for one replacement",
+    )
+    reconcile_retired_manifest_parser.add_argument(
+        "--repo",
+        type=Path,
+        required=True,
+        help="Exact canonical rulespec-<country> checkout to reconcile",
+    )
+    reconcile_retired_manifest_parser.add_argument(
+        "--target-rulespec-path",
+        required=True,
+        help="Canonical replacement RuleSpec path whose retired claim may be removed",
+    )
+
     signed_import_parser = subparsers.add_parser(
         "signed-import-inventory",
         help=(
@@ -2841,7 +2990,8 @@ def main():
         action="store_true",
         help=(
             "Keep the hash-bound repair candidate RuleSpec immutable and permit "
-            "only a non-weakening companion-test expansion required by a v2 "
+            "only a non-weakening companion-test expansion required by an "
+            "operation-bound v3 "
             "review contract"
         ),
     )
@@ -2914,6 +3064,16 @@ def main():
             "checkout-relative primary RuleSpec path. The path must already exist "
             "unless --replace-legacy-rulespec-path names its unique noncanonical "
             "legacy predecessor."
+        ),
+    )
+    encode_parser.add_argument(
+        "--create-rulespec-path",
+        type=_parse_create_rulespec_path,
+        help=(
+            "With --apply in repo-augmented mode, create one explicit, absent "
+            "checkout-relative primary RuleSpec under the requested "
+            "jurisdiction's policies/ root. Existing targets must use "
+            "--replace-rulespec-path."
         ),
     )
     encode_parser.add_argument(
@@ -3546,6 +3706,10 @@ def main():
         cmd_guard_generated(args)
     elif args.command == "stage-signed-backfill":
         cmd_stage_signed_backfill(args)
+    elif args.command == "checkpoint-signed-backfill":
+        cmd_checkpoint_signed_backfill(args)
+    elif args.command == "reconcile-retired-manifest-inventory":
+        cmd_reconcile_retired_manifest_inventory(args)
     elif args.command == "signed-import-inventory":
         cmd_signed_import_inventory(args)
     elif args.command == "manifest-census":
@@ -7434,6 +7598,83 @@ def cmd_stage_signed_backfill(args):
     stage_authorized_changes(repo_path, corpus_root=Path(args.corpus_path))
 
 
+def cmd_checkpoint_signed_backfill(args):
+    """Create one clean verifier-owned checkpoint from signed apply evidence."""
+    from .prepare_signed_backfill import stage_authorized_changes
+
+    repo_path = _resolve_canonical_rulespec_checkout(
+        args.repo,
+        label="RuleSpec checkout",
+    )
+    subprocess.run(
+        ["git", "-C", str(repo_path), "diff", "--check"],
+        check=True,
+    )
+    stage_authorized_changes(repo_path, corpus_root=Path(args.corpus_path))
+    parent = subprocess.check_output(
+        ["git", "-C", str(repo_path), "rev-parse", "HEAD"],
+        text=True,
+    ).strip()
+    tree = subprocess.check_output(
+        ["git", "-C", str(repo_path), "write-tree"],
+        text=True,
+    ).strip()
+    if (
+        re.fullmatch(r"[0-9a-f]{40}", parent) is None
+        or re.fullmatch(r"[0-9a-f]{40}", tree) is None
+    ):
+        raise ValueError("signed publication checkpoint input is not an exact Git tree")
+    commit = subprocess.check_output(
+        [
+            "git",
+            "-C",
+            str(repo_path),
+            "commit-tree",
+            tree,
+            "-p",
+            parent,
+            "-m",
+            "Axiom encoder checkpoint",
+        ],
+        text=True,
+    ).strip()
+    if re.fullmatch(r"[0-9a-f]{40}", commit) is None:
+        raise ValueError("signed publication checkpoint commit is malformed")
+    subprocess.run(
+        ["git", "-C", str(repo_path), "update-ref", "HEAD", commit, parent],
+        check=True,
+    )
+    committed_tree = subprocess.check_output(
+        ["git", "-C", str(repo_path), "rev-parse", "HEAD^{tree}"],
+        text=True,
+    ).strip()
+    status = subprocess.check_output(
+        ["git", "-C", str(repo_path), "status", "--porcelain"],
+        text=True,
+    )
+    if committed_tree != tree or status:
+        raise ValueError("signed publication checkpoint is not a clean exact Git tree")
+    print(json.dumps({"commit": commit, "tree": tree}, sort_keys=True))
+
+
+def cmd_reconcile_retired_manifest_inventory(args):
+    """Reconcile one retired manifest without leaving the verifier boundary."""
+    from .prepare_signed_backfill import reconcile_retired_manifest_inventory
+
+    repo_path = _resolve_canonical_rulespec_checkout(
+        args.repo,
+        label="RuleSpec checkout",
+    )
+    reconciled = reconcile_retired_manifest_inventory(
+        repo_path,
+        args.target_rulespec_path,
+    )
+    if reconciled is None:
+        print("retired manifest inventory unchanged")
+    else:
+        print(f"retired manifest inventory removed {reconciled.as_posix()}")
+
+
 def cmd_signed_import_inventory(args):
     """Verify immutable historical signed-v5 modules for direct reuse."""
 
@@ -7808,6 +8049,23 @@ def _strict_legacy_replacement_map(
     return replacements
 
 
+def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """Decode a JSON object while refusing ambiguity from duplicate keys."""
+
+    decoded: dict[str, object] = {}
+    for key, value in pairs:
+        if key in decoded:
+            raise ValueError(f"duplicate JSON key {key!r}")
+        decoded[key] = value
+    return decoded
+
+
+def _rulespec_filesystem_path_identity(path: str) -> str:
+    """Return the conservative APFS identity for a repository-relative path."""
+
+    return unicodedata.normalize("NFC", path).casefold()
+
+
 def _legacy_primary_source_citations(raw: bytes) -> tuple[str, ...]:
     """Read the canonical ordered source history from one historical primary."""
 
@@ -7880,7 +8138,24 @@ def _legacy_replacement_authoritative_map(
         issues.append("legacy replacement source ownership classification is invalid")
 
     legacy_manifest = legacy.get("manifest")
-    expected_legacy_manifest = _applied_encoding_manifest_path(source_path)
+    canonical_legacy_manifest = _applied_encoding_manifest_path(source_path)
+    orphan_legacy_manifest = _pre_monorepo_orphan_manifest_path(source_path)
+    claimed_legacy_manifest = (
+        Path(legacy_manifest["path"])
+        if isinstance(legacy_manifest, dict)
+        and isinstance(legacy_manifest.get("path"), str)
+        else Path()
+    )
+    orphan_manifest_layout = (
+        in_place
+        and orphan_legacy_manifest is not None
+        and claimed_legacy_manifest == orphan_legacy_manifest
+    )
+    expected_legacy_manifest = (
+        orphan_legacy_manifest
+        if orphan_manifest_layout and orphan_legacy_manifest is not None
+        else canonical_legacy_manifest
+    )
     legacy_manifest_raw: bytes | None = None
     if (
         not isinstance(legacy_manifest, dict)
@@ -7891,6 +8166,19 @@ def _legacy_replacement_authoritative_map(
     ):
         issues.append("legacy replacement manifest does not belong to source")
     else:
+        if orphan_manifest_layout:
+            try:
+                _rulespec_migration_base_blob(
+                    repo_path,
+                    base_commit,
+                    canonical_legacy_manifest,
+                )
+            except RuntimeError:
+                pass
+            else:
+                issues.append(
+                    "legacy orphan manifest is ambiguous with a canonical owner"
+                )
         try:
             legacy_manifest_raw = _rulespec_migration_base_blob(
                 repo_path,
@@ -7914,6 +8202,30 @@ def _legacy_replacement_authoritative_map(
         issues.append(
             "legacy replacement model manifest does not belong to destination"
         )
+    if orphan_manifest_layout:
+        assert orphan_legacy_manifest is not None
+        try:
+            tracked_base = _rulespec_migration_tracked_files_at_ref(
+                repo_path, base_commit
+            )
+        except RuntimeError as exc:
+            issues.append(f"legacy orphan target base census is unreadable: {exc}")
+        else:
+            identity_conflicts = _creation_target_base_identity_conflicts(
+                tracked_base,
+                [
+                    source_path,
+                    companion_path(source_path),
+                    canonical_legacy_manifest,
+                    orphan_legacy_manifest,
+                ],
+            )
+            if identity_conflicts:
+                issues.append(
+                    "legacy orphan target base has a filesystem-identity alias "
+                    "or occupied descendant: "
+                    + ", ".join(path.as_posix() for path in identity_conflicts)
+                )
 
     expected_files: dict[str, str] = {}
     source_base_raw: bytes | None = None
@@ -7958,8 +8270,11 @@ def _legacy_replacement_authoritative_map(
         )
     if legacy_manifest_raw is not None:
         try:
-            legacy_manifest_payload = json.loads(legacy_manifest_raw.decode("utf-8"))
-        except (UnicodeError, json.JSONDecodeError, RecursionError):
+            legacy_manifest_payload = json.loads(
+                legacy_manifest_raw.decode("utf-8"),
+                object_pairs_hook=_unique_json_object,
+            )
+        except (UnicodeError, json.JSONDecodeError, RecursionError, ValueError):
             issues.append("legacy replacement source manifest is not valid JSON")
         else:
             source_citations = (
@@ -7975,11 +8290,27 @@ def _legacy_replacement_authoritative_map(
                 expected_citation=source_citations[0] if source_citations else "",
                 jurisdiction_prefix=(source_path.parts[0] if source_path.parts else ""),
                 allow_unmarked_manual_exception=in_place,
+                allow_orphan_layout=orphan_manifest_layout,
             )
             issues.extend(
                 f"legacy replacement source manifest is not legacy-owned: {issue}"
                 for issue in legacy_manifest_issues
             )
+    if orphan_manifest_layout:
+        try:
+            claimants = _legacy_destination_manifest_claimants_at_base(
+                repo_path,
+                base_commit=base_commit,
+                destination_paths={source_path, companion_path(source_path)},
+            )
+        except RuntimeError as exc:
+            issues.append(f"legacy orphan manifest ownership is unreadable: {exc}")
+        else:
+            if claimants != [expected_legacy_manifest]:
+                issues.append(
+                    "legacy orphan manifest does not have unique base ownership: "
+                    + ", ".join(path.as_posix() for path in claimants)
+                )
     moves = (
         []
         if in_place
@@ -8230,61 +8561,268 @@ def _legacy_destination_manifest_claimants_at_base(
 
     if not destination_paths:
         return []
-    patterns = sorted(
-        {
-            candidate
-            for path in destination_paths
-            for candidate in (
-                path.as_posix(),
-                path.relative_to(path.parts[0]).as_posix(),
-            )
-        }
-    )
+    patterns = {
+        _rulespec_filesystem_path_identity(candidate)
+        for path in destination_paths
+        for candidate in (
+            path.as_posix(),
+            path.relative_to(path.parts[0]).as_posix(),
+        )
+    }
     if len(patterns) > 4:
         raise RuntimeError("Legacy destination predecessor group is oversized")
-    command = ["git", "-C", str(repo_path), "grep", "-z", "-l", "-a", "-F"]
-    for pattern in patterns:
-        command.extend(("-e", pattern))
-    command.extend((base_commit, "--"))
-    completed = subprocess.run(
-        command,
-        capture_output=True,
-        env=_rulespec_migration_git_environment(),
-        check=False,
-    )
-    if completed.returncode not in {0, 1}:
-        stderr = completed.stderr.decode("utf-8", errors="replace").strip()
-        raise RuntimeError(
-            f"Cannot scan legacy destination manifest ownership: {stderr}"
+    cache_key = (str(repo_path.resolve()), base_commit)
+    cached = _LEGACY_DESTINATION_MANIFEST_OWNERSHIP_CACHE.get(cache_key)
+    if cached is not None:
+        return sorted(
+            (manifest for manifest, identities in cached if identities & patterns),
+            key=Path.as_posix,
         )
 
-    prefix = f"{base_commit}:".encode()
-    claimants: set[Path] = set()
-    for encoded_candidate in completed.stdout.split(b"\0"):
-        if not encoded_candidate:
+    listing = _rulespec_migration_git_bytes(
+        repo_path,
+        "ls-tree",
+        "-r",
+        "-l",
+        "-z",
+        "--full-tree",
+        base_commit,
+    )
+    manifests: list[tuple[Path, str]] = []
+    total_manifest_bytes = 0
+    for record in listing.split(b"\0"):
+        if not record:
             continue
-        if not encoded_candidate.startswith(prefix):
-            raise RuntimeError("Legacy destination manifest candidate is malformed")
         try:
-            candidate_text = encoded_candidate[len(prefix) :].decode("utf-8")
-        except UnicodeDecodeError as exc:
+            metadata, encoded_path = record.split(b"\t", 1)
+            mode, object_type, object_id, raw_size = metadata.decode("ascii").split()
+            size = int(raw_size)
+            path_text = encoded_path.decode("utf-8")
+        except (ValueError, UnicodeDecodeError) as exc:
             raise RuntimeError(
-                "Legacy destination manifest candidate is not UTF-8"
+                "Legacy destination manifest tree entry is malformed"
             ) from exc
-        candidate = Path(candidate_text)
+        candidate = Path(path_text)
+        if (
+            candidate.is_absolute()
+            or candidate.as_posix() != path_text
+            or any(part in {"", ".", ".."} for part in candidate.parts)
+        ):
+            raise RuntimeError("Legacy destination manifest tree entry is malformed")
         try:
             relative = candidate.relative_to(APPLIED_ENCODING_MANIFEST_DIR)
         except ValueError:
+            # The trusted full-tree listing necessarily includes ordinary
+            # RuleSpec files. Only manifest-root entries are authority data.
             continue
         if (
-            candidate.is_absolute()
-            or candidate.as_posix() != candidate_text
-            or any(part in {"", ".", ".."} for part in candidate.parts)
+            mode != "100644"
+            or object_type != "blob"
+            or size > _MANIFEST_OWNERSHIP_CENSUS_MAX_FILE_BYTES
             or candidate.suffix != ".json"
             or len(relative.parts) < 2
         ):
-            raise RuntimeError("Legacy destination manifest candidate is malformed")
-        claimants.add(candidate)
+            raise RuntimeError("Legacy destination manifest tree entry is malformed")
+        if re.fullmatch(r"[0-9a-f]{40}", object_id) is None:
+            raise RuntimeError("Legacy destination manifest tree entry is malformed")
+        total_manifest_bytes += size
+        manifests.append((candidate, object_id))
+    if (
+        len(manifests) > _MANIFEST_OWNERSHIP_CENSUS_MAX_FILES
+        or total_manifest_bytes > _MANIFEST_OWNERSHIP_CENSUS_MAX_TOTAL_BYTES
+    ):
+        raise RuntimeError("Legacy destination manifest ownership scan is oversized")
+
+    def claimed_identities(payload: object) -> frozenset[str]:
+        pending = [payload]
+        identities: set[str] = set()
+        while pending:
+            value = pending.pop()
+            if isinstance(value, dict):
+                applied_files = value.get("applied_files")
+                if isinstance(applied_files, list):
+                    identities.update(
+                        _rulespec_filesystem_path_identity(item["path"])
+                        for item in applied_files
+                        if isinstance(item, dict) and isinstance(item.get("path"), str)
+                    )
+                pending.extend(value.values())
+            elif isinstance(value, list):
+                pending.extend(value)
+        return frozenset(identities)
+
+    batch = _rulespec_migration_git_bytes(
+        repo_path,
+        "cat-file",
+        "--batch",
+        input_bytes=b"".join(
+            object_id.encode("ascii") + b"\n" for _, object_id in manifests
+        ),
+    )
+    cursor = 0
+    claimant_index: list[tuple[Path, frozenset[str]]] = []
+    for manifest, object_id in manifests:
+        header_end = batch.find(b"\n", cursor)
+        if header_end < 0:
+            raise RuntimeError("Legacy destination manifest batch output is truncated")
+        try:
+            returned_oid, object_type, raw_size = (
+                batch[cursor:header_end].decode("ascii").split()
+            )
+            size = int(raw_size)
+        except (UnicodeDecodeError, ValueError) as exc:
+            raise RuntimeError(
+                "Legacy destination manifest batch output is malformed"
+            ) from exc
+        cursor = header_end + 1
+        if (
+            returned_oid != object_id
+            or object_type != "blob"
+            or size < 0
+            or size > _MANIFEST_OWNERSHIP_CENSUS_MAX_FILE_BYTES
+            or len(batch) < cursor + size + 1
+            or batch[cursor + size : cursor + size + 1] != b"\n"
+        ):
+            raise RuntimeError("Legacy destination manifest batch output is malformed")
+        raw = batch[cursor : cursor + size]
+        cursor += size + 1
+        try:
+            payload = json.loads(
+                raw.decode("utf-8"),
+                object_pairs_hook=_unique_json_object,
+            )
+        except (
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+            RecursionError,
+            ValueError,
+        ) as exc:
+            raise RuntimeError(
+                f"Legacy destination manifest is not unambiguous JSON: {manifest}"
+            ) from exc
+        claimant_index.append((manifest, claimed_identities(payload)))
+    if cursor != len(batch):
+        raise RuntimeError("Legacy destination manifest batch output has trailing data")
+    # Only cache a complete, validated immutable census; every failure above
+    # remains fail-closed and cannot poison a later query.
+    if len(_LEGACY_DESTINATION_MANIFEST_OWNERSHIP_CACHE) >= 8:
+        _LEGACY_DESTINATION_MANIFEST_OWNERSHIP_CACHE.pop(
+            next(iter(_LEGACY_DESTINATION_MANIFEST_OWNERSHIP_CACHE))
+        )
+    frozen_index = tuple(claimant_index)
+    _LEGACY_DESTINATION_MANIFEST_OWNERSHIP_CACHE[cache_key] = frozen_index
+    return sorted(
+        (manifest for manifest, identities in frozen_index if identities & patterns),
+        key=Path.as_posix,
+    )
+
+
+def _creation_live_manifest_claimants(
+    checkout_root: Path,
+    *,
+    destination_paths: set[Path],
+) -> list[Path]:
+    """Census live manifest ownership after a creation transaction installs."""
+
+    patterns = {
+        _rulespec_filesystem_path_identity(candidate)
+        for path in destination_paths
+        for candidate in (
+            path.as_posix(),
+            path.relative_to(path.parts[0]).as_posix(),
+        )
+    }
+    root = checkout_root / APPLIED_ENCODING_MANIFEST_DIR
+    if root.is_symlink():
+        raise RuntimeError("Creation manifest root is indirect")
+    if not root.exists():
+        return []
+    if not root.is_dir():
+        raise RuntimeError("Creation manifest root is not a directory")
+
+    def fail_manifest_walk(error: OSError) -> None:
+        raise RuntimeError(
+            "Creation manifest census cannot enumerate its root"
+        ) from error
+
+    claimants: list[Path] = []
+    manifest_count = 0
+    total_manifest_bytes = 0
+    directory_count = 0
+    entry_count = 0
+    for directory, directories, filenames in os.walk(
+        root, followlinks=False, onerror=fail_manifest_walk
+    ):
+        directory_count += 1
+        entry_count += len(directories) + len(filenames)
+        if (
+            directory_count > _MANIFEST_OWNERSHIP_CENSUS_MAX_DIRECTORIES
+            or entry_count > _MANIFEST_OWNERSHIP_CENSUS_MAX_ENTRIES
+        ):
+            raise RuntimeError("Creation manifest ownership walk is oversized")
+        directory_path = Path(directory)
+        if any((directory_path / name).is_symlink() for name in directories):
+            raise RuntimeError(
+                "Creation manifest census contains a symlinked directory"
+            )
+        for filename in filenames:
+            manifest = directory_path / filename
+            if manifest.is_symlink() or manifest.suffix != ".json":
+                raise RuntimeError("Creation manifest census contains an unsafe entry")
+            manifest_count += 1
+            if manifest_count > _MANIFEST_OWNERSHIP_CENSUS_MAX_FILES:
+                raise RuntimeError(
+                    "Creation manifest ownership scan is oversized"
+                )
+            try:
+                raw = read_bounded_regular_file(
+                    checkout_root,
+                    manifest,
+                    label="Creation manifest census entry",
+                    max_bytes=_MANIFEST_OWNERSHIP_CENSUS_MAX_FILE_BYTES,
+                    required_mode=0o644,
+                )
+                total_manifest_bytes += len(raw)
+                if (
+                    total_manifest_bytes
+                    > _MANIFEST_OWNERSHIP_CENSUS_MAX_TOTAL_BYTES
+                ):
+                    raise RuntimeError(
+                        "Creation manifest ownership scan is oversized"
+                    )
+                payload = json.loads(
+                    raw.decode("utf-8"),
+                    object_pairs_hook=_unique_json_object,
+                )
+            except (
+                OSError,
+                UnicodeError,
+                json.JSONDecodeError,
+                RecursionError,
+                ValueError,
+            ) as exc:
+                raise RuntimeError(
+                    "Creation manifest census is not unambiguous JSON"
+                ) from exc
+            pending = [payload]
+            matched = False
+            while pending:
+                value = pending.pop()
+                if isinstance(value, dict):
+                    applied = value.get("applied_files")
+                    if isinstance(applied, list) and any(
+                        isinstance(item, dict)
+                        and isinstance(item.get("path"), str)
+                        and _rulespec_filesystem_path_identity(item["path"]) in patterns
+                        for item in applied
+                    ):
+                        matched = True
+                        break
+                    pending.extend(value.values())
+                elif isinstance(value, list):
+                    pending.extend(value)
+            if matched:
+                claimants.append(manifest.relative_to(checkout_root))
     return sorted(claimants, key=Path.as_posix)
 
 
@@ -19804,13 +20342,18 @@ def _rulespec_migration_git_environment() -> dict[str, str]:
     return environment
 
 
-def _rulespec_migration_git_bytes(repo_path: Path, *arguments: str) -> bytes:
+def _rulespec_migration_git_bytes(
+    repo_path: Path,
+    *arguments: str,
+    input_bytes: bytes | None = None,
+) -> bytes:
     """Run one read-only Git query with repository-routing authority removed."""
 
     completed = subprocess.run(
         ["git", "-C", str(repo_path), *arguments],
         capture_output=True,
         env=_rulespec_migration_git_environment(),
+        input=input_bytes,
         check=False,
     )
     if completed.returncode != 0:
@@ -19911,6 +20454,43 @@ def _rulespec_migration_tracked_files(repo_path: Path) -> dict[Path, str]:
             or path in result
         ):
             raise RuntimeError("RuleSpec tracked-file index is ambiguous")
+        result[path] = mode
+    return result
+
+
+def _rulespec_migration_tracked_files_at_ref(
+    repo_path: Path,
+    ref: str,
+) -> dict[Path, str]:
+    """Return an exact full-tree path/mode census for one immutable Git ref."""
+
+    raw = _rulespec_migration_git_bytes(
+        repo_path,
+        "ls-tree",
+        "-r",
+        "-z",
+        "--full-tree",
+        ref,
+    )
+    result: dict[Path, str] = {}
+    for record in raw.split(b"\0"):
+        if not record:
+            continue
+        try:
+            metadata, encoded_path = record.split(b"\t", 1)
+            mode, object_type, _object_id = metadata.decode("ascii").split(" ")
+            path_text = encoded_path.decode("utf-8")
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise RuntimeError("RuleSpec base tree entry is malformed") from exc
+        path = Path(path_text)
+        if (
+            object_type not in {"blob", "commit"}
+            or path.is_absolute()
+            or path.as_posix() != path_text
+            or any(part in {"", ".", ".."} for part in path.parts)
+            or path in result
+        ):
+            raise RuntimeError("RuleSpec base tree is ambiguous")
         result[path] = mode
     return result
 
@@ -20819,6 +21399,167 @@ def cmd_retire(args):
         print(f"signed {manifest.relative_to(repo_path).as_posix()}")
 
 
+def _guard_creation_manifest_base_issues(
+    repo_path: Path,
+    *,
+    base_ref: str | None,
+    manifest_path: str,
+    payload: Mapping[str, object],
+) -> list[str]:
+    """Reprove signed creation authority against the PR's actual Git base."""
+
+    if payload.get("target_operation") != "create":
+        return []
+    manifest_label = Path(manifest_path).as_posix()
+    if base_ref is None:
+        return [
+            f"{manifest_label} creation evidence requires an explicit guard base ref"
+        ]
+    creation = payload.get("creation_target")
+    if not isinstance(creation, dict):
+        return [f"{manifest_label} creation evidence is malformed"]
+    try:
+        base_commit = _rulespec_migration_git(
+            repo_path, "rev-parse", f"{base_ref}^{{commit}}"
+        ).strip()
+        base_tree = _rulespec_migration_git(
+            repo_path, "rev-parse", f"{base_commit}^{{tree}}"
+        ).strip()
+    except RuntimeError as exc:
+        return [f"{manifest_label} cannot resolve its guard base: {exc}"]
+    if (
+        re.fullmatch(r"[0-9a-f]{40}", base_commit) is None
+        or re.fullmatch(r"[0-9a-f]{40}", base_tree) is None
+        or creation.get("base_commit") != base_commit
+        or creation.get("base_tree") != base_tree
+    ):
+        return [
+            f"{manifest_label} creation evidence does not match the guard base commit/tree"
+        ]
+    try:
+        primary = _parse_create_rulespec_path(str(creation["primary"]))
+        companion = Path(str(creation["companion"]))
+        canonical_manifest = Path(str(creation["canonical_manifest"]))
+        orphan_manifest_raw = creation.get("orphan_manifest")
+        orphan_manifest = (
+            Path(orphan_manifest_raw) if isinstance(orphan_manifest_raw, str) else None
+        )
+    except (KeyError, argparse.ArgumentTypeError, TypeError, ValueError) as exc:
+        return [f"{manifest_label} creation evidence is malformed: {exc}"]
+    if canonical_manifest.as_posix() != manifest_label:
+        return [
+            f"{manifest_label} creation manifest path differs from its signed target"
+        ]
+    applied_files = payload.get("applied_files")
+    if not isinstance(applied_files, list):
+        return [f"{manifest_label} creation applied-file evidence is malformed"]
+    for required_path in (primary, companion):
+        matches = [
+            item
+            for item in applied_files
+            if isinstance(item, dict)
+            and item.get("path") == required_path.as_posix()
+            and item.get("deleted") is not True
+        ]
+        if (
+            len(matches) != 1
+            or not isinstance(matches[0].get("sha256"), str)
+            or re.fullmatch(r"[0-9a-f]{64}", matches[0]["sha256"]) is None
+        ):
+            return [
+                f"{manifest_label} creation evidence must claim its exact primary "
+                f"and companion: {required_path.as_posix()}"
+            ]
+        try:
+            live = read_bounded_regular_file(
+                repo_path,
+                repo_path / required_path,
+                label="created RuleSpec target",
+                max_bytes=16 * 1024 * 1024,
+                required_mode=0o644,
+            )
+        except (OSError, UnsafeCorpusPathError) as exc:
+            return [
+                f"{manifest_label} created target is not a live regular 0644 file: "
+                f"{required_path.as_posix()}: {exc}"
+            ]
+        if hashlib.sha256(live).hexdigest() != matches[0]["sha256"]:
+            return [
+                f"{manifest_label} created target digest differs from signed evidence: "
+                f"{required_path.as_posix()}"
+            ]
+    protected_paths = [primary, companion, canonical_manifest]
+    old_root_absence = orphan_manifest or _pre_monorepo_orphan_absence_path(primary)
+    if old_root_absence is not None:
+        protected_paths.append(old_root_absence)
+    live_old_root_present = old_root_absence is not None and (
+        (repo_path / old_root_absence).exists()
+        or (repo_path / old_root_absence).is_symlink()
+    )
+    try:
+        tracked = _rulespec_migration_tracked_files_at_ref(repo_path, base_commit)
+        occupied = sorted(
+            (path for path in protected_paths if path in tracked),
+            key=Path.as_posix,
+        )
+        identity_conflicts = _creation_target_base_identity_conflicts(
+            tracked, protected_paths
+        )
+        base_claimants = _legacy_destination_manifest_claimants_at_base(
+            repo_path,
+            base_commit=base_commit,
+            destination_paths={primary, companion},
+        )
+        live_identity_conflicts = _rulespec_target_live_identity_conflicts(
+            repo_path,
+            protected_paths,
+        )
+        _require_creation_target_ancestors_safe(repo_path, protected_paths)
+    except RuntimeError as exc:
+        return [f"{manifest_label} cannot reprove creation ownership: {exc}"]
+    if occupied:
+        return [
+            f"{manifest_label} creation target was already occupied at the guard base: "
+            + ", ".join(path.as_posix() for path in occupied)
+        ]
+    if identity_conflicts:
+        return [
+            f"{manifest_label} creation target had a filesystem-identity alias or "
+            "occupied descendant at the guard base: "
+            + ", ".join(path.as_posix() for path in identity_conflicts)
+        ]
+    if base_claimants:
+        return [
+            f"{manifest_label} creation target already had manifest ownership at "
+            "the guard base: " + ", ".join(path.as_posix() for path in base_claimants)
+        ]
+    if live_old_root_present:
+        assert old_root_absence is not None
+        return [
+            f"{manifest_label} creation old-root manifest is live: "
+            f"{old_root_absence.as_posix()}"
+        ]
+    if live_identity_conflicts:
+        return [
+            f"{manifest_label} creation target has a live filesystem-identity "
+            "alias or occupied descendant: "
+            + ", ".join(path.as_posix() for path in live_identity_conflicts)
+        ]
+    try:
+        live_claimants = _creation_live_manifest_claimants(
+            repo_path,
+            destination_paths={primary, companion},
+        )
+    except RuntimeError as exc:
+        return [f"{manifest_label} cannot reprove creation ownership: {exc}"]
+    if live_claimants != [canonical_manifest]:
+        return [
+            f"{manifest_label} is not the sole live owner of its created target: "
+            + ", ".join(path.as_posix() for path in live_claimants)
+        ]
+    return []
+
+
 def guard_generated_change_issues(
     repo_path: Path,
     *,
@@ -20958,6 +21699,7 @@ def guard_generated_change_issues(
     # this guard operation; the cache is discarded before the next operation,
     # and its digest key invalidates a changed receipt within this operation.
     path_migration_receipt_proof_cache: dict[tuple[str, str], tuple[str, ...]] = {}
+    verified_manifest_payloads: dict[str, dict[str, object]] = {}
     manifest_entries, manifest_issues = _load_applied_encoding_manifest_entries(
         repo_path,
         surviving_manifest_paths,
@@ -20967,11 +21709,28 @@ def guard_generated_change_issues(
         expected_waiver_set_sha256=expected_manifest_waiver_set_sha256,
         expected_legacy_replacement_waiver_set_sha256=(current_waiver_set_sha256),
         path_migration_receipt_proof_cache=path_migration_receipt_proof_cache,
+        verified_payloads=verified_manifest_payloads,
     )
     if manifest_issues:
         return manifest_issues
 
     issues: list[str] = []
+    changed_manifest_paths = {
+        Path(path).as_posix()
+        for path in changed
+        if _is_applied_encoding_manifest_path(Path(path), roots=roots)
+    }
+    for manifest_path in sorted(changed_manifest_paths):
+        payload = verified_manifest_payloads.get(manifest_path)
+        if payload is not None:
+            issues.extend(
+                _guard_creation_manifest_base_issues(
+                    repo_path,
+                    base_ref=base_ref,
+                    manifest_path=manifest_path,
+                    payload=payload,
+                )
+            )
     for path in protected:
         expected_hashes = manifest_entries.get(path)
         if expected_hashes is None:
@@ -21271,12 +22030,42 @@ def _all_applied_encoding_manifest_paths(
     return sorted(paths)
 
 
+def _decode_rulespec_git_path_list(raw: bytes, *, label: str) -> list[str]:
+    """Decode one bounded NUL Git path list without filesystem fallbacks."""
+
+    if len(raw) > 64 * 1024 * 1024:
+        raise RuntimeError(f"{label} exceeds its byte limit")
+    if raw and not raw.endswith(b"\0"):
+        raise RuntimeError(f"{label} is not NUL terminated")
+    records = [record for record in raw.split(b"\0") if record]
+    if len(records) > 65_536:
+        raise RuntimeError(f"{label} exceeds its entry limit")
+    paths: list[str] = []
+    seen: set[str] = set()
+    for record in records:
+        try:
+            path_text = record.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise RuntimeError(f"{label} contains a non-UTF-8 path") from exc
+        path = Path(path_text)
+        if (
+            path.is_absolute()
+            or not path.parts
+            or path.as_posix() != path_text
+            or any(part in {"", ".", ".."} for part in path.parts)
+            or path_text in seen
+        ):
+            raise RuntimeError(f"{label} contains an ambiguous path")
+        seen.add(path_text)
+        paths.append(path_text)
+    return paths
+
+
 def _git_changed_files(
     repo_path: Path, *, base_ref: str | None, head_ref: str
 ) -> list[str]:
     if base_ref:
-        command = [
-            "git",
+        arguments = [
             "diff",
             "--name-only",
             "--no-renames",
@@ -21286,8 +22075,7 @@ def _git_changed_files(
             head_ref,
         ]
     else:
-        command = [
-            "git",
+        arguments = [
             "diff",
             "--name-only",
             "--no-renames",
@@ -21295,30 +22083,24 @@ def _git_changed_files(
             "-z",
             head_ref,
         ]
-    completed = subprocess.run(
-        command,
-        cwd=repo_path,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
+    changed_raw = _rulespec_migration_git_bytes(repo_path, *arguments)
+    changed = _decode_rulespec_git_path_list(
+        changed_raw,
+        label="RuleSpec changed-file census",
     )
-    if completed.returncode != 0:
-        detail = os.fsdecode(completed.stderr).strip()
-        raise RuntimeError(detail or "git diff failed")
-    changed = [os.fsdecode(path) for path in completed.stdout.split(b"\0") if path]
     if base_ref is None:
-        untracked = subprocess.run(
-            ["git", "ls-files", "--others", "--exclude-standard", "-z"],
-            cwd=repo_path,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
+        untracked = _rulespec_migration_git_bytes(
+            repo_path,
+            "ls-files",
+            "--others",
+            "--exclude-standard",
+            "-z",
         )
-        if untracked.returncode != 0:
-            detail = os.fsdecode(untracked.stderr).strip()
-            raise RuntimeError(detail or "git ls-files failed")
         changed.extend(
-            os.fsdecode(path) for path in untracked.stdout.split(b"\0") if path
+            _decode_rulespec_git_path_list(
+                untracked,
+                label="RuleSpec untracked-file census",
+            )
         )
     return sorted(set(changed))
 
@@ -22162,7 +22944,72 @@ def _applied_manifest_exact_schema_issues(
     backend = payload.get("backend")
     tool = payload.get("tool")
     if backend in APPLIED_ENCODING_ENCODER_BACKENDS:
-        expected_fields = _MODEL_APPLY_MANIFEST_FIELDS
+        creation_target = payload.get("creation_target")
+        target_operation = payload.get("target_operation")
+        if target_operation is None:
+            # Historical v5 manifests predate operation-bound target evidence.
+            expected_fields = _MODEL_APPLY_MANIFEST_FIELDS
+            if creation_target is not None:
+                return [
+                    f"{manifest_label} has creation evidence without a target operation"
+                ]
+        elif target_operation == "replace":
+            expected_fields = _MODEL_APPLY_MANIFEST_FIELDS | {"target_operation"}
+            if creation_target is not None:
+                return [f"{manifest_label} replacement operation has creation evidence"]
+        elif target_operation == "create":
+            expected_fields = _MODEL_APPLY_MANIFEST_FIELDS | {
+                "target_operation",
+                "creation_target",
+            }
+            if (
+                not isinstance(creation_target, dict)
+                or set(creation_target)
+                != {
+                    "base_commit",
+                    "base_tree",
+                    "primary",
+                    "companion",
+                    "canonical_manifest",
+                    "orphan_manifest",
+                }
+                or not all(
+                    isinstance(creation_target.get(field), str)
+                    and creation_target[field]
+                    for field in (
+                        "base_commit",
+                        "base_tree",
+                        "primary",
+                        "companion",
+                        "canonical_manifest",
+                    )
+                )
+                or (
+                    creation_target.get("orphan_manifest") is not None
+                    and not isinstance(creation_target.get("orphan_manifest"), str)
+                )
+            ):
+                return [f"{manifest_label} creation evidence is malformed"]
+            try:
+                creation_primary = _parse_create_rulespec_path(
+                    creation_target["primary"]
+                )
+            except (argparse.ArgumentTypeError, TypeError):
+                return [f"{manifest_label} creation evidence is malformed"]
+            expected_orphan = _pre_monorepo_orphan_manifest_path(creation_primary)
+            if (
+                re.fullmatch(r"[0-9a-f]{40}", creation_target["base_commit"]) is None
+                or re.fullmatch(r"[0-9a-f]{40}", creation_target["base_tree"]) is None
+                or creation_target["companion"]
+                != companion_path(creation_primary).as_posix()
+                or creation_target["canonical_manifest"]
+                != _applied_encoding_manifest_path(creation_primary).as_posix()
+                or creation_target["orphan_manifest"]
+                != (expected_orphan.as_posix() if expected_orphan is not None else None)
+            ):
+                return [f"{manifest_label} creation evidence is malformed"]
+        else:
+            return [f"{manifest_label} target operation is invalid"]
         expected_item_fields = _MODEL_APPLIED_FILE_FIELDS
         contract = "model"
     elif backend is None and tool == APPLIED_ENCODING_RETIRE_TOOL:
@@ -25361,7 +26208,10 @@ def _load_verified_applied_encoding_manifest_payload(
             max_bytes=1024 * 1024,
         )
         manifest_sha256 = hashlib.sha256(manifest_bytes).hexdigest()
-        payload = json.loads(manifest_bytes.decode("utf-8"))
+        payload = json.loads(
+            manifest_bytes.decode("utf-8"),
+            object_pairs_hook=_unique_json_object,
+        )
     except UnsafeCorpusPathError as exc:
         return (
             None,
@@ -25369,7 +26219,13 @@ def _load_verified_applied_encoding_manifest_payload(
             None,
             [f"{manifest_label} cannot be read safely: {exc}"],
         )
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, RecursionError):
+    except (
+        OSError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        RecursionError,
+        ValueError,
+    ):
         return None, root_prefix, None, [f"{manifest_label} is not valid JSON"]
     if not isinstance(payload, dict):
         return (
@@ -25628,6 +26484,7 @@ def _load_applied_encoding_manifest_entries(
     expected_legacy_replacement_waiver_set_sha256: str | None = None,
     path_migration_receipt_proof_cache: dict[tuple[str, str], tuple[str, ...]]
     | None = None,
+    verified_payloads: dict[str, dict[str, object]] | None = None,
 ) -> tuple[dict[str, set[str]], list[str]]:
     entries: dict[str, set[str]] = defaultdict(set)
     issues: list[str] = []
@@ -25679,6 +26536,8 @@ def _load_applied_encoding_manifest_entries(
         issues.extend(manifest_issues)
         if payload is None or root_prefix is None:
             continue
+        if verified_payloads is not None:
+            verified_payloads[Path(manifest_path).as_posix()] = payload
         applied_files = payload["applied_files"]
         assert isinstance(applied_files, list)
         for item in applied_files:
@@ -26720,10 +27579,15 @@ def _validate_tests_only_repair_contract(
     contract = getattr(args, "review_contract_json", None)
     candidate_path = getattr(args, "repair_candidate_path", None)
     replacement_path = getattr(args, "replace_rulespec_path", None)
+    try:
+        creation_path = vars(args).get("create_rulespec_path")
+    except TypeError:
+        creation_path = getattr(args, "create_rulespec_path", None)
     if candidate is None or candidate.tests is None:
         raise ValueError("tests-only repair requires a complete repair candidate")
     if getattr(args, "apply", False) is not True:
         raise ValueError("tests-only repair requires encode --apply")
+    target_path = creation_path if creation_path is not None else replacement_path
     legacy_options = (
         getattr(args, "replace_legacy_rulespec_path", None),
         *tuple(getattr(args, "legacy_dependent_rulespec_path", ()) or ()),
@@ -26732,32 +27596,41 @@ def _validate_tests_only_repair_contract(
     )
     if any(option is not None for option in legacy_options):
         raise ValueError("tests-only repair cannot perform a legacy migration")
-    if contract is None or not contract.required_test_cases:
+    if (
+        contract is None
+        or contract.target_operation not in {"create", "replace"}
+        or not contract.required_test_cases
+    ):
         raise ValueError(
-            "tests-only repair requires a nonempty v2 required-test-case contract"
+            "tests-only repair requires a nonempty operation-bound v3 "
+            "required-test-case contract"
         )
+    if creation_path is not None and contract.target_operation != "create":
+        raise ValueError("tests-only repair creation contract operation mismatch")
+    if replacement_path is not None and contract.target_operation != "replace":
+        raise ValueError("tests-only repair replacement contract operation mismatch")
     if contract.required_deferred_outputs:
         raise ValueError("tests-only repair cannot include deferred-output contracts")
     if contract.citation != str(args.citation):
         raise ValueError("tests-only repair contract citation mismatch")
-    normalized_replacement_path = (
-        Path(replacement_path).as_posix() if replacement_path is not None else None
+    normalized_target_path = (
+        Path(target_path).as_posix() if target_path is not None else None
     )
-    if contract.rulespec_path != normalized_replacement_path:
+    if contract.rulespec_path != normalized_target_path:
         raise ValueError("tests-only repair contract path mismatch")
-    replacement_parts = Path(normalized_replacement_path).parts
+    target_parts = Path(normalized_target_path).parts
     candidate_parts = Path(candidate_path).parts
     if candidate_parts[0] in RULESPEC_ATOMIC_MODULE_ROOTS:
         candidate_module_parts = candidate_parts
     elif (
         len(candidate_parts) >= 2
-        and candidate_parts[0] == replacement_parts[0]
+        and candidate_parts[0] == target_parts[0]
         and candidate_parts[1] in RULESPEC_ATOMIC_MODULE_ROOTS
     ):
         candidate_module_parts = candidate_parts[1:]
     else:
         candidate_module_parts = ()
-    if candidate_module_parts != replacement_parts[1:]:
+    if candidate_module_parts != target_parts[1:]:
         raise ValueError("tests-only repair replacement path mismatch")
 
 
@@ -27077,10 +27950,40 @@ class _EncodeReplacementTarget(NamedTuple):
     relative_output: Path
     context_paths: tuple[Path, ...]
     legacy_replacement: "_LegacyReplacementContract | None" = None
+    creation: "_EncodeCreationContract | None" = None
+    existing: "_EncodeExistingTargetContract | None" = None
+
+
+class _EncodeCreationContract(NamedTuple):
+    """Bind one absent explicit target group to an immutable clean Git base."""
+
+    base_commit: str
+    base_tree: str
+    primary: Path
+    companion: Path
+    canonical_manifest: Path
+    orphan_manifest: Path | None
+
+
+class _EncodeExistingTargetContract(NamedTuple):
+    """Bind one ordinary replacement group to an immutable clean Git base."""
+
+    base_commit: str
+    base_tree: str
+    primary: Path
+    primary_sha256: str
+    companion: Path
+    companion_sha256: str | None
+    canonical_manifest: Path
+    canonical_manifest_sha256: str | None
+    orphan_manifest: Path | None
+    base_manifest_claimants: tuple[Path, ...]
 
 
 _LEGACY_REPLACEMENT_ATTR = "_axiom_legacy_replacement_contract"
 _REPLACEMENT_OVERLAY_SCOPE_ATTR = "_axiom_replacement_overlay_scope"
+_CREATION_TARGET_ATTR = "_axiom_creation_target_contract"
+_EXISTING_TARGET_ATTR = "_axiom_existing_target_contract"
 _IMMUTABLE_RULESPEC_SHA256_ATTR = "_axiom_immutable_rulespec_sha256"
 _PRESERVED_COMPANION_TESTS_ATTR = "_axiom_preserved_companion_tests"
 _REQUIRED_TEST_CASE_CONTRACTS_ATTR = "_axiom_required_test_case_contracts"
@@ -27245,6 +28148,26 @@ def _result_replacement_overlay_scope(result: object) -> bool:
     return state.get(_REPLACEMENT_OVERLAY_SCOPE_ATTR) is True
 
 
+def _result_creation_target_contract(result: object) -> object | None:
+    """Read only the creation contract attached by the protected encode path."""
+
+    try:
+        state = vars(result)
+    except TypeError:
+        return None
+    return state.get(_CREATION_TARGET_ATTR)
+
+
+def _result_existing_target_contract(result: object) -> object | None:
+    """Read only the ordinary replacement contract attached by encode."""
+
+    try:
+        state = vars(result)
+    except TypeError:
+        return None
+    return state.get(_EXISTING_TARGET_ATTR)
+
+
 def _require_legacy_replacement_clean_checkout(checkout_root: Path) -> None:
     if _rulespec_migration_git_bytes(
         checkout_root,
@@ -27272,6 +28195,706 @@ def _require_locked_legacy_replacement_base(
             "Legacy replacement RuleSpec HEAD/tree changed after planning"
         )
     _require_legacy_replacement_clean_checkout(checkout_root)
+
+
+def _require_creation_target_base(
+    checkout_root: Path,
+    contract: _EncodeCreationContract,
+) -> None:
+    """Reprove one explicit target group's absence at its immutable Git base."""
+
+    try:
+        canonical_primary = _parse_create_rulespec_path(contract.primary.as_posix())
+    except argparse.ArgumentTypeError as exc:
+        raise RuntimeError("Explicit creation target contract is malformed") from exc
+    if (
+        canonical_primary != contract.primary
+        or contract.companion != companion_path(contract.primary)
+        or contract.canonical_manifest
+        != _applied_encoding_manifest_path(contract.primary)
+        or contract.orphan_manifest
+        != _pre_monorepo_orphan_manifest_path(contract.primary)
+        or len(contract.primary.parts) < 3
+        or contract.primary.parts[1] != "policies"
+    ):
+        raise RuntimeError("Explicit creation target contract is malformed")
+    locked_head, locked_tree = _rulespec_migration_base_identity(checkout_root)
+    if locked_head != contract.base_commit or locked_tree != contract.base_tree:
+        raise RuntimeError(
+            "Explicit creation RuleSpec HEAD/tree changed after planning"
+        )
+    _require_legacy_replacement_clean_checkout(checkout_root)
+    tracked = _rulespec_migration_tracked_files(checkout_root)
+    protected_paths = [
+        contract.primary,
+        contract.companion,
+        contract.canonical_manifest,
+    ]
+    if contract.orphan_manifest is not None:
+        protected_paths.append(contract.orphan_manifest)
+    orphan_absence = _pre_monorepo_orphan_absence_path(contract.primary)
+    if orphan_absence is not None and orphan_absence not in protected_paths:
+        protected_paths.append(orphan_absence)
+    identity_conflicts = _creation_target_base_identity_conflicts(
+        tracked, protected_paths
+    )
+    if identity_conflicts:
+        raise RuntimeError(
+            "Explicit creation target identity is already tracked at the base: "
+            + ", ".join(path.as_posix() for path in identity_conflicts)
+        )
+    _require_creation_target_ancestors_safe(checkout_root, protected_paths)
+    occupied = [
+        path
+        for path in protected_paths
+        if path in tracked
+        or (checkout_root / path).exists()
+        or (checkout_root / path).is_symlink()
+    ]
+    if occupied:
+        raise RuntimeError(
+            "Explicit creation target group is no longer absent: "
+            + ", ".join(path.as_posix() for path in occupied)
+        )
+
+
+def _require_existing_target_identity(
+    checkout_root: Path,
+    contract: _EncodeExistingTargetContract,
+) -> None:
+    """Reprove one ordinary replacement group at its immutable clean base."""
+
+    if (
+        re.fullmatch(r"[0-9a-f]{40}", contract.base_commit) is None
+        or re.fullmatch(r"[0-9a-f]{40}", contract.base_tree) is None
+        or re.fullmatch(r"[0-9a-f]{64}", contract.primary_sha256) is None
+        or (
+            contract.companion_sha256 is not None
+            and re.fullmatch(r"[0-9a-f]{64}", contract.companion_sha256) is None
+        )
+        or (
+            contract.canonical_manifest_sha256 is not None
+            and re.fullmatch(
+                r"[0-9a-f]{64}", contract.canonical_manifest_sha256
+            )
+            is None
+        )
+        or contract.primary.is_absolute()
+        or len(contract.primary.parts) < 3
+        or any(part in {"", ".", ".."} for part in contract.primary.parts)
+        or not _is_protected_rulespec_yaml_path(
+            contract.primary,
+            roots=tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS)),
+        )
+        or contract.primary.name.endswith(RULESPEC_TEST_FILE_SUFFIX)
+        or monorepo_checkout_name(contract.primary.parts[0]) != checkout_root.name
+        or contract.companion != companion_path(contract.primary)
+        or contract.canonical_manifest
+        != _applied_encoding_manifest_path(contract.primary)
+        or contract.orphan_manifest
+        != _pre_monorepo_orphan_manifest_path(contract.primary)
+        or contract.base_manifest_claimants
+        != (
+            (contract.canonical_manifest,)
+            if contract.canonical_manifest_sha256 is not None
+            else ()
+        )
+    ):
+        raise RuntimeError("Explicit replacement target contract is malformed")
+
+    if _rulespec_migration_git_bytes(
+        checkout_root,
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=all",
+        "--ignored=matching",
+    ):
+        raise RuntimeError(
+            "Explicit replacement requires an exact clean HEAD with no tracked, "
+            "untracked, or ignored checkout files"
+        )
+    locked_head, locked_tree = _rulespec_migration_base_identity(checkout_root)
+    if locked_head != contract.base_commit or locked_tree != contract.base_tree:
+        raise RuntimeError(
+            "Explicit replacement RuleSpec HEAD/tree changed after planning"
+        )
+
+    tracked = _rulespec_migration_tracked_files(checkout_root)
+
+    def require_group_file(
+        relative: Path,
+        expected_sha256: str | None,
+        *,
+        label: str,
+        max_bytes: int,
+    ) -> None:
+        absolute = checkout_root / relative
+        if expected_sha256 is None:
+            if (
+                relative in tracked
+                or absolute.exists()
+                or absolute.is_symlink()
+            ):
+                raise RuntimeError(
+                    f"Explicit replacement {label} appeared after planning"
+                )
+            return
+        if tracked.get(relative) != "100644":
+            raise RuntimeError(
+                f"Explicit replacement {label} is no longer an exact tracked "
+                "0644 file"
+            )
+        try:
+            raw = read_bounded_regular_file(
+                checkout_root,
+                absolute,
+                label=f"explicit replacement {label}",
+                max_bytes=max_bytes,
+                required_mode=0o644,
+            )
+        except (OSError, ValueError) as exc:
+            raise RuntimeError(
+                f"Explicit replacement {label} cannot be reproved"
+            ) from exc
+        if hashlib.sha256(raw).hexdigest() != expected_sha256:
+            raise RuntimeError(
+                f"Explicit replacement {label} changed after planning"
+            )
+
+    require_group_file(
+        contract.primary,
+        contract.primary_sha256,
+        label="primary",
+        max_bytes=10 * 1024 * 1024,
+    )
+    require_group_file(
+        contract.companion,
+        contract.companion_sha256,
+        label="companion",
+        max_bytes=10 * 1024 * 1024,
+    )
+    require_group_file(
+        contract.canonical_manifest,
+        contract.canonical_manifest_sha256,
+        label="canonical owner manifest",
+        max_bytes=_MANIFEST_OWNERSHIP_CENSUS_MAX_FILE_BYTES,
+    )
+    protected_paths = [
+        contract.primary,
+        contract.companion,
+        contract.canonical_manifest,
+    ]
+    orphan_absence = contract.orphan_manifest or _pre_monorepo_orphan_absence_path(
+        contract.primary
+    )
+    if orphan_absence is not None:
+        protected_paths.append(orphan_absence)
+        old_root = checkout_root / orphan_absence
+        if old_root.exists() or old_root.is_symlink():
+            raise RuntimeError(
+                "Explicit replacement acquired a pre-monorepo old-root owner"
+            )
+    identity_conflicts = _rulespec_target_live_identity_conflicts(
+        checkout_root,
+        protected_paths,
+    )
+    if identity_conflicts:
+        raise RuntimeError(
+            "Explicit replacement target has a live filesystem-identity alias or "
+            "occupied descendant: "
+            + ", ".join(path.as_posix() for path in identity_conflicts)
+        )
+    claimants = tuple(
+        _legacy_destination_manifest_claimants_at_base(
+            checkout_root,
+            base_commit=contract.base_commit,
+            destination_paths={contract.primary, contract.companion},
+        )
+    )
+    if claimants != contract.base_manifest_claimants:
+        raise RuntimeError(
+            "Explicit replacement base manifest ownership changed after planning: "
+            + ", ".join(path.as_posix() for path in claimants)
+        )
+
+
+def _require_existing_target_final_ownership(
+    checkout_root: Path,
+    contract: _EncodeExistingTargetContract,
+) -> None:
+    """Require the canonical manifest to be the sole owner after replacement."""
+
+    orphan_absence = contract.orphan_manifest or _pre_monorepo_orphan_absence_path(
+        contract.primary
+    )
+    if orphan_absence is not None and (
+        (checkout_root / orphan_absence).exists()
+        or (checkout_root / orphan_absence).is_symlink()
+    ):
+        raise RuntimeError(
+            "Explicit replacement old-root manifest appeared during apply"
+        )
+    protected_paths = [
+        contract.primary,
+        contract.companion,
+        contract.canonical_manifest,
+    ]
+    if orphan_absence is not None:
+        protected_paths.append(orphan_absence)
+    identity_conflicts = _rulespec_target_live_identity_conflicts(
+        checkout_root,
+        protected_paths,
+    )
+    if identity_conflicts:
+        raise RuntimeError(
+            "Explicit replacement target has a live filesystem-identity alias or "
+            "occupied descendant: "
+            + ", ".join(path.as_posix() for path in identity_conflicts)
+        )
+    claimants = _creation_live_manifest_claimants(
+        checkout_root,
+        destination_paths={contract.primary, contract.companion},
+    )
+    if claimants != [contract.canonical_manifest]:
+        raise RuntimeError(
+            "Explicit replacement final manifest ownership is ambiguous: "
+            + ", ".join(path.as_posix() for path in claimants)
+        )
+
+
+def _capture_existing_target_contract(
+    checkout_root: Path,
+    primary: Path,
+) -> _EncodeExistingTargetContract:
+    """Capture and immediately reprove an ordinary replacement base group."""
+
+    if _rulespec_migration_git_bytes(
+        checkout_root,
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=all",
+        "--ignored=matching",
+    ):
+        raise RuntimeError(
+            "Explicit replacement requires an exact clean HEAD with no tracked, "
+            "untracked, or ignored checkout files"
+        )
+    base_commit, base_tree = _rulespec_migration_base_identity(checkout_root)
+    tracked = _rulespec_migration_tracked_files(checkout_root)
+    companion = companion_path(primary)
+    canonical_manifest = _applied_encoding_manifest_path(primary)
+    orphan_manifest = _pre_monorepo_orphan_manifest_path(primary)
+
+    def captured_digest(
+        relative: Path,
+        *,
+        label: str,
+        required: bool,
+        max_bytes: int,
+    ) -> str | None:
+        mode = tracked.get(relative)
+        if mode is None:
+            if required:
+                raise RuntimeError(
+                    f"Explicit replacement {label} is not an exact tracked 0644 file"
+                )
+            if (checkout_root / relative).exists() or (
+                checkout_root / relative
+            ).is_symlink():
+                raise RuntimeError(
+                    f"Explicit replacement {label} is not tracked at the base"
+                )
+            return None
+        if mode != "100644":
+            raise RuntimeError(
+                f"Explicit replacement {label} is not an exact tracked 0644 file"
+            )
+        try:
+            raw = read_bounded_regular_file(
+                checkout_root,
+                checkout_root / relative,
+                label=f"explicit replacement {label}",
+                max_bytes=max_bytes,
+                required_mode=0o644,
+            )
+        except (OSError, ValueError) as exc:
+            raise RuntimeError(
+                f"Explicit replacement {label} cannot be captured"
+            ) from exc
+        return hashlib.sha256(raw).hexdigest()
+
+    primary_sha256 = captured_digest(
+        primary,
+        label="primary",
+        required=True,
+        max_bytes=10 * 1024 * 1024,
+    )
+    assert primary_sha256 is not None
+    companion_sha256 = captured_digest(
+        companion,
+        label="companion",
+        required=False,
+        max_bytes=10 * 1024 * 1024,
+    )
+    canonical_manifest_sha256 = captured_digest(
+        canonical_manifest,
+        label="canonical owner manifest",
+        required=False,
+        max_bytes=_MANIFEST_OWNERSHIP_CENSUS_MAX_FILE_BYTES,
+    )
+    claimants = tuple(
+        _legacy_destination_manifest_claimants_at_base(
+            checkout_root,
+            base_commit=base_commit,
+            destination_paths={primary, companion},
+        )
+    )
+    allowed_claimants = (
+        (canonical_manifest,) if canonical_manifest_sha256 is not None else ()
+    )
+    if claimants != allowed_claimants:
+        rendered = ", ".join(path.as_posix() for path in claimants) or "none"
+        raise RuntimeError(
+            "Explicit replacement requires either no base manifest owner or its "
+            f"exact canonical owner; found: {rendered}"
+        )
+    contract = _EncodeExistingTargetContract(
+        base_commit=base_commit,
+        base_tree=base_tree,
+        primary=primary,
+        primary_sha256=primary_sha256,
+        companion=companion,
+        companion_sha256=companion_sha256,
+        canonical_manifest=canonical_manifest,
+        canonical_manifest_sha256=canonical_manifest_sha256,
+        orphan_manifest=orphan_manifest,
+        base_manifest_claimants=claimants,
+    )
+    _require_existing_target_identity(checkout_root, contract)
+    return contract
+
+
+def _creation_target_base_identity_conflicts(
+    tracked: Mapping[Path, str],
+    protected_paths: Sequence[Path],
+) -> list[Path]:
+    """Return tracked base paths colliding under the target filesystem identity."""
+
+    protected = set(protected_paths)
+    protected_leaf_paths = {path.as_posix() for path in protected}
+    protected_ancestor_paths = {
+        Path(*path.parts[:index]).as_posix()
+        for path in protected
+        for index in range(1, len(path.parts))
+    }
+    protected_prefixes: dict[str, set[str]] = {}
+    for path in protected:
+        for index in range(1, len(path.parts) + 1):
+            raw_prefix = Path(*path.parts[:index]).as_posix()
+            protected_prefixes.setdefault(
+                _rulespec_filesystem_path_identity(raw_prefix), set()
+            ).add(raw_prefix)
+
+    def has_conflicting_prefix(path: Path) -> bool:
+        if path.as_posix() in protected_ancestor_paths:
+            return True
+        for index in range(1, len(path.parts) + 1):
+            raw_prefix = Path(*path.parts[:index]).as_posix()
+            expected = protected_prefixes.get(
+                _rulespec_filesystem_path_identity(raw_prefix)
+            )
+            if expected is not None:
+                if raw_prefix not in expected:
+                    return True
+                if raw_prefix in protected_leaf_paths and index < len(path.parts):
+                    return True
+        return False
+
+    return sorted(
+        (
+            path
+            for path in tracked
+            if path not in protected and has_conflicting_prefix(path)
+        ),
+        key=Path.as_posix,
+    )
+
+
+_MAX_TARGET_IDENTITY_DIRECTORY_ENTRIES = 4096
+_MAX_TARGET_IDENTITY_TOTAL_ENTRIES = 65_536
+
+
+class _TargetIdentityEntrySnapshot(NamedTuple):
+    """One no-follow directory-entry identity pinned before descendant open."""
+
+    name: str
+    is_directory: bool
+    is_file: bool
+    is_symlink: bool
+    device: int
+    inode: int
+    uid: int
+    mode: int
+
+
+def _rulespec_target_filesystem_identity_conflicts(
+    checkout_root: Path,
+    protected_paths: Sequence[Path],
+) -> list[Path]:
+    """Inspect only protected ancestors for live aliases and leaf directories."""
+
+    root = Path(checkout_root).resolve(strict=True)
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    directory = getattr(os, "O_DIRECTORY", None)
+    if nofollow is None or directory is None:
+        raise RuntimeError(
+            "RuleSpec target identity cannot be inspected safely on this platform"
+        )
+    flags = os.O_RDONLY | nofollow | directory | getattr(os, "O_CLOEXEC", 0)
+    root_descriptor = os.open(root, flags)
+    conflicts: set[Path] = set()
+    total_entries = 0
+    try:
+        for protected in protected_paths:
+            if (
+                protected.is_absolute()
+                or not protected.parts
+                or protected.as_posix() != str(protected)
+                or any(part in {"", ".", ".."} for part in protected.parts)
+            ):
+                raise RuntimeError("RuleSpec target identity contract is malformed")
+            current_descriptor = os.dup(root_descriptor)
+            prefix: list[str] = []
+            try:
+                for index, expected_name in enumerate(protected.parts):
+                    entries: list[_TargetIdentityEntrySnapshot] = []
+                    with os.scandir(current_descriptor) as iterator:
+                        for entry_index, entry in enumerate(iterator, start=1):
+                            if entry_index > _MAX_TARGET_IDENTITY_DIRECTORY_ENTRIES:
+                                raise RuntimeError(
+                                    "RuleSpec target identity directory exceeds its "
+                                    "entry limit"
+                                )
+                            total_entries += 1
+                            if total_entries > _MAX_TARGET_IDENTITY_TOTAL_ENTRIES:
+                                raise RuntimeError(
+                                    "RuleSpec target identity census exceeds its "
+                                    "total entry limit"
+                                )
+                            try:
+                                entry.name.encode("utf-8")
+                            except UnicodeEncodeError as exc:
+                                raise RuntimeError(
+                                    "RuleSpec target identity directory contains a "
+                                    "non-UTF-8 path"
+                                ) from exc
+                            try:
+                                entry_stat = entry.stat(follow_symlinks=False)
+                            except OSError as exc:
+                                scanned_path = Path(*prefix, entry.name)
+                                raise RuntimeError(
+                                    "RuleSpec target identity path changed during "
+                                    f"census: {scanned_path.as_posix()}"
+                                ) from exc
+                            entries.append(
+                                _TargetIdentityEntrySnapshot(
+                                    name=entry.name,
+                                    is_directory=stat.S_ISDIR(entry_stat.st_mode),
+                                    is_file=stat.S_ISREG(entry_stat.st_mode),
+                                    is_symlink=stat.S_ISLNK(entry_stat.st_mode),
+                                    device=entry_stat.st_dev,
+                                    inode=entry_stat.st_ino,
+                                    uid=entry_stat.st_uid,
+                                    mode=entry_stat.st_mode,
+                                )
+                            )
+                    expected_identity = _rulespec_filesystem_path_identity(
+                        expected_name
+                    )
+                    exact: _TargetIdentityEntrySnapshot | None = None
+                    for entry in entries:
+                        name = entry.name
+                        if (
+                            _rulespec_filesystem_path_identity(name)
+                            == expected_identity
+                            and name != expected_name
+                        ):
+                            conflicts.add(Path(*prefix, name))
+                        if name == expected_name:
+                            exact = entry
+                    if exact is None:
+                        break
+                    exact_path = Path(*prefix, expected_name)
+                    is_leaf = index == len(protected.parts) - 1
+                    if is_leaf:
+                        if exact.is_directory or exact.is_symlink or not exact.is_file:
+                            conflicts.add(exact_path)
+                        break
+                    if not exact.is_directory or exact.is_symlink:
+                        conflicts.add(exact_path)
+                        break
+                    try:
+                        next_descriptor = os.open(
+                            expected_name,
+                            flags,
+                            dir_fd=current_descriptor,
+                        )
+                    except OSError as exc:
+                        raise RuntimeError(
+                            "RuleSpec target identity path changed during census: "
+                            f"{exact_path.as_posix()}"
+                        ) from exc
+                    try:
+                        opened_stat = os.fstat(next_descriptor)
+                    except OSError as exc:
+                        os.close(next_descriptor)
+                        raise RuntimeError(
+                            "RuleSpec target identity path changed during census: "
+                            f"{exact_path.as_posix()}"
+                        ) from exc
+                    if (
+                        opened_stat.st_dev,
+                        opened_stat.st_ino,
+                        opened_stat.st_uid,
+                        opened_stat.st_mode,
+                    ) != (exact.device, exact.inode, exact.uid, exact.mode):
+                        os.close(next_descriptor)
+                        raise RuntimeError(
+                            "RuleSpec target identity path changed during census: "
+                            f"{exact_path.as_posix()}"
+                        )
+                    os.close(current_descriptor)
+                    current_descriptor = next_descriptor
+                    prefix.append(expected_name)
+            finally:
+                os.close(current_descriptor)
+    finally:
+        os.close(root_descriptor)
+    return sorted(conflicts, key=Path.as_posix)
+
+
+def _rulespec_target_live_identity_conflicts(
+    checkout_root: Path,
+    protected_paths: Sequence[Path],
+) -> list[Path]:
+    """Union sanitized tracked identity with bounded live filesystem aliases."""
+
+    tracked = _rulespec_migration_tracked_files(checkout_root)
+    conflicts = set(_creation_target_base_identity_conflicts(tracked, protected_paths))
+    conflicts.update(
+        _rulespec_target_filesystem_identity_conflicts(
+            checkout_root,
+            protected_paths,
+        )
+    )
+    return sorted(conflicts, key=Path.as_posix)
+
+
+def _require_creation_target_ancestors_safe(
+    checkout_root: Path,
+    protected_paths: Sequence[Path],
+) -> None:
+    """Reject creation targets whose parent traversal is indirect or non-directory."""
+
+    for relative in protected_paths:
+        if relative.is_absolute() or not relative.parts:
+            raise RuntimeError("Explicit creation target contract is malformed")
+        cursor = checkout_root
+        for part in relative.parts[:-1]:
+            cursor = cursor / part
+            if cursor.is_symlink():
+                raise RuntimeError(
+                    f"Explicit creation target path contains a symlink: {cursor}"
+                )
+            if cursor.exists() and not cursor.is_dir():
+                raise RuntimeError(
+                    f"Explicit creation target path contains a non-directory: {cursor}"
+                )
+
+
+def _require_creation_target_final_ownership(
+    checkout_root: Path,
+    contract: _EncodeCreationContract,
+) -> None:
+    """Require the new canonical manifest to be the sole live owner at commit."""
+
+    orphan_absence = contract.orphan_manifest or _pre_monorepo_orphan_absence_path(
+        contract.primary
+    )
+    if orphan_absence is not None and (
+        (checkout_root / orphan_absence).exists()
+        or (checkout_root / orphan_absence).is_symlink()
+    ):
+        raise RuntimeError("Explicit creation old-root manifest appeared during apply")
+    protected_paths = [
+        contract.primary,
+        contract.companion,
+        contract.canonical_manifest,
+    ]
+    if orphan_absence is not None:
+        protected_paths.append(orphan_absence)
+    identity_conflicts = _rulespec_target_live_identity_conflicts(
+        checkout_root,
+        protected_paths,
+    )
+    if identity_conflicts:
+        raise RuntimeError(
+            "Explicit creation target has a live filesystem-identity alias or "
+            "occupied descendant: "
+            + ", ".join(path.as_posix() for path in identity_conflicts)
+        )
+    claimants = _creation_live_manifest_claimants(
+        checkout_root,
+        destination_paths={contract.primary, contract.companion},
+    )
+    if claimants != [contract.canonical_manifest]:
+        raise RuntimeError(
+            "Explicit creation final manifest ownership is ambiguous: "
+            + ", ".join(path.as_posix() for path in claimants)
+        )
+
+
+def _require_legacy_orphan_target_final_ownership(
+    checkout_root: Path,
+    contract: _LegacyReplacementContract,
+) -> None:
+    """Require one migrated orphan target to have only its canonical live owner."""
+
+    orphan_manifest = _pre_monorepo_orphan_manifest_path(contract.source)
+    if orphan_manifest is None or contract.legacy_manifest.path != orphan_manifest:
+        return
+    canonical_manifest = _applied_encoding_manifest_path(contract.destination)
+    if (checkout_root / orphan_manifest).exists() or (
+        checkout_root / orphan_manifest
+    ).is_symlink():
+        raise RuntimeError("Legacy orphan manifest remains live after migration")
+    protected_paths = [
+        contract.destination,
+        companion_path(contract.destination),
+        canonical_manifest,
+        orphan_manifest,
+    ]
+    identity_conflicts = _rulespec_target_live_identity_conflicts(
+        checkout_root,
+        protected_paths,
+    )
+    if identity_conflicts:
+        raise RuntimeError(
+            "Legacy orphan target has a live filesystem-identity alias or "
+            "occupied descendant: "
+            + ", ".join(path.as_posix() for path in identity_conflicts)
+        )
+    claimants = _creation_live_manifest_claimants(
+        checkout_root,
+        destination_paths={contract.destination, companion_path(contract.destination)},
+    )
+    if claimants != [canonical_manifest]:
+        raise RuntimeError(
+            "Legacy orphan target final manifest ownership is ambiguous: "
+            + ", ".join(path.as_posix() for path in claimants)
+        )
 
 
 def _remove_nested_mapping_keys(value: object, keys: set[str]) -> tuple[object, int]:
@@ -28127,7 +29750,52 @@ def _resolve_legacy_replacement_contract(
             "signed corpus unit"
         )
 
-    legacy_manifest_path = _applied_encoding_manifest_path(source)
+    canonical_legacy_manifest_path = _applied_encoding_manifest_path(source)
+    orphan_legacy_manifest_path = _pre_monorepo_orphan_manifest_path(source)
+    canonical_manifest_present = (
+        canonical_legacy_manifest_path in tracked
+        or (policy_checkout_path / canonical_legacy_manifest_path).exists()
+        or (policy_checkout_path / canonical_legacy_manifest_path).is_symlink()
+    )
+    orphan_manifest_present = (
+        in_place
+        and orphan_legacy_manifest_path is not None
+        and (
+            orphan_legacy_manifest_path in tracked
+            or (policy_checkout_path / orphan_legacy_manifest_path).exists()
+            or (policy_checkout_path / orphan_legacy_manifest_path).is_symlink()
+        )
+    )
+    if canonical_manifest_present and orphan_manifest_present:
+        raise ValueError(
+            "legacy replacement ownership manifest is ambiguous between canonical "
+            "and pre-monorepo roots"
+        )
+    legacy_manifest_path = (
+        canonical_legacy_manifest_path
+        if canonical_manifest_present
+        else orphan_legacy_manifest_path
+        if orphan_manifest_present and orphan_legacy_manifest_path is not None
+        else canonical_legacy_manifest_path
+    )
+    orphan_manifest_layout = legacy_manifest_path == orphan_legacy_manifest_path
+    if orphan_manifest_layout:
+        assert orphan_legacy_manifest_path is not None
+        identity_conflicts = _creation_target_base_identity_conflicts(
+            tracked,
+            [
+                source,
+                old_companion,
+                canonical_legacy_manifest_path,
+                orphan_legacy_manifest_path,
+            ],
+        )
+        if identity_conflicts:
+            raise ValueError(
+                "legacy orphan target group has a tracked filesystem-identity "
+                "alias or occupied descendant: "
+                + ", ".join(path.as_posix() for path in identity_conflicts)
+            )
     if tracked.get(legacy_manifest_path) != "100644":
         raise ValueError(
             "legacy replacement requires its exact tracked v1 HMAC ownership manifest"
@@ -28146,8 +29814,11 @@ def _resolve_legacy_replacement_contract(
     ):
         raise ValueError("legacy ownership manifest differs from clean HEAD")
     try:
-        legacy_payload = json.loads(legacy_manifest_raw.decode("utf-8"))
-    except (UnicodeError, json.JSONDecodeError, RecursionError) as exc:
+        legacy_payload = json.loads(
+            legacy_manifest_raw.decode("utf-8"),
+            object_pairs_hook=_unique_json_object,
+        )
+    except (UnicodeError, json.JSONDecodeError, RecursionError, ValueError) as exc:
         raise ValueError("legacy ownership manifest is not valid UTF-8 JSON") from exc
     expected_files = {item.path.as_posix(): item.sha256 for item in deleted_files}
     legacy_issues = _legacy_v1_manifest_issues(
@@ -28157,9 +29828,26 @@ def _resolve_legacy_replacement_contract(
         expected_citation=requested_citation,
         jurisdiction_prefix=source.parts[0],
         allow_unmarked_manual_exception=in_place,
+        allow_orphan_layout=orphan_manifest_layout,
     )
     if legacy_issues:
         raise ValueError("; ".join(legacy_issues))
+    if orphan_manifest_layout:
+        try:
+            claimants = _legacy_destination_manifest_claimants_at_base(
+                policy_checkout_path,
+                base_commit=base_commit,
+                destination_paths={source, old_companion},
+            )
+        except RuntimeError as exc:
+            raise ValueError(
+                f"legacy orphan manifest ownership is unreadable: {exc}"
+            ) from exc
+        if claimants != [legacy_manifest_path]:
+            raise ValueError(
+                "legacy orphan manifest does not have unique base ownership: "
+                + ", ".join(path.as_posix() for path in claimants)
+            )
     legacy_manifest = _LegacyReplacementFile(
         legacy_manifest_path,
         hashlib.sha256(legacy_manifest_raw).hexdigest(),
@@ -28542,11 +30230,17 @@ def _resolve_legacy_replacement_contract(
                     predecessor_raw,
                 )
             )
-        claimants = _legacy_destination_manifest_claimants_at_base(
-            policy_checkout_path,
-            base_commit=base_commit,
-            destination_paths={item.path for item in destination_predecessor_files},
-        )
+        try:
+            claimants = _legacy_destination_manifest_claimants_at_base(
+                policy_checkout_path,
+                base_commit=base_commit,
+                destination_paths={item.path for item in destination_predecessor_files},
+            )
+        except RuntimeError as exc:
+            raise ValueError(
+                "legacy replacement canonical destination predecessor is already "
+                f"manifest-owned: unreadable ownership evidence ({exc})"
+            ) from exc
         if claimants:
             raise ValueError(
                 "legacy replacement canonical destination predecessor is already "
@@ -29076,6 +30770,13 @@ def _resolve_encode_replacement_target(
     corpus_release: LocalCorpusRelease,
 ) -> _EncodeReplacementTarget | None:
     raw_path = getattr(args, "replace_rulespec_path", None)
+    # Read the new option only when the caller explicitly stores it. Dynamic
+    # test/proxy namespaces (notably MagicMock) synthesize arbitrary attributes
+    # through ``getattr`` and must not silently activate a protected mutation.
+    try:
+        create_path = vars(args).get("create_rulespec_path")
+    except TypeError:
+        create_path = getattr(args, "create_rulespec_path", None)
     legacy_source = getattr(args, "replace_legacy_rulespec_path", None)
     scheduled_dependents = tuple(
         Path(path) for path in getattr(args, "legacy_dependent_rulespec_path", ())
@@ -29087,7 +30788,27 @@ def _resolve_encode_replacement_target(
         Path(path)
         for path in getattr(args, "legacy_retained_successor_rulespec_path", ())
     )
+    if raw_path is not None and create_path is not None:
+        raise ValueError(
+            "encode --replace-rulespec-path and --create-rulespec-path are "
+            "mutually exclusive"
+        )
+    creating = create_path is not None
+    if creating:
+        raw_path = create_path
+    try:
+        review_contract = vars(args).get("review_contract_json")
+    except TypeError:
+        review_contract = getattr(args, "review_contract_json", None)
     if raw_path is None and legacy_source is None:
+        if (
+            isinstance(review_contract, _DeferredOutputReviewContract)
+            and review_contract.target_operation is not None
+        ):
+            raise ValueError(
+                "operation-bound v3 review contracts require an explicit "
+                "create or replacement target"
+            )
         if scheduled_dependents or exact_dependents or retained_successors:
             raise ValueError("legacy dependent paths require a legacy replacement")
         return None
@@ -29097,10 +30818,14 @@ def _resolve_encode_replacement_target(
             "--replace-rulespec-path must be supplied together"
         )
     if getattr(args, "apply", False) is not True:
-        raise ValueError("encode --replace-rulespec-path requires --apply")
+        option = "--create-rulespec-path" if creating else "--replace-rulespec-path"
+        raise ValueError(f"encode {option} requires --apply")
     if getattr(args, "mode", None) != "repo-augmented":
+        option = "--create-rulespec-path" if creating else "--replace-rulespec-path"
+        raise ValueError(f"encode {option} requires --mode repo-augmented")
+    if creating and legacy_source is not None:
         raise ValueError(
-            "encode --replace-rulespec-path requires --mode repo-augmented"
+            "encode --create-rulespec-path cannot perform a legacy replacement"
         )
     if legacy_source is None and (
         scheduled_dependents or exact_dependents or retained_successors
@@ -29108,6 +30833,14 @@ def _resolve_encode_replacement_target(
         raise ValueError("legacy dependent paths require a legacy replacement")
 
     if legacy_source is not None:
+        if (
+            not isinstance(review_contract, _DeferredOutputReviewContract)
+            or review_contract.target_operation != "replace"
+        ):
+            raise ValueError(
+                "encode --replace-legacy-rulespec-path requires an exact v3 "
+                "review contract with target_operation=replace"
+            )
         contract = _resolve_legacy_replacement_contract(
             source_raw=Path(legacy_source),
             destination_raw=Path(raw_path),
@@ -29119,6 +30852,15 @@ def _resolve_encode_replacement_target(
             exact_dependent_paths=exact_dependents,
             retained_successor_paths=retained_successors,
         )
+        if (
+            review_contract.citation
+            != normalize_corpus_identifier(source_unit.requested)
+            or review_contract.rulespec_path != contract.destination.as_posix()
+        ):
+            raise ValueError(
+                "encode --replace-legacy-rulespec-path review contract must bind "
+                "its exact source citation and destination RuleSpec path"
+            )
         context_paths = [
             policy_checkout_path / item.path for item in contract.deleted_files
         ]
@@ -29134,6 +30876,18 @@ def _resolve_encode_replacement_target(
         )
 
     checkout_relative = Path(raw_path)
+    if creating:
+        try:
+            checkout_relative = _parse_create_rulespec_path(str(raw_path))
+        except argparse.ArgumentTypeError as exc:
+            raise ValueError(str(exc)) from exc
+    elif str(raw_path) != unicodedata.normalize(
+        "NFC", str(raw_path)
+    ) or checkout_relative.as_posix() != str(raw_path):
+        raise ValueError(
+            "encode --replace-rulespec-path must use exact NFC canonical "
+            "checkout-relative text"
+        )
     roots = tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS))
     if (
         checkout_relative.is_absolute()
@@ -29143,12 +30897,156 @@ def _resolve_encode_replacement_target(
         or not _is_protected_rulespec_yaml_path(checkout_relative, roots=roots)
         or checkout_relative.name.endswith(RULESPEC_TEST_FILE_SUFFIX)
     ):
+        option = "--create-rulespec-path" if creating else "--replace-rulespec-path"
+        qualifier = "a new policies/" if creating else "an existing"
         raise ValueError(
-            "encode --replace-rulespec-path must name an existing checkout-relative "
-            "primary RuleSpec under the requested source jurisdiction"
+            f"encode {option} must name {qualifier} checkout-relative primary "
+            "RuleSpec under the requested source jurisdiction"
         )
 
     target = policy_checkout_path / checkout_relative
+    if not creating:
+        tracked = _rulespec_migration_tracked_files(policy_checkout_path)
+        if tracked.get(checkout_relative) != "100644":
+            raise ValueError(
+                "encode --replace-rulespec-path must name the exact tracked "
+                "regular 0644 RuleSpec path"
+            )
+        protected_paths = [
+            checkout_relative,
+            companion_path(checkout_relative),
+            _applied_encoding_manifest_path(checkout_relative),
+        ]
+        orphan_manifest = _pre_monorepo_orphan_manifest_path(checkout_relative)
+        if orphan_manifest is not None:
+            protected_paths.append(orphan_manifest)
+            if (
+                orphan_manifest in tracked
+                or (policy_checkout_path / orphan_manifest).exists()
+                or (policy_checkout_path / orphan_manifest).is_symlink()
+            ):
+                raise ValueError(
+                    "encode --replace-rulespec-path cannot replace a target with "
+                    "a pre-monorepo old-root owner; use "
+                    "--replace-legacy-rulespec-path"
+                )
+        identity_conflicts = _rulespec_target_live_identity_conflicts(
+            policy_checkout_path,
+            protected_paths,
+        )
+        if identity_conflicts:
+            raise ValueError(
+                "encode --replace-rulespec-path target group has a live "
+                "filesystem-identity alias or occupied descendant: "
+                + ", ".join(path.as_posix() for path in identity_conflicts)
+            )
+    expected_target_operation = "create" if creating else "replace"
+    if (
+        not isinstance(review_contract, _DeferredOutputReviewContract)
+        or review_contract.target_operation != expected_target_operation
+    ):
+        option = "--create-rulespec-path" if creating else "--replace-rulespec-path"
+        raise ValueError(
+            f"encode {option} requires an exact v3 review contract with "
+            f"target_operation={expected_target_operation}"
+        )
+    if creating:
+        if checkout_relative.parts[1] != "policies":
+            raise ValueError(
+                "encode --create-rulespec-path is limited to the policies/ root"
+            )
+        if not review_contract.required_test_cases:
+            raise ValueError(
+                "encode --create-rulespec-path requires a nonempty structured "
+                "review test contract"
+            )
+        creation_test_issues = _creation_review_test_contract_issues(
+            review_contract.rulespec_path,
+            review_contract.required_test_cases,
+        )
+        if creation_test_issues:
+            raise ValueError("; ".join(creation_test_issues))
+        companion = _rulespec_test_path(target)
+        companion_relative = companion.relative_to(policy_checkout_path)
+        canonical_manifest_relative = _applied_encoding_manifest_path(checkout_relative)
+        orphan_manifest_relative = _pre_monorepo_orphan_manifest_path(checkout_relative)
+        orphan_absence_relative = _pre_monorepo_orphan_absence_path(checkout_relative)
+        manifest_relatives = [canonical_manifest_relative]
+        if orphan_manifest_relative is not None:
+            manifest_relatives.append(orphan_manifest_relative)
+        if (
+            orphan_absence_relative is not None
+            and orphan_absence_relative not in manifest_relatives
+        ):
+            manifest_relatives.append(orphan_absence_relative)
+        try:
+            _require_creation_target_ancestors_safe(
+                policy_checkout_path,
+                [checkout_relative, companion_relative, *manifest_relatives],
+            )
+        except RuntimeError as exc:
+            raise ValueError(str(exc)) from exc
+        tracked = _rulespec_migration_tracked_files(policy_checkout_path)
+        protected_paths = [
+            checkout_relative,
+            companion_relative,
+            *manifest_relatives,
+        ]
+        occupied = tuple(
+            path
+            for path in protected_paths
+            if path in tracked
+            or (policy_checkout_path / path).exists()
+            or (policy_checkout_path / path).is_symlink()
+        )
+        if occupied:
+            raise ValueError(
+                "encode --create-rulespec-path requires an absent primary, "
+                "companion, and canonical or pre-monorepo apply manifest"
+            )
+        base_commit, base_tree = _rulespec_migration_base_identity(policy_checkout_path)
+        _require_legacy_replacement_clean_checkout(policy_checkout_path)
+        identity_conflicts = _creation_target_base_identity_conflicts(
+            _rulespec_migration_tracked_files(policy_checkout_path), protected_paths
+        )
+        if identity_conflicts:
+            raise ValueError(
+                "encode --create-rulespec-path target filesystem identity is "
+                "already tracked at the base: "
+                + ", ".join(path.as_posix() for path in identity_conflicts)
+            )
+        claimants = _legacy_destination_manifest_claimants_at_base(
+            policy_checkout_path,
+            base_commit=base_commit,
+            destination_paths={checkout_relative, companion_relative},
+        )
+        if claimants:
+            raise ValueError(
+                "encode --create-rulespec-path target already has base manifest "
+                "ownership: " + ", ".join(path.as_posix() for path in claimants)
+            )
+        requested_citation = normalize_corpus_identifier(source_unit.requested)
+        if (
+            review_contract.citation != requested_citation
+            or review_contract.rulespec_path != checkout_relative.as_posix()
+        ):
+            raise ValueError(
+                "encode --create-rulespec-path review contract must bind its exact "
+                "source citation and RuleSpec path"
+            )
+        return _EncodeReplacementTarget(
+            relative_output=Path(*checkout_relative.parts[1:]),
+            context_paths=(),
+            creation=_EncodeCreationContract(
+                base_commit=base_commit,
+                base_tree=base_tree,
+                primary=checkout_relative,
+                companion=companion_relative,
+                canonical_manifest=canonical_manifest_relative,
+                orphan_manifest=orphan_manifest_relative,
+            ),
+        )
+
     target_bytes = read_bounded_regular_file(
         policy_checkout_path,
         target,
@@ -29186,6 +31084,14 @@ def _resolve_encode_replacement_target(
         raise ValueError(
             "replacement RuleSpec corpus citation does not match the requested source"
         )
+    if (
+        review_contract.citation != requested_citation
+        or review_contract.rulespec_path != checkout_relative.as_posix()
+    ):
+        raise ValueError(
+            "encode --replace-rulespec-path review contract must bind its exact "
+            "source citation and RuleSpec path"
+        )
     replacement_source = resolve_corpus_source_unit(
         replacement_citation,
         corpus_release,
@@ -29210,9 +31116,17 @@ def _resolve_encode_replacement_target(
             max_bytes=10 * 1024 * 1024,
         )
         context_paths.append(companion)
+    try:
+        existing_contract = _capture_existing_target_contract(
+            policy_checkout_path,
+            checkout_relative,
+        )
+    except RuntimeError as exc:
+        raise ValueError(str(exc)) from exc
     return _EncodeReplacementTarget(
         relative_output=Path(*checkout_relative.parts[1:]),
         context_paths=tuple(context_paths),
+        existing=existing_contract,
     )
 
 
@@ -29747,6 +31661,12 @@ def _run_encode_attempt(
             if replacement_target is not None
             else None
         ),
+        target_operation=(
+            deferred_output_review_contract.target_operation
+            if replacement_target is not None
+            and deferred_output_review_contract is not None
+            else None
+        ),
         validation_retry_feedback=validation_retry_feedback,
         validation_retry_candidate=validation_retry_candidate,
         repair_candidate_tests_only=(
@@ -29818,6 +31738,24 @@ def _run_encode_attempt(
         result,
         _REPLACEMENT_OVERLAY_SCOPE_ATTR,
         replacement_target is not None,
+    )
+    setattr(
+        result,
+        _CREATION_TARGET_ATTR,
+        (
+            getattr(replacement_target, "creation", None)
+            if replacement_target is not None
+            else None
+        ),
+    )
+    setattr(
+        result,
+        _EXISTING_TARGET_ATTR,
+        (
+            getattr(replacement_target, "existing", None)
+            if replacement_target is not None
+            else None
+        ),
     )
     protected_review_excerpts = (
         _quoted_review_finding_excerpts(
@@ -51567,8 +53505,25 @@ def _build_apply_validation_snapshot(
         _LegacyReplacementContract,
     ):
         raise RuntimeError("Legacy replacement contract is malformed")
+    creation = _result_creation_target_contract(result)
+    if creation is not None and not isinstance(creation, _EncodeCreationContract):
+        raise RuntimeError("Explicit creation target contract is malformed")
+    existing = _result_existing_target_contract(result)
+    if existing is not None and not isinstance(existing, _EncodeExistingTargetContract):
+        raise RuntimeError("Explicit replacement target contract is malformed")
+    if (
+        sum(
+            contract is not None
+            for contract in (creation, legacy_replacement, existing)
+        )
+        > 1
+    ):
+        raise RuntimeError("Explicit target contracts cannot be combined")
     replacement_overlay_scope = (
-        _result_replacement_overlay_scope(result) or legacy_replacement is not None
+        _result_replacement_overlay_scope(result)
+        or legacy_replacement is not None
+        or creation is not None
+        or existing is not None
     )
     snapshot = {
         "schema": "axiom-encode/apply-validation-snapshot/v1",
@@ -51602,6 +53557,22 @@ def _build_apply_validation_snapshot(
             )
         ),
         "replacement_overlay_scope": replacement_overlay_scope,
+        "creation_target": (
+            {
+                "base_commit": creation.base_commit,
+                "base_tree": creation.base_tree,
+                "primary": creation.primary.as_posix(),
+                "companion": creation.companion.as_posix(),
+                "canonical_manifest": creation.canonical_manifest.as_posix(),
+                "orphan_manifest": (
+                    creation.orphan_manifest.as_posix()
+                    if creation.orphan_manifest is not None
+                    else None
+                ),
+            }
+            if creation is not None
+            else None
+        ),
     }
     if legacy_replacement is not None:
         snapshot["legacy_replacement"] = {
@@ -52628,6 +54599,11 @@ def _require_staged_manifest_matches_validation_snapshot(
         "source_attestation": expected_source_attestation,
         "validation_execution": manifest_validation_execution,
     }
+    if snapshot.get("creation_target") is not None:
+        expected_fields["target_operation"] = "create"
+        expected_fields["creation_target"] = snapshot["creation_target"]
+    elif _result_replacement_overlay_scope(result):
+        expected_fields["target_operation"] = "replace"
     if result_metadata.get("codex_cli_version") is not None:
         expected_fields["codex_cli_version"] = result_metadata["codex_cli_version"]
         expected_fields["codex_cli_sha256"] = result_metadata["codex_cli_sha256"]
@@ -52681,7 +54657,8 @@ def _atomic_replace_bytes(target: Path, raw: bytes, *, mode: int = 0o644) -> Non
         temporary_path.unlink(missing_ok=True)
 
 
-_APPLY_TRANSACTION_SCHEMA = "axiom-encode/apply-transaction/v2"
+_APPLY_TRANSACTION_SCHEMA_V2 = "axiom-encode/apply-transaction/v2"
+_APPLY_TRANSACTION_SCHEMA = "axiom-encode/apply-transaction/v3"
 _APPLY_TRANSACTION_DIRECTORY = Path(".axiom/.apply-transaction")
 _MAX_APPLY_TRANSACTION_ENTRIES = 1_024
 _MAX_APPLY_TRANSACTION_DIRECTORIES = 8_192
@@ -52930,13 +54907,25 @@ def _is_canonical_apply_transaction_target(
 
     def canonical_tail(path: Path, *, suffix: str) -> bool:
         parts = path.parts
+        jurisdiction_root = checkout_root / parts[0] if parts else checkout_root
+        if jurisdiction_root.exists() or jurisdiction_root.is_symlink():
+            canonical_jurisdiction = (
+                canonical_rulespec_root_identity(jurisdiction_root) is not None
+            )
+        else:
+            # An explicit creation may be the first RuleSpec in a jurisdiction,
+            # so its content root does not exist until this transaction creates
+            # it.  Bind that case to the already-existing canonical country
+            # checkout; the transaction's no-symlink ancestor checks still
+            # govern every directory it creates.
+            canonical_jurisdiction = is_composition_policy_repo_root(checkout_root)
         if (
             len(parts) < 3
             or path.suffix != suffix
             or re.fullmatch(r"[a-z]{2}(?:-[a-z0-9_]+)*", parts[0]) is None
             or parts[1] not in RULESPEC_ATOMIC_MODULE_ROOTS
             or monorepo_checkout_name(parts[0]) != checkout_root.name
-            or canonical_rulespec_root_identity(checkout_root / parts[0]) is None
+            or not canonical_jurisdiction
         ):
             return False
         return True
@@ -52967,11 +54956,67 @@ def _is_canonical_apply_transaction_target(
     ) and not manifest_tail.name.endswith(".test.json")
 
 
+def _is_pre_monorepo_manifest_deletion_target(
+    checkout_root: Path, relative: Path
+) -> bool:
+    """Return whether ``relative`` exactly round-trips to an admitted orphan.
+
+    This is intentionally stricter than a manifest-root prefix check.  The
+    transaction journal is recovery authority, so an old-root name is safe
+    only if it deterministically maps back to the same federal RuleSpec path
+    accepted by :func:`_pre_monorepo_orphan_manifest_path`.
+    """
+
+    prefix = APPLIED_ENCODING_MANIFEST_DIR.parts
+    if (
+        checkout_root.name != "rulespec-us"
+        or relative.parts[: len(prefix)] != prefix
+        or relative.as_posix() != str(relative)
+    ):
+        return False
+    tail = relative.parts[len(prefix) :]
+    if (
+        len(tail) < 2
+        or tail[0] not in {"policies", "statutes"}
+        or relative.suffix != ".json"
+        or relative.name.endswith(".test.json")
+        or any(
+            part in {"", ".", ".."}
+            or part != unicodedata.normalize("NFC", part)
+            or any(
+                character.isspace()
+                or unicodedata.category(character) in {"Cc", "Cf", "Cs", "Zl", "Zp"}
+                for character in part
+            )
+            for part in tail
+        )
+    ):
+        return False
+    destination = Path("us", *tail).with_suffix(RULESPEC_FILE_SUFFIX)
+    return (
+        _is_protected_rulespec_yaml_path(
+            destination, roots=tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS))
+        )
+        and canonical_rulespec_root_identity(checkout_root / "us") is not None
+        and _pre_monorepo_orphan_manifest_path(destination) == relative
+        and _applied_encoding_manifest_path(destination)
+        == APPLIED_ENCODING_MANIFEST_DIR / "us" / Path(*tail)
+    )
+
+
 def _apply_transaction_target_relative_path(
     checkout_root: Path,
     target: Path,
+    *,
+    authorized_pre_monorepo_manifest_deletions: frozenset[Path] = frozenset(),
 ) -> str:
     relative_value = _apply_transaction_relative_path(checkout_root, target)
+    relative = Path(relative_value)
+    if (
+        relative in authorized_pre_monorepo_manifest_deletions
+        and _is_pre_monorepo_manifest_deletion_target(checkout_root, relative)
+    ):
+        return relative_value
     if not _is_canonical_apply_transaction_target(
         checkout_root,
         Path(relative_value),
@@ -53106,13 +55151,29 @@ def _load_apply_transaction_journal(
         raise RuntimeError(f"Apply transaction journal is unreadable: {path}") from exc
     if not isinstance(payload, dict):
         raise RuntimeError("Apply transaction journal must be an object")
-    if set(payload) != {"schema", "state", "entries", "created_directories"}:
+    schema = payload.get("schema")
+    v2_fields = {"schema", "state", "entries", "created_directories"}
+    v3_fields = {*v2_fields, "legacy_orphan_deletion"}
+    if (schema == _APPLY_TRANSACTION_SCHEMA_V2 and set(payload) != v2_fields) or (
+        schema == _APPLY_TRANSACTION_SCHEMA and set(payload) != v3_fields
+    ):
         raise RuntimeError("Apply transaction journal has an unsupported shape")
-    if payload.get("schema") != _APPLY_TRANSACTION_SCHEMA:
+    if schema not in {_APPLY_TRANSACTION_SCHEMA_V2, _APPLY_TRANSACTION_SCHEMA}:
         raise RuntimeError("Apply transaction journal schema is unsupported")
     if payload.get("state") not in {"prepared", "applying", "committed"}:
         raise RuntimeError("Apply transaction journal state is invalid")
     entries = payload.get("entries")
+    orphan_record = (
+        payload.get("legacy_orphan_deletion")
+        if schema == _APPLY_TRANSACTION_SCHEMA
+        else None
+    )
+    orphan_path_authorized = (
+        orphan_record.get("path")
+        if isinstance(orphan_record, dict)
+        and isinstance(orphan_record.get("path"), str)
+        else None
+    )
     if (
         not isinstance(entries, list)
         or not entries
@@ -53145,7 +55206,13 @@ def _load_apply_transaction_journal(
         ):
             raise RuntimeError("Apply transaction journal path is unsafe")
         relative = Path(path_value)
-        if not _is_canonical_apply_transaction_target(checkout_root, relative):
+        if not (
+            _is_canonical_apply_transaction_target(checkout_root, relative)
+            or (
+                path_value == orphan_path_authorized
+                and _is_pre_monorepo_manifest_deletion_target(checkout_root, relative)
+            )
+        ):
             raise RuntimeError("Apply transaction journal target is not canonical")
         if path_value in seen_paths:
             raise RuntimeError("Apply transaction journal lists a duplicate target")
@@ -53188,6 +55255,70 @@ def _load_apply_transaction_journal(
             old_file_parent_paths.update(parents)
         elif not entry["delete"]:
             new_file_parent_paths.update(parents)
+
+    entries_by_path = {str(entry["path"]): entry for entry in entries}
+    if orphan_record is not None:
+        record_fields = {
+            "path",
+            "old_sha256",
+            "canonical_manifest_path",
+            "canonical_manifest_sha256",
+            "receipt_path",
+            "receipt_sha256",
+        }
+        if not isinstance(orphan_record, dict) or set(orphan_record) != record_fields:
+            raise RuntimeError("Apply transaction orphan deletion authority is invalid")
+        if not all(isinstance(orphan_record[field], str) for field in record_fields):
+            raise RuntimeError("Apply transaction orphan deletion authority is invalid")
+        orphan_path = str(orphan_record["path"])
+        old_entry = entries_by_path.get(orphan_path)
+        canonical_entry = entries_by_path.get(
+            str(orphan_record["canonical_manifest_path"])
+        )
+        receipt_entry = entries_by_path.get(str(orphan_record["receipt_path"]))
+        canonical_path = Path(str(orphan_record["canonical_manifest_path"]))
+        expected_canonical = (
+            APPLIED_ENCODING_MANIFEST_DIR
+            / "us"
+            / Path(orphan_path).relative_to(APPLIED_ENCODING_MANIFEST_DIR)
+        )
+        if (
+            not _is_pre_monorepo_manifest_deletion_target(
+                checkout_root, Path(orphan_path)
+            )
+            or canonical_path != expected_canonical
+            or old_entry is None
+            or old_entry["existed"] is not True
+            or old_entry["delete"] is not True
+            or old_entry["mode"] != 0o644
+            or old_entry["old_sha256"] != orphan_record["old_sha256"]
+            or canonical_entry is None
+            or canonical_entry["existed"] is not False
+            or canonical_entry["old_sha256"] is not None
+            or canonical_entry["backup"] is not None
+            or canonical_entry["delete"] is not False
+            or canonical_entry["mode"] != 0o644
+            or canonical_entry["new_sha256"]
+            != orphan_record["canonical_manifest_sha256"]
+            or receipt_entry is None
+            or receipt_entry["existed"] is not False
+            or receipt_entry["old_sha256"] is not None
+            or receipt_entry["backup"] is not None
+            or receipt_entry["delete"] is not False
+            or receipt_entry["mode"] != 0o644
+            or receipt_entry["new_sha256"] != orphan_record["receipt_sha256"]
+            or not str(orphan_record["receipt_path"]).startswith(
+                APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR.as_posix() + "/"
+            )
+            or sum(
+                str(entry["path"]).startswith(
+                    APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR.as_posix() + "/"
+                )
+                for entry in entries
+            )
+            != 1
+        ):
+            raise RuntimeError("Apply transaction orphan deletion authority is invalid")
 
     directories = payload.get("created_directories")
     if (
@@ -53403,6 +55534,7 @@ def _install_apply_transaction(
     expected_originals: Mapping[Path, str | None] | None = None,
     pre_install_check: Callable[[], None] | None = None,
     post_install_check: Callable[[], None] | None = None,
+    authorized_pre_monorepo_manifest_deletions: Collection[Path] = (),
 ) -> None:
     """Durably install a byte-exact set with killed-process recovery."""
 
@@ -53426,8 +55558,16 @@ def _install_apply_transaction(
         Path(os.path.abspath(Path(target).expanduser())): digest
         for target, digest in (expected_originals or {}).items()
     }
+    authorized_orphan_deletions = frozenset(
+        Path(_apply_transaction_relative_path(checkout_root, Path(target)))
+        for target in authorized_pre_monorepo_manifest_deletions
+    )
     relative_targets = {
-        target: _apply_transaction_target_relative_path(checkout_root, target)
+        target: _apply_transaction_target_relative_path(
+            checkout_root,
+            target,
+            authorized_pre_monorepo_manifest_deletions=authorized_orphan_deletions,
+        )
         for target, _raw in normalized_files
     }
 
@@ -53500,7 +55640,57 @@ def _install_apply_transaction(
                 "state": "prepared",
                 "entries": entries,
                 "created_directories": created_directories,
+                "legacy_orphan_deletion": None,
             }
+            if authorized_orphan_deletions:
+                if len(authorized_orphan_deletions) != 1:
+                    raise RuntimeError("Only one legacy orphan deletion is allowed")
+                orphan_path = next(iter(authorized_orphan_deletions))
+                entries_by_path = {str(entry["path"]): entry for entry in entries}
+                orphan_entry = entries_by_path.get(orphan_path.as_posix())
+                canonical_path = (
+                    APPLIED_ENCODING_MANIFEST_DIR
+                    / "us"
+                    / orphan_path.relative_to(APPLIED_ENCODING_MANIFEST_DIR)
+                )
+                canonical_entry = entries_by_path.get(canonical_path.as_posix())
+                receipt_entries = [
+                    entry
+                    for entry in entries
+                    if str(entry["path"]).startswith(
+                        APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR.as_posix() + "/"
+                    )
+                ]
+                if (
+                    not _is_pre_monorepo_manifest_deletion_target(
+                        checkout_root, orphan_path
+                    )
+                    or orphan_entry is None
+                    or orphan_entry["existed"] is not True
+                    or orphan_entry["delete"] is not True
+                    or orphan_entry["mode"] != 0o644
+                    or canonical_entry is None
+                    or canonical_entry["existed"] is not False
+                    or canonical_entry["old_sha256"] is not None
+                    or canonical_entry["backup"] is not None
+                    or canonical_entry["delete"] is not False
+                    or canonical_entry["mode"] != 0o644
+                    or len(receipt_entries) != 1
+                    or receipt_entries[0]["existed"] is not False
+                    or receipt_entries[0]["old_sha256"] is not None
+                    or receipt_entries[0]["backup"] is not None
+                    or receipt_entries[0]["delete"] is not False
+                    or receipt_entries[0]["mode"] != 0o644
+                ):
+                    raise RuntimeError("Legacy orphan deletion transaction is invalid")
+                journal["legacy_orphan_deletion"] = {
+                    "path": orphan_path.as_posix(),
+                    "old_sha256": orphan_entry["old_sha256"],
+                    "canonical_manifest_path": canonical_path.as_posix(),
+                    "canonical_manifest_sha256": canonical_entry["new_sha256"],
+                    "receipt_path": receipt_entries[0]["path"],
+                    "receipt_sha256": receipt_entries[0]["new_sha256"],
+                }
             _write_apply_transaction_journal(transaction_dir, journal)
             journal["state"] = "applying"
             _write_apply_transaction_journal(transaction_dir, journal)
@@ -53579,8 +55769,23 @@ def _require_apply_post_install_closure(
     receipt_bytes: bytes | None = None,
     exact_dependent_manifest_bytes: Mapping[Path, bytes] | None = None,
     signing_broker: SigningBroker | None = None,
+    creation: _EncodeCreationContract | None = None,
+    existing: _EncodeExistingTargetContract | None = None,
 ) -> None:
     """Recheck the execution closure while rollback is still possible."""
+
+    if creation is not None:
+        _require_creation_target_final_ownership(
+            _rulespec_checkout_root(policy_repo_path), creation
+        )
+    if existing is not None:
+        _require_existing_target_final_ownership(
+            _rulespec_checkout_root(policy_repo_path), existing
+        )
+    if legacy_replacement is not None:
+        _require_legacy_orphan_target_final_ownership(
+            _rulespec_checkout_root(policy_repo_path), legacy_replacement
+        )
 
     expected_snapshot = getattr(result, _APPLY_VALIDATION_SNAPSHOT_ATTR, None)
     if not isinstance(expected_snapshot, dict):
@@ -53896,6 +56101,36 @@ def _apply_generated_encoding_result(
         _LegacyReplacementContract,
     ):
         raise RuntimeError("Legacy replacement contract is malformed")
+    creation = _result_creation_target_contract(result)
+    if creation is not None and not isinstance(creation, _EncodeCreationContract):
+        raise RuntimeError("Explicit creation target contract is malformed")
+    existing = _result_existing_target_contract(result)
+    if existing is not None and not isinstance(existing, _EncodeExistingTargetContract):
+        raise RuntimeError("Explicit replacement target contract is malformed")
+    if (
+        sum(
+            contract is not None
+            for contract in (creation, legacy_replacement, existing)
+        )
+        > 1
+    ):
+        raise RuntimeError("Explicit target contracts cannot be combined")
+    if creation is not None:
+        expected_primary = Path(content_root.name) / relative_output
+        if creation.primary != expected_primary:
+            raise RuntimeError(
+                "Explicit creation target differs from its authenticated path: "
+                f"{relative_output}"
+            )
+        _require_creation_target_base(checkout_root, creation)
+    if existing is not None:
+        expected_primary = Path(content_root.name) / relative_output
+        if existing.primary != expected_primary:
+            raise RuntimeError(
+                "Explicit replacement target differs from its authenticated path: "
+                f"{relative_output}"
+            )
+        _require_existing_target_identity(checkout_root, existing)
 
     supplemental_source_issues = _supplemental_source_attestation_issues(
         supplemental_files,
@@ -54032,6 +56267,7 @@ def _apply_generated_encoding_result(
         ],
         (manifest_path, manifest_bytes),
     ]
+    authorized_pre_monorepo_manifest_deletions: tuple[Path, ...] = ()
     if legacy_replacement is not None:
         assert receipt_relative is not None
         assert receipt_bytes is not None
@@ -54069,6 +56305,11 @@ def _apply_generated_encoding_result(
         old_manifest_path = checkout_root / legacy_replacement.legacy_manifest.path
         if old_manifest_path not in written_targets:
             transaction_files.append((old_manifest_path, None))
+        expected_orphan_manifest = _pre_monorepo_orphan_manifest_path(
+            legacy_replacement.destination
+        )
+        if expected_orphan_manifest == legacy_replacement.legacy_manifest.path:
+            authorized_pre_monorepo_manifest_deletions = (old_manifest_path,)
         transaction_files.extend(
             (checkout_root / successor.legacy_manifest.path, None)
             for successor in legacy_replacement.retained_successors
@@ -54095,7 +56336,14 @@ def _apply_generated_encoding_result(
         )
         for relative_path in planned
     }
-    expected_originals[manifest_path] = _apply_transaction_file_digest(manifest_path)
+    if creation is not None:
+        expected_originals[manifest_path] = None
+    elif existing is not None:
+        expected_originals[manifest_path] = existing.canonical_manifest_sha256
+    else:
+        expected_originals[manifest_path] = _apply_transaction_file_digest(
+            manifest_path
+        )
     if legacy_replacement is not None:
         for item in legacy_replacement.destination_predecessor_files:
             expected_originals[checkout_root / item.path] = item.sha256
@@ -54140,6 +56388,10 @@ def _apply_generated_encoding_result(
                 checkout_root,
                 legacy_replacement,
             )
+        if creation is not None:
+            _require_creation_target_base(checkout_root, creation)
+        if existing is not None:
+            _require_existing_target_identity(checkout_root, existing)
         if legacy_replacement is None:
             _require_applied_manifest_not_shrunk(
                 manifest_path,
@@ -54190,6 +56442,8 @@ def _apply_generated_encoding_result(
             receipt_bytes=receipt_bytes,
             exact_dependent_manifest_bytes=exact_dependent_manifest_bytes,
             signing_broker=signing_broker,
+            creation=creation,
+            existing=existing,
         )
 
     _install_apply_transaction(
@@ -54198,6 +56452,9 @@ def _apply_generated_encoding_result(
         expected_originals=expected_originals,
         pre_install_check=pre_install_check,
         post_install_check=post_install_check,
+        authorized_pre_monorepo_manifest_deletions=(
+            authorized_pre_monorepo_manifest_deletions
+        ),
     )
     applied.append(manifest_path)
     if receipt_relative is not None:
@@ -54532,6 +56789,24 @@ def _write_applied_encoding_manifest(
     if codex_cli_version is not None:
         payload["codex_cli_version"] = codex_cli_version
         payload["codex_cli_sha256"] = codex_cli_sha256
+    creation = _result_creation_target_contract(result)
+    if creation is not None or _result_replacement_overlay_scope(result):
+        payload["target_operation"] = "create" if creation is not None else "replace"
+    if creation is not None:
+        if not isinstance(creation, _EncodeCreationContract):
+            raise RuntimeError("Explicit creation target contract is malformed")
+        payload["creation_target"] = {
+            "base_commit": creation.base_commit,
+            "base_tree": creation.base_tree,
+            "primary": creation.primary.as_posix(),
+            "companion": creation.companion.as_posix(),
+            "canonical_manifest": creation.canonical_manifest.as_posix(),
+            "orphan_manifest": (
+                creation.orphan_manifest.as_posix()
+                if creation.orphan_manifest is not None
+                else None
+            ),
+        }
     payload["source_attestation"] = source_attestation
     validation_snapshot = getattr(
         result,
@@ -54629,6 +56904,51 @@ def _require_applied_manifest_not_shrunk(
 
 def _applied_encoding_manifest_path(relative_output: Path) -> Path:
     return (APPLIED_ENCODING_MANIFEST_DIR / relative_output).with_suffix(".json")
+
+
+def _pre_monorepo_orphan_manifest_path(relative_output: Path) -> Path | None:
+    """Return the sole historical manifest reroot admitted for a canonical module.
+
+    Country-monorepo migration moved ``<root>/...`` RuleSpec files beneath a
+    jurisdiction directory without moving a small set of v1 manifests.  Only
+    stripping that exact leading jurisdiction segment is an admissible orphan
+    placement; no filesystem search or fuzzy ownership inference is allowed.
+    """
+
+    relative = Path(relative_output)
+    if (
+        len(relative.parts) < 3
+        # The only evidenced pre-consolidation layout is the federal tree:
+        # ``policies/...`` and ``statutes/...`` moved to ``us/...``.  State
+        # jurisdictions and ProgramSpecs have distinct historical layouts,
+        # so treating their root-level manifest names as interchangeable would
+        # manufacture ownership authority.
+        or relative.parts[0] != "us"
+        or relative.parts[1] not in {"policies", "statutes"}
+        or relative.suffix != RULESPEC_FILE_SUFFIX
+        or relative.name.endswith(RULESPEC_TEST_FILE_SUFFIX)
+    ):
+        return None
+    return _applied_encoding_manifest_path(Path(*relative.parts[1:]))
+
+
+def _pre_monorepo_orphan_absence_path(relative_output: Path) -> Path | None:
+    """Return a broad old-root path that creation must keep unoccupied.
+
+    This is deliberately broader than orphan replacement admission: an
+    unrecognized old-root name is not authority, but it must never be
+    overwritten by a new target.
+    """
+
+    relative = Path(relative_output)
+    if (
+        len(relative.parts) < 3
+        or relative.parts[1] not in RULESPEC_ATOMIC_MODULE_ROOTS
+        or relative.suffix != RULESPEC_FILE_SUFFIX
+        or relative.name.endswith(RULESPEC_TEST_FILE_SUFFIX)
+    ):
+        return None
+    return _applied_encoding_manifest_path(Path(*relative.parts[1:]))
 
 
 def _rulespec_checkout_root(content_root: Path) -> Path:
@@ -54757,11 +57077,31 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
     setattr(result, _APPLY_VALIDATION_SNAPSHOT_ATTR, None)
     legacy_replacement = _result_legacy_replacement_contract(result)
     replacement_overlay_scope = _result_replacement_overlay_scope(result)
+    creation = _result_creation_target_contract(result)
+    existing = _result_existing_target_contract(result)
     if legacy_replacement is not None and not isinstance(
         legacy_replacement,
         _LegacyReplacementContract,
     ):
         return False, ["Legacy replacement contract is malformed"], {}
+    if creation is not None and not isinstance(creation, _EncodeCreationContract):
+        return False, ["Explicit creation target contract is malformed"], {}
+    if existing is not None and not isinstance(existing, _EncodeExistingTargetContract):
+        return False, ["Explicit replacement target contract is malformed"], {}
+    if (
+        sum(
+            contract is not None
+            for contract in (creation, legacy_replacement, existing)
+        )
+        > 1
+    ):
+        return False, ["Explicit target contracts cannot be combined"], {}
+    if (creation is not None or existing is not None) and not replacement_overlay_scope:
+        return (
+            False,
+            ["Explicit target requires its dedicated replacement overlay"],
+            {},
+        )
     output_file = Path(str(getattr(result, "output_file", "") or ""))
     if not output_file.exists():
         return False, [f"Generated output file not found: {output_file}"], {}
@@ -54840,9 +57180,46 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
     )
     existing_output = policy_content_root / relative_output
     existing_target_oracle_contract = None
+    if creation is not None:
+        expected_primary = Path(policy_content_root.name) / relative_output
+        if creation.primary != expected_primary:
+            return (
+                False,
+                [
+                    "Explicit creation target differs from its authenticated "
+                    f"path: {relative_output}"
+                ],
+                {},
+            )
+        try:
+            _require_creation_target_base(
+                _rulespec_checkout_root(policy_content_root),
+                creation,
+            )
+        except (RuntimeError, ValueError) as exc:
+            return False, [str(exc)], {}
+    if existing is not None:
+        expected_primary = Path(policy_content_root.name) / relative_output
+        if existing.primary != expected_primary:
+            return (
+                False,
+                [
+                    "Explicit replacement target differs from its authenticated "
+                    f"path: {relative_output}"
+                ],
+                {},
+            )
+        try:
+            _require_existing_target_identity(
+                _rulespec_checkout_root(policy_content_root),
+                existing,
+            )
+        except (RuntimeError, ValueError) as exc:
+            return False, [str(exc)], {}
     if (
         replacement_overlay_scope
         and legacy_replacement is None
+        and creation is None
         and (existing_output.is_symlink() or not existing_output.is_file())
     ):
         return (

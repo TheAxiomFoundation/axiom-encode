@@ -7,12 +7,10 @@ import importlib.util
 import sys
 from pathlib import Path
 
-_implementation_path = (
-    Path(__file__).resolve().parents[1]
-    / "src"
-    / "axiom_encode"
-    / "prepare_signed_backfill.py"
-)
+_source_root = Path(__file__).resolve().parents[1] / "src"
+_implementation_path = _source_root / "axiom_encode" / "prepare_signed_backfill.py"
+if str(_source_root) not in sys.path:
+    sys.path.insert(0, str(_source_root))
 _spec = importlib.util.spec_from_file_location(
     "_axiom_encode_prepare_signed_backfill",
     _implementation_path,
