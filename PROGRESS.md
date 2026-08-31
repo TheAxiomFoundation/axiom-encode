@@ -39,8 +39,10 @@
 - Hardened local CI evidence materialization by freezing base and head commits, neutralizing ambient Git routing/configuration, requiring bounded exact `100644` base waiver/toolchain blobs, preserving raw changed paths as capped NUL-v1 bytes, and passing frozen commits to selection and guard execution.
 - Kept both historical workflow fixtures unchanged and marked their immutable-transition capability false; the strict local invocation is labeled a compatibility check rather than hosted parity.
 - Passed all `36` CI-parity tests, including real Git byte preservation, ref movement, adversarial newline paths, size caps, fail-closed materialization, non-0644/symlink/missing evidence, and ambient `GIT_DIR`/`GIT_WORK_TREE` redirection, plus targeted Ruff, on 2026-08-31.
+- Updated the README, CI-parity guide, shared toolchain helper documentation, and issue changelog to one exact creation/consumption contract, including the signed v5 generated closure, byte/digest proof, NUL-v1 transport, stability rechecks, Git blob modes, and the blocked workflow dependency.
+- Passed `84` focused toolchain and CI-parity tests, targeted Ruff, focused compileall, and `git diff --check` after the documentation alignment.
 
 ## Next
 
-- Update documentation and changelog to the exact creation/consumption contract without changing incompatible workflow pins or historical fixtures.
-- Run focused and broad checks, complete independent review-fix cycles, verify commit messages and PR body, then refresh/push/open a draft PR linked to #1558 without merging.
+- Run the complete relevant focused and broad check matrix, then complete independent review-fix cycles on a frozen head.
+- Verify commit messages and PR body, refresh live upstream, push, and open a draft PR linked to #1558 only if every required check remains green; do not merge.

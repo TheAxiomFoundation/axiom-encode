@@ -104,14 +104,32 @@ rows are rejected as ambiguous. If the named release or an unambiguous provision
 is unavailable, encoding stops before calling a model. Supabase run/session sync
 is a separate telemetry feature and never supplies legal source text.
 
-A pull request that adds a validation waiver's `pending` approval may add
-exactly one such record and may not replace an existing one. In a strict
-RuleSpec repository, it changes exactly `known-validation-gaps.yaml` and
-`.axiom/toolchain.toml`; the only permitted toolchain byte change is replacing
-the old waiver digest with the SHA-256 of the exact head waiver bytes. The
-audit separately verifies that the protected-base toolchain binds the exact
-protected-base waiver bytes. Activation remains a later pull request that
-exactly consumes the unexpired pending record from the protected base.
+A pull request that creates a validation waiver's `pending` approval changes
+exactly `known-validation-gaps.yaml` (W) and `.axiom/toolchain.toml` (T). It adds
+exactly one new, unexpired pending field, preserves that entry's active state
+and every other entry, and may not replace or batch pending records, mix
+transition types, or claim a semantic no-op.
+
+The later pending-to-active pull request must start from a protected base with
+both active and pending state. Head active must equal the exact base pending
+record, head pending must be absent, the base pending approval must still be
+unexpired at consumption, and no other waiver entry may change. Its changed-path
+set is exactly `{W, T, J} ∪ A`, where
+J is one changed, surviving, signature-valid v5 model apply manifest and A is
+exactly the manifest-listed applied files that changed. A must contain the
+consumed module; applied-file deletions and unrelated paths are forbidden. The
+manifest binds the pre-apply protected-base waiver digest.
+
+Both transition phases parse semantics from the exact captured base/head W and
+T bytes. Each strict three-key toolchain must bind its corresponding waiver
+bytes, the corpus release fields must stay fixed, and head T must equal base T
+byte-for-byte except for the canonical waiver-digest substitution. Audit path
+input is strict NUL-v1. Waiver, toolchain, path-list, and consumption-manifest
+evidence uses bounded no-follow snapshots followed by a final byte and
+filesystem-identity recheck. `guard-generated` additionally freezes Git refs
+and accepts protected-base W and T only as exact `100644` blobs. Hosted rollout
+remains blocked on the compatible reusable-workflow pin described in
+`docs/ci-parity.md`.
 
 `encode` defaults to `--backend codex` with `gpt-5.6-terra`. Each section gets
 up to two validator-rejected generations on that model, then one generation

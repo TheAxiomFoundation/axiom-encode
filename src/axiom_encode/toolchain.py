@@ -123,7 +123,7 @@ def validation_waiver_digest_transition_issues(
     Both toolchains must bind their corresponding waiver bytes. The head
     toolchain must then equal the base toolchain byte-for-byte except for the
     one digest value. This deliberately rejects formatting, comments, key
-    spelling, and every unrelated semantic edit in the approval PR.
+    spelling, and every unrelated semantic edit in the transition envelope.
     """
 
     issues: list[str] = []

@@ -15,11 +15,23 @@ revision is rejected until the fixture, registry, and implementation are updated
 together. The changed-file classifier likewise requires the installed
 `axiom-oracles` VCS commit to match the dependency declared by the pinned encoder.
 
-The historical workflow pins above predate protected-base toolchain evidence
-for pending validation-waiver approvals. They remain byte-faithful fixtures and
-therefore do not model that transition. A reusable workflow revision that passes
-`--protected-base-toolchain` must be added as a new fixture and supported pin
-before local parity can claim that newer workflow.
+The historical workflow pins above remain byte-faithful fixtures and declare
+`immutable_waiver_transition_evidence = false`. The local command runs a
+stricter current-library compatibility check: it freezes base and head commits,
+materializes both protected-base waiver and toolchain files as exact bounded
+`100644` blobs, and preserves `git diff -z` output as capped NUL-v1 bytes. This
+overlay does not make either historical hosted workflow transition-compatible.
+
+The inspected reusable-workflow candidate
+`3e7976cc2aaab4e3e712285814e335493187a950` is also incompatible. It converts
+NUL paths to newline records without `--changed-paths-format=nul-v1`, models
+activation as a waiver/toolchain-only change, accepts a base with pending but
+no active state, lacks exact `100644` proof for both protected-base files, and
+tests a 365-day lifetime while the core maximum is 90 days. Hosted rollout and
+a parity claim require a corrected, independently reviewed workflow commit
+that preserves the full signed generated-file closure, followed by a new exact
+fixture and supported pin. Historical fixtures must not be rewritten to imply
+that capability.
 
 Use explicit checkout overrides when the dependencies are not siblings:
 
