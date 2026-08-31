@@ -323,6 +323,9 @@ allowed_root_files:
   - oracle-coverage-pending.yaml
   - variables.toml
 path_rules:
+  # Cleanup command/guard enforce direct children; layout restricts the namespace.
+  - patterns: [".axiom/legacy-rulespec-deletion-receipts/**"]
+    allow_extensions: [".json"]
   - patterns: [".axiom/**"]
     allow_extensions: [".json", ".md", ".txt", ".toml", ".yaml"]
   - patterns: [".github/**"]
@@ -523,6 +526,15 @@ def test_root_inventory_is_allowed() -> None:
     files = {{child.name for child in ROOT.iterdir() if child.is_file() and child.name != ".git"}}
     assert not directories - ALLOWED_ROOT_DIRS
     assert not files - ALLOWED_ROOT_FILES
+
+
+def test_legacy_cleanup_receipt_layout_is_json_only() -> None:
+    structure = yaml.safe_load((ROOT / ".axiom/repository-structure.yaml").read_text())
+    cleanup_rule = structure["path_rules"][0]
+    assert cleanup_rule == {{
+        "patterns": [".axiom/legacy-rulespec-deletion-receipts/**"],
+        "allow_extensions": [".json"],
+    }}
 
 
 def test_every_rulespec_has_companion_test() -> None:

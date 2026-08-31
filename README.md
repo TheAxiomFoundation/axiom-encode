@@ -271,6 +271,41 @@ build/axiom-encode-signing-supervisor \
 `retire` accepts only a module already covered by a verified model
 `encode --apply` manifest and includes its companion test automatically.
 
+Unmanifested legacy files use a different, negative-provenance contract. Run
+`cleanup-unmanifested-legacy` under the protected apply-signing supervisor with
+an exact full base commit and the pinned validation checkouts:
+
+```bash
+axiom-encode cleanup-unmanifested-legacy \
+  us/statutes/legacy/example.yaml \
+  --policy-repo-path ~/TheAxiomFoundation/rulespec-us \
+  --base-ref "$PROTECTED_BASE_COMMIT" \
+  --reason "remove obsolete pre-encoder RuleSpec" \
+  --corpus-path ~/TheAxiomFoundation/axiom-corpus \
+  --axiom-rules-engine-path ~/TheAxiomFoundation/axiom-rules-engine \
+  --expected-encoder-checkout ~/TheAxiomFoundation/axiom-encode
+```
+
+The command derives each companion, proves from the immutable base that every
+primary and companion is an unowned regular `100644` blob, executes validation
+against the projected deletion-only tree, signs one typed negative-provenance
+receipt, and installs the receipt plus every deletion in one recoverable
+transaction. Publication preserves the same one-commit topology: protected
+base `B` has exactly one PR-head child `H`, and `B..H` contains only the receipt
+addition and its authorized deletions. There is no deletion-candidate commit or
+receipt-only child. The receipt binds `B`, its tree and blobs, the projected
+deletion-only tree, pins, and executed evidence; it deliberately does not bind
+`H` or its own containing tree.
+
+Cleanup receipts live under
+`.axiom/legacy-rulespec-deletion-receipts/`, never under
+`.axiom/encoding-manifests/`. They are not generated ownership, retirement,
+signed-import, encoding-run, dashboard, or Supabase evidence. The dedicated
+[`atomic-legacy-cleanup.yml`](.github/workflows/atomic-legacy-cleanup.yml)
+publication workflow remains separate from targeted signed re-encoding. See
+[Atomic unmanifested-legacy cleanup](docs/legacy-rulespec-cleanup.md) for the
+full contract and non-interference boundaries.
+
 Canonicalize paths of already-authenticated v5 model encodings with the
 separate path-only workflow. The plan is deliberately minimal and binds one
 clean RuleSpec HEAD:

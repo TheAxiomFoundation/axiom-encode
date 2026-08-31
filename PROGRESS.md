@@ -77,12 +77,21 @@
 - Ran the focused cleanup contract/CLI/guard/validation suite: 148 passed in 64.81s.
 - Ran related staging, toolchain, CI-parity, validation-waiver, and shared CLI
   regressions: 172 passed, 1,448 deselected in 26.60s.
+- Documented the single atomic `B -> H` cleanup contract, immutable-base
+  admission/evidence, signer/publisher separation, exact staging/publication,
+  recovery, and deliberate non-interference boundaries in the README, dedicated
+  contract guide, trusted-signing guide, and changelog.
+- Added the JSON-only future-jurisdiction layout rule for the cleanup receipt
+  namespace and production-API adversarial coverage proving that receipts create
+  no applied-manifest ownership, retire/import authority, census encoder credit,
+  run-log or Supabase credit, targeted-reencode behavior, or permission to rewrite
+  historical provenance.
+- Ran the documentation/layout/non-interference and related migration/run-log/
+  Supabase regressions: 128 passed; focused Ruff, compileall, and diff checks passed.
 
 ## Next
 
-- Review and commit the dedicated artifact transport and signer/publisher workflow,
-  then review and commit documentation, changelog, scaffold layout, and exhaustive
-  non-interference coverage.
+- Review and commit the dedicated artifact transport and signer/publisher workflow.
 - Bump the package version, run focused workflow/transport tests and the full local
   check matrix, then conduct the required independent review-fix cycle until no
   actionable findings remain.

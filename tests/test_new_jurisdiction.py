@@ -204,6 +204,30 @@ def test_emitted_layout_tests_pass_on_fresh_scaffold(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+def test_scaffold_declares_cleanup_receipts_as_json_only(tmp_path: Path) -> None:
+    output = tmp_path / "xx"
+    assert (
+        run_new_jurisdiction(
+            _args(
+                tmp_path,
+                _engine(tmp_path, "XXX"),
+                cc="xx",
+                output=output,
+                currency="XXX",
+            )
+        )
+        == 0
+    )
+
+    structure = yaml.safe_load(
+        (output / ".axiom/repository-structure.yaml").read_text()
+    )
+    assert structure["path_rules"][0] == {
+        "patterns": [".axiom/legacy-rulespec-deletion-receipts/**"],
+        "allow_extensions": [".json"],
+    }
+
+
 def test_present_currency_writes_no_diff(tmp_path: Path) -> None:
     output = tmp_path / "xx"
     assert (

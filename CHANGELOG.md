@@ -2,6 +2,15 @@
 
 All notable changes to Axiom Encode will be documented here.
 
+- Add atomic cleanup for exact unmanifested legacy RuleSpec primary/companion
+  groups. One cleanup-domain-signed negative-provenance receipt and all bound
+  deletions are installed and published as a single protected-base-to-PR-head
+  contraction, with immutable-base ownership/blob proof, pinned executed
+  validation, exact guard/staging/transport checks, and a dedicated workflow.
+  Cleanup remains outside applied manifests, `retire`, generated census credit,
+  signed imports, run logs, Supabase credit, targeted signed re-encoding, and
+  historical receipt rewrites.
+
 - Create each targeted output lane before validating its durable rejected-
   candidate destination, so signed re-encodes reach generation while retaining
   the destination's fresh-directory safety contract.

@@ -1,8 +1,9 @@
 # Trusted signing supervisor
 
-Signed apply, retire, and evaluation operations cross a compiled trust boundary.
-Private Ed25519 keys remain inside two distinct external signers. Neither the Go
-supervisor/broker nor Python receives raw private-key material.
+Signed apply, retire, unmanifested-legacy cleanup, and evaluation operations
+cross a compiled trust boundary. Private Ed25519 keys remain inside two
+distinct external signers. Neither the Go supervisor/broker nor Python receives
+raw private-key material.
 
 ## Deployment boundary
 
@@ -168,6 +169,12 @@ The only scopes are `apply_ed25519` and `eval_ed25519`. Apply signatures cannot
 verify as eval signatures or vice versa, even if the same test key is used.
 Production also rejects any equal pair among the three roots before connecting
 either signer.
+
+Legacy cleanup reuses `apply_ed25519` but signs a second, cleanup-specific inner
+domain, `axiom-encode/legacy-rulespec-deletion-receipt/v1\0`, followed by the
+canonical unsigned receipt. The exact cleanup schema and inner-domain verifier
+prevent its signature from being replayed as an applied manifest or other
+apply-root artifact; no new broker scope or signing key is introduced.
 
 This breaking cut emits only apply manifest
 `axiom-encode/applied-rulespec/v5`, eval verdict
