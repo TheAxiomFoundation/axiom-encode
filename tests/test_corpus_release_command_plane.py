@@ -31,6 +31,7 @@ class CommandPlaneFixture:
     engine_root: Path
     module: Path
     protected_base: Path
+    protected_base_toolchain: Path
     changed_paths: Path
     release: LocalCorpusRelease
 
@@ -64,7 +65,7 @@ def _write_command_plane_fixture(tmp_path: Path) -> CommandPlaneFixture:
     protected_base = tmp_path / "protected-base-waivers.yaml"
     protected_base.write_bytes(waiver.read_bytes())
     changed_paths = tmp_path / "changed-paths.txt"
-    changed_paths.write_text("")
+    changed_paths.write_bytes(b"")
 
     provision = (
         corpus_root
@@ -108,12 +109,15 @@ def _write_command_plane_fixture(tmp_path: Path) -> CommandPlaneFixture:
         "validation_waiver_set_sha256 = "
         f'"{hashlib.sha256(waiver.read_bytes()).hexdigest()}"\n'
     )
+    protected_base_toolchain = tmp_path / "protected-base-toolchain.toml"
+    protected_base_toolchain.write_bytes(toolchain.read_bytes())
     return CommandPlaneFixture(
         rulespec_root=rulespec_root,
         corpus_root=corpus_root,
         engine_root=engine_root,
         module=module,
         protected_base=protected_base,
+        protected_base_toolchain=protected_base_toolchain,
         changed_paths=changed_paths,
         release=release,
     )
@@ -147,8 +151,12 @@ def _public_argv(fixture: CommandPlaneFixture, command: str) -> list[str]:
             str(fixture.corpus_root),
             "--protected-base",
             str(fixture.protected_base),
+            "--protected-base-toolchain",
+            str(fixture.protected_base_toolchain),
             "--changed-paths",
             str(fixture.changed_paths),
+            "--changed-paths-format",
+            "nul-v1",
             "--axiom-rules-engine-path",
             str(fixture.engine_root),
             "--json",

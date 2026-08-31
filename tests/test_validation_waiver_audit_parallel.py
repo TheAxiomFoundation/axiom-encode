@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -339,12 +341,31 @@ def test_fingerprint_batch_holds_no_shared_resolution_scope():
 def _audit_args(tmp_path, root, corpus, engine, base, changed):
     from types import SimpleNamespace
 
+    head_waiver = root / "known-validation-gaps.yaml"
+    head_toolchain = root / ".axiom/toolchain.toml"
+    head_toolchain.parent.mkdir(parents=True, exist_ok=True)
+    head_toolchain.write_text(
+        "[toolchain]\n"
+        'axiom_corpus_release = "test-release"\n'
+        f'axiom_corpus_release_content_sha256 = "{"0" * 64}"\n'
+        "validation_waiver_set_sha256 = "
+        f'"{hashlib.sha256(head_waiver.read_bytes()).hexdigest()}"\n'
+    )
+    base_toolchain = Path(tmp_path) / "protected-base-toolchain.toml"
+    base_toolchain.write_text(
+        head_toolchain.read_text().replace(
+            hashlib.sha256(head_waiver.read_bytes()).hexdigest(),
+            hashlib.sha256(base.read_bytes()).hexdigest(),
+        )
+    )
     return SimpleNamespace(
         root=root,
         corpus_path=corpus,
         axiom_rules_path=engine,
         protected_base=base,
+        protected_base_toolchain=base_toolchain,
         changed_paths=changed,
+        changed_paths_format="nul-v1",
         json=False,
         rulespec_dependency_roots=(),
         rulespec_dependency_root=None,
@@ -388,7 +409,7 @@ def test_audit_rechecks_discrepant_results_in_isolation(monkeypatch, capsys):
     import tempfile
     from pathlib import Path as _P
 
-    with tempfile.TemporaryDirectory() as td:
+    with tempfile.TemporaryDirectory(dir=os.path.realpath(tempfile.gettempdir())) as td:
         root = _P(td) / "rulespec-us"
         (root / "us/statutes").mkdir(parents=True)
         (root / "us/statutes/x.yaml").write_text("format: rulespec/v1\n")
@@ -454,7 +475,7 @@ def test_audit_reports_discrepancy_that_survives_isolation(monkeypatch, capsys):
     import tempfile
     from pathlib import Path as _P
 
-    with tempfile.TemporaryDirectory() as td:
+    with tempfile.TemporaryDirectory(dir=os.path.realpath(tempfile.gettempdir())) as td:
         root = _P(td) / "rulespec-us"
         (root / "us/statutes").mkdir(parents=True)
         (root / "us/statutes/x.yaml").write_text("format: rulespec/v1\n")

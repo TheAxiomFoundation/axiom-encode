@@ -7,7 +7,7 @@
 - Resumed implementation: `f03d4f9b4a9fcfa1bbe7195c80fab6e15e5322c0`; resumed tracking head: `00de31256addce7c0b8f1d82a3b97b7779925cc5`; neither is approved.
 - Salvage ref `refs/codex-salvage/fix-1558-waiver-toolchain-transition-20260830-212600-98091` resolves to `3ee0586841748ca3a57c92088b226d7f8f1799cc`.
 - The salvage ref's exact 673-line adversarial test patch has been reconciled intact and committed as its own recovery checkpoint.
-- Core transition classification now applies one shared exact-byte/toolchain proof to both creation and consumption; CLI/guard integration and full generated-path closure remain in progress.
+- Core transition classification and the audit CLI now apply one shared exact-byte/toolchain proof to both creation and consumption; guard integration and full generated-path closure remain in progress.
 - Stable transition snapshots now carry exact filesystem identity as well as bytes, so a later same-byte path replacement cannot satisfy the recheck.
 - Contract decision: consumption cannot be a waiver/toolchain-only pull request; it must be induced by the exact consumed module and rebind the exact waiver/toolchain pair. The reusable workflow's current `{waiver, toolchain}`-only activation draft is incompatible and must be corrected before pinning.
 - `git fetch --prune origin` succeeds, but GitHub API access and the GitNexus command registry are unavailable in this sandbox; retry issue/PR inspection, push, and draft-PR creation after local checks are green.
@@ -24,11 +24,13 @@
 - Added failing contract tests proving consumption must use exact base/head waiver and toolchain bytes, the consumed module plus waiver/toolchain path set, and exactly one unchanged-surroundings waiver entry (`3 failed, 42 passed` against the incomplete core).
 - Implemented the shared consumption proof and restored the focused transition suite to `45 passed`.
 - Added a reusable identity-bearing stable-file snapshot and a same-byte atomic-replacement regression test.
+- Made the audit interface require protected-base toolchain evidence and explicit `nul-v1` changed paths, parse semantics from the five captured buffers, and recheck both bytes and filesystem identities.
+- Passed `134` focused audit CLI, parallel-audit, and public command-plane tests after the mandatory evidence update.
 - Confirmed the creation contract must remain exactly one new pending field in the exact waiver/toolchain pair, with active state and corpus pins unchanged and both raw snapshots bound.
 
 ## Next
 
 - Extend the module-induced consumption scope from the core three-path proof to the exact manifest-authenticated generated-file closure used by `guard-generated`.
-- Make all protected-base evidence mandatory, validate creation and module-induced consumption from one stable snapshot, recheck every input path, and reject mixed/multiple/stale/raced transitions.
+- Eliminate downstream head waiver/toolchain rereads during module execution and add real Git cross-worktree/race coverage for the five-file evidence boundary.
 - Update the reusable workflow dependency/fixtures and documentation to the same contract, add real Git worktree integration tests, and preserve decrement behavior.
 - Run focused and broad checks, complete independent review-fix cycles, verify commit messages and PR body, then refresh/push/open a draft PR linked to #1558 without merging.

@@ -16,6 +16,7 @@ from axiom_encode import cli
 from tests.release_object_fixtures import bind_test_corpus_release
 
 TEST_CORPUS_RELEASE = "validation-waiver-test-release"
+_UNSET = object()
 
 
 def _validator(*, passed: bool, issues=(), error=None):
@@ -553,8 +554,21 @@ def _audit_args(
     changed_paths: Path,
     corpus_path: Path,
     *,
-    protected_base_toolchain: Path | None = None,
+    protected_base_toolchain: Path | None | object = _UNSET,
 ):
+    if protected_base_toolchain is _UNSET:
+        head_waiver = root / "known-validation-gaps.yaml"
+        head_toolchain = root / ".axiom/toolchain.toml"
+        generated_base_toolchain = protected_base.with_name(
+            f"{protected_base.name}.toolchain.toml"
+        )
+        generated_base_toolchain.write_bytes(
+            head_toolchain.read_bytes().replace(
+                hashlib.sha256(head_waiver.read_bytes()).hexdigest().encode(),
+                hashlib.sha256(protected_base.read_bytes()).hexdigest().encode(),
+            )
+        )
+        protected_base_toolchain = generated_base_toolchain
     return SimpleNamespace(
         root=root,
         corpus_path=corpus_path,
@@ -562,6 +576,7 @@ def _audit_args(
         protected_base=protected_base,
         protected_base_toolchain=protected_base_toolchain,
         changed_paths=changed_paths,
+        changed_paths_format="nul-v1",
         axiom_rules_path=None,
         json=True,
     )
@@ -623,7 +638,7 @@ def _transition_audit_fixture(
         )
     )
     changed_file = tmp_path / "changed.txt"
-    changed_file.write_text("\n".join(changed_paths) + "\n")
+    changed_file.write_bytes(b"".join(path.encode() + b"\0" for path in changed_paths))
     return root, corpus, base_file, base_toolchain, changed_file
 
 
@@ -676,7 +691,9 @@ def _pending_rebind_audit_fixture(
         )
     )
     changed_file = tmp_path / "changed.txt"
-    changed_file.write_text("known-validation-gaps.yaml\n.axiom/toolchain.toml\n")
+    changed_file.write_bytes(
+        b"known-validation-gaps.yaml\0.axiom/toolchain.toml\0"
+    )
     return root, module_path, corpus, base_file, base_toolchain, changed_file
 
 
@@ -721,7 +738,6 @@ def test_audit_accepts_exact_pending_waiver_toolchain_digest_rebind(
 @pytest.mark.parametrize(
     "mutation",
     [
-        "missing-base-toolchain",
         "stale-base-digest",
         "stale-head-digest",
         "wrong-base-digest",
@@ -742,11 +758,9 @@ def test_audit_rejects_inexact_pending_waiver_toolchain_evidence(
     root, _module_path, corpus, base_file, base_toolchain, changed_file = (
         _pending_rebind_audit_fixture(tmp_path)
     )
-    supplied_base_toolchain: Path | None = base_toolchain
+    supplied_base_toolchain = base_toolchain
     head_toolchain = root / ".axiom/toolchain.toml"
-    if mutation == "missing-base-toolchain":
-        supplied_base_toolchain = None
-    elif mutation == "stale-base-digest":
+    if mutation == "stale-base-digest":
         base_toolchain.write_bytes(head_toolchain.read_bytes())
     elif mutation == "stale-head-digest":
         head_toolchain.write_bytes(base_toolchain.read_bytes())
@@ -787,7 +801,9 @@ def test_audit_rejects_inexact_pending_waiver_toolchain_evidence(
             )
         )
     elif mutation == "third-path":
-        changed_file.write_text(changed_file.read_text() + "us/statutes/module.yaml\n")
+        changed_file.write_bytes(
+            changed_file.read_bytes() + b"us/statutes/module.yaml\0"
+        )
 
     exit_code = cli._cmd_validation_waivers_audit(
         _audit_args(
@@ -803,6 +819,23 @@ def test_audit_rejects_inexact_pending_waiver_toolchain_evidence(
     assert exit_code == 1
     assert report["success"] is False
     assert report["checked"] == 0
+
+
+def test_audit_requires_protected_base_toolchain_for_direct_calls(tmp_path: Path):
+    root, _module_path, corpus, base_file, _base_toolchain, changed_file = (
+        _pending_rebind_audit_fixture(tmp_path)
+    )
+
+    with pytest.raises(ValueError, match="protected-base-toolchain"):
+        cli._cmd_validation_waivers_audit(
+            _audit_args(
+                root,
+                base_file,
+                changed_file,
+                corpus,
+                protected_base_toolchain=None,
+            )
+        )
 
 
 @pytest.mark.parametrize(
@@ -822,7 +855,7 @@ def test_audit_rejects_every_third_path_class(
     root, _module_path, corpus, base_file, base_toolchain, changed_file = (
         _pending_rebind_audit_fixture(tmp_path)
     )
-    changed_file.write_text(changed_file.read_text() + f"{third_path}\n")
+    changed_file.write_bytes(changed_file.read_bytes() + third_path.encode() + b"\0")
 
     exit_code = cli._cmd_validation_waivers_audit(
         _audit_args(
@@ -1165,6 +1198,68 @@ def test_audit_rejects_every_evidence_mutation_after_snapshot(
     )
 
 
+@pytest.mark.parametrize(
+    ("evidence_label", "snapshot_label"),
+    [
+        ("protected-base waiver", "protected-base validation waiver set"),
+        ("head waiver", "head validation waiver set"),
+        ("changed paths", "changed-paths input"),
+        ("protected-base toolchain", "protected-base RuleSpec toolchain"),
+        ("head toolchain", "head RuleSpec toolchain"),
+    ],
+)
+def test_audit_rejects_same_byte_evidence_replacement_after_snapshot(
+    tmp_path: Path,
+    capsys,
+    evidence_label: str,
+    snapshot_label: str,
+):
+    root, module_path, corpus, base_file, base_toolchain, changed_file = (
+        _pending_rebind_audit_fixture(tmp_path)
+    )
+    evidence = _pending_evidence_paths(
+        root,
+        base_file,
+        base_toolchain,
+        changed_file,
+    )[evidence_label]
+
+    def replace_evidence(*_args, **_kwargs):
+        replacement = evidence.with_name(f"{evidence.name}.replacement")
+        replacement.write_bytes(evidence.read_bytes())
+        os.replace(replacement, evidence)
+        return [
+            {
+                "path": module_path,
+                "passed": True,
+                "fingerprint": "sha256:passing",
+                "outcome": {},
+            }
+        ]
+
+    with patch.object(
+        cli,
+        "_fingerprint_validation_waiver_modules",
+        side_effect=replace_evidence,
+    ):
+        exit_code = cli._cmd_validation_waivers_audit(
+            _audit_args(
+                root,
+                base_file,
+                changed_file,
+                corpus,
+                protected_base_toolchain=base_toolchain,
+            )
+        )
+
+    report = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert any(
+        f"{snapshot_label} changed after its audit snapshot" in error
+        for error in report["errors"]
+    )
+
+
 def test_audit_rejects_consistent_waiver_toolchain_pair_swap_after_snapshot(
     tmp_path: Path,
     capsys,
@@ -1228,8 +1323,8 @@ def test_changed_paths_rejects_unicode_separator_before_deduplication(
     tmp_path: Path,
 ):
     changed_paths = tmp_path / "changed.txt"
-    changed_paths.write_text(
-        "known-validation-gaps.yaml\nknown-validation-gaps.yaml\u2028\n"
+    changed_paths.write_bytes(
+        "known-validation-gaps.yaml\0known-validation-gaps.yaml\u2028\0".encode()
     )
 
     with pytest.raises(ValueError, match="control characters"):
@@ -1238,16 +1333,40 @@ def test_changed_paths_rejects_unicode_separator_before_deduplication(
 
 def test_changed_paths_rejects_symlink_and_duplicate_path(tmp_path: Path):
     target = tmp_path / "changed-target.txt"
-    target.write_text("known-validation-gaps.yaml\n")
+    target.write_bytes(b"known-validation-gaps.yaml\0")
     symlink = tmp_path / "changed.txt"
     symlink.symlink_to(target)
     with pytest.raises(ValueError, match="safely open"):
         cli._validation_waiver_changed_paths(symlink)
 
     duplicate = tmp_path / "duplicate.txt"
-    duplicate.write_text("known-validation-gaps.yaml\nknown-validation-gaps.yaml\n")
+    duplicate.write_bytes(
+        b"known-validation-gaps.yaml\0known-validation-gaps.yaml\0"
+    )
     with pytest.raises(ValueError, match="repeats path"):
         cli._validation_waiver_changed_paths(duplicate)
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (b"known-validation-gaps.yaml\n", "NUL-terminated"),
+        (b"\0", "empty NUL records"),
+        (b"known-validation-gaps.yaml\0\0", "empty NUL records"),
+        (b"known-validation-gaps.yaml\0\xff\0", "valid UTF-8"),
+        (b"known-validation-gaps.yaml\nother\0", "control characters"),
+    ],
+)
+def test_changed_paths_rejects_malformed_nul_transport(
+    tmp_path: Path,
+    raw: bytes,
+    expected: str,
+):
+    changed = tmp_path / "changed.bin"
+    changed.write_bytes(raw)
+
+    with pytest.raises(ValueError, match=expected):
+        cli._validation_waiver_changed_paths(changed)
 
 
 def test_audit_checks_active_pending_and_removed_waivers(tmp_path: Path, capsys):
@@ -1259,7 +1378,7 @@ def test_audit_checks_active_pending_and_removed_waivers(tmp_path: Path, capsys)
     base_file = tmp_path / "base.yaml"
     base_file.write_text("validate_failures: {}\n")
     changed_file = tmp_path / "changed.txt"
-    changed_file.write_text("known-validation-gaps.yaml\n")
+    changed_file.write_bytes(b"known-validation-gaps.yaml\0")
 
     head = _waiver_set(
         {
@@ -1309,11 +1428,8 @@ def test_audit_checks_active_pending_and_removed_waivers(tmp_path: Path, capsys)
     with (
         patch.object(
             cli._validation_waivers,
-            "load_validation_waivers_snapshot",
-            side_effect=[
-                (head, (root / "known-validation-gaps.yaml").read_bytes()),
-                (base, base_file.read_bytes()),
-            ],
+            "load_validation_waivers_bytes",
+            side_effect=[head, base],
         ),
         patch.object(
             cli._validation_waivers,
@@ -1372,7 +1488,7 @@ def test_audit_rejects_invalid_runtime_waiver_state(
     base_file = tmp_path / "base.yaml"
     base_file.write_text("validate_failures: {}\n")
     changed_file = tmp_path / "changed.txt"
-    changed_file.write_text("")
+    changed_file.write_bytes(b"")
 
     expected_fingerprint = "sha256:expected"
     entry = _entry(
@@ -1393,11 +1509,8 @@ def test_audit_rejects_invalid_runtime_waiver_state(
     with (
         patch.object(
             cli._validation_waivers,
-            "load_validation_waivers_snapshot",
-            side_effect=[
-                (waivers, (root / "known-validation-gaps.yaml").read_bytes()),
-                (waivers, base_file.read_bytes()),
-            ],
+            "load_validation_waivers_bytes",
+            side_effect=[waivers, waivers],
         ),
         patch.object(
             cli._validation_waivers,
@@ -1434,7 +1547,7 @@ def test_removed_waiver_must_pass_unless_module_was_deleted(tmp_path: Path, caps
     base_file = tmp_path / "base.yaml"
     base_file.write_text("validate_failures: {}\n")
     changed_file = tmp_path / "changed.txt"
-    changed_file.write_text("known-validation-gaps.yaml\n")
+    changed_file.write_bytes(b"known-validation-gaps.yaml\0")
     head = _waiver_set({})
     base = _waiver_set(
         {
@@ -1455,11 +1568,8 @@ def test_removed_waiver_must_pass_unless_module_was_deleted(tmp_path: Path, caps
     with (
         patch.object(
             cli._validation_waivers,
-            "load_validation_waivers_snapshot",
-            side_effect=[
-                (head, (root / "known-validation-gaps.yaml").read_bytes()),
-                (base, base_file.read_bytes()),
-            ],
+            "load_validation_waivers_bytes",
+            side_effect=[head, base],
         ),
         patch.object(
             cli._validation_waivers,
@@ -1550,6 +1660,8 @@ def test_audit_cli_registers_partition_pair(tmp_path: Path):
                 str(tmp_path / "base-toolchain.toml"),
                 "--changed-paths",
                 str(tmp_path / "changed.txt"),
+                "--changed-paths-format",
+                "nul-v1",
                 "--axiom-rules-engine-path",
                 str(tmp_path),
                 "--partition-key",
@@ -1564,6 +1676,7 @@ def test_audit_cli_registers_partition_pair(tmp_path: Path):
 
     args = command.call_args.args[0]
     assert args.protected_base_toolchain == tmp_path / "base-toolchain.toml"
+    assert args.changed_paths_format == "nul-v1"
     assert args.partition_key == "us-ak"
     assert args.partition_keys_json == '["us", "us-ak"]'
 
