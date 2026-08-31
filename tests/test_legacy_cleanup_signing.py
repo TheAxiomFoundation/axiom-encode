@@ -130,6 +130,7 @@ def _unsigned_payload() -> dict[str, object]:
                 "object_format": "sha1",
                 "commit": "5" * 40,
             },
+            "rulespec_dependencies": [],
             "corpus_release": {
                 "name": "legacy-cleanup-test",
                 "content_sha256": "6" * 64,

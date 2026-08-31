@@ -1101,6 +1101,8 @@ def execute_gates(
                 str(paths["corpus"]),
                 "--expected-encoder-checkout",
                 str(paths["encode"]),
+                "--axiom-rules-engine-path",
+                str(paths["engine"]),
             ]
             results.append(
                 _result(

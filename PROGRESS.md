@@ -13,10 +13,11 @@
 - The rejected tracked CLI and targeted-reencode workflow edits were removed by
   reverse-applying their exact worktree diffs; the salvage ref remains available
   for archaeology and no reset or clean was used.
-- The first implementation checkpoint is an isolated pure-contract layer:
-  `legacy_cleanup.py`, `legacy_cleanup_git.py`, and focused tests. Signing and
-  executed-validation modules are still being integrated and are not part of this
-  checkpoint.
+- The pure contract and signing layers are committed. The next coherent checkpoint
+  is implemented and green locally: exact executed validation, the atomic durable
+  transaction, cleanup-aware guard authorization, and exact staging. Dedicated
+  workflow/transport and documentation/non-interference work are being reviewed as
+  separate checkpoints.
 
 ## Done
 
@@ -46,15 +47,46 @@
   cross-scope, wrong-key, malformed, and replayed signatures.
 - Ran focused cleanup plus signing tests: 65 passed; focused Ruff and compileall
   also passed.
+- Implemented verification-only corpus-key loading and nine genuinely executed
+  projected-tree checks in an immutable private clone: repository tests/layout,
+  waiver audit, remaining RuleSpec/companion/proof validation, money-atom proof,
+  oracle coverage, and metadata-reference closure. Evidence is deterministic,
+  bounded, pinned to the exact engine revision, and fails closed on stale,
+  incomplete, empty, timed-out, or background-process results.
+- Implemented the `cleanup-unmanifested-legacy` command as a receipt-first journaled
+  transaction. It re-proves immutable `B`, toolchain pins, provenance, validation,
+  clean checkout state, and the signed receipt under the transaction lock before
+  installing exactly one receipt and deleting the exact primary/companion set.
+  Recovery uses recorded preimages and rejects collisions, mode drift, reappearance,
+  index flags, and concurrent mutation.
+- Added cleanup-specific committed and worktree guards. The committed guard requires
+  `H` to have sole parent `B` and proves the complete `B..H` change is exactly one
+  canonical signed receipt addition plus its authorized deletions. Historical
+  receipt append-only integrity, replay, overlap, orphan, rename, modified-target,
+  mixed-change, and projected-tree failures are rejected.
+- Added cleanup-aware exact staging without giving cleanup receipts applied-manifest
+  ownership or credit. The staging path proves the live receipt, stages only exact
+  authorized bytes/deletions, and verifies index modes, blobs, absences, and the
+  resulting staged set.
+- Hardened every cleanup Git read/write environment against repository-local hooks,
+  filters, autocrlf, fsmonitor, untracked-cache, sparse-checkout, and alternate
+  index/object/worktree injection. Reference scans use token-aware matching and
+  immutable base blobs rather than raw substring or mutable-worktree evidence.
+- Preserved the targeted signed-reencode workflow as a separate pipeline; its only
+  change is passing the already-required engine checkout to the shared guard.
+- Ran the focused cleanup contract/CLI/guard/validation suite: 148 passed in 64.81s.
+- Ran related staging, toolchain, CI-parity, validation-waiver, and shared CLI
+  regressions: 172 passed, 1,448 deselected in 26.60s.
 
 ## Next
 
-- Integrate genuinely executed projected validation evidence, then wire the CLI to
-  one receipt-first durable transaction that deletes every exact
-  primary/companion preimage.
-- Add cryptographic fail-closed verification for every immutable-base provenance
-  record, separate guard authorization, exact deletion transport/staging, dedicated
-  workflow, exclusions, docs, changelog/version updates, and the complete
-  adversarial matrix.
-- Run focused and broader validation, conduct the required independent review-fix cycle, and update this file after each coherent committed step.
+- Review and commit the dedicated artifact transport and signer/publisher workflow,
+  then review and commit documentation, changelog, scaffold layout, and exhaustive
+  non-interference coverage.
+- Bump the package version, run focused workflow/transport tests and the full local
+  check matrix, then conduct the required independent review-fix cycle until no
+  actionable findings remain.
+- Re-verify exact commit messages and draft PR body, update this file after each
+  coherent commit, and produce the frozen-review report with exact base/head,
+  checks, and residual risks.
 - Retry fetch/push and open a draft PR linked to issue 1557 when GitHub connectivity is available; do not merge.

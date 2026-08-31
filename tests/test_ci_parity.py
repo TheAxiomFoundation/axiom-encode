@@ -521,7 +521,7 @@ def test_execute_gates_preserves_order_and_uses_pin_gate_parameters(
         workflow_sha,
         {name: "a" * 40 for name in paths},
         "dk",
-        False,
+        True,
         False,
         run_pytest=False,
         run_money_atom_check=True,
@@ -558,6 +558,8 @@ def test_execute_gates_preserves_order_and_uses_pin_gate_parameters(
     assert companion[1] == {
         "AXIOM_RULESPEC_REPO_ROOTS": f"{repo}{os.pathsep}{paths['rulespec_us']}"
     }
+    guard = next(call for call in calls if call[0][0] == "guard-generated")
+    assert guard[0][-2:] == ["--axiom-rules-engine-path", str(paths["engine"])]
     money_atom_calls = [
         call
         for call in calls

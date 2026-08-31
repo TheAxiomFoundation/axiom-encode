@@ -35,6 +35,18 @@ _MAX_BASE_BLOB_BYTES = 16 * 1024 * 1024
 _MAX_PROVENANCE_BLOB_BYTES = 4 * 1024 * 1024
 _MAX_PROVENANCE_TOTAL_BYTES = 256 * 1024 * 1024
 _MAX_REFERENCE_TOTAL_BYTES = 1024 * 1024 * 1024
+_GIT_CONFIG_ARGUMENTS = (
+    "-c",
+    "core.hooksPath=/dev/null",
+    "-c",
+    "core.autocrlf=false",
+    "-c",
+    "core.fsmonitor=false",
+    "-c",
+    "core.untrackedCache=false",
+    "-c",
+    "core.sparseCheckout=false",
+)
 
 
 class LegacyCleanupGitError(ValueError):
@@ -114,7 +126,7 @@ def _git_bytes(
     environment: Mapping[str, str] | None = None,
 ) -> bytes:
     completed = subprocess.run(
-        ["git", "-C", str(repo), *arguments],
+        ["git", *_GIT_CONFIG_ARGUMENTS, "-C", str(repo), *arguments],
         capture_output=True,
         check=False,
         env=dict(environment or _git_environment()),
@@ -185,6 +197,68 @@ def canonical_rulespec_repository(repo: Path) -> str:
             f"RuleSpec origin must be {expected}, got {actual or '<invalid>'}"
         )
     return expected
+
+
+def clean_official_checkout_pin(
+    repo: Path,
+    *,
+    expected_repository: str,
+    version: str | None = None,
+) -> dict[str, str]:
+    """Return one exact clean official Git checkout pin.
+
+    Cleanup validation executes code from the encoder and rules-engine checkouts,
+    so a repository label in the receipt is not sufficient.  This proof binds the
+    canonical origin, exact top level, full commit, and object format while using
+    the same config- and replace-ref-neutral Git environment as base inspection.
+    Ignored build products are not execution authority, but every tracked,
+    staged, and non-ignored untracked path is rejected.
+    """
+
+    checkout = Path(repo).resolve(strict=True)
+    top = Path(_git_text(checkout, "rev-parse", "--show-toplevel").strip()).resolve()
+    if top != checkout:
+        raise LegacyCleanupGitError(
+            f"{expected_repository} path is not the exact Git checkout root"
+        )
+    actual_repository = _canonical_github_repository(
+        _git_text(checkout, "remote", "get-url", "origin")
+    )
+    if actual_repository != expected_repository:
+        raise LegacyCleanupGitError(
+            f"checkout origin must be {expected_repository}, got "
+            f"{actual_repository or '<invalid>'}"
+        )
+    object_format = _git_text(
+        checkout,
+        "rev-parse",
+        "--show-object-format",
+    ).strip()
+    commit = _require_oid(
+        _git_text(checkout, "rev-parse", "HEAD^{commit}").strip(),
+        object_format,
+        label=f"{expected_repository} checkout commit",
+    )
+    status = _git_bytes(
+        checkout,
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+        "-z",
+    )
+    if status:
+        raise LegacyCleanupGitError(
+            f"{expected_repository} checkout must have no staged, tracked, or "
+            "non-ignored untracked changes"
+        )
+    pin = {
+        "repository": expected_repository,
+        "object_format": object_format,
+        "commit": commit,
+    }
+    if version is not None:
+        pin["version"] = version
+    return pin
 
 
 def _full_commit(repo: Path, raw: str, object_format: str) -> str:
@@ -405,6 +479,36 @@ def _json_strings(value: object) -> tuple[str, ...]:
     return tuple(result)
 
 
+_REFERENCE_LEFT_TOKEN_BYTES = frozenset(
+    b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.:-"
+)
+_REFERENCE_RIGHT_TOKEN_BYTES = frozenset(
+    b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.:/-"
+)
+
+
+def _contains_target_reference(raw: bytes, patterns: Sequence[bytes]) -> bool:
+    """Match target path tokens while allowing absolute/path-prefixed forms."""
+
+    for pattern in patterns:
+        start = 0
+        while True:
+            index = raw.find(pattern, start)
+            if index < 0:
+                break
+            end = index + len(pattern)
+            before_is_token = (
+                index > 0 and raw[index - 1] in _REFERENCE_LEFT_TOKEN_BYTES
+            )
+            after_is_token = (
+                end < len(raw) and raw[end] in _REFERENCE_RIGHT_TOKEN_BYTES
+            )
+            if not before_is_token and not after_is_token:
+                return True
+            start = index + 1
+    return False
+
+
 def _provenance_inventory(
     repo: Path,
     *,
@@ -538,7 +642,7 @@ def _surviving_reference_inventory(
             raise LegacyCleanupGitError(
                 "surviving reference inventory exceeds its byte limit"
             )
-        if any(pattern in raw for pattern in patterns):
+        if _contains_target_reference(raw, patterns):
             raise LegacyCleanupGitError(
                 "surviving base blob references a cleanup target: "
                 f"{entry.path.as_posix()}"

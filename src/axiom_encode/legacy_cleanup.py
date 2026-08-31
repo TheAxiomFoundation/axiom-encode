@@ -99,6 +99,7 @@ _DELETION_EVIDENCE_FIELDS = _FILE_EVIDENCE_FIELDS | {"result"}
 _TOOLCHAIN_FIELDS = {
     "axiom_encode",
     "axiom_rules_engine",
+    "rulespec_dependencies",
     "corpus_release",
     "validation_waiver_set_sha256",
     "base_files",
@@ -470,6 +471,48 @@ def receipt_structure_issues(payload: Mapping[str, object]) -> list[str]:
             )
         ):
             issues.append("receipt rules-engine pin is malformed")
+        dependencies = toolchain.get("rulespec_dependencies")
+        dependency_repositories: list[str] = []
+        if (
+            not isinstance(dependencies, list)
+            or len(dependencies) > LEGACY_CLEANUP_MAX_GROUPS
+        ):
+            issues.append("receipt RuleSpec dependency pins are malformed")
+        else:
+            for dependency in dependencies:
+                repository_name = (
+                    dependency.get("repository")
+                    if isinstance(dependency, dict)
+                    else None
+                )
+                dependency_format = (
+                    dependency.get("object_format")
+                    if isinstance(dependency, dict)
+                    else None
+                )
+                if (
+                    not isinstance(dependency, dict)
+                    or set(dependency) != {"repository", "object_format", "commit"}
+                    or not isinstance(repository_name, str)
+                    or re.fullmatch(
+                        r"github\.com/TheAxiomFoundation/rulespec-[a-z]{2}",
+                        repository_name,
+                    )
+                    is None
+                    or dependency_format not in {"sha1", "sha256"}
+                    or not _valid_oid(
+                        dependency.get("commit"), str(dependency_format or "")
+                    )
+                ):
+                    issues.append("receipt RuleSpec dependency pin is malformed")
+                    continue
+                dependency_repositories.append(repository_name)
+            if dependency_repositories != sorted(dependency_repositories) or len(
+                set(dependency_repositories)
+            ) != len(dependency_repositories):
+                issues.append(
+                    "receipt RuleSpec dependency pins are not unique and sorted"
+                )
         corpus = toolchain.get("corpus_release")
         if (
             not isinstance(corpus, dict)

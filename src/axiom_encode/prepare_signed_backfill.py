@@ -23,6 +23,7 @@ COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}")
 DIGEST_PATTERN = re.compile(r"[0-9a-f]{64}")
 QUEUE_TRACKING_PATTERN = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
 MANIFEST_ROOT = PurePosixPath(".axiom/encoding-manifests")
+LEGACY_CLEANUP_RECEIPT_ROOT = PurePosixPath(".axiom/legacy-rulespec-deletion-receipts")
 LEGACY_REPLACEMENT_RECEIPT_ROOT = PurePosixPath(".axiom/legacy-replacements")
 LEGACY_REPLACEMENT_TOOL = "axiom-encode encode --apply --replace-legacy-rulespec-path"
 APPLIED_MANIFEST_SCHEMA_V5 = "axiom-encode/applied-rulespec/v5"
@@ -65,6 +66,18 @@ MAX_CANONICAL_REFRESH_BUNDLE_CITATIONS = MAX_SOURCE_BUNDLE_CITATIONS - 1
 MAX_DEFERRED_OUTPUT_CONTRACTS = 16
 MAX_REQUIRED_TEST_CASES = 32
 MAX_REQUIRED_TEST_CASE_FIELDS = 64
+_GIT_CONFIG_ARGUMENTS = (
+    "-c",
+    "core.hooksPath=/dev/null",
+    "-c",
+    "core.autocrlf=false",
+    "-c",
+    "core.fsmonitor=false",
+    "-c",
+    "core.untrackedCache=false",
+    "-c",
+    "core.sparseCheckout=false",
+)
 MAX_DEFERRED_OUTPUT_REVIEW_CONTRACT_JSON_BYTES = 64 * 1024
 DEFERRED_OUTPUT_REVIEW_CONTRACT_SCHEMA = "axiom-encode/review-contract/v1"
 STRUCTURED_REVIEW_CONTRACT_SCHEMA = "axiom-encode/review-contract/v2"
@@ -1547,16 +1560,39 @@ def validate_dependent_cascade(
     return tuple(dependent_relatives)
 
 
+def _git_environment() -> dict[str, str]:
+    environment = dict(os.environ)
+    for name in tuple(environment):
+        if name.startswith("GIT_"):
+            environment.pop(name)
+    environment.update(
+        {
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_SYSTEM": os.devnull,
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_LITERAL_PATHSPECS": "1",
+            "GIT_TERMINAL_PROMPT": "0",
+            "GIT_NO_REPLACE_OBJECTS": "1",
+            "GIT_OPTIONAL_LOCKS": "0",
+        }
+    )
+    return environment
+
+
 def _git(repo: Path, *args: str) -> bytes:
-    return subprocess.check_output(["git", "-C", str(repo), *args])
+    return subprocess.check_output(
+        ["git", *_GIT_CONFIG_ARGUMENTS, "-C", str(repo), *args],
+        env=_git_environment(),
+    )
 
 
 def _git_quiet(repo: Path, *args: str) -> bytes:
     """Run a Git probe whose failure is handled without leaking diagnostics."""
 
     return subprocess.check_output(
-        ["git", "-C", str(repo), *args],
+        ["git", *_GIT_CONFIG_ARGUMENTS, "-C", str(repo), *args],
         stderr=subprocess.PIPE,
+        env=_git_environment(),
     )
 
 
@@ -2782,13 +2818,61 @@ def authorized_changed_paths(
     repo: Path,
     *,
     corpus_root: Path | None = None,
+    legacy_cleanup_base_ref: str | None = None,
+    legacy_cleanup_verifier: object | None = None,
+    legacy_cleanup_expected_toolchain: dict[str, object] | None = None,
 ) -> set[PurePosixPath]:
+    changed = _changed_paths(repo)
+    cleanup_root_changes = {
+        path
+        for path in changed
+        if path == LEGACY_CLEANUP_RECEIPT_ROOT
+        or path.is_relative_to(LEGACY_CLEANUP_RECEIPT_ROOT)
+    }
+    cleanup_arguments = (
+        legacy_cleanup_base_ref,
+        legacy_cleanup_verifier,
+        legacy_cleanup_expected_toolchain,
+    )
+    if cleanup_root_changes:
+        if any(value is None for value in cleanup_arguments):
+            raise ValueError(
+                "legacy cleanup staging requires its exact protected base, trusted "
+                "apply-root verifier, and expected toolchain together"
+            )
+        from axiom_encode.legacy_cleanup_guard import (
+            verify_worktree_legacy_cleanup_transition,
+        )
+
+        result = verify_worktree_legacy_cleanup_transition(
+            repo,
+            base_ref=legacy_cleanup_base_ref,
+            verifier=legacy_cleanup_verifier,
+            expected_toolchain=legacy_cleanup_expected_toolchain,
+        )
+        if result.issues:
+            raise ValueError(
+                "legacy cleanup staging rejected: " + "; ".join(result.issues)
+            )
+        authorized = {
+            PurePosixPath(path.as_posix()) for path in result.authorized_paths
+        }
+        if authorized != changed:
+            raise ValueError(
+                "legacy cleanup staging authorization differs from the exact "
+                "worktree change set"
+            )
+        return authorized
+    if any(value is not None for value in cleanup_arguments):
+        raise ValueError(
+            "legacy cleanup staging arguments require a cleanup receipt-root transition"
+        )
+
     corpus_release = None
     if corpus_root is not None:
         from axiom_encode.toolchain import load_rulespec_local_corpus_release
 
         corpus_release = load_rulespec_local_corpus_release(repo, corpus_root)
-    changed = _changed_paths(repo)
     manifests = {
         path
         for path in changed
@@ -3889,8 +3973,17 @@ def stage_authorized_changes(
     repo: Path,
     *,
     corpus_root: Path | None = None,
+    legacy_cleanup_base_ref: str | None = None,
+    legacy_cleanup_verifier: object | None = None,
+    legacy_cleanup_expected_toolchain: dict[str, object] | None = None,
 ) -> None:
-    authorized = authorized_changed_paths(repo, corpus_root=corpus_root)
+    authorized = authorized_changed_paths(
+        repo,
+        corpus_root=corpus_root,
+        legacy_cleanup_base_ref=legacy_cleanup_base_ref,
+        legacy_cleanup_verifier=legacy_cleanup_verifier,
+        legacy_cleanup_expected_toolchain=legacy_cleanup_expected_toolchain,
+    )
     authorized_bytes: dict[PurePosixPath, bytes | None] = {}
     for path in authorized:
         if not _checkout_path_exists_without_indirection(
@@ -3909,6 +4002,7 @@ def stage_authorized_changes(
     subprocess.run(
         [
             "git",
+            *_GIT_CONFIG_ARGUMENTS,
             "-C",
             str(repo),
             "add",
@@ -3916,6 +4010,7 @@ def stage_authorized_changes(
             *map(str, sorted(authorized)),
         ],
         check=True,
+        env=_git_environment(),
     )
     staged = {
         PurePosixPath(value.decode("utf-8"))
@@ -3931,6 +4026,13 @@ def stage_authorized_changes(
     }
     if staged != authorized:
         raise ValueError("staged paths differ from signed manifest authorization")
+    object_format = _git(repo, "rev-parse", "--show-object-format").decode().strip()
+    if object_format == "sha1":
+        object_pattern = COMMIT_PATTERN
+    elif object_format == "sha256":
+        object_pattern = DIGEST_PATTERN
+    else:
+        raise ValueError("authorized publication uses an unsupported Git object format")
     index_entries: dict[PurePosixPath, tuple[str, str, str]] = {}
     for raw_entry in _git(repo, "ls-files", "--stage", "-z").split(b"\0"):
         if not raw_entry:
@@ -3951,11 +4053,17 @@ def stage_authorized_changes(
         if expected_bytes is None:
             if entry is not None:
                 raise ValueError("deleted authorized path remains in the Git index")
+            if _checkout_path_exists_without_indirection(
+                repo,
+                path,
+                label="deleted authorized publication path after staging",
+            ):
+                raise ValueError("deleted authorized path reappeared while staging")
             continue
         if (
             entry is None
             or entry[0] != "100644"
-            or COMMIT_PATTERN.fullmatch(entry[1]) is None
+            or object_pattern.fullmatch(entry[1]) is None
             or entry[2] != "0"
         ):
             raise ValueError("authorized file has an invalid Git index entry")

@@ -41568,9 +41568,17 @@ class TestGuardGenerated:
         )
         manifest.write_text(json.dumps(manifest_payload) + "\n")
 
-        with patch.dict(
-            os.environ,
-            {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
+        with (
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
+            ),
+            patch(
+                "axiom_encode.cli.verify_committed_legacy_cleanup_transition",
+                side_effect=AssertionError(
+                    "ordinary apply manifests must not enter cleanup admission"
+                ),
+            ),
         ):
             issues = guard_generated_change_issues(
                 tmp_path,

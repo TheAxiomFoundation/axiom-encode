@@ -281,6 +281,50 @@ from .harness.validator_pipeline import (
     repair_nonnegative_amount_reductions,
     repair_source_table_band_scalar_parameters,
 )
+from .legacy_cleanup import (
+    LEGACY_CLEANUP_BASE_PROOF_SCHEMA,
+    LEGACY_CLEANUP_PROVENANCE_ASSERTIONS,
+    LEGACY_CLEANUP_PROVENANCE_CLASS,
+    LEGACY_CLEANUP_RECEIPT_DIR,
+    LEGACY_CLEANUP_RECEIPT_SCHEMA,
+    LEGACY_CLEANUP_TOOL,
+)
+from .legacy_cleanup import (
+    canonical_receipt_bytes as canonical_legacy_cleanup_receipt_bytes,
+)
+from .legacy_cleanup import (
+    parse_receipt_bytes as parse_legacy_cleanup_receipt_bytes,
+)
+from .legacy_cleanup import (
+    receipt_identity_sha256 as legacy_cleanup_receipt_identity_sha256,
+)
+from .legacy_cleanup import (
+    receipt_path as legacy_cleanup_receipt_path,
+)
+from .legacy_cleanup import (
+    utc_generated_at as legacy_cleanup_generated_at,
+)
+from .legacy_cleanup_git import (
+    LegacyCleanupBasePlan,
+    LegacyCleanupGitError,
+    clean_official_checkout_pin,
+    plan_legacy_cleanup_base,
+)
+from .legacy_cleanup_git import (
+    plan_payload_issues as legacy_cleanup_plan_payload_issues,
+)
+from .legacy_cleanup_guard import (
+    verify_committed_legacy_cleanup_transition,
+    verify_worktree_legacy_cleanup_transition,
+)
+from .legacy_cleanup_signing import (
+    sign_legacy_cleanup_receipt,
+    verify_legacy_cleanup_receipt_signature,
+)
+from .legacy_cleanup_validation import (
+    execute_projected_validation,
+    verification_only_axiom_encode_command,
+)
 from .legacy_exact_dependent_concepts import (
     LegacyExactDependentConceptError,
     canonicalized_concept_replacements,
@@ -1676,6 +1720,12 @@ def main():
         help="Exact axiom-rules-engine checkout (no sibling discovery)",
     )
     validation_waivers_fingerprint_parser.add_argument(
+        "--axiom-rules-engine-ref",
+        dest="axiom_rules_engine_ref",
+        default=None,
+        help="Full 40-hex commit overriding the toolchain-declared engine pin",
+    )
+    validation_waivers_fingerprint_parser.add_argument(
         "--json",
         action="store_true",
         help="Output deterministic outcomes and fingerprints as JSON",
@@ -1727,6 +1777,12 @@ def main():
         type=Path,
         required=True,
         help="Exact axiom-rules-engine checkout (no sibling discovery)",
+    )
+    validation_waivers_audit_parser.add_argument(
+        "--axiom-rules-engine-ref",
+        dest="axiom_rules_engine_ref",
+        default=None,
+        help="Full 40-hex commit overriding the toolchain-declared engine pin",
     )
     validation_waivers_audit_parser.add_argument(
         "--json",
@@ -2360,6 +2416,17 @@ def main():
     _add_required_corpus_path_argument(guard_generated_parser)
     _add_expected_encoder_checkout_argument(guard_generated_parser)
     guard_generated_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        type=Path,
+        default=None,
+        help=(
+            "Exact clean official axiom-rules-engine checkout; required when "
+            "admitting an atomic legacy-cleanup receipt"
+        ),
+    )
+    _add_rulespec_dependency_root_argument(guard_generated_parser)
+    guard_generated_parser.add_argument(
         "--json", action="store_true", help="Output guard result as JSON"
     )
 
@@ -2377,6 +2444,26 @@ def main():
         help="Exact canonical rulespec-<country> checkout to stage",
     )
     _add_required_corpus_path_argument(stage_signed_backfill_parser)
+    stage_signed_backfill_parser.add_argument(
+        "--legacy-cleanup-base-ref",
+        default=None,
+        help=(
+            "Exact full protected-base commit for cleanup-only receipt/deletion "
+            "staging"
+        ),
+    )
+    _add_expected_encoder_checkout_argument(stage_signed_backfill_parser)
+    stage_signed_backfill_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        type=Path,
+        default=None,
+        help=(
+            "Exact clean official axiom-rules-engine checkout; required for "
+            "legacy cleanup staging"
+        ),
+    )
+    _add_rulespec_dependency_root_argument(stage_signed_backfill_parser)
 
     signed_import_parser = subparsers.add_parser(
         "signed-import-inventory",
@@ -2572,6 +2659,56 @@ def main():
     )
     _add_required_corpus_path_argument(retire_parser)
 
+    legacy_cleanup_parser = subparsers.add_parser(
+        "cleanup-unmanifested-legacy",
+        help=(
+            "Atomically delete exact unmanifested legacy RuleSpec groups and add "
+            "one signed negative-provenance receipt"
+        ),
+    )
+    legacy_cleanup_parser.add_argument(
+        "paths",
+        nargs="+",
+        help=(
+            "Canonical checkout-relative primary RuleSpec YAML paths; each exact "
+            "companion .test.yaml path is derived automatically"
+        ),
+    )
+    legacy_cleanup_parser.add_argument(
+        "--policy-repo-path",
+        type=Path,
+        required=True,
+        help="Exact canonical rulespec-<country> checkout at the protected base",
+    )
+    legacy_cleanup_parser.add_argument(
+        "--base-ref",
+        required=True,
+        help="Exact full protected-base commit SHA; it must equal clean HEAD",
+    )
+    legacy_cleanup_parser.add_argument(
+        "--reason",
+        required=True,
+        help="Bounded audit reason for the negative-provenance contraction",
+    )
+    _add_required_corpus_path_argument(legacy_cleanup_parser)
+    legacy_cleanup_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        type=Path,
+        required=True,
+        help="Exact clean official axiom-rules-engine checkout used for validation",
+    )
+    _add_expected_encoder_checkout_argument(legacy_cleanup_parser)
+    _require_existing_parser_option(
+        legacy_cleanup_parser,
+        "--expected-encoder-checkout",
+        help_text=(
+            "Exact clean official axiom-encode checkout whose commit, object "
+            "format, and three-file version pin match the executing runtime"
+        ),
+    )
+    _add_rulespec_dependency_root_argument(legacy_cleanup_parser)
+
     path_migration_parser = subparsers.add_parser(
         "migrate-rulespec-paths",
         help=(
@@ -2619,6 +2756,12 @@ def main():
         type=Path,
         required=True,
         help="Exact axiom-rules-engine checkout (no sibling discovery)",
+    )
+    test_parser.add_argument(
+        "--axiom-rules-engine-ref",
+        dest="axiom_rules_engine_ref",
+        default=None,
+        help="Full 40-hex commit overriding the toolchain-declared engine pin",
     )
     test_parser.add_argument("--json", action="store_true", help="Output as JSON")
     _add_rulespec_dependency_root_argument(test_parser)
@@ -3540,6 +3683,8 @@ def main():
         cmd_program_scope_sync(args)
     elif args.command == "retire":
         cmd_retire(args)
+    elif args.command == "cleanup-unmanifested-legacy":
+        cmd_cleanup_unmanifested_legacy(args)
     elif args.command == "migrate-rulespec-paths":
         cmd_migrate_rulespec_paths(args)
     elif args.command == "guard-generated":
@@ -4003,6 +4148,7 @@ def _fingerprint_validation_waiver_modules(
     axiom_rules_path: Path,
     rulespec_dependency_roots: Sequence[Path] = (),
     corpus_release: LocalCorpusRelease | None = None,
+    axiom_rules_engine_ref: str | None = None,
 ) -> list[dict[str, Any]]:
     """Execute validation and companions against one canonical checkout root.
 
@@ -4028,6 +4174,7 @@ def _fingerprint_validation_waiver_modules(
             axiom_rules_path=axiom_rules_path,
             rulespec_dependency_roots=rulespec_dependency_roots,
             corpus_release=corpus_release,
+            axiom_rules_engine_ref=axiom_rules_engine_ref,
         )
 
 
@@ -4039,6 +4186,7 @@ def _fingerprint_validation_waiver_modules_impl(
     axiom_rules_path: Path,
     rulespec_dependency_roots: Sequence[Path] = (),
     corpus_release: LocalCorpusRelease | None = None,
+    axiom_rules_engine_ref: str | None = None,
 ) -> list[dict[str, Any]]:
     """Fingerprint every module; each validate opens its own resolution scope."""
 
@@ -4067,6 +4215,11 @@ def _fingerprint_validation_waiver_modules_impl(
     )
     if corpus_release is None:
         corpus_release = load_rulespec_local_corpus_release(root, corpus_path)
+    engine_ref_arguments = (
+        {"axiom_rules_engine_ref": axiom_rules_engine_ref}
+        if axiom_rules_engine_ref is not None
+        else {}
+    )
     pipelines = {
         content_root: ValidatorPipeline(
             policy_repo_path=content_root,
@@ -4074,6 +4227,7 @@ def _fingerprint_validation_waiver_modules_impl(
             enable_oracles=False,
             local_corpus_release=corpus_release,
             rulespec_dependency_roots=rulespec_dependency_roots,
+            **engine_ref_arguments,
         )
         for content_root in sorted(
             {content_root for _module, content_root in resolved_modules.values()}
@@ -4175,6 +4329,7 @@ def _fingerprint_waiver_chunk(
     axiom_rules_path: str,
     rulespec_dependency_roots: tuple[str, ...],
     release_identity: tuple[str, str, str, object],
+    axiom_rules_engine_ref: str | None = None,
 ) -> list[dict[str, Any]]:
     """Worker entrypoint: fingerprint one chunk against a pre-attested release.
 
@@ -4199,6 +4354,7 @@ def _fingerprint_waiver_chunk(
             Path(path) for path in rulespec_dependency_roots
         ),
         corpus_release=corpus_release,
+        axiom_rules_engine_ref=axiom_rules_engine_ref,
     )
 
 
@@ -4209,6 +4365,7 @@ def _fingerprint_validation_waiver_modules_parallel(
     corpus_path: Path,
     axiom_rules_path: Path,
     rulespec_dependency_roots: Sequence[Path] = (),
+    axiom_rules_engine_ref: str | None = None,
 ) -> list[dict[str, Any]]:
     """Fingerprint waiver modules across worker processes.
 
@@ -4228,6 +4385,7 @@ def _fingerprint_validation_waiver_modules_parallel(
             corpus_path=corpus_path,
             axiom_rules_path=axiom_rules_path,
             rulespec_dependency_roots=rulespec_dependency_roots,
+            axiom_rules_engine_ref=axiom_rules_engine_ref,
         )
 
     corpus_release = load_rulespec_local_corpus_release(
@@ -4245,6 +4403,15 @@ def _fingerprint_validation_waiver_modules_parallel(
         for start in range(0, len(ordered), chunk_size)
     ]
     dependency_roots = tuple(str(path) for path in rulespec_dependency_roots)
+    worker_arguments: tuple[object, ...] = (
+        str(root),
+        str(corpus_path),
+        str(axiom_rules_path),
+        dependency_roots,
+        release_identity,
+    )
+    if axiom_rules_engine_ref is not None:
+        worker_arguments = (*worker_arguments, axiom_rules_engine_ref)
 
     results: list[dict[str, Any]] = []
     with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as pool:
@@ -4252,11 +4419,7 @@ def _fingerprint_validation_waiver_modules_parallel(
             pool.submit(
                 _fingerprint_waiver_chunk,
                 chunk,
-                str(root),
-                str(corpus_path),
-                str(axiom_rules_path),
-                dependency_roots,
-                release_identity,
+                *worker_arguments,
             )
             for chunk in chunks
         ]
@@ -4336,6 +4499,7 @@ def _cmd_validation_waivers_fingerprint(args) -> int:
         corpus_path=args.corpus_path,
         axiom_rules_path=args.axiom_rules_path,
         rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
+        axiom_rules_engine_ref=getattr(args, "axiom_rules_engine_ref", None),
     )
     if args.json:
         print(
@@ -4498,6 +4662,7 @@ def _cmd_validation_waivers_audit(args) -> int:
             corpus_path=args.corpus_path,
             axiom_rules_path=args.axiom_rules_path,
             rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
+            axiom_rules_engine_ref=getattr(args, "axiom_rules_engine_ref", None),
         )
         if executable_paths
         else []
@@ -4548,6 +4713,7 @@ def _cmd_validation_waivers_audit(args) -> int:
             corpus_path=args.corpus_path,
             axiom_rules_path=args.axiom_rules_path,
             rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
+            axiom_rules_engine_ref=getattr(args, "axiom_rules_engine_ref", None),
         )
         for result in rechecked:
             result["isolated_recheck"] = True
@@ -5001,6 +5167,7 @@ def cmd_test(args):
         local_corpus_release=None,
         enable_oracles=False,
         rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
+        axiom_rules_engine_ref=getattr(args, "axiom_rules_engine_ref", None),
     )
     binary = pipeline._axiom_rules_binary()
     rulespec_env = pipeline._rulespec_engine_env()
@@ -7407,6 +7574,8 @@ def cmd_guard_generated(args):
         roots=roots,
         all_files=all_files,
         expected_encoder_checkout=getattr(args, "expected_encoder_checkout", None),
+        axiom_rules_path=getattr(args, "axiom_rules_path", None),
+        rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
     )
     payload = {"repo": str(repo_path), "passed": not issues, "issues": issues}
     if args.json:
@@ -7431,7 +7600,47 @@ def cmd_stage_signed_backfill(args):
         args.repo,
         label="RuleSpec checkout",
     )
-    stage_authorized_changes(repo_path, corpus_root=Path(args.corpus_path))
+    cleanup_base_ref = getattr(args, "legacy_cleanup_base_ref", None)
+    if cleanup_base_ref is None:
+        stage_authorized_changes(repo_path, corpus_root=Path(args.corpus_path))
+        return
+    expected_encoder_checkout = getattr(args, "expected_encoder_checkout", None)
+    axiom_rules_path = getattr(args, "axiom_rules_path", None)
+    if expected_encoder_checkout is None or axiom_rules_path is None:
+        raise RuntimeError(
+            "Legacy cleanup staging requires --expected-encoder-checkout and "
+            "--axiom-rules-engine-path"
+        )
+    verifier = _applied_encoding_manifest_verifier()
+    if verifier is None:
+        raise RuntimeError(
+            "Legacy cleanup staging requires the protected apply signature "
+            "verification key"
+        )
+    preliminary = verify_worktree_legacy_cleanup_transition(
+        repo_path,
+        base_ref=cleanup_base_ref,
+        verifier=verifier,
+    )
+    if preliminary.issues or preliminary.receipt is None:
+        detail = "; ".join(preliminary.issues) or "verified receipt is missing"
+        raise RuntimeError(f"Legacy cleanup staging rejected: {detail}")
+    expected_toolchain = _legacy_cleanup_expected_toolchain_from_receipt(
+        repo_path=repo_path,
+        base_ref=cleanup_base_ref,
+        receipt=preliminary.receipt,
+        corpus_path=Path(args.corpus_path),
+        encoder_checkout=Path(expected_encoder_checkout),
+        rules_engine_checkout=Path(axiom_rules_path),
+        dependency_roots=_rulespec_dependency_roots_from_args(args),
+    )
+    stage_authorized_changes(
+        repo_path,
+        corpus_root=Path(args.corpus_path),
+        legacy_cleanup_base_ref=cleanup_base_ref,
+        legacy_cleanup_verifier=verifier,
+        legacy_cleanup_expected_toolchain=expected_toolchain,
+    )
 
 
 def cmd_signed_import_inventory(args):
@@ -8676,6 +8885,7 @@ def _legacy_replacement_reference_inventory_issues(
         APPLIED_ENCODING_MANIFEST_DIR.parts,
         APPLIED_ENCODING_PATH_MIGRATION_RECEIPT_DIR.parts,
         APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR.parts,
+        LEGACY_CLEANUP_RECEIPT_DIR.parts,
     )
     roots = tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS))
     hit_paths: set[Path] = set()
@@ -20087,7 +20297,11 @@ def _cmd_migrate_rulespec_paths(args) -> None:
         raise SystemExit(f"Invalid migration replacement set: {exc}") from exc
 
     manifest_prefix = APPLIED_ENCODING_MANIFEST_DIR.parts
-    receipt_prefix = APPLIED_ENCODING_PATH_MIGRATION_RECEIPT_DIR.parts
+    receipt_prefixes = (
+        APPLIED_ENCODING_PATH_MIGRATION_RECEIPT_DIR.parts,
+        APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR.parts,
+        LEGACY_CLEANUP_RECEIPT_DIR.parts,
+    )
     planned_files: dict[Path, bytes | None] = {}
     expected_originals: dict[Path, str | None] = {}
     rewrite_records: list[dict[str, object]] = []
@@ -20114,7 +20328,7 @@ def _cmd_migrate_rulespec_paths(args) -> None:
             if any(old.encode("utf-8") in raw for old in replacements):
                 skipped_manifest_matches.append(relative)
             continue
-        if relative.parts[: len(receipt_prefix)] == receipt_prefix:
+        if any(relative.parts[: len(prefix)] == prefix for prefix in receipt_prefixes):
             if mode != "100644":
                 raise SystemExit(
                     f"Prior migration receipt is not a regular 0644 file: "
@@ -20819,6 +21033,488 @@ def cmd_retire(args):
         print(f"signed {manifest.relative_to(repo_path).as_posix()}")
 
 
+_LEGACY_CLEANUP_ENCODER_REPOSITORY = "github.com/TheAxiomFoundation/axiom-encode"
+_LEGACY_CLEANUP_ENGINE_REPOSITORY = "github.com/TheAxiomFoundation/axiom-rules-engine"
+
+
+def _legacy_cleanup_release_identity(release: LocalCorpusRelease) -> tuple[str, ...]:
+    return (
+        str(release.root),
+        release.name,
+        release.content_sha256,
+        release.selector_sha256,
+    )
+
+
+def _legacy_cleanup_dependency_pins(
+    roots: Sequence[Path],
+) -> tuple[tuple[Path, ...], list[dict[str, str]]]:
+    normalized = tuple(_normalize_rulespec_dependency_roots(roots))
+    pins: list[dict[str, str]] = []
+    for root in normalized:
+        name = root.name
+        if re.fullmatch(r"rulespec-[a-z]{2}", name) is None:
+            raise RuntimeError(
+                "Legacy cleanup dependency must be an exact canonical "
+                f"rulespec-<country> checkout: {root}"
+            )
+        pins.append(
+            clean_official_checkout_pin(
+                root,
+                expected_repository=f"github.com/TheAxiomFoundation/{name}",
+            )
+        )
+    pins.sort(key=lambda item: item["repository"])
+    if len({pin["repository"] for pin in pins}) != len(pins):
+        raise RuntimeError("Legacy cleanup dependency repositories must be unique")
+    return normalized, pins
+
+
+def _legacy_cleanup_toolchain_binding(
+    *,
+    repo_path: Path,
+    plan: LegacyCleanupBasePlan,
+    corpus_path: Path,
+    encoder_checkout: Path,
+    rules_engine_checkout: Path,
+    dependency_roots: Sequence[Path],
+) -> tuple[dict[str, object], LocalCorpusRelease, tuple[Path, ...]]:
+    encoder_identity = _read_only_guard_encoder_execution_identity(encoder_checkout)
+    encoder_pin = clean_official_checkout_pin(
+        encoder_checkout,
+        expected_repository=_LEGACY_CLEANUP_ENCODER_REPOSITORY,
+        version=__version__,
+    )
+    if encoder_identity != {
+        "repository": encoder_pin["repository"],
+        "commit": encoder_pin["commit"],
+        "version": encoder_pin["version"],
+    }:
+        raise RuntimeError(
+            "Legacy cleanup encoder checkout differs from the executing runtime"
+        )
+    engine_pin = clean_official_checkout_pin(
+        rules_engine_checkout,
+        expected_repository=_LEGACY_CLEANUP_ENGINE_REPOSITORY,
+    )
+    normalized_dependencies, dependency_pins = _legacy_cleanup_dependency_pins(
+        dependency_roots
+    )
+    release = load_rulespec_local_corpus_release(repo_path, corpus_path)
+    waiver_sha256 = verify_rulespec_validation_waiver_set(repo_path)
+    if (
+        release.name != plan.toolchain_values["axiom_corpus_release"]
+        or release.content_sha256
+        != plan.toolchain_values["axiom_corpus_release_content_sha256"]
+        or waiver_sha256 != plan.toolchain_values["validation_waiver_set_sha256"]
+    ):
+        raise RuntimeError(
+            "Legacy cleanup protected-base toolchain pins disagree with the "
+            "executed corpus release or waiver set"
+        )
+    return (
+        {
+            "axiom_encode": encoder_pin,
+            "axiom_rules_engine": engine_pin,
+            "rulespec_dependencies": dependency_pins,
+            "corpus_release": {
+                "name": release.name,
+                "content_sha256": release.content_sha256,
+                "selector_sha256": release.selector_sha256,
+            },
+            "validation_waiver_set_sha256": waiver_sha256,
+            "base_files": copy.deepcopy(plan.base_files),
+        },
+        release,
+        normalized_dependencies,
+    )
+
+
+def _legacy_cleanup_expected_toolchain_from_receipt(
+    *,
+    repo_path: Path,
+    base_ref: str,
+    receipt: Mapping[str, object],
+    corpus_path: Path,
+    encoder_checkout: Path,
+    rules_engine_checkout: Path,
+    dependency_roots: Sequence[Path],
+) -> dict[str, object]:
+    """Reconstruct introduction-time pins for one already verified receipt."""
+
+    groups = receipt.get("groups")
+    if not isinstance(groups, list):
+        raise RuntimeError("Legacy cleanup receipt groups are unavailable")
+    primary_paths = [
+        group["primary"]["path"]
+        for group in groups
+        if isinstance(group, dict)
+        and isinstance(group.get("primary"), dict)
+        and isinstance(group["primary"].get("path"), str)
+    ]
+    if len(primary_paths) != len(groups):
+        raise RuntimeError("Legacy cleanup receipt primary paths are malformed")
+    plan = plan_legacy_cleanup_base(
+        repo_path,
+        base_ref=base_ref,
+        primary_paths=primary_paths,
+        require_clean_checkout=False,
+    )
+    expected_toolchain, _release, _dependencies = _legacy_cleanup_toolchain_binding(
+        repo_path=repo_path,
+        plan=plan,
+        corpus_path=corpus_path,
+        encoder_checkout=encoder_checkout,
+        rules_engine_checkout=rules_engine_checkout,
+        dependency_roots=dependency_roots,
+    )
+    return expected_toolchain
+
+
+def _legacy_cleanup_git_bytes(repo_path: Path, *arguments: str) -> bytes:
+    environment = dict(os.environ)
+    for name in tuple(environment):
+        if name.startswith("GIT_"):
+            environment.pop(name)
+    environment.update(
+        {
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_SYSTEM": os.devnull,
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_LITERAL_PATHSPECS": "1",
+            "GIT_TERMINAL_PROMPT": "0",
+            "GIT_NO_REPLACE_OBJECTS": "1",
+            "GIT_OPTIONAL_LOCKS": "0",
+        }
+    )
+    completed = subprocess.run(
+        [
+            "git",
+            "-c",
+            "core.hooksPath=/dev/null",
+            "-c",
+            "core.autocrlf=false",
+            "-c",
+            "core.fsmonitor=false",
+            "-c",
+            "core.untrackedCache=false",
+            "-c",
+            "core.sparseCheckout=false",
+            "-C",
+            str(repo_path),
+            *arguments,
+        ],
+        capture_output=True,
+        check=False,
+        env=environment,
+    )
+    if completed.returncode != 0:
+        detail = completed.stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(
+            "Legacy cleanup Git closure check failed "
+            f"({' '.join(arguments)}): {detail or 'git command failed'}"
+        )
+    return completed.stdout
+
+
+def _legacy_cleanup_name_status(
+    repo_path: Path,
+    *arguments: str,
+) -> dict[str, str]:
+    raw = _legacy_cleanup_git_bytes(
+        repo_path,
+        "diff",
+        "--name-status",
+        "-z",
+        "--no-renames",
+        "--no-ext-diff",
+        *arguments,
+    )
+    fields = [field for field in raw.split(b"\0") if field]
+    if len(fields) % 2:
+        raise RuntimeError("Legacy cleanup Git status output is malformed")
+    result: dict[str, str] = {}
+    for index in range(0, len(fields), 2):
+        try:
+            status_code = fields[index].decode("ascii")
+            path = fields[index + 1].decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise RuntimeError(
+                "Legacy cleanup Git status output is not canonical UTF-8"
+            ) from exc
+        if status_code not in {"A", "D", "M", "T", "U", "X", "B"}:
+            raise RuntimeError(
+                f"Legacy cleanup Git status is unsupported: {status_code}"
+            )
+        if path in result:
+            raise RuntimeError(f"Legacy cleanup Git status repeats path: {path}")
+        result[path] = status_code
+    return result
+
+
+def _legacy_cleanup_post_install_issues(
+    repo_path: Path,
+    *,
+    plan: LegacyCleanupBasePlan,
+    receipt_relative: Path,
+    receipt_bytes: bytes,
+) -> list[str]:
+    issues: list[str] = []
+    receipt_snapshot = _apply_transaction_file_snapshot(repo_path / receipt_relative)
+    if (
+        receipt_snapshot is None
+        or receipt_snapshot[0] != receipt_bytes
+        or receipt_snapshot[2] != 0o644
+    ):
+        issues.append("cleanup receipt is not the exact regular 0644 signed payload")
+    for path in plan.deleted_paths:
+        if not _is_unambiguously_absent_repo_path(repo_path, path):
+            issues.append(f"cleanup target is not unambiguously absent: {path}")
+
+    unstaged = _legacy_cleanup_name_status(repo_path, "HEAD", "--")
+    expected_unstaged = {path.as_posix(): "D" for path in plan.deleted_paths}
+    if unstaged != expected_unstaged:
+        issues.append("cleanup unstaged diff is not the exact authorized deletion set")
+    staged = _legacy_cleanup_name_status(repo_path, "--cached", "HEAD", "--")
+    if staged:
+        issues.append("cleanup transaction unexpectedly changed the Git index")
+    untracked_raw = _legacy_cleanup_git_bytes(
+        repo_path,
+        "ls-files",
+        "--others",
+        "--exclude-standard",
+        "-z",
+    )
+    transaction_prefix = _APPLY_TRANSACTION_DIRECTORY.as_posix() + "/"
+    try:
+        untracked = {
+            field.decode("utf-8")
+            for field in untracked_raw.split(b"\0")
+            if field and not field.decode("utf-8").startswith(transaction_prefix)
+        }
+    except UnicodeDecodeError:
+        issues.append("cleanup untracked inventory is not UTF-8")
+    else:
+        if untracked != {receipt_relative.as_posix()}:
+            issues.append("cleanup untracked set is not exactly the signed receipt")
+    return issues
+
+
+def cmd_cleanup_unmanifested_legacy(args):
+    """Create one receipt and delete its exact groups in one durable transaction."""
+
+    repo_path = _resolve_canonical_rulespec_checkout(
+        args.policy_repo_path,
+        label="RuleSpec checkout",
+    )
+    # Recovery must precede target, corpus, provenance, validation, or signer
+    # checks because a killed prior invocation may have left either complete
+    # side of the same atomic transition on disk.
+    _recover_apply_transaction(repo_path)
+    try:
+        plan = plan_legacy_cleanup_base(
+            repo_path,
+            base_ref=str(args.base_ref),
+            primary_paths=tuple(args.paths),
+            require_clean_checkout=True,
+        )
+        toolchain, release, dependency_roots = _legacy_cleanup_toolchain_binding(
+            repo_path=repo_path,
+            plan=plan,
+            corpus_path=Path(args.corpus_path),
+            encoder_checkout=Path(args.expected_encoder_checkout),
+            rules_engine_checkout=Path(args.axiom_rules_path),
+            dependency_roots=_rulespec_dependency_roots_from_args(args),
+        )
+    except (LegacyCleanupGitError, ValueError) as exc:
+        raise RuntimeError(f"Legacy cleanup admission failed: {exc}") from exc
+
+    try:
+        verification_broker = get_signing_broker()
+    except SigningBrokerError as exc:
+        raise RuntimeError(
+            "Legacy cleanup validation requires the protected corpus-release "
+            "verification keyring"
+        ) from exc
+    validation_public_keys = verification_broker.corpus_release_public_keys_raw
+    validation_execution = execute_projected_validation(
+        repo_path,
+        plan,
+        corpus_checkout=Path(args.corpus_path),
+        rules_engine_checkout=Path(args.axiom_rules_path),
+        rulespec_dependency_roots=dependency_roots,
+        axiom_encode_command=verification_only_axiom_encode_command(
+            validation_public_keys
+        ),
+    )
+    del verification_broker
+    # Validation must not mutate any bound checkout or pin. Recompute before a
+    # signer is asked to authorize the immutable payload.
+    post_validation_toolchain, post_validation_release, post_validation_dependencies = (
+        _legacy_cleanup_toolchain_binding(
+            repo_path=repo_path,
+            plan=plan,
+            corpus_path=Path(args.corpus_path),
+            encoder_checkout=Path(args.expected_encoder_checkout),
+            rules_engine_checkout=Path(args.axiom_rules_path),
+            dependency_roots=dependency_roots,
+        )
+    )
+    if (
+        post_validation_toolchain != toolchain
+        or _legacy_cleanup_release_identity(post_validation_release)
+        != _legacy_cleanup_release_identity(release)
+        or post_validation_dependencies != dependency_roots
+    ):
+        raise RuntimeError("Legacy cleanup validation inputs changed during execution")
+
+    signing_broker = _require_applied_encoding_manifest_signer()
+    if signing_broker.corpus_release_public_keys_raw != validation_public_keys:
+        raise RuntimeError(
+            "Legacy cleanup protected corpus-release keyring changed before signing"
+        )
+    receipt_payload: dict[str, object] = {
+        "schema_version": LEGACY_CLEANUP_RECEIPT_SCHEMA,
+        "tool": LEGACY_CLEANUP_TOOL,
+        "provenance_class": LEGACY_CLEANUP_PROVENANCE_CLASS,
+        "generated_at": legacy_cleanup_generated_at(),
+        "reason": args.reason,
+        "repository": {
+            "repository": plan.repository,
+            "object_format": plan.object_format,
+            "base_commit": plan.base_commit,
+            "base_tree": plan.base_tree,
+            "projected_post_deletion_tree": plan.projected_post_deletion_tree,
+        },
+        "toolchain": toolchain,
+        "base_proof": {
+            "schema": LEGACY_CLEANUP_BASE_PROOF_SCHEMA,
+            "ownership_inventory_sha256": plan.ownership_inventory_sha256,
+            "provenance_record_count": len(plan.provenance_records),
+            "surviving_reference_inventory_sha256": (
+                plan.surviving_reference_inventory_sha256
+            ),
+            "surviving_blob_count": plan.surviving_blob_count,
+        },
+        "validation_execution": validation_execution,
+        "provenance_assertions": dict(LEGACY_CLEANUP_PROVENANCE_ASSERTIONS),
+        "groups": copy.deepcopy(list(plan.groups)),
+    }
+    receipt_payload["receipt_identity_sha256"] = legacy_cleanup_receipt_identity_sha256(
+        receipt_payload
+    )
+    sign_legacy_cleanup_receipt(receipt_payload, signing_broker)
+    receipt_relative = legacy_cleanup_receipt_path(
+        str(receipt_payload["receipt_identity_sha256"])
+    )
+    receipt_bytes = canonical_legacy_cleanup_receipt_bytes(receipt_payload)
+    parsed = parse_legacy_cleanup_receipt_bytes(
+        receipt_bytes,
+        expected_path=receipt_relative,
+    )
+    verify_legacy_cleanup_receipt_signature(parsed, signing_broker)
+    if legacy_cleanup_plan_payload_issues(parsed, plan):
+        raise RuntimeError("Legacy cleanup signed receipt differs from its base proof")
+
+    receipt_target = repo_path / receipt_relative
+    if _apply_transaction_file_snapshot(receipt_target) is not None:
+        raise RuntimeError(
+            f"Legacy cleanup receipt already exists: {receipt_relative.as_posix()}"
+        )
+    transaction_files: list[tuple[Path, bytes | None]] = [
+        (receipt_target, receipt_bytes)
+    ]
+    expected_originals: dict[Path, str | None] = {receipt_target: None}
+    for key in ("primary", "companion"):
+        for group in plan.groups:
+            record = group[key]
+            target = repo_path / record["path"]
+            transaction_files.append((target, None))
+            expected_originals[target] = record["base_sha256"]
+
+    expected_release_identity = _legacy_cleanup_release_identity(release)
+
+    def locked_contract() -> None:
+        locked_plan = plan_legacy_cleanup_base(
+            repo_path,
+            base_ref=plan.base_commit,
+            primary_paths=plan.primary_paths,
+            require_clean_checkout=True,
+        )
+        if locked_plan != plan:
+            raise RuntimeError("Legacy cleanup immutable-base proof changed under lock")
+        locked_toolchain, locked_release, locked_dependencies = (
+            _legacy_cleanup_toolchain_binding(
+                repo_path=repo_path,
+                plan=locked_plan,
+                corpus_path=Path(args.corpus_path),
+                encoder_checkout=Path(args.expected_encoder_checkout),
+                rules_engine_checkout=Path(args.axiom_rules_path),
+                dependency_roots=dependency_roots,
+            )
+        )
+        if (
+            locked_toolchain != toolchain
+            or _legacy_cleanup_release_identity(locked_release)
+            != expected_release_identity
+            or locked_dependencies != dependency_roots
+        ):
+            raise RuntimeError("Legacy cleanup bound input changed under lock")
+        if _apply_transaction_file_snapshot(receipt_target) is not None:
+            raise RuntimeError("Legacy cleanup receipt collided under lock")
+        locked_parsed = parse_legacy_cleanup_receipt_bytes(
+            receipt_bytes,
+            expected_path=receipt_relative,
+        )
+        verify_legacy_cleanup_receipt_signature(locked_parsed, signing_broker)
+        issues = legacy_cleanup_plan_payload_issues(locked_parsed, locked_plan)
+        if issues:
+            raise RuntimeError(
+                "Legacy cleanup signed base proof changed under lock: "
+                + "; ".join(issues)
+            )
+
+    def post_install_check() -> None:
+        locked_toolchain, locked_release, locked_dependencies = (
+            _legacy_cleanup_toolchain_binding(
+                repo_path=repo_path,
+                plan=plan,
+                corpus_path=Path(args.corpus_path),
+                encoder_checkout=Path(args.expected_encoder_checkout),
+                rules_engine_checkout=Path(args.axiom_rules_path),
+                dependency_roots=dependency_roots,
+            )
+        )
+        if (
+            locked_toolchain != toolchain
+            or _legacy_cleanup_release_identity(locked_release)
+            != expected_release_identity
+            or locked_dependencies != dependency_roots
+        ):
+            raise RuntimeError("Legacy cleanup bound input changed during installation")
+        issues = _legacy_cleanup_post_install_issues(
+            repo_path,
+            plan=plan,
+            receipt_relative=receipt_relative,
+            receipt_bytes=receipt_bytes,
+        )
+        if issues:
+            raise RuntimeError(
+                "Legacy cleanup post-install closure failed: " + "; ".join(issues)
+            )
+
+    _install_apply_transaction(
+        transaction_files,
+        checkout_root=repo_path,
+        expected_originals=expected_originals,
+        pre_install_check=locked_contract,
+        post_install_check=post_install_check,
+    )
+    print(f"signed {receipt_relative.as_posix()}")
+    for path in plan.deleted_paths:
+        print(f"deleted {path.as_posix()}")
+
+
 def guard_generated_change_issues(
     repo_path: Path,
     *,
@@ -20829,6 +21525,8 @@ def guard_generated_change_issues(
     changed_files: list[str] | None = None,
     all_files: bool = False,
     expected_encoder_checkout: Path | None = None,
+    axiom_rules_path: Path | None = None,
+    rulespec_dependency_roots: Sequence[Path] = (),
 ) -> list[str]:
     """Return issues for RuleSpec changes not bound to the signed local release."""
     repo_path = Path(repo_path).resolve()
@@ -20836,18 +21534,9 @@ def guard_generated_change_issues(
     if pending_transaction.exists() or pending_transaction.is_symlink():
         return [
             "RuleSpec checkout has an incomplete apply/retire transaction; "
-            "rerun encode --apply, retire, or migrate-rulespec-paths to recover "
-            "it before validation"
+            "rerun encode --apply, retire, migrate-rulespec-paths, or "
+            "cleanup-unmanifested-legacy to recover it before validation"
         ]
-    try:
-        load_rulespec_toolchain(repo_path)
-        current_waiver_set_sha256 = verify_rulespec_validation_waiver_set(repo_path)
-        local_corpus_release = load_rulespec_local_corpus_release(
-            repo_path,
-            Path(corpus_path),
-        )
-    except ValueError as exc:
-        return [f"RuleSpec corpus/toolchain binding is invalid: {exc}"]
     if all_files:
         changed = (
             _git_guard_changed_files(
@@ -20891,6 +21580,81 @@ def guard_generated_change_issues(
             if _is_noncanonical_rulespec_yml_path(Path(path), roots=roots)
             and (repo_path / path).exists()
         ]
+
+    cleanup_prefix = LEGACY_CLEANUP_RECEIPT_DIR.as_posix() + "/"
+    cleanup_transition = any(
+        path == LEGACY_CLEANUP_RECEIPT_DIR.as_posix() or path.startswith(cleanup_prefix)
+        for path in changed
+    )
+    if cleanup_transition:
+        if base_ref is None:
+            return [
+                "Atomic legacy cleanup admission requires an exact protected --base-ref"
+            ]
+        if expected_encoder_checkout is None:
+            return [
+                "Atomic legacy cleanup admission requires --expected-encoder-checkout"
+            ]
+        if axiom_rules_path is None:
+            return [
+                "Atomic legacy cleanup admission requires --axiom-rules-engine-path"
+            ]
+        verifier = _applied_encoding_manifest_verifier()
+        if verifier is None:
+            return [
+                "Atomic legacy cleanup admission requires the protected apply "
+                "signature verification key"
+            ]
+        preliminary = verify_committed_legacy_cleanup_transition(
+            repo_path,
+            base_ref=base_ref,
+            head_ref=head_ref,
+            verifier=verifier,
+        )
+        if preliminary.issues:
+            return list(preliminary.issues)
+        authorized_change_set = {
+            path.as_posix() for path in preliminary.authorized_paths
+        }
+        if set(changed) != authorized_change_set:
+            return [
+                "Atomic legacy cleanup guard observed uncommitted, omitted, or "
+                "mixed paths outside the exact committed receipt authorization"
+            ]
+        receipt = preliminary.receipt
+        if receipt is None:
+            return ["Atomic legacy cleanup admission found no verified receipt"]
+        try:
+            expected_cleanup_toolchain = (
+                _legacy_cleanup_expected_toolchain_from_receipt(
+                    repo_path=repo_path,
+                    base_ref=base_ref,
+                    receipt=receipt,
+                    corpus_path=Path(corpus_path),
+                    encoder_checkout=Path(expected_encoder_checkout),
+                    rules_engine_checkout=Path(axiom_rules_path),
+                    dependency_roots=rulespec_dependency_roots,
+                )
+            )
+        except (LegacyCleanupGitError, RuntimeError, ValueError, OSError) as exc:
+            return [f"Atomic legacy cleanup toolchain binding is invalid: {exc}"]
+        final_cleanup = verify_committed_legacy_cleanup_transition(
+            repo_path,
+            base_ref=base_ref,
+            head_ref=head_ref,
+            verifier=verifier,
+            expected_toolchain=expected_cleanup_toolchain,
+        )
+        return list(final_cleanup.issues)
+    try:
+        load_rulespec_toolchain(repo_path)
+        current_waiver_set_sha256 = verify_rulespec_validation_waiver_set(repo_path)
+        local_corpus_release = load_rulespec_local_corpus_release(
+            repo_path,
+            Path(corpus_path),
+        )
+    except ValueError as exc:
+        return [f"RuleSpec corpus/toolchain binding is invalid: {exc}"]
     if noncanonical_yml:
         return [
             f"{path} uses the removed .yml RuleSpec extension; rename it to canonical .yaml"
@@ -28805,6 +29569,7 @@ def _resolve_legacy_replacement_contract(
     receipt_prefixes = (
         APPLIED_ENCODING_PATH_MIGRATION_RECEIPT_DIR.parts,
         APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR.parts,
+        LEGACY_CLEANUP_RECEIPT_DIR.parts,
     )
     rewrites: list[_LegacyReplacementRewrite] = []
     for relative, mode in sorted(tracked.items(), key=lambda item: item[0].as_posix()):
@@ -52948,6 +53713,7 @@ def _is_canonical_apply_transaction_target(
     for receipt_dir in (
         APPLIED_ENCODING_PATH_MIGRATION_RECEIPT_DIR,
         APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR,
+        LEGACY_CLEANUP_RECEIPT_DIR,
     ):
         receipt_prefix = receipt_dir.parts
         if relative.parts[: len(receipt_prefix)] == receipt_prefix:

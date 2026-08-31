@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+from base64 import b64encode
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,7 @@ from axiom_encode.toolchain import (
     RuleSpecToolchainError,
     load_rulespec_corpus_release_pin,
     load_rulespec_local_corpus_release,
+    local_corpus_release_verification,
     verify_rulespec_validation_waiver_set,
 )
 from tests.release_object_fixtures import (
@@ -94,6 +96,55 @@ def test_load_rulespec_local_corpus_release_binds_exact_named_selector(tmp_path)
     assert (
         release.provisions_root == (corpus / "data" / "corpus" / "provisions").resolve()
     )
+
+
+def test_verification_only_corpus_keyring_accepts_rotation_and_resets(
+    tmp_path,
+    monkeypatch,
+):
+    rulespec = tmp_path / "rulespec-us"
+    corpus = tmp_path / "corpus"
+    release = _write_corpus_release(corpus)
+    _write_toolchain(rulespec, content_sha256=release.content_sha256)
+    monkeypatch.setattr(signing_broker, "_active_broker", None)
+    nonmatching_key = b64encode(b"x" * 32).decode("ascii")
+
+    with local_corpus_release_verification(
+        (nonmatching_key, TEST_RELEASE_PUBLIC_KEY)
+    ):
+        verified = load_rulespec_local_corpus_release(rulespec, corpus)
+
+    assert verified.content_sha256 == release.content_sha256
+    with pytest.raises(RuleSpecToolchainError, match="protected signing broker"):
+        load_rulespec_local_corpus_release(rulespec, corpus)
+
+
+def test_single_verification_key_context_remains_compatible(tmp_path, monkeypatch):
+    rulespec = tmp_path / "rulespec-us"
+    corpus = tmp_path / "corpus"
+    release = _write_corpus_release(corpus)
+    _write_toolchain(rulespec, content_sha256=release.content_sha256)
+    monkeypatch.setattr(signing_broker, "_active_broker", None)
+
+    with local_corpus_release_verification(TEST_RELEASE_PUBLIC_KEY):
+        verified = load_rulespec_local_corpus_release(rulespec, corpus)
+
+    assert verified.content_sha256 == release.content_sha256
+
+
+@pytest.mark.parametrize(
+    "keyring",
+    [
+        (),
+        (TEST_RELEASE_PUBLIC_KEY, TEST_RELEASE_PUBLIC_KEY),
+        ("not-base64",),
+        (b64encode(b"short").decode("ascii"),),
+    ],
+)
+def test_verification_only_corpus_keyring_rejects_noncanonical_inputs(keyring):
+    with pytest.raises(RuleSpecToolchainError):
+        with local_corpus_release_verification(keyring):
+            pass
 
 
 def test_toolchain_accepts_checkout_with_canonical_program_specs(tmp_path):

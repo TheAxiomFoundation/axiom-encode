@@ -153,6 +153,7 @@ def _payload(plan) -> dict[str, object]:
                 "object_format": "sha1",
                 "commit": "b" * 40,
             },
+            "rulespec_dependencies": [],
             "corpus_release": {
                 "name": plan.toolchain_values["axiom_corpus_release"],
                 "content_sha256": plan.toolchain_values[
@@ -498,6 +499,37 @@ def test_base_plan_rejects_surviving_import_and_metadata_references(
         _plan(repo, base)
 
 
+def test_base_plan_rejects_absolute_prefixed_target_reference(tmp_path):
+    repo = _init_repo(tmp_path)
+    _write_contract(repo)
+    _write_group(repo)
+    target = repo / "docs/legacy.md"
+    target.parent.mkdir(parents=True)
+    target.write_text(
+        f"See /workspace/rulespec-be/{PRIMARY.as_posix()} before cleanup.\n",
+        encoding="utf-8",
+    )
+    base = _commit(repo, "absolute stale reference")
+
+    with pytest.raises(LegacyCleanupGitError, match="references a cleanup target"):
+        _plan(repo, base)
+
+
+def test_base_plan_does_not_match_longer_innocent_path_token(tmp_path):
+    repo = _init_repo(tmp_path)
+    _write_contract(repo)
+    _write_group(repo)
+    target = repo / "docs/unrelated.md"
+    target.parent.mkdir(parents=True)
+    target.write_text(
+        f"Archive name: {PRIMARY.as_posix()}.backup\n",
+        encoding="utf-8",
+    )
+    base = _commit(repo, "innocent longer token")
+
+    assert _plan(repo, base).base_commit == base
+
+
 @pytest.mark.parametrize("dirty_kind", ["staged", "unstaged", "untracked", "ignored"])
 def test_base_plan_requires_exact_clean_base_checkout(tmp_path, dirty_kind):
     repo, base = _base_repo(tmp_path)
@@ -524,6 +556,33 @@ def test_base_plan_rejects_stale_head_even_with_clean_worktree(tmp_path):
 
     with pytest.raises(LegacyCleanupGitError, match="HEAD to equal"):
         _plan(repo, base)
+
+
+def test_base_plan_ignores_replace_refs(tmp_path):
+    repo, base = _base_repo(tmp_path)
+    original_sha256 = hashlib.sha256((repo / PRIMARY).read_bytes()).hexdigest()
+    (repo / PRIMARY).write_text("replacement commit bytes\n", encoding="utf-8")
+    replacement = _commit(repo, "replacement object")
+    _git(repo, "replace", base, replacement)
+
+    plan = _plan(repo, base, clean=False)
+
+    assert plan.groups[0]["primary"]["base_sha256"] == original_sha256
+
+
+def test_base_plan_neutralizes_hostile_local_fsmonitor(tmp_path):
+    repo, base = _base_repo(tmp_path)
+    marker = tmp_path / "fsmonitor-invoked"
+    hook = tmp_path / "hostile-fsmonitor.sh"
+    hook.write_text(
+        f"#!/bin/sh\ntouch '{marker}'\nexit 1\n",
+        encoding="utf-8",
+    )
+    hook.chmod(0o755)
+    _git(repo, "config", "core.fsmonitor", str(hook))
+
+    assert _plan(repo, base).base_commit == base
+    assert not marker.exists()
 
 
 def test_plan_payload_comparison_is_base_to_projected_tree_not_head(tmp_path):
