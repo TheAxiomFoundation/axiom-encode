@@ -5,6 +5,10 @@
 - Branch: `feat/legacy-cleanup-receipts`
 - Resumed on 2026-08-31 under the accepted one-transition `B -> H` contract; no
   checkout, reset, clean, or destructive recovery has been used.
+- Second recovery inspection on 2026-08-31 found a clean worktree at
+  `7ee389f6cf07ced35d4893203918b98b9f9ee76a`, nine linear commits above the
+  cached protected base. The implementation is preserved unchanged while an
+  independent contract/test/workflow audit runs.
 - Starting implementation checkpoint: `9323860365d790c923ecc5fee8684be72fff56c8`.
 - Exact locally cached protected base / `origin/main`: `f1bfe0a47ee7a9123d56e00a5c41edb6f272ea21` (tree `436af4b6e279d1d4dcd9f64d83442ca1e4de7751`; live fetch is blocked by workspace DNS).
 - Salvage ref `refs/codex-salvage/feat-legacy-cleanup-receipts-20260830-212800-65267`
@@ -13,11 +17,10 @@
 - The rejected tracked CLI and targeted-reencode workflow edits were removed by
   reverse-applying their exact worktree diffs; the salvage ref remains available
   for archaeology and no reset or clean was used.
-- The pure contract and signing layers are committed. The next coherent checkpoint
-  is implemented and green locally: exact executed validation, the atomic durable
-  transaction, cleanup-aware guard authorization, and exact staging. Dedicated
-  workflow/transport and documentation/non-interference work are being reviewed as
-  separate checkpoints.
+- The pure contract, signing, exact executed validation, atomic durable transaction,
+  cleanup-aware guard authorization, exact staging, dedicated workflow/transport,
+  and documentation/non-interference layers are committed. They are not yet frozen
+  for review: the independent review-fix cycle and complete local check matrix remain.
 
 ## Done
 
@@ -28,6 +31,14 @@
 - Retried a non-pruning live fetch on resume; DNS failed again. The browser-visible
   public repository page was reachable but did not expose an authoritative current
   main SHA, so `origin/main` remains a cached rather than live-verified base.
+- On the second recovery inspection, attempted `git fetch --prune origin` before
+  touching the worktree; DNS resolution failed again without moving any ref. Read
+  all repository instructions (`AGENTS.md` and `CLAUDE.md`), all 216 lines of the
+  independent contract review, the exact nine-commit branch history, and the full
+  salvage/current file inventory.
+- Confirmed `HEAD`, index, tracked worktree, and untracked inventory were clean;
+  `HEAD^{tree}` is `49fbfba28a43f65e002958745334760b402633b0` and the salvage
+  ref remains intact at `f3303be312bec9dec2b6a0bf9a66d1941192a09b`.
 - Verified the dirty payload exactly matches the salvage tree before making any
   edits, and confirmed there are no staged changes or other untracked files.
 - Classified the surviving topology against every Critical/High finding and Fast reject condition before implementation.
