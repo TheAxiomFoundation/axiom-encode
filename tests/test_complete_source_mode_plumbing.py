@@ -155,7 +155,10 @@ def test_generic_encoder_prompt_adds_completeness_only_when_enabled():
     assert "omit oracle inputs or expectations" in complete_prompt
     assert "scalar-only source unit may remain parameter-only" in complete_prompt
     assert ARMENIAN_ARLIS_EDITORIAL_HISTORY_PROTOCOL.strip() in default_prompt
-    assert "single ordinal-numbered article label" in default_prompt
+    assert "positive ordinal-numbered article label" in default_prompt
+    assert "terminal component is exactly 1" in default_prompt
+    assert "legacy ARLIS\n  `2^{1}-ին`" in default_prompt
+    assert "malformed-ordinal" in default_prompt
     assert "calendar-valid `DD.MM.YY`" in default_prompt
     normalized_prompt = " ".join(default_prompt.split())
     assert "legacy `ՀՕ-N`" in normalized_prompt

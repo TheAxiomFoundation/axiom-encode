@@ -1188,17 +1188,19 @@ _TESTS_PROTOCOL = """- Emit only RuleSpec YAML; use `.test.yaml` companions when
 
 ARMENIAN_ARLIS_EDITORIAL_HISTORY_PROTOCOL = """- In Armenian ARLIS text, treat
   as editorial provenance only a parenthetical on its own line whose body
-  begins with a single ordinal-numbered article label such as `1-ին հոդվածը` or
-  `147-րդ հոդվածը`, contains no nested parenthetical, includes at least one
-  amendment-action abbreviation (`փոփ`, `լրաց`, or `խմբ`), and after the
-  article label consists solely of those abbreviations plus one or more paired
-  amendment citations. Each citation must have a calendar-valid `DD.MM.YY` or
-  `DD.MM.YYYY` date followed by a `Հ-N[-N]-Ն`, `ՀՕ-N[-N]-Ն`, or legacy
-  `ՀՕ-N` law identifier; only whitespace, commas, or semicolons may separate
-  these items. An action abbreviation's terminal dot may directly precede its
-  date, as in `փոփ.08.09.08 ՀՕ-228`. Do not encode the recognized ledger's
-  article number, dates, or identifiers as RuleSpec rules or parameters. Keep
-  every inline, plural or unnumbered, unpaired-date, nested, or otherwise
+  begins with one positive ordinal-numbered article label. Use `-ին` only when
+  its terminal component is exactly 1 (`1-ին`, `4.1-ին`, or legacy ARLIS
+  `2^{1}-ին`); otherwise use `-րդ` (`147-րդ`, `4.2-րդ`, or `2^{2}-րդ`). The
+  body contains no nested parenthetical, includes at least one amendment-action
+  abbreviation (`փոփ`, `լրաց`, or `խմբ`), and after the article label consists
+  solely of those abbreviations plus one or more paired amendment citations.
+  Each citation must have a calendar-valid `DD.MM.YY` or `DD.MM.YYYY` date
+  followed by a `Հ-N[-N]-Ն`, `ՀՕ-N[-N]-Ն`, or legacy `ՀՕ-N` law identifier;
+  only whitespace, commas, or semicolons may separate these items. An action
+  abbreviation's terminal dot may directly precede its date, as in
+  `փոփ.08.09.08 ՀՕ-228`. Do not encode the recognized ledger's article number,
+  dates, or identifiers as RuleSpec rules or parameters. Keep every inline,
+  plural or unnumbered, malformed-ordinal, unpaired-date, nested, or otherwise
   unrecognized parenthetical as source content; invalid dates are unrecognized.
   Do not omit its numbers. This exclusion also does not cover a parenthetical that states an
   operative amount, condition, effective date, or transition rule.

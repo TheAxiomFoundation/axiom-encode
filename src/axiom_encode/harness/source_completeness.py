@@ -2195,9 +2195,23 @@ _ARMENIAN_AMENDMENT_HISTORY_DASH = (
     r"[-\u058a\u2010\u2011\u2012\u2013\u2014\u2015\u2212\ufe58\ufe63\uff0d]"
 )
 _ARMENIAN_AMENDMENT_HISTORY_ARTICLE_PREFIX = re.compile(
-    rf"\s*[0-9]+(?:[.\u2024][0-9]+)?{_ARMENIAN_AMENDMENT_HISTORY_DASH}"
-    r"(?:ին|րդ)\s+հոդվածը\s+",
+    r"\s*(?P<article_base>[0-9]+)"
+    r"(?:"
+    r"[.\u2024](?P<article_dotted_component>[0-9]+)|"
+    r"\^\{(?P<article_superscript_component>[0-9]+)\}"
+    r")?"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_DASH}"
+    r"(?P<article_ordinal_suffix>ին|րդ)\s+հոդվածը\s+",
 )
+_ARMENIAN_AMENDMENT_HISTORY_STANDALONE = re.compile(
+    r"(?:^|\r?\n)[ \t]*\((?P<body>[^()]*)\)(?=[ \t]*(?:\r?\n|$))",
+)
+# These are the Unicode pairs whose semantics are parentheses rather than
+# generic brackets. Treating any of them as nesting is conservative: a ledger
+# inside typographic, compatibility, or vertical parentheses remains source
+# content instead of losing recall pressure through an ASCII-only depth scan.
+_ARMENIAN_AMENDMENT_HISTORY_OPENING_PARENTHESES = "(⁽₍❨❪⟮⦅⸨⹙⹛︵﹙（｟﴿"
+_ARMENIAN_AMENDMENT_HISTORY_CLOSING_PARENTHESES = ")⁾₎❩❫⟯⦆⸩⹚⹜︶﹚）｠﴾"
 # Amendment-action abbreviations are matched case-insensitively, but the paired
 # `ՀՕ-N[-N]-Ն` law identifier is not: scope the case folding to the action
 # alternation so recognizing an uppercase action cannot also fold the
@@ -12008,30 +12022,42 @@ def _armenian_amendment_date_is_valid(raw_date: str) -> bool:
     return True
 
 
-def _armenian_amendment_history_is_valid(history: str) -> bool:
-    """Parse the closed ARLIS action/citation grammar in linear time."""
+def _armenian_amendment_history_is_valid(
+    source_text: str,
+    start: int = 0,
+    end: int | None = None,
+) -> bool:
+    """Parse one indexed ARLIS action/citation span in linear time."""
 
-    position = 0
+    history_end = len(source_text) if end is None else end
+    position = start
     token_count = 0
     saw_action = False
     saw_citation = False
     prior_action_had_dot = False
-    history_length = len(history)
 
-    while position < history_length:
+    while position < history_end:
         adjacent_after_dotted_action = False
         if token_count:
-            separator = _ARMENIAN_AMENDMENT_HISTORY_SEPARATOR.match(history, position)
+            separator = _ARMENIAN_AMENDMENT_HISTORY_SEPARATOR.match(
+                source_text,
+                position,
+                history_end,
+            )
             if separator is not None:
                 position = separator.end()
-                if position == history_length:
+                if position == history_end:
                     return False
             else:
                 if not prior_action_had_dot:
                     return False
                 adjacent_after_dotted_action = True
 
-        action = _ARMENIAN_AMENDMENT_HISTORY_ACTION.match(history, position)
+        action = _ARMENIAN_AMENDMENT_HISTORY_ACTION.match(
+            source_text,
+            position,
+            history_end,
+        )
         if action is not None:
             if adjacent_after_dotted_action:
                 # Dot adjacency is the official `փոփ.08.09.08` date form, not
@@ -12043,7 +12069,11 @@ def _armenian_amendment_history_is_valid(history: str) -> bool:
             prior_action_had_dot = action.group("terminator") is not None
             continue
 
-        citation = _ARMENIAN_AMENDMENT_HISTORY_CITATION.match(history, position)
+        citation = _ARMENIAN_AMENDMENT_HISTORY_CITATION.match(
+            source_text,
+            position,
+            history_end,
+        )
         if citation is None or not _armenian_amendment_date_is_valid(
             citation.group("date")
         ):
@@ -12056,6 +12086,48 @@ def _armenian_amendment_history_is_valid(history: str) -> bool:
     return saw_action and saw_citation
 
 
+def _armenian_article_component_is_positive(
+    source_text: str,
+    component_span: tuple[int, int],
+) -> bool:
+    """Return whether an indexed component is a canonical positive integer."""
+
+    start, end = component_span
+    return start >= 0 and start < end and source_text[start] != "0"
+
+
+def _armenian_article_prefix_is_valid(
+    source_text: str,
+    article_prefix: re.Match[str],
+) -> bool:
+    """Validate the positive components and Armenian ordinal suffix."""
+
+    base_span = article_prefix.span("article_base")
+    if not _armenian_article_component_is_positive(source_text, base_span):
+        return False
+
+    terminal_span = base_span
+    for group_name in (
+        "article_dotted_component",
+        "article_superscript_component",
+    ):
+        component_span = article_prefix.span(group_name)
+        if component_span[0] < 0:
+            continue
+        if not _armenian_article_component_is_positive(source_text, component_span):
+            return False
+        terminal_span = component_span
+        break
+
+    terminal_is_one = (
+        terminal_span[1] - terminal_span[0] == 1
+        and source_text[terminal_span[0]] == "1"
+    )
+    suffix_start, suffix_end = article_prefix.span("article_ordinal_suffix")
+    expected_suffix = "ին" if terminal_is_one else "րդ"
+    return source_text.startswith(expected_suffix, suffix_start, suffix_end)
+
+
 def _strip_standalone_armenian_amendment_history(source_text: str) -> str:
     """Remove only fully validated standalone ARLIS amendment-history ledgers."""
 
@@ -12065,46 +12137,77 @@ def _strip_standalone_armenian_amendment_history(source_text: str) -> str:
         return source_text
 
     depth_scan_position = 0
-    depth = 0
+    depths = [0] * len(_ARMENIAN_AMENDMENT_HISTORY_OPENING_PARENTHESES)
+    removal_spans: list[tuple[int, int]] = []
 
     def parenthesis_depth_before(index: int) -> int:
         # Candidates arrive in source order. Scan only as far as the next
         # already-validated Armenian candidate and retain O(1) memory.
-        nonlocal depth, depth_scan_position
+        nonlocal depth_scan_position
         while depth_scan_position < index:
             character = source_text[depth_scan_position]
-            if character == "(":
-                depth += 1
-            elif character == ")":
-                depth = max(0, depth - 1)
+            opening_index = _ARMENIAN_AMENDMENT_HISTORY_OPENING_PARENTHESES.find(
+                character
+            )
+            if opening_index >= 0:
+                depths[opening_index] += 1
+            else:
+                closing_index = _ARMENIAN_AMENDMENT_HISTORY_CLOSING_PARENTHESES.find(
+                    character
+                )
+                if closing_index >= 0:
+                    depths[closing_index] = max(0, depths[closing_index] - 1)
             depth_scan_position += 1
-        return depth
+        return sum(depths)
 
-    def replacement(match: re.Match[str]) -> str:
-        body = match.group("body")
-        article_prefix = _ARMENIAN_AMENDMENT_HISTORY_ARTICLE_PREFIX.match(body)
-        if article_prefix is None:
-            return match.group(0)
+    for candidate in _ARMENIAN_AMENDMENT_HISTORY_STANDALONE.finditer(source_text):
+        body_start, body_end = candidate.span("body")
+        article_prefix = _ARMENIAN_AMENDMENT_HISTORY_ARTICLE_PREFIX.match(
+            source_text,
+            body_start,
+            body_end,
+        )
+        if article_prefix is None or not _armenian_article_prefix_is_valid(
+            source_text,
+            article_prefix,
+        ):
+            continue
 
         # Validate the narrow grammar before scanning any preceding source for
         # nesting. An ordinary late-file `(a)` candidate therefore cannot cause
         # a source-sized allocation or depth walk.
-        history = body[article_prefix.end() :].strip()
-        if not history or not _armenian_amendment_history_is_valid(history):
-            return match.group(0)
+        history_start = article_prefix.end()
+        history_end = body_end
+        while history_start < history_end and source_text[history_start].isspace():
+            history_start += 1
+        while history_end > history_start and source_text[history_end - 1].isspace():
+            history_end -= 1
+        if history_start == history_end or not _armenian_amendment_history_is_valid(
+            source_text,
+            history_start,
+            history_end,
+        ):
+            continue
 
         # A candidate whose opening parenthesis sits inside another parenthetical
         # is nested, and the prompt contract keeps nested parentheticals as source
         # content. Strip only candidates that open at depth zero.
-        if parenthesis_depth_before(match.start("body") - 1) != 0:
-            return match.group(0)
-        return ""
+        if parenthesis_depth_before(body_start - 1) != 0:
+            continue
+        removal_spans.append(candidate.span())
 
-    return re.sub(
-        r"(?:^|\r?\n)[ \t]*\((?P<body>[^()]*)\)(?=[ \t]*(?:\r?\n|$))",
-        replacement,
-        source_text,
-    )
+    # Preserve both the original object and O(1) auxiliary memory whenever no
+    # candidate is admitted. Only an accepted removal pays to rebuild text.
+    if not removal_spans:
+        return source_text
+
+    fragments: list[str] = []
+    prior_end = 0
+    for span_start, span_end in removal_spans:
+        fragments.append(source_text[prior_end:span_start])
+        prior_end = span_end
+    fragments.append(source_text[prior_end:])
+    return "".join(fragments)
 
 
 def authoritative_numeric_recall_text(source_text: str) -> str:

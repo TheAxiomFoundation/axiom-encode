@@ -22977,6 +22977,7 @@ def test_terminal_armenian_amendment_history_is_not_numeric_recall():
     (
         ("147-րդ", "ՀՕ-538-Ն"),
         ("293․1‑ին", "Հ-538-Ն"),
+        ("293․2‑րդ", "Հ-538-Ն"),
         ("1֊ին", "ՀՕ֊538֊Ն"),
     ),
 )
@@ -22990,6 +22991,56 @@ def test_armenian_history_filter_accepts_arlis_punctuation_variants(
     )
 
     assert authoritative_numeric_recall_text(source) == "Շահառուին վճարել 500 դրամ:"
+
+
+@pytest.mark.parametrize(
+    "article_label",
+    (
+        "2^{1}-ին",
+        "2^{2}-րդ",
+        "10^{1}-ին",
+    ),
+)
+def test_armenian_history_filter_accepts_legacy_arlis_superscript_labels(
+    article_label,
+):
+    """ARLIS serializes some historical ``<sup>`` labels as ``^{N}``."""
+
+    lead = "Շահառուին վճարել 500 դրամ:"
+    source = f"{lead}\n({article_label} հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն)"
+
+    assert authoritative_numeric_recall_text(source) == lead
+
+
+@pytest.mark.parametrize(
+    "article_label",
+    (
+        "0-րդ",
+        "1-րդ",
+        "2-ին",
+        "293.2-ին",
+        "293.1-րդ",
+        "0.1-ին",
+        "293.0-րդ",
+    ),
+)
+def test_armenian_history_filter_keeps_malformed_article_ordinals(article_label):
+    lead = "Շահառուին վճարել 500 դրամ:"
+    source = f"{lead}\n({article_label} հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն)"
+    result = _analyze(
+        "format: rulespec/v1\nrules: []\n",
+        source,
+        corpus_citation_path="am/statute/act-172160/article-1",
+        test_cases=[],
+        artifact_numeric_values=(500.0,),
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text,
+            profile="legacy",
+        ),
+    )
+
+    assert authoritative_numeric_recall_text(source) is source
+    assert _has_issue(result, "numeric-recall", "value 538")
 
 
 @pytest.mark.parametrize(
@@ -23148,6 +23199,97 @@ def test_armenian_history_filter_keeps_ledger_nested_inside_outer_parenthetical(
 
     assert authoritative_numeric_recall_text(source) == source
     assert _has_issue(result, "numeric-recall", "value 538")
+
+
+@pytest.mark.parametrize(
+    ("opening_parenthesis", "closing_parenthesis"),
+    (
+        ("（", "）"),
+        ("﹙", "﹚"),
+        ("❨", "❩"),
+        ("⦅", "⦆"),
+    ),
+)
+def test_armenian_history_filter_keeps_ledger_nested_in_unicode_parentheses(
+    opening_parenthesis,
+    closing_parenthesis,
+):
+    lead = "Շահառուին վճարել 500 դրամ:"
+    source = (
+        f"{lead}\n{opening_parenthesis}անցումային պայման\n"
+        "(1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն)\n"
+        f"{closing_parenthesis}"
+    )
+    result = _analyze(
+        "format: rulespec/v1\nrules: []\n",
+        source,
+        corpus_citation_path="am/statute/act-172160/article-1",
+        test_cases=[],
+        artifact_numeric_values=(500.0,),
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text,
+            profile="legacy",
+        ),
+    )
+
+    assert authoritative_numeric_recall_text(source) is source
+    assert _has_issue(result, "numeric-recall", "value 538")
+
+
+@pytest.mark.parametrize("opening_parenthesis", ("（", "﹙", "❨", "⦅"))
+def test_armenian_history_filter_keeps_ledger_under_unbalanced_unicode_parenthesis(
+    opening_parenthesis,
+):
+    lead = "Շահառուին վճարել 500 դրամ:"
+    source = (
+        f"{lead}\n{opening_parenthesis}անցումային պայման\n"
+        "(1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն)"
+    )
+
+    assert authoritative_numeric_recall_text(source) is source
+
+
+@pytest.mark.parametrize(
+    ("opening_parenthesis", "mismatched_closing_parenthesis"),
+    (
+        ("（", ")"),
+        ("﹙", "）"),
+        ("❨", "﹚"),
+        ("⦅", "❩"),
+    ),
+)
+def test_armenian_history_filter_keeps_ledger_after_mismatched_unicode_parenthesis(
+    opening_parenthesis,
+    mismatched_closing_parenthesis,
+):
+    lead = "Շահառուին վճարել 500 դրամ:"
+    source = (
+        f"{lead}\n{opening_parenthesis}անցումային պայման"
+        f"{mismatched_closing_parenthesis}\n"
+        "(1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն)"
+    )
+
+    assert authoritative_numeric_recall_text(source) is source
+
+
+@pytest.mark.parametrize(
+    ("opening_parenthesis", "closing_parenthesis"),
+    (
+        ("（", "）"),
+        ("﹙", "﹚"),
+        ("❨", "❩"),
+        ("⦅", "⦆"),
+    ),
+)
+def test_armenian_history_filter_strips_after_closed_unicode_parentheses(
+    opening_parenthesis,
+    closing_parenthesis,
+):
+    lead = "Շահառուին վճարել 500 դրամ:"
+    outer = f"{opening_parenthesis}անցումային պայման{closing_parenthesis}"
+    source = f"{lead}\n{outer}\n(1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-Ն)"
+
+    assert authoritative_numeric_recall_text(source) == f"{lead}\n{outer}"
 
 
 @pytest.mark.parametrize(
@@ -23390,6 +23532,22 @@ def test_non_armenian_candidate_does_not_allocate_source_sized_depth_map():
         tracemalloc.stop()
 
     assert peak < len(source) * 6
+
+
+def test_rejected_armenian_candidate_has_constant_auxiliary_memory():
+    source = "Շահառուին վճարել 500 դրամ:\n(1-ին հոդվածը ա" + (" " * 800_000) + "բ)"
+
+    tracemalloc.start()
+    try:
+        cleaned = completeness_module._strip_standalone_armenian_amendment_history(
+            source
+        )
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert cleaned is source
+    assert peak < len(source)
 
 
 def test_armenian_history_filter_preserves_later_effective_date_note():
