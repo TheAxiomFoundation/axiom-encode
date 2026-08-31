@@ -1,0 +1,759 @@
+name: Atomic unmanifested legacy cleanup
+run-name: "Atomic legacy cleanup rulespec-${{ inputs.country }} at ${{ inputs.rulespec_base }}"
+
+# This lane is intentionally separate from model-backed signed re-encoding.
+# The signer can sign but cannot push. The publisher can push but receives no
+# signing or model credential. Their only handoff is one canonical signed
+# receipt plus one strict deletion inventory.
+on:
+  workflow_dispatch:
+    inputs:
+      country:
+        description: Canonical two-letter RuleSpec country
+        required: true
+        type: string
+      rulespec_base:
+        description: Exact full rulespec main commit B
+        required: true
+        type: string
+      primary_paths_json:
+        description: JSON array of 1-64 canonical legacy primary YAML paths
+        required: true
+        type: string
+      reason:
+        description: Audit reason recorded in the signed negative-provenance receipt
+        required: true
+        type: string
+      corpus_ref:
+        description: Exact full axiom-corpus commit
+        required: true
+        type: string
+      rules_engine_ref:
+        description: Exact full axiom-rules-engine commit
+        required: true
+        type: string
+      rulespec_dependencies_json:
+        description: JSON object mapping two-letter dependency countries to full commits
+        required: false
+        default: "{}"
+        type: string
+      open_draft_pr:
+        description: Publish the exact branch and open its draft pull request
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: atomic-legacy-cleanup-${{ github.run_id }}-${{ github.run_attempt }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate immutable cleanup request
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Validate bounded immutable inputs
+        shell: bash
+        env:
+          CORPUS_REF: ${{ inputs.corpus_ref }}
+          COUNTRY: ${{ inputs.country }}
+          ENCODER_REF: ${{ github.sha }}
+          PRIMARY_PATHS_JSON: ${{ inputs.primary_paths_json }}
+          REASON: ${{ inputs.reason }}
+          RULES_ENGINE_REF: ${{ inputs.rules_engine_ref }}
+          RULESPEC_BASE: ${{ inputs.rulespec_base }}
+          RULESPEC_DEPENDENCIES_JSON: ${{ inputs.rulespec_dependencies_json }}
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          import json
+          import os
+          import re
+
+          sha = re.compile(r"[0-9a-f]{40}").fullmatch
+          country = os.environ["COUNTRY"]
+          if re.fullmatch(r"[a-z]{2}", country) is None:
+              raise SystemExit("country must be exactly two lowercase letters")
+          for name in ("ENCODER_REF", "RULESPEC_BASE", "CORPUS_REF", "RULES_ENGINE_REF"):
+              if sha(os.environ[name]) is None:
+                  raise SystemExit(f"{name} must be a full lowercase commit SHA")
+          reason = os.environ["REASON"]
+          if not reason or len(reason) > 4096 or any(ord(c) < 32 for c in reason):
+              raise SystemExit("reason must be a bounded non-control string")
+          paths = json.loads(os.environ["PRIMARY_PATHS_JSON"])
+          if (
+              not isinstance(paths, list)
+              or not 1 <= len(paths) <= 64
+              or any(not isinstance(path, str) or not path for path in paths)
+              or len(paths) != len(set(paths))
+          ):
+              raise SystemExit("primary_paths_json must contain 1-64 unique strings")
+
+          def unique_object(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result:
+                      raise SystemExit(f"duplicate dependency country: {key}")
+                  result[key] = value
+              return result
+
+          dependencies = json.loads(
+              os.environ.get("RULESPEC_DEPENDENCIES_JSON", "{}"),
+              object_pairs_hook=unique_object,
+          )
+          if not isinstance(dependencies, dict) or len(dependencies) > 64:
+              raise SystemExit("rulespec dependencies must be a bounded JSON object")
+          for dependency_country, dependency_ref in dependencies.items():
+              if (
+                  re.fullmatch(r"[a-z]{2}", dependency_country) is None
+                  or dependency_country == country
+                  or not isinstance(dependency_ref, str)
+                  or sha(dependency_ref) is None
+              ):
+                  raise SystemExit("rulespec dependency pin is invalid")
+          PY
+
+  signer:
+    name: Create protected atomic cleanup receipt
+    needs: validate
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+    environment: production-signing
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout exact encoder main commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          path: axiom-encode
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout exact protected RuleSpec base
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: TheAxiomFoundation/rulespec-${{ inputs.country }}
+          ref: ${{ inputs.rulespec_base }}
+          path: rulespec-${{ inputs.country }}
+          fetch-depth: 0
+          token: ${{ github.token }}
+          persist-credentials: false
+
+      - name: Checkout exact corpus commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: TheAxiomFoundation/axiom-corpus
+          ref: ${{ inputs.corpus_ref }}
+          path: axiom-corpus
+          fetch-depth: 0
+          token: ${{ github.token }}
+          persist-credentials: false
+
+      - name: Checkout exact rules-engine commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: TheAxiomFoundation/axiom-rules-engine
+          ref: ${{ inputs.rules_engine_ref }}
+          path: axiom-rules-engine
+          fetch-depth: 0
+          token: ${{ github.token }}
+          persist-credentials: false
+
+      - name: Authenticate immutable bases and protected main
+        shell: bash
+        env:
+          CORPUS_REF: ${{ inputs.corpus_ref }}
+          COUNTRY: ${{ inputs.country }}
+          ENCODER_REF: ${{ github.sha }}
+          RULES_ENGINE_REF: ${{ inputs.rules_engine_ref }}
+          RULESPEC_BASE: ${{ inputs.rulespec_base }}
+        run: |
+          set -euo pipefail
+          test "$(git -C axiom-encode rev-parse HEAD)" = "$ENCODER_REF"
+          test "$(git -C "rulespec-$COUNTRY" rev-parse HEAD)" = "$RULESPEC_BASE"
+          test "$(git -C axiom-corpus rev-parse HEAD)" = "$CORPUS_REF"
+          test "$(git -C axiom-rules-engine rev-parse HEAD)" = "$RULES_ENGINE_REF"
+          remote_main="$(git -C "rulespec-$COUNTRY" ls-remote --heads origin \
+            refs/heads/main | awk 'NR == 1 {print $1}')"
+          test "$remote_main" = "$RULESPEC_BASE" || {
+            echo "RuleSpec main is not the requested protected base B" >&2
+            exit 1
+          }
+
+      - name: Checkout exact RuleSpec dependencies without credentials
+        shell: bash
+        env:
+          COUNTRY: ${{ inputs.country }}
+          RULESPEC_DEPENDENCIES_JSON: ${{ inputs.rulespec_dependencies_json }}
+        run: |
+          set -euo pipefail
+          python3 -I - "$RUNNER_TEMP/rulespec-dependencies.tsv" <<'PY'
+          import json
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          def unique_object(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result:
+                      raise SystemExit("duplicate dependency country")
+                  result[key] = value
+              return result
+
+          payload = json.loads(
+              os.environ.get("RULESPEC_DEPENDENCIES_JSON", "{}"),
+              object_pairs_hook=unique_object,
+          )
+          if not isinstance(payload, dict) or len(payload) > 64:
+              raise SystemExit("dependency map is malformed")
+          rows = []
+          for country, commit in sorted(payload.items()):
+              if (
+                  re.fullmatch(r"[a-z]{2}", country) is None
+                  or country == os.environ["COUNTRY"]
+                  or not isinstance(commit, str)
+                  or re.fullmatch(r"[0-9a-f]{40}", commit) is None
+              ):
+                  raise SystemExit("dependency pin is malformed")
+              rows.append(f"{country}\t{commit}\n")
+          Path(sys.argv[1]).write_text("".join(rows), encoding="utf-8")
+          PY
+          : > "$RUNNER_TEMP/rulespec-dependency-roots.txt"
+          while IFS=$'\t' read -r dependency_country dependency_ref; do
+            test -n "$dependency_country" || continue
+            destination="$GITHUB_WORKSPACE/rulespec-$dependency_country"
+            git init --quiet "$destination"
+            git -C "$destination" remote add origin \
+              "https://github.com/TheAxiomFoundation/rulespec-${dependency_country}.git"
+            git -C "$destination" fetch --quiet --no-tags --depth=1 origin \
+              "$dependency_ref"
+            git -C "$destination" checkout --quiet --detach "$dependency_ref"
+            test "$(git -C "$destination" rev-parse HEAD)" = "$dependency_ref"
+            printf '%s\n' "$destination" \
+              >> "$RUNNER_TEMP/rulespec-dependency-roots.txt"
+          done < "$RUNNER_TEMP/rulespec-dependencies.tsv"
+
+      - name: Install pinned build tools
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.7"
+
+      - name: Install Go 1.26.1
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: "1.26.1"
+          cache: false
+
+      - name: Install Python 3.13
+        run: uv python install 3.13
+
+      - name: Install repository-pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+
+      - name: Build exact rules engine
+        working-directory: axiom-rules-engine
+        run: |
+          set -euo pipefail
+          cargo build --release --locked
+          test -x target/release/axiom-rules-engine
+
+      - name: Install exact encoder
+        working-directory: axiom-encode
+        run: |
+          set -euo pipefail
+          uv sync --locked --python 3.13 --extra api
+          rm -rf "$RUNNER_TEMP/axiom-verification-site-packages"
+          uv pip install --python .venv/bin/python \
+            --target "$RUNNER_TEMP/axiom-verification-site-packages" ".[api]"
+
+      - name: Provision protected signing runtime
+        working-directory: axiom-encode
+        env:
+          TRUST_APPLY_ROOT: ${{ vars.AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY }}
+          TRUST_CORPUS_RELEASE_ROOT: ${{ vars.AXIOM_CORPUS_RELEASE_PUBLIC_KEY }}
+          TRUST_EVAL_ROOT: ${{ vars.AXIOM_ENCODE_EVAL_SIGNING_PUBLIC_KEY }}
+          TRUST_RETIRED_CORPUS_RELEASE_ROOT: ${{ vars.AXIOM_CORPUS_RELEASE_RETIRED_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-buildid=' \
+            -o "$RUNNER_TEMP/axiom-encode-signing-supervisor" \
+            ./cmd/axiom-encode-signing-supervisor
+          CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-buildid=' \
+            -o "$RUNNER_TEMP/axiom-encode-apply-signer" \
+            ./cmd/axiom-encode-apply-signer
+          sudo rm -rf /opt/axiom-verification
+          sudo .venv/bin/python scripts/provision_verification_supervisor.py \
+            --destination /opt/axiom-verification \
+            --supervisor "$RUNNER_TEMP/axiom-encode-signing-supervisor" \
+            --site-packages "$RUNNER_TEMP/axiom-verification-site-packages" \
+            --apply-root "$TRUST_APPLY_ROOT" \
+            --eval-root "$TRUST_EVAL_ROOT" \
+            --corpus-release-root "$TRUST_CORPUS_RELEASE_ROOT" \
+            --retired-corpus-release-root "$TRUST_RETIRED_CORPUS_RELEASE_ROOT" \
+            --git /usr/bin/git \
+            --encoder-git-root "$GITHUB_WORKSPACE/axiom-encode" \
+            --encoder-commit "$GITHUB_SHA" \
+            --encoder-origin-repository github.com/TheAxiomFoundation/axiom-encode
+          sudo install -o root -g root -m 0755 \
+            "$RUNNER_TEMP/axiom-encode-apply-signer" \
+            /opt/axiom-verification/axiom-encode-apply-signer
+          sudo chown -R 0:0 /opt/axiom-verification
+          sudo chmod -R go-w /opt/axiom-verification
+
+      - name: Create one signed receipt and exact deletions at B
+        shell: bash
+        env:
+          AXIOM_ENCODE_APPLY_SIGNING_KEY: ${{ secrets.AXIOM_ENCODE_APPLY_SIGNING_KEY }}
+          COUNTRY: ${{ inputs.country }}
+          PRIMARY_PATHS_JSON: ${{ inputs.primary_paths_json }}
+          REASON: ${{ inputs.reason }}
+          RULESPEC_BASE: ${{ inputs.rulespec_base }}
+        run: |
+          set -euo pipefail
+          python3 -I - "$RUNNER_TEMP/legacy-primary-paths.nul" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          paths = json.loads(os.environ["PRIMARY_PATHS_JSON"])
+          if not isinstance(paths, list):
+              raise SystemExit("primary path input is not an array")
+          Path(sys.argv[1]).write_bytes(
+              b"".join(path.encode("utf-8") + b"\0" for path in paths)
+          )
+          PY
+          cleanup_args=(
+            /opt/axiom-verification/axiom-encode
+            cleanup-unmanifested-legacy
+            --policy-repo-path "$GITHUB_WORKSPACE/rulespec-$COUNTRY"
+            --base-ref "$RULESPEC_BASE"
+            --reason "$REASON"
+            --corpus-path "$GITHUB_WORKSPACE/axiom-corpus"
+            --axiom-rules-engine-path "$GITHUB_WORKSPACE/axiom-rules-engine"
+            --expected-encoder-checkout "$GITHUB_WORKSPACE/axiom-encode"
+          )
+          while IFS= read -r dependency_root; do
+            test -n "$dependency_root" || continue
+            cleanup_args+=(--rulespec-dependency-root "$dependency_root")
+          done < "$RUNNER_TEMP/rulespec-dependency-roots.txt"
+          while IFS= read -r -d '' primary_path; do
+            cleanup_args+=("$primary_path")
+          done < "$RUNNER_TEMP/legacy-primary-paths.nul"
+          /opt/axiom-verification/axiom-encode-apply-signer run \
+            --scope apply_ed25519 \
+            --key-env AXIOM_ENCODE_APPLY_SIGNING_KEY \
+            --supervisor /opt/axiom-verification/axiom-encode-signing-supervisor \
+            --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
+            --trusted-python-runtime-root /opt/axiom-verification/python \
+            --trusted-python-import-root /opt/axiom-verification/python/lib/python3.13/site-packages \
+            --trusted-python-package-root /opt/axiom-verification/python/lib/python3.13/site-packages/axiom_encode \
+            --expected-github-repository TheAxiomFoundation/axiom-encode \
+            --allowed-workflow-ref TheAxiomFoundation/axiom-encode/.github/workflows/atomic-legacy-cleanup.yml@refs/heads/main \
+            --allowed-event-name workflow_dispatch \
+            -- "${cleanup_args[@]}"
+
+      - name: Package the exact receipt and deletion inventory
+        shell: bash
+        env:
+          COUNTRY: ${{ inputs.country }}
+          RULESPEC_BASE: ${{ inputs.rulespec_base }}
+        run: |
+          set -euo pipefail
+          test "$(git -C "rulespec-$COUNTRY" rev-parse HEAD)" = "$RULESPEC_BASE"
+          axiom-encode/.venv/bin/python -I \
+            axiom-encode/scripts/legacy_cleanup_transport.py build \
+            --repo "$GITHUB_WORKSPACE/rulespec-$COUNTRY" \
+            --base-ref "$RULESPEC_BASE" \
+            --artifact-root "$RUNNER_TEMP/legacy-cleanup-artifact" \
+            --trusted-signing-roots \
+              /opt/axiom-verification/signing-trust-roots.json \
+            > "$RUNNER_TEMP/legacy-cleanup-packaged-inventory.json"
+          test "$(find "$RUNNER_TEMP/legacy-cleanup-artifact" -type f | wc -l | tr -d ' ')" = 2
+          test -f "$RUNNER_TEMP/legacy-cleanup-artifact/deletion-inventory.json"
+          test -n "$(find "$RUNNER_TEMP/legacy-cleanup-artifact/.axiom/legacy-rulespec-deletion-receipts" \
+            -mindepth 1 -maxdepth 1 -type f -name '*.json' -print -quit)"
+
+      - name: Upload exact cleanup transport
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: atomic-legacy-cleanup-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/legacy-cleanup-artifact
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30
+
+  publisher:
+    name: Publish one atomic cleanup commit
+    needs: [validate, signer]
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch'
+        && github.ref == 'refs/heads/main'
+        && inputs.open_draft_pr
+      }}
+    environment: legacy-cleanup-publishing
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Download exact cleanup transport
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: atomic-legacy-cleanup-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/legacy-cleanup-artifact
+
+      - name: Checkout exact encoder main commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          path: axiom-encode
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout fresh exact RuleSpec base with publisher credential
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: TheAxiomFoundation/rulespec-${{ inputs.country }}
+          ref: ${{ inputs.rulespec_base }}
+          path: rulespec-${{ inputs.country }}
+          fetch-depth: 0
+          token: ${{ secrets.AXIOM_REPO_TOKEN }}
+          persist-credentials: false
+
+      - name: Checkout exact corpus commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: TheAxiomFoundation/axiom-corpus
+          ref: ${{ inputs.corpus_ref }}
+          path: axiom-corpus
+          fetch-depth: 0
+          token: ${{ github.token }}
+          persist-credentials: false
+
+      - name: Checkout exact rules-engine commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: TheAxiomFoundation/axiom-rules-engine
+          ref: ${{ inputs.rules_engine_ref }}
+          path: axiom-rules-engine
+          fetch-depth: 0
+          token: ${{ github.token }}
+          persist-credentials: false
+
+      - name: Authenticate fresh exact B before materialization
+        shell: bash
+        env:
+          CORPUS_REF: ${{ inputs.corpus_ref }}
+          COUNTRY: ${{ inputs.country }}
+          ENCODER_REF: ${{ github.sha }}
+          RULES_ENGINE_REF: ${{ inputs.rules_engine_ref }}
+          RULESPEC_BASE: ${{ inputs.rulespec_base }}
+        run: |
+          set -euo pipefail
+          test "$(git -C axiom-encode rev-parse HEAD)" = "$ENCODER_REF"
+          test "$(git -C "rulespec-$COUNTRY" rev-parse HEAD)" = "$RULESPEC_BASE"
+          test "$(git -C axiom-corpus rev-parse HEAD)" = "$CORPUS_REF"
+          test "$(git -C axiom-rules-engine rev-parse HEAD)" = "$RULES_ENGINE_REF"
+          test -z "$(git -C "rulespec-$COUNTRY" status --porcelain --ignored)"
+          remote_main="$(git -C "rulespec-$COUNTRY" ls-remote --heads origin \
+            refs/heads/main | awk 'NR == 1 {print $1}')"
+          test "$remote_main" = "$RULESPEC_BASE" || {
+            echo "RuleSpec main advanced before cleanup publication" >&2
+            exit 1
+          }
+
+      - name: Checkout exact RuleSpec dependencies without publisher credential
+        shell: bash
+        env:
+          COUNTRY: ${{ inputs.country }}
+          RULESPEC_DEPENDENCIES_JSON: ${{ inputs.rulespec_dependencies_json }}
+        run: |
+          set -euo pipefail
+          python3 -I - "$RUNNER_TEMP/rulespec-dependencies.tsv" <<'PY'
+          import json
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          def unique_object(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result:
+                      raise SystemExit("duplicate dependency country")
+                  result[key] = value
+              return result
+
+          payload = json.loads(
+              os.environ.get("RULESPEC_DEPENDENCIES_JSON", "{}"),
+              object_pairs_hook=unique_object,
+          )
+          if not isinstance(payload, dict) or len(payload) > 64:
+              raise SystemExit("dependency map is malformed")
+          rows = []
+          for country, commit in sorted(payload.items()):
+              if (
+                  re.fullmatch(r"[a-z]{2}", country) is None
+                  or country == os.environ["COUNTRY"]
+                  or not isinstance(commit, str)
+                  or re.fullmatch(r"[0-9a-f]{40}", commit) is None
+              ):
+                  raise SystemExit("dependency pin is malformed")
+              rows.append(f"{country}\t{commit}\n")
+          Path(sys.argv[1]).write_text("".join(rows), encoding="utf-8")
+          PY
+          : > "$RUNNER_TEMP/rulespec-dependency-roots.txt"
+          while IFS=$'\t' read -r dependency_country dependency_ref; do
+            test -n "$dependency_country" || continue
+            destination="$GITHUB_WORKSPACE/rulespec-$dependency_country"
+            git init --quiet "$destination"
+            git -C "$destination" remote add origin \
+              "https://github.com/TheAxiomFoundation/rulespec-${dependency_country}.git"
+            git -C "$destination" fetch --quiet --no-tags --depth=1 origin \
+              "$dependency_ref"
+            git -C "$destination" checkout --quiet --detach "$dependency_ref"
+            test "$(git -C "$destination" rev-parse HEAD)" = "$dependency_ref"
+            printf '%s\n' "$destination" \
+              >> "$RUNNER_TEMP/rulespec-dependency-roots.txt"
+          done < "$RUNNER_TEMP/rulespec-dependencies.tsv"
+
+      - name: Install pinned verification tools
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.7"
+
+      - name: Install Go 1.26.1
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: "1.26.1"
+          cache: false
+
+      - name: Install Python 3.13
+        run: uv python install 3.13
+
+      - name: Install exact encoder
+        working-directory: axiom-encode
+        run: |
+          set -euo pipefail
+          uv sync --locked --python 3.13 --extra api
+          rm -rf "$RUNNER_TEMP/axiom-verification-site-packages"
+          uv pip install --python .venv/bin/python \
+            --target "$RUNNER_TEMP/axiom-verification-site-packages" ".[api]"
+
+      - name: Provision verification-only runtime
+        working-directory: axiom-encode
+        env:
+          TRUST_APPLY_ROOT: ${{ vars.AXIOM_ENCODE_APPLY_SIGNING_PUBLIC_KEY }}
+          TRUST_CORPUS_RELEASE_ROOT: ${{ vars.AXIOM_CORPUS_RELEASE_PUBLIC_KEY }}
+          TRUST_EVAL_ROOT: ${{ vars.AXIOM_ENCODE_EVAL_SIGNING_PUBLIC_KEY }}
+          TRUST_RETIRED_CORPUS_RELEASE_ROOT: ${{ vars.AXIOM_CORPUS_RELEASE_RETIRED_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags='-buildid=' \
+            -o "$RUNNER_TEMP/axiom-encode-signing-supervisor" \
+            ./cmd/axiom-encode-signing-supervisor
+          sudo rm -rf /opt/axiom-verification
+          sudo .venv/bin/python scripts/provision_verification_supervisor.py \
+            --destination /opt/axiom-verification \
+            --supervisor "$RUNNER_TEMP/axiom-encode-signing-supervisor" \
+            --site-packages "$RUNNER_TEMP/axiom-verification-site-packages" \
+            --apply-root "$TRUST_APPLY_ROOT" \
+            --eval-root "$TRUST_EVAL_ROOT" \
+            --corpus-release-root "$TRUST_CORPUS_RELEASE_ROOT" \
+            --retired-corpus-release-root "$TRUST_RETIRED_CORPUS_RELEASE_ROOT" \
+            --git /usr/bin/git \
+            --encoder-git-root "$GITHUB_WORKSPACE/axiom-encode" \
+            --encoder-commit "$GITHUB_SHA" \
+            --encoder-origin-repository github.com/TheAxiomFoundation/axiom-encode
+          sudo chown -R 0:0 /opt/axiom-verification
+          sudo chmod -R go-w /opt/axiom-verification
+
+      - name: Validate transport and materialize only its exact contraction
+        shell: bash
+        env:
+          COUNTRY: ${{ inputs.country }}
+          RULESPEC_BASE: ${{ inputs.rulespec_base }}
+        run: |
+          set -euo pipefail
+          axiom-encode/.venv/bin/python -I \
+            axiom-encode/scripts/legacy_cleanup_transport.py materialize \
+            --repo "$GITHUB_WORKSPACE/rulespec-$COUNTRY" \
+            --base-ref "$RULESPEC_BASE" \
+            --artifact-root "$RUNNER_TEMP/legacy-cleanup-artifact" \
+            --trusted-signing-roots \
+              /opt/axiom-verification/signing-trust-roots.json \
+            > "$RUNNER_TEMP/legacy-cleanup-materialized-inventory.json"
+
+      - name: Reverify and stage only receipt plus authorized deletions
+        shell: bash
+        env:
+          COUNTRY: ${{ inputs.country }}
+          RULESPEC_BASE: ${{ inputs.rulespec_base }}
+        run: |
+          set -euo pipefail
+          stage_args=(
+            /opt/axiom-verification/axiom-encode-signing-supervisor
+            --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json
+            --trusted-python-runtime-root /opt/axiom-verification/python
+            --trusted-python-import-root /opt/axiom-verification/python/lib/python3.13/site-packages
+            --trusted-python-package-root /opt/axiom-verification/python/lib/python3.13/site-packages/axiom_encode
+            -- /opt/axiom-verification/axiom-encode stage-signed-backfill
+            --repo "$GITHUB_WORKSPACE/rulespec-$COUNTRY"
+            --corpus-path "$GITHUB_WORKSPACE/axiom-corpus"
+            --legacy-cleanup-base-ref "$RULESPEC_BASE"
+            --expected-encoder-checkout "$GITHUB_WORKSPACE/axiom-encode"
+            --axiom-rules-engine-path "$GITHUB_WORKSPACE/axiom-rules-engine"
+          )
+          while IFS= read -r dependency_root; do
+            test -n "$dependency_root" || continue
+            stage_args+=(--rulespec-dependency-root "$dependency_root")
+          done < "$RUNNER_TEMP/rulespec-dependency-roots.txt"
+          "${stage_args[@]}"
+          test -n "$(git -C "rulespec-$COUNTRY" diff --cached --name-only)"
+          test -z "$(git -C "rulespec-$COUNTRY" diff --name-only)"
+
+      - name: Create exactly one H with sole parent B and run committed guard
+        id: commit
+        shell: bash
+        env:
+          COUNTRY: ${{ inputs.country }}
+          RULESPEC_BASE: ${{ inputs.rulespec_base }}
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_WORKSPACE/rulespec-$COUNTRY"
+          branch="axiom/legacy-cleanup-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          git -C "$repo" switch -c "$branch"
+          git -C "$repo" \
+            -c core.hooksPath=/dev/null \
+            -c user.name=axiom-encode-bot \
+            -c user.email=axiom-encode-bot@users.noreply.github.com \
+            commit -m "Remove unmanifested legacy RuleSpec groups"
+          head="$(git -C "$repo" rev-parse HEAD)"
+          test "$(git -C "$repo" rev-parse HEAD^)" = "$RULESPEC_BASE"
+          test "$(git -C "$repo" rev-list --count "$RULESPEC_BASE..$head")" = 1
+          test "$(git -C "$repo" log -1 --format='%P' "$head")" = "$RULESPEC_BASE"
+          git -C "$repo" diff --check "$RULESPEC_BASE" "$head"
+          guard_args=(
+            /opt/axiom-verification/axiom-encode-signing-supervisor
+            --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json
+            --trusted-python-runtime-root /opt/axiom-verification/python
+            --trusted-python-import-root /opt/axiom-verification/python/lib/python3.13/site-packages
+            --trusted-python-package-root /opt/axiom-verification/python/lib/python3.13/site-packages/axiom_encode
+            -- /opt/axiom-verification/axiom-encode guard-generated
+            --repo "$repo"
+            --base-ref "$RULESPEC_BASE"
+            --head-ref "$head"
+            --corpus-path "$GITHUB_WORKSPACE/axiom-corpus"
+            --expected-encoder-checkout "$GITHUB_WORKSPACE/axiom-encode"
+            --axiom-rules-engine-path "$GITHUB_WORKSPACE/axiom-rules-engine"
+          )
+          while IFS= read -r dependency_root; do
+            test -n "$dependency_root" || continue
+            guard_args+=(--rulespec-dependency-root "$dependency_root")
+          done < "$RUNNER_TEMP/rulespec-dependency-roots.txt"
+          "${guard_args[@]}"
+          test -z "$(git -C "$repo" status --porcelain --ignored)"
+          {
+            printf 'branch=%s\n' "$branch"
+            printf 'head=%s\n' "$head"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Recheck main and non-force push same-repository branch
+        shell: bash
+        env:
+          BRANCH: ${{ steps.commit.outputs.branch }}
+          COUNTRY: ${{ inputs.country }}
+          GH_TOKEN: ${{ secrets.AXIOM_REPO_TOKEN }}
+          HEAD_SHA: ${{ steps.commit.outputs.head }}
+          RULESPEC_BASE: ${{ inputs.rulespec_base }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN"
+          repo="$GITHUB_WORKSPACE/rulespec-$COUNTRY"
+          remote_main="$(git -C "$repo" ls-remote --heads origin \
+            refs/heads/main | awk 'NR == 1 {print $1}')"
+          test "$remote_main" = "$RULESPEC_BASE" || {
+            echo "RuleSpec main advanced; regenerate from the new base" >&2
+            exit 1
+          }
+          gh auth setup-git
+          test -z "$(git -C "$repo" ls-remote --heads origin \
+            "refs/heads/$BRANCH")" || {
+            echo "cleanup publication branch already exists" >&2
+            exit 1
+          }
+          git -C "$repo" push origin "HEAD:refs/heads/$BRANCH"
+          test "$(git -C "$repo" ls-remote --heads origin \
+            "refs/heads/$BRANCH" | awk 'NR == 1 {print $1}')" = "$HEAD_SHA"
+          remote_main="$(git -C "$repo" ls-remote --heads origin \
+            refs/heads/main | awk 'NR == 1 {print $1}')"
+          test "$remote_main" = "$RULESPEC_BASE" || {
+            echo "RuleSpec main advanced after branch push; do not open a PR" >&2
+            exit 1
+          }
+
+      - name: Open draft pull request linked only to issue 1557
+        shell: bash
+        env:
+          BRANCH: ${{ steps.commit.outputs.branch }}
+          COUNTRY: ${{ inputs.country }}
+          GH_TOKEN: ${{ secrets.AXIOM_REPO_TOKEN }}
+          HEAD_SHA: ${{ steps.commit.outputs.head }}
+          RULESPEC_BASE: ${{ inputs.rulespec_base }}
+        run: |
+          set -euo pipefail
+          repo="TheAxiomFoundation/rulespec-$COUNTRY"
+          body="$(printf '%s\n' \
+            '## Atomic unmanifested legacy cleanup' \
+            '' \
+            "Protected base B: \`$RULESPEC_BASE\`" \
+            "Atomic head H: \`$HEAD_SHA\`" \
+            "Workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            '' \
+            'Tracks TheAxiomFoundation/axiom-encode#1557.' \
+            '' \
+            'This is a draft. Keep it frozen for independent review; do not merge or publish from this workflow.')"
+          gh api --method POST "repos/$repo/pulls" \
+            -f title="Remove unmanifested legacy RuleSpec groups" \
+            -f head="TheAxiomFoundation:$BRANCH" \
+            -f base=main \
+            -f body="$body" \
+            -F draft=true > "$RUNNER_TEMP/legacy-cleanup-pull-request.json"
+          if ! jq -e \
+              --arg base "$RULESPEC_BASE" \
+              --arg branch "$BRANCH" \
+              --arg head "$HEAD_SHA" \
+              --arg repo "$repo" '
+                .draft == true
+                and .state == "open"
+                and .base.ref == "main"
+                and .base.sha == $base
+                and .head.ref == $branch
+                and .head.sha == $head
+                and .head.repo.full_name == $repo
+              ' "$RUNNER_TEMP/legacy-cleanup-pull-request.json" > /dev/null; then
+            pull_number="$(jq -r '.number // empty' \
+              "$RUNNER_TEMP/legacy-cleanup-pull-request.json")"
+            if [[ "$pull_number" =~ ^[0-9]+$ ]]; then
+              gh api --method PATCH "repos/$repo/pulls/$pull_number" \
+                -f state=closed > /dev/null
+            fi
+            echo "created draft does not preserve the exact B to H topology" >&2
+            exit 1
+          fi

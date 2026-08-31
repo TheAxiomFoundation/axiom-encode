@@ -440,6 +440,8 @@ jobs:
             echo "primary required test cases must be a JSON array" >&2
             exit 1
           fi
+          # Outputs below are conditional and intentionally emitted at their source.
+          # shellcheck disable=SC2129
           echo "tests_only=$repair_tests_only" >> "$GITHUB_OUTPUT"
           if [[ ! "$REPAIR_RUN_ID" =~ ^[0-9]+$ ]] || \
              [ "$REPAIR_RUN_ID" = "$GITHUB_RUN_ID" ]; then
@@ -556,18 +558,14 @@ jobs:
             --current-ref "$RULESPEC_REF" \
             --candidate-path "$repair_candidate_path" \
             --rulespec-path "$REPLACE_RULESPEC_PATH"
-          echo "root=$(jq -r '.root' "$RUNNER_TEMP/repair-candidate.json")" \
-            >> "$GITHUB_OUTPUT"
-          echo "path=$(jq -r '.path' "$RUNNER_TEMP/repair-candidate.json")" \
-            >> "$GITHUB_OUTPUT"
-          echo "runner=$(jq -r '.runner' "$RUNNER_TEMP/repair-candidate.json")" \
-            >> "$GITHUB_OUTPUT"
-          echo "source_rulespec_ref=$repair_source_rulespec_ref" \
-            >> "$GITHUB_OUTPUT"
-          echo "rulespec_sha256=$(jq -r '.rulespec_sha256' "$RUNNER_TEMP/repair-candidate.json")" \
-            >> "$GITHUB_OUTPUT"
-          echo "tests_sha256=$(jq -r '.tests_sha256' "$RUNNER_TEMP/repair-candidate.json")" \
-            >> "$GITHUB_OUTPUT"
+          {
+            echo "root=$(jq -r '.root' "$RUNNER_TEMP/repair-candidate.json")"
+            echo "path=$(jq -r '.path' "$RUNNER_TEMP/repair-candidate.json")"
+            echo "runner=$(jq -r '.runner' "$RUNNER_TEMP/repair-candidate.json")"
+            echo "source_rulespec_ref=$repair_source_rulespec_ref"
+            echo "rulespec_sha256=$(jq -r '.rulespec_sha256' "$RUNNER_TEMP/repair-candidate.json")"
+            echo "tests_sha256=$(jq -r '.tests_sha256' "$RUNNER_TEMP/repair-candidate.json")"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Install uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
@@ -3260,6 +3258,8 @@ jobs:
           artifact="$RUNNER_TEMP/targeted-reencode"
           (
             cd "$artifact"
+            # The controlled artifact directory contains no option-like filenames.
+            # shellcheck disable=SC2035
             sha256sum * > SHA256SUMS
           )
 

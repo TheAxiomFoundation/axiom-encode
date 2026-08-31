@@ -90,12 +90,27 @@
   Supabase regressions: 128 passed; focused Ruff, compileall, and diff checks passed.
 - Advanced the package, exported `__version__`, and lockfile together from
   `0.2.1750` to `0.2.1751` for the cleanup feature.
+- Added a dedicated manual-main cleanup workflow with protected signer and
+  credentialed publisher in separate environments. Its only handoff is one
+  canonical signed receipt plus one strict deletion inventory; the publisher
+  reconstructs fresh exact `B`, materializes/stages only the authorized set,
+  creates one sole-parent `H`, runs the committed guard, rechecks main, performs a
+  non-force same-repository push, and opens only a topology-verified draft linked
+  to issue 1557. Disabling draft publication skips the publisher job entirely.
+- Added adversarial exact-transport coverage for mutated/lost/extra/symlinked
+  artifacts, dirty or stale bases, mixed signer state, postcheck rollback, public
+  trust-root parsing, and hostile sparse-checkout configuration, plus static
+  workflow checks for permissions, credentials, action pins, shell syntax, exact
+  staging, one-commit topology, non-force publication, and draft-only linkage.
+- Ran actionlint on both changed workflows with no findings. Cleaned two inherited
+  ShellCheck style findings in the targeted workflow without changing its
+  behavior. Workflow/transport/guard tests: 68 passed; targeted workflow syntax,
+  contract, and repair-preflight regressions: 5 passed.
 
 ## Next
 
-- Review and commit the dedicated artifact transport and signer/publisher workflow.
-- Run focused workflow/transport tests and the full local check matrix, then conduct
-  the required independent review-fix cycle until no actionable findings remain.
+- Finish the active independent review-fix cycle, then run the complete local check
+  matrix until every required and relevant broad check is green.
 - Re-verify exact commit messages and draft PR body, update this file after each
   coherent commit, and produce the frozen-review report with exact base/head,
   checks, and residual risks.
