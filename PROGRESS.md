@@ -8,6 +8,7 @@
 - Salvage ref `refs/codex-salvage/fix-1558-waiver-toolchain-transition-20260830-212600-98091` resolves to `3ee0586841748ca3a57c92088b226d7f8f1799cc`.
 - The salvage ref's exact 673-line adversarial test patch has been reconciled intact and committed as its own recovery checkpoint.
 - Core transition classification now applies one shared exact-byte/toolchain proof to both creation and consumption; CLI/guard integration and full generated-path closure remain in progress.
+- Stable transition snapshots now carry exact filesystem identity as well as bytes, so a later same-byte path replacement cannot satisfy the recheck.
 - Contract decision: consumption cannot be a waiver/toolchain-only pull request; it must be induced by the exact consumed module and rebind the exact waiver/toolchain pair. The reusable workflow's current `{waiver, toolchain}`-only activation draft is incompatible and must be corrected before pinning.
 - `git fetch --prune origin` succeeds, but GitHub API access and the GitNexus command registry are unavailable in this sandbox; retry issue/PR inspection, push, and draft-PR creation after local checks are green.
 
@@ -22,6 +23,7 @@
 - Passed 483 recovered focused tests across validation-waiver semantics, toolchain binding, stable evidence reads, and audit CLI integration on 2026-08-31.
 - Added failing contract tests proving consumption must use exact base/head waiver and toolchain bytes, the consumed module plus waiver/toolchain path set, and exactly one unchanged-surroundings waiver entry (`3 failed, 42 passed` against the incomplete core).
 - Implemented the shared consumption proof and restored the focused transition suite to `45 passed`.
+- Added a reusable identity-bearing stable-file snapshot and a same-byte atomic-replacement regression test.
 - Confirmed the creation contract must remain exactly one new pending field in the exact waiver/toolchain pair, with active state and corpus pins unchanged and both raw snapshots bound.
 
 ## Next

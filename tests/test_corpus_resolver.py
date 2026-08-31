@@ -573,6 +573,33 @@ def test_stable_file_reader_rejects_path_replacement(
         )
 
 
+def test_stable_file_snapshot_recheck_rejects_same_byte_path_replacement(
+    tmp_path: Path,
+):
+    source = tmp_path / "evidence"
+    displaced = tmp_path / "displaced"
+    source.write_bytes(b"same bytes")
+    snapshot = corpus_resolver.capture_stable_bounded_regular_file(
+        source,
+        label="transition evidence",
+        max_bytes=64,
+    )
+
+    source.rename(displaced)
+    source.write_bytes(snapshot.raw)
+
+    with pytest.raises(
+        UnsafeCorpusPathError,
+        match="changed after its audit snapshot",
+    ):
+        corpus_resolver.require_stable_bounded_regular_file_snapshot(
+            source,
+            label="transition evidence",
+            max_bytes=64,
+            expected=snapshot,
+        )
+
+
 def test_rejects_unsafe_local_release_name_before_selector_lookup(tmp_path: Path):
     _write_rows(
         tmp_path,

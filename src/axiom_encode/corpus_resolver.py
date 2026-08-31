@@ -3845,12 +3845,49 @@ def read_bounded_regular_file(
             os.close(descriptor)
 
 
-def read_stable_bounded_regular_file(
+@dataclass(frozen=True)
+class StableRegularFileIdentity:
+    """Filesystem identity fields that must remain stable for one snapshot."""
+
+    device: int
+    inode: int
+    mode: int
+    link_count: int
+    owner: int
+    size: int
+    modified_ns: int
+    changed_ns: int
+
+
+@dataclass(frozen=True)
+class StableRegularFileSnapshot:
+    """Exact bytes and filesystem identity captured from one regular file."""
+
+    raw: bytes
+    identity: StableRegularFileIdentity
+
+
+def _stable_regular_file_identity(
+    value: os.stat_result,
+) -> StableRegularFileIdentity:
+    return StableRegularFileIdentity(
+        device=value.st_dev,
+        inode=value.st_ino,
+        mode=value.st_mode,
+        link_count=value.st_nlink,
+        owner=value.st_uid,
+        size=value.st_size,
+        modified_ns=value.st_mtime_ns,
+        changed_ns=value.st_ctime_ns,
+    )
+
+
+def capture_stable_bounded_regular_file(
     candidate: Path,
     *,
     label: str,
     max_bytes: int,
-) -> bytes:
+) -> StableRegularFileSnapshot:
     """Read one immutable snapshot without following any path-component symlink.
 
     Transition evidence is supplied as an arbitrary path rather than relative to
@@ -3919,23 +3956,9 @@ def read_stable_bounded_regular_file(
             )
 
         after = os.fstat(file_descriptor)
-        stable_fields = (
-            "st_dev",
-            "st_ino",
-            "st_mode",
-            "st_nlink",
-            "st_uid",
-            "st_size",
-            "st_mtime_ns",
-            "st_ctime_ns",
-        )
-        if (
-            any(
-                getattr(before, field) != getattr(after, field)
-                for field in stable_fields
-            )
-            or len(raw) != after.st_size
-        ):
+        before_identity = _stable_regular_file_identity(before)
+        after_identity = _stable_regular_file_identity(after)
+        if before_identity != after_identity or len(raw) != after.st_size:
             raise UnsafeCorpusPathError(
                 f"{label} changed while it was read: {candidate}"
             )
@@ -3957,9 +3980,9 @@ def read_stable_bounded_regular_file(
                 dir_fd=verification_parent,
             )
             path_after = os.fstat(verification_file)
-            if not stat.S_ISREG(path_after.st_mode) or any(
-                getattr(path_after, field) != getattr(after, field)
-                for field in stable_fields
+            if (
+                not stat.S_ISREG(path_after.st_mode)
+                or _stable_regular_file_identity(path_after) != after_identity
             ):
                 raise UnsafeCorpusPathError(
                     f"{label} path changed while it was read: {candidate}"
@@ -3969,7 +3992,7 @@ def read_stable_bounded_regular_file(
                 os.close(verification_file)
             for descriptor in reversed(verification_descriptors):
                 os.close(descriptor)
-        return raw
+        return StableRegularFileSnapshot(raw=raw, identity=after_identity)
     except UnsafeCorpusPathError:
         raise
     except OSError as exc:
@@ -3981,6 +4004,41 @@ def read_stable_bounded_regular_file(
             os.close(file_descriptor)
         for descriptor in reversed(descriptors):
             os.close(descriptor)
+
+
+def require_stable_bounded_regular_file_snapshot(
+    candidate: Path,
+    *,
+    label: str,
+    max_bytes: int,
+    expected: StableRegularFileSnapshot,
+) -> None:
+    """Require a path to retain both exact bytes and filesystem identity."""
+
+    actual = capture_stable_bounded_regular_file(
+        candidate,
+        label=label,
+        max_bytes=max_bytes,
+    )
+    if actual != expected:
+        raise UnsafeCorpusPathError(
+            f"{label} changed after its audit snapshot: {candidate}"
+        )
+
+
+def read_stable_bounded_regular_file(
+    candidate: Path,
+    *,
+    label: str,
+    max_bytes: int,
+) -> bytes:
+    """Return exact bytes from one stable regular-file snapshot."""
+
+    return capture_stable_bounded_regular_file(
+        candidate,
+        label=label,
+        max_bytes=max_bytes,
+    ).raw
 
 
 def _record_body(
