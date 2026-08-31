@@ -664,6 +664,20 @@ def test_active_can_only_change_by_consuming_exact_base_pending():
     )
     assert any("must consume it" in issue for issue in unconsumed)
 
+    pending_only_base_waivers = _valid_yaml(active=False, pending=True).encode()
+    pending_only = protected_base_transition_issues(
+        _set(_entry(PATH, pending=pending)),
+        head,
+        changed_paths=authenticated_closure,
+        base_waiver_bytes=pending_only_base_waivers,
+        head_waiver_bytes=head_waivers,
+        base_toolchain_bytes=_toolchain_bytes(pending_only_base_waivers),
+        head_toolchain_bytes=_toolchain_bytes(head_waivers),
+        pending_consumption_expected_paths=authenticated_closure,
+        today=TODAY,
+    )
+    assert pending_only == ()
+
 
 def test_pending_consumption_binds_semantics_to_exact_base_and_head_bytes():
     active = _metadata("a")

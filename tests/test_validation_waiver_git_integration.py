@@ -49,9 +49,12 @@ _BASE_EVIDENCE_LABELS = (
 _MANIFEST_EVIDENCE_LABEL = f"pending-consumption apply manifest {_MANIFEST_PATH}"
 _RACE_CASES = tuple(
     (phase, label)
-    for phase in ("creation", "consumption")
+    for phase in ("creation", "consumption", "pending-only-consumption")
     for label in _BASE_EVIDENCE_LABELS
-) + (("consumption", _MANIFEST_EVIDENCE_LABEL),)
+) + tuple(
+    (phase, _MANIFEST_EVIDENCE_LABEL)
+    for phase in ("consumption", "pending-only-consumption")
+)
 
 
 @dataclass(frozen=True)
@@ -287,8 +290,11 @@ def _build_git_transition(tmp_path: Path, phase: str) -> _GitTransition:
                 "outcome": {},
             },
         )
-    elif phase == "consumption":
-        base_waiver = _waiver_yaml(active="a", pending="b")
+    elif phase in {"consumption", "pending-only-consumption"}:
+        base_waiver = _waiver_yaml(
+            active="a" if phase == "consumption" else None,
+            pending="b",
+        )
         head_waiver = _waiver_yaml(active="b")
         expected = (
             {
@@ -320,7 +326,7 @@ def _build_git_transition(tmp_path: Path, phase: str) -> _GitTransition:
         repository / _TOOLCHAIN_PATH,
         _toolchain(head_waiver, corpus_digest=corpus_digest),
     )
-    if phase == "consumption":
+    if phase in {"consumption", "pending-only-consumption"}:
         head_module = _source_backed_module(
             str(source_attestation["source_sha256"]),
             head=True,
@@ -335,7 +341,7 @@ def _build_git_transition(tmp_path: Path, phase: str) -> _GitTransition:
             ),
         )
     head_paths = [_WAIVER_PATH, _TOOLCHAIN_PATH, _MODULE_PATH]
-    if phase == "consumption":
+    if phase in {"consumption", "pending-only-consumption"}:
         head_paths.append(_MANIFEST_PATH)
     _git(repository, "add", "--", *head_paths)
     _git(repository, "commit", "-q", "-m", "head waiver state")
@@ -431,7 +437,9 @@ def _audit(
     return exit_code, json.loads(capsys.readouterr().out)
 
 
-@pytest.mark.parametrize("phase", ["creation", "consumption"])
+@pytest.mark.parametrize(
+    "phase", ["creation", "consumption", "pending-only-consumption"]
+)
 def test_real_git_cross_worktree_accepts_exact_transition_proof(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -453,7 +461,7 @@ def test_real_git_cross_worktree_accepts_exact_transition_proof(
         transition.base_commit,
         transition.head_commit,
     ) == transition.changed_paths.read_bytes()
-    if phase == "consumption":
+    if phase in {"consumption", "pending-only-consumption"}:
         assert _MANIFEST_PATH.encode() + b"\0" in transition.changed_paths.read_bytes()
 
 
@@ -465,14 +473,16 @@ def test_real_git_cross_worktree_accepts_exact_transition_proof(
         ("unlisted-consumed-module", "consumed module must be changed and listed"),
     ],
 )
+@pytest.mark.parametrize("phase", ["consumption", "pending-only-consumption"])
 def test_real_git_consumption_rejects_adversarial_signed_manifest(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     mutation: str,
     expected_error: str,
+    phase: str,
 ):
-    transition = _build_git_transition(tmp_path, "consumption")
+    transition = _build_git_transition(tmp_path, phase)
     manifest = transition.head_worktree / _MANIFEST_PATH
     payload = json.loads(manifest.read_text())
     if mutation == "signature":
@@ -506,7 +516,9 @@ def test_real_git_consumption_rejects_adversarial_signed_manifest(
     "mutation",
     ["base-waiver", "base-toolchain", "head-pair", "changed-paths"],
 )
-@pytest.mark.parametrize("phase", ["creation", "consumption"])
+@pytest.mark.parametrize(
+    "phase", ["creation", "consumption", "pending-only-consumption"]
+)
 def test_real_git_transition_rejects_mutated_materialized_evidence(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -111,6 +111,57 @@ def _parse_rulespec_toolchain_bytes(
     return release_name, content_sha256, waiver_digest
 
 
+def _validation_waiver_binding(
+    *,
+    toolchain: bytes,
+    waivers: bytes,
+    label: str,
+) -> tuple[tuple[str, str, str] | None, str | None, tuple[str, ...]]:
+    """Parse one toolchain and bind it to one exact waiver byte snapshot."""
+
+    if len(waivers) > MAX_VALIDATION_WAIVER_SET_BYTES:
+        return (
+            None,
+            None,
+            (f"{label} validation waiver set exceeds the maximum size",),
+        )
+    try:
+        fields = _parse_rulespec_toolchain_bytes(
+            toolchain,
+            source=f"{label} .axiom/toolchain.toml",
+        )
+    except RuleSpecToolchainError as exc:
+        return None, None, (f"{label} toolchain is invalid: {exc}",)
+
+    actual = hashlib.sha256(waivers).hexdigest()
+    if fields[2] != actual:
+        return (
+            fields,
+            actual,
+            (
+                f"{label} toolchain does not bind the exact {label} waiver "
+                f"bytes: {fields[2]} != {actual}",
+            ),
+        )
+    return fields, actual, ()
+
+
+def validation_waiver_binding_issues(
+    *,
+    toolchain: bytes,
+    waivers: bytes,
+    label: str,
+) -> tuple[str, ...]:
+    """Return strict toolchain-to-waiver binding issues for one exact snapshot."""
+
+    _fields, _digest, issues = _validation_waiver_binding(
+        toolchain=toolchain,
+        waivers=waivers,
+        label=label,
+    )
+    return issues
+
+
 def validation_waiver_digest_transition_issues(
     *,
     base_toolchain: bytes,
@@ -127,44 +178,26 @@ def validation_waiver_digest_transition_issues(
     """
 
     issues: list[str] = []
-    if len(base_waivers) > MAX_VALIDATION_WAIVER_SET_BYTES:
-        issues.append("protected-base validation waiver set exceeds the maximum size")
-    if len(head_waivers) > MAX_VALIDATION_WAIVER_SET_BYTES:
-        issues.append("head validation waiver set exceeds the maximum size")
-    if issues:
+    base_fields, base_waiver_digest, base_issues = _validation_waiver_binding(
+        toolchain=base_toolchain,
+        waivers=base_waivers,
+        label="protected-base",
+    )
+    head_fields, head_waiver_digest, head_issues = _validation_waiver_binding(
+        toolchain=head_toolchain,
+        waivers=head_waivers,
+        label="head",
+    )
+    issues.extend(base_issues)
+    issues.extend(head_issues)
+    if (
+        base_fields is None
+        or base_waiver_digest is None
+        or head_fields is None
+        or head_waiver_digest is None
+    ):
         return tuple(issues)
 
-    try:
-        base_fields = _parse_rulespec_toolchain_bytes(
-            base_toolchain,
-            source="protected-base .axiom/toolchain.toml",
-        )
-    except RuleSpecToolchainError as exc:
-        issues.append(f"protected-base toolchain is invalid: {exc}")
-        base_fields = None
-    try:
-        head_fields = _parse_rulespec_toolchain_bytes(
-            head_toolchain,
-            source="head .axiom/toolchain.toml",
-        )
-    except RuleSpecToolchainError as exc:
-        issues.append(f"head toolchain is invalid: {exc}")
-        head_fields = None
-    if base_fields is None or head_fields is None:
-        return tuple(issues)
-
-    base_waiver_digest = hashlib.sha256(base_waivers).hexdigest()
-    head_waiver_digest = hashlib.sha256(head_waivers).hexdigest()
-    if base_fields[2] != base_waiver_digest:
-        issues.append(
-            "protected-base toolchain does not bind the exact protected-base "
-            f"waiver bytes: {base_fields[2]} != {base_waiver_digest}"
-        )
-    if head_fields[2] != head_waiver_digest:
-        issues.append(
-            "head toolchain does not bind the exact head waiver bytes: "
-            f"{head_fields[2]} != {head_waiver_digest}"
-        )
     if base_waiver_digest == head_waiver_digest:
         issues.append("validation-waiver transition did not change the waiver-set bytes")
 

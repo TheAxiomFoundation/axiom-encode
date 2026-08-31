@@ -663,11 +663,6 @@ def protected_base_transition_issues(
             base_entry = base.entries[consumption_path]
             head_entry = head.entries.get(consumption_path)
             assert base_entry.pending is not None
-            if base_entry.active is None:
-                issues.append(
-                    f"{consumption_path}: pending-to-active consumption requires "
-                    "protected-base active and pending records"
-                )
             if head_entry is None or head_entry.pending is not None:
                 issues.append(
                     f"{consumption_path}: activating a pending waiver must consume it"

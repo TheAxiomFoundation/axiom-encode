@@ -450,6 +450,7 @@ from .toolchain import (
     load_rulespec_local_corpus_release,
     load_rulespec_local_corpus_release_snapshot,
     load_rulespec_toolchain,
+    validation_waiver_binding_issues,
     verify_rulespec_validation_waiver_set,
 )
 
@@ -4586,7 +4587,18 @@ def _cmd_validation_waivers_audit(args) -> int:
             head_toolchain_snapshot,
         ),
     ]
-    transition_issues: list[str] = []
+    transition_issues = [
+        *validation_waiver_binding_issues(
+            toolchain=base_toolchain_snapshot.raw,
+            waivers=base_waiver_snapshot.raw,
+            label="protected-base",
+        ),
+        *validation_waiver_binding_issues(
+            toolchain=head_toolchain_snapshot.raw,
+            waivers=head_waiver_snapshot.raw,
+            label="head",
+        ),
+    ]
     pending_consumption_expected_paths: frozenset[str] | None = None
     head_corpus_release: LocalCorpusRelease | None = None
     changed_entries = sorted(
@@ -4597,8 +4609,7 @@ def _cmd_validation_waivers_audit(args) -> int:
     exact_consumptions = sorted(
         path
         for path in set(base.entries) & set(head.entries)
-        if base.entries[path].active is not None
-        and base.entries[path].pending is not None
+        if base.entries[path].pending is not None
         and head.entries[path].active == base.entries[path].pending
         and head.entries[path].pending is None
         and head.entries[path] != base.entries[path]

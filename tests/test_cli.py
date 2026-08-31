@@ -41603,22 +41603,28 @@ class TestGuardGenerated:
 
         assert issues == []
 
-    def _pending_consumption_repo(self, tmp_path: Path) -> tuple[Path, str]:
+    def _pending_consumption_repo(
+        self,
+        tmp_path: Path,
+        *,
+        pending_only: bool = False,
+    ) -> tuple[Path, str]:
         relative = "us/regulations/example.yaml"
         pending_body = self._waiver_entry_text(
             relative,
             state="pending",
             fingerprint="2" * 64,
         ).split(f"  {relative}:\n", 1)[1]
-        base_waiver = (
-            "validate_failures:\n"
-            + self._waiver_entry_text(
+        active_body = (
+            f"  {relative}:\n"
+            if pending_only
+            else self._waiver_entry_text(
                 relative,
                 state="active",
                 fingerprint="1" * 64,
             )
-            + pending_body
         )
+        base_waiver = "validate_failures:\n" + active_body + pending_body
         head_waiver = (
             "validate_failures:\n"
             + self._waiver_entry_text(
@@ -41635,6 +41641,21 @@ class TestGuardGenerated:
 
     def test_accepts_manifest_induced_pending_consumption(self, tmp_path):
         repo, base_ref = self._pending_consumption_repo(tmp_path)
+
+        issues = guard_generated_change_issues(
+            repo,
+            corpus_path=self.corpus_path,
+            base_ref=base_ref,
+            head_ref="HEAD",
+        )
+
+        assert issues == []
+
+    def test_accepts_manifest_induced_pending_only_consumption(self, tmp_path):
+        repo, base_ref = self._pending_consumption_repo(
+            tmp_path,
+            pending_only=True,
+        )
 
         issues = guard_generated_change_issues(
             repo,

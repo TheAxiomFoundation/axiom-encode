@@ -11,6 +11,7 @@
 - Core transition classification, the audit CLI, and `guard-generated` now apply one shared exact-byte/toolchain proof to both creation and consumption. Pending consumption additionally requires the exact authenticated generated-file closure; an observed changed-path set is never accepted as authority.
 - Stable transition snapshots now carry exact filesystem identity as well as bytes, so a later same-byte path replacement cannot satisfy the recheck.
 - Contract decision: consumption cannot be a waiver/toolchain-only pull request; it must be induced by the exact consumed module and rebind the exact waiver/toolchain pair. The reusable workflow's current `{waiver, toolchain}`-only activation draft is incompatible and must be corrected before pinning.
+- Both lawful consumption forms remain supported: a pending-only base may initialize active for a newly encoded module, and an active-plus-pending base may replace active. Both require the same authenticated module and signed-manifest generated closure.
 - The inspected reusable-workflow sibling head `3e7976cc2aaab4e3e712285814e335493187a950` is not compatible: it loses NUL framing, omits protected-base toolchain evidence, accepts the wrong consumption shape, and lacks exact Git object-mode proof. No workflow pin or historical fixture is being changed until that dependency implements this contract.
 - Both supported historical workflow pins explicitly declare immutable transition evidence unsupported. Local CI now runs the current library's stricter immutable-evidence compatibility check without claiming that the hosted historical workflows implement it.
 - An earlier `git fetch --prune origin` succeeded on 2026-08-31. This resumed session's fetch is DNS-blocked, GitHub web lookup did not expose the issue/branch state, and the GitNexus command registry remains unavailable; retry issue/PR inspection, push, and draft-PR creation after local checks are green.
@@ -51,9 +52,12 @@
 - Confirmed the salvage ref `3ee05868` is a divergent recovery snapshot, not an ancestor of the current head; its useful 673-line test patch was reconciled separately in `c32b6f4a`, followed by the implementation and validation checkpoints.
 - Fresh independent review reproduced the prior direct-audit blocker: an empty ledger or empty matrix partition can skip both protected-base and head waiver/toolchain binding when no module executes.
 - Added four failing pre-partition regressions covering bad base/head bindings across empty-ledger and empty-partition audits (`4 failed` against the incomplete audit gate).
+- Made exact protected-base and head waiver/toolchain binding unconditional before audit partitioning or execution, closing the empty-ledger and empty-partition bypass.
+- Preserved both pending-only and active-plus-pending consumption, and extended the real linked-worktree, signed-manifest adversarial, materialized-evidence mutation, and same-byte replacement-race matrix across both forms.
+- Passed `217` focused waiver/toolchain/audit/Git integration tests and all `91` `guard-generated` tests, plus targeted Ruff, after the final binding and state-machine correction.
 
 ## Next
 
-- Make exact base/head pair binding unconditional before audit partitioning or execution, then rerun the focused transition matrix.
-- Re-run the version-provenance test and complete the broad test matrix, then complete independent review-fix cycles on a frozen head.
+- Stack this branch on exact optional-inventory head `410c81383826e9620ab969057631a9550d95e64b`, reserve encoder version `0.2.1752`, and synchronize every version assertion without duplicating optional-inventory commits in the core review diff.
+- Re-run the version-provenance and broad test matrices, reconcile the reusable workflow to the exact authenticated-closure contract, then complete independent exact-head review-fix cycles.
 - Verify commit messages and PR body, refresh live upstream, push, and open a draft PR linked to #1558 only if every required check remains green; do not merge.
