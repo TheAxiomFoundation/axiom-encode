@@ -52,6 +52,15 @@ def test_workflow_is_manual_main_only_with_read_scoped_contents() -> None:
     assert "if" not in draft_step
 
 
+def test_workflow_serializes_cleanup_publication_per_rulespec_repository() -> None:
+    workflow = _workflow()
+
+    assert workflow["concurrency"] == {
+        "group": "atomic-legacy-cleanup-${{ inputs.country }}",
+        "cancel-in-progress": "false",
+    }
+
+
 def test_signer_and_publisher_credentials_are_strictly_separated() -> None:
     signer = _job_text("signer")
     publisher = _job_text("publisher")

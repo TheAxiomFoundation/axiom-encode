@@ -341,6 +341,9 @@ from .legacy_replacement import (
     EXACT_DEPENDENT_TOOL as APPLIED_ENCODING_LEGACY_EXACT_DEPENDENT_TOOL,
 )
 from .legacy_replacement import (
+    LEGACY_MANIFEST_SCHEMA as APPLIED_ENCODING_LEGACY_MANIFEST_SCHEMA,
+)
+from .legacy_replacement import (
     LEGACY_MANUAL_OWNER_CLASS as APPLIED_ENCODING_LEGACY_MANUAL_OWNER_CLASS,
 )
 from .legacy_replacement import (
@@ -7633,6 +7636,7 @@ def cmd_stage_signed_backfill(args):
         encoder_checkout=Path(expected_encoder_checkout),
         rules_engine_checkout=Path(axiom_rules_path),
         dependency_roots=_rulespec_dependency_roots_from_args(args),
+        provenance_verifier=verifier,
     )
     stage_authorized_changes(
         repo_path,
@@ -21139,6 +21143,7 @@ def _legacy_cleanup_expected_toolchain_from_receipt(
     encoder_checkout: Path,
     rules_engine_checkout: Path,
     dependency_roots: Sequence[Path],
+    provenance_verifier: SigningBroker | Ed25519PublicKey,
 ) -> dict[str, object]:
     """Reconstruct introduction-time pins for one already verified receipt."""
 
@@ -21160,7 +21165,7 @@ def _legacy_cleanup_expected_toolchain_from_receipt(
         primary_paths=primary_paths,
         require_clean_checkout=False,
     )
-    expected_toolchain, _release, _dependencies = _legacy_cleanup_toolchain_binding(
+    expected_toolchain, release, _dependencies = _legacy_cleanup_toolchain_binding(
         repo_path=repo_path,
         plan=plan,
         corpus_path=corpus_path,
@@ -21168,6 +21173,19 @@ def _legacy_cleanup_expected_toolchain_from_receipt(
         rules_engine_checkout=rules_engine_checkout,
         dependency_roots=dependency_roots,
     )
+    provenance_issues = _legacy_cleanup_base_provenance_issues(
+        repo_path,
+        plan=plan,
+        verifier=provenance_verifier,
+        expected_waiver_set_sha256=plan.toolchain_values[
+            "validation_waiver_set_sha256"
+        ],
+        local_corpus_release=release,
+    )
+    if provenance_issues:
+        raise LegacyCleanupGitError(
+            "immutable-base provenance is invalid: " + "; ".join(provenance_issues)
+        )
     return expected_toolchain
 
 
@@ -21250,6 +21268,329 @@ def _legacy_cleanup_name_status(
             raise RuntimeError(f"Legacy cleanup Git status repeats path: {path}")
         result[path] = status_code
     return result
+
+
+def _legacy_cleanup_v1_provenance_issues(
+    repo_path: Path,
+    *,
+    manifest_label: str,
+    payload: Mapping[str, object],
+    roots: tuple[str, ...],
+) -> list[str]:
+    """Validate one historical v1 owner as bounded, untrusted evidence.
+
+    Historical HMACs are not signing authority.  The admitted v1 classes are
+    nevertheless exact schemas whose file hashes and source identity must bind
+    the immutable base.  This mirrors the legacy-replacement admission rule
+    without granting the record generated-manifest or cleanup authority.
+    """
+
+    prefix = f"base provenance {manifest_label}"
+    entries = payload.get("applied_files")
+    if not isinstance(entries, list) or not entries:
+        return [f"{prefix} has malformed v1 applied_files"]
+
+    expected_files: dict[str, str] = {}
+    primary_paths: list[Path] = []
+    issues: list[str] = []
+    for index, item in enumerate(entries):
+        if (
+            not isinstance(item, dict)
+            or set(item) != {"path", "sha256"}
+            or not isinstance(item.get("path"), str)
+            or not isinstance(item.get("sha256"), str)
+        ):
+            issues.append(f"{prefix} applied_files[{index}] is malformed")
+            continue
+        path_text = str(item["path"])
+        relative = Path(path_text)
+        if (
+            relative.is_absolute()
+            or relative.as_posix() != path_text
+            or any(part in {"", ".", ".."} for part in relative.parts)
+            or not _is_protected_rulespec_yaml_path(relative, roots=roots)
+            or path_text in expected_files
+        ):
+            issues.append(f"{prefix} applied_files[{index}].path is invalid")
+            continue
+        try:
+            raw = read_bounded_regular_file(
+                repo_path,
+                repo_path / relative,
+                label=f"legacy v1 provenance file {path_text}",
+                max_bytes=10 * 1024 * 1024,
+                required_mode=0o644,
+            )
+        except (OSError, UnsafeCorpusPathError) as exc:
+            issues.append(f"{prefix} cannot verify {path_text}: {exc}")
+            continue
+        digest = hashlib.sha256(raw).hexdigest()
+        expected_files[path_text] = digest
+        if item["sha256"] != digest:
+            issues.append(f"{prefix} has stale sha256 for {path_text}")
+        if not relative.name.endswith(RULESPEC_TEST_FILE_SUFFIX):
+            primary_paths.append(relative)
+
+    if issues:
+        return issues
+    try:
+        manifest_relative = Path(manifest_label).relative_to(
+            APPLIED_ENCODING_MANIFEST_DIR
+        )
+    except ValueError:
+        return [f"{prefix} is outside the canonical manifest directory"]
+    primary = manifest_relative.with_suffix(RULESPEC_FILE_SUFFIX)
+    if primary not in primary_paths:
+        return [f"{prefix} does not name one of its historical primary files"]
+    primary_root_index = _protected_rulespec_root_index(primary, roots=roots)
+    path_root_indexes = {
+        path: _protected_rulespec_root_index(Path(path), roots=roots)
+        for path in expected_files
+    }
+    if primary_root_index is None or any(
+        root_index != primary_root_index
+        or (
+            primary_root_index == 1
+            and Path(path).parts[0] != primary.parts[0]
+        )
+        for path, root_index in path_root_indexes.items()
+    ):
+        return [f"{prefix} spans more than one historical jurisdiction"]
+
+    try:
+        primary_payload = yaml.safe_load(
+            read_bounded_regular_file(
+                repo_path,
+                repo_path / primary,
+                label=f"legacy v1 primary {primary.as_posix()}",
+                max_bytes=10 * 1024 * 1024,
+                required_mode=0o644,
+            ).decode("utf-8")
+        )
+    except (OSError, UnsafeCorpusPathError, UnicodeError, yaml.YAMLError, RecursionError):
+        primary_payload = None
+    module = (
+        primary_payload.get("module") if isinstance(primary_payload, dict) else None
+    )
+    verification = (
+        module.get("source_verification") if isinstance(module, dict) else None
+    )
+    citations = (
+        _legacy_source_verification_citation_paths(verification)
+        if isinstance(verification, dict)
+        else ()
+    )
+    legacy_issues = _legacy_v1_manifest_issues(
+        payload,
+        expected_files=expected_files,
+        expected_primary_path=primary.as_posix(),
+        expected_citation=citations[0] if len(citations) == 1 else "",
+        jurisdiction_prefix=primary.parts[0],
+        # The historical manual class predates the explicit exception field.
+        # Its HMAC remains untrusted and grants no cleanup authority.
+        allow_unmarked_manual_exception=True,
+    )
+    return [f"{prefix}: {issue}" for issue in legacy_issues]
+
+
+def _legacy_cleanup_base_provenance_issues(
+    repo_path: Path,
+    *,
+    plan: LegacyCleanupBasePlan,
+    verifier: SigningBroker | Ed25519PublicKey,
+    expected_waiver_set_sha256: str,
+    local_corpus_release: LocalCorpusRelease | None,
+    roots: tuple[str, ...] = tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS)),
+) -> list[str]:
+    """Authenticate every provenance record in the immutable cleanup base.
+
+    Absence of target coverage is meaningful only after every accepted
+    provenance class is itself verifiable.  V5 manifests use the normal exact
+    loader (including retirement, migration, replacement, source, execution,
+    and signature checks); historical v1 manifests use their deliberately
+    untrusted exact-shape verifier; linked receipt roots reject orphans; and
+    cleanup receipts retain their separate signature domain and base proof.
+    None of these records supplies cleanup credit—the target-reference scan in
+    ``plan_legacy_cleanup_base`` still rejects any target they mention.
+    """
+
+    checkout = Path(repo_path).resolve()
+    issues: list[str] = []
+    verified_v5: list[Mapping[str, object]] = []
+    migration_records: set[str] = set()
+    replacement_records: set[str] = set()
+    cleanup_records: list[tuple[str, bytes]] = []
+    manifest_prefix = APPLIED_ENCODING_MANIFEST_DIR.as_posix() + "/"
+    migration_prefix = APPLIED_ENCODING_PATH_MIGRATION_RECEIPT_DIR.as_posix() + "/"
+    replacement_prefix = (
+        APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR.as_posix() + "/"
+    )
+    cleanup_prefix = LEGACY_CLEANUP_RECEIPT_DIR.as_posix() + "/"
+
+    for record in plan.provenance_records:
+        label = record.path.as_posix()
+        try:
+            live_raw = read_bounded_regular_file(
+                checkout,
+                checkout / record.path,
+                label=f"base provenance {label}",
+                max_bytes=4 * 1024 * 1024,
+                required_mode=0o644,
+            )
+        except (OSError, UnsafeCorpusPathError) as exc:
+            issues.append(f"base provenance {label} is unreadable: {exc}")
+            continue
+        if live_raw != record.raw:
+            issues.append(f"base provenance {label} differs from the immutable base")
+            continue
+        try:
+            payload = json.loads(record.raw.decode("utf-8"))
+        except (UnicodeError, json.JSONDecodeError, RecursionError):
+            # The immutable inventory already performs strict duplicate-key and
+            # non-finite decoding.  Keep this defensive boundary fail-closed.
+            issues.append(f"base provenance {label} is not valid JSON")
+            continue
+        if not isinstance(payload, dict):
+            issues.append(f"base provenance {label} is not a JSON object")
+            continue
+
+        if label.startswith(manifest_prefix):
+            schema = payload.get("schema_version")
+            if schema == APPLIED_ENCODING_MANIFEST_SCHEMA:
+                signature_issue = _applied_encoding_manifest_signature_issue(
+                    payload,
+                    verifier,
+                )
+                if signature_issue:
+                    issues.append(f"base provenance {label} {signature_issue}")
+                    continue
+                execution = payload.get("validation_execution")
+                historical_encoder = (
+                    execution.get("axiom_encode")
+                    if isinstance(execution, dict)
+                    else None
+                )
+                if not isinstance(historical_encoder, dict):
+                    provenance = payload.get("axiom_encode_git")
+                    historical_encoder = (
+                        {
+                            "repository": APPLIED_ENCODING_OFFICIAL_REPOSITORY,
+                            "commit": provenance.get("commit"),
+                            "version": payload.get("axiom_encode_version"),
+                        }
+                        if isinstance(provenance, dict)
+                        else None
+                    )
+                if not isinstance(historical_encoder, dict):
+                    issues.append(
+                        f"base provenance {label} has no historical encoder identity"
+                    )
+                    continue
+                verified, _root, _digest, manifest_issues = (
+                    _load_verified_applied_encoding_manifest_payload(
+                        checkout,
+                        label,
+                        roots=roots,
+                        signing_broker=verifier,
+                        expected_waiver_set_sha256=expected_waiver_set_sha256,
+                        expected_legacy_replacement_waiver_set_sha256=(
+                            expected_waiver_set_sha256
+                        ),
+                        local_corpus_release=local_corpus_release,
+                        expected_encoder_identity=historical_encoder,
+                        path_migration_receipt_proof_cache={},
+                    )
+                )
+                if manifest_issues or verified is None:
+                    detail = "; ".join(manifest_issues) or "verification failed"
+                    issues.append(f"base provenance {label} is invalid: {detail}")
+                else:
+                    verified_v5.append(verified)
+            elif schema == APPLIED_ENCODING_LEGACY_MANIFEST_SCHEMA:
+                issues.extend(
+                    _legacy_cleanup_v1_provenance_issues(
+                        checkout,
+                        manifest_label=label,
+                        payload=payload,
+                        roots=roots,
+                    )
+                )
+            else:
+                issues.append(
+                    f"base provenance {label} has an unsupported manifest schema"
+                )
+        elif label.startswith(migration_prefix):
+            migration_records.add(label)
+        elif label.startswith(replacement_prefix):
+            replacement_records.add(label)
+        elif label.startswith(cleanup_prefix):
+            cleanup_records.append((label, record.raw))
+        else:
+            issues.append(f"base provenance {label} has an unsupported class")
+
+    linked_migrations: set[str] = set()
+    linked_replacements: set[str] = set()
+    for payload in verified_v5:
+        if payload.get("tool") == APPLIED_ENCODING_PATH_MIGRATION_TOOL:
+            migration = payload.get("migration")
+            receipt_path = (
+                migration.get("receipt_path") if isinstance(migration, dict) else None
+            )
+            if isinstance(receipt_path, str):
+                linked_migrations.add(receipt_path)
+        if payload.get("tool") == APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL:
+            replacement = payload.get("replacement")
+            receipt_path = (
+                replacement.get("receipt_path")
+                if isinstance(replacement, dict)
+                else None
+            )
+            if isinstance(receipt_path, str):
+                linked_replacements.add(receipt_path)
+
+    for label in sorted(migration_records - linked_migrations):
+        issues.append(f"base provenance {label} is an orphan migration receipt")
+    for label in sorted(linked_migrations - migration_records):
+        issues.append(f"base provenance is missing linked migration receipt {label}")
+    for label in sorted(replacement_records - linked_replacements):
+        issues.append(f"base provenance {label} is an orphan replacement receipt")
+    for label in sorted(linked_replacements - replacement_records):
+        issues.append(f"base provenance is missing linked replacement receipt {label}")
+
+    for label, raw in cleanup_records:
+        try:
+            receipt = parse_legacy_cleanup_receipt_bytes(raw, expected_path=label)
+            verify_legacy_cleanup_receipt_signature(receipt, verifier)
+            repository = receipt.get("repository")
+            groups = receipt.get("groups")
+            if not isinstance(repository, dict) or not isinstance(groups, list):
+                raise ValueError("historical cleanup receipt proof is malformed")
+            historical_base = repository.get("base_commit")
+            primaries = [
+                group["primary"]["path"]
+                for group in groups
+                if isinstance(group, dict)
+                and isinstance(group.get("primary"), dict)
+                and isinstance(group["primary"].get("path"), str)
+            ]
+            if not isinstance(historical_base, str) or len(primaries) != len(groups):
+                raise ValueError("historical cleanup receipt proof is malformed")
+            historical_plan = plan_legacy_cleanup_base(
+                checkout,
+                base_ref=historical_base,
+                primary_paths=primaries,
+                require_clean_checkout=False,
+            )
+            historical_issues = legacy_cleanup_plan_payload_issues(
+                receipt,
+                historical_plan,
+            )
+            if historical_issues:
+                raise ValueError("; ".join(historical_issues))
+        except (LegacyCleanupGitError, RuntimeError, ValueError) as exc:
+            issues.append(f"base provenance {label} is invalid: {exc}")
+
+    return issues
 
 
 def _legacy_cleanup_post_install_issues(
@@ -21336,6 +21677,20 @@ def cmd_cleanup_unmanifested_legacy(args):
             "Legacy cleanup validation requires the protected corpus-release "
             "verification keyring"
         ) from exc
+    provenance_issues = _legacy_cleanup_base_provenance_issues(
+        repo_path,
+        plan=plan,
+        verifier=verification_broker,
+        expected_waiver_set_sha256=plan.toolchain_values[
+            "validation_waiver_set_sha256"
+        ],
+        local_corpus_release=release,
+    )
+    if provenance_issues:
+        raise RuntimeError(
+            "Legacy cleanup immutable-base provenance is invalid: "
+            + "; ".join(provenance_issues)
+        )
     validation_public_keys = verification_broker.corpus_release_public_keys_raw
     validation_execution = execute_projected_validation(
         repo_path,
@@ -21634,6 +21989,7 @@ def guard_generated_change_issues(
                     encoder_checkout=Path(expected_encoder_checkout),
                     rules_engine_checkout=Path(axiom_rules_path),
                     dependency_roots=rulespec_dependency_roots,
+                    provenance_verifier=verifier,
                 )
             )
         except (LegacyCleanupGitError, RuntimeError, ValueError, OSError) as exc:

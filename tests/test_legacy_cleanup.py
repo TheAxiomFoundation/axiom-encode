@@ -515,6 +515,46 @@ def test_base_plan_rejects_absolute_prefixed_target_reference(tmp_path):
         _plan(repo, base)
 
 
+def test_belgium_pre_hygiene_cleanup_base_is_rejected(tmp_path):
+    """Keep the observed RuleSpec-BE b105 sequencing constraint fail-closed."""
+
+    repo = _init_repo(tmp_path)
+    _write_contract(repo)
+    primary = Path(
+        "be/statutes/family_benefits/child_benefit_base_2025.yaml"
+    )
+    _write_group(repo, primary)
+    reference = "be:statutes/family_benefits/child_benefit_base_2025"
+    survivors = {
+        "be-wal/statutes/family_benefits/amounts.yaml": (
+            f"imports:\n  - {reference}\n"
+        ),
+        "data/coverage/euromod-be-coverage.json": json.dumps(
+            {"module": reference}
+        ),
+        "data/coverage/pilot-slice-coverage.json": json.dumps(
+            {"module": reference}
+        ),
+        "data/coverage/tax-benefit-source-map.json": json.dumps(
+            {"module": reference}
+        ),
+        "docs/ENCODING-GAPS.md": f"Pending cleanup: {reference}\n",
+    }
+    for relative, content in survivors.items():
+        target = repo / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+    base = _commit(repo, "Belgium pre-hygiene cleanup base")
+
+    with pytest.raises(LegacyCleanupGitError, match="references a cleanup target"):
+        plan_legacy_cleanup_base(
+            repo,
+            base_ref=base,
+            primary_paths=[primary],
+            require_clean_checkout=True,
+        )
+
+
 def test_base_plan_does_not_match_longer_innocent_path_token(tmp_path):
     repo = _init_repo(tmp_path)
     _write_contract(repo)

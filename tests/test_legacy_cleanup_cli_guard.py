@@ -415,6 +415,7 @@ def test_cmd_stage_signed_backfill_reverifies_cleanup_before_staging(
         encoder_checkout=encoder,
         rules_engine_checkout=engine,
         dependency_roots=(dependency,),
+        provenance_verifier=verifier,
     )
     stage.assert_called_once_with(
         repo,

@@ -48,7 +48,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: atomic-legacy-cleanup-${{ github.run_id }}-${{ github.run_attempt }}
+  # Serialize every cleanup publication for one protected RuleSpec repository.
+  # A run-scoped key would allow two requests based on the same B to sign and
+  # publish competing draft branches concurrently.
+  group: atomic-legacy-cleanup-${{ inputs.country }}
   cancel-in-progress: false
 
 jobs:
