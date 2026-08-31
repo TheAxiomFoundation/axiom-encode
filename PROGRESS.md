@@ -3,6 +3,7 @@
 ## State
 
 - Branch: `fix/1558-waiver-toolchain-transition`.
+- Current resumed head: `b4139370385a3eb6675d4d9de2bef93a6907cafb`; the worktree was clean at this session's start and contains 17 commits over the last successfully fetched `origin/main`.
 - Live-fetched `origin/main` and merge base: `f1bfe0a47ee7a9123d56e00a5c41edb6f272ea21`.
 - Resumed implementation: `f03d4f9b4a9fcfa1bbe7195c80fab6e15e5322c0`; resumed tracking head: `00de31256addce7c0b8f1d82a3b97b7779925cc5`; neither is approved.
 - Salvage ref `refs/codex-salvage/fix-1558-waiver-toolchain-transition-20260830-212600-98091` resolves to `3ee0586841748ca3a57c92088b226d7f8f1799cc`.
@@ -12,7 +13,7 @@
 - Contract decision: consumption cannot be a waiver/toolchain-only pull request; it must be induced by the exact consumed module and rebind the exact waiver/toolchain pair. The reusable workflow's current `{waiver, toolchain}`-only activation draft is incompatible and must be corrected before pinning.
 - The inspected reusable-workflow sibling head `3e7976cc2aaab4e3e712285814e335493187a950` is not compatible: it loses NUL framing, omits protected-base toolchain evidence, accepts the wrong consumption shape, and lacks exact Git object-mode proof. No workflow pin or historical fixture is being changed until that dependency implements this contract.
 - Both supported historical workflow pins explicitly declare immutable transition evidence unsupported. Local CI now runs the current library's stricter immutable-evidence compatibility check without claiming that the hosted historical workflows implement it.
-- `git fetch --prune origin` succeeds, but GitHub API access and the GitNexus command registry were unavailable during the initial resume inspection; retry issue/PR inspection, push, and draft-PR creation after local checks are green.
+- An earlier `git fetch --prune origin` succeeded on 2026-08-31. This resumed session's fetch is DNS-blocked, GitHub web lookup did not expose the issue/branch state, and the GitNexus command registry remains unavailable; retry issue/PR inspection, push, and draft-PR creation after local checks are green.
 
 ## Done
 
@@ -46,6 +47,8 @@
 - Synchronized all nine exact version assertions used by packaged oracle/RuleSpec registry tests to `0.2.1751`; no oracle pin, mapping, or registry material changed.
 - Passed `28` focused version-provenance and packaged-registry synchronization tests after the bump.
 - Repository-wide Ruff, compileall, and `git diff --check` passed; both historical workflow fixture SHA-256 values remain unchanged.
+- Reinspected the complete prior assignment, repository instructions, clean branch state, 17-commit history, last fetched base, salvage ref, progress ledger, and both independent review locations at resumed head `b4139370`.
+- Confirmed the salvage ref `3ee05868` is a divergent recovery snapshot, not an ancestor of the current head; its useful 673-line test patch was reconciled separately in `c32b6f4a`, followed by the implementation and validation checkpoints.
 
 ## Next
 
