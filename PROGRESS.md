@@ -39,12 +39,19 @@
   surviving-reference proof.
 - Ran `UV_CACHE_DIR=/private/tmp/axiom-encode-uv-cache uv run pytest -q
   tests/test_legacy_cleanup.py`: 47 passed.
+- Added a cleanup-only signing adapter that wraps the cleanup v1 inner domain in
+  the existing protected `apply_ed25519` broker scope without reusing applied
+  manifest serialization or verification. It prevalidates the exact unsigned
+  schema, verifies broker output before persistence, and rejects cross-domain,
+  cross-scope, wrong-key, malformed, and replayed signatures.
+- Ran focused cleanup plus signing tests: 65 passed; focused Ruff and compileall
+  also passed.
 
 ## Next
 
-- Integrate cleanup-specific inner-domain signing and genuinely executed projected
-  validation evidence, then wire the CLI to one receipt-first durable transaction
-  that deletes every exact primary/companion preimage.
+- Integrate genuinely executed projected validation evidence, then wire the CLI to
+  one receipt-first durable transaction that deletes every exact
+  primary/companion preimage.
 - Add cryptographic fail-closed verification for every immutable-base provenance
   record, separate guard authorization, exact deletion transport/staging, dedicated
   workflow, exclusions, docs, changelog/version updates, and the complete
