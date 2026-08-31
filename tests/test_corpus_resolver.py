@@ -492,6 +492,87 @@ def test_rejects_symlinked_provision_file(tmp_path: Path):
         resolve_local_corpus_source(CITATION, _release(tmp_path))
 
 
+def test_stable_file_reader_rejects_ancestor_symlink_and_hardlink(tmp_path: Path):
+    actual = tmp_path / "actual"
+    actual.mkdir()
+    source = actual / "evidence"
+    source.write_bytes(b"evidence")
+    alias = tmp_path / "alias"
+    alias.symlink_to(actual, target_is_directory=True)
+
+    with pytest.raises(UnsafeCorpusPathError, match="safely open"):
+        corpus_resolver.read_stable_bounded_regular_file(
+            alias / source.name,
+            label="transition evidence",
+            max_bytes=64,
+        )
+
+    hardlink = actual / "hardlink"
+    os.link(source, hardlink)
+    with pytest.raises(UnsafeCorpusPathError, match="exactly one hard link"):
+        corpus_resolver.read_stable_bounded_regular_file(
+            source,
+            label="transition evidence",
+            max_bytes=64,
+        )
+
+
+def test_stable_file_reader_rejects_in_place_mutation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    source = tmp_path / "evidence"
+    source.write_bytes(b"original")
+    original_read = corpus_resolver.os.read
+    mutated = False
+
+    def racing_read(descriptor: int, size: int) -> bytes:
+        nonlocal mutated
+        chunk = original_read(descriptor, size)
+        if chunk and not mutated:
+            mutated = True
+            source.write_bytes(b"mutated!")
+        return chunk
+
+    monkeypatch.setattr(corpus_resolver.os, "read", racing_read)
+
+    with pytest.raises(UnsafeCorpusPathError, match="changed while it was read"):
+        corpus_resolver.read_stable_bounded_regular_file(
+            source,
+            label="transition evidence",
+            max_bytes=64,
+        )
+
+
+def test_stable_file_reader_rejects_path_replacement(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    source = tmp_path / "evidence"
+    displaced = tmp_path / "displaced"
+    source.write_bytes(b"original")
+    original_read = corpus_resolver.os.read
+    replaced = False
+
+    def racing_read(descriptor: int, size: int) -> bytes:
+        nonlocal replaced
+        chunk = original_read(descriptor, size)
+        if chunk and not replaced:
+            replaced = True
+            source.rename(displaced)
+            source.write_bytes(b"replacement")
+        return chunk
+
+    monkeypatch.setattr(corpus_resolver.os, "read", racing_read)
+
+    with pytest.raises(UnsafeCorpusPathError, match="changed"):
+        corpus_resolver.read_stable_bounded_regular_file(
+            source,
+            label="transition evidence",
+            max_bytes=64,
+        )
+
+
 def test_rejects_unsafe_local_release_name_before_selector_lookup(tmp_path: Path):
     _write_rows(
         tmp_path,

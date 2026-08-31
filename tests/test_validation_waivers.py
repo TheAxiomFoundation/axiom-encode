@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import date, timedelta
 from pathlib import Path
@@ -51,6 +52,16 @@ def _set(*entries: WaiverEntry) -> ValidationWaiverSet:
     return ValidationWaiverSet(
         MappingProxyType({entry.path: entry for entry in entries})
     )
+
+
+def _toolchain_bytes(waiver_bytes: bytes) -> bytes:
+    return (
+        "[toolchain]\n"
+        'axiom_corpus_release = "test-release"\n'
+        f'axiom_corpus_release_content_sha256 = "{"a" * 64}"\n'
+        "validation_waiver_set_sha256 = "
+        f'"{hashlib.sha256(waiver_bytes).hexdigest()}"\n'
+    ).encode()
 
 
 def _repo(tmp_path: Path, *paths: str) -> Path:
@@ -310,26 +321,207 @@ def test_rejects_symlinked_module_path_components(tmp_path: Path):
         load_validation_waivers(waiver_file, repo_root=root, today=TODAY)
 
 
-def test_new_or_changed_pending_is_waiver_only():
+def test_new_or_changed_pending_requires_digest_rebind_pair():
     base = _set(_entry(PATH, active=_metadata("a")))
     head = _set(_entry(PATH, active=_metadata("a"), pending=_metadata("b")))
+
+    issues = protected_base_transition_issues(
+        base,
+        head,
+        changed_paths={"known-validation-gaps.yaml"},
+        today=TODAY,
+    )
+    assert any("exact digest-rebind pair" in issue for issue in issues)
+
+
+def test_new_pending_accepts_only_the_exact_toolchain_digest_rebind_pair():
+    base = _set(_entry(PATH, active=_metadata("a")))
+    head = _set(_entry(PATH, active=_metadata("a"), pending=_metadata("b")))
+    base_waivers = _valid_yaml(active=True, pending=False).encode()
+    head_waivers = _valid_yaml(active=True, pending=True).encode()
+    evidence = {
+        "base_waiver_bytes": base_waivers,
+        "head_waiver_bytes": head_waivers,
+        "base_toolchain_bytes": _toolchain_bytes(base_waivers),
+        "head_toolchain_bytes": _toolchain_bytes(head_waivers),
+    }
 
     assert (
         protected_base_transition_issues(
             base,
             head,
-            changed_paths={"known-validation-gaps.yaml"},
+            changed_paths={
+                "known-validation-gaps.yaml",
+                ".axiom/toolchain.toml",
+            },
             today=TODAY,
+            **evidence,
         )
         == ()
     )
+    missing_evidence = protected_base_transition_issues(
+        base,
+        head,
+        changed_paths={"known-validation-gaps.yaml", ".axiom/toolchain.toml"},
+        today=TODAY,
+    )
+    assert any("requires exact" in issue for issue in missing_evidence)
+    third_path = protected_base_transition_issues(
+        base,
+        head,
+        changed_paths={
+            "known-validation-gaps.yaml",
+            ".axiom/toolchain.toml",
+            PATH,
+        },
+        today=TODAY,
+        **evidence,
+    )
+    assert any("exact digest-rebind pair" in issue for issue in third_path)
+
+
+def test_pending_approval_pull_request_cannot_batch_multiple_changes():
+    base = _set(
+        _entry(PATH, active=_metadata("a")),
+        _entry(OTHER_PATH, active=_metadata("c")),
+    )
+    head = _set(
+        _entry(PATH, active=_metadata("a"), pending=_metadata("b")),
+        _entry(OTHER_PATH, active=_metadata("c"), pending=_metadata("d")),
+    )
+    base_waivers = (
+        "validate_failures:\n"
+        f"  {PATH}:\n"
+        "    active:\n      " + _metadata_yaml("a") + f"  {OTHER_PATH}:\n"
+        "    active:\n      " + _metadata_yaml("c")
+    ).encode()
+    head_waivers = (
+        "validate_failures:\n"
+        f"  {PATH}:\n"
+        "    active:\n      "
+        + _metadata_yaml("a")
+        + "    pending:\n      "
+        + _metadata_yaml("b")
+        + f"  {OTHER_PATH}:\n"
+        "    active:\n      "
+        + _metadata_yaml("c")
+        + "    pending:\n      "
+        + _metadata_yaml("d")
+    ).encode()
+
     issues = protected_base_transition_issues(
         base,
         head,
-        changed_paths={"known-validation-gaps.yaml", PATH},
+        changed_paths={"known-validation-gaps.yaml", ".axiom/toolchain.toml"},
+        base_waiver_bytes=base_waivers,
+        head_waiver_bytes=head_waivers,
+        base_toolchain_bytes=_toolchain_bytes(base_waivers),
+        head_toolchain_bytes=_toolchain_bytes(head_waivers),
         today=TODAY,
     )
-    assert any("waiver-only" in issue for issue in issues)
+
+    assert any("add exactly one new pending record" in issue for issue in issues)
+
+
+def test_pending_creation_rejects_replacement_mixed_deltas_and_noops():
+    active = _metadata("a")
+    pending = _metadata("b")
+    other_active = _metadata("c")
+    other_pending = _metadata("d")
+    exact_pair = {"known-validation-gaps.yaml", ".axiom/toolchain.toml"}
+
+    replacement = protected_base_transition_issues(
+        _set(_entry(PATH, active=active, pending=pending)),
+        _set(_entry(PATH, active=active, pending=other_pending)),
+        changed_paths=exact_pair,
+        today=TODAY,
+    )
+    assert any("may not replace" in issue for issue in replacement)
+
+    active_removal = protected_base_transition_issues(
+        _set(
+            _entry(PATH, active=active),
+            _entry(OTHER_PATH, active=other_active),
+        ),
+        _set(_entry(PATH, active=active, pending=pending)),
+        changed_paths=exact_pair,
+        today=TODAY,
+    )
+    assert any(
+        "may only add its one pending field" in issue for issue in active_removal
+    )
+
+    direct_active_to_pending = protected_base_transition_issues(
+        _set(_entry(PATH, active=active)),
+        _set(_entry(PATH, pending=pending)),
+        changed_paths=exact_pair,
+        today=TODAY,
+    )
+    assert any(
+        "may only add its one pending field" in issue
+        for issue in direct_active_to_pending
+    )
+
+    mixed_consumption = protected_base_transition_issues(
+        _set(
+            _entry(PATH, active=active),
+            _entry(OTHER_PATH, active=other_active, pending=other_pending),
+        ),
+        _set(
+            _entry(PATH, active=active, pending=pending),
+            _entry(OTHER_PATH, active=other_pending),
+        ),
+        changed_paths=exact_pair,
+        today=TODAY,
+    )
+    assert any(
+        "may only add its one pending field" in issue for issue in mixed_consumption
+    )
+
+    pending_move = protected_base_transition_issues(
+        _set(_entry(PATH, active=active, pending=pending)),
+        _set(_entry(PATH, active=active), _entry(OTHER_PATH, pending=pending)),
+        changed_paths=exact_pair,
+        today=TODAY,
+    )
+    assert any("may only add its one pending field" in issue for issue in pending_move)
+
+    duplicate_active = protected_base_transition_issues(
+        _set(_entry(PATH, active=active)),
+        _set(_entry(PATH, active=active, pending=active)),
+        changed_paths=exact_pair,
+        today=TODAY,
+    )
+    assert any("must not duplicate" in issue for issue in duplicate_active)
+
+    semantic_noop = protected_base_transition_issues(
+        _set(_entry(PATH, active=active)),
+        _set(_entry(PATH, active=active)),
+        changed_paths=exact_pair,
+        today=TODAY,
+    )
+    assert any("semantic no-op" in issue for issue in semantic_noop)
+
+
+def test_pending_creation_binds_semantics_to_the_exact_waiver_bytes():
+    base = _set(_entry(PATH, active=_metadata("a")))
+    head = _set(_entry(PATH, active=_metadata("a"), pending=_metadata("b")))
+    base_waivers = _valid_yaml(active=True, pending=False).encode()
+    inconsistent_head_waivers = base_waivers
+
+    issues = protected_base_transition_issues(
+        base,
+        head,
+        changed_paths={"known-validation-gaps.yaml", ".axiom/toolchain.toml"},
+        base_waiver_bytes=base_waivers,
+        head_waiver_bytes=inconsistent_head_waivers,
+        base_toolchain_bytes=_toolchain_bytes(base_waivers),
+        head_toolchain_bytes=_toolchain_bytes(inconsistent_head_waivers),
+        today=TODAY,
+    )
+
+    assert any("head waiver semantics do not match" in issue for issue in issues)
+    assert any("did not change" in issue for issue in issues)
 
 
 def test_active_can_only_change_by_consuming_exact_base_pending():
@@ -353,6 +545,13 @@ def test_active_can_only_change_by_consuming_exact_base_pending():
         today=TODAY,
     )
     assert any("must exactly consume" in issue for issue in direct_change)
+    nonexact_consumption = protected_base_transition_issues(
+        base,
+        _set(_entry(PATH, active=_metadata("c"))),
+        changed_paths={PATH, "known-validation-gaps.yaml"},
+        today=TODAY,
+    )
+    assert any("must exactly consume" in issue for issue in nonexact_consumption)
     unconsumed = protected_base_transition_issues(
         base,
         _set(_entry(PATH, active=pending, pending=pending)),
@@ -382,8 +581,9 @@ def test_new_active_without_base_pending_is_rejected_and_removals_are_safe():
     )
 
 
-def test_expired_base_pending_cannot_be_consumed():
-    expired = _metadata("b", expires=(TODAY - timedelta(days=1)).isoformat())
+@pytest.mark.parametrize("expiry", [TODAY - timedelta(days=1), TODAY])
+def test_expired_base_pending_cannot_be_consumed(expiry: date):
+    expired = _metadata("b", expires=expiry.isoformat())
     base = _set(_entry(PATH, active=_metadata("a"), pending=expired))
     head = _set(_entry(PATH, active=expired))
 

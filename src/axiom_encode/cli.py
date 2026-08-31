@@ -134,6 +134,7 @@ from .corpus_resolver import (
     UnsafeCorpusPathError,
     normalize_corpus_identifier,
     read_bounded_regular_file,
+    read_stable_bounded_regular_file,
     require_canonical_corpus_citation_path,
     resolve_local_corpus_source,
     split_proof_evidence_text,
@@ -442,6 +443,7 @@ from .signing_broker import (
     reject_direct_private_signing_environment,
 )
 from .toolchain import (
+    MAX_RULESPEC_TOOLCHAIN_BYTES,
     VALIDATION_WAIVER_SET_SHA256_FIELD,
     load_rulespec_local_corpus_release,
     load_rulespec_toolchain,
@@ -1703,6 +1705,14 @@ def main():
         type=Path,
         required=True,
         help="Strict waiver YAML from the protected base revision",
+    )
+    validation_waivers_audit_parser.add_argument(
+        "--protected-base-toolchain",
+        type=Path,
+        help=(
+            "Strict .axiom/toolchain.toml from the same protected base; "
+            "required when a pending-waiver approval rebinds its digest"
+        ),
     )
     validation_waivers_audit_parser.add_argument(
         "--changed-paths",
@@ -4302,22 +4312,77 @@ def _validation_waiver_repo_relative_path(raw: str, *, label: str) -> str:
     return "/".join(parts)
 
 
+def _validation_waiver_changed_paths_snapshot(path: Path) -> tuple[set[str], bytes]:
+    """Capture and parse the strict changed-path evidence bytes once."""
+    path = Path(path)
+    raw = _validation_waiver_transition_bytes(
+        path,
+        label="changed-paths input",
+        max_bytes=_validation_waivers.MAX_WAIVER_FILE_BYTES,
+    )
+    try:
+        text_value = raw.decode("utf-8")
+    except UnicodeError as exc:
+        raise ValueError(f"changed-paths input must be valid UTF-8: {path}") from exc
+    changed: set[str] = set()
+    for line_number, line in enumerate(text_value.split("\n"), 1):
+        if line == "":
+            continue
+        normalized = _validation_waiver_repo_relative_path(
+            line,
+            label=f"changed path line {line_number}",
+        )
+        if normalized in changed:
+            raise ValueError(f"changed-paths input repeats path: {normalized}")
+        changed.add(normalized)
+    return changed, raw
+
+
 def _validation_waiver_changed_paths(path: Path) -> set[str]:
     """Read the strict one-repository-relative-path-per-line transition input."""
-    path = Path(path)
-    if path.is_symlink() or not path.is_file():
-        raise ValueError(f"changed-paths input must be a regular file: {path}")
-    changed: set[str] = set()
-    for line_number, raw in enumerate(path.read_text().split("\n"), 1):
-        if raw == "":
-            continue
-        changed.add(
-            _validation_waiver_repo_relative_path(
-                raw,
-                label=f"changed path line {line_number}",
-            )
-        )
+
+    changed, _raw = _validation_waiver_changed_paths_snapshot(path)
     return changed
+
+
+def _validation_waiver_transition_bytes(
+    path: Path,
+    *,
+    label: str,
+    max_bytes: int,
+) -> bytes:
+    """Read one bounded transition-evidence file without following symlinks."""
+
+    path = Path(path)
+    try:
+        return read_stable_bounded_regular_file(
+            path,
+            label=label,
+            max_bytes=max_bytes,
+        )
+    except UnsafeCorpusPathError as exc:
+        raise ValueError(str(exc)) from exc
+
+
+def _validation_waiver_snapshot_issues(
+    snapshots: Sequence[tuple[Path, str, int, bytes]],
+) -> tuple[str, ...]:
+    """Require transition-evidence paths to retain their captured bytes."""
+
+    issues: list[str] = []
+    for path, label, max_bytes, expected in snapshots:
+        try:
+            actual = _validation_waiver_transition_bytes(
+                path,
+                label=label,
+                max_bytes=max_bytes,
+            )
+        except ValueError as exc:
+            issues.append(str(exc))
+        else:
+            if actual != expected:
+                issues.append(f"{label} changed after its audit snapshot: {path}")
+    return tuple(issues)
 
 
 def _emit_validation_waiver_error(args, error: Exception | str) -> None:
@@ -4407,7 +4472,7 @@ def _validation_waiver_audit_partition(
 
 
 def _cmd_validation_waivers_audit(args) -> int:
-    root = Path(args.root).resolve()
+    root = Path(os.path.abspath(args.root))
     if not root.is_dir():
         raise ValueError(f"RuleSpec repository root does not exist: {root}")
     waiver_path = _validation_waivers.DEFAULT_WAIVER_PATH
@@ -4418,22 +4483,96 @@ def _cmd_validation_waivers_audit(args) -> int:
     if protected_base_path is None or changed_paths_file is None:
         raise ValueError("--protected-base and --changed-paths are required")
 
-    head = _validation_waivers.load_validation_waivers(
+    protected_base_file = Path(protected_base_path)
+    audit_date = date.today()
+    head, head_waiver_bytes = _validation_waivers.load_validation_waivers_snapshot(
         waiver_file,
         repo_root=root,
+        today=audit_date,
     )
-    base = _validation_waivers.load_validation_waivers(
-        Path(protected_base_path),
+    base, base_waiver_bytes = _validation_waivers.load_validation_waivers_snapshot(
+        protected_base_file,
         repo_root=root,
+        today=audit_date,
         allow_expired=True,
         require_paths=False,
     )
-    changed_paths = _validation_waiver_changed_paths(Path(changed_paths_file))
-    transition_issues = _validation_waivers.protected_base_transition_issues(
-        base,
-        head,
-        changed_paths=changed_paths,
-        waiver_path=waiver_path,
+    changed_paths_path = Path(changed_paths_file)
+    changed_paths, changed_paths_bytes = _validation_waiver_changed_paths_snapshot(
+        changed_paths_path
+    )
+    protected_toolchain_path = getattr(args, "protected_base_toolchain", None)
+    base_toolchain_bytes = (
+        _validation_waiver_transition_bytes(
+            Path(protected_toolchain_path),
+            label="protected-base RuleSpec toolchain",
+            max_bytes=MAX_RULESPEC_TOOLCHAIN_BYTES,
+        )
+        if protected_toolchain_path is not None
+        else None
+    )
+    head_toolchain_path = root / _validation_waivers.DEFAULT_TOOLCHAIN_PATH
+    head_toolchain_bytes = (
+        _validation_waiver_transition_bytes(
+            head_toolchain_path,
+            label="head RuleSpec toolchain",
+            max_bytes=MAX_RULESPEC_TOOLCHAIN_BYTES,
+        )
+        if protected_toolchain_path is not None
+        or _validation_waivers.DEFAULT_TOOLCHAIN_PATH in changed_paths
+        else None
+    )
+    transition_snapshots = [
+        (
+            protected_base_file,
+            "protected-base validation waiver set",
+            _validation_waivers.MAX_WAIVER_FILE_BYTES,
+            base_waiver_bytes,
+        ),
+        (
+            waiver_file,
+            "head validation waiver set",
+            _validation_waivers.MAX_WAIVER_FILE_BYTES,
+            head_waiver_bytes,
+        ),
+        (
+            changed_paths_path,
+            "changed-paths input",
+            _validation_waivers.MAX_WAIVER_FILE_BYTES,
+            changed_paths_bytes,
+        ),
+    ]
+    if protected_toolchain_path is not None and base_toolchain_bytes is not None:
+        transition_snapshots.append(
+            (
+                Path(protected_toolchain_path),
+                "protected-base RuleSpec toolchain",
+                MAX_RULESPEC_TOOLCHAIN_BYTES,
+                base_toolchain_bytes,
+            )
+        )
+    if head_toolchain_bytes is not None:
+        transition_snapshots.append(
+            (
+                head_toolchain_path,
+                "head RuleSpec toolchain",
+                MAX_RULESPEC_TOOLCHAIN_BYTES,
+                head_toolchain_bytes,
+            )
+        )
+    transition_issues = (
+        *_validation_waivers.protected_base_transition_issues(
+            base,
+            head,
+            changed_paths=changed_paths,
+            waiver_path=waiver_path,
+            base_waiver_bytes=base_waiver_bytes,
+            head_waiver_bytes=head_waiver_bytes,
+            base_toolchain_bytes=base_toolchain_bytes,
+            head_toolchain_bytes=head_toolchain_bytes,
+            today=audit_date,
+        ),
+        *_validation_waiver_snapshot_issues(transition_snapshots),
     )
 
     if transition_issues:
@@ -4636,6 +4775,8 @@ def _cmd_validation_waivers_audit(args) -> int:
         "results": results,
         "errors": errors,
     }
+    report["errors"].extend(_validation_waiver_snapshot_issues(transition_snapshots))
+    report["success"] = not report["errors"]
     if partition is not None:
         report["partition"] = partition
     _print_validation_waiver_audit_report(report, as_json=args.json)
@@ -21091,7 +21232,7 @@ def _guard_manifest_waiver_set_identity(
             base_file.write(base_bytes)
             base_file.flush()
             base_waivers = _validation_waivers.load_validation_waivers(
-                base_file.name,
+                Path(base_file.name).resolve(strict=True),
                 repo_root=repo_path,
                 allow_expired=True,
                 require_paths=False,

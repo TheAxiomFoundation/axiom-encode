@@ -3845,6 +3845,144 @@ def read_bounded_regular_file(
             os.close(descriptor)
 
 
+def read_stable_bounded_regular_file(
+    candidate: Path,
+    *,
+    label: str,
+    max_bytes: int,
+) -> bytes:
+    """Read one immutable snapshot without following any path-component symlink.
+
+    Transition evidence is supplied as an arbitrary path rather than relative to
+    an already trusted checkout descriptor.  Open the absolute path from the
+    filesystem root one component at a time, reject multiply linked files, and
+    compare descriptor metadata before and after the bounded read.  A symlink,
+    hard-link alias, in-place mutation, truncation, or growth therefore fails
+    closed instead of producing bytes from a raced path.
+    """
+
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    directory = getattr(os, "O_DIRECTORY", None)
+    if nofollow is None or directory is None:
+        raise UnsafeCorpusPathError(f"{label} cannot be opened safely on this platform")
+
+    raw_candidate = Path(os.path.abspath(candidate))
+    parts = raw_candidate.parts
+    if len(parts) < 2 or raw_candidate.anchor != os.path.sep:
+        raise UnsafeCorpusPathError(
+            f"{label} is not an absolute file path: {candidate}"
+        )
+
+    base_flags = os.O_RDONLY | nofollow | getattr(os, "O_CLOEXEC", 0)
+    nonblocking = getattr(os, "O_NONBLOCK", 0)
+    descriptors: list[int] = []
+    file_descriptor: int | None = None
+    try:
+        parent_descriptor = os.open(os.path.sep, base_flags | directory)
+        descriptors.append(parent_descriptor)
+        for part in parts[1:-1]:
+            parent_descriptor = os.open(
+                part,
+                base_flags | directory,
+                dir_fd=parent_descriptor,
+            )
+            descriptors.append(parent_descriptor)
+        file_descriptor = os.open(
+            parts[-1],
+            base_flags | nonblocking,
+            dir_fd=parent_descriptor,
+        )
+        before = os.fstat(file_descriptor)
+        if not stat.S_ISREG(before.st_mode):
+            raise UnsafeCorpusPathError(f"{label} is not a regular file: {candidate}")
+        if before.st_nlink != 1:
+            raise UnsafeCorpusPathError(
+                f"{label} must have exactly one hard link: {candidate}"
+            )
+        if before.st_size > max_bytes:
+            raise UnsafeCorpusPathError(
+                f"{label} exceeds the {max_bytes}-byte safety limit: {candidate}"
+            )
+
+        chunks: list[bytes] = []
+        remaining = max_bytes + 1
+        while remaining:
+            chunk = os.read(file_descriptor, min(1024 * 1024, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        raw = b"".join(chunks)
+        if len(raw) > max_bytes:
+            raise UnsafeCorpusPathError(
+                f"{label} exceeds the {max_bytes}-byte safety limit: {candidate}"
+            )
+
+        after = os.fstat(file_descriptor)
+        stable_fields = (
+            "st_dev",
+            "st_ino",
+            "st_mode",
+            "st_nlink",
+            "st_uid",
+            "st_size",
+            "st_mtime_ns",
+            "st_ctime_ns",
+        )
+        if (
+            any(
+                getattr(before, field) != getattr(after, field)
+                for field in stable_fields
+            )
+            or len(raw) != after.st_size
+        ):
+            raise UnsafeCorpusPathError(
+                f"{label} changed while it was read: {candidate}"
+            )
+        verification_descriptors: list[int] = []
+        verification_file: int | None = None
+        try:
+            verification_parent = os.open(os.path.sep, base_flags | directory)
+            verification_descriptors.append(verification_parent)
+            for part in parts[1:-1]:
+                verification_parent = os.open(
+                    part,
+                    base_flags | directory,
+                    dir_fd=verification_parent,
+                )
+                verification_descriptors.append(verification_parent)
+            verification_file = os.open(
+                parts[-1],
+                base_flags | nonblocking,
+                dir_fd=verification_parent,
+            )
+            path_after = os.fstat(verification_file)
+            if not stat.S_ISREG(path_after.st_mode) or any(
+                getattr(path_after, field) != getattr(after, field)
+                for field in stable_fields
+            ):
+                raise UnsafeCorpusPathError(
+                    f"{label} path changed while it was read: {candidate}"
+                )
+        finally:
+            if verification_file is not None:
+                os.close(verification_file)
+            for descriptor in reversed(verification_descriptors):
+                os.close(descriptor)
+        return raw
+    except UnsafeCorpusPathError:
+        raise
+    except OSError as exc:
+        raise UnsafeCorpusPathError(
+            f"Could not safely open {label}: {candidate}"
+        ) from exc
+    finally:
+        if file_descriptor is not None:
+            os.close(file_descriptor)
+        for descriptor in reversed(descriptors):
+            os.close(descriptor)
+
+
 def _record_body(
     record: dict[str, Any],
     *,

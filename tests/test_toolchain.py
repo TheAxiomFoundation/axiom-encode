@@ -16,6 +16,7 @@ from axiom_encode.toolchain import (
     RuleSpecToolchainError,
     load_rulespec_corpus_release_pin,
     load_rulespec_local_corpus_release,
+    validation_waiver_digest_transition_issues,
     verify_rulespec_validation_waiver_set,
 )
 from tests.release_object_fixtures import (
@@ -26,6 +27,111 @@ from tests.release_object_fixtures import (
 RELEASE_NAME = "test-rulespec-release"
 WAIVER_TEXT = "validate_failures: {}\n"
 WAIVER_SHA256 = hashlib.sha256(WAIVER_TEXT.encode()).hexdigest()
+
+
+def _toolchain_bytes(
+    waiver_bytes: bytes,
+    *,
+    release_name: str = RELEASE_NAME,
+    content_sha256: str = "a" * 64,
+) -> bytes:
+    return (
+        "[toolchain]\n"
+        f'axiom_corpus_release = "{release_name}"\n'
+        f'axiom_corpus_release_content_sha256 = "{content_sha256}"\n'
+        "validation_waiver_set_sha256 = "
+        f'"{hashlib.sha256(waiver_bytes).hexdigest()}"\n'
+    ).encode()
+
+
+def test_pending_waiver_digest_transition_binds_exact_base_and_head_bytes():
+    base_waivers = b"validate_failures: {}\n"
+    head_waivers = b"validate_failures:\n  us/statutes/26/1.yaml:\n    pending: {}\n"
+
+    assert (
+        validation_waiver_digest_transition_issues(
+            base_toolchain=_toolchain_bytes(base_waivers),
+            head_toolchain=_toolchain_bytes(head_waivers),
+            base_waivers=base_waivers,
+            head_waivers=head_waivers,
+        )
+        == ()
+    )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected"),
+    [
+        ("corpus-release", "may not change the corpus release"),
+        ("corpus-digest", "may not change the corpus release"),
+        ("formatting", "bytes may change only"),
+        ("extra-key", "must contain exactly"),
+        ("stale-head-digest", "does not bind the exact head"),
+        ("stale-base-digest", "does not bind the exact protected-base"),
+    ],
+)
+def test_pending_waiver_digest_transition_rejects_every_other_toolchain_edit(
+    mutation: str,
+    expected: str,
+):
+    base_waivers = b"validate_failures: {}\n"
+    head_waivers = b"validate_failures:\n  us/statutes/26/1.yaml:\n    pending: {}\n"
+    base_toolchain = _toolchain_bytes(base_waivers)
+    head_toolchain = _toolchain_bytes(head_waivers)
+
+    if mutation == "corpus-release":
+        head_toolchain = _toolchain_bytes(head_waivers, release_name="other-release")
+    elif mutation == "corpus-digest":
+        head_toolchain = _toolchain_bytes(head_waivers, content_sha256="b" * 64)
+    elif mutation == "formatting":
+        head_toolchain += b"# unrelated formatting\n"
+    elif mutation == "extra-key":
+        head_toolchain += b'unrelated = "value"\n'
+    elif mutation == "stale-head-digest":
+        head_toolchain = base_toolchain
+    elif mutation == "stale-base-digest":
+        base_toolchain = _toolchain_bytes(head_waivers)
+
+    issues = validation_waiver_digest_transition_issues(
+        base_toolchain=base_toolchain,
+        head_toolchain=head_toolchain,
+        base_waivers=base_waivers,
+        head_waivers=head_waivers,
+    )
+
+    assert any(expected in issue for issue in issues)
+
+
+def test_pending_waiver_digest_transition_rejects_semantic_noop():
+    waivers = b"validate_failures: {}\n"
+    toolchain = _toolchain_bytes(waivers)
+
+    issues = validation_waiver_digest_transition_issues(
+        base_toolchain=toolchain,
+        head_toolchain=toolchain,
+        base_waivers=waivers,
+        head_waivers=waivers,
+    )
+
+    assert any("did not change" in issue for issue in issues)
+
+
+def test_pending_waiver_digest_transition_requires_canonical_base_assignment():
+    base_waivers = b"validate_failures: {}\n"
+    head_waivers = b"validate_failures:\n  us/statutes/26/1.yaml:\n    pending: {}\n"
+    base_toolchain = _toolchain_bytes(base_waivers).replace(
+        f'"{hashlib.sha256(base_waivers).hexdigest()}"'.encode(),
+        f"'{hashlib.sha256(base_waivers).hexdigest()}'".encode(),
+    )
+
+    issues = validation_waiver_digest_transition_issues(
+        base_toolchain=base_toolchain,
+        head_toolchain=_toolchain_bytes(head_waivers),
+        base_waivers=base_waivers,
+        head_waivers=head_waivers,
+    )
+
+    assert any("exactly one canonical" in issue for issue in issues)
 
 
 def _write_toolchain(

@@ -31,6 +31,11 @@ from yaml.events import (
 )
 
 from axiom_encode.constants import RULESPEC_ATOMIC_MODULE_ROOTS, RULESPEC_FILE_SUFFIX
+from axiom_encode.corpus_resolver import (
+    UnsafeCorpusPathError,
+    read_stable_bounded_regular_file,
+)
+from axiom_encode.toolchain import validation_waiver_digest_transition_issues
 
 MAX_WAIVER_DAYS = 90
 MAX_WAIVER_FILE_BYTES = 2_000_000
@@ -51,6 +56,7 @@ ENTRY_KEYS = frozenset({"active", "pending"})
 METADATA_KEYS = frozenset({"fingerprint", "owner", "issue", "expires"})
 WAIVER_SECTION = "validate_failures"
 DEFAULT_WAIVER_PATH = "known-validation-gaps.yaml"
+DEFAULT_TOOLCHAIN_PATH = ".axiom/toolchain.toml"
 OUTCOME_SCHEMA = "rulespec-validation-failure/v1"
 
 
@@ -177,24 +183,42 @@ def _scan_bounded_yaml(text: str, *, source: Path) -> None:
         raise WaiverSchemaError(f"cannot parse {source}: {error}") from error
 
 
-def _load_strict_yaml(path: Path) -> object:
+def _load_strict_yaml_bytes(raw: bytes, *, source: Path) -> object:
+    if len(raw) > MAX_WAIVER_FILE_BYTES:
+        raise WaiverSchemaError(f"{source}: file exceeds {MAX_WAIVER_FILE_BYTES} bytes")
     try:
-        metadata = path.lstat()
-        if path.is_symlink() or not stat.S_ISREG(metadata.st_mode):
-            raise WaiverSchemaError(f"{path}: waiver file must be a regular file")
-        size = metadata.st_size
-        if size > MAX_WAIVER_FILE_BYTES:
-            raise WaiverSchemaError(
-                f"{path}: file exceeds {MAX_WAIVER_FILE_BYTES} bytes"
-            )
-        text = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeError) as error:
-        raise WaiverSchemaError(f"cannot read {path}: {error}") from error
-    _scan_bounded_yaml(text, source=path)
+        text = raw.decode("utf-8")
+    except UnicodeError as error:
+        raise WaiverSchemaError(f"cannot decode {source} as UTF-8") from error
+    _scan_bounded_yaml(text, source=source)
     try:
         return yaml.load(text, Loader=_UniqueKeyLoader)
     except yaml.YAMLError as error:
-        raise WaiverSchemaError(f"cannot parse {path}: {error}") from error
+        raise WaiverSchemaError(f"cannot parse {source}: {error}") from error
+
+
+def _read_validation_waiver_bytes(path: Path) -> bytes:
+    try:
+        return read_stable_bounded_regular_file(
+            path,
+            label="validation waiver file",
+            max_bytes=MAX_WAIVER_FILE_BYTES,
+        )
+    except UnsafeCorpusPathError as error:
+        if isinstance(error.__cause__, FileNotFoundError):
+            raise WaiverSchemaError(
+                f"required validation waiver file is missing: {path}"
+            ) from error
+        raise WaiverSchemaError(
+            f"{path}: waiver file must be a stable regular file: {error}"
+        ) from error
+
+
+def _load_strict_yaml(path: Path) -> object:
+    return _load_strict_yaml_bytes(
+        _read_validation_waiver_bytes(path),
+        source=path,
+    )
 
 
 def _contains_control_or_format(value: str) -> bool:
@@ -324,19 +348,15 @@ def _metadata(
     )
 
 
-def load_validation_waivers(
-    path: str | Path,
+def _validation_waiver_set_from_payload(
+    payload: object,
     *,
+    source: Path,
     repo_root: str | Path | None = None,
     today: date | None = None,
     allow_expired: bool = False,
     require_paths: bool = True,
 ) -> ValidationWaiverSet:
-    """Load the mandatory, canonical validation-waiver schema."""
-    source = Path(path)
-    if not source.exists():
-        raise WaiverSchemaError(f"required validation waiver file is missing: {source}")
-    payload = _load_strict_yaml(source)
     if not isinstance(payload, Mapping):
         raise WaiverSchemaError(f"{source}: document root must be a mapping")
     root_keys = frozenset(payload)
@@ -401,19 +421,198 @@ def load_validation_waivers(
     return ValidationWaiverSet(MappingProxyType(dict(sorted(entries.items()))))
 
 
+def load_validation_waivers_bytes(
+    raw: bytes,
+    *,
+    source: str | Path,
+    repo_root: str | Path | None = None,
+    today: date | None = None,
+    allow_expired: bool = False,
+    require_paths: bool = True,
+) -> ValidationWaiverSet:
+    """Parse one already captured validation-waiver byte snapshot."""
+
+    source_path = Path(source)
+    return _validation_waiver_set_from_payload(
+        _load_strict_yaml_bytes(raw, source=source_path),
+        source=source_path,
+        repo_root=repo_root,
+        today=today,
+        allow_expired=allow_expired,
+        require_paths=require_paths,
+    )
+
+
+def load_validation_waivers_snapshot(
+    path: str | Path,
+    *,
+    repo_root: str | Path | None = None,
+    today: date | None = None,
+    allow_expired: bool = False,
+    require_paths: bool = True,
+) -> tuple[ValidationWaiverSet, bytes]:
+    """Load and return the exact stable bytes used for waiver semantics."""
+
+    source = Path(path)
+    raw = _read_validation_waiver_bytes(source)
+    return (
+        load_validation_waivers_bytes(
+            raw,
+            source=source,
+            repo_root=repo_root,
+            today=today,
+            allow_expired=allow_expired,
+            require_paths=require_paths,
+        ),
+        raw,
+    )
+
+
+def load_validation_waivers(
+    path: str | Path,
+    *,
+    repo_root: str | Path | None = None,
+    today: date | None = None,
+    allow_expired: bool = False,
+    require_paths: bool = True,
+) -> ValidationWaiverSet:
+    """Load the mandatory, canonical validation-waiver schema."""
+
+    waivers, _raw = load_validation_waivers_snapshot(
+        path,
+        repo_root=repo_root,
+        today=today,
+        allow_expired=allow_expired,
+        require_paths=require_paths,
+    )
+    return waivers
+
+
 def protected_base_transition_issues(
     base: ValidationWaiverSet,
     head: ValidationWaiverSet,
     *,
     changed_paths: set[str] | frozenset[str],
     waiver_path: str = DEFAULT_WAIVER_PATH,
+    toolchain_path: str = DEFAULT_TOOLCHAIN_PATH,
+    base_waiver_bytes: bytes | None = None,
+    head_waiver_bytes: bytes | None = None,
+    base_toolchain_bytes: bytes | None = None,
+    head_toolchain_bytes: bytes | None = None,
     today: date | None = None,
 ) -> tuple[str, ...]:
-    """Return attempts to activate a waiver without protected-base approval."""
+    """Return fail-closed protected-base waiver transition violations."""
     issues: list[str] = []
     current_date = today or date.today()
     changed = frozenset(changed_paths)
-    for path in sorted(set(base.entries) | set(head.entries)):
+    all_paths = sorted(set(base.entries) | set(head.entries))
+    changed_entries = [
+        path for path in all_paths if base.entries.get(path) != head.entries.get(path)
+    ]
+    pending_additions: list[str] = []
+    pending_replacements: list[str] = []
+    for path in all_paths:
+        base_entry = base.entries.get(path)
+        head_entry = head.entries.get(path)
+        base_pending = base_entry.pending if base_entry else None
+        head_pending = head_entry.pending if head_entry else None
+        if head_pending is not None and base_pending is None:
+            pending_additions.append(path)
+        elif head_pending is not None and head_pending != base_pending:
+            pending_replacements.append(path)
+
+    pending_creation_attempted = bool(pending_additions or pending_replacements)
+    if pending_creation_attempted:
+        if len(pending_additions) != 1 or pending_replacements:
+            issues.append(
+                "a pending-waiver creation pull request must add exactly one new "
+                "pending record and may not replace an existing pending record "
+                f"(added={pending_additions}, replaced={pending_replacements})"
+            )
+
+        if len(pending_additions) == 1:
+            pending_path = pending_additions[0]
+            base_entry = base.entries.get(pending_path)
+            head_entry = head.entries[pending_path]
+            head_pending = head_entry.pending
+            assert head_pending is not None
+            base_active = base_entry.active if base_entry else None
+            if changed_entries != [pending_path] or head_entry.active != base_active:
+                issues.append(
+                    "a pending-waiver creation pull request may only add its one "
+                    f"pending field; changed entries: {changed_entries}"
+                )
+            if base_active is not None and head_pending == base_active:
+                issues.append(
+                    f"{pending_path}: pending approval must not duplicate the "
+                    "current active waiver"
+                )
+            if head_pending.expiry_date <= current_date:
+                issues.append(
+                    f"{pending_path}: new pending approval expired on "
+                    f"{head_pending.expires}"
+                )
+
+        digest_rebind = frozenset({waiver_path, toolchain_path})
+        if changed == digest_rebind:
+            evidence = (
+                base_waiver_bytes,
+                head_waiver_bytes,
+                base_toolchain_bytes,
+                head_toolchain_bytes,
+            )
+            if any(item is None for item in evidence):
+                issues.append(
+                    "pending-waiver toolchain rebind requires exact protected-base "
+                    "and head waiver and toolchain bytes"
+                )
+            else:
+                assert base_waiver_bytes is not None
+                assert head_waiver_bytes is not None
+                assert base_toolchain_bytes is not None
+                assert head_toolchain_bytes is not None
+                for label, expected, raw in (
+                    ("protected-base", base, base_waiver_bytes),
+                    ("head", head, head_waiver_bytes),
+                ):
+                    try:
+                        parsed = load_validation_waivers_bytes(
+                            raw,
+                            source=f"{label} validation waiver bytes",
+                            today=current_date,
+                            allow_expired=True,
+                            require_paths=False,
+                        )
+                    except WaiverSchemaError as exc:
+                        issues.append(f"{label} waiver bytes are invalid: {exc}")
+                    else:
+                        if parsed != expected:
+                            issues.append(
+                                f"{label} waiver semantics do not match its exact "
+                                "supplied bytes"
+                            )
+                issues.extend(
+                    validation_waiver_digest_transition_issues(
+                        base_toolchain=base_toolchain_bytes,
+                        head_toolchain=head_toolchain_bytes,
+                        base_waivers=base_waiver_bytes,
+                        head_waivers=head_waiver_bytes,
+                    )
+                )
+        else:
+            issues.append(
+                "pending-waiver creation requires the exact digest-rebind "
+                f"pair ({waiver_path} and {toolchain_path})"
+            )
+
+    digest_rebind = frozenset({waiver_path, toolchain_path})
+    if changed == digest_rebind and base == head:
+        issues.append(
+            "validation-waiver digest rebind is a semantic no-op; it must not "
+            "rewrite only waiver/toolchain bytes"
+        )
+
+    for path in all_paths:
         base_entry = base.entries.get(path)
         head_entry = head.entries.get(path)
         base_active = base_entry.active if base_entry else None
@@ -438,14 +637,6 @@ def protected_base_transition_issues(
                         f"{path}: activating a pending waiver must consume it"
                     )
 
-        pending_added_or_changed = (
-            head_pending is not None and head_pending != base_pending
-        )
-        if pending_added_or_changed and changed != frozenset({waiver_path}):
-            issues.append(
-                f"{path}: new or changed pending approval requires a waiver-only "
-                f"pull request (only {waiver_path} may change)"
-            )
     return tuple(issues)
 
 
@@ -455,6 +646,11 @@ def validate_protected_base_transition(
     *,
     changed_paths: set[str] | frozenset[str],
     waiver_path: str = DEFAULT_WAIVER_PATH,
+    toolchain_path: str = DEFAULT_TOOLCHAIN_PATH,
+    base_waiver_bytes: bytes | None = None,
+    head_waiver_bytes: bytes | None = None,
+    base_toolchain_bytes: bytes | None = None,
+    head_toolchain_bytes: bytes | None = None,
     today: date | None = None,
 ) -> None:
     issues = protected_base_transition_issues(
@@ -462,6 +658,11 @@ def validate_protected_base_transition(
         head,
         changed_paths=changed_paths,
         waiver_path=waiver_path,
+        toolchain_path=toolchain_path,
+        base_waiver_bytes=base_waiver_bytes,
+        head_waiver_bytes=head_waiver_bytes,
+        base_toolchain_bytes=base_toolchain_bytes,
+        head_toolchain_bytes=head_toolchain_bytes,
         today=today,
     )
     if issues:

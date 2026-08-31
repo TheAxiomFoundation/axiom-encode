@@ -1,0 +1,1 @@
+Permit one pending validation-waiver approval to rebind its toolchain digest only when the pull request changes the exact waiver/toolchain pair and both protected-base and head toolchains bind their exact waiver bytes, while rejecting all other paths, toolchain edits, batches, and semantic no-ops.

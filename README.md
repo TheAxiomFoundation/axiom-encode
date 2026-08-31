@@ -104,6 +104,15 @@ rows are rejected as ambiguous. If the named release or an unambiguous provision
 is unavailable, encoding stops before calling a model. Supabase run/session sync
 is a separate telemetry feature and never supplies legal source text.
 
+A pull request that adds a validation waiver's `pending` approval may add
+exactly one such record and may not replace an existing one. In a strict
+RuleSpec repository, it changes exactly `known-validation-gaps.yaml` and
+`.axiom/toolchain.toml`; the only permitted toolchain byte change is replacing
+the old waiver digest with the SHA-256 of the exact head waiver bytes. The
+audit separately verifies that the protected-base toolchain binds the exact
+protected-base waiver bytes. Activation remains a later pull request that
+exactly consumes the unexpired pending record from the protected base.
+
 `encode` defaults to `--backend codex` with `gpt-5.6-terra`. Each section gets
 up to two validator-rejected generations on that model, then one generation
 with `gpt-5.6-sol`; use

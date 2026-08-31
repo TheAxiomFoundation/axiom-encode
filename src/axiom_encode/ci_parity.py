@@ -1049,7 +1049,11 @@ def execute_gates(
         )
     )
     with tempfile.TemporaryDirectory(prefix="axiom-ci-") as temp_name:
-        temp = Path(temp_name)
+        # Transition evidence rejects every symlinked path component. macOS
+        # commonly returns /var/... from tempfile even though /var aliases
+        # /private/var, so canonicalize this internally owned directory before
+        # handing its files to the audit CLI.
+        temp = Path(temp_name).resolve(strict=True)
         protected = temp / "protected-known-validation-gaps.yaml"
         changed = temp / "waiver-changed-paths.txt"
         base = _git(

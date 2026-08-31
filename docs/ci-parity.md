@@ -15,6 +15,12 @@ revision is rejected until the fixture, registry, and implementation are updated
 together. The changed-file classifier likewise requires the installed
 `axiom-oracles` VCS commit to match the dependency declared by the pinned encoder.
 
+The historical workflow pins above predate protected-base toolchain evidence
+for pending validation-waiver approvals. They remain byte-faithful fixtures and
+therefore do not model that transition. A reusable workflow revision that passes
+`--protected-base-toolchain` must be added as a new fixture and supported pin
+before local parity can claim that newer workflow.
+
 Use explicit checkout overrides when the dependencies are not siblings:
 
 ```console
