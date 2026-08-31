@@ -23,8 +23,10 @@ stripping and the two encoder prompt surfaces.
       encoder and eval-authoring prompts; prompt generation is now 4.
 - [x] Add action-only, citation-only, invalid-date, official-form, scaling, and
       allocation regressions.
-- [x] Version ratchet 0.2.1753 across pyproject/`__init__`/uv.lock + test pins
-      (origin/main is 0.2.1750, so 1753 stands).
+- [x] Version ratchet 0.2.1754 across pyproject/`__init__`/uv.lock + test pins.
+      The second-review parser/prompt changes landed after the earlier 0.2.1753
+      bump, so the repository provenance guard correctly required a fresh bump
+      (origin/main remains 0.2.1750).
 
 ## Evidence
 - `tests/test_source_completeness.py` plus complete-source plumbing: 6,215
@@ -35,6 +37,10 @@ stripping and the two encoder prompt surfaces.
 - Focused Armenian/prompt selection: 70 passed after the final narrow legacy-ID
   grammar.
 - Targeted Ruff/format and `git diff --check` clean.
+- The interrupted no-coverage full suite reached 4,772 passed / 27 skipped;
+  its sole branch-owned failure was the now-resolved post-change version
+  provenance guard. Ten additional failures require a root-owned system Git
+  and are macOS/Homebrew environment failures unrelated to this branch.
 - Broader and full-suite receipts will be recorded after this repair is
   committed.
 
