@@ -16,6 +16,7 @@ from axiom_encode.toolchain import (
     RuleSpecToolchainError,
     load_rulespec_corpus_release_pin,
     load_rulespec_local_corpus_release,
+    load_rulespec_local_corpus_release_snapshot,
     validation_waiver_digest_transition_issues,
     verify_rulespec_validation_waiver_set,
 )
@@ -335,6 +336,49 @@ def test_load_rulespec_local_corpus_release_binds_exact_named_selector(tmp_path)
     assert (
         release.provisions_root == (corpus / "data" / "corpus" / "provisions").resolve()
     )
+
+
+def test_local_corpus_release_snapshot_uses_only_captured_rulespec_pair(tmp_path):
+    rulespec = tmp_path / "rulespec-us"
+    corpus = tmp_path / "corpus"
+    release = _write_corpus_release(corpus)
+    toolchain_path = _write_toolchain(
+        rulespec,
+        content_sha256=release.content_sha256,
+    )
+    waiver_path = rulespec / "known-validation-gaps.yaml"
+    toolchain_bytes = toolchain_path.read_bytes()
+    waiver_bytes = waiver_path.read_bytes()
+
+    toolchain_path.write_text("not the captured toolchain\n")
+    waiver_path.write_text("not the captured waiver\n")
+    resolved = load_rulespec_local_corpus_release_snapshot(
+        rulespec,
+        corpus,
+        toolchain_bytes=toolchain_bytes,
+        validation_waiver_bytes=waiver_bytes,
+    )
+
+    assert resolved.name == RELEASE_NAME
+    assert resolved.content_sha256 == release.content_sha256
+
+
+def test_local_corpus_release_snapshot_rejects_mismatched_waiver_bytes(tmp_path):
+    rulespec = tmp_path / "rulespec-us"
+    corpus = tmp_path / "corpus"
+    release = _write_corpus_release(corpus)
+    toolchain_path = _write_toolchain(
+        rulespec,
+        content_sha256=release.content_sha256,
+    )
+
+    with pytest.raises(RuleSpecToolchainError, match="sha256 does not match"):
+        load_rulespec_local_corpus_release_snapshot(
+            rulespec,
+            corpus,
+            toolchain_bytes=toolchain_path.read_bytes(),
+            validation_waiver_bytes=b"different waiver bytes",
+        )
 
 
 def test_toolchain_accepts_checkout_with_canonical_program_specs(tmp_path):

@@ -55,9 +55,14 @@ class _FakePool:
 
 
 @pytest.fixture(autouse=True)
-def _reset_fake_pool():
+def _reset_fake_pool(monkeypatch: pytest.MonkeyPatch):
     _FakePool.submitted = []
     _FakePool.chunk_results = {}
+    monkeypatch.setattr(
+        cli,
+        "load_rulespec_local_corpus_release_snapshot",
+        lambda *_args, **_kwargs: _release_stub(),
+    )
 
 
 def test_worker_count_defaults_to_cpu_bounded(monkeypatch):

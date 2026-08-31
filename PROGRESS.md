@@ -26,11 +26,12 @@
 - Added a reusable identity-bearing stable-file snapshot and a same-byte atomic-replacement regression test.
 - Made the audit interface require protected-base toolchain evidence and explicit `nul-v1` changed paths, parse semantics from the five captured buffers, and recheck both bytes and filesystem identities.
 - Passed `134` focused audit CLI, parallel-audit, and public command-plane tests after the mandatory evidence update.
+- Derived the audit's corpus release identity from the captured head waiver/toolchain pair and threaded it through serial, parallel, and isolated execution, eliminating those downstream live evidence rereads (`182` focused tests passed).
 - Confirmed the creation contract must remain exactly one new pending field in the exact waiver/toolchain pair, with active state and corpus pins unchanged and both raw snapshots bound.
 
 ## Next
 
 - Extend the module-induced consumption scope from the core three-path proof to the exact manifest-authenticated generated-file closure used by `guard-generated`.
-- Eliminate downstream head waiver/toolchain rereads during module execution and add real Git cross-worktree/race coverage for the five-file evidence boundary.
+- Add real Git cross-worktree/race coverage for the five-file evidence boundary.
 - Update the reusable workflow dependency/fixtures and documentation to the same contract, add real Git worktree integration tests, and preserve decrement behavior.
 - Run focused and broad checks, complete independent review-fix cycles, verify commit messages and PR body, then refresh/push/open a draft PR linked to #1558 without merging.

@@ -360,6 +360,56 @@ def verify_rulespec_validation_waiver_set(rulespec_root: Path) -> str:
     )
 
 
+def _local_corpus_release_public_keys() -> tuple[str, ...]:
+    public_key = _LOCAL_CORPUS_RELEASE_PUBLIC_KEY.get()
+    if public_key is not None:
+        return (public_key,)
+    try:
+        broker = get_signing_broker()
+    except SigningBrokerError as exc:
+        raise RuleSpecToolchainError(
+            "A protected signing broker is required to verify the pinned "
+            "corpus release object"
+        ) from exc
+    public_keys_raw = broker.corpus_release_public_keys_raw
+    if not public_keys_raw or any(
+        len(candidate) != 32 for candidate in public_keys_raw
+    ):
+        raise RuleSpecToolchainError(
+            "The protected signing broker has no valid corpus release public keyring"
+        )
+    return tuple(b64encode(candidate).decode("ascii") for candidate in public_keys_raw)
+
+
+def load_rulespec_local_corpus_release_snapshot(
+    rulespec_root: Path,
+    corpus_root: Path,
+    *,
+    toolchain_bytes: bytes,
+    validation_waiver_bytes: bytes,
+) -> LocalCorpusRelease:
+    """Bind a corpus release to one already captured RuleSpec evidence pair."""
+
+    root = _canonical_rulespec_root(rulespec_root)
+    release_name, content_sha256, waiver_digest = _parse_rulespec_toolchain_bytes(
+        toolchain_bytes,
+        source=root / ".axiom/toolchain.toml",
+    )
+    actual_waiver_digest = hashlib.sha256(validation_waiver_bytes).hexdigest()
+    if waiver_digest != actual_waiver_digest:
+        raise RuleSpecToolchainError(
+            f"{VALIDATION_WAIVER_SET_PATH} sha256 does not match "
+            f"[toolchain].{VALIDATION_WAIVER_SET_SHA256_FIELD}: "
+            f"{actual_waiver_digest} != {waiver_digest}"
+        )
+    return LocalCorpusRelease(
+        corpus_root,
+        release_name,
+        content_sha256,
+        _local_corpus_release_public_keys(),
+    )
+
+
 def load_rulespec_local_corpus_release(
     rulespec_root: Path,
     corpus_root: Path,
@@ -368,32 +418,11 @@ def load_rulespec_local_corpus_release(
 
     toolchain = load_rulespec_toolchain(rulespec_root)
     _verify_rulespec_validation_waiver_set(toolchain)
-    public_key = _LOCAL_CORPUS_RELEASE_PUBLIC_KEY.get()
-    if public_key is not None:
-        public_keys = (public_key,)
-    else:
-        try:
-            broker = get_signing_broker()
-        except SigningBrokerError as exc:
-            raise RuleSpecToolchainError(
-                "A protected signing broker is required to verify the pinned "
-                "corpus release object"
-            ) from exc
-        public_keys_raw = broker.corpus_release_public_keys_raw
-        if not public_keys_raw or any(
-            len(candidate) != 32 for candidate in public_keys_raw
-        ):
-            raise RuleSpecToolchainError(
-                "The protected signing broker has no valid corpus release public keyring"
-            )
-        public_keys = tuple(
-            b64encode(candidate).decode("ascii") for candidate in public_keys_raw
-        )
     return LocalCorpusRelease(
         corpus_root,
         toolchain.corpus_release,
         toolchain.corpus_release_content_sha256,
-        public_keys,
+        _local_corpus_release_public_keys(),
     )
 
 

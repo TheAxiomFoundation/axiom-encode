@@ -448,6 +448,7 @@ from .toolchain import (
     MAX_RULESPEC_TOOLCHAIN_BYTES,
     VALIDATION_WAIVER_SET_SHA256_FIELD,
     load_rulespec_local_corpus_release,
+    load_rulespec_local_corpus_release_snapshot,
     load_rulespec_toolchain,
     verify_rulespec_validation_waiver_set,
 )
@@ -4225,6 +4226,7 @@ def _fingerprint_validation_waiver_modules_parallel(
     corpus_path: Path,
     axiom_rules_path: Path,
     rulespec_dependency_roots: Sequence[Path] = (),
+    corpus_release: LocalCorpusRelease | None = None,
 ) -> list[dict[str, Any]]:
     """Fingerprint waiver modules across worker processes.
 
@@ -4244,11 +4246,13 @@ def _fingerprint_validation_waiver_modules_parallel(
             corpus_path=corpus_path,
             axiom_rules_path=axiom_rules_path,
             rulespec_dependency_roots=rulespec_dependency_roots,
+            corpus_release=corpus_release,
         )
 
-    corpus_release = load_rulespec_local_corpus_release(
-        Path(root).resolve(), corpus_path
-    )
+    if corpus_release is None:
+        corpus_release = load_rulespec_local_corpus_release(
+            Path(root).resolve(), corpus_path
+        )
     release_identity = (
         str(corpus_release.root),
         corpus_release.name,
@@ -4652,6 +4656,16 @@ def _cmd_validation_waivers_audit(args) -> int:
         else:
             missing_required.add(path)
 
+    head_corpus_release = (
+        load_rulespec_local_corpus_release_snapshot(
+            root,
+            args.corpus_path,
+            toolchain_bytes=head_toolchain_snapshot.raw,
+            validation_waiver_bytes=head_waiver_snapshot.raw,
+        )
+        if executable_paths
+        else None
+    )
     executed = (
         _fingerprint_validation_waiver_modules_parallel(
             executable_paths,
@@ -4659,6 +4673,7 @@ def _cmd_validation_waivers_audit(args) -> int:
             corpus_path=args.corpus_path,
             axiom_rules_path=args.axiom_rules_path,
             rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
+            corpus_release=head_corpus_release,
         )
         if executable_paths
         else []
@@ -4709,6 +4724,7 @@ def _cmd_validation_waivers_audit(args) -> int:
             corpus_path=args.corpus_path,
             axiom_rules_path=args.axiom_rules_path,
             rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
+            corpus_release=head_corpus_release,
         )
         for result in rechecked:
             result["isolated_recheck"] = True
