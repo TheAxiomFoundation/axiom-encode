@@ -118,7 +118,7 @@ def validation_waiver_digest_transition_issues(
     base_waivers: bytes,
     head_waivers: bytes,
 ) -> tuple[str, ...]:
-    """Validate the exact metadata rebind needed by a pending-waiver PR.
+    """Validate the exact digest rebind needed by a waiver-state transition.
 
     Both toolchains must bind their corresponding waiver bytes. The head
     toolchain must then equal the base toolchain byte-for-byte except for the
@@ -166,11 +166,11 @@ def validation_waiver_digest_transition_issues(
             f"{head_fields[2]} != {head_waiver_digest}"
         )
     if base_waiver_digest == head_waiver_digest:
-        issues.append("pending-waiver approval did not change the waiver-set bytes")
+        issues.append("validation-waiver transition did not change the waiver-set bytes")
 
     if base_fields[:2] != head_fields[:2]:
         issues.append(
-            "pending-waiver approval may not change the corpus release name or "
+            "validation-waiver transition may not change the corpus release name or "
             "content digest"
         )
 

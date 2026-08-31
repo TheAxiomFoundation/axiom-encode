@@ -488,6 +488,66 @@ def load_validation_waivers(
     return waivers
 
 
+def _transition_byte_binding_issues(
+    base: ValidationWaiverSet,
+    head: ValidationWaiverSet,
+    *,
+    phase: str,
+    base_waiver_bytes: bytes | None,
+    head_waiver_bytes: bytes | None,
+    base_toolchain_bytes: bytes | None,
+    head_toolchain_bytes: bytes | None,
+    today: date,
+) -> tuple[str, ...]:
+    """Bind parsed transition semantics to one exact waiver/toolchain snapshot."""
+
+    evidence = (
+        base_waiver_bytes,
+        head_waiver_bytes,
+        base_toolchain_bytes,
+        head_toolchain_bytes,
+    )
+    if any(item is None for item in evidence):
+        return (
+            f"{phase} requires exact protected-base and head waiver and "
+            "toolchain bytes",
+        )
+
+    assert base_waiver_bytes is not None
+    assert head_waiver_bytes is not None
+    assert base_toolchain_bytes is not None
+    assert head_toolchain_bytes is not None
+    issues: list[str] = []
+    for label, expected, raw in (
+        ("protected-base", base, base_waiver_bytes),
+        ("head", head, head_waiver_bytes),
+    ):
+        try:
+            parsed = load_validation_waivers_bytes(
+                raw,
+                source=f"{label} validation waiver bytes",
+                today=today,
+                allow_expired=True,
+                require_paths=False,
+            )
+        except WaiverSchemaError as exc:
+            issues.append(f"{label} waiver bytes are invalid: {exc}")
+        else:
+            if parsed != expected:
+                issues.append(
+                    f"{label} waiver semantics do not match its exact supplied bytes"
+                )
+    issues.extend(
+        validation_waiver_digest_transition_issues(
+            base_toolchain=base_toolchain_bytes,
+            head_toolchain=head_toolchain_bytes,
+            base_waivers=base_waiver_bytes,
+            head_waivers=head_waiver_bytes,
+        )
+    )
+    return tuple(issues)
+
+
 def protected_base_transition_issues(
     base: ValidationWaiverSet,
     head: ValidationWaiverSet,
@@ -522,6 +582,25 @@ def protected_base_transition_issues(
             pending_replacements.append(path)
 
     pending_creation_attempted = bool(pending_additions or pending_replacements)
+    consumption_candidates: list[str] = []
+    for path in all_paths:
+        base_entry = base.entries.get(path)
+        head_entry = head.entries.get(path)
+        base_pending = base_entry.pending if base_entry else None
+        head_active = head_entry.active if head_entry else None
+        if (
+            base_pending is not None
+            and head_active == base_pending
+            and base_entry != head_entry
+        ):
+            consumption_candidates.append(path)
+
+    if pending_creation_attempted and consumption_candidates:
+        issues.append(
+            "pending-waiver creation and pending-to-active consumption may not "
+            "be combined"
+        )
+
     if pending_creation_attempted:
         if len(pending_additions) != 1 or pending_replacements:
             issues.append(
@@ -554,56 +633,73 @@ def protected_base_transition_issues(
                 )
 
         digest_rebind = frozenset({waiver_path, toolchain_path})
-        if changed == digest_rebind:
-            evidence = (
-                base_waiver_bytes,
-                head_waiver_bytes,
-                base_toolchain_bytes,
-                head_toolchain_bytes,
-            )
-            if any(item is None for item in evidence):
-                issues.append(
-                    "pending-waiver toolchain rebind requires exact protected-base "
-                    "and head waiver and toolchain bytes"
-                )
-            else:
-                assert base_waiver_bytes is not None
-                assert head_waiver_bytes is not None
-                assert base_toolchain_bytes is not None
-                assert head_toolchain_bytes is not None
-                for label, expected, raw in (
-                    ("protected-base", base, base_waiver_bytes),
-                    ("head", head, head_waiver_bytes),
-                ):
-                    try:
-                        parsed = load_validation_waivers_bytes(
-                            raw,
-                            source=f"{label} validation waiver bytes",
-                            today=current_date,
-                            allow_expired=True,
-                            require_paths=False,
-                        )
-                    except WaiverSchemaError as exc:
-                        issues.append(f"{label} waiver bytes are invalid: {exc}")
-                    else:
-                        if parsed != expected:
-                            issues.append(
-                                f"{label} waiver semantics do not match its exact "
-                                "supplied bytes"
-                            )
-                issues.extend(
-                    validation_waiver_digest_transition_issues(
-                        base_toolchain=base_toolchain_bytes,
-                        head_toolchain=head_toolchain_bytes,
-                        base_waivers=base_waiver_bytes,
-                        head_waivers=head_waiver_bytes,
-                    )
-                )
-        else:
+        if changed != digest_rebind:
             issues.append(
                 "pending-waiver creation requires the exact digest-rebind "
                 f"pair ({waiver_path} and {toolchain_path})"
             )
+        issues.extend(
+            _transition_byte_binding_issues(
+                base,
+                head,
+                phase="pending-waiver creation",
+                base_waiver_bytes=base_waiver_bytes,
+                head_waiver_bytes=head_waiver_bytes,
+                base_toolchain_bytes=base_toolchain_bytes,
+                head_toolchain_bytes=head_toolchain_bytes,
+                today=current_date,
+            )
+        )
+
+    if consumption_candidates:
+        if len(consumption_candidates) != 1:
+            issues.append(
+                "pending-to-active consumption must consume exactly one pending "
+                f"record; candidates: {consumption_candidates}"
+            )
+        else:
+            consumption_path = consumption_candidates[0]
+            base_entry = base.entries[consumption_path]
+            head_entry = head.entries.get(consumption_path)
+            assert base_entry.pending is not None
+            if base_entry.active is None:
+                issues.append(
+                    f"{consumption_path}: pending-to-active consumption requires "
+                    "protected-base active and pending records"
+                )
+            if head_entry is None or head_entry.pending is not None:
+                issues.append(
+                    f"{consumption_path}: activating a pending waiver must consume it"
+                )
+            if changed_entries != [consumption_path]:
+                issues.append(
+                    "pending-to-active consumption may change only its one waiver "
+                    f"entry; changed entries: {changed_entries}"
+                )
+            if base_entry.pending.expiry_date <= current_date:
+                issues.append(
+                    f"{consumption_path}: pending approval expired on "
+                    f"{base_entry.pending.expires}"
+                )
+            expected_paths = frozenset({waiver_path, toolchain_path, consumption_path})
+            if changed != expected_paths:
+                issues.append(
+                    "pending-to-active consumption requires the exact "
+                    "pending-consumption path set "
+                    f"({waiver_path}, {toolchain_path}, and {consumption_path})"
+                )
+        issues.extend(
+            _transition_byte_binding_issues(
+                base,
+                head,
+                phase="pending-to-active consumption",
+                base_waiver_bytes=base_waiver_bytes,
+                head_waiver_bytes=head_waiver_bytes,
+                base_toolchain_bytes=base_toolchain_bytes,
+                head_toolchain_bytes=head_toolchain_bytes,
+                today=current_date,
+            )
+        )
 
     digest_rebind = frozenset({waiver_path, toolchain_path})
     if changed == digest_rebind and base == head:
