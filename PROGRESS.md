@@ -43,6 +43,8 @@
 - Passed `84` focused toolchain and CI-parity tests, targeted Ruff, focused compileall, and `git diff --check` after the documentation alignment.
 - The first broad-suite pass reached the intentional encoder-version provenance gate (`94 passed, 1 failed`) and required a synchronized version bump because this branch changes encoder-affecting files after `0.2.1750`.
 - Bumped `pyproject.toml`, `src/axiom_encode/__init__.py`, and the root `uv.lock` package entry together to `0.2.1751`.
+- Synchronized all nine exact version assertions used by packaged oracle/RuleSpec registry tests to `0.2.1751`; no oracle pin, mapping, or registry material changed.
+- Passed `28` focused version-provenance and packaged-registry synchronization tests after the bump.
 - Repository-wide Ruff, compileall, and `git diff --check` passed; both historical workflow fixture SHA-256 values remain unchanged.
 
 ## Next
