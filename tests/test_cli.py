@@ -91,6 +91,7 @@ from axiom_encode.cli import (
     _generated_result_source_metadata,
     _git_changed_files,
     _grounded_formula_literal_for_scalar_expression,
+    _guard_git_regular_blob,
     _has_zero_output_test,
     _hoist_nested_test_tables,
     _immutable_planned_rulespec_digest_issue,
@@ -41601,6 +41602,163 @@ class TestGuardGenerated:
         )
 
         assert issues == []
+
+    def _pending_consumption_repo(self, tmp_path: Path) -> tuple[Path, str]:
+        relative = "us/regulations/example.yaml"
+        pending_body = self._waiver_entry_text(
+            relative,
+            state="pending",
+            fingerprint="2" * 64,
+        ).split(f"  {relative}:\n", 1)[1]
+        base_waiver = (
+            "validate_failures:\n"
+            + self._waiver_entry_text(
+                relative,
+                state="active",
+                fingerprint="1" * 64,
+            )
+            + pending_body
+        )
+        head_waiver = (
+            "validate_failures:\n"
+            + self._waiver_entry_text(
+                relative,
+                state="active",
+                fingerprint="2" * 64,
+            )
+        )
+        return self._waiver_retirement_repo(
+            tmp_path,
+            base_waiver_text=base_waiver,
+            head_waiver_text=head_waiver,
+        )
+
+    def test_accepts_manifest_induced_pending_consumption(self, tmp_path):
+        repo, base_ref = self._pending_consumption_repo(tmp_path)
+
+        issues = guard_generated_change_issues(
+            repo,
+            corpus_path=self.corpus_path,
+            base_ref=base_ref,
+            head_ref="HEAD",
+        )
+
+        assert issues == []
+
+    def test_pending_consumption_rejects_unrelated_changed_path(self, tmp_path):
+        repo, base_ref = self._pending_consumption_repo(tmp_path)
+        (repo / "README.md").write_text("unrelated\n")
+        _git(repo, "add", "README.md")
+        _git(repo, "commit", "--amend", "--no-edit")
+
+        issues = guard_generated_change_issues(
+            repo,
+            corpus_path=self.corpus_path,
+            base_ref=base_ref,
+            head_ref="HEAD",
+        )
+
+        assert any("changed paths must equal" in issue for issue in issues)
+
+    def test_pending_consumption_requires_manifest_to_list_consumed_module(
+        self,
+        tmp_path,
+    ):
+        repo, base_ref = self._pending_consumption_repo(tmp_path)
+        other_relative = "us/regulations/other.yaml"
+        other = repo / other_relative
+        self._source_backed_rule(other)
+        manifest = repo / ".axiom/encoding-manifests/us/regulations/example.json"
+        payload = json.loads(manifest.read_text())
+        payload["applied_files"] = [
+            {"path": other_relative, "sha256": _sha256_file(other)}
+        ]
+        _sign_applied_encoding_manifest(payload, TEST_APPLY_SIGNING_BROKER)
+        manifest.write_text(json.dumps(payload) + "\n")
+        _git(repo, "add", ".")
+        _git(repo, "commit", "--amend", "--no-edit")
+
+        issues = guard_generated_change_issues(
+            repo,
+            corpus_path=self.corpus_path,
+            base_ref=base_ref,
+            head_ref="HEAD",
+        )
+
+        assert any(
+            "consumed module must be changed and listed" in issue for issue in issues
+        )
+
+    @pytest.mark.parametrize("git_mode", ["100755", "120000", "160000"])
+    def test_guard_base_blob_rejects_non_0644_git_modes(
+        self,
+        tmp_path,
+        git_mode: str,
+    ):
+        repo = tmp_path
+        _git(repo, "init")
+        _git(repo, "config", "user.email", "test@example.com")
+        _git(repo, "config", "user.name", "Test User")
+        target = repo / "known-validation-gaps.yaml"
+        target.write_text(TEST_VALIDATION_WAIVER_TEXT)
+        _git(repo, "add", ".")
+        _git(repo, "commit", "-m", "seed")
+        seed = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        if git_mode == "100755":
+            target.chmod(0o755)
+            _git(repo, "add", target.name)
+        elif git_mode == "120000":
+            target.unlink()
+            target.symlink_to("waiver-target.yaml")
+            _git(repo, "add", target.name)
+        else:
+            _git(
+                repo,
+                "update-index",
+                "--add",
+                "--cacheinfo",
+                f"160000,{seed},{target.name}",
+            )
+        _git(repo, "commit", "-m", f"mode {git_mode}")
+        commit = _git(repo, "rev-parse", "HEAD").stdout.strip()
+
+        with pytest.raises(RuntimeError, match="exact regular 0644 blob"):
+            _guard_git_regular_blob(
+                repo,
+                commit,
+                target.name,
+                max_bytes=1024,
+            )
+
+    @pytest.mark.parametrize(
+        "relative_path",
+        ["known-validation-gaps.yaml", ".axiom/toolchain.toml"],
+    )
+    def test_guard_rejects_non_0644_base_evidence_end_to_end(
+        self,
+        tmp_path,
+        relative_path: str,
+    ):
+        repo, base_ref = self._pending_consumption_repo(tmp_path)
+        head_ref = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        _git(repo, "checkout", "--detach", base_ref)
+        _git(repo, "update-index", "--chmod=+x", relative_path)
+        _git(repo, "commit", "--amend", "--no-edit")
+        non_regular_base = _git(repo, "rev-parse", "HEAD").stdout.strip()
+        _git(repo, "reset", "--hard", non_regular_base)
+        _git(repo, "checkout", "--detach", head_ref)
+
+        issues = guard_generated_change_issues(
+            repo,
+            corpus_path=self.corpus_path,
+            base_ref=non_regular_base,
+            head_ref="HEAD",
+        )
+
+        assert any(
+            f"not an exact regular 0644 blob: {relative_path}" in issue
+            for issue in issues
+        )
 
     def test_accepts_pending_waiver_retirement_with_matching_deletion(self, tmp_path):
         relative = "us/regulations/example.yaml"

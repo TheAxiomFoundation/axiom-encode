@@ -947,6 +947,7 @@ def test_audit_accepts_exact_unexpired_pending_consumption(
     capsys,
 ):
     module_path = "us/statutes/module.yaml"
+    manifest_path = ".axiom/encoding-manifests/us/statutes/module.json"
     base_waiver = _waiver_yaml(
         {
             module_path: {
@@ -966,6 +967,7 @@ def test_audit_accepts_exact_unexpired_pending_consumption(
                 "known-validation-gaps.yaml",
                 ".axiom/toolchain.toml",
                 module_path,
+                manifest_path,
             ),
         )
     )
@@ -978,10 +980,34 @@ def test_audit_accepts_exact_unexpired_pending_consumption(
         }
     ]
 
-    with patch.object(
-        cli,
-        "_fingerprint_validation_waiver_modules",
-        return_value=executed,
+    authenticated = frozenset(
+        {
+            "known-validation-gaps.yaml",
+            ".axiom/toolchain.toml",
+            module_path,
+            manifest_path,
+        }
+    )
+    with (
+        patch.object(
+            cli,
+            "_fingerprint_validation_waiver_modules",
+            return_value=executed,
+        ),
+        patch.object(
+            cli,
+            "_read_only_guard_encoder_execution_identity",
+            return_value={
+                "repository": "github.com/TheAxiomFoundation/axiom-encode",
+                "commit": "a" * 40,
+                "version": "test",
+            },
+        ),
+        patch.object(
+            cli,
+            "_authenticated_pending_consumption_closure",
+            return_value=(authenticated, [], None),
+        ) as authenticate,
     ):
         exit_code = cli._cmd_validation_waivers_audit(
             _audit_args(
@@ -997,6 +1023,58 @@ def test_audit_accepts_exact_unexpired_pending_consumption(
     assert exit_code == 0
     assert report["success"] is True
     assert report["results"][0]["kind"] == "active"
+    assert authenticate.call_args.kwargs["changed"] == sorted(authenticated)
+
+
+def test_audit_rejects_pending_consumption_without_authenticated_manifest(
+    tmp_path: Path,
+    capsys,
+):
+    module_path = "us/statutes/module.yaml"
+    root, corpus, base_file, base_toolchain, changed_file = (
+        _transition_audit_fixture(
+            tmp_path,
+            base_waiver=_waiver_yaml(
+                {
+                    module_path: {
+                        "active": ("a", None),
+                        "pending": ("b", None),
+                    }
+                }
+            ),
+            head_waiver=_waiver_yaml({module_path: {"active": ("b", None)}}),
+            module_paths=(module_path,),
+            changed_paths=(
+                "known-validation-gaps.yaml",
+                ".axiom/toolchain.toml",
+                module_path,
+            ),
+        )
+    )
+
+    with patch.object(
+        cli,
+        "_read_only_guard_encoder_execution_identity",
+        return_value={
+            "repository": "github.com/TheAxiomFoundation/axiom-encode",
+            "commit": "a" * 40,
+            "version": "test",
+        },
+    ):
+        exit_code = cli._cmd_validation_waivers_audit(
+            _audit_args(
+                root,
+                base_file,
+                changed_file,
+                corpus,
+                protected_base_toolchain=base_toolchain,
+            )
+        )
+
+    report = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert report["checked"] == 0
+    assert any("exactly one changed" in error for error in report["errors"])
 
 
 @pytest.mark.parametrize(

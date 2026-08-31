@@ -685,11 +685,14 @@ def protected_base_transition_issues(
             required_paths = frozenset(
                 {waiver_path, toolchain_path, consumption_path}
             )
-            expected_paths = (
-                required_paths
-                if pending_consumption_expected_paths is None
-                else frozenset(pending_consumption_expected_paths)
-            )
+            if pending_consumption_expected_paths is None:
+                issues.append(
+                    "pending-to-active consumption requires a caller-authenticated "
+                    "generated-file path closure"
+                )
+                expected_paths = frozenset()
+            else:
+                expected_paths = frozenset(pending_consumption_expected_paths)
             if not required_paths <= expected_paths:
                 issues.append(
                     "pending-to-active consumption's authenticated path closure "
@@ -715,10 +718,10 @@ def protected_base_transition_issues(
         )
 
     digest_rebind = frozenset({waiver_path, toolchain_path})
-    if changed == digest_rebind and base == head:
+    if digest_rebind <= changed and base == head:
         issues.append(
             "validation-waiver digest rebind is a semantic no-op; it must not "
-            "rewrite only waiver/toolchain bytes"
+            "claim waiver/toolchain changes in any transition envelope"
         )
 
     for path in all_paths:

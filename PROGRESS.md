@@ -7,10 +7,11 @@
 - Resumed implementation: `f03d4f9b4a9fcfa1bbe7195c80fab6e15e5322c0`; resumed tracking head: `00de31256addce7c0b8f1d82a3b97b7779925cc5`; neither is approved.
 - Salvage ref `refs/codex-salvage/fix-1558-waiver-toolchain-transition-20260830-212600-98091` resolves to `3ee0586841748ca3a57c92088b226d7f8f1799cc`.
 - The salvage ref's exact 673-line adversarial test patch has been reconciled intact and committed as its own recovery checkpoint.
-- Core transition classification and the audit CLI now apply one shared exact-byte/toolchain proof to both creation and consumption; guard integration and full generated-path closure remain in progress.
+- Core transition classification, the audit CLI, and `guard-generated` now apply one shared exact-byte/toolchain proof to both creation and consumption. Pending consumption additionally requires the exact authenticated generated-file closure; an observed changed-path set is never accepted as authority.
 - Stable transition snapshots now carry exact filesystem identity as well as bytes, so a later same-byte path replacement cannot satisfy the recheck.
 - Contract decision: consumption cannot be a waiver/toolchain-only pull request; it must be induced by the exact consumed module and rebind the exact waiver/toolchain pair. The reusable workflow's current `{waiver, toolchain}`-only activation draft is incompatible and must be corrected before pinning.
-- `git fetch --prune origin` succeeds, but GitHub API access and the GitNexus command registry are unavailable in this sandbox; retry issue/PR inspection, push, and draft-PR creation after local checks are green.
+- The inspected reusable-workflow sibling head `3e7976cc2aaab4e3e712285814e335493187a950` is not compatible: it loses NUL framing, omits protected-base toolchain evidence, accepts the wrong consumption shape, and lacks exact Git object-mode proof. No workflow pin or historical fixture is being changed until that dependency implements this contract.
+- `git fetch --prune origin` succeeds, but GitHub API access and the GitNexus command registry were unavailable during the initial resume inspection; retry issue/PR inspection, push, and draft-PR creation after local checks are green.
 
 ## Done
 
@@ -27,12 +28,16 @@
 - Made the audit interface require protected-base toolchain evidence and explicit `nul-v1` changed paths, parse semantics from the five captured buffers, and recheck both bytes and filesystem identities.
 - Passed `134` focused audit CLI, parallel-audit, and public command-plane tests after the mandatory evidence update.
 - Derived the audit's corpus release identity from the captured head waiver/toolchain pair and threaded it through serial, parallel, and isolated execution, eliminating those downstream live evidence rereads (`182` focused tests passed).
-- Generalized pending consumption to an exact caller-authenticated changed-path closure while requiring that closure to contain the waiver, toolchain, and consumed module; direct callers retain the strict three-path default (`94` focused core/toolchain tests passed).
+- Generalized pending consumption to an exact caller-authenticated changed-path closure while requiring that closure to contain the waiver, toolchain, and consumed module. Callers that omit authenticated closure evidence now fail closed.
 - Confirmed the creation contract must remain exactly one new pending field in the exact waiver/toolchain pair, with active state and corpus pins unchanged and both raw snapshots bound.
+- Froze Git refs in `guard-generated`, loaded protected-base waiver/toolchain evidence only from exact `100644 blob` objects, captured stable head evidence, derived the exact signed-manifest generated closure, and rechecked evidence identity and bytes before success.
+- Made audit consumption require exactly one surviving changed signed v5 model manifest, verify its signature and base-waiver binding from captured bytes, require the consumed module and every manifest-listed applied file, reject deletions and unrelated paths, and retain that manifest in the final stability recheck.
+- Hardened semantic-no-op rejection so an envelope that claims waiver and toolchain changes cannot pass merely because unrelated paths also changed.
+- Added real Git repository and linked-worktree integration coverage for creation and consumption, including signed manifests, invalid signatures, stale or omitted modules, NUL-delimited adversarial paths, immutable base blobs, materialized evidence mutations, and same-byte atomic replacements across every protected evidence file.
+- Passed `181` focused core/audit/Git integration tests and all `91` `guard-generated` tests, plus targeted Ruff, on 2026-08-31.
 
 ## Next
 
-- Extend the module-induced consumption scope from the core three-path proof to the exact manifest-authenticated generated-file closure used by `guard-generated`.
-- Add real Git cross-worktree/race coverage for the five-file evidence boundary.
-- Update the reusable workflow dependency/fixtures and documentation to the same contract, add real Git worktree integration tests, and preserve decrement behavior.
+- Align local CI-parity execution with strict byte-preserving protected-base toolchain evidence and `nul-v1` paths while explicitly recording that historical workflow pins predate and do not claim the new transition capability.
+- Update documentation and changelog to the exact creation/consumption contract without changing incompatible workflow pins or historical fixtures.
 - Run focused and broad checks, complete independent review-fix cycles, verify commit messages and PR body, then refresh/push/open a draft PR linked to #1558 without merging.

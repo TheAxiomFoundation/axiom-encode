@@ -4586,8 +4586,68 @@ def _cmd_validation_waivers_audit(args) -> int:
             head_toolchain_snapshot,
         ),
     ]
-    transition_issues = (
-        *_validation_waivers.protected_base_transition_issues(
+    transition_issues: list[str] = []
+    pending_consumption_expected_paths: frozenset[str] | None = None
+    head_corpus_release: LocalCorpusRelease | None = None
+    changed_entries = sorted(
+        path
+        for path in set(base.entries) | set(head.entries)
+        if base.entries.get(path) != head.entries.get(path)
+    )
+    exact_consumptions = sorted(
+        path
+        for path in set(base.entries) & set(head.entries)
+        if base.entries[path].active is not None
+        and base.entries[path].pending is not None
+        and head.entries[path].active == base.entries[path].pending
+        and head.entries[path].pending is None
+        and head.entries[path] != base.entries[path]
+    )
+    if len(exact_consumptions) == 1 and changed_entries == exact_consumptions:
+        consumed_path = exact_consumptions[0]
+        try:
+            head_corpus_release = load_rulespec_local_corpus_release_snapshot(
+                root,
+                args.corpus_path,
+                toolchain_bytes=head_toolchain_snapshot.raw,
+                validation_waiver_bytes=head_waiver_snapshot.raw,
+            )
+            expected_encoder_identity = (
+                _read_only_guard_encoder_execution_identity(None)
+            )
+            (
+                pending_consumption_expected_paths,
+                authentication_issues,
+                manifest_snapshot,
+            ) = _authenticated_pending_consumption_closure(
+                root,
+                changed=sorted(changed_paths),
+                consumed_path=consumed_path,
+                roots=tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS)),
+                expected_waiver_set_sha256=hashlib.sha256(
+                    base_waiver_snapshot.raw
+                ).hexdigest(),
+                current_waiver_set_sha256=hashlib.sha256(
+                    head_waiver_snapshot.raw
+                ).hexdigest(),
+                local_corpus_release=head_corpus_release,
+                expected_encoder_identity=expected_encoder_identity,
+            )
+        except (RuntimeError, ValueError) as exc:
+            authentication_issues = [
+                "pending-to-active consumption authentication failed: " + str(exc)
+            ]
+            manifest_snapshot = None
+        transition_issues.extend(authentication_issues)
+        if pending_consumption_expected_paths is None:
+            # Never let the observed path set impersonate authenticated authority,
+            # even if a future helper defect returns no accompanying error.
+            pending_consumption_expected_paths = frozenset()
+        if manifest_snapshot is not None:
+            transition_snapshots.append(manifest_snapshot)
+
+    transition_issues.extend(
+        _validation_waivers.protected_base_transition_issues(
             base,
             head,
             changed_paths=changed_paths,
@@ -4596,9 +4656,14 @@ def _cmd_validation_waivers_audit(args) -> int:
             head_waiver_bytes=head_waiver_snapshot.raw,
             base_toolchain_bytes=base_toolchain_snapshot.raw,
             head_toolchain_bytes=head_toolchain_snapshot.raw,
+            pending_consumption_expected_paths=(
+                pending_consumption_expected_paths
+            ),
             today=audit_date,
-        ),
-        *_validation_waiver_snapshot_issues(transition_snapshots),
+        )
+    )
+    transition_issues.extend(
+        _validation_waiver_snapshot_issues(transition_snapshots)
     )
 
     if transition_issues:
@@ -4656,16 +4721,13 @@ def _cmd_validation_waivers_audit(args) -> int:
         else:
             missing_required.add(path)
 
-    head_corpus_release = (
-        load_rulespec_local_corpus_release_snapshot(
+    if executable_paths and head_corpus_release is None:
+        head_corpus_release = load_rulespec_local_corpus_release_snapshot(
             root,
             args.corpus_path,
             toolchain_bytes=head_toolchain_snapshot.raw,
             validation_waiver_bytes=head_waiver_snapshot.raw,
         )
-        if executable_paths
-        else None
-    )
     executed = (
         _fingerprint_validation_waiver_modules_parallel(
             executable_paths,
@@ -21019,20 +21081,44 @@ def guard_generated_change_issues(
             "it before validation"
         ]
     try:
-        load_rulespec_toolchain(repo_path)
-        current_waiver_set_sha256 = verify_rulespec_validation_waiver_set(repo_path)
-        local_corpus_release = load_rulespec_local_corpus_release(
+        needs_git_diff = base_ref is not None or (
+            not all_files and changed_files is None
+        )
+        frozen_head_commit = (
+            _guard_git_commit(repo_path, head_ref) if needs_git_diff else None
+        )
+        frozen_base_commit = (
+            _guard_git_commit(repo_path, base_ref) if base_ref is not None else None
+        )
+        head_waiver_path = repo_path / _validation_waivers.DEFAULT_WAIVER_PATH
+        head_toolchain_path = repo_path / _validation_waivers.DEFAULT_TOOLCHAIN_PATH
+        head_waiver_snapshot = _validation_waiver_transition_snapshot(
+            head_waiver_path,
+            label="head validation waiver set",
+            max_bytes=_validation_waivers.MAX_WAIVER_FILE_BYTES,
+        )
+        head_toolchain_snapshot = _validation_waiver_transition_snapshot(
+            head_toolchain_path,
+            label="head RuleSpec toolchain",
+            max_bytes=MAX_RULESPEC_TOOLCHAIN_BYTES,
+        )
+        current_waiver_set_sha256 = hashlib.sha256(
+            head_waiver_snapshot.raw
+        ).hexdigest()
+        local_corpus_release = load_rulespec_local_corpus_release_snapshot(
             repo_path,
             Path(corpus_path),
+            toolchain_bytes=head_toolchain_snapshot.raw,
+            validation_waiver_bytes=head_waiver_snapshot.raw,
         )
-    except ValueError as exc:
+    except (RuntimeError, ValueError) as exc:
         return [f"RuleSpec corpus/toolchain binding is invalid: {exc}"]
     if all_files:
         changed = (
             _git_guard_changed_files(
                 repo_path,
-                base_ref=base_ref,
-                head_ref=head_ref,
+                base_ref=frozen_base_commit,
+                head_ref=frozen_head_commit or head_ref,
             )
             if base_ref is not None
             else []
@@ -21055,8 +21141,8 @@ def guard_generated_change_issues(
             if changed_files is not None
             else _git_guard_changed_files(
                 repo_path,
-                base_ref=base_ref,
-                head_ref=head_ref,
+                base_ref=frozen_base_commit,
+                head_ref=frozen_head_commit or head_ref,
             )
         )
         protected = [
@@ -21083,13 +21169,19 @@ def guard_generated_change_issues(
     if not protected:
         return []
 
-    expected_manifest_waiver_set_sha256, waiver_transition_issues = (
+    (
+        expected_manifest_waiver_set_sha256,
+        pending_consumption,
+        waiver_transition_issues,
+    ) = (
         _guard_manifest_waiver_set_identity(
             repo_path,
-            base_ref=base_ref,
+            base_commit=frozen_base_commit,
             changed=changed,
             protected=protected,
             current_waiver_set_sha256=current_waiver_set_sha256,
+            head_waiver_bytes=head_waiver_snapshot.raw,
+            head_toolchain_bytes=head_toolchain_snapshot.raw,
         )
     )
     if waiver_transition_issues:
@@ -21150,6 +21242,37 @@ def guard_generated_change_issues(
     if manifest_issues:
         return manifest_issues
 
+    if pending_consumption is not None:
+        consumption_closure, closure_issues = (
+            _guard_pending_consumption_manifest_closure(
+                changed=changed,
+                consumed_path=pending_consumption.path,
+                surviving_manifest_paths=surviving_manifest_paths,
+                missing_manifest_paths=missing_manifest_paths,
+                manifest_entries=manifest_entries,
+            )
+        )
+        if closure_issues:
+            return closure_issues
+        assert consumption_closure is not None
+        final_transition_issues = (
+            _validation_waivers.protected_base_transition_issues(
+                pending_consumption.base_waivers,
+                pending_consumption.head_waivers,
+                changed_paths=set(changed),
+                base_waiver_bytes=pending_consumption.base_waiver_bytes,
+                head_waiver_bytes=pending_consumption.head_waiver_bytes,
+                base_toolchain_bytes=pending_consumption.base_toolchain_bytes,
+                head_toolchain_bytes=pending_consumption.head_toolchain_bytes,
+                pending_consumption_expected_paths=consumption_closure,
+            )
+        )
+        if final_transition_issues:
+            return [
+                "RuleSpec pending consumption is invalid: " + issue
+                for issue in final_transition_issues
+            ]
+
     issues: list[str] = []
     for path in protected:
         expected_hashes = manifest_entries.get(path)
@@ -21199,6 +21322,24 @@ def guard_generated_change_issues(
             f"{Path(path).as_posix()} does not exist in the working tree"
             for path in missing_manifest_paths
         )
+    issues.extend(
+        _validation_waiver_snapshot_issues(
+            [
+                (
+                    head_waiver_path,
+                    "head validation waiver set",
+                    _validation_waivers.MAX_WAIVER_FILE_BYTES,
+                    head_waiver_snapshot,
+                ),
+                (
+                    head_toolchain_path,
+                    "head RuleSpec toolchain",
+                    MAX_RULESPEC_TOOLCHAIN_BYTES,
+                    head_toolchain_snapshot,
+                ),
+            ]
+        )
+    )
     return issues
 
 
@@ -21221,14 +21362,184 @@ def _is_unambiguously_absent_repo_path(repo_path: Path, relative: Path) -> bool:
     return False
 
 
+class _GuardPendingConsumption(NamedTuple):
+    path: str
+    base_waivers: _validation_waivers.ValidationWaiverSet
+    head_waivers: _validation_waivers.ValidationWaiverSet
+    base_waiver_bytes: bytes
+    head_waiver_bytes: bytes
+    base_toolchain_bytes: bytes
+    head_toolchain_bytes: bytes
+
+
+def _guard_pending_consumption_manifest_closure(
+    *,
+    changed: Sequence[str],
+    consumed_path: str,
+    surviving_manifest_paths: Sequence[str],
+    missing_manifest_paths: Sequence[str],
+    manifest_entries: Mapping[str, set[str]],
+) -> tuple[frozenset[str] | None, list[str]]:
+    """Prove the exact changed-file closure for one pending consumption."""
+
+    prefix = "RuleSpec pending consumption is invalid: "
+    if missing_manifest_paths or len(surviving_manifest_paths) != 1:
+        return None, [
+            prefix
+            + "exactly one changed, surviving encoder apply manifest is required"
+        ]
+    changed_set = frozenset(Path(path).as_posix() for path in changed)
+    changed_applied_paths = frozenset(set(manifest_entries) & changed_set)
+    if consumed_path not in changed_applied_paths:
+        return None, [
+            prefix
+            + "the consumed module must be changed and listed in the apply manifest: "
+            + consumed_path
+        ]
+    deleted = sorted(
+        path
+        for path in changed_applied_paths
+        if APPLIED_ENCODING_DELETED_MARKER in manifest_entries[path]
+    )
+    if deleted:
+        return None, [
+            prefix
+            + "pending consumption may not delete manifest-applied files: "
+            + ", ".join(deleted)
+        ]
+    expected = frozenset(
+        {
+            _validation_waivers.DEFAULT_WAIVER_PATH,
+            _validation_waivers.DEFAULT_TOOLCHAIN_PATH,
+            surviving_manifest_paths[0],
+            *changed_applied_paths,
+        }
+    )
+    if changed_set != expected:
+        return None, [
+            prefix
+            + "changed paths must equal the waiver/toolchain, one manifest, and "
+            "its changed applied-file closure "
+            f"(expected={sorted(expected)}, actual={sorted(changed_set)})"
+        ]
+    return expected, []
+
+
+def _authenticated_pending_consumption_closure(
+    repo_path: Path,
+    *,
+    changed: Sequence[str],
+    consumed_path: str,
+    roots: tuple[str, ...],
+    expected_waiver_set_sha256: str,
+    current_waiver_set_sha256: str,
+    local_corpus_release: LocalCorpusRelease,
+    expected_encoder_identity: Mapping[str, str],
+) -> tuple[
+    frozenset[str] | None,
+    list[str],
+    tuple[Path, str, int, StableRegularFileSnapshot] | None,
+]:
+    """Authenticate one full generated-file envelope for pending consumption."""
+
+    manifest_paths = [
+        path
+        for path in changed
+        if _is_applied_encoding_manifest_path(Path(path), roots=roots)
+    ]
+    if len(manifest_paths) != 1:
+        return None, [
+            "RuleSpec pending consumption is invalid: exactly one changed, "
+            "surviving encoder apply manifest is required"
+        ], None
+    manifest_path = manifest_paths[0]
+    manifest_file = repo_path / manifest_path
+    manifest_label = f"pending-consumption apply manifest {manifest_path}"
+    try:
+        manifest_snapshot = _validation_waiver_transition_snapshot(
+            manifest_file,
+            label=manifest_label,
+            max_bytes=1024 * 1024,
+        )
+    except ValueError as exc:
+        return None, [str(exc)], None
+    try:
+        signing_broker = _applied_encoding_manifest_verifier()
+    except SigningBrokerError as exc:
+        return None, [str(exc)], None
+    if not signing_broker:
+        return None, [
+            "A protected signing broker initialized from the three-root trust "
+            "config is required to verify encoder apply manifests"
+        ], None
+    proof_cache: dict[tuple[str, str], tuple[str, ...]] = {}
+    payload, root_prefix, _digest, issues = (
+        _load_verified_applied_encoding_manifest_payload(
+            repo_path,
+            manifest_path,
+            roots=roots,
+            signing_broker=signing_broker,
+            expected_waiver_set_sha256=expected_waiver_set_sha256,
+            expected_legacy_replacement_waiver_set_sha256=(
+                current_waiver_set_sha256
+            ),
+            local_corpus_release=local_corpus_release,
+            expected_encoder_identity=expected_encoder_identity,
+            path_migration_receipt_proof_cache=proof_cache,
+            manifest_bytes=manifest_snapshot.raw,
+        )
+    )
+    if issues or payload is None or root_prefix is None:
+        return None, (
+            issues
+            or [f"{manifest_path} is not a verified encoder apply manifest"]
+        ), None
+    if _normalized_manifest_backend(payload) not in (
+        APPLIED_ENCODING_GENERATED_BACKENDS
+    ):
+        return None, [
+            f"{manifest_path} is not a model-generated encoder apply manifest"
+        ], None
+    entries: dict[str, set[str]] = defaultdict(set)
+    applied_files = payload["applied_files"]
+    assert isinstance(applied_files, list)
+    for item in applied_files:
+        assert isinstance(item, dict)
+        file_path = item.get("path")
+        assert isinstance(file_path, str)
+        prefixed = _prefix_applied_manifest_path(file_path, root_prefix)
+        if item.get("deleted") is True:
+            entries[prefixed].add(APPLIED_ENCODING_DELETED_MARKER)
+        else:
+            file_hash = item.get("sha256")
+            assert isinstance(file_hash, str)
+            entries[prefixed].add(file_hash)
+    closure, closure_issues = _guard_pending_consumption_manifest_closure(
+        changed=changed,
+        consumed_path=consumed_path,
+        surviving_manifest_paths=[manifest_path],
+        missing_manifest_paths=[],
+        manifest_entries=entries,
+    )
+    if closure_issues:
+        return None, closure_issues, None
+    return (
+        closure,
+        [],
+        (manifest_file, manifest_label, 1024 * 1024, manifest_snapshot),
+    )
+
+
 def _guard_manifest_waiver_set_identity(
     repo_path: Path,
     *,
-    base_ref: str | None,
+    base_commit: str | None,
     changed: list[str],
     protected: list[str],
     current_waiver_set_sha256: str,
-) -> tuple[str, list[str]]:
+    head_waiver_bytes: bytes,
+    head_toolchain_bytes: bytes,
+) -> tuple[str, _GuardPendingConsumption | None, list[str]]:
     """Resolve the waiver identity a changed apply manifest must carry.
 
     Model manifests bind the policy state immediately before apply. A pull
@@ -21244,52 +21555,68 @@ def _guard_manifest_waiver_set_identity(
     changed_set = {Path(path).as_posix() for path in changed}
     metadata_changes = changed_set & {waiver_path, toolchain_path}
     if waiver_path not in metadata_changes:
-        return current_waiver_set_sha256, []
+        return current_waiver_set_sha256, None, []
 
-    prefix = "RuleSpec post-apply waiver retirement is invalid: "
+    prefix = "RuleSpec waiver transition is invalid: "
     if metadata_changes != {waiver_path, toolchain_path}:
-        return current_waiver_set_sha256, [
+        return current_waiver_set_sha256, None, [
             prefix + f"{waiver_path} and {toolchain_path} must change together"
         ]
-    if base_ref is None:
-        return current_waiver_set_sha256, [prefix + "a protected base ref is required"]
-
-    base_bytes = _git_show_bytes(repo_path, base_ref, waiver_path)
-    if base_bytes is None:
-        return current_waiver_set_sha256, [
-            prefix + f"cannot read {waiver_path} from protected base {base_ref}"
+    if base_commit is None:
+        return current_waiver_set_sha256, None, [
+            prefix + "a protected base commit is required"
         ]
-    base_sha256 = hashlib.sha256(base_bytes).hexdigest()
+
+    try:
+        base_waiver_bytes = _guard_git_regular_blob(
+            repo_path,
+            base_commit,
+            waiver_path,
+            max_bytes=_validation_waivers.MAX_WAIVER_FILE_BYTES,
+        )
+        base_toolchain_bytes = _guard_git_regular_blob(
+            repo_path,
+            base_commit,
+            toolchain_path,
+            max_bytes=MAX_RULESPEC_TOOLCHAIN_BYTES,
+        )
+    except RuntimeError as exc:
+        return current_waiver_set_sha256, None, [prefix + str(exc)]
+    base_sha256 = hashlib.sha256(base_waiver_bytes).hexdigest()
     if base_sha256 == current_waiver_set_sha256:
-        return current_waiver_set_sha256, [
+        return current_waiver_set_sha256, None, [
             prefix + "the waiver set did not remove any protected-base entry"
         ]
 
     try:
-        with tempfile.NamedTemporaryFile(suffix=".yaml") as base_file:
-            base_file.write(base_bytes)
-            base_file.flush()
-            base_waivers = _validation_waivers.load_validation_waivers(
-                Path(base_file.name).resolve(strict=True),
-                repo_root=repo_path,
-                allow_expired=True,
-                require_paths=False,
-            )
-        head_waivers = _validation_waivers.load_validation_waivers(
-            repo_path / waiver_path,
+        base_waivers = _validation_waivers.load_validation_waivers_bytes(
+            base_waiver_bytes,
+            source=f"{base_commit}:{waiver_path}",
+            repo_root=repo_path,
+            allow_expired=True,
+            require_paths=False,
+        )
+        head_waivers = _validation_waivers.load_validation_waivers_bytes(
+            head_waiver_bytes,
+            source=repo_path / waiver_path,
             repo_root=repo_path,
         )
     except _validation_waivers.ValidationWaiverError as exc:
-        return current_waiver_set_sha256, [prefix + str(exc)]
+        return current_waiver_set_sha256, None, [prefix + str(exc)]
 
     transition_issues = _validation_waivers.protected_base_transition_issues(
         base_waivers,
         head_waivers,
         changed_paths=changed_set,
         waiver_path=waiver_path,
+        base_waiver_bytes=base_waiver_bytes,
+        head_waiver_bytes=head_waiver_bytes,
+        base_toolchain_bytes=base_toolchain_bytes,
+        head_toolchain_bytes=head_toolchain_bytes,
+        pending_consumption_expected_paths=changed_set,
     )
     if transition_issues:
-        return current_waiver_set_sha256, [
+        return current_waiver_set_sha256, None, [
             prefix + issue for issue in transition_issues
         ]
 
@@ -21297,29 +21624,60 @@ def _guard_manifest_waiver_set_identity(
     head_entries = dict(head_waivers.entries)
     added = sorted(set(head_entries) - set(base_entries))
     if added:
-        return current_waiver_set_sha256, [
+        return current_waiver_set_sha256, None, [
             prefix + "new waiver entries are not allowed: " + ", ".join(added)
         ]
+    consumed = sorted(
+        path
+        for path in set(base_entries) & set(head_entries)
+        if base_entries[path].pending is not None
+        and head_entries[path].active == base_entries[path].pending
+        and head_entries[path].pending is None
+        and head_entries[path] != base_entries[path]
+    )
+    consumed_path = consumed[0] if len(consumed) == 1 else None
     changed_entries = sorted(
         path
         for path in set(base_entries) & set(head_entries)
         if base_entries[path] != head_entries[path]
     )
-    if changed_entries:
-        return current_waiver_set_sha256, [
+    unexpected_changed_entries = sorted(set(changed_entries) - set(consumed))
+    if unexpected_changed_entries:
+        return current_waiver_set_sha256, None, [
             prefix
-            + "retained waiver entries must remain exactly unchanged: "
-            + ", ".join(changed_entries)
+            + "retained waiver entries may change only by exact pending "
+            "consumption: "
+            + ", ".join(unexpected_changed_entries)
         ]
 
     removed = sorted(set(base_entries) - set(head_entries))
+    if consumed_path is not None:
+        if removed:
+            return current_waiver_set_sha256, None, [
+                prefix
+                + "pending consumption may not also remove waiver entries: "
+                + ", ".join(removed)
+            ]
+        return (
+            base_sha256,
+            _GuardPendingConsumption(
+                path=consumed_path,
+                base_waivers=base_waivers,
+                head_waivers=head_waivers,
+                base_waiver_bytes=base_waiver_bytes,
+                head_waiver_bytes=head_waiver_bytes,
+                base_toolchain_bytes=base_toolchain_bytes,
+                head_toolchain_bytes=head_toolchain_bytes,
+            ),
+            [],
+        )
     if not removed:
-        return current_waiver_set_sha256, [
+        return current_waiver_set_sha256, None, [
             prefix + "the waiver set did not remove any protected-base entry"
         ]
     unrelated = sorted(set(removed) - set(protected))
     if unrelated:
-        return current_waiver_set_sha256, [
+        return current_waiver_set_sha256, None, [
             prefix
             + "removed entries must name changed protected RuleSpec modules: "
             + ", ".join(unrelated)
@@ -21331,11 +21689,11 @@ def _guard_manifest_waiver_set_identity(
         and not _is_unambiguously_absent_repo_path(repo_path, Path(path))
     ]
     if invalid_states:
-        return current_waiver_set_sha256, [
+        return current_waiver_set_sha256, None, [
             prefix + "pending state may be removed only with its deleted protected "
             "RuleSpec module: " + ", ".join(invalid_states)
         ]
-    return base_sha256, []
+    return base_sha256, None, []
 
 
 def _generated_provenance_gate_issues(
@@ -21514,6 +21872,90 @@ def _git_guard_changed_files(
     if base_ref is not None:
         changed.update(_git_changed_files(repo_path, base_ref=None, head_ref=head_ref))
     return sorted(changed)
+
+
+def _guard_git_commit(repo_path: Path, ref: str) -> str:
+    """Freeze one caller-supplied ref to an immutable commit object."""
+
+    if not ref or _validation_waivers._contains_control_or_format(ref):
+        raise RuntimeError("RuleSpec Git ref is empty or contains control characters")
+    commit = _rulespec_migration_git(
+        repo_path,
+        "rev-parse",
+        "--verify",
+        "--end-of-options",
+        f"{ref}^{{commit}}",
+    ).strip()
+    if re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", commit) is None:
+        raise RuntimeError(f"RuleSpec Git ref did not resolve to a commit: {ref}")
+    return commit
+
+
+def _guard_git_regular_blob(
+    repo_path: Path,
+    commit: str,
+    relative_path: str,
+    *,
+    max_bytes: int,
+) -> bytes:
+    """Read one bounded exact-0644 blob from a frozen Git commit."""
+
+    relative = Path(relative_path)
+    if (
+        relative.is_absolute()
+        or relative.as_posix() != relative_path
+        or any(part in {"", ".", ".."} for part in relative.parts)
+    ):
+        raise RuntimeError(f"Protected-base path is not canonical: {relative_path}")
+    listing = _rulespec_migration_git_bytes(
+        repo_path,
+        "ls-tree",
+        "-l",
+        "-z",
+        "--full-tree",
+        commit,
+        "--",
+        relative_path,
+    )
+    records = [record for record in listing.split(b"\0") if record]
+    if len(records) != 1:
+        raise RuntimeError(
+            f"Protected base does not contain exactly one {relative_path}"
+        )
+    try:
+        metadata, encoded_path = records[0].split(b"\t", 1)
+        mode, object_type, object_id, raw_size = metadata.decode("ascii").split()
+        listed_path = encoded_path.decode("utf-8")
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise RuntimeError("Protected-base Git tree entry is malformed") from exc
+    if (
+        mode != "100644"
+        or object_type != "blob"
+        or re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", object_id) is None
+        or listed_path != relative_path
+    ):
+        raise RuntimeError(
+            f"Protected-base path is not an exact regular 0644 blob: {relative_path}"
+        )
+    try:
+        size = int(raw_size)
+    except ValueError as exc:
+        raise RuntimeError("Protected-base Git blob size is malformed") from exc
+    if size < 0 or size > max_bytes:
+        raise RuntimeError(
+            f"Protected-base blob exceeds the {max_bytes}-byte limit: {relative_path}"
+        )
+    raw = _rulespec_migration_git_bytes(
+        repo_path,
+        "cat-file",
+        "blob",
+        object_id,
+    )
+    if len(raw) != size or len(raw) > max_bytes:
+        raise RuntimeError(
+            f"Protected-base blob size changed while reading: {relative_path}"
+        )
+    return raw
 
 
 def _protected_rulespec_root_index(path: Path, *, roots: tuple[str, ...]) -> int | None:
@@ -25483,6 +25925,7 @@ def _load_verified_applied_encoding_manifest_payload(
     expected_encoder_identity: Mapping[str, str] | None = None,
     path_migration_receipt_proof_cache: dict[tuple[str, str], tuple[str, ...]]
     | None = None,
+    manifest_bytes: bytes | None = None,
 ) -> tuple[dict[str, object] | None, str | None, str | None, list[str]]:
     """Load one canonical v5 apply manifest and verify every binding."""
 
@@ -25533,12 +25976,20 @@ def _load_verified_applied_encoding_manifest_payload(
     repo_root = Path(repo_path).resolve()
     path = repo_root / relative
     try:
-        manifest_bytes = read_bounded_regular_file(
-            repo_root,
-            path,
-            label="encoder apply manifest",
-            max_bytes=1024 * 1024,
-        )
+        if manifest_bytes is None:
+            manifest_bytes = read_bounded_regular_file(
+                repo_root,
+                path,
+                label="encoder apply manifest",
+                max_bytes=1024 * 1024,
+            )
+        elif len(manifest_bytes) > 1024 * 1024:
+            return (
+                None,
+                root_prefix,
+                None,
+                [f"{manifest_label} exceeds the 1048576-byte limit"],
+            )
         manifest_sha256 = hashlib.sha256(manifest_bytes).hexdigest()
         payload = json.loads(manifest_bytes.decode("utf-8"))
     except UnsafeCorpusPathError as exc:
@@ -25768,21 +26219,6 @@ def _load_verified_applied_encoding_manifest_payload(
     )
     source_attestation = payload.get("source_attestation")
     if isinstance(source_attestation, dict):
-        toolchain = load_rulespec_toolchain(repo_path)
-        if source_attestation.get("corpus_release") != toolchain.corpus_release:
-            issues.append(
-                f"{manifest_label} source_attestation.corpus_release does not "
-                "match the RuleSpec toolchain release"
-            )
-        if (
-            source_attestation.get("corpus_release_content_sha256")
-            != toolchain.corpus_release_content_sha256
-        ):
-            issues.append(
-                f"{manifest_label} source_attestation."
-                "corpus_release_content_sha256 does not match the RuleSpec "
-                "toolchain release object"
-            )
         if local_corpus_release is not None:
             issues.extend(
                 _signed_release_source_attestation_issues(
@@ -25791,6 +26227,22 @@ def _load_verified_applied_encoding_manifest_payload(
                     manifest_label=manifest_label,
                 )
             )
+        else:
+            toolchain = load_rulespec_toolchain(repo_path)
+            if source_attestation.get("corpus_release") != toolchain.corpus_release:
+                issues.append(
+                    f"{manifest_label} source_attestation.corpus_release does not "
+                    "match the RuleSpec toolchain release"
+                )
+            if (
+                source_attestation.get("corpus_release_content_sha256")
+                != toolchain.corpus_release_content_sha256
+            ):
+                issues.append(
+                    f"{manifest_label} source_attestation."
+                    "corpus_release_content_sha256 does not match the RuleSpec "
+                    "toolchain release object"
+                )
     if issues:
         return None, root_prefix, manifest_sha256, issues
     return payload, root_prefix, manifest_sha256, []

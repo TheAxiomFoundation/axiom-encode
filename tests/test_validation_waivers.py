@@ -592,16 +592,19 @@ def test_active_can_only_change_by_consuming_exact_base_pending():
         "base_toolchain_bytes": _toolchain_bytes(base_waivers),
         "head_toolchain_bytes": _toolchain_bytes(head_waivers),
     }
+    authenticated_closure = {
+        PATH,
+        "known-validation-gaps.yaml",
+        ".axiom/toolchain.toml",
+        ".axiom/encoding-manifests/us/statutes/26/1.json",
+    }
 
     assert (
         protected_base_transition_issues(
             base,
             head,
-            changed_paths={
-                PATH,
-                "known-validation-gaps.yaml",
-                ".axiom/toolchain.toml",
-            },
+            changed_paths=authenticated_closure,
+            pending_consumption_expected_paths=authenticated_closure,
             today=TODAY,
             **evidence,
         )
