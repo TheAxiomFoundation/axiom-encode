@@ -2194,21 +2194,32 @@ _ALABAMA_TERMINAL_CODE_HISTORY_ENTRY = re.compile(
 _ARMENIAN_AMENDMENT_HISTORY_DASH = (
     r"[-\u058a\u2010\u2011\u2012\u2013\u2014\u2015\u2212\ufe58\ufe63\uff0d]"
 )
-_ARMENIAN_AMENDMENT_HISTORY_ARTICLE = re.compile(
-    rf"\s*\d+(?:[.\u2024]\d+)?{_ARMENIAN_AMENDMENT_HISTORY_DASH}"
-    r"(?:ին|րդ)\s+հոդվածը\s+(?P<history>.+?)\s*",
-    flags=re.DOTALL,
+_ARMENIAN_AMENDMENT_HISTORY_ARTICLE_PREFIX = re.compile(
+    rf"\s*[0-9]+(?:[.\u2024][0-9]+)?{_ARMENIAN_AMENDMENT_HISTORY_DASH}"
+    r"(?:ին|րդ)\s+հոդվածը\s+",
 )
 # Amendment-action abbreviations are matched case-insensitively, but the paired
 # `ՀՕ-N[-N]-Ն` law identifier is not: scope the case folding to the action
 # alternation so recognizing an uppercase action cannot also fold the
 # identifier's casing and admit a citation the prompt contract does not permit.
-_ARMENIAN_AMENDMENT_HISTORY_ACTION_TOKEN = r"(?i:փոփ|լրաց|խմբ)(?:[.\u2024])?"
+_ARMENIAN_AMENDMENT_HISTORY_ACTION_TOKEN = (
+    r"(?i:փոփ|լրաց|խմբ)(?P<terminator>[.\u2024])?"
+)
+_ARMENIAN_AMENDMENT_HISTORY_DATE_TOKEN = (
+    r"[0-9]{2}[.\u2024][0-9]{2}[.\u2024](?:[0-9]{4}|[0-9]{2})"
+)
+_ARMENIAN_AMENDMENT_HISTORY_LAW_TOKEN = (
+    rf"(?:ՀՕ{_ARMENIAN_AMENDMENT_HISTORY_DASH}[0-9]+(?:"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_DASH}[0-9]+)?"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_DASH}Ն|"
+    rf"ՀՕ{_ARMENIAN_AMENDMENT_HISTORY_DASH}[0-9]+|"
+    rf"Հ{_ARMENIAN_AMENDMENT_HISTORY_DASH}[0-9]+(?:"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_DASH}[0-9]+)?"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_DASH}Ն)"
+)
 _ARMENIAN_AMENDMENT_HISTORY_CITATION_TOKEN = (
-    r"\d{2}[.\u2024]\d{2}[.\u2024]\d{2}(?:\d{2})?\s+Հ(?:Օ)?"
-    rf"{_ARMENIAN_AMENDMENT_HISTORY_DASH}\d+(?:"
-    rf"{_ARMENIAN_AMENDMENT_HISTORY_DASH}\d+)?"
-    rf"{_ARMENIAN_AMENDMENT_HISTORY_DASH}Ն"
+    rf"(?P<date>{_ARMENIAN_AMENDMENT_HISTORY_DATE_TOKEN})\s+"
+    rf"{_ARMENIAN_AMENDMENT_HISTORY_LAW_TOKEN}"
 )
 _ARMENIAN_AMENDMENT_HISTORY_ACTION = re.compile(
     _ARMENIAN_AMENDMENT_HISTORY_ACTION_TOKEN,
@@ -2218,15 +2229,8 @@ _ARMENIAN_AMENDMENT_HISTORY_CITATION = re.compile(
 )
 # Possessive: no action or citation token can begin with a separator character,
 # so giving separator characters back never enables a match. Committing to the
-# longest run keeps the sequence scan linear on adversarial separator runs.
-_ARMENIAN_AMENDMENT_HISTORY_SEPARATOR = r"[\s,;]++"
-_ARMENIAN_AMENDMENT_HISTORY_SEQUENCE = re.compile(
-    rf"\s*(?:{_ARMENIAN_AMENDMENT_HISTORY_ACTION_TOKEN}|"
-    rf"{_ARMENIAN_AMENDMENT_HISTORY_CITATION_TOKEN})(?:"
-    rf"{_ARMENIAN_AMENDMENT_HISTORY_SEPARATOR}(?:"
-    rf"{_ARMENIAN_AMENDMENT_HISTORY_ACTION_TOKEN}|"
-    rf"{_ARMENIAN_AMENDMENT_HISTORY_CITATION_TOKEN}))*\s*",
-)
+# longest run keeps the scanner linear on adversarial separator runs.
+_ARMENIAN_AMENDMENT_HISTORY_SEPARATOR = re.compile(r"[\s,;]++")
 _FORMULA_IDENTIFIER = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
 
 
@@ -11990,45 +11994,109 @@ def _strip_terminal_session_law_history(source_text: str) -> str:
     return source_text
 
 
+def _armenian_amendment_date_is_valid(raw_date: str) -> bool:
+    """Return whether one width-checked ARLIS date is calendar-valid."""
+
+    day_text, month_text, year_text = re.split(r"[.\u2024]", raw_date)
+    year = int(year_text)
+    if len(year_text) == 2:
+        year += 2000
+    try:
+        date(year, int(month_text), int(day_text))
+    except ValueError:
+        return False
+    return True
+
+
+def _armenian_amendment_history_is_valid(history: str) -> bool:
+    """Parse the closed ARLIS action/citation grammar in linear time."""
+
+    position = 0
+    token_count = 0
+    saw_action = False
+    saw_citation = False
+    prior_action_had_dot = False
+    history_length = len(history)
+
+    while position < history_length:
+        adjacent_after_dotted_action = False
+        if token_count:
+            separator = _ARMENIAN_AMENDMENT_HISTORY_SEPARATOR.match(history, position)
+            if separator is not None:
+                position = separator.end()
+                if position == history_length:
+                    return False
+            else:
+                if not prior_action_had_dot:
+                    return False
+                adjacent_after_dotted_action = True
+
+        action = _ARMENIAN_AMENDMENT_HISTORY_ACTION.match(history, position)
+        if action is not None:
+            if adjacent_after_dotted_action:
+                # Dot adjacency is the official `փոփ.08.09.08` date form, not
+                # a license to glue two action abbreviations together.
+                return False
+            position = action.end()
+            token_count += 1
+            saw_action = True
+            prior_action_had_dot = action.group("terminator") is not None
+            continue
+
+        citation = _ARMENIAN_AMENDMENT_HISTORY_CITATION.match(history, position)
+        if citation is None or not _armenian_amendment_date_is_valid(
+            citation.group("date")
+        ):
+            return False
+        position = citation.end()
+        token_count += 1
+        saw_citation = True
+        prior_action_had_dot = False
+
+    return saw_action and saw_citation
+
+
 def _strip_standalone_armenian_amendment_history(source_text: str) -> str:
     """Remove only fully validated standalone ARLIS amendment-history ledgers."""
 
-    depth_before: list[int] | None = None
+    # Every admitted ledger has this literal label. Avoid even the generic
+    # parenthetical scan for the overwhelmingly common non-Armenian source.
+    if "հոդվածը" not in source_text:
+        return source_text
+
+    depth_scan_position = 0
+    depth = 0
 
     def parenthesis_depth_before(index: int) -> int:
-        # Built on first candidate only: sources with no standalone parenthetical
-        # never pay to map the whole text.
-        nonlocal depth_before
-        if depth_before is None:
-            depth_before = []
-            depth = 0
-            for character in source_text:
-                depth_before.append(depth)
-                if character == "(":
-                    depth += 1
-                elif character == ")":
-                    depth = max(0, depth - 1)
-        return depth_before[index]
+        # Candidates arrive in source order. Scan only as far as the next
+        # already-validated Armenian candidate and retain O(1) memory.
+        nonlocal depth, depth_scan_position
+        while depth_scan_position < index:
+            character = source_text[depth_scan_position]
+            if character == "(":
+                depth += 1
+            elif character == ")":
+                depth = max(0, depth - 1)
+            depth_scan_position += 1
+        return depth
 
     def replacement(match: re.Match[str]) -> str:
+        body = match.group("body")
+        article_prefix = _ARMENIAN_AMENDMENT_HISTORY_ARTICLE_PREFIX.match(body)
+        if article_prefix is None:
+            return match.group(0)
+
+        # Validate the narrow grammar before scanning any preceding source for
+        # nesting. An ordinary late-file `(a)` candidate therefore cannot cause
+        # a source-sized allocation or depth walk.
+        history = body[article_prefix.end() :].strip()
+        if not history or not _armenian_amendment_history_is_valid(history):
+            return match.group(0)
+
         # A candidate whose opening parenthesis sits inside another parenthetical
         # is nested, and the prompt contract keeps nested parentheticals as source
         # content. Strip only candidates that open at depth zero.
         if parenthesis_depth_before(match.start("body") - 1) != 0:
-            return match.group(0)
-
-        article_history = _ARMENIAN_AMENDMENT_HISTORY_ARTICLE.fullmatch(
-            match.group("body")
-        )
-        if article_history is None:
-            return match.group(0)
-
-        history = article_history.group("history")
-        if (
-            _ARMENIAN_AMENDMENT_HISTORY_ACTION.search(history) is None
-            or _ARMENIAN_AMENDMENT_HISTORY_CITATION.search(history) is None
-            or _ARMENIAN_AMENDMENT_HISTORY_SEQUENCE.fullmatch(history) is None
-        ):
             return match.group(0)
         return ""
 

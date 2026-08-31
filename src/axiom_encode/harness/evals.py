@@ -52,7 +52,10 @@ from axiom_encode.legacy_replacement_overlay import (
     scope_canonical_replacement_overlay,
     stage_legacy_replacement_overlay,
 )
-from axiom_encode.prompts.encoder import SOURCE_SCOPE_PROTOCOL
+from axiom_encode.prompts.encoder import (
+    ARMENIAN_ARLIS_EDITORIAL_HISTORY_PROTOCOL,
+    SOURCE_SCOPE_PROTOCOL,
+)
 from axiom_encode.repair_candidate_contract import (
     VALIDATION_RETRY_CANDIDATE_MAX_FILE_BYTES,
     VALIDATION_RETRY_CANDIDATE_MAX_TOTAL_BYTES,
@@ -10796,7 +10799,9 @@ RuleSpec requirements:
   that entity with a `kind: derived_relation` rule or import a RuleSpec file
   that declares it. Filtered entities have no structural existence without that
   dependency.
-{SOURCE_SCOPE_PROTOCOL}{dated_parameter_instruction}
+{SOURCE_SCOPE_PROTOCOL}
+{ARMENIAN_ARLIS_EDITORIAL_HISTORY_PROTOCOL}
+{dated_parameter_instruction}
 - If `./source.txt` is a broad application, furnishing, administrative duty, or purpose clause without a computable policy condition, preserve it in `module.summary` but do not create an executable derived output just to paraphrase it. Encode only the concrete conditions, exceptions, parameters, and relations that affect computation.
 - Do not create an output for administrative clauses like "assistance shall be furnished to all eligible households who make application." Unless the source defines a calculable benefit, amount, condition, or exception, keep that text documentary in `module.summary`.
 - Do not encode a pure pass-through rule whose formula is only one local fact. If the source only names a preexisting fact without changing it, reference the upstream rule when available or leave the phrase documentary.

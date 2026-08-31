@@ -3,6 +3,7 @@ from __future__ import annotations
 import functools
 import hashlib
 import time
+import tracemalloc
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -22991,6 +22992,20 @@ def test_armenian_history_filter_accepts_arlis_punctuation_variants(
     assert authoritative_numeric_recall_text(source) == "Շահառուին վճարել 500 դրամ:"
 
 
+@pytest.mark.parametrize(
+    "history",
+    (
+        "փոփ.08.09.08 ՀՕ-228",
+        "փոփ. 07.12.22 ՀՕ-538-2-Ն",
+    ),
+)
+def test_armenian_history_filter_accepts_authoritative_legacy_arlis_forms(history):
+    lead = "Շահառուին վճարել 500 դրամ:"
+    source = f"{lead}\n(1-ին հոդվածը {history})"
+
+    assert authoritative_numeric_recall_text(source) == lead
+
+
 def test_armenian_history_filter_accepts_crlf_source_text():
     source = ARMENIAN_MINIMUM_WAGE_SOURCE.replace("\n", "\r\n")
 
@@ -23054,12 +23069,60 @@ def test_armenian_history_filter_does_not_strip_inline_parenthetical():
         "(1-ին հոդվածը ուժը կորցրել 07.12.22 ՀՕ-538-Ն)",
         "(Օրենքը փոփ. 07.12.22 ՀՕ-538-Ն)",
         "(1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-Ա)",
+        "(1-ին հոդվածը փոփ. 07.12.22 ՀՕ-538-2)",
         "(1-ին հոդվածը փոփ. 7.12.22 ՀՕ-538-Ն)",
         "(1-ին հոդվածը փոփ. (տե՛ս) 07.12.22 ՀՕ-538-Ն)",
     ),
 )
 def test_armenian_history_filter_keeps_shapes_outside_prompt_contract(parenthetical):
     source = f"Շահառուին վճարել 500 դրամ:\n{parenthetical}"
+
+    assert authoritative_numeric_recall_text(source) == source
+
+
+@pytest.mark.parametrize("raw_date", ("00.00.22", "31.02.22", "32.13.2022"))
+def test_armenian_history_filter_keeps_calendar_invalid_dates(raw_date):
+    source = f"Շահառուին վճարել 500 դրամ:\n(1-ին հոդվածը փոփ. {raw_date} ՀՕ-538-Ն)"
+    result = _analyze(
+        "format: rulespec/v1\nrules: []\n",
+        source,
+        corpus_citation_path="am/statute/act-172160/article-1",
+        test_cases=[],
+        artifact_numeric_values=(500.0,),
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text,
+            profile="legacy",
+        ),
+    )
+
+    assert authoritative_numeric_recall_text(source) == source
+    assert _has_issue(result, "numeric-recall", "value 538")
+
+
+@pytest.mark.parametrize(
+    "history",
+    (
+        "փոփ. ٠٧.١٢.٢٢ ՀՕ-538-Ն",
+        "փոփ. 07.12.22 ՀՕ-５３８-Ն",
+    ),
+)
+def test_armenian_history_filter_keeps_non_ascii_date_or_identifier_digits(history):
+    lead = "Շահառուին վճարել 500 դրամ:"
+    source = f"{lead}\n(1-ին հոդվածը {history})"
+
+    assert authoritative_numeric_recall_text(source) == source
+
+
+@pytest.mark.parametrize(
+    "history",
+    (
+        "փոփ.",
+        "07.12.22 ՀՕ-538-Ն",
+    ),
+)
+def test_armenian_history_filter_keeps_action_only_or_citation_only_body(history):
+    lead = "Շահառուին վճարել 500 դրամ:"
+    source = f"{lead}\n(1-ին հոդվածը {history})"
 
     assert authoritative_numeric_recall_text(source) == source
 
@@ -23169,7 +23232,7 @@ def test_armenian_prompt_permitted_separators_are_stripped_by_validator(separato
     otherwise draw a spurious numeric-recall failure.
     """
 
-    contract = _armenian_prompt_contract()
+    contract = " ".join(_armenian_prompt_contract().split())
     assert "only whitespace, commas, or semicolons may separate these items" in contract
 
     source = (
@@ -23194,8 +23257,8 @@ def test_armenian_prompt_permitted_separators_are_stripped_by_validator(separato
 def test_armenian_prompt_permitted_year_widths_match_validator():
     """Parity: the prompt permits `DD.MM.YY` and `DD.MM.YYYY`, and nothing else."""
 
-    contract = _armenian_prompt_contract()
-    assert "`DD.MM.YY` or\n  `DD.MM.YYYY` date" in contract
+    contract = " ".join(_armenian_prompt_contract().split())
+    assert "`DD.MM.YY` or `DD.MM.YYYY` date" in contract
 
     lead = "Շահառուին վճարել 500 դրամ:"
     for year in ("22", "2022"):
@@ -23209,7 +23272,7 @@ def test_armenian_prompt_permitted_year_widths_match_validator():
 def test_armenian_prompt_keeps_nested_parentheticals_per_contract():
     """Parity: the prompt keeps nested parentheticals, so the validator must too."""
 
-    contract = _armenian_prompt_contract()
+    contract = " ".join(_armenian_prompt_contract().split())
     assert "contains no nested parenthetical" in contract
     assert "unpaired-date, nested, or otherwise unrecognized parenthetical" in contract
 
@@ -23296,6 +23359,37 @@ def test_armenian_history_filter_strips_adjacent_standalone_ledgers():
     )
 
     assert authoritative_numeric_recall_text(source) == "Շահառուին վճարել 500 դրամ:"
+
+
+def test_armenian_history_rejection_scales_subquadratically():
+    lead = "Շահառուին վճարել 500 դրամ:"
+    elapsed = []
+    for separator_length in (8_192, 16_384, 32_768):
+        source = f"{lead}\n(1-ին հոդվածը ա" + (" " * separator_length) + "բ)"
+        started = time.perf_counter()
+        assert (
+            completeness_module._strip_standalone_armenian_amendment_history(source)
+            == source
+        )
+        elapsed.append(time.perf_counter() - started)
+
+    assert elapsed[-1] < max(0.5, elapsed[0] * 8)
+
+
+def test_non_armenian_candidate_does_not_allocate_source_sized_depth_map():
+    source = ("ա" * 800_000) + "\n(a)"
+
+    tracemalloc.start()
+    try:
+        assert (
+            completeness_module._strip_standalone_armenian_amendment_history(source)
+            == source
+        )
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert peak < len(source) * 6
 
 
 def test_armenian_history_filter_preserves_later_effective_date_note():

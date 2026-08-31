@@ -1,36 +1,44 @@
-# encode#1559 sol-review fixes — progress
+# encode#1559 second Sol-review fixes — progress
 
 Branch `wt/encode-1559` → `origin/fix/editorial-numeric-recall` (PR #1559).
-Base head: b2fd624d ("Align Armenian prompt with recall grammar").
+Reviewed head: 32800e14 ("Format Armenian recall regressions").
 
 ## Scope
-Three sol-review defects in Armenian ARLIS editorial-history stripping
-(`src/axiom_encode/harness/source_completeness.py`).
+Five actionable second-review defects in Armenian ARLIS editorial-history
+stripping and the two encoder prompt surfaces.
 
 ## Done
-- [x] HIGH — nested-parenthetical stripping. Depth gate: only candidates whose
-      opening `(` sits at depth zero are stripped. Depth map built lazily.
-- [x] MEDIUM — malformed token sequences. Years `\d{2}(?:\d{2})?`; the history
-      must fullmatch a separator-delimited action/citation token sequence, which
-      bounds glued citations and glued uppercase actions.
-- [x] MEDIUM — `;` accepted as a separator, matching prompt line 1172.
-- [x] Extra (same defect class as #2): scoped `re.IGNORECASE` to the action
-      alternation via `(?i:...)`. The blanket flag also folded the citation
-      token, admitting lowercase `հօ-538-ն` identifiers.
-- [x] Separator made possessive — behavior-preserving, removes a quadratic
-      backtracking path.
+- [x] Replace the lazy/backtracking history regex with a deterministic token
+      scanner. The 32,768-space rejection probe fell from 2.254 seconds in the
+      review to 0.000134 seconds locally.
+- [x] Replace the source-sized depth list with an O(1)-memory monotone scan,
+      performed only after the Armenian grammar validates. Non-Armenian sources
+      now return before scanning generic parentheticals.
+- [x] Admit official single-number `ՀՕ-228` legacy identifiers,
+      `փոփ.08.09.08` dot-adjacent dates, and `ՀՕ-538-2-Ն` identifiers without
+      admitting glued action/citation residue or lowercase identifiers.
+- [x] Validate calendar dates, use ASCII digits in the admitted grammar, and
+      retain malformed dates for strict numeric recall.
+- [x] Factor one Armenian editorial-history protocol into both the ordinary
+      encoder and eval-authoring prompts; prompt generation is now 4.
+- [x] Add action-only, citation-only, invalid-date, official-form, scaling, and
+      allocation regressions.
 - [x] Version ratchet 0.2.1753 across pyproject/`__init__`/uv.lock + test pins
-      (origin/main is 0.2.1750, so 1753 stands). Prompt text unchanged, so no
-      prompt-generation bump.
+      (origin/main is 0.2.1750, so 1753 stands).
 
 ## Evidence
-- `tests/test_source_completeness.py`: 6186 passed (46 Armenian, was 29).
-- `tests/test_rulespec_validation.py`: 2519 passed.
-- `tests/test_cli.py` + `tests/test_complete_source_mode_plumbing.py`: 1332 passed.
-- `uv run ruff check .` clean; `git diff --check` clean.
-- Differential vs an independently written parser of the prompt contract:
-  2,000,376 generated bodies, 0 disagreements.
-- Differential possessive-vs-greedy separator: 262,264 histories, 0 mismatches.
+- `tests/test_source_completeness.py` plus complete-source plumbing: 6,215
+  passed.
+- `tests/test_evals.py` plus complete-source plumbing: 810 passed.
+- `tests/test_rulespec_validation.py`, `tests/test_cli.py`, and complete-source
+  plumbing: 3,851 passed.
+- Focused Armenian/prompt selection: 70 passed after the final narrow legacy-ID
+  grammar.
+- Targeted Ruff/format and `git diff --check` clean.
+- Broader and full-suite receipts will be recorded after this repair is
+  committed.
 
 ## Next
-Push to `origin/fix/editorial-numeric-recall`. Do not merge.
+Commit the repair, request a fresh exact-head independent review, then rerun
+GitHub CI. Keep the PR draft and do not merge until the review-fix cycle and
+durable Fable agreement both clear.

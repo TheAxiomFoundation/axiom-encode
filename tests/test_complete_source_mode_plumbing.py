@@ -10,7 +10,10 @@ from axiom_encode import cli
 from axiom_encode.harness import evals
 from axiom_encode.harness.evals import EvalWorkspace
 from axiom_encode.harness.validator_pipeline import ValidatorPipeline
-from axiom_encode.prompts.encoder import get_encoder_prompt
+from axiom_encode.prompts.encoder import (
+    ARMENIAN_ARLIS_EDITORIAL_HISTORY_PROTOCOL,
+    get_encoder_prompt,
+)
 
 _REQUIRED_PATH_ARGS = [
     "--corpus-path",
@@ -151,14 +154,17 @@ def test_generic_encoder_prompt_adds_completeness_only_when_enabled():
     assert "parameter/helper guards in the\n  single derived formula" in complete_prompt
     assert "omit oracle inputs or expectations" in complete_prompt
     assert "scalar-only source unit may remain parameter-only" in complete_prompt
-    assert "In Armenian ARLIS text" in default_prompt
-    assert "only a parenthetical on\n  its own line" in default_prompt
+    assert ARMENIAN_ARLIS_EDITORIAL_HISTORY_PROTOCOL.strip() in default_prompt
     assert "single ordinal-numbered article label" in default_prompt
-    assert "date immediately followed by" in default_prompt
-    assert "Keep every inline, plural or unnumbered" in default_prompt
-    assert "unpaired-date, nested, or otherwise unrecognized" in default_prompt
+    assert "calendar-valid `DD.MM.YY`" in default_prompt
+    normalized_prompt = " ".join(default_prompt.split())
+    assert "legacy `ՀՕ-N`" in normalized_prompt
+    assert "փոփ.08.09.08 ՀՕ-228" in default_prompt
+    assert "invalid dates are unrecognized" in default_prompt
     assert "otherwise lists only amendment dates" not in default_prompt
-    assert "parenthetical that states an operative amount" in complete_prompt
+    assert "parenthetical that states an operative amount" in " ".join(
+        complete_prompt.split()
+    )
     assert "single-principal-output case pairs" in complete_prompt
     assert "one large omnibus case" in complete_prompt
     assert "Build those boolean-gate witnesses mechanically" in complete_prompt
@@ -282,6 +288,9 @@ def test_eval_prompt_adds_completeness_only_when_enabled(tmp_path):
     assert "calendar constants `12`, `52`, `365`, `4`, or `24`" in complete_prompt
     assert "companion-test assertions on both\n  parameter outputs" in complete_prompt
     assert "separate grounded `kind: parameter` rules" not in default_prompt
+    contract = ARMENIAN_ARLIS_EDITORIAL_HISTORY_PROTOCOL.strip()
+    assert contract in default_prompt
+    assert contract in complete_prompt
     assert "exact missing RuleSpec targets under `blocked_by`" not in complete_prompt
     assert "the `reason` itself must literally cite the complete legal branch" in (
         complete_prompt
