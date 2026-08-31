@@ -691,9 +691,7 @@ def _pending_rebind_audit_fixture(
         )
     )
     changed_file = tmp_path / "changed.txt"
-    changed_file.write_bytes(
-        b"known-validation-gaps.yaml\0.axiom/toolchain.toml\0"
-    )
+    changed_file.write_bytes(b"known-validation-gaps.yaml\0.axiom/toolchain.toml\0")
     return root, module_path, corpus, base_file, base_toolchain, changed_file
 
 
@@ -794,9 +792,7 @@ def test_audit_rejects_inexact_pending_waiver_toolchain_evidence(
         prefix = b"axiom_corpus_release_content_sha256 = "
         head_toolchain.write_bytes(
             b"".join(
-                prefix + b'"' + b"c" * 64 + b'"\n'
-                if line.startswith(prefix)
-                else line
+                prefix + b'"' + b"c" * 64 + b'"\n' if line.startswith(prefix) else line
                 for line in lines
             )
         )
@@ -852,14 +848,12 @@ def test_audit_rejects_bad_waiver_binding_before_empty_execution(
         module_path = "us/statutes/module.yaml"
         module_paths = (module_path,)
         waiver = _waiver_yaml({module_path: {"active": ("a", None)}})
-    root, corpus, base_file, base_toolchain, changed_file = (
-        _transition_audit_fixture(
-            tmp_path,
-            base_waiver=waiver,
-            head_waiver=waiver,
-            module_paths=module_paths,
-            changed_paths=(),
-        )
+    root, corpus, base_file, base_toolchain, changed_file = _transition_audit_fixture(
+        tmp_path,
+        base_waiver=waiver,
+        head_waiver=waiver,
+        module_paths=module_paths,
+        changed_paths=(),
     )
     target_toolchain = (
         base_toolchain
@@ -940,14 +934,12 @@ def test_audit_rejects_digest_rebind_with_equal_waiver_semantics(
 ):
     module_path = "us/statutes/module.yaml"
     base_waiver = _waiver_yaml({module_path: {"active": ("a", None)}})
-    root, corpus, base_file, base_toolchain, changed_file = (
-        _transition_audit_fixture(
-            tmp_path,
-            base_waiver=base_waiver,
-            head_waiver=base_waiver + "# formatting-only rewrite\n",
-            module_paths=(module_path,),
-            changed_paths=("known-validation-gaps.yaml", ".axiom/toolchain.toml"),
-        )
+    root, corpus, base_file, base_toolchain, changed_file = _transition_audit_fixture(
+        tmp_path,
+        base_waiver=base_waiver,
+        head_waiver=base_waiver + "# formatting-only rewrite\n",
+        module_paths=(module_path,),
+        changed_paths=("known-validation-gaps.yaml", ".axiom/toolchain.toml"),
     )
 
     exit_code = cli._cmd_validation_waivers_audit(
@@ -977,14 +969,12 @@ def test_audit_rejects_multiple_pending_additions_before_execution(
             for path, marker in zip(module_paths, ("a", "b"), strict=True)
         }
     )
-    root, corpus, base_file, base_toolchain, changed_file = (
-        _transition_audit_fixture(
-            tmp_path,
-            base_waiver="validate_failures: {}\n",
-            head_waiver=head_waiver,
-            module_paths=module_paths,
-            changed_paths=("known-validation-gaps.yaml", ".axiom/toolchain.toml"),
-        )
+    root, corpus, base_file, base_toolchain, changed_file = _transition_audit_fixture(
+        tmp_path,
+        base_waiver="validate_failures: {}\n",
+        head_waiver=head_waiver,
+        module_paths=module_paths,
+        changed_paths=("known-validation-gaps.yaml", ".axiom/toolchain.toml"),
     )
 
     exit_code = cli._cmd_validation_waivers_audit(
@@ -1018,19 +1008,17 @@ def test_audit_accepts_exact_unexpired_pending_consumption(
         }
     )
     head_waiver = _waiver_yaml({module_path: {"active": ("b", None)}})
-    root, corpus, base_file, base_toolchain, changed_file = (
-        _transition_audit_fixture(
-            tmp_path,
-            base_waiver=base_waiver,
-            head_waiver=head_waiver,
-            module_paths=(module_path,),
-            changed_paths=(
-                "known-validation-gaps.yaml",
-                ".axiom/toolchain.toml",
-                module_path,
-                manifest_path,
-            ),
-        )
+    root, corpus, base_file, base_toolchain, changed_file = _transition_audit_fixture(
+        tmp_path,
+        base_waiver=base_waiver,
+        head_waiver=head_waiver,
+        module_paths=(module_path,),
+        changed_paths=(
+            "known-validation-gaps.yaml",
+            ".axiom/toolchain.toml",
+            module_path,
+            manifest_path,
+        ),
     )
     executed = [
         {
@@ -1092,25 +1080,23 @@ def test_audit_rejects_pending_consumption_without_authenticated_manifest(
     capsys,
 ):
     module_path = "us/statutes/module.yaml"
-    root, corpus, base_file, base_toolchain, changed_file = (
-        _transition_audit_fixture(
-            tmp_path,
-            base_waiver=_waiver_yaml(
-                {
-                    module_path: {
-                        "active": ("a", None),
-                        "pending": ("b", None),
-                    }
+    root, corpus, base_file, base_toolchain, changed_file = _transition_audit_fixture(
+        tmp_path,
+        base_waiver=_waiver_yaml(
+            {
+                module_path: {
+                    "active": ("a", None),
+                    "pending": ("b", None),
                 }
-            ),
-            head_waiver=_waiver_yaml({module_path: {"active": ("b", None)}}),
-            module_paths=(module_path,),
-            changed_paths=(
-                "known-validation-gaps.yaml",
-                ".axiom/toolchain.toml",
-                module_path,
-            ),
-        )
+            }
+        ),
+        head_waiver=_waiver_yaml({module_path: {"active": ("b", None)}}),
+        module_paths=(module_path,),
+        changed_paths=(
+            "known-validation-gaps.yaml",
+            ".axiom/toolchain.toml",
+            module_path,
+        ),
     )
 
     with patch.object(
@@ -1166,18 +1152,16 @@ def test_audit_rejects_direct_nonexact_or_lingering_pending_consumption(
     expected: str,
 ):
     module_path = "us/statutes/module.yaml"
-    root, corpus, base_file, base_toolchain, changed_file = (
-        _transition_audit_fixture(
-            tmp_path,
-            base_waiver=_waiver_yaml({module_path: base_states}),
-            head_waiver=_waiver_yaml({module_path: head_states}),
-            module_paths=(module_path,),
-            changed_paths=(
-                "known-validation-gaps.yaml",
-                ".axiom/toolchain.toml",
-                module_path,
-            ),
-        )
+    root, corpus, base_file, base_toolchain, changed_file = _transition_audit_fixture(
+        tmp_path,
+        base_waiver=_waiver_yaml({module_path: base_states}),
+        head_waiver=_waiver_yaml({module_path: head_states}),
+        module_paths=(module_path,),
+        changed_paths=(
+            "known-validation-gaps.yaml",
+            ".axiom/toolchain.toml",
+            module_path,
+        ),
     )
 
     exit_code = cli._cmd_validation_waivers_audit(
@@ -1203,27 +1187,23 @@ def test_audit_rejects_expired_pending_consumption(
 ):
     module_path = "us/statutes/module.yaml"
     expiry = expired.isoformat()
-    root, corpus, base_file, base_toolchain, changed_file = (
-        _transition_audit_fixture(
-            tmp_path,
-            base_waiver=_waiver_yaml(
-                {
-                    module_path: {
-                        "active": ("a", None),
-                        "pending": ("b", expiry),
-                    }
+    root, corpus, base_file, base_toolchain, changed_file = _transition_audit_fixture(
+        tmp_path,
+        base_waiver=_waiver_yaml(
+            {
+                module_path: {
+                    "active": ("a", None),
+                    "pending": ("b", expiry),
                 }
-            ),
-            head_waiver=_waiver_yaml(
-                {module_path: {"active": ("b", expiry)}}
-            ),
-            module_paths=(module_path,),
-            changed_paths=(
-                "known-validation-gaps.yaml",
-                ".axiom/toolchain.toml",
-                module_path,
-            ),
-        )
+            }
+        ),
+        head_waiver=_waiver_yaml({module_path: {"active": ("b", expiry)}}),
+        module_paths=(module_path,),
+        changed_paths=(
+            "known-validation-gaps.yaml",
+            ".axiom/toolchain.toml",
+            module_path,
+        ),
     )
 
     with pytest.raises(cli._validation_waivers.WaiverSchemaError, match="expired"):
@@ -1479,9 +1459,7 @@ def test_changed_paths_rejects_symlink_and_duplicate_path(tmp_path: Path):
         cli._validation_waiver_changed_paths(symlink)
 
     duplicate = tmp_path / "duplicate.txt"
-    duplicate.write_bytes(
-        b"known-validation-gaps.yaml\0known-validation-gaps.yaml\0"
-    )
+    duplicate.write_bytes(b"known-validation-gaps.yaml\0known-validation-gaps.yaml\0")
     with pytest.raises(ValueError, match="repeats path"):
         cli._validation_waiver_changed_paths(duplicate)
 

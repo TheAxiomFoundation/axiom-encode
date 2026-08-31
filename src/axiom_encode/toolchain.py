@@ -199,7 +199,9 @@ def validation_waiver_digest_transition_issues(
         return tuple(issues)
 
     if base_waiver_digest == head_waiver_digest:
-        issues.append("validation-waiver transition did not change the waiver-set bytes")
+        issues.append(
+            "validation-waiver transition did not change the waiver-set bytes"
+        )
 
     if base_fields[:2] != head_fields[:2]:
         issues.append(

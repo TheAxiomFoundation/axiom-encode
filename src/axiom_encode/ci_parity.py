@@ -499,9 +499,7 @@ def _git_regular_blob(
         raise ValueError(detail or "Protected-base Git tree cannot be read")
     records = [record for record in listing.stdout.split(b"\0") if record]
     if len(records) != 1:
-        raise ValueError(
-            f"Protected base does not contain exactly one {relative_path}"
-        )
+        raise ValueError(f"Protected base does not contain exactly one {relative_path}")
     try:
         metadata, encoded_path = records[0].split(b"\t", 1)
         mode, object_type, object_id, raw_size = metadata.decode("ascii").split()

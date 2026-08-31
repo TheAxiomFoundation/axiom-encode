@@ -4623,8 +4623,8 @@ def _cmd_validation_waivers_audit(args) -> int:
                 toolchain_bytes=head_toolchain_snapshot.raw,
                 validation_waiver_bytes=head_waiver_snapshot.raw,
             )
-            expected_encoder_identity = (
-                _read_only_guard_encoder_execution_identity(None)
+            expected_encoder_identity = _read_only_guard_encoder_execution_identity(
+                None
             )
             (
                 pending_consumption_expected_paths,
@@ -4667,15 +4667,11 @@ def _cmd_validation_waivers_audit(args) -> int:
             head_waiver_bytes=head_waiver_snapshot.raw,
             base_toolchain_bytes=base_toolchain_snapshot.raw,
             head_toolchain_bytes=head_toolchain_snapshot.raw,
-            pending_consumption_expected_paths=(
-                pending_consumption_expected_paths
-            ),
+            pending_consumption_expected_paths=(pending_consumption_expected_paths),
             today=audit_date,
         )
     )
-    transition_issues.extend(
-        _validation_waiver_snapshot_issues(transition_snapshots)
-    )
+    transition_issues.extend(_validation_waiver_snapshot_issues(transition_snapshots))
 
     if transition_issues:
         report = {
@@ -21091,13 +21087,18 @@ def guard_generated_change_issues(
             "rerun encode --apply, retire, or migrate-rulespec-paths to recover "
             "it before validation"
         ]
+    non_git_identity_error: RuntimeError | None = None
     try:
-        needs_git_diff = base_ref is not None or (
-            not all_files and changed_files is None
-        )
-        frozen_head_commit = (
-            _guard_git_commit(repo_path, head_ref) if needs_git_diff else None
-        )
+        frozen_head_commit = None
+        if base_ref is not None:
+            frozen_head_commit = _guard_git_commit(repo_path, head_ref)
+        elif not all_files and changed_files is None:
+            try:
+                frozen_head_commit = _guard_git_commit(repo_path, head_ref)
+            except RuntimeError as exc:
+                if "not a git repository" not in str(exc).lower():
+                    raise
+                non_git_identity_error = exc
         frozen_base_commit = (
             _guard_git_commit(repo_path, base_ref) if base_ref is not None else None
         )
@@ -21113,9 +21114,7 @@ def guard_generated_change_issues(
             label="head RuleSpec toolchain",
             max_bytes=MAX_RULESPEC_TOOLCHAIN_BYTES,
         )
-        current_waiver_set_sha256 = hashlib.sha256(
-            head_waiver_snapshot.raw
-        ).hexdigest()
+        current_waiver_set_sha256 = hashlib.sha256(head_waiver_snapshot.raw).hexdigest()
         local_corpus_release = load_rulespec_local_corpus_release_snapshot(
             repo_path,
             Path(corpus_path),
@@ -21124,6 +21123,47 @@ def guard_generated_change_issues(
         )
     except (RuntimeError, ValueError) as exc:
         return [f"RuleSpec corpus/toolchain binding is invalid: {exc}"]
+
+    # Preserve the historical non-Git helper use case only for a stable pair of
+    # excluded-only path observations, and only after loading the bound corpus
+    # above.  A real Git checkout always uses the frozen commit.  Any relevant
+    # path, disagreement between the two observations, or other Git failure
+    # remains fail closed.
+    if non_git_identity_error is not None:
+        try:
+            first_changed = _git_guard_changed_files(
+                repo_path,
+                base_ref=None,
+                head_ref=head_ref,
+            )
+            second_changed = _git_guard_changed_files(
+                repo_path,
+                base_ref=None,
+                head_ref=head_ref,
+            )
+        except RuntimeError as exc:
+            return [f"RuleSpec corpus/toolchain binding is invalid: {exc}"]
+        if first_changed != second_changed:
+            return [
+                "RuleSpec corpus/toolchain binding is invalid: changed paths "
+                "were not stable while checking non-Git excluded-only scope"
+            ]
+        relevant_metadata = {
+            _validation_waivers.DEFAULT_WAIVER_PATH,
+            _validation_waivers.DEFAULT_TOOLCHAIN_PATH,
+        }
+        if any(
+            Path(path).as_posix() in relevant_metadata
+            or _is_protected_rulespec_yaml_path(Path(path), roots=roots)
+            or _is_noncanonical_rulespec_yml_path(Path(path), roots=roots)
+            or _is_applied_encoding_manifest_path(Path(path), roots=roots)
+            for path in first_changed
+        ):
+            return [
+                "RuleSpec corpus/toolchain binding is invalid: "
+                f"{non_git_identity_error}"
+            ]
+        return []
     if all_files:
         changed = (
             _git_guard_changed_files(
@@ -21184,16 +21224,14 @@ def guard_generated_change_issues(
         expected_manifest_waiver_set_sha256,
         pending_consumption,
         waiver_transition_issues,
-    ) = (
-        _guard_manifest_waiver_set_identity(
-            repo_path,
-            base_commit=frozen_base_commit,
-            changed=changed,
-            protected=protected,
-            current_waiver_set_sha256=current_waiver_set_sha256,
-            head_waiver_bytes=head_waiver_snapshot.raw,
-            head_toolchain_bytes=head_toolchain_snapshot.raw,
-        )
+    ) = _guard_manifest_waiver_set_identity(
+        repo_path,
+        base_commit=frozen_base_commit,
+        changed=changed,
+        protected=protected,
+        current_waiver_set_sha256=current_waiver_set_sha256,
+        head_waiver_bytes=head_waiver_snapshot.raw,
+        head_toolchain_bytes=head_toolchain_snapshot.raw,
     )
     if waiver_transition_issues:
         return waiver_transition_issues
@@ -21266,17 +21304,15 @@ def guard_generated_change_issues(
         if closure_issues:
             return closure_issues
         assert consumption_closure is not None
-        final_transition_issues = (
-            _validation_waivers.protected_base_transition_issues(
-                pending_consumption.base_waivers,
-                pending_consumption.head_waivers,
-                changed_paths=set(changed),
-                base_waiver_bytes=pending_consumption.base_waiver_bytes,
-                head_waiver_bytes=pending_consumption.head_waiver_bytes,
-                base_toolchain_bytes=pending_consumption.base_toolchain_bytes,
-                head_toolchain_bytes=pending_consumption.head_toolchain_bytes,
-                pending_consumption_expected_paths=consumption_closure,
-            )
+        final_transition_issues = _validation_waivers.protected_base_transition_issues(
+            pending_consumption.base_waivers,
+            pending_consumption.head_waivers,
+            changed_paths=set(changed),
+            base_waiver_bytes=pending_consumption.base_waiver_bytes,
+            head_waiver_bytes=pending_consumption.head_waiver_bytes,
+            base_toolchain_bytes=pending_consumption.base_toolchain_bytes,
+            head_toolchain_bytes=pending_consumption.head_toolchain_bytes,
+            pending_consumption_expected_paths=consumption_closure,
         )
         if final_transition_issues:
             return [
@@ -21396,8 +21432,7 @@ def _guard_pending_consumption_manifest_closure(
     prefix = "RuleSpec pending consumption is invalid: "
     if missing_manifest_paths or len(surviving_manifest_paths) != 1:
         return None, [
-            prefix
-            + "exactly one changed, surviving encoder apply manifest is required"
+            prefix + "exactly one changed, surviving encoder apply manifest is required"
         ]
     changed_set = frozenset(Path(path).as_posix() for path in changed)
     changed_applied_paths = frozenset(set(manifest_entries) & changed_set)
@@ -21428,8 +21463,7 @@ def _guard_pending_consumption_manifest_closure(
     )
     if changed_set != expected:
         return None, [
-            prefix
-            + "changed paths must equal the waiver/toolchain, one manifest, and "
+            prefix + "changed paths must equal the waiver/toolchain, one manifest, and "
             "its changed applied-file closure "
             f"(expected={sorted(expected)}, actual={sorted(changed_set)})"
         ]
@@ -21459,10 +21493,14 @@ def _authenticated_pending_consumption_closure(
         if _is_applied_encoding_manifest_path(Path(path), roots=roots)
     ]
     if len(manifest_paths) != 1:
-        return None, [
-            "RuleSpec pending consumption is invalid: exactly one changed, "
-            "surviving encoder apply manifest is required"
-        ], None
+        return (
+            None,
+            [
+                "RuleSpec pending consumption is invalid: exactly one changed, "
+                "surviving encoder apply manifest is required"
+            ],
+            None,
+        )
     manifest_path = manifest_paths[0]
     manifest_file = repo_path / manifest_path
     manifest_label = f"pending-consumption apply manifest {manifest_path}"
@@ -21479,10 +21517,14 @@ def _authenticated_pending_consumption_closure(
     except SigningBrokerError as exc:
         return None, [str(exc)], None
     if not signing_broker:
-        return None, [
-            "A protected signing broker initialized from the three-root trust "
-            "config is required to verify encoder apply manifests"
-        ], None
+        return (
+            None,
+            [
+                "A protected signing broker initialized from the three-root trust "
+                "config is required to verify encoder apply manifests"
+            ],
+            None,
+        )
     proof_cache: dict[tuple[str, str], tuple[str, ...]] = {}
     payload, root_prefix, _digest, issues = (
         _load_verified_applied_encoding_manifest_payload(
@@ -21491,9 +21533,7 @@ def _authenticated_pending_consumption_closure(
             roots=roots,
             signing_broker=signing_broker,
             expected_waiver_set_sha256=expected_waiver_set_sha256,
-            expected_legacy_replacement_waiver_set_sha256=(
-                current_waiver_set_sha256
-            ),
+            expected_legacy_replacement_waiver_set_sha256=(current_waiver_set_sha256),
             local_corpus_release=local_corpus_release,
             expected_encoder_identity=expected_encoder_identity,
             path_migration_receipt_proof_cache=proof_cache,
@@ -21501,16 +21541,19 @@ def _authenticated_pending_consumption_closure(
         )
     )
     if issues or payload is None or root_prefix is None:
-        return None, (
-            issues
-            or [f"{manifest_path} is not a verified encoder apply manifest"]
-        ), None
+        return (
+            None,
+            (issues or [f"{manifest_path} is not a verified encoder apply manifest"]),
+            None,
+        )
     if _normalized_manifest_backend(payload) not in (
         APPLIED_ENCODING_GENERATED_BACKENDS
     ):
-        return None, [
-            f"{manifest_path} is not a model-generated encoder apply manifest"
-        ], None
+        return (
+            None,
+            [f"{manifest_path} is not a model-generated encoder apply manifest"],
+            None,
+        )
     entries: dict[str, set[str]] = defaultdict(set)
     applied_files = payload["applied_files"]
     assert isinstance(applied_files, list)
@@ -21570,13 +21613,17 @@ def _guard_manifest_waiver_set_identity(
 
     prefix = "RuleSpec waiver transition is invalid: "
     if metadata_changes != {waiver_path, toolchain_path}:
-        return current_waiver_set_sha256, None, [
-            prefix + f"{waiver_path} and {toolchain_path} must change together"
-        ]
+        return (
+            current_waiver_set_sha256,
+            None,
+            [prefix + f"{waiver_path} and {toolchain_path} must change together"],
+        )
     if base_commit is None:
-        return current_waiver_set_sha256, None, [
-            prefix + "a protected base commit is required"
-        ]
+        return (
+            current_waiver_set_sha256,
+            None,
+            [prefix + "a protected base commit is required"],
+        )
 
     try:
         base_waiver_bytes = _guard_git_regular_blob(
@@ -21595,9 +21642,11 @@ def _guard_manifest_waiver_set_identity(
         return current_waiver_set_sha256, None, [prefix + str(exc)]
     base_sha256 = hashlib.sha256(base_waiver_bytes).hexdigest()
     if base_sha256 == current_waiver_set_sha256:
-        return current_waiver_set_sha256, None, [
-            prefix + "the waiver set did not remove any protected-base entry"
-        ]
+        return (
+            current_waiver_set_sha256,
+            None,
+            [prefix + "the waiver set did not remove any protected-base entry"],
+        )
 
     try:
         base_waivers = _validation_waivers.load_validation_waivers_bytes(
@@ -21627,17 +21676,21 @@ def _guard_manifest_waiver_set_identity(
         pending_consumption_expected_paths=changed_set,
     )
     if transition_issues:
-        return current_waiver_set_sha256, None, [
-            prefix + issue for issue in transition_issues
-        ]
+        return (
+            current_waiver_set_sha256,
+            None,
+            [prefix + issue for issue in transition_issues],
+        )
 
     base_entries = dict(base_waivers.entries)
     head_entries = dict(head_waivers.entries)
     added = sorted(set(head_entries) - set(base_entries))
     if added:
-        return current_waiver_set_sha256, None, [
-            prefix + "new waiver entries are not allowed: " + ", ".join(added)
-        ]
+        return (
+            current_waiver_set_sha256,
+            None,
+            [prefix + "new waiver entries are not allowed: " + ", ".join(added)],
+        )
     consumed = sorted(
         path
         for path in set(base_entries) & set(head_entries)
@@ -21654,21 +21707,27 @@ def _guard_manifest_waiver_set_identity(
     )
     unexpected_changed_entries = sorted(set(changed_entries) - set(consumed))
     if unexpected_changed_entries:
-        return current_waiver_set_sha256, None, [
-            prefix
-            + "retained waiver entries may change only by exact pending "
-            "consumption: "
-            + ", ".join(unexpected_changed_entries)
-        ]
+        return (
+            current_waiver_set_sha256,
+            None,
+            [
+                prefix + "retained waiver entries may change only by exact pending "
+                "consumption: " + ", ".join(unexpected_changed_entries)
+            ],
+        )
 
     removed = sorted(set(base_entries) - set(head_entries))
     if consumed_path is not None:
         if removed:
-            return current_waiver_set_sha256, None, [
-                prefix
-                + "pending consumption may not also remove waiver entries: "
-                + ", ".join(removed)
-            ]
+            return (
+                current_waiver_set_sha256,
+                None,
+                [
+                    prefix
+                    + "pending consumption may not also remove waiver entries: "
+                    + ", ".join(removed)
+                ],
+            )
         return (
             base_sha256,
             _GuardPendingConsumption(
@@ -21683,16 +21742,22 @@ def _guard_manifest_waiver_set_identity(
             [],
         )
     if not removed:
-        return current_waiver_set_sha256, None, [
-            prefix + "the waiver set did not remove any protected-base entry"
-        ]
+        return (
+            current_waiver_set_sha256,
+            None,
+            [prefix + "the waiver set did not remove any protected-base entry"],
+        )
     unrelated = sorted(set(removed) - set(protected))
     if unrelated:
-        return current_waiver_set_sha256, None, [
-            prefix
-            + "removed entries must name changed protected RuleSpec modules: "
-            + ", ".join(unrelated)
-        ]
+        return (
+            current_waiver_set_sha256,
+            None,
+            [
+                prefix
+                + "removed entries must name changed protected RuleSpec modules: "
+                + ", ".join(unrelated)
+            ],
+        )
     invalid_states = [
         path
         for path in removed
@@ -21700,10 +21765,14 @@ def _guard_manifest_waiver_set_identity(
         and not _is_unambiguously_absent_repo_path(repo_path, Path(path))
     ]
     if invalid_states:
-        return current_waiver_set_sha256, None, [
-            prefix + "pending state may be removed only with its deleted protected "
-            "RuleSpec module: " + ", ".join(invalid_states)
-        ]
+        return (
+            current_waiver_set_sha256,
+            None,
+            [
+                prefix + "pending state may be removed only with its deleted protected "
+                "RuleSpec module: " + ", ".join(invalid_states)
+            ],
+        )
     return base_sha256, None, []
 
 

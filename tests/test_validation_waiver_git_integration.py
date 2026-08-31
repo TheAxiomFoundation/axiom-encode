@@ -128,8 +128,7 @@ def _waiver_yaml(
 def _build_corpus(tmp_path: Path):
     corpus = tmp_path / "axiom-corpus"
     provision = (
-        corpus
-        / "data/corpus/provisions/us/statute/waiver-git-integration.jsonl"
+        corpus / "data/corpus/provisions/us/statute/waiver-git-integration.jsonl"
     )
     _write(
         provision,
@@ -167,8 +166,7 @@ def _source_backed_module(source_sha256: str, *, head: bool = False) -> bytes:
         "  source_verification:\n"
         f"    corpus_citation_path: {_CORPUS_CITATION}\n"
         f"    source_sha256: {source_sha256}\n"
-        "rules: []\n"
-        + suffix
+        "rules: []\n" + suffix
     ).encode()
 
 
@@ -350,7 +348,9 @@ def _build_git_transition(tmp_path: Path, phase: str) -> _GitTransition:
     _git(repository, "checkout", "-q", "--detach", base_commit)
     head_worktree = tmp_path / "head" / "rulespec-us"
     head_worktree.parent.mkdir()
-    _git(repository, "worktree", "add", "-q", "--detach", str(head_worktree), head_commit)
+    _git(
+        repository, "worktree", "add", "-q", "--detach", str(head_worktree), head_commit
+    )
 
     evidence = tmp_path / "git-evidence"
     base_waiver_path = evidence / "protected-base-waivers.yaml"
@@ -414,7 +414,9 @@ def _audit(
     executor=None,
 ) -> tuple[int, dict[str, object]]:
     monkeypatch.setenv(cli._WAIVER_AUDIT_WORKERS_ENV, "1")
-    execution = executor or (lambda *_args, **_kwargs: list(transition.expected_execution))
+    execution = executor or (
+        lambda *_args, **_kwargs: list(transition.expected_execution)
+    )
 
     with (
         patch.object(
@@ -453,14 +455,17 @@ def test_real_git_cross_worktree_accepts_exact_transition_proof(
     assert exit_code == 0
     assert report["success"] is True
     assert report["checked"] == 1
-    assert _git(
-        transition.repository,
-        "diff",
-        "--name-only",
-        "-z",
-        transition.base_commit,
-        transition.head_commit,
-    ) == transition.changed_paths.read_bytes()
+    assert (
+        _git(
+            transition.repository,
+            "diff",
+            "--name-only",
+            "-z",
+            transition.base_commit,
+            transition.head_commit,
+        )
+        == transition.changed_paths.read_bytes()
+    )
     if phase in {"consumption", "pending-only-consumption"}:
         assert _MANIFEST_PATH.encode() + b"\0" in transition.changed_paths.read_bytes()
 
@@ -594,9 +599,7 @@ def test_real_git_rejects_deterministic_same_byte_replacement_race(
         try:
             if not replace_now.wait(timeout=10):
                 raise AssertionError("audit never reached the post-snapshot executor")
-            replacement = evidence_path.with_name(
-                f"{evidence_path.name}.replacement"
-            )
+            replacement = evidence_path.with_name(f"{evidence_path.name}.replacement")
             replacement.write_bytes(evidence_path.read_bytes())
             os.replace(replacement, evidence_path)
         except BaseException as exc:  # surfaced deterministically in the test thread

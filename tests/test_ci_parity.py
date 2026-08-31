@@ -253,18 +253,24 @@ def test_ci_evidence_uses_frozen_exact_blobs_and_nul_paths(tmp_path: Path) -> No
     _git(repo, "branch", "-f", "base-proof", head)
 
     assert frozen_base == base
-    assert _git_regular_blob(
-        repo,
-        frozen_base,
-        "known-validation-gaps.yaml",
-        max_bytes=MAX_VALIDATION_WAIVER_SET_BYTES,
-    ) == protected_waivers
-    assert _git_regular_blob(
-        repo,
-        frozen_base,
-        ".axiom/toolchain.toml",
-        max_bytes=MAX_RULESPEC_TOOLCHAIN_BYTES,
-    ) == protected_toolchain
+    assert (
+        _git_regular_blob(
+            repo,
+            frozen_base,
+            "known-validation-gaps.yaml",
+            max_bytes=MAX_VALIDATION_WAIVER_SET_BYTES,
+        )
+        == protected_waivers
+    )
+    assert (
+        _git_regular_blob(
+            repo,
+            frozen_base,
+            ".axiom/toolchain.toml",
+            max_bytes=MAX_RULESPEC_TOOLCHAIN_BYTES,
+        )
+        == protected_toolchain
+    )
     assert _changed_paths_nul(repo, frozen_base, head) == (
         b".axiom/toolchain.toml\0"
         b"dk/statutes/line\nbreak.yaml\0"
@@ -318,12 +324,15 @@ def test_ci_evidence_ignores_ambient_git_repo_redirection(
     monkeypatch.setenv("GIT_WORK_TREE", str(redirect))
 
     assert _freeze_git_commit(target, "HEAD") == target_head
-    assert _git_regular_blob(
-        target,
-        target_head,
-        "known-validation-gaps.yaml",
-        max_bytes=MAX_VALIDATION_WAIVER_SET_BYTES,
-    ) == target_waivers
+    assert (
+        _git_regular_blob(
+            target,
+            target_head,
+            "known-validation-gaps.yaml",
+            max_bytes=MAX_VALIDATION_WAIVER_SET_BYTES,
+        )
+        == target_waivers
+    )
 
 
 def test_ci_evidence_caps_changed_path_transport(
@@ -717,7 +726,10 @@ def test_execute_gates_preserves_order_and_uses_pin_gate_parameters(
     waiver_result = next(
         result for result in results if result.gate == "validation_waivers"
     )
-    assert waiver_result.command[waiver_result.command.index("--changed-paths-format") + 1] == "nul-v1"
+    assert (
+        waiver_result.command[waiver_result.command.index("--changed-paths-format") + 1]
+        == "nul-v1"
+    )
     assert waiver_result.note == (
         "local immutable-evidence compatibility check; pinned historical "
         "workflow lacks this evidence and is not transition-compatible"
@@ -752,8 +764,7 @@ def test_execute_gates_does_not_invoke_audit_with_invalid_base_evidence(
     repo = tmp_path / "rulespec-dk"
     repo.mkdir()
     paths = {
-        name: tmp_path / name
-        for name in ("encode", "engine", "corpus", "rulespec_us")
+        name: tmp_path / name for name in ("encode", "engine", "corpus", "rulespec_us")
     }
     caller = CallerConfig(
         tmp_path / "caller.yml",

@@ -41625,13 +41625,10 @@ class TestGuardGenerated:
             )
         )
         base_waiver = "validate_failures:\n" + active_body + pending_body
-        head_waiver = (
-            "validate_failures:\n"
-            + self._waiver_entry_text(
-                relative,
-                state="active",
-                fingerprint="2" * 64,
-            )
+        head_waiver = "validate_failures:\n" + self._waiver_entry_text(
+            relative,
+            state="active",
+            fingerprint="2" * 64,
         )
         return self._waiver_retirement_repo(
             tmp_path,
@@ -48865,6 +48862,42 @@ class TestProgramsRootExcludedFromAtomicGuard:
         assert "All changed RuleSpec files have encoder apply manifests." in (
             capsys.readouterr().out
         )
+
+    def test_non_git_excluded_scope_fails_if_second_diff_becomes_protected(
+        self, capsys, tmp_path
+    ):
+        checkout = tmp_path / "rulespec-us"
+        release = _bind_test_corpus_release(
+            checkout,
+            tmp_path / "axiom-corpus",
+        )
+        program = checkout / "programs/us/snap/fy-2026.yaml"
+        program.parent.mkdir(parents=True)
+        program.write_text("program: us/snap\nperiod: 2026-01\noutputs: [benefit]\n")
+
+        with (
+            patch(
+                "axiom_encode.cli._git_changed_files",
+                side_effect=[
+                    ["programs/us/snap/fy-2026.yaml"],
+                    ["us-tn/statutes/snap/fy-2026.yaml"],
+                ],
+            ),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_guard_generated(
+                SimpleNamespace(
+                    repo=checkout,
+                    corpus_path=release.root,
+                    base_ref=None,
+                    head_ref="HEAD",
+                    json=False,
+                    all=False,
+                )
+            )
+
+        assert exc_info.value.code == 1
+        assert "changed paths were not stable" in capsys.readouterr().out
 
 
 class TestManifestCurrentState:

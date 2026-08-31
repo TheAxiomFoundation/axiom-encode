@@ -3,7 +3,7 @@
 ## State
 
 - Branch: `fix/1558-waiver-toolchain-transition`.
-- Current resumed head: `b4139370385a3eb6675d4d9de2bef93a6907cafb`; the worktree was clean at this session's start and contains 17 commits over the last successfully fetched `origin/main`.
+- The branch is stacked directly on optional-inventory PR #1566 at exact head `410c81383826e9620ab969057631a9550d95e64b`, whose base is the live-fetched `origin/main` at `f1bfe0a47ee7a9123d56e00a5c41edb6f272ea21`; the core review diff therefore excludes the prerequisite's commits.
 - Live-fetched `origin/main` and merge base: `f1bfe0a47ee7a9123d56e00a5c41edb6f272ea21`.
 - Resumed implementation: `f03d4f9b4a9fcfa1bbe7195c80fab6e15e5322c0`; resumed tracking head: `00de31256addce7c0b8f1d82a3b97b7779925cc5`; neither is approved.
 - Salvage ref `refs/codex-salvage/fix-1558-waiver-toolchain-transition-20260830-212600-98091` resolves to `3ee0586841748ca3a57c92088b226d7f8f1799cc`.
@@ -14,7 +14,7 @@
 - Both lawful consumption forms remain supported: a pending-only base may initialize active for a newly encoded module, and an active-plus-pending base may replace active. Both require the same authenticated module and signed-manifest generated closure.
 - The inspected reusable-workflow sibling head `3e7976cc2aaab4e3e712285814e335493187a950` is not compatible: it loses NUL framing, omits protected-base toolchain evidence, accepts the wrong consumption shape, and lacks exact Git object-mode proof. No workflow pin or historical fixture is being changed until that dependency implements this contract.
 - Both supported historical workflow pins explicitly declare immutable transition evidence unsupported. Local CI now runs the current library's stricter immutable-evidence compatibility check without claiming that the hosted historical workflows implement it.
-- An earlier `git fetch --prune origin` succeeded on 2026-08-31. This resumed session's fetch is DNS-blocked, GitHub web lookup did not expose the issue/branch state, and the GitNexus command registry remains unavailable; retry issue/PR inspection, push, and draft-PR creation after local checks are green.
+- Live GitHub fetches on 2026-08-31 verified both the main and prerequisite heads. The core reserves encoder version `0.2.1752`, after #1566's `0.2.1751` and before the dependent cleanup's planned `0.2.1753`.
 
 ## Done
 
@@ -55,9 +55,11 @@
 - Made exact protected-base and head waiver/toolchain binding unconditional before audit partitioning or execution, closing the empty-ledger and empty-partition bypass.
 - Preserved both pending-only and active-plus-pending consumption, and extended the real linked-worktree, signed-manifest adversarial, materialized-evidence mutation, and same-byte replacement-race matrix across both forms.
 - Passed `217` focused waiver/toolchain/audit/Git integration tests and all `91` `guard-generated` tests, plus targeted Ruff, after the final binding and state-machine correction.
+- Rebased the complete core branch directly onto exact prerequisite head `410c81383826e9620ab969057631a9550d95e64b`, preserving a pre-stack salvage ref and an isolated core-only diff.
+- Fixed the broad-suite non-Git excluded-program regression without weakening Git-backed validation: real repositories freeze HEAD before classification, while a genuine non-Git helper invocation requires two identical excluded-only observations after binding the corpus to waiver/toolchain bytes. Added a protected-path mutation regression; the guard matrices pass (`96 passed`).
+- Synchronized `0.2.1752` across package metadata, lock metadata, and every exact packaged oracle/RuleSpec version assertion. The focused core (`217 passed`) and toolchain/CI-parity (`84 passed`) matrices remain green on the stacked tree.
 
 ## Next
 
-- Stack this branch on exact optional-inventory head `410c81383826e9620ab969057631a9550d95e64b`, reserve encoder version `0.2.1752`, and synchronize every version assertion without duplicating optional-inventory commits in the core review diff.
-- Re-run the version-provenance and broad test matrices, reconcile the reusable workflow to the exact authenticated-closure contract, then complete independent exact-head review-fix cycles.
+- Complete the running packaged-version/RuleSpec matrix, reconcile the reusable workflow to the exact authenticated-closure contract, then complete independent exact-head review-fix cycles.
 - Verify commit messages and PR body, refresh live upstream, push, and open a draft PR linked to #1558 only if every required check remains green; do not merge.

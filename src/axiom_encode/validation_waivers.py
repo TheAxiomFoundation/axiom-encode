@@ -677,9 +677,7 @@ def protected_base_transition_issues(
                     f"{consumption_path}: pending approval expired on "
                     f"{base_entry.pending.expires}"
                 )
-            required_paths = frozenset(
-                {waiver_path, toolchain_path, consumption_path}
-            )
+            required_paths = frozenset({waiver_path, toolchain_path, consumption_path})
             if pending_consumption_expected_paths is None:
                 issues.append(
                     "pending-to-active consumption requires a caller-authenticated "
