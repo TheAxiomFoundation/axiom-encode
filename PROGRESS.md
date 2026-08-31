@@ -8,6 +8,7 @@
 - Salvage ref `refs/codex-salvage/fix-1558-waiver-toolchain-transition-20260830-212600-98091` resolves to `3ee0586841748ca3a57c92088b226d7f8f1799cc`.
 - The salvage ref's exact 673-line adversarial test patch has been reconciled intact and committed as its own recovery checkpoint.
 - Pending creation is byte-bound, but pure pending-to-active consumption still accepts semantic evidence without requiring the protected-base/head waiver and toolchain snapshots.
+- Contract decision: consumption cannot be a waiver/toolchain-only pull request; it must be induced by the exact consumed module and rebind the exact waiver/toolchain pair. The reusable workflow's current `{waiver, toolchain}`-only activation draft is incompatible and must be corrected before pinning.
 - `git fetch --prune origin` succeeds, but GitHub API access and the GitNexus command registry are unavailable in this sandbox; retry issue/PR inspection, push, and draft-PR creation after local checks are green.
 
 ## Done
@@ -19,11 +20,12 @@
 - Re-read the assignment, repository `AGENTS.md`, generated repository context, commit history, live-fetched upstream, salvage commit, and exact worktree-to-salvage comparison on 2026-08-31.
 - Read the complete surviving uncommitted test diff and retained the useful semantic-no-op, expiry, toolchain-formatting, evidence-mutation, and transition cases for reconciliation.
 - Passed 483 recovered focused tests across validation-waiver semantics, toolchain binding, stable evidence reads, and audit CLI integration on 2026-08-31.
+- Added failing contract tests proving consumption must use exact base/head waiver and toolchain bytes, the consumed module plus waiver/toolchain path set, and exactly one unchanged-surroundings waiver entry (`3 failed, 42 passed` against the incomplete core).
 - Confirmed the creation contract must remain exactly one new pending field in the exact waiver/toolchain pair, with active state and corpus pins unchanged and both raw snapshots bound.
 
 ## Next
 
 - Define and test the consumption protocol as the exact waiver/toolchain pair: changing waiver bytes necessarily requires the one digest substitution so the head toolchain binds the head waiver bytes.
-- Make all protected-base evidence mandatory, validate creation and consumption from one stable snapshot, recheck every input path, and reject mixed/multiple/stale/raced transitions.
+- Make all protected-base evidence mandatory, validate creation and module-induced consumption from one stable snapshot, recheck every input path, and reject mixed/multiple/stale/raced transitions.
 - Update the reusable workflow dependency/fixtures and documentation to the same contract, add real Git worktree integration tests, and preserve decrement behavior.
 - Run focused and broad checks, complete independent review-fix cycles, verify commit messages and PR body, then refresh/push/open a draft PR linked to #1558 without merging.
