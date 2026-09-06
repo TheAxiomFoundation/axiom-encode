@@ -822,6 +822,16 @@ _UNICODE_FRACTION_VALUES = {
     "⅝": 0.625,
     "⅞": 0.875,
 }
+# The Unicode fraction slash (U+2044) exists only to typeset vulgar fractions,
+# so unlike an ASCII "/" it needs no context guard: Israeli statutory text
+# prints a quarter credit point that way in Income Tax Ordinance section 36,
+# and a date or a ratio is never written with it.
+_FRACTION_SLASH_PATTERN = re.compile(
+    "(?<![\\d\u2044])"
+    "(?:(?P<whole>\\d+)\\s+)?"
+    "(?P<numerator>\\d+)\\s*\u2044\\s*(?P<denominator>\\d+)"
+    "(?![\\d\u2044])"
+)
 _FRACTION_WORD_VALUES = {
     "half time": 0.5,
     "one half": 0.5,
@@ -2969,6 +2979,15 @@ def extract_numbers_from_text(text: str) -> set[float]:
     numbers.update(_extract_dotted_date_year_values(original_text))
     numbers.update(_extract_centime_unit_values(original_text))
     numbers.update(_extract_annual_context_values(original_text))
+    for match in _FRACTION_SLASH_PATTERN.finditer(original_text):
+        with contextlib.suppress(ValueError, ZeroDivisionError):
+            whole = float(match.group("whole") or 0)
+            numerator = float(match.group("numerator"))
+            denominator = float(match.group("denominator"))
+            # The printed numerator and denominator are as substantive as the
+            # fraction they compose: an encoding may state a quarter of a
+            # credit point as 0.25 or as the explicit pair the statute prints.
+            numbers.update((whole + numerator / denominator, numerator, denominator))
     numbers.update(_extract_vehicle_tax_fiscal_power_table_values(original_text))
 
     for span, value in _iter_normalized_special_numeric_matches(text):
@@ -3645,6 +3664,17 @@ def _clean_source_text_for_numeric_extraction(text: str) -> str:
     # Strip the glued suffix so grouped-thousands parsing sees a clean
     # boundary; a spaced "=" (a real equation, "x = 5") is left untouched.
     text = re.sub(r"(?<=\d)/?=(?=\s|$)", "", text)
+    # Hebrew prose attaches the one-letter prefix preposition to a following
+    # numeral with a maqaf, the Hebrew hyphen (U+05BE): mem-maqaf-84,120
+    # ("from 84,120") in Income Tax Ordinance section 121, bet-maqaf-2.24
+    # ("times 2.24") in National Insurance Law section 68(b). The maqaf is in
+    # no digit-boundary character class, so the grouped-thousands matcher's
+    # lookbehind never fires: the first is misread as the trailing "120" and
+    # the second is dropped outright. Detach it the way the currency glyphs
+    # above are detached; an ASCII hyphen in the same position already parses
+    # correctly. The lookahead fires only before a digit, so a maqaf between
+    # two Hebrew words is left untouched.
+    text = re.sub("\u05be(?=\\d)", "\u05be ", text)
     cleaned_lines: list[str] = []
     preserve_split_schedule_value = False
     for line in text.splitlines():
