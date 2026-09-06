@@ -6417,6 +6417,15 @@ def test_numeric_extraction_handles_unicode_fraction_slash():
     assert {0.25, 1.0, 4.0} <= numbers
     # A mixed number resolves to its total as well as its printed parts.
     assert {1.5, 1.0, 2.0} <= extract_numbers_from_text("a factor of 1 1\u20442 applies")
+    # Hebrew typesetting glues the integer part to the numerator, because that
+    # is what "2<sup>1</sup>&frasl;<sub>2</sub>" flattens to. Income Tax
+    # Ordinance section 66(c)(4)(a) grants 2.5, 4.5 and 3.5 credit points, and
+    # the improper readings 10.5, 20.5 and 15.5 are not values it states.
+    ladder = extract_numbers_from_text(
+        "21\u20442 \u05e0\u05e7\u05d5\u05d3\u05d5\u05ea, 41\u20442 \u05e0\u05e7\u05d5\u05d3\u05d5\u05ea, 31\u20442 \u05e0\u05e7\u05d5\u05d3\u05d5\u05ea"
+    )
+    assert {2.5, 4.5, 3.5} <= ladder
+    assert not ({10.5, 20.5, 15.5} & ladder)
     # The ASCII slash keeps its existing context guard: a date is not a
     # fraction, and the fraction-slash rule must not loosen that.
     assert 0.25 not in extract_numbers_from_text("signed 1/4/2020 by the registrar")

@@ -829,7 +829,7 @@ _UNICODE_FRACTION_VALUES = {
 _FRACTION_SLASH_PATTERN = re.compile(
     "(?<![\\d\u2044])"
     "(?:(?P<whole>\\d+)\\s+)?"
-    "(?P<numerator>\\d+)\\s*\u2044\\s*(?P<denominator>\\d+)"
+    "(?P<lead>\\d+)\\s*\u2044\\s*(?P<denominator>\\d+)"
     "(?![\\d\u2044])"
 )
 _FRACTION_WORD_VALUES = {
@@ -2981,13 +2981,26 @@ def extract_numbers_from_text(text: str) -> set[float]:
     numbers.update(_extract_annual_context_values(original_text))
     for match in _FRACTION_SLASH_PATTERN.finditer(original_text):
         with contextlib.suppress(ValueError, ZeroDivisionError):
-            whole = float(match.group("whole") or 0)
-            numerator = float(match.group("numerator"))
+            raw_whole = match.group("whole")
+            lead = match.group("lead")
+            if raw_whole is None and len(lead) > 1:
+                # A mixed number typeset with a fraction slash carries its
+                # integer part glued to the numerator, because that is what
+                # `2<sup>1</sup>&frasl;<sub>2</sub>` flattens to. Income Tax
+                # Ordinance section 66(c)(4)(a) grants "21/2 credit points",
+                # meaning two and a half, and 21/2 = 10.5 is not a reading any
+                # statute intends. Take the last digit as the numerator and
+                # everything before it as the whole part.
+                raw_whole, lead = lead[:-1], lead[-1]
+            whole = float(raw_whole or 0)
+            numerator = float(lead)
             denominator = float(match.group("denominator"))
-            # The printed numerator and denominator are as substantive as the
-            # fraction they compose: an encoding may state a quarter of a
-            # credit point as 0.25 or as the explicit pair the statute prints.
+            # The printed parts are as substantive as the fraction they
+            # compose: an encoding may state a quarter of a credit point as
+            # 0.25 or as the explicit pair the statute prints.
             numbers.update((whole + numerator / denominator, numerator, denominator))
+            if raw_whole:
+                numbers.add(whole)
     numbers.update(_extract_vehicle_tax_fiscal_power_table_values(original_text))
 
     for span, value in _iter_normalized_special_numeric_matches(text):
