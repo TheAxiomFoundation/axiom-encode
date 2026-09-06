@@ -31401,6 +31401,48 @@ rules:
             in repaired
         )
 
+    def test_repair_embedded_scalar_literals_keeps_non_latin_text_readable(
+        self, tmp_path
+    ):
+        # The repair rewrites the module the model produced. For a Hebrew
+        # provision that means the summary, the proof excerpts and the rule
+        # sources are Hebrew; escaping them to \\uXXXX on the way out would make
+        # the encoding unreadable next to the statute it encodes, for no gain.
+        summary = "\u05d1\u05d7\u05d9\u05e9\u05d5\u05d1 \u05d4\u05de\u05e1 \u05e9\u05dc \u05d0\u05e9\u05d4 \u05ea\u05d5\u05d1\u05d0 \u05d1\u05d7\u05e9\u05d1\u05d5\u05df \u05e0\u05e7\u05d5\u05d3\u05ea \u05d6\u05d9\u05db\u05d5\u05d9."
+        content = f"""format: rulespec/v1
+module:
+  summary: {summary}
+  source_verification:
+    corpus_citation_path: il/statute/income-tax-ordinance/section-36
+rules:
+  - name: travel_credit_points
+    kind: derived
+    entity: Person
+    dtype: Count
+    period: Year
+    source: "\u05e1\u05e2\u05d9\u05e3 36 \u05dc\u05e4\u05e7\u05d5\u05d3\u05d4"
+    versions:
+      - effective_from: '2025-01-01'
+        formula: resident_credit_points / 4
+"""
+        issues = [
+            "Embedded scalar literal: travel_credit_points line 14 embeds 4 in "
+            "`resident_credit_points / 4`; extract the value to its own named "
+            "numeric concept or indexed table/grid value"
+        ]
+
+        repaired, repaired_rules = _repair_embedded_scalar_literals(
+            content,
+            relative_output=Path("statutes/income-tax-ordinance/section-36.yaml"),
+            policy_repo_path=tmp_path / "rulespec-il",
+            issues=issues,
+        )
+
+        assert repaired_rules == ["travel_credit_points_scalar_limit"]
+        assert summary in repaired
+        assert "\u05e1\u05e2\u05d9\u05e3 36 \u05dc\u05e4\u05e7\u05d5\u05d3\u05d4" in repaired
+        assert "\\u05" not in repaired
+
     def test_repair_embedded_scalar_literals_writes_signed_manifest(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us-co"
         target = policy_repo / "regulations/10-ccr-2506-1/4.402.2.yaml"

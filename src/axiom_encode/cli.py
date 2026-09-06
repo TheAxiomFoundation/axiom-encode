@@ -7991,7 +7991,7 @@ def _upsert_test_case(
 
 
 def _write_yaml_payload(path: Path, payload: object) -> None:
-    path.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    path.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
 
 
 def _move_mapping_value(
@@ -10547,7 +10547,7 @@ def _dump_rulespec_repair_yaml(payload: Any) -> str:
         payload,
         Dumper=_RulespecRepairDumper,
         sort_keys=False,
-        allow_unicode=False,
+        allow_unicode=True,
         width=1000,
     )
 
@@ -10557,7 +10557,7 @@ def _render_rulespec_rule_block(rule: dict[str, Any]) -> str:
         [rule],
         Dumper=_RulespecRepairBlockDumper,
         sort_keys=False,
-        allow_unicode=False,
+        allow_unicode=True,
         width=1000,
     )
     return "".join(
@@ -15375,14 +15375,14 @@ def cmd_repair_ssa_poms_optional_supplement_common(args):
             yaml.safe_dump(
                 _ssa_poms_optional_supplement_common_document(),
                 sort_keys=False,
-                allow_unicode=False,
+                allow_unicode=True,
             )
         )
         common_test_file.write_text(
             yaml.safe_dump(
                 _ssa_poms_optional_supplement_common_tests(),
                 sort_keys=False,
-                allow_unicode=False,
+                allow_unicode=True,
             )
         )
         changed_relative_outputs.append(
@@ -16075,7 +16075,7 @@ def _retarget_ssa_poms_optional_supplement_state_file(
             existing_imports.add(import_target)
 
     document["rules"] = remaining_rules
-    content = yaml.safe_dump(document, sort_keys=False, allow_unicode=False)
+    content = yaml.safe_dump(document, sort_keys=False, allow_unicode=True)
     if content_root is not None:
         target_base = _rulespec_anchor_base_for_output(
             content_root,
@@ -16141,7 +16141,7 @@ def _retarget_ssa_poms_optional_supplement_test_inputs(
                         break
         if changed:
             test_file.write_text(
-                yaml.safe_dump(cases, sort_keys=False, allow_unicode=False)
+                yaml.safe_dump(cases, sort_keys=False, allow_unicode=True)
             )
 
 
@@ -16331,7 +16331,7 @@ def _repair_child_fragment_reencoding_aliases(
     if not repaired:
         return []
 
-    content = yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
+    content = yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
     content, removed_imports = _prune_unused_imports(content)
     for removed in removed_imports:
         repaired.append(f"remove_unused_import:{removed}")
@@ -21450,7 +21450,7 @@ def _ensure_section_151_filing_status_test_inputs(content: str) -> str:
         return content
     if not _add_section_151_filing_status_inputs_recursive(payload):
         return content
-    return yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
+    return yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
 
 
 def _add_section_151_filing_status_inputs_recursive(value: object) -> bool:
@@ -22207,7 +22207,7 @@ def _remove_tax_status_component_test_inputs(
 
     if not removed:
         return test_content, []
-    return yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False), sorted(
+    return yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True), sorted(
         set(removed)
     )
 
@@ -22429,7 +22429,7 @@ def _insert_missing_source_proof_atoms_structured(
 
     rules = payload.get("rules")
     if not isinstance(rules, list):
-        return yaml.safe_dump(payload, sort_keys=False, allow_unicode=False), []
+        return yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), []
 
     repaired_rules: list[str] = []
     for rule in rules:
@@ -22465,7 +22465,7 @@ def _insert_missing_source_proof_atoms_structured(
         repaired_rules.append(rule_name)
 
     return (
-        yaml.safe_dump(payload, sort_keys=False, allow_unicode=False),
+        yaml.safe_dump(payload, sort_keys=False, allow_unicode=True),
         repaired_rules,
     )
 
@@ -22822,7 +22822,7 @@ def _refresh_existing_oracle_parameter_test_inputs(
         return []
 
     test_file.write_text(
-        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
     )
     return refreshed
 
@@ -23165,7 +23165,7 @@ def _append_exception_positive_companion_tests_if_missing(
     if not repaired:
         return []
     test_file.write_text(
-        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
     )
     return repaired
 
@@ -23389,7 +23389,7 @@ def _normalized_test_value_for_signature(value: object) -> str:
         return yaml.safe_dump(
             value,
             sort_keys=True,
-            allow_unicode=False,
+            allow_unicode=True,
         ).strip()
     return _normalized_generated_test_scalar(value)
 
@@ -23616,7 +23616,7 @@ def _append_generic_zero_branch_tests_if_missing(
     if not repaired:
         return []
     test_file.write_text(
-        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
     )
     return repaired
 
@@ -23981,7 +23981,7 @@ def _append_generated_derived_output_tests_if_missing(
     if not repaired:
         return []
     test_file.write_text(
-        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
     )
     return repaired
 
@@ -24059,7 +24059,7 @@ def _append_generated_judgment_positive_tests_if_missing(
             trial_payload.append(synthesized)
             if test_failure_checker is not None:
                 test_file.write_text(
-                    yaml.safe_dump(trial_payload, sort_keys=False, allow_unicode=False)
+                    yaml.safe_dump(trial_payload, sort_keys=False, allow_unicode=True)
                 )
                 failures = test_failure_checker(
                     test_file,
@@ -24089,7 +24089,7 @@ def _append_generated_judgment_positive_tests_if_missing(
             trial_payload.append(companion)
             if test_failure_checker is not None:
                 test_file.write_text(
-                    yaml.safe_dump(trial_payload, sort_keys=False, allow_unicode=False)
+                    yaml.safe_dump(trial_payload, sort_keys=False, allow_unicode=True)
                 )
                 failures = test_failure_checker(
                     test_file,
@@ -24103,7 +24103,7 @@ def _append_generated_judgment_positive_tests_if_missing(
 
         if candidate_payload is None:
             test_file.write_text(
-                yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+                yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
             )
             continue
         test_payload = candidate_payload
@@ -24113,7 +24113,7 @@ def _append_generated_judgment_positive_tests_if_missing(
     if not repaired:
         return []
     test_file.write_text(
-        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
     )
     return repaired
 
@@ -25075,7 +25075,7 @@ def _remove_generated_import_output_input_placeholders(
     if not changed:
         return []
     test_file.write_text(
-        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
     )
     return sorted(removable_refs)
 
@@ -25115,7 +25115,7 @@ def _remove_invalid_test_input_refs(
     if not changed:
         return []
     test_file.write_text(
-        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
     )
     return sorted(removable_refs)
 
@@ -25153,7 +25153,7 @@ def _remove_unknown_test_output_refs(
     if not changed:
         return []
     test_file.write_text(
-        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
     )
     return sorted(removable_refs)
 
@@ -25209,7 +25209,7 @@ def _rewrite_import_output_test_input_refs(
     if not changed:
         return []
     test_file.write_text(
-        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
     )
     return sorted(f"{old} -> {new}" for old, new in rename_map.items())
 
@@ -25265,7 +25265,7 @@ def _remove_invalid_import_output_test_input_refs(
     if not changed:
         return []
     test_file.write_text(
-        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
     )
     return sorted(invalid_refs)
 
@@ -25385,7 +25385,7 @@ def _repair_snap_2014c_income_standard_test_inputs(
     if not repaired_cases:
         return []
     test_file.write_text(
-        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
     )
     return repaired_cases
 
@@ -25466,7 +25466,7 @@ def _repair_snap_2739_income_test_inputs(
     if not repaired_cases:
         return []
     test_file.write_text(
-        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
     )
     return repaired_cases
 
@@ -25544,7 +25544,7 @@ def _repair_stale_exclusion_dependency_test_input_refs(
     if not changed:
         return []
     test_file.write_text(
-        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
     )
     return sorted(replacements)
 
@@ -25592,7 +25592,7 @@ def _rewrite_stale_imported_test_input_refs(
     if not changed:
         return []
     test_file.write_text(
-        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
     )
     return sorted(f"{old} -> {new}" for old, new in replacements.items())
 
@@ -30220,7 +30220,7 @@ def _try_repair_generated_embedded_scalar_literals_for_apply(
 
     if not repaired:
         return []
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     return repaired
 
 
@@ -30294,7 +30294,7 @@ def _repair_embedded_scalar_literals(
     if not repaired:
         return content, []
     return (
-        yaml.safe_dump(payload, sort_keys=False, allow_unicode=False),
+        yaml.safe_dump(payload, sort_keys=False, allow_unicode=True),
         repaired,
     )
 
@@ -30367,7 +30367,7 @@ def _try_repair_generated_bare_snapunit_entity_for_apply(
 
     if not repaired:
         return []
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     return repaired
 
 
@@ -30492,7 +30492,7 @@ def _try_repair_generated_unsupported_entity_outputs_for_apply(
     ]
     if not payload["rules"]:
         module.setdefault("status", "deferred")
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     _remove_generated_test_outputs_for_deferred_rules(
         test_file=_rulespec_test_path(rules_file),
         base_anchor=base_anchor,
@@ -30678,7 +30678,7 @@ def _try_repair_generated_source_child_corpus_paths_for_apply(
     )
     if not changed:
         return []
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     return [f"{path}->{child_corpus_path}" for path in parent_paths]
 
 
@@ -30733,7 +30733,7 @@ def _try_repair_generated_source_subparagraph_rule_sources_for_apply(
 
     if not repaired:
         return []
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     return repaired
 
 
@@ -31109,7 +31109,7 @@ def _repair_predecessor_scalar_limits(
     repaired = list(dict.fromkeys(repaired))
     if repaired:
         rules_file.write_text(
-            yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
+            yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
         )
     return repaired
 
@@ -31818,7 +31818,7 @@ def _try_repair_generated_delegated_policy_settings_for_apply(
         *wrapper_additions,
         *rules[insert_at:],
     ]
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     return repaired
 
 
@@ -32606,7 +32606,7 @@ def _try_repair_generated_source_relation_delegations_for_apply(
     if changed:
         payload["rules"] = retained_rules
         rules_file.write_text(
-            yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
+            yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
         )
     return repaired
 
@@ -32660,7 +32660,7 @@ def _try_repair_generated_invalid_source_relation_types_for_apply(
 
     if not repaired:
         return []
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     return repaired
 
 
@@ -33053,7 +33053,7 @@ def _convert_versioned_boolean_parameters_to_indicators(
                 names=converted_set,
             )
 
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     return converted
 
 
@@ -33180,7 +33180,7 @@ def _collapse_additive_versioned_derived_formulas(
     if repaired:
         payload["rules"] = rewritten_rules
         rules_file.write_text(
-            yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
+            yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
         )
         if test_file is not None and selector_repairs:
             _add_selector_version_test_inputs(test_file, selector_repairs)
@@ -33394,7 +33394,7 @@ def _add_selector_version_test_inputs(
 
     if changed:
         test_file.write_text(
-            yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
+            yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
         )
 
 
@@ -33552,7 +33552,7 @@ def _promote_boolean_comparison_predicates_to_judgment(
     if not repaired:
         return []
 
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     if test_file is not None:
         _rewrite_boolean_test_values_as_judgments(test_file, set(repaired))
     return repaired
@@ -33612,7 +33612,7 @@ def _rewrite_negated_comparison_formulas(rules_file: Path) -> list[str]:
     if not repaired:
         return []
 
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     return repaired
 
 
@@ -33693,7 +33693,7 @@ def _rewrite_negated_sum_where_predicates(rules_file: Path) -> list[str]:
     if not repaired:
         return []
 
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     return repaired
 
 
@@ -33852,7 +33852,7 @@ def _rewrite_judgment_numeric_comparisons(
     if not repaired:
         return []
 
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     return repaired
 
 
@@ -33898,7 +33898,7 @@ def _rewrite_judgment_conditional_formulas(rules_file: Path) -> list[str]:
     if not repaired:
         return []
 
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     return repaired
 
 
@@ -34424,7 +34424,7 @@ def _rewrite_boolean_test_values_as_judgments(
 
     if changed:
         test_file.write_text(
-            yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
+            yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
         )
 
 
@@ -34514,7 +34514,7 @@ def _promote_module_layout_members(*, rules_file: Path) -> dict[str, list[str]]:
             reordered[promoted_key] = payload[promoted_key]
 
     rules_file.write_text(
-        yaml.safe_dump(reordered, sort_keys=False, allow_unicode=False)
+        yaml.safe_dump(reordered, sort_keys=False, allow_unicode=True)
     )
     return promoted
 
@@ -34582,7 +34582,7 @@ def _hoist_nested_test_tables(test_file: Path) -> list[str]:
     if not repaired_cases:
         return []
 
-    test_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    test_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     return repaired_cases
 
 
@@ -34676,7 +34676,7 @@ def _try_repair_generated_missing_data_relations_for_apply(
 
     test_file = _rulespec_test_path(rules_file)
     _remove_stale_relation_scalar_inputs(test_file, repaired)
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     return repaired
 
 
@@ -34886,7 +34886,7 @@ def _remove_stale_relation_scalar_inputs(
 
     if not removed:
         return []
-    test_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    test_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     return removed
 
 
@@ -35074,7 +35074,7 @@ def _repair_child_numeric_reencoding_parent_aliases(
         name_replacements=replacements,
         full_ref_replacements=full_ref_replacements,
     )
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     return removed_rules
 
 
@@ -35291,7 +35291,7 @@ def _repair_scalar_relation_rows(
 
     if not repaired:
         return []
-    test_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    test_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     return repaired
 
 
@@ -35376,7 +35376,7 @@ def _repair_aca_36b_b_premium_assistance_compat(rules_file: Path) -> list[str]:
 
     if not repairs:
         return []
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     return repairs
 
 
@@ -35679,7 +35679,7 @@ def _split_table_row_relation_test_cases(test_file: Path) -> list[str]:
         payload["cases"] = updated_cases
     else:
         payload = updated_cases
-    test_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    test_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     return repaired_cases
 
 
@@ -35823,7 +35823,7 @@ def _try_repair_generated_invalid_proof_atom_kinds_for_apply(
 
     if not repairs:
         return []
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     return repairs
 
 
@@ -36058,7 +36058,7 @@ def _canonicalize_or_remove_invalid_deferred_source_values(
 
     if not repaired:
         return []
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     return repaired
 
 
@@ -36113,7 +36113,7 @@ def _remove_out_of_scope_deferred_outputs(
         module["deferred_outputs"] = kept
     else:
         module.pop("deferred_outputs", None)
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     return removed
 
 
@@ -36214,7 +36214,7 @@ def _qualify_deferred_output_subsection_paths(
     if not repaired:
         return []
 
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     return repaired
 
 
@@ -36297,7 +36297,7 @@ def _try_repair_generated_missing_deferred_outputs_for_apply(
         }
     )
     payload["rules"] = []
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     return [output]
 
 
@@ -36384,7 +36384,7 @@ def _try_repair_generated_mixed_missing_deferred_outputs_for_apply(
 
     if not repaired:
         return []
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     return repaired
 
 
@@ -36474,7 +36474,7 @@ def _try_repair_generated_admin_agency_aggregate_entities_for_apply(
 
     module["deferred_outputs"] = deferred_outputs
     payload["rules"] = []
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
 
     test_file = _rulespec_test_path(rules_file)
     if test_file.exists():
@@ -36638,7 +36638,7 @@ def _try_repair_generated_nonoperative_source_coverage_for_apply(
         if not deferred_outputs:
             module.pop("deferred_outputs", None)
         return []
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     return repaired
 
 
@@ -36928,7 +36928,7 @@ def _try_repair_generated_unsafe_formula_outputs_for_apply(
         if not repaired_deferred_outputs:
             return []
         rules_file.write_text(
-            yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
+            yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
         )
         return repaired_deferred_outputs
 
@@ -37071,7 +37071,7 @@ def _try_repair_generated_unsafe_formula_outputs_for_apply(
         _remove_imports_with_fragments(payload, unresolved_import_symbols)
     if not payload["rules"]:
         module.setdefault("status", "deferred")
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
 
     _remove_generated_test_outputs_for_deferred_rules(
         test_file=_rulespec_test_path(rules_file),
@@ -37562,7 +37562,7 @@ def _rewrite_generated_day_period_test_shorthands(
     if not repaired:
         return []
     test_file.write_text(
-        yaml.safe_dump(test_cases, sort_keys=False, allow_unicode=False)
+        yaml.safe_dump(test_cases, sort_keys=False, allow_unicode=True)
     )
     return repaired
 
@@ -37609,7 +37609,7 @@ def _remove_generated_empty_output_test_cases(
     if not removed:
         return []
     test_file.write_text(
-        yaml.safe_dump(repaired_cases, sort_keys=False, allow_unicode=False)
+        yaml.safe_dump(repaired_cases, sort_keys=False, allow_unicode=True)
     )
     return removed
 
@@ -37663,7 +37663,7 @@ def _remove_generated_test_output_refs(
     if not removed:
         return []
     test_file.write_text(
-        yaml.safe_dump(repaired_cases, sort_keys=False, allow_unicode=False)
+        yaml.safe_dump(repaired_cases, sort_keys=False, allow_unicode=True)
     )
     return removed
 
@@ -38192,7 +38192,7 @@ def _repair_input_field_accesses_in_formulas(*, rules_file: Path) -> list[str]:
     if not repaired:
         return []
 
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     return repaired
 
 
@@ -38340,7 +38340,7 @@ def _try_repair_generated_unreferenced_percent_label_parameters_for_apply(
     if not removed:
         return []
     payload["rules"] = retained_rules
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
 
     test_file = _rulespec_test_path(rules_file)
     target_anchor = _relative_output_to_anchor(
@@ -38528,7 +38528,7 @@ def _remove_companion_outputs_for_removed_rules(
         retained_cases.append(case)
     if changed:
         test_file.write_text(
-            yaml.safe_dump(retained_cases, sort_keys=False, allow_unicode=False)
+            yaml.safe_dump(retained_cases, sort_keys=False, allow_unicode=True)
         )
 
 
@@ -38603,7 +38603,7 @@ def _repair_half_unit_add_person_formulas(rules_file: Path) -> list[str]:
     repaired = list(dict.fromkeys(name for name in repaired if name))
     if repaired:
         rules_file.write_text(
-            yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
+            yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
         )
     return repaired
 
@@ -38838,7 +38838,7 @@ def _normalize_top_level_parameter_values_to_versions(rules_file: Path) -> list[
 
     if not repaired:
         return []
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     return repaired
 
 
@@ -38951,7 +38951,7 @@ def _convert_indexed_parameter_values_to_derived_formulas(
 
     if not repaired:
         return []
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     return repaired
 
 
@@ -39057,7 +39057,7 @@ def _repair_float_keyed_indexed_parameter_values(
     repaired = list(dict.fromkeys(name for name in repaired if name))
     if not repaired:
         return []
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     if test_file is not None and selector_key_maps:
         _repair_float_keyed_indexed_parameter_test_outputs(test_file, selector_key_maps)
     return repaired
@@ -39751,7 +39751,7 @@ def _repair_shared_statutory_rate_names(
     if not replacements:
         return []
 
-    content = yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
+    content = yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
     for old, new in replacements.items():
         content = _replace_formula_identifier(content, old=old, new=new)
         content = re.sub(
@@ -39929,7 +39929,7 @@ def _repair_shared_statutory_rate_test_refs(
             key_replacements[f"{anchor}#{old}"] = f"{anchor}#{new}"
     if not _replace_mapping_keys_recursive(payload, key_replacements):
         return
-    test_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    test_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
 
 
 def _try_repair_generated_employer_scope_for_apply(
@@ -40007,7 +40007,7 @@ def _repair_employer_scoped_entities(
     if not repaired:
         return []
 
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     return repaired
 
 
@@ -40096,7 +40096,7 @@ def _repair_person_scoped_rate_base_entities(
     if not repaired:
         return []
 
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     return repaired
 
 
@@ -40206,7 +40206,7 @@ def _inline_medicaid_magi_income_helpers(
             isinstance(rule, dict) and str(rule.get("name") or "").strip() in removed
         )
     ]
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     _remove_test_outputs_for_rule_names(test_file, removed)
     return repaired
 
@@ -40350,7 +40350,7 @@ def _remove_test_outputs_for_rule_names(test_file: Path, rule_names: set[str]) -
 
     if changed:
         test_file.write_text(
-            yaml.safe_dump(repaired_cases, sort_keys=False, allow_unicode=False)
+            yaml.safe_dump(repaired_cases, sort_keys=False, allow_unicode=True)
         )
 
 
@@ -40447,7 +40447,7 @@ def _repair_unit_scoped_person_definition_entities(
     if not repaired:
         return []
 
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     return repaired
 
 
@@ -40591,7 +40591,7 @@ def _repair_person_scoped_definition_entities(
     if not repaired:
         return []
 
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     return repaired
 
 
@@ -41185,7 +41185,7 @@ def _add_imported_output_passthrough_test_overrides(
     if not changed:
         return []
     test_file.write_text(
-        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
     )
     return repairs
 
@@ -41223,7 +41223,7 @@ def _replace_computed_output_test_inputs_with_upstream_inputs(
     if not repairs:
         return []
     test_file.write_text(
-        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
     )
     return repairs
 
@@ -42050,7 +42050,7 @@ def _add_imported_gate_test_overrides(
     if not changed:
         return []
     test_file.write_text(
-        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
     )
     return repairs
 
@@ -42095,7 +42095,7 @@ def _repair_formula_alias_output_test_inputs(
     if not changed:
         return []
     test_file.write_text(
-        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
     )
     return repairs
 
@@ -42451,7 +42451,7 @@ def _rename_self_referential_derived_rule_inputs(
     if not changed_rules:
         return []
     rules_file.write_text(
-        yaml.safe_dump(rules_payload, sort_keys=False, allow_unicode=False)
+        yaml.safe_dump(rules_payload, sort_keys=False, allow_unicode=True)
     )
 
     if test_file.exists():
@@ -42466,7 +42466,7 @@ def _rename_self_referential_derived_rule_inputs(
             }
             if _replace_mapping_keys_recursive(test_payload, key_replacements):
                 test_file.write_text(
-                    yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+                    yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
                 )
 
     return [f"{old}->{new}" for old, new in sorted(replacements.items())]
@@ -42570,7 +42570,7 @@ def _try_repair_generated_wrong_typed_test_inputs_for_apply(
     if not repaired:
         return []
     test_file.write_text(
-        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
     )
     return repaired
 
@@ -42711,7 +42711,7 @@ def _try_repair_generated_target_prefix_typos_for_apply(
     if not _replace_mapping_keys_recursive(test_payload, replacements):
         return []
     test_file.write_text(
-        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
     )
     return [f"{old}->{new}" for old, new in sorted(replacements.items())]
 
@@ -42772,7 +42772,7 @@ def _try_repair_generated_import_target_prefix_typos_for_apply(
     if not _replace_mapping_keys_recursive(test_payload, replacements):
         return []
     test_file.write_text(
-        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
     )
     return [f"{old}->{new}" for old, new in sorted(replacements.items())]
 
@@ -42965,7 +42965,7 @@ def _repair_section_1401_b_1_self_employment_income_import(
 
     if not repaired:
         return []
-    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=False))
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
     return repaired
 
 
@@ -43069,7 +43069,7 @@ def _append_section_1401_b_1_uncapped_self_employment_income_test(
         }
     )
     test_file.write_text(
-        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
     )
     return [f"test:{case_name}"]
 
@@ -43146,7 +43146,7 @@ def _add_section_1401_policyengine_oracle_inputs(*, test_file: Path) -> list[str
     if not repaired_cases:
         return []
     test_file.write_text(
-        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
     )
     return repaired_cases
 
@@ -43431,7 +43431,7 @@ def _fill_current_index_inputs_from_imported_tests(
     if not repaired_cases:
         return []
     test_file.write_text(
-        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
     )
     return repaired_cases
 
@@ -43509,7 +43509,7 @@ def _fill_missing_test_input_assignments(
     if not repaired_cases:
         return []
     test_file.write_text(
-        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
     )
     return repaired_cases
 
@@ -43706,7 +43706,7 @@ def _repair_positive_imported_judgment_composition_tests(
     if not changed:
         return []
     test_file.write_text(
-        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
     )
     return repairs
 
@@ -44006,7 +44006,7 @@ def _repair_imported_output_test_mismatches(
     if not repaired_cases:
         return []
     test_file.write_text(
-        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
     )
     return repaired_cases
 
@@ -44070,7 +44070,7 @@ def _repair_auto_output_test_mismatches(
     if not repaired_cases:
         return []
     test_file.write_text(
-        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
     )
     return repaired_cases
 
@@ -44157,7 +44157,7 @@ def _repair_conditional_vacuity_test_mismatches(
     if not repaired_cases:
         return []
     test_file.write_text(
-        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=False)
+        yaml.safe_dump(test_payload, sort_keys=False, allow_unicode=True)
     )
     return repaired_cases
 
@@ -45921,7 +45921,7 @@ def _repair_generated_import_symbol_near_misses(
             old=old_symbol,
             new=new_symbol,
         )
-    content = yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
+    content = yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
     rules_file.write_text(content)
     return repaired
 
@@ -46202,7 +46202,7 @@ def _repair_generated_restatement_source_relation_for_apply(
         return []
 
     rules_file.write_text(
-        yaml.safe_dump(rules_document, sort_keys=False, allow_unicode=False)
+        yaml.safe_dump(rules_document, sort_keys=False, allow_unicode=True)
     )
     return repairs
 
@@ -46307,7 +46307,7 @@ def _remove_local_test_outputs_and_empty_cases(
 
     if changed:
         test_file.write_text(
-            yaml.safe_dump(repaired_cases, sort_keys=False, allow_unicode=False)
+            yaml.safe_dump(repaired_cases, sort_keys=False, allow_unicode=True)
         )
     return changed
 
@@ -46395,7 +46395,7 @@ def _repair_upstream_placement_duplicate_imports(
         rules_document["rules"] = [*remaining_rules, *restatement_rules]
         rules_document.pop("imports", None)
         rules_file.write_text(
-            yaml.safe_dump(rules_document, sort_keys=False, allow_unicode=False)
+            yaml.safe_dump(rules_document, sort_keys=False, allow_unicode=True)
         )
         if test_file.exists():
             test_file.write_text("[]\n")
@@ -46426,7 +46426,7 @@ def _repair_upstream_placement_duplicate_imports(
             targets_by_name=duplicate_targets_by_name,
         )
 
-    content = yaml.safe_dump(rules_document, sort_keys=False, allow_unicode=False)
+    content = yaml.safe_dump(rules_document, sort_keys=False, allow_unicode=True)
     content, _ = _repair_proof_import_hashes(
         content,
         target_base=target_base,
@@ -46561,7 +46561,7 @@ def _remove_local_test_output_refs_for_names(
 
     if changed:
         test_file.write_text(
-            yaml.safe_dump(cases, sort_keys=False, allow_unicode=False)
+            yaml.safe_dump(cases, sort_keys=False, allow_unicode=True)
         )
     return changed
 
@@ -46630,7 +46630,7 @@ def _repair_imported_rule_name_collisions(
         )
 
     rules_file.write_text(
-        yaml.safe_dump(rules_document, sort_keys=False, allow_unicode=False)
+        yaml.safe_dump(rules_document, sort_keys=False, allow_unicode=True)
     )
 
     if test_file.exists():
@@ -47561,7 +47561,7 @@ def _remove_invalid_dependent_test_inputs(
                 updated = yaml.safe_dump(
                     updated_payload,
                     sort_keys=False,
-                    allow_unicode=False,
+                    allow_unicode=True,
                 )
         if updated == content:
             continue
@@ -47736,7 +47736,7 @@ def _remove_unknown_dependent_test_outputs(
         if not file_changed:
             continue
         test_path.write_text(
-            yaml.safe_dump(test_cases, sort_keys=False, allow_unicode=False)
+            yaml.safe_dump(test_cases, sort_keys=False, allow_unicode=True)
         )
         changed.append(test_path)
     return changed
@@ -47827,7 +47827,7 @@ def _remove_cross_module_dependent_test_outputs(
         if not file_changed:
             continue
         test_path.write_text(
-            yaml.safe_dump(test_cases, sort_keys=False, allow_unicode=False)
+            yaml.safe_dump(test_cases, sort_keys=False, allow_unicode=True)
         )
         changed.append(test_path)
     return changed
@@ -48481,7 +48481,7 @@ def _insert_input_default_in_table_entity_rows(
 
     if not changed:
         return content
-    return yaml.safe_dump(payload, sort_keys=False, allow_unicode=False)
+    return yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
 
 
 def _insert_input_default_in_relation_rows(

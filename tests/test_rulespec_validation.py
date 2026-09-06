@@ -6379,6 +6379,32 @@ def test_numeric_extraction_handles_hebrew_maqaf_before_numeral():
     ) == set()
 
 
+def test_numeric_extraction_reads_hebrew_ordinal_and_cardinal_words():
+    # Israeli statutes name a position in a sequence with an ordinal word and
+    # almost never with a digit. National Insurance Law section 68(b) sets a
+    # rate for "the fourth child" and "the fifth child", and section 68(c) a
+    # supplement for a parent entitled for "three children or more"; not one of
+    # 3, 4, 5 is printed as a numeral anywhere in the provision.
+    section_68 = (
+        "\u05d5\u05d4\u05d5\u05d0 \u05d4\u05d9\u05dc\u05d3 \u05d4\u05e8\u05d1\u05d9\u05e2\u05d9 \u05d5\u05d0\u05d9\u05dc\u05da; "
+        "\u05dc\u05d2\u05d1\u05d9 \u05d9\u05dc\u05d3 \u05e9\u05d4\u05d5\u05d0 \u05d4\u05d9\u05dc\u05d3 \u05d4\u05d7\u05de\u05d9\u05e9\u05d9 \u05d5\u05d0\u05d9\u05dc\u05da; "
+        "\u05d1\u05e2\u05d3 \u05e9\u05dc\u05d5\u05e9\u05d4 \u05d9\u05dc\u05d3\u05d9\u05dd \u05d0\u05d5 \u05d9\u05d5\u05ea\u05e8"
+    )
+    assert {3.0, 4.0, 5.0} <= extract_numbers_from_text(section_68)
+    # The construct cardinal carries the same weight: Income Tax Ordinance
+    # section 34 grants two credit points and prints no digit at all.
+    assert 2.0 in extract_numbers_from_text(
+        "\u05d9\u05d5\u05d1\u05d0\u05d5 \u05d1\u05d7\u05e9\u05d1\u05d5\u05df \u05e9\u05ea\u05d9 \u05e0\u05e7\u05d5\u05d3\u05d5\u05ea \u05d6\u05d9\u05db\u05d5\u05d9"
+    )
+    # A one-letter prefix binds to the word, with or without a maqaf, and the
+    # definite article may stack behind the conjunction.
+    assert 4.0 in extract_numbers_from_text("\u05d5\u05d4\u05e8\u05d1\u05d9\u05e2\u05d9")
+    assert 2.0 in extract_numbers_from_text("\u05db\u05be\u05e9\u05ea\u05d9 \u05e0\u05e7\u05d5\u05d3\u05d5\u05ea")
+    # A longer word that merely contains a number word is not a number: the
+    # boundary guard rejects a match inside a surrounding Hebrew word.
+    assert extract_numbers_from_text("\u05d4\u05e9\u05e0\u05d9\u05dd \u05d4\u05d0\u05d7\u05e8\u05d5\u05e0\u05d5\u05ea") == set()
+
+
 def test_numeric_extraction_handles_unicode_fraction_slash():
     # Income Tax Ordinance section 36 grants a quarter of a credit point,
     # typeset with the Unicode fraction slash (U+2044) rather than a

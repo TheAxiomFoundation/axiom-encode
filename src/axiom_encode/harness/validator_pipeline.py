@@ -3002,6 +3002,11 @@ def extract_numbers_from_text(text: str) -> set[float]:
             continue
         numbers.add(value)
         occupied_spans.append(span)
+    for span, value in _iter_hebrew_number_word_matches(original_text):
+        if _span_overlaps(span, occupied_spans):
+            continue
+        numbers.add(value)
+        occupied_spans.append(span)
     for span, value in _iter_ordinal_word_number_matches(text):
         if _span_overlaps(span, occupied_spans):
             continue
@@ -3211,6 +3216,96 @@ def _iter_normalized_special_numeric_matches(
         with contextlib.suppress(ValueError):
             matches.append((match.span(1), float(match.group(1).replace(",", ""))))
 
+    return matches
+
+
+_HEBREW_NUMBER_WORD_VALUES: dict[str, float] = {
+    # Ordinals, masculine and feminine. Israeli statutes name a position in a
+    # sequence this way and almost never with a digit: National Insurance Law
+    # section 68(b) speaks of "\u05d4\u05d9\u05dc\u05d3 \u05d4\u05e8\u05d1\u05d9\u05e2\u05d9" (the fourth child) and
+    # "\u05d4\u05d9\u05dc\u05d3 \u05d4\u05d7\u05de\u05d9\u05e9\u05d9" (the fifth child).
+    "\u05e8\u05d0\u05e9\u05d5\u05df": 1.0,
+    "\u05e8\u05d0\u05e9\u05d5\u05e0\u05d4": 1.0,
+    "\u05e9\u05e0\u05d9": 2.0,
+    "\u05e9\u05e0\u05d9\u05d9\u05d4": 2.0,
+    "\u05e9\u05e0\u05d9\u05d4": 2.0,
+    "\u05e9\u05dc\u05d9\u05e9\u05d9": 3.0,
+    "\u05e9\u05dc\u05d9\u05e9\u05d9\u05ea": 3.0,
+    "\u05e8\u05d1\u05d9\u05e2\u05d9": 4.0,
+    "\u05e8\u05d1\u05d9\u05e2\u05d9\u05ea": 4.0,
+    "\u05d7\u05de\u05d9\u05e9\u05d9": 5.0,
+    "\u05d7\u05de\u05d9\u05e9\u05d9\u05ea": 5.0,
+    "\u05e9\u05d9\u05e9\u05d9": 6.0,
+    "\u05e9\u05d9\u05e9\u05d9\u05ea": 6.0,
+    "\u05e9\u05d1\u05d9\u05e2\u05d9": 7.0,
+    "\u05e9\u05d1\u05d9\u05e2\u05d9\u05ea": 7.0,
+    "\u05e9\u05de\u05d9\u05e0\u05d9": 8.0,
+    "\u05e9\u05de\u05d9\u05e0\u05d9\u05ea": 8.0,
+    "\u05ea\u05e9\u05d9\u05e2\u05d9": 9.0,
+    "\u05ea\u05e9\u05d9\u05e2\u05d9\u05ea": 9.0,
+    "\u05e2\u05e9\u05d9\u05e8\u05d9": 10.0,
+    "\u05e2\u05e9\u05d9\u05e8\u05d9\u05ea": 10.0,
+    # Cardinals, including the construct forms a statute uses before a noun:
+    # Income Tax Ordinance section 34 grants "\u05e9\u05ea\u05d9 \u05e0\u05e7\u05d5\u05d3\u05d5\u05ea \u05d6\u05d9\u05db\u05d5\u05d9"
+    # (two credit points) without printing a 2 anywhere.
+    "\u05d0\u05d7\u05d3": 1.0,
+    "\u05d0\u05d7\u05ea": 1.0,
+    "\u05e9\u05e0\u05d9\u05d9\u05dd": 2.0,
+    "\u05e9\u05e0\u05d9\u05d9\u05ea": 2.0,
+    "\u05e9\u05ea\u05d9\u05d9\u05dd": 2.0,
+    "\u05e9\u05ea\u05d9": 2.0,
+    "\u05e9\u05dc\u05d5\u05e9": 3.0,
+    "\u05e9\u05dc\u05d5\u05e9\u05d4": 3.0,
+    "\u05e9\u05dc\u05d5\u05e9\u05ea": 3.0,
+    "\u05d0\u05e8\u05d1\u05e2": 4.0,
+    "\u05d0\u05e8\u05d1\u05e2\u05d4": 4.0,
+    "\u05d0\u05e8\u05d1\u05e2\u05ea": 4.0,
+    "\u05d7\u05de\u05e9": 5.0,
+    "\u05d7\u05de\u05d9\u05e9\u05d4": 5.0,
+    "\u05d7\u05de\u05e9\u05ea": 5.0,
+    "\u05e9\u05e9": 6.0,
+    "\u05e9\u05d9\u05e9\u05d4": 6.0,
+    "\u05e9\u05e9\u05ea": 6.0,
+    "\u05e9\u05d1\u05e2": 7.0,
+    "\u05e9\u05d1\u05e2\u05d4": 7.0,
+    "\u05e9\u05d1\u05e2\u05ea": 7.0,
+    "\u05e9\u05de\u05d5\u05e0\u05d4": 8.0,
+    "\u05e9\u05de\u05d5\u05e0\u05ea": 8.0,
+    "\u05ea\u05e9\u05e2": 9.0,
+    "\u05ea\u05e9\u05e2\u05d4": 9.0,
+    "\u05ea\u05e9\u05e2\u05ea": 9.0,
+    "\u05e2\u05e9\u05e8": 10.0,
+    "\u05e2\u05e9\u05e8\u05d4": 10.0,
+    "\u05e2\u05e9\u05e8\u05ea": 10.0,
+}
+# One-letter Hebrew prefixes bind to the following word: the definite article
+# he, the conjunction vav, and the prepositions bet/kaf/lamed/mem/she. Two of
+# them can stack ("\u05d5\u05d4\u05e8\u05d1\u05d9\u05e2\u05d9", "and the fourth"), and a maqaf may sit between
+# the prefix and the word. The alternation is longest-first so that a longer
+# form is never shadowed by a shorter one it contains.
+_HEBREW_NUMBER_WORD_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])"
+    "(?:[\u05d5\u05d4\u05d1\u05db\u05dc\u05de\u05e9]\u05be?){0,2}"
+    "(?P<word>"
+    + "|".join(
+        re.escape(word)
+        for word in sorted(_HEBREW_NUMBER_WORD_VALUES, key=len, reverse=True)
+    )
+    + ")"
+    "(?![\u0590-\u05ff])"
+)
+
+
+def _iter_hebrew_number_word_matches(
+    text: str,
+) -> list[tuple[tuple[int, int], float]]:
+    """Return Hebrew ordinal and cardinal number words with their values."""
+    matches: list[tuple[tuple[int, int], float]] = []
+    for match in _HEBREW_NUMBER_WORD_PATTERN.finditer(text):
+        value = _HEBREW_NUMBER_WORD_VALUES.get(match.group("word"))
+        if value is None:
+            continue
+        matches.append((match.span(), value))
     return matches
 
 
