@@ -44771,6 +44771,58 @@ def _enforce_no_apply_collision(*, source_file: Path, target_file: Path) -> None
     )
 
 
+_YAML_NON_ASCII_ESCAPE = re.compile(r"\\u([0-9A-Fa-f]{4})")
+
+
+def _unescape_non_ascii_yaml_escapes(text: str) -> str | None:
+    """Rewrite `\\uXXXX` escapes of non-ASCII characters as the characters themselves.
+
+    A model asked for a Hebrew, Amharic or Greek statute sometimes emits its YAML
+    with every non-Latin character escaped. A parser reads the two forms
+    identically, so nothing about the encoding changes — but the file stops being
+    readable next to the provision it encodes, which is the whole point of a
+    verbatim proof excerpt. `--apply` copies the model's bytes, so the escaping
+    survives into the repository unless it is undone here.
+
+    Returns the rewritten text, or None when the rewrite is not provably
+    equivalent (unparseable YAML on either side, or a different parse), in which
+    case the caller must leave the file exactly as the model wrote it.
+    """
+    if "\\u" not in text:
+        return None
+
+    def _replace(match: re.Match[str]) -> str:
+        character = chr(int(match.group(1), 16))
+        return character if ord(character) > 0x7F else match.group(0)
+
+    rewritten = _YAML_NON_ASCII_ESCAPE.sub(_replace, text)
+    if rewritten == text:
+        return None
+    try:
+        before = yaml.safe_load(text)
+        after = yaml.safe_load(rewritten)
+    except yaml.YAMLError:
+        return None
+    if before != after:
+        return None
+    return rewritten
+
+
+def _rewrite_generated_yaml_without_non_ascii_escapes(target: Path) -> bool:
+    """Undo `\\uXXXX` escaping on a generated RuleSpec file. True when rewritten."""
+    if target.suffix not in {".yaml", ".yml"}:
+        return False
+    try:
+        text = target.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    rewritten = _unescape_non_ascii_yaml_escapes(text)
+    if rewritten is None:
+        return False
+    target.write_text(rewritten, encoding="utf-8")
+    return True
+
+
 def _apply_generated_encoding_result(
     result,
     *,
@@ -44807,6 +44859,9 @@ def _apply_generated_encoding_result(
         if source == output_file:
             _enforce_no_apply_collision(source_file=source, target_file=target)
         target.parent.mkdir(parents=True, exist_ok=True)
+        # Undo the escaping BEFORE the copy, so the generated file, the manifest's
+        # generated_output_sha256 and the installed file all carry the same bytes.
+        _rewrite_generated_yaml_without_non_ascii_escapes(source)
         shutil.copy2(source, target)
         applied.append(target)
     if not test_source.exists() and _needs_empty_deferred_companion_test(output_file):

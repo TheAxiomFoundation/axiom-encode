@@ -81,6 +81,7 @@ from axiom_encode.cli import (
     _repair_colorado_tax_subsection_2_import,
     _repair_colorado_tax_subsection_2_test_inputs,
     _repair_embedded_scalar_literals,
+    _rewrite_generated_yaml_without_non_ascii_escapes,
     _repair_employer_scoped_entities,
     _repair_float_keyed_indexed_parameter_values,
     _repair_future_effective_output_tests,
@@ -31442,6 +31443,52 @@ rules:
         assert summary in repaired
         assert "\u05e1\u05e2\u05d9\u05e3 36 \u05dc\u05e4\u05e7\u05d5\u05d3\u05d4" in repaired
         assert "\\u05" not in repaired
+
+    def test_apply_unescapes_a_module_the_model_wrote_in_escapes(self, tmp_path):
+        # The repair paths no longer escape, but a model asked for a Hebrew
+        # provision sometimes writes its OWN yaml that way, and --apply copies
+        # the model's bytes. The escaped and unescaped forms parse identically,
+        # so the file that lands in the repository is the readable one.
+        source = tmp_path / "section-68.yaml"
+        source.write_text(
+            'format: rulespec/v1\n'
+            'module:\n'
+            '  summary: "\\u05e7\\u05e6\\u05d1\\u05ea \\u05d4\\u05d9\\u05dc\\u05d3\\u05d9\\u05dd"\n'
+            'rules:\n'
+            '  - name: monthly_child_allowance_for_child\n'
+            '    source: "\\u05e1\\u05e2\\u05d9\\u05e3 68(\\u05d0)"\n',
+            encoding="utf-8",
+        )
+        before = yaml.safe_load(source.read_text(encoding="utf-8"))
+
+        assert _rewrite_generated_yaml_without_non_ascii_escapes(source) is True
+
+        after_text = source.read_text(encoding="utf-8")
+        assert "\\u05" not in after_text
+        assert "\u05e7\u05e6\u05d1\u05ea \u05d4\u05d9\u05dc\u05d3\u05d9\u05dd" in after_text
+        assert yaml.safe_load(after_text) == before
+
+    def test_apply_leaves_an_already_readable_module_alone(self, tmp_path):
+        source = tmp_path / "section-34.yaml"
+        original = (
+            "format: rulespec/v1\n"
+            "module:\n"
+            "  summary: \u05e9\u05ea\u05d9 \u05e0\u05e7\u05d5\u05d3\u05d5\u05ea \u05d6\u05d9\u05db\u05d5\u05d9\n"
+        )
+        source.write_text(original, encoding="utf-8")
+
+        assert _rewrite_generated_yaml_without_non_ascii_escapes(source) is False
+        assert source.read_text(encoding="utf-8") == original
+
+    def test_apply_keeps_an_ascii_escape_that_is_not_a_script(self, tmp_path):
+        # \u0041 is "A". Rewriting it would change nothing a reader cares about
+        # and this pass exists for scripts, so it is left as written.
+        source = tmp_path / "section-1.yaml"
+        original = 'format: rulespec/v1\nmodule:\n  summary: "\\u0041"\n'
+        source.write_text(original, encoding="utf-8")
+
+        assert _rewrite_generated_yaml_without_non_ascii_escapes(source) is False
+        assert source.read_text(encoding="utf-8") == original
 
     def test_repair_embedded_scalar_literals_writes_signed_manifest(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us-co"
