@@ -6403,6 +6403,14 @@ def test_numeric_extraction_reads_hebrew_ordinal_and_cardinal_words():
     # A longer word that merely contains a number word is not a number: the
     # boundary guard rejects a match inside a surrounding Hebrew word.
     assert extract_numbers_from_text("\u05d4\u05e9\u05e0\u05d9\u05dd \u05d4\u05d0\u05d7\u05e8\u05d5\u05e0\u05d5\u05ea") == set()
+    # Eleven through nineteen are two words, unit then ten. Income Tax Ordinance
+    # section 33A divides by twelve as "\u05e9\u05e0\u05d9\u05dd \u05e2\u05e9\u05e8", and the pair has to beat
+    # the standalone "\u05e2\u05e9\u05e8" (ten) that sits inside it.
+    assert 12.0 in extract_numbers_from_text("\u05d5\u05de\u05d7\u05d5\u05dc\u05e7 \u05d1\u05e9\u05e0\u05d9\u05dd \u05e2\u05e9\u05e8")
+    assert 15.0 in extract_numbers_from_text("\u05d7\u05de\u05d9\u05e9\u05d4 \u05e2\u05e9\u05e8 \u05d9\u05de\u05d9\u05dd")
+    # The unit half of a teen is not always a numeral on its own: "\u05e9\u05e0\u05d9\u05dd" alone is
+    # the plural of "year", and five years must not become twelve.
+    assert 12.0 not in extract_numbers_from_text("\u05d1\u05d7\u05de\u05e9 \u05d4\u05e9\u05e0\u05d9\u05dd \u05d4\u05d0\u05d7\u05e8\u05d5\u05e0\u05d5\u05ea")
 
 
 def test_numeric_extraction_handles_unicode_fraction_slash():
