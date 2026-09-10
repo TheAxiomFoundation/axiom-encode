@@ -2363,6 +2363,8 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         in repair_command
     )
     assert "echo \"lane=$(jq -r '.lane'" in repair_command
+    assert '.lane == "source-only"' in repair_command
+    assert 'if [ -n "$repair_candidate_path" ]; then' in repair_command
     assert '--repair-lane "$REPAIR_RUN_LANE"' in repair_command
     for immutable_argument in (
         "--citation",
@@ -2654,6 +2656,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         "COMMIT_REVIEWED_LANE_CHANGES_OUTCOME",
         "PR_BASE_BRANCH",
         "REPAIR_CANDIDATE_CONCLUSION",
+        "REPAIR_CANDIDATE_LANE",
         "REPAIR_CANDIDATE_OUTCOME",
         "REPAIR_CANDIDATE_PATH",
         "REPAIR_CANDIDATE_RUNNER",
@@ -2689,6 +2692,9 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert "toJSON(steps)" not in json.dumps(failure_package_step)
     assert failure_package_step["env"]["REPAIR_CANDIDATE_PATH"] == (
         "${{ steps.repair_candidate.outputs.path }}"
+    )
+    assert failure_package_step["env"]["REPAIR_CANDIDATE_LANE"] == (
+        "${{ steps.repair_candidate.outputs.lane }}"
     )
     assert failure_package_step["env"]["REPAIR_CANDIDATE_RUNNER"] == (
         "${{ steps.repair_candidate.outputs.runner }}"
@@ -2786,6 +2792,9 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert package_step["env"]["RULESPEC_REF"] == "${{ inputs.rulespec_ref }}"
     assert package_step["env"]["REPAIR_CANDIDATE_PATH"] == (
         "${{ steps.repair_candidate.outputs.path }}"
+    )
+    assert package_step["env"]["REPAIR_CANDIDATE_LANE"] == (
+        "${{ steps.repair_candidate.outputs.lane }}"
     )
     assert package_step["env"]["REPAIR_CANDIDATE_RUNNER"] == (
         "${{ steps.repair_candidate.outputs.runner }}"
@@ -3488,8 +3497,9 @@ def test_targeted_signed_reencode_packages_bounded_failure_diagnostics(
     )
 
 
+@pytest.mark.parametrize("repair_lane", ["target", "source-only"])
 def test_failed_reencode_metadata_uses_consumed_identity_after_evidence_mutation(
-    tmp_path: Path,
+    tmp_path: Path, repair_lane: str
 ) -> None:
     workflow = yaml.safe_load(
         (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
@@ -3531,11 +3541,20 @@ def test_failed_reencode_metadata_uses_consumed_identity_after_evidence_mutation
             "GITHUB_SHA": "encoder-ref",
             "REPAIR_CANDIDATE_CONCLUSION": "success",
             "REPAIR_CANDIDATE_OUTCOME": "success",
-            "REPAIR_CANDIDATE_PATH": "statutes/42/1437c-1.yaml",
-            "REPAIR_CANDIDATE_RUNNER": "openai-gpt-5.6-sol",
+            "REPAIR_CANDIDATE_PATH": (
+                "" if repair_lane == "source-only" else "statutes/42/1437c-1.yaml"
+            ),
+            "REPAIR_CANDIDATE_LANE": repair_lane,
+            "REPAIR_CANDIDATE_RUNNER": (
+                "" if repair_lane == "source-only" else "openai-gpt-5.6-sol"
+            ),
             "REPAIR_CANDIDATE_SOURCE_RULESPEC_REF": "f" * 40,
-            "REPAIR_CANDIDATE_RULESPEC_SHA256": "d" * 64,
-            "REPAIR_CANDIDATE_TESTS_SHA256": "e" * 64,
+            "REPAIR_CANDIDATE_RULESPEC_SHA256": (
+                "" if repair_lane == "source-only" else "d" * 64
+            ),
+            "REPAIR_CANDIDATE_TESTS_SHA256": (
+                "" if repair_lane == "source-only" else "e" * 64
+            ),
             "REPAIR_RUN_ID": "1234",
             "RULES_ENGINE_REF": "rules-engine-ref",
             "RULESPEC_REF": "rulespec-ref",
@@ -3549,14 +3568,21 @@ def test_failed_reencode_metadata_uses_consumed_identity_after_evidence_mutation
         metadata_file = bundle.extractfile("./metadata.json")
         assert metadata_file is not None
         metadata = json.loads(metadata_file.read())
-    assert metadata["repair_candidate"] == {
-        "path": "statutes/42/1437c-1.yaml",
-        "rulespec_sha256": "d" * 64,
+    expected = {
+        "lane": repair_lane,
         "run_id": "1234",
-        "runner": "openai-gpt-5.6-sol",
         "source_rulespec_ref": "f" * 40,
-        "tests_sha256": "e" * 64,
     }
+    if repair_lane == "target":
+        expected.update(
+            {
+                "path": "statutes/42/1437c-1.yaml",
+                "rulespec_sha256": "d" * 64,
+                "runner": "openai-gpt-5.6-sol",
+                "tests_sha256": "e" * 64,
+            }
+        )
+    assert metadata["repair_candidate"] == expected
 
 
 @pytest.mark.parametrize(
@@ -5911,8 +5937,9 @@ def test_targeted_artifact_enforces_exact_canonical_refresh_inventory(
     ]
 
 
+@pytest.mark.parametrize("repair_lane", ["target", "source-only"])
 def test_targeted_metadata_uses_consumed_repair_identity_after_evidence_mutation(
-    tmp_path: Path,
+    tmp_path: Path, repair_lane: str
 ) -> None:
     script = _targeted_metadata_script()
     heads: dict[str, str] = {}
@@ -5972,11 +5999,20 @@ def test_targeted_metadata_uses_consumed_repair_identity_after_evidence_mutation
             "GITHUB_RUN_ATTEMPT": "1",
             "GITHUB_RUN_ID": "5678",
             "PR_BASE_BRANCH": "hard-cut/canonical-layout-us",
-            "REPAIR_CANDIDATE_PATH": "statutes/42/1437c-1.yaml",
-            "REPAIR_CANDIDATE_RUNNER": "openai-gpt-5.6-sol",
+            "REPAIR_CANDIDATE_PATH": (
+                "" if repair_lane == "source-only" else "statutes/42/1437c-1.yaml"
+            ),
+            "REPAIR_CANDIDATE_LANE": repair_lane,
+            "REPAIR_CANDIDATE_RUNNER": (
+                "" if repair_lane == "source-only" else "openai-gpt-5.6-sol"
+            ),
             "REPAIR_CANDIDATE_SOURCE_RULESPEC_REF": "f" * 40,
-            "REPAIR_CANDIDATE_RULESPEC_SHA256": "d" * 64,
-            "REPAIR_CANDIDATE_TESTS_SHA256": "e" * 64,
+            "REPAIR_CANDIDATE_RULESPEC_SHA256": (
+                "" if repair_lane == "source-only" else "d" * 64
+            ),
+            "REPAIR_CANDIDATE_TESTS_SHA256": (
+                "" if repair_lane == "source-only" else "e" * 64
+            ),
             "REPAIR_RUN_ID": "1234",
             "RULESPEC_CHECKOUT": str(tmp_path / "rulespec-us"),
             "RULESPEC_REF": heads["rulespec-us"],
@@ -5986,14 +6022,21 @@ def test_targeted_metadata_uses_consumed_repair_identity_after_evidence_mutation
 
     assert completed.returncode == 0, completed.stderr
     payload = json.loads(metadata_path.read_text(encoding="utf-8"))
-    assert payload["repair_candidate"] == {
-        "path": "statutes/42/1437c-1.yaml",
-        "rulespec_sha256": "d" * 64,
+    expected = {
+        "lane": repair_lane,
         "run_id": "1234",
-        "runner": "openai-gpt-5.6-sol",
         "source_rulespec_ref": "f" * 40,
-        "tests_sha256": "e" * 64,
     }
+    if repair_lane == "target":
+        expected.update(
+            {
+                "path": "statutes/42/1437c-1.yaml",
+                "rulespec_sha256": "d" * 64,
+                "runner": "openai-gpt-5.6-sol",
+                "tests_sha256": "e" * 64,
+            }
+        )
+    assert payload["repair_candidate"] == expected
 
 
 @pytest.mark.parametrize("receipt_version", [4, 5, 6, 7])

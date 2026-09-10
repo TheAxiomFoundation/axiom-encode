@@ -284,6 +284,8 @@ def _repair_lane_for_atomic_source(
             return "target", generated_lanes
         if generated_lanes == partial_source_lanes:
             return "target-preflight", generated_lanes
+        if generated_lanes == source_lanes:
+            return "source-only", generated_lanes
         raise ValueError(
             "repair artifact generated lanes do not bind a target preflight "
             "or final composed target"
@@ -523,6 +525,27 @@ def extract_candidate(args: argparse.Namespace) -> dict[str, object]:
         )
 
         files = _metadata_file_map(metadata)
+        source_rulespec_paths_json = getattr(args, "source_rulespec_paths_json", None)
+        if repair_lane == "source-only":
+            source_candidates = _source_repair_candidates(
+                bundle,
+                members,
+                files,
+                destination=destination,
+                country=args.country,
+                source_citations=expected_atomic_source["source_bundle"],
+                source_rulespec_paths_json=source_rulespec_paths_json,
+            )
+            return {
+                "root": "",
+                "lane": repair_lane,
+                "path": "",
+                "rulespec_sha256": "",
+                "tests_sha256": "",
+                "runner": "",
+                "source_rulespec_ref": source_rulespec_ref,
+                "source_candidates": source_candidates,
+            }
         repair_pattern = re.compile(
             rf"{re.escape(repair_lane)}/({RUNNER_PATTERN.pattern})/"
             rf"{re.escape(expected_module[:-5])}\.repair\.json"
@@ -589,7 +612,6 @@ def extract_candidate(args: argparse.Namespace) -> dict[str, object]:
             candidate, tests = retained
             runner = "retained-best"
 
-        source_rulespec_paths_json = getattr(args, "source_rulespec_paths_json", None)
         if source_rulespec_paths_json is not None and not (
             repair_lane == "target" or is_partial_source_repair
         ):

@@ -675,6 +675,72 @@ def test_extracts_partial_source_repair_after_successful_target_preflight(tmp_pa
     assert (Path(source["root"]) / source["path"]).read_bytes() == source_candidate
 
 
+def test_extracts_source_only_continuation_after_replayed_preflight(tmp_path):
+    source_citation = "us/guidance/example/source"
+    source_path = "us/guidance/example/source.yaml"
+    atomic_source_input = json.dumps(
+        {
+            "schema": "axiom-encode/atomic-source-transaction/v2",
+            "source_bundle": [source_citation],
+            "canonical_refresh_bundle": [],
+            "primary_required_test_cases": [],
+        }
+    )
+    _, metadata = _archive(tmp_path)
+    metadata.pop("source_bundle_input")
+    metadata["atomic_source_input"] = atomic_source_input
+    metadata["generated_lanes"] = ["source-01"]
+    source_candidate = b"format: rulespec/v1\n# improved source repair\nrules: []\n"
+    module = source_path.removeprefix("us/")
+    payloads = {
+        f"source-01/openai-gpt-5.6-sol/{module}": source_candidate,
+        f"source-01/openai-gpt-5.6-sol/"
+        f"{module.removesuffix('.yaml')}.test.yaml": b"[]\n",
+    }
+    metadata["files"] = [
+        {
+            "path": path,
+            "size": len(body),
+            "sha256": hashlib.sha256(body).hexdigest(),
+        }
+        for path, body in sorted(payloads.items())
+    ]
+    archive = tmp_path / "source-only-repair.tar"
+    with tarfile.open(archive, "w") as bundle:
+        members = {"metadata.json": json.dumps(metadata).encode()}
+        members.update({f"generated/{path}": body for path, body in payloads.items()})
+        for name, body in members.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(body)
+            bundle.addfile(info, io.BytesIO(body))
+
+    identity = extract_candidate(
+        _args(
+            tmp_path,
+            archive,
+            atomic_source_json=atomic_source_input,
+            destination=tmp_path / "source-only-identity",
+        )
+    )
+    result = extract_candidate(
+        _args(
+            tmp_path,
+            archive,
+            atomic_source_json=atomic_source_input,
+            destination=tmp_path / "source-only-extracted",
+            source_rulespec_paths_json=json.dumps([source_path]),
+        )
+    )
+
+    assert identity["lane"] == "source-only"
+    assert identity["root"] == ""
+    assert identity["source_candidates"] == []
+    assert result["lane"] == "source-only"
+    assert len(result["source_candidates"]) == 1
+    source = result["source_candidates"][0]
+    assert (Path(source["root"]) / source["path"]).read_bytes() == source_candidate
+
+
 def test_rejects_source_candidates_without_final_composed_target(tmp_path):
     atomic_source_input = json.dumps(
         {
