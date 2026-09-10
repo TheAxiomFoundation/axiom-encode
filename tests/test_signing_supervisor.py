@@ -2363,6 +2363,8 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         in repair_command
     )
     assert "echo \"lane=$(jq -r '.lane'" in repair_command
+    assert '.lane == "source-only"' in repair_command
+    assert 'if [ -n "$repair_candidate_path" ]; then' in repair_command
     assert '--repair-lane "$REPAIR_RUN_LANE"' in repair_command
     for immutable_argument in (
         "--citation",

@@ -593,24 +593,34 @@ jobs:
             --workflow-run-id "$REPAIR_RUN_ID" \
             > "$RUNNER_TEMP/repair-candidate.json"
           jq -e '
-            (.root | type == "string" and length > 0)
-            and (.lane == "target" or .lane == "target-preflight" or .lane == "dependent")
-            and (.path | type == "string" and length > 0)
-            and (.source_rulespec_ref | test("^[0-9a-f]{40}$"))
-            and (.rulespec_sha256 | test("^[0-9a-f]{64}$"))
-            and (.tests_sha256 | test("^[0-9a-f]{64}$"))
+            (.source_rulespec_ref | test("^[0-9a-f]{40}$"))
+            and if .lane == "source-only" then
+              .root == ""
+              and .path == ""
+              and .runner == ""
+              and .rulespec_sha256 == ""
+              and .tests_sha256 == ""
+            else
+              (.root | type == "string" and length > 0)
+              and (.lane == "target" or .lane == "target-preflight" or .lane == "dependent")
+              and (.path | type == "string" and length > 0)
+              and (.rulespec_sha256 | test("^[0-9a-f]{64}$"))
+              and (.tests_sha256 | test("^[0-9a-f]{64}$"))
+            end
           ' "$RUNNER_TEMP/repair-candidate.json" > /dev/null
           repair_source_rulespec_ref="$(jq -er '.source_rulespec_ref' \
             "$RUNNER_TEMP/repair-candidate.json")"
           repair_candidate_path="$(jq -er '.path' \
             "$RUNNER_TEMP/repair-candidate.json")"
-          axiom-encode/.venv/bin/python axiom-encode/scripts/verify_repair_base_advance.py \
-            "$RULESPEC_CHECKOUT" \
-            --country "$COUNTRY" \
-            --source-ref "$repair_source_rulespec_ref" \
-            --current-ref "$RULESPEC_REF" \
-            --candidate-path "$repair_candidate_path" \
-            --rulespec-path "$repair_rulespec_path"
+          if [ -n "$repair_candidate_path" ]; then
+            axiom-encode/.venv/bin/python axiom-encode/scripts/verify_repair_base_advance.py \
+              "$RULESPEC_CHECKOUT" \
+              --country "$COUNTRY" \
+              --source-ref "$repair_source_rulespec_ref" \
+              --current-ref "$RULESPEC_REF" \
+              --candidate-path "$repair_candidate_path" \
+              --rulespec-path "$repair_rulespec_path"
+          fi
           echo "lane=$(jq -r '.lane' "$RUNNER_TEMP/repair-candidate.json")" \
             >> "$GITHUB_OUTPUT"
           echo "rulespec_path=$repair_rulespec_path" >> "$GITHUB_OUTPUT"
