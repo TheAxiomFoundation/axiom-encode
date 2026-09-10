@@ -1987,6 +1987,7 @@ jobs:
           REVIEW_FINDING: ${{ inputs.review_finding }}
           REVIEW_FINDING_PRESENT: ${{ inputs.review_finding != '' }}
           REPAIR_RUN_ID: ${{ inputs.repair_run_id }}
+          REPAIR_CANDIDATE_LANE: ${{ steps.repair_candidate.outputs.lane }}
           REPAIR_CANDIDATE_PATH: ${{ steps.repair_candidate.outputs.path }}
           REPAIR_CANDIDATE_RUNNER: ${{ steps.repair_candidate.outputs.runner }}
           REPAIR_CANDIDATE_SOURCE_RULESPEC_REF: ${{ steps.repair_candidate.outputs.source_rulespec_ref }}
@@ -3211,6 +3212,7 @@ jobs:
           repair_run_id = os.environ.get("REPAIR_RUN_ID") or None
           repair_candidate = None
           if repair_run_id:
+              consumed_lane = os.environ.get("REPAIR_CANDIDATE_LANE", "")
               consumed_path = os.environ.get("REPAIR_CANDIDATE_PATH", "")
               consumed_runner = os.environ.get("REPAIR_CANDIDATE_RUNNER", "")
               consumed_source_rulespec_ref = os.environ.get(
@@ -3222,32 +3224,53 @@ jobs:
               consumed_tests_sha256 = os.environ.get(
                   "REPAIR_CANDIDATE_TESTS_SHA256", ""
               )
-              if not consumed_path or not re.fullmatch(
-                  r"[a-z0-9][a-z0-9._:/-]*\.yaml", consumed_path
-              ):
-                  raise SystemExit("repair candidate evidence path is malformed")
-              if not re.fullmatch(r"[a-z0-9][a-z0-9._-]*", consumed_runner):
-                  raise SystemExit("repair candidate evidence runner is malformed")
               if not re.fullmatch(r"[0-9a-f]{40}", consumed_source_rulespec_ref):
                   raise SystemExit(
                       "repair candidate source RuleSpec ref is malformed"
                   )
-              if any(
-                  re.fullmatch(r"[0-9a-f]{64}", digest) is None
-                  for digest in (
-                      consumed_rulespec_sha256,
-                      consumed_tests_sha256,
-                  )
-              ):
-                  raise SystemExit("repair candidate evidence is malformed")
-              repair_candidate = {
-                  "run_id": repair_run_id,
-                  "path": consumed_path,
-                  "runner": consumed_runner,
-                  "source_rulespec_ref": consumed_source_rulespec_ref,
-                  "rulespec_sha256": consumed_rulespec_sha256,
-                  "tests_sha256": consumed_tests_sha256,
-              }
+              if consumed_lane == "source-only":
+                  if any(
+                      (
+                          consumed_path,
+                          consumed_runner,
+                          consumed_rulespec_sha256,
+                          consumed_tests_sha256,
+                      )
+                  ):
+                      raise SystemExit(
+                          "source-only repair candidate evidence is malformed"
+                      )
+                  repair_candidate = {
+                      "lane": consumed_lane,
+                      "run_id": repair_run_id,
+                      "source_rulespec_ref": consumed_source_rulespec_ref,
+                  }
+              else:
+                  if consumed_lane not in {"target", "target-preflight", "dependent"}:
+                      raise SystemExit("repair candidate evidence lane is malformed")
+                  if not consumed_path or not re.fullmatch(
+                      r"[a-z0-9][a-z0-9._:/-]*\.yaml", consumed_path
+                  ):
+                      raise SystemExit("repair candidate evidence path is malformed")
+                  if not re.fullmatch(r"[a-z0-9][a-z0-9._-]*", consumed_runner):
+                      raise SystemExit("repair candidate evidence runner is malformed")
+                  if any(
+                      re.fullmatch(r"[0-9a-f]{64}", digest) is None
+                      for digest in (
+                          consumed_rulespec_sha256,
+                          consumed_tests_sha256,
+                      )
+                  ):
+                      raise SystemExit("repair candidate evidence is malformed")
+                  repair_candidate = {
+                      "lane": consumed_lane,
+                      "run_id": repair_run_id,
+                      "path": consumed_path,
+                      "runner": consumed_runner,
+                      "source_rulespec_ref": consumed_source_rulespec_ref,
+                      "rulespec_sha256": consumed_rulespec_sha256,
+                      "tests_sha256": consumed_tests_sha256,
+                  }
 
           payload = {
               "schema": "axiom-encode/targeted-reencode-artifact/v1",
@@ -3494,6 +3517,7 @@ jobs:
           COMMIT_REVIEWED_LANE_CHANGES_OUTCOME: ${{ steps.commit_reviewed_lane_changes.outcome }}
           PR_BASE_BRANCH: ${{ inputs.pr_base_branch }}
           REPAIR_CANDIDATE_CONCLUSION: ${{ steps.repair_candidate.conclusion }}
+          REPAIR_CANDIDATE_LANE: ${{ steps.repair_candidate.outputs.lane }}
           REPAIR_CANDIDATE_OUTCOME: ${{ steps.repair_candidate.outcome }}
           REPAIR_CANDIDATE_PATH: ${{ steps.repair_candidate.outputs.path }}
           REPAIR_CANDIDATE_RUNNER: ${{ steps.repair_candidate.outputs.runner }}
@@ -3811,6 +3835,7 @@ jobs:
           )
           repair_candidate = None
           if os.environ.get("REPAIR_CANDIDATE_CONCLUSION") == "success":
+              consumed_lane = os.environ.get("REPAIR_CANDIDATE_LANE", "")
               consumed_path = os.environ.get("REPAIR_CANDIDATE_PATH", "")
               consumed_runner = os.environ.get("REPAIR_CANDIDATE_RUNNER", "")
               consumed_source_rulespec_ref = os.environ.get(
@@ -3822,32 +3847,53 @@ jobs:
               consumed_tests_sha256 = os.environ.get(
                   "REPAIR_CANDIDATE_TESTS_SHA256", ""
               )
-              if not consumed_path or not re.fullmatch(
-                  r"[a-z0-9][a-z0-9._:/-]*\.yaml", consumed_path
-              ):
-                  raise SystemExit("repair candidate evidence path is malformed")
-              if not re.fullmatch(r"[a-z0-9][a-z0-9._-]*", consumed_runner):
-                  raise SystemExit("repair candidate evidence runner is malformed")
               if not re.fullmatch(r"[0-9a-f]{40}", consumed_source_rulespec_ref):
                   raise SystemExit(
                       "repair candidate source RuleSpec ref is malformed"
                   )
-              if any(
-                  re.fullmatch(r"[0-9a-f]{64}", digest) is None
-                  for digest in (
-                      consumed_rulespec_sha256,
-                      consumed_tests_sha256,
-                  )
-              ):
-                  raise SystemExit("repair candidate evidence is malformed")
-              repair_candidate = {
-                  "run_id": os.environ.get("REPAIR_RUN_ID") or None,
-                  "path": consumed_path,
-                  "runner": consumed_runner,
-                  "source_rulespec_ref": consumed_source_rulespec_ref,
-                  "rulespec_sha256": consumed_rulespec_sha256,
-                  "tests_sha256": consumed_tests_sha256,
-              }
+              if consumed_lane == "source-only":
+                  if any(
+                      (
+                          consumed_path,
+                          consumed_runner,
+                          consumed_rulespec_sha256,
+                          consumed_tests_sha256,
+                      )
+                  ):
+                      raise SystemExit(
+                          "source-only repair candidate evidence is malformed"
+                      )
+                  repair_candidate = {
+                      "lane": consumed_lane,
+                      "run_id": os.environ.get("REPAIR_RUN_ID") or None,
+                      "source_rulespec_ref": consumed_source_rulespec_ref,
+                  }
+              else:
+                  if consumed_lane not in {"target", "target-preflight", "dependent"}:
+                      raise SystemExit("repair candidate evidence lane is malformed")
+                  if not consumed_path or not re.fullmatch(
+                      r"[a-z0-9][a-z0-9._:/-]*\.yaml", consumed_path
+                  ):
+                      raise SystemExit("repair candidate evidence path is malformed")
+                  if not re.fullmatch(r"[a-z0-9][a-z0-9._-]*", consumed_runner):
+                      raise SystemExit("repair candidate evidence runner is malformed")
+                  if any(
+                      re.fullmatch(r"[0-9a-f]{64}", digest) is None
+                      for digest in (
+                          consumed_rulespec_sha256,
+                          consumed_tests_sha256,
+                      )
+                  ):
+                      raise SystemExit("repair candidate evidence is malformed")
+                  repair_candidate = {
+                      "lane": consumed_lane,
+                      "run_id": os.environ.get("REPAIR_RUN_ID") or None,
+                      "path": consumed_path,
+                      "runner": consumed_runner,
+                      "source_rulespec_ref": consumed_source_rulespec_ref,
+                      "rulespec_sha256": consumed_rulespec_sha256,
+                      "tests_sha256": consumed_tests_sha256,
+                  }
           metadata = {
               "schema": "axiom-encode/failed-reencode-diagnostics/v1",
               "citation": os.environ["CITATION"],
