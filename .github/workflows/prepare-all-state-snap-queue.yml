@@ -2,6 +2,15 @@ name: Prepare protected all-state SNAP queue
 
 on:
   workflow_dispatch:
+    inputs:
+      pr_base_branch:
+        description: RuleSpec branch the queue's draft pull requests target
+        required: true
+        default: hard-cut/canonical-layout-us
+        type: choice
+        options:
+          - hard-cut/canonical-layout-us
+          - main
 
 permissions:
   contents: write
@@ -27,6 +36,7 @@ jobs:
       RELEASE_SHA: aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5
       RULES_ENGINE_REF: 4658144031f8ef1b39a971eb7002997fa0880b5a
       RULESPEC_REF: 38ddc92d4160a0d39af13bfe232a446b554a15c5
+      PR_BASE_BRANCH: ${{ inputs.pr_base_branch }}
       SUPABASE_URL: https://swocpijqqahhuwtuahwc.supabase.co
     steps:
       - name: Checkout immutable encoder main
@@ -85,6 +95,7 @@ jobs:
             --corpus-ref "$CORPUS_REF" \
             --rulespec-ref "$RULESPEC_REF" \
             --rules-engine-ref "$RULES_ENGINE_REF" \
+            --pr-base-branch "$PR_BASE_BRANCH" \
             --release-name "$RELEASE_NAME" \
             --release-content-sha256 "$RELEASE_SHA" \
             --release-object "$release_object" \

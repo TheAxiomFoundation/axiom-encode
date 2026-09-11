@@ -4093,7 +4093,7 @@ def test_signed_snap_queue_finalizer_uses_live_fail_closed_evidence() -> None:
     )
     command = evidence["run"]
     assert 'test "$(jq -r \'.state\' "$queue")" = "paused"' in command
-    assert "git/ref/heads/hard-cut/canonical-layout-us" in command
+    assert "git/ref/heads/$pr_base_branch" in command
     assert "commits/$NEW_RULESPEC_REF/check-runs?per_page=100" in command
     assert '.status == "completed"' in command
     assert 'IN("success", "neutral", "skipped")' in command
@@ -4160,7 +4160,7 @@ def test_snap_queue_activation_checks_and_merge_revalidate_live_state() -> None:
     assert "verify-activation-commit" in validate_command
     assert '--finalizer-jobs "$RUNNER_TEMP/finalizer-jobs.json"' in validate_command
     assert "snap-queue-finalization-$run_id" in validate_command
-    assert "git/ref/heads/hard-cut/canonical-layout-us" in validate_command
+    assert "git/ref/heads/$pr_base_branch" in validate_command
     assert 'echo "initial=$authenticate_queue" >> "$GITHUB_OUTPUT"' in validate_command
     assert ".dispatch != $previous[0].dispatch" in validate_command
     assert ".release != $previous[0].release" in validate_command
@@ -4200,8 +4200,9 @@ def test_snap_queue_activation_checks_and_merge_revalidate_live_state() -> None:
     assert "unsupported initial SNAP queue" in provenance_command
     assert "--state paused" in provenance_command
     assert "cmp --silent" in provenance_command
-    assert "rulespec-us/git/ref/heads/hard-cut/canonical-layout-us" in (
-        provenance_command
+    assert (
+        "rulespec-us/git/ref/heads/${{ steps.transition.outputs.pr_base_branch }}"
+        in (provenance_command)
     )
     assert "initial-axiom-rules-engine merge-base --is-ancestor" in (provenance_command)
     assert "rules-engine-check-runs.json" in provenance_command
@@ -4241,7 +4242,7 @@ def test_snap_queue_activation_checks_and_merge_revalidate_live_state() -> None:
     assert "commits/$rulespec_ref/check-runs?per_page=100" in command
     assert '--previous-queue "$RUNNER_TEMP/previous-snap-queue.json"' in command
     assert '--expected-base-sha "$BASE_SHA"' in command
-    assert "git/ref/heads/hard-cut/canonical-layout-us" in command
+    assert "git/ref/heads/$pr_base_branch" in command
     assert '--match-head-commit "$HEAD_SHA"' in command
     assert "git log --first-parent" in command
     upload = next(

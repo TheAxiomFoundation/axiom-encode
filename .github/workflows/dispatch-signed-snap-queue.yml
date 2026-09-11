@@ -142,10 +142,11 @@ jobs:
               --queue-change-sha "$queue_change_sha"
 
             rulespec_ref="$(jq -r '.dispatch.rulespec_ref' "$queue")"
+            pr_base_branch="$(jq -r '.dispatch.pr_base_branch' "$queue")"
             test "$(gh api \
               --header "Accept: application/vnd.github+json" \
               --header "X-GitHub-Api-Version: $api_version" \
-              repos/TheAxiomFoundation/rulespec-us/git/ref/heads/hard-cut/canonical-layout-us \
+              "repos/TheAxiomFoundation/rulespec-us/git/ref/heads/$pr_base_branch" \
               --jq '.object.sha')" = "$rulespec_ref"
             gh api --paginate --slurp \
               --header "Accept: application/vnd.github+json" \
