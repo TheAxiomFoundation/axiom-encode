@@ -20,6 +20,18 @@ Issue #1189 tracks it; encodebench.org displays the board.
   ungrounded numeric literals. The generalist-reviewer and oracle columns are
   advisory context, never the headline.
 
+Reviewer telemetry distinguishes a scored `passed` or `failed` review from
+`unavailable` execution/parse failures and `skipped` calls. Skips record whether
+the user requested them, deterministic validation rejected the candidate, or a
+retained-candidate/persisted-result preflight omitted the reviewer. Unscored
+reviews retain their issues and any actual prompt hash in encode outcomes,
+review metadata and run-log events; a skipped call has no invented prompt hash
+or score. Old eval metrics without enough reviewer evidence are reported as
+`not_recorded`; legacy checklist-only records retain their recorded projection.
+Skipped and unavailable reviews never count as semantic approval. These
+reporting states do not change the deterministic generation or apply acceptance
+checks.
+
 ## Why the shape
 
 - **UK, not US**: capability runs need a strict 3-key release repo so every

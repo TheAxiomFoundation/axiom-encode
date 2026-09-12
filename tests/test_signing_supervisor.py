@@ -154,6 +154,9 @@ import sys
 from base64 import b64encode
 
 def main():
+    if "--started-marker" in sys.argv:
+        from pathlib import Path
+        Path(sys.argv[sys.argv.index("--started-marker") + 1]).touch()
     from axiom_encode.signing_broker import (
         SigningBrokerError,
         get_signing_broker,
@@ -738,6 +741,7 @@ def _serve_external_signer(
     connection: socket.socket,
     private_key: Ed25519PrivateKey,
     behavior: str,
+    operations: list[str] | None = None,
 ) -> None:
     try:
         public_key = private_key.public_key().public_bytes(
@@ -753,6 +757,8 @@ def _serve_external_signer(
                 _receive_exact(connection, struct.unpack(">I", header)[0]).decode()
             )
             request_id = request["id"]
+            if operations is not None:
+                operations.append(request["op"])
             scope = request.get("scope")
             if request.get("version") != 2:
                 response = {
@@ -811,14 +817,18 @@ def _serve_external_signer(
 
 
 @contextmanager
-def _signers(*keys: Ed25519PrivateKey, behavior: str = "valid"):
+def _signers(
+    *keys: Ed25519PrivateKey,
+    behavior: str = "valid",
+    operations: list[str] | None = None,
+):
     supervisor_connections: list[socket.socket] = []
     threads: list[threading.Thread] = []
     for key in keys:
         signer_connection, supervisor_connection = socket.socketpair()
         thread = threading.Thread(
             target=_serve_external_signer,
-            args=(signer_connection, key, behavior),
+            args=(signer_connection, key, behavior, operations),
             daemon=True,
         )
         thread.start()
@@ -1746,7 +1756,7 @@ def test_runtime_startup_and_editable_injection_is_rejected_before_attachment(
 @pytest.mark.parametrize(
     ("behavior", "expected"),
     [
-        ("wrong_challenge_signature", "challenge response is invalid"),
+        ("wrong_challenge_signature", "initialization failed"),
         ("legacy_v1_response", "initialization failed"),
         ("extra_challenge_field", "initialization failed"),
         ("wrong_sign_signature", "External apply signer failed"),
@@ -1764,16 +1774,38 @@ def test_invalid_external_signer_response_fails_closed(
     eval_public, _eval_key = _keypair(b"\xcd" * 32)
     launcher = _launcher(tmp_path, trusted_python_runtime)
     trust_config = _trust_config(tmp_path, apply_public, eval_public)
-    with _signers(apply_key, behavior=behavior) as descriptors:
+    started_marker = tmp_path / "entrypoint-started"
+    operations: list[str] = []
+    with _signers(apply_key, behavior=behavior, operations=operations) as descriptors:
         completed = _invoke(
             signing_supervisor,
             trusted_python_runtime,
             launcher,
             trust_config,
             descriptors,
+            command_args=("--started-marker", str(started_marker)),
         )
     assert completed.returncode != 0
     assert expected in completed.stderr
+    assert completed.stdout == ""
+    if behavior in {
+        "wrong_challenge_signature",
+        "legacy_v1_response",
+        "extra_challenge_field",
+    }:
+        # The supervisor may kill the broker before its detailed stderr write.
+        # Its own initialization error is stable; failed challenges must never
+        # start the trusted entrypoint or reach a signing request.
+        assert completed.returncode == 2
+        assert (
+            "signing supervisor: External apply signer initialization failed"
+            in completed.stderr
+        )
+        assert not started_marker.exists()
+        assert operations == ["challenge"]
+    else:
+        assert started_marker.exists()
+        assert operations == ["challenge", "sign"]
 
 
 def test_non_socket_signer_descriptor_is_rejected(
