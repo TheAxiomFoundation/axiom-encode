@@ -277,6 +277,15 @@ The launcher is the process manager the deployment model calls for. It:
 The supervisor performs its own forbidden-private-key-environment rejection and
 per-child scrub, so the launcher is a wiring layer, not a second trust boundary.
 
+For subscription-backed generation, `run` also accepts the supervisor's
+`--trusted-codex-cli-config`, `--codex-subscription-auth`, and
+`--codex-auth-outbox` flags before the `--` separator. Supply all three together;
+the launcher rejects partial configurations before consuming the signing key.
+It forwards the paths unchanged to the supervisor, which owns credential-file
+validation, isolation, and refresh. The signer's minimal environment and CI
+context requirements still apply. Omitting all three preserves the existing
+supervisor arguments.
+
 ### ChatGPT subscription generation
 
 The tier-1 provisioner can additionally install the repository-pinned Codex CLI:

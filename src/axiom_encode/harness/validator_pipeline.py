@@ -98,6 +98,7 @@ from axiom_encode.repo_routing import (
     monorepo_checkout_name,
 )
 from axiom_encode.rules_engine_compat import run_rulespec_compile
+from axiom_encode.rulespec_formula_identifiers import formula_reference_identifiers
 from axiom_encode.statute import (
     citation_to_citation_path,
     normalize_rulespec_path_segment,
@@ -116,6 +117,7 @@ from .dependency_stubs import (
 )
 from .encoding_db import EncodingDB, ReviewResult, ReviewResults
 from .eval_evidence import scrub_attestation_signing_keys
+from .lifetime_fixtures import run_lifetime_fixture
 from .policyengine_runtime import (
     PolicyEngineRuntime,
     PolicyEngineRuntimeError,
@@ -389,7 +391,6 @@ def run_claude_code(
         "--model",
         model,
         "-p",
-        prompt,
     ]
 
     try:
@@ -405,6 +406,7 @@ def run_claude_code(
             idle_timeout=idle_timeout,
             cwd=cwd,
             env=scrub_attestation_signing_keys(),
+            input_text=prompt,
         )
         return result.output, result.returncode
     except subprocess.TimeoutExpired as exc:
@@ -433,7 +435,7 @@ def _run_codex_reviewer_cli(
     ]
     if cwd is not None:
         cmd.extend(["-C", str(cwd)])
-    cmd.append(prompt)
+    cmd.append("-")
 
     try:
         idle_timeout = min(
@@ -453,6 +455,7 @@ def _run_codex_reviewer_cli(
             timeout=timeout,
             idle_timeout=idle_timeout,
             cwd=cwd,
+            input_text=prompt,
         )
         return _extract_codex_text_output(result.output), result.returncode
     except subprocess.TimeoutExpired:
@@ -485,6 +488,7 @@ def _run_subprocess_with_idle_timeout(
     idle_timeout: int,
     cwd: Optional[Path] = None,
     env: Mapping[str, str] | None = None,
+    input_text: str | None = None,
     poll_interval: float = 0.5,
 ) -> _SubprocessRunResult:
     """Run a subprocess, aborting if it stops emitting output for too long."""
@@ -498,12 +502,22 @@ def _run_subprocess_with_idle_timeout(
             stdout_path = capture_root / "stdout.log"
             stderr_path = capture_root / "stderr.log"
             with (
+                (
+                    tempfile.TemporaryFile(mode="w+b")
+                    if input_text is not None
+                    else contextlib.nullcontext(None)
+                ) as stdin_file,
                 stdout_path.open("w+") as stdout_file,
                 stderr_path.open("w+") as stderr_file,
             ):
+                if stdin_file is not None:
+                    # A file-backed stdin avoids both argv size limits and a
+                    # blocking pipe write before the timeout loop can start.
+                    stdin_file.write(input_text.encode("utf-8"))
+                    stdin_file.seek(0)
                 process = subprocess.Popen(
                     cmd,
-                    stdin=subprocess.DEVNULL,
+                    stdin=stdin_file if stdin_file is not None else subprocess.DEVNULL,
                     stdout=stdout_file,
                     stderr=stderr_file,
                     text=True,
@@ -2213,13 +2227,22 @@ def _parse_hebrew_number_run(
         | set(_HEBREW_TEEN_TENS)
         | {"שני", "שתי"}
     )
+    # Every scale probe begins at the same word. Normalize its prefix once;
+    # prose outside the numeral vocabulary cannot open any of those probes.
+    first_word = (
+        _strip_hebrew_number_prefix(words[start], vocabulary)
+        if start < len(words)
+        else None
+    )
+    if first_word is None:
+        return None
 
     def word_at(position: int) -> str | None:
         if position >= len(words):
             return None
         raw = words[position]
         if position == start:
-            return _strip_hebrew_number_prefix(raw, vocabulary)
+            return first_word
         if raw in vocabulary:
             return raw
         if raw.startswith("\u05d5"):
@@ -30976,8 +30999,7 @@ def _rulespec_import_prefix_static(import_path: str) -> str | None:
 
 def _formula_local_identifiers(formula: str) -> set[str]:
     """Return non-builtin identifiers referenced by a RuleSpec formula."""
-    scrubbed = _QUOTED_STRING_PATTERN.sub(" ", formula)
-    return set(_RULESPEC_IDENTIFIER.findall(scrubbed)) - _RULESPEC_FORMULA_BUILTINS
+    return formula_reference_identifiers(formula)
 
 
 def _normalize_identifier(value: str) -> str:
@@ -31363,6 +31385,45 @@ def find_test_input_assignment_issues(
         if not isinstance(test_case, dict):
             continue
         test_name = str(test_case.get("name") or f"case {index}").strip()
+        if "lifetime" in test_case:
+            # Check each observation period independently; a fact in another
+            # year's batch cannot satisfy this batch's assignment obligation.
+            for batch_index, (period, inputs) in enumerate(
+                _lifetime_test_batch_inputs(test_case), start=1
+            ):
+                # V2 binds formula dependencies at calculation.start while facts
+                # remain separate observations. Malformed dates stay conservative
+                # here and are rejected by the lifetime transport/runtime.
+                lifetime = test_case.get("lifetime")
+                period_bounds = _test_case_period_bounds(period)
+                if isinstance(lifetime, dict) and "calculation_period" in lifetime:
+                    calculation_bounds = _test_case_period_bounds(
+                        lifetime["calculation_period"]
+                    )
+                    period_bounds = (
+                        (calculation_bounds[0], calculation_bounds[0])
+                        if calculation_bounds is not None
+                        else None
+                    )
+                required_inputs = _required_inputs_for_test_outputs(
+                    test_case.get("output"),
+                    symbol_inputs=symbol_inputs,
+                    symbol_dependencies=symbol_dependencies,
+                    symbol_versions=symbol_versions,
+                    period_bounds=period_bounds,
+                )
+                missing = sorted(
+                    (required_inputs & globally_local_inputs)
+                    - _input_names_from_mapping(inputs)
+                )
+                if missing:
+                    issues.append(
+                        "Test input assignment missing: "
+                        f"`{test_name}` lifetime batch #{batch_index} does not assign "
+                        + ", ".join(f"#input.{name}" for name in missing)
+                        + ". Every period must provide its own local factual inputs."
+                    )
+            continue
         required_inputs = _required_inputs_for_test_outputs(
             test_case.get("output"),
             symbol_inputs=symbol_inputs,
@@ -31535,6 +31596,32 @@ def _required_inputs_for_symbol(
     return required
 
 
+def _lifetime_test_batch_inputs(
+    test_case: dict[Any, Any],
+) -> list[tuple[Any, dict[Any, Any]]]:
+    """Inspect typed batch input mappings without flattening columns or histories.
+
+    This collector does not validate the lifetime schema. Malformed structures
+    remain intact for the dedicated lifetime fixture validator to reject.
+    """
+    lifetime = test_case.get("lifetime")
+    if not isinstance(lifetime, dict):
+        return []
+    periods, batches = lifetime.get("periods"), lifetime.get("batches")
+    if not isinstance(batches, list):
+        return []
+    result = []
+    for index, batch in enumerate(batches):
+        inputs = batch.get("inputs") if isinstance(batch, dict) else None
+        period = (
+            periods[index]
+            if isinstance(periods, list) and index < len(periods)
+            else None
+        )
+        result.append((period, inputs if isinstance(inputs, dict) else {}))
+    return result
+
+
 def _all_test_input_names(test_cases: list[Any]) -> set[str]:
     names: set[str] = set()
     for test_case in test_cases:
@@ -31544,6 +31631,8 @@ def _all_test_input_names(test_cases: list[Any]) -> set[str]:
         if isinstance(inputs, dict):
             names.update(_input_names_from_mapping(inputs))
         names.update(_table_input_names(test_case.get("tables")))
+        for _, inputs in _lifetime_test_batch_inputs(test_case):
+            names.update(_input_names_from_mapping(inputs))
     return names
 
 
@@ -31573,6 +31662,10 @@ def _test_case_assignment_keys(test_case: dict[str, Any]) -> list[str]:
             for row in rows:
                 if isinstance(row, dict):
                     keys.extend(_assignment_keys_from_mapping(row))
+    for _, inputs in _lifetime_test_batch_inputs(test_case):
+        # Every batch mapping key is an input reference; IDs and type metadata
+        # belong to the batch/column records and are never collected as facts.
+        keys.extend(str(key) for key in inputs)
     return keys
 
 
@@ -34086,8 +34179,10 @@ _RULESPEC_FORMULA_BUILTINS = {
     "all",
     "and",
     "any",
+    "calendar_years_to_months",
     "ceil",
     "count",
+    "count_over_periods",
     "count_where",
     "date_add_days",
     "date_add_months",
@@ -34100,6 +34195,7 @@ _RULESPEC_FORMULA_BUILTINS = {
     "len",
     "match",
     "max",
+    "max_over_periods",
     "min",
     "not",
     "or",
@@ -34107,6 +34203,8 @@ _RULESPEC_FORMULA_BUILTINS = {
     "period_start",
     "round",
     "sum",
+    "sum_over_periods",
+    "sum_top_n_over_periods",
     "sum_where",
     "true",
     "false",
@@ -34197,8 +34295,13 @@ def _rulespec_formula_identifiers(payload: Any) -> set[str]:
                 continue
             formula = version.get("formula")
             if isinstance(formula, str):
-                identifiers.update(_RULESPEC_IDENTIFIER.findall(formula))
-    return identifiers - _RULESPEC_FORMULA_BUILTINS
+                identifiers.update(
+                    formula_reference_identifiers(
+                        formula,
+                        judgment=str(rule.get("dtype") or "").lower() == "judgment",
+                    )
+                )
+    return identifiers
 
 
 def _rulespec_reference_summary(target_file: Path) -> _RuleSpecReferenceSummary:
@@ -36285,6 +36388,33 @@ class ValidatorPipeline:
                     f"Test case #{index} output must assert "
                     f"{self.policyengine_rule_hint}."
                 )
+
+            if "lifetime" in case:
+                if binary is None:
+                    binary = self._axiom_rules_binary()
+                try:
+                    lifetime_issues = run_lifetime_fixture(
+                        binary=binary,
+                        compiled_path=compiled_path,
+                        case=case,
+                        period=period,
+                        cwd=(
+                            self.axiom_rules_path
+                            if self.axiom_rules_path.exists()
+                            else None
+                        ),
+                        env=self._rulespec_engine_env(),
+                    )
+                except (ValueError, OSError, subprocess.SubprocessError) as exc:
+                    lifetime_issues = [str(exc)]
+                for issue in lifetime_issues:
+                    detail = _normalize_validation_staging_text(
+                        issue,
+                        compiled_path.parent,
+                        placeholder=_VALIDATION_TEMP_ROOT_PLACEHOLDER,
+                    )
+                    issues.append(f"Test case `{case_name}` {detail}")
+                continue
 
             computed_input_keys = [
                 input_name
@@ -39055,10 +39185,7 @@ class ValidatorPipeline:
             review_context_section = f"\n## Review Context\n{review_context}\n"
         test_section = ""
         if test_content:
-            test_section = (
-                "\n## Companion Test File\n"
-                f"{test_content[:3000]}{'...' if len(test_content) > 3000 else ''}\n"
-            )
+            test_section = f"\n## Companion Test File\n{test_content}\n"
 
         if prompt_template is not None:
             prompt = f"""{prompt_template}
@@ -39072,7 +39199,7 @@ Review this encoding holistically.
 File: benchmark artifact (RuleSpec YAML)
 
 Content:
-{rulespec_content[:6000]}{"..." if len(rulespec_content) > 6000 else ""}
+{rulespec_content}
 {test_section}{review_context_section}{oracle_section}
 If oracle validators show discrepancies, investigate WHY the encoding differs from consensus.
 
@@ -39084,7 +39211,7 @@ Output ONLY valid JSON matching the schema above.
 File: {rulespec_file}
 
 Content:
-{rulespec_content[:3000]}{"..." if len(rulespec_content) > 3000 else ""}
+{rulespec_content}
 {test_section}{review_context_section}{oracle_section}
 If oracle validators show discrepancies, investigate WHY the encoding differs from consensus.
 
@@ -39367,6 +39494,15 @@ Output ONLY valid JSON:
         total = 0
         coverage = PolicyEngineOracleCoverage()
         for test in tests:
+            if test.get("lifetime_fixture") is True:
+                coverage.total_outputs += 1
+                coverage.unsupported += 1
+                issues.append(
+                    f"PolicyEngine unavailable for '{test.get('name')}': "
+                    "lifetime fixtures require a history-aware oracle adapter; "
+                    "the scalar oracle cannot compare this case."
+                )
+                continue
             test_rule_name = str(test.get("variable", ""))
             raw_test_rule_name = str(test.get("raw_variable") or test_rule_name)
             oracle_rule_name = self.policyengine_rule_hint or raw_test_rule_name
@@ -39931,6 +40067,22 @@ print("BENCHMARK:" + json.dumps(result))
                         continue
                     outputs = test_case.get("output", test_case.get("expect"))
                     if not isinstance(outputs, dict):
+                        continue
+                    if "lifetime" in test_case:
+                        # Preserve the mode boundary. The scalar oracle must
+                        # explicitly refuse these cases before any projection,
+                        # aliasing, value coercion, or default-period choice.
+                        for variable, expected in outputs.items():
+                            tests.append(
+                                {
+                                    "variable": normalize_variable_name(variable),
+                                    "raw_variable": str(variable),
+                                    "name": test_case.get("name"),
+                                    "period": test_case.get("period"),
+                                    "lifetime_fixture": True,
+                                    "expect": expected,
+                                }
+                            )
                         continue
                     inputs = test_case.get("input", test_case.get("inputs", {}))
                     inputs = unwrap_entity_wrapper(inputs)

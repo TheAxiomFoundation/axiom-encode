@@ -1,0 +1,1 @@
+Execute typed, row-aligned multi-period companion fixtures through the real Rust Decimal lifetime CLI. Preserve histories during normalization, inspect every period's factual inputs, and report unsupported scalar oracle coverage without flattening histories.

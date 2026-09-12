@@ -88,6 +88,37 @@ def _severity_for(kind: str) -> Severity:
 # ---------------------------------------------------------------------------
 
 
+def _generalist_review_event(review: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(review, dict):
+        return None
+    status = review.get("status")
+    stage_status = {
+        "passed": StageStatus.passed,
+        "failed": StageStatus.failed,
+        "skipped": StageStatus.skipped,
+        "unavailable": StageStatus.error,
+    }.get(status)
+    if stage_status is None:
+        return None
+    return {
+        "stage": "gate.review",
+        "status": stage_status,
+        "reason_code": {
+            "failed": "reviewer_rejected",
+            "unavailable": "reviewer_unavailable",
+            "skipped": "reviewer_skipped",
+        }.get(status),
+        "attrs": {
+            key: review.get(key)
+            for key in ("status", "score", "prompt_sha256", "skip_reason")
+        },
+        "findings": [
+            Finding(code="reviewer_issue", severity=Severity.important, message=m)
+            for m in (review.get("issues") or [])
+        ],
+    }
+
+
 def _gate_events_from_metrics(metrics: Any) -> list[dict[str, Any]]:
     """Map a live ``EvalArtifactMetrics`` into gate-stage event kwargs.
 
@@ -152,27 +183,11 @@ def _gate_events_from_metrics(metrics: Any) -> list[dict[str, Any]]:
             }
         )
 
-    review_pass = getattr(metrics, "generalist_review_pass", None)
-    if review_pass is not None:
-        events.append(
-            {
-                "stage": "gate.review",
-                "status": StageStatus.passed if review_pass else StageStatus.failed,
-                "reason_code": None if review_pass else "reviewer_rejected",
-                "attrs": {
-                    "score": getattr(metrics, "generalist_review_score", None),
-                    "prompt_sha256": getattr(
-                        metrics, "generalist_review_prompt_sha256", None
-                    ),
-                },
-                "findings": [
-                    Finding(
-                        code="reviewer_issue", severity=Severity.important, message=m
-                    )
-                    for m in (getattr(metrics, "generalist_review_issues", None) or [])
-                ],
-            }
-        )
+    from .harness.evals import generalist_review_snapshot
+
+    review_event = _generalist_review_event(generalist_review_snapshot(metrics))
+    if review_event is not None:
+        events.append(review_event)
 
     for oracle in ("policyengine",):
         passed = getattr(metrics, f"{oracle}_pass", None)
@@ -419,8 +434,18 @@ def synthesize_backfill_events(
 
     review_results = getattr(run, "review_results", None)
     if review_results is not None:
-        # gate.review only when reviewers actually ran.
-        if getattr(review_results, "reviews", None):
+        recorded_review = outcome.get("generalist_review")
+        if not isinstance(recorded_review, dict):
+            context = getattr(review_results, "oracle_context", None)
+            recorded_review = (
+                context.get("generalist_review") if isinstance(context, dict) else None
+            )
+        if isinstance(recorded_review, dict):
+            review_event = _generalist_review_event(recorded_review)
+            if review_event is not None:
+                _event(**review_event)
+        # Historical checklist-only records retain their original projection.
+        elif getattr(review_results, "reviews", None):
             findings: list[Finding] = []
             for review in review_results.reviews:
                 for kind in ("critical_issues", "important_issues", "minor_issues"):

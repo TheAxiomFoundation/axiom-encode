@@ -360,34 +360,46 @@ def _source_repair_candidates(
     ):
         lane = f"source-{index:02d}"
         expected_module = _expected_module_path(country, rulespec_path)
-        candidate_pattern = re.compile(
-            rf"{re.escape(lane)}/({RUNNER_PATTERN.pattern})/"
-            rf"{re.escape(expected_module)}"
+        retained = _retained_candidate(
+            bundle,
+            members,
+            files,
+            repair_lane=lane,
+            expected_module=expected_module,
+            citation=citation,
         )
-        runners = sorted(
-            {
-                match.group(1)
-                for path in files
-                if (match := candidate_pattern.fullmatch(path)) is not None
-                and f"{lane}/{match.group(1)}/"
-                f"{expected_module.removesuffix('.yaml')}.test.yaml"
-                in files
-            }
-        )
-        if "openai-gpt-5.6-sol" in runners:
-            runner = "openai-gpt-5.6-sol"
-        elif len(runners) == 1:
-            runner = runners[0]
-        else:
-            raise ValueError(
-                f"repair artifact does not bind one final source candidate: {lane}"
+        if retained is None:
+            candidate_pattern = re.compile(
+                rf"{re.escape(lane)}/({RUNNER_PATTERN.pattern})/"
+                rf"{re.escape(expected_module)}"
             )
-        candidate_path = f"{lane}/{runner}/{expected_module}"
-        tests_path = (
-            f"{lane}/{runner}/{expected_module.removesuffix('.yaml')}.test.yaml"
-        )
-        candidate = _verified_generated_file(bundle, members, files, candidate_path)
-        tests = _verified_generated_file(bundle, members, files, tests_path)
+            runners = sorted(
+                {
+                    match.group(1)
+                    for path in files
+                    if (match := candidate_pattern.fullmatch(path)) is not None
+                    and f"{lane}/{match.group(1)}/"
+                    f"{expected_module.removesuffix('.yaml')}.test.yaml"
+                    in files
+                }
+            )
+            if "openai-gpt-5.6-sol" in runners:
+                runner = "openai-gpt-5.6-sol"
+            elif len(runners) == 1:
+                runner = runners[0]
+            else:
+                raise ValueError(
+                    f"repair artifact does not bind one final source candidate: {lane}"
+                )
+            candidate_path = f"{lane}/{runner}/{expected_module}"
+            tests_path = (
+                f"{lane}/{runner}/{expected_module.removesuffix('.yaml')}.test.yaml"
+            )
+            candidate = _verified_generated_file(bundle, members, files, candidate_path)
+            tests = _verified_generated_file(bundle, members, files, tests_path)
+        else:
+            candidate, tests = retained
+            runner = "retained-best"
         root = destination / "source-candidates" / lane / runner
         _write_candidate_pair(root, expected_module, candidate, tests)
         extracted.append(
