@@ -1,0 +1,1 @@
+Forward the complete Codex subscription configuration from the apply-signer launcher to the signing supervisor. Reject partial configurations before consuming the signing key, while preserving CI context requirements and the signer's minimal environment.
