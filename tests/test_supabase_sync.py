@@ -1466,6 +1466,96 @@ class TestSyncRunCostLedger:
         assert "actual_cost_usd" not in payload
         assert payload["generation_attempt_count"] == 2
 
+    def test_payload_carries_per_attempt_usage(self):
+        """Each attempt ships the model and tokens it recorded, so an escalated
+        run can be re-priced from the remote row alone."""
+        from axiom_encode.harness.encoding_db import Iteration
+
+        mock_run = self._make_run_with_ledger()
+        mock_run.iterations = [
+            Iteration(
+                attempt=1,
+                duration_ms=1000,
+                success=False,
+                model="terra",
+                input_tokens=50_000,
+                output_tokens=2_000,
+                cache_read_tokens=1_200,
+                cache_creation_tokens=800,
+                reasoning_output_tokens=300,
+                estimated_cost_usd=0.1234,
+            ),
+            Iteration(
+                attempt=2,
+                duration_ms=2000,
+                success=True,
+                model="sol",
+                input_tokens=26_000,
+                output_tokens=1_700,
+                reasoning_output_tokens=100,
+                estimated_cost_usd=0.2088,
+            ),
+            # An attempt that reported no usage must not publish zeros.
+            Iteration(attempt=3, duration_ms=10, success=True),
+        ]
+
+        mock_client = MagicMock()
+        mock_client.schema.return_value.table.return_value.upsert.return_value.execute.return_value = MagicMock(
+            data=[{"id": "cost-123"}]
+        )
+
+        assert sync_run_to_supabase(mock_run, "ci_only", client=mock_client) is True
+        payload = (
+            mock_client.schema.return_value.table.return_value.upsert.call_args.args[0]
+        )
+        first, second, third = payload["iterations"]
+        assert first["model"] == "terra"
+        assert first["input_tokens"] == 50_000
+        assert first["output_tokens"] == 2_000
+        assert first["cache_read_tokens"] == 1_200
+        assert first["cache_creation_tokens"] == 800
+        assert first["reasoning_output_tokens"] == 300
+        assert first["estimated_cost_usd"] == 0.1234
+        assert second["model"] == "sol"
+        assert second["input_tokens"] == 26_000
+        assert "cache_read_tokens" not in second
+        assert second["estimated_cost_usd"] == 0.2088
+        assert third == {
+            "attempt": 3,
+            "duration_ms": 10,
+            "success": True,
+            "errors": [],
+        }
+
+    def test_non_finite_attempt_cost_stays_absent(self):
+        from axiom_encode.harness.encoding_db import Iteration
+
+        mock_run = self._make_run_with_ledger()
+        mock_run.iterations = [
+            Iteration(
+                attempt=1,
+                duration_ms=1000,
+                success=True,
+                model="terra",
+                input_tokens=10,
+                estimated_cost_usd=float("nan"),
+            )
+        ]
+
+        mock_client = MagicMock()
+        mock_client.schema.return_value.table.return_value.upsert.return_value.execute.return_value = MagicMock(
+            data=[{"id": "cost-123"}]
+        )
+
+        assert sync_run_to_supabase(mock_run, "ci_only", client=mock_client) is True
+        payload = (
+            mock_client.schema.return_value.table.return_value.upsert.call_args.args[0]
+        )
+        (only,) = payload["iterations"]
+        assert only["model"] == "terra"
+        assert only["input_tokens"] == 10
+        assert "estimated_cost_usd" not in only
+
     def test_unmeasured_ledger_fields_stay_absent(self):
         """A manifest-style run with no telemetry must not publish zeros."""
         mock_run = self._make_run_with_ledger()
