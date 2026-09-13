@@ -16,6 +16,7 @@ from typing import Optional
 from supabase import Client, create_client
 
 from .harness.encoding_db import (
+    ITERATION_USAGE_FIELDS,
     RUN_COST_COLUMNS,
     SESSION_LEDGER_COLUMNS,
     TOKEN_USAGE_FIELDS,
@@ -96,6 +97,24 @@ def get_supabase_client(*, require_write: bool = True) -> Client:
     return create_client(url, key)
 
 
+def _iteration_usage(iteration: object) -> dict:
+    """Return the usage fields an attempt actually recorded.
+
+    Mirrors ``EncodingDB``'s local serialization: only fields that are set are
+    shipped, so remote readers see ``None`` for unmeasured attempts rather
+    than a zero that would price as free.
+    """
+    usage = {}
+    for name in ITERATION_USAGE_FIELDS:
+        value = getattr(iteration, name, None)
+        if value is None:
+            continue
+        if isinstance(value, float) and not math.isfinite(value):
+            continue
+        usage[name] = value
+    return usage
+
+
 def sync_run_to_supabase(
     run: "EncodingRun",
     data_source: str,  # REQUIRED: 'reviewer_agent', 'ci_only', 'mock', 'manual_estimate'
@@ -156,6 +175,10 @@ def sync_run_to_supabase(
                     }
                     for e in it.errors
                 ],
+                # Per-attempt usage travels with the attempt so an escalated
+                # run (Terra, then Sol) can be re-priced from the remote record.
+                # An attempt that reported no usage stays absent, not zero.
+                **_iteration_usage(it),
             }
             for it in run.iterations
         ],
