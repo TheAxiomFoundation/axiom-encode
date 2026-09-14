@@ -4696,7 +4696,9 @@ def _analyze_rulespec_payload(
             "parameter-only representation is invalid."
         )
 
-    numeric_recall_text = authoritative_numeric_recall_text(source_text)
+    numeric_recall_text = authoritative_numeric_recall_text(
+        source_text, corpus_citation_path=corpus_citation_path
+    )
     source_occurrences = tuple(
         occurrence
         for occurrence in extract_numeric_occurrences(numeric_recall_text)
@@ -12111,7 +12113,9 @@ def _mask_spaced_german_sentence_labels(text: str) -> str:
     return text
 
 
-def authoritative_numeric_recall_text(source_text: str) -> str:
+def authoritative_numeric_recall_text(
+    source_text: str, *, corpus_citation_path: str = ""
+) -> str:
     """Remove structural/citation ordinals, never substantive source values."""
 
     cleaned = _mask_spaced_german_sentence_labels(
@@ -12129,6 +12133,21 @@ def authoritative_numeric_recall_text(source_text: str) -> str:
                 marker_spans.append(match.span("label"))
         for start, end in sorted(set(marker_spans), reverse=True):
             cleaned = cleaned[:start] + " " * (end - start) + cleaned[end:]
+    if re.fullmatch(
+        r"us/guidance/irs/rev-proc-\d{4}-\d+(?:/page-\d+)?",
+        corpus_citation_path,
+    ):
+        # Revenue procedures label titled subsections .01, .02, etc. Corpus
+        # extraction can flatten these headings onto the preceding paragraph.
+        # Require both a paragraph/sentence boundary and a title ending in a
+        # period; ordinary leading-dot decimals remain substantive values.
+        cleaned = re.sub(
+            r"(?P<boundary>^|(?<=[.!?])\s+|\n[ \t]*)"
+            r"\.\d{2}(?=[ \t]+[A-Z][A-Za-z'-]*"
+            r"(?:[ \t]+(?:[A-Z][A-Za-z'-]*|as|of|for|and|or|the|to|in)){1,15}\.)",
+            lambda match: match.group("boundary") + " " * 3,
+            cleaned,
+        )
     footnote_definition = re.compile(
         r"(?P<boundary>(?:^|[.!?])\s*)(?P<marker>[1-9]\d?)"
         r"(?P<body>\s+[A-Z][^.!?]{0,640}\b"

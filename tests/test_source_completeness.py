@@ -43597,3 +43597,62 @@ def test_imported_parameter_rejects_lossy_decimal_literals(formula):
 @pytest.mark.parametrize("formula", ["12.41", "12.82", "-0.5", "130", 130])
 def test_imported_parameter_accepts_lossless_numeric_literals(formula):
     assert completeness_module._imported_parameter_formula_is_numeric_literal(formula)
+
+
+@pytest.mark.parametrize("suffix", ["", "/page-15"])
+def test_irs_revenue_procedure_headings_are_not_numeric_obligations(suffix):
+    source = (
+        Path(__file__).parent
+        / "fixtures/source_completeness/irs_rev_proc_2025_32_page_15.txt"
+    ).read_text()
+    cleaned = authoritative_numeric_recall_text(
+        source, corpus_citation_path="us/guidance/irs/rev-proc-2025-32" + suffix
+    )
+    values = {item.value for item in EN_NUMERIC_OCCURRENCE_EXTRACTOR(cleaned)}
+    assert 0.07 not in values
+    assert 0.08 not in values
+    assert {12200, 8700, 3.416, 3953600, 664, 4427, 7316, 8231} <= values
+    assert "Rehabilitation Expenditures Treated as Separate New Building." in cleaned
+    assert "Low-Income Housing Credit." in cleaned
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        ".07 of income is allowed.",
+        "The multiplier is .07. The cap is .08.",
+        ".07 percent applies. .08 dollars is the floor.",
+        ".07 Credit",  # No heading terminator: keep ambiguous source values.
+        "The rate is .07 Low-Income Housing Credit.",  # No heading boundary.
+    ],
+)
+def test_irs_heading_cleanup_preserves_substantive_decimals(source):
+    cleaned = authoritative_numeric_recall_text(
+        source, corpus_citation_path="us/guidance/irs/rev-proc-2025-32/page-15"
+    )
+    assert cleaned == source
+
+
+def test_irs_heading_cleanup_does_not_apply_to_other_sources():
+    source = ".07 Low-Income Housing Credit."
+    assert authoritative_numeric_recall_text(source) == source
+    assert (
+        authoritative_numeric_recall_text(
+            source, corpus_citation_path="us/statute/26/32"
+        )
+        == source
+    )
+
+
+def test_irs_heading_recall_checks_amounts_without_dummy_marker_parameters():
+    source = ".07 Rehabilitation Expenditures Treated as Separate New Building. The amount is $8,700. .08 Low-Income Housing Credit. The amount is $3.416."
+    content = "format: rulespec/v1\nmodule: {}\nrules: []\n"
+    kwargs = dict(
+        corpus_citation_path="us/guidance/irs/rev-proc-2025-32/page-15",
+        extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+        test_cases=[],
+    )
+    covered = _analyze(content, source, artifact_numeric_values=(8700, 3.416), **kwargs)
+    assert not _has_issue(covered, "numeric-recall"), covered.issues
+    missing = _analyze(content, source, artifact_numeric_values=(8700,), **kwargs)
+    assert _has_issue(missing, "numeric-recall", "3.416")
