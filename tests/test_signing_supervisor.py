@@ -2880,6 +2880,11 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         if step.get("name") == "Commit reviewed lane changes locally"
     )
     assert commit_step["id"] == "commit_reviewed_lane_changes"
+    assert (
+        commit_step["env"]["ATOMIC_SOURCE_JSON"] == "${{ inputs.source_bundle_json }}"
+    )
+    assert 'manifest_only_refresh="$(jq -r \\' in commit_step["run"]
+    assert '[ "$manifest_only_refresh" = "true" ] || \\' in commit_step["run"]
     assert f"workflow_python=({trusted_python} -I)" in commit_step["run"]
     assert '"${workflow_python[@]}" \\\n' in commit_step["run"]
     assert "axiom-encode-signing-supervisor \\\n" in commit_step["run"]
