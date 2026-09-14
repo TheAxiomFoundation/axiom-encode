@@ -11265,6 +11265,7 @@ def _iter_cardinal_word_number_matches(
     text: str,
     *,
     compound_only: bool = False,
+    split_adjacent_labels: bool = True,
 ) -> list[tuple[tuple[int, int], float]]:
     """Return English cardinal number phrases such as "five hundred thousand"."""
     matches: list[tuple[tuple[int, int], float]] = []
@@ -11278,11 +11279,54 @@ def _iter_cardinal_word_number_matches(
         if split_values is not None:
             matches.extend(split_values)
             continue
+        adjacent_values = (
+            _split_adjacent_cardinal_labels(phrase, offset=match.start())
+            if split_adjacent_labels
+            else None
+        )
+        if adjacent_values is not None:
+            matches.extend(adjacent_values)
+            continue
         value = _parse_cardinal_number_words(phrase)
         if value is None:
             continue
         matches.append((match.span(), value))
     return matches
+
+
+def _split_adjacent_cardinal_labels(
+    phrase: str, *, offset: int = 0
+) -> list[tuple[tuple[int, int], float]] | None:
+    """Keep flattened unscaled labels ("One Two Three") as separate numbers.
+
+    A valid compound such as "twenty one" remains one value. Scaled and
+    coordinated phrases retain their existing parsers; this only separates
+    adjacent bare cardinals that cannot form a conventional English number.
+    """
+    words = list(re.finditer(r"[A-Za-z]+", phrase))
+    if len(words) < 2 or any(
+        word.group().lower() not in _CARDINAL_WORD_VALUES for word in words
+    ):
+        return None
+    if _parse_strict_cardinal_number_words(phrase) is not None:
+        return None
+    values: list[tuple[tuple[int, int], float]] = []
+    index = 0
+    while index < len(words):
+        first = last = words[index]
+        value = _CARDINAL_WORD_VALUES[first.group().lower()]
+        if index + 1 < len(words):
+            following = words[index + 1]
+            compound = _parse_strict_cardinal_number_words(
+                phrase[first.start() : following.end()]
+            )
+            if compound is not None:
+                value = compound
+                last = following
+                index += 1
+        values.append(((offset + first.start(), offset + last.end()), value))
+        index += 1
+    return values
 
 
 def _iter_digit_scale_number_matches(
@@ -15435,6 +15479,9 @@ def _english_word_number_occurrences(
     for span, value in _iter_cardinal_word_number_matches(
         cleaned,
         compound_only=True,
+        # The explicit English profile rejects malformed phrases as a whole;
+        # do not turn their individual tokens into new grounding evidence.
+        split_adjacent_labels=False,
     ):
         strict_value = _parse_strict_cardinal_number_words(cleaned[slice(*span)])
         if strict_value is None or not math.isclose(strict_value, value):

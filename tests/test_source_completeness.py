@@ -43656,3 +43656,24 @@ def test_irs_heading_recall_checks_amounts_without_dummy_marker_parameters():
     assert not _has_issue(covered, "numeric-recall"), covered.issues
     missing = _analyze(content, source, artifact_numeric_values=(8700,), **kwargs)
     assert _has_issue(missing, "numeric-recall", "3.416")
+
+
+def test_irs_pipeline_does_not_invent_sum_of_child_count_columns():
+    source = (
+        Path(__file__).parent
+        / "fixtures/source_completeness/irs_rev_proc_2025_32_page_15.txt"
+    ).read_text()
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-15
+rules: []
+"""
+    issues = _pipeline_issues(
+        content,
+        source,
+        corpus_citation_path="us/guidance/irs/rev-proc-2025-32/page-15",
+        test_cases=[],
+    )
+    assert not any("numeric value 6 has" in issue for issue in issues)
+    assert any("numeric value 12200 has" in issue for issue in issues)
