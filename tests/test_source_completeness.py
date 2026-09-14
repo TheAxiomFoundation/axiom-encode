@@ -43677,3 +43677,112 @@ rules: []
     )
     assert not any("numeric value 6 has" in issue for issue in issues)
     assert any("numeric value 12200 has" in issue for issue in issues)
+
+
+@pytest.mark.parametrize(
+    ("factor", "floor", "accepted"),
+    [
+        (3.416, 3953600, True),
+        (3.415, 3953600, False),
+        (0.03416, 3953600, False),
+        (3.416, 3953500, False),
+    ],
+)
+def test_formula_witness_accepts_one_reading_per_numeric_source_span(
+    factor, floor, accepted
+):
+    source = "The ceiling is the greater of (1) $3.416 multiplied by the State population, or (2) $3,953,600."
+    branch = completeness_module.SourceStructureBranch(
+        (), "formula", "ceiling", source, 0, len(source)
+    )
+    execution = completeness_module._FormulaExecution(
+        trace=(),
+        leaf="max(factor * state_population, floor)",
+        evaluated_value=None,
+        evaluates_to_zero=False,
+        constant_environment={"factor": factor, "floor": floor},
+    )
+    assert (
+        completeness_module._formula_execution_matches_source_branch(
+            execution,
+            branch,
+            interval=None,
+            formula_environment={},
+            extract_numeric_occurrences=functools.partial(
+                extract_typed_numeric_inventory_occurrences_from_text, profile="legacy"
+            ),
+            numeric_value_is_grounded=numeric_value_is_grounded,
+        )
+        is accepted
+    )
+
+
+def test_formula_witness_keeps_distinct_numeric_spans_required():
+    source = (
+        "The ceiling is the greater of $3.416 multiplied by population, or $9,876,543."
+    )
+    branch = completeness_module.SourceStructureBranch(
+        (), "formula", "ceiling", source, 0, len(source)
+    )
+    execution = completeness_module._FormulaExecution(
+        trace=(),
+        leaf="max(factor * population, floor)",
+        evaluated_value=None,
+        evaluates_to_zero=False,
+        constant_environment={"factor": 3.416, "floor": 0},
+    )
+    assert not completeness_module._formula_execution_matches_source_branch(
+        execution,
+        branch,
+        interval=None,
+        formula_environment={},
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text, profile="legacy"
+        ),
+        numeric_value_is_grounded=numeric_value_is_grounded,
+    )
+
+
+def test_irs_housing_candidate_tests_are_recognized_by_pipeline():
+    fixture = Path(__file__).parent / "fixtures/source_completeness/irs_housing_formula"
+    issues = _pipeline_issues(
+        (fixture / "rule.yaml").read_text(),
+        (fixture / "source.txt").read_text(),
+        corpus_citation_path="us/guidance/irs/rev-proc-2025-32/page-15",
+        test_cases=yaml.safe_load((fixture / "rule.test.yaml").read_text()),
+    )
+    assert issues == []
+
+
+@pytest.mark.parametrize(
+    ("transition", "matches"),
+    [
+        ((12200.0, 12201.0), True),
+        ((12201.0, 12200.0), False),
+        ((10000.0, 11000.0), False),
+    ],
+)
+def test_numeric_exception_threshold_ignores_introductory_year(transition, matches):
+    source = "For taxable years beginning in 2026, the earned income tax credit is not allowed if investment income exceeds $12,200."
+    branch = completeness_module.SourceStructureBranch(
+        (), "condition", "investment limit", source, 0, len(source)
+    )
+    witness = completeness_module._ExceptionWitness(
+        rule_name="credit_allowed",
+        selector_name="investment_income",
+        active_value=True,
+        blocks=True,
+        boolean_effect=True,
+        zeroes=False,
+        numeric_transition=transition,
+    )
+    assert (
+        completeness_module._numeric_exception_witness_matches_source(
+            branch,
+            witness,
+            extract_numeric_occurrences=functools.partial(
+                extract_typed_numeric_inventory_occurrences_from_text, profile="legacy"
+            ),
+        )
+        is matches
+    )

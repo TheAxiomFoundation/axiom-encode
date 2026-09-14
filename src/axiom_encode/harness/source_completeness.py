@@ -17950,12 +17950,30 @@ def _formula_execution_matches_source_branch(
         and _formula_is_duplicate_addition(operative_leaf)
     ):
         candidate_values.append(2.0)
+    # Locale-ambiguous tokens can have multiple readings at the same exact
+    # source span (e.g. 3.416 as a decimal or grouped thousands). They are
+    # alternatives, not independent quantities the formula must both contain.
+    # Keep distinct spans and typed contexts as separate evidence obligations.
+    evidence_groups: dict[tuple[Any, ...], list[NumericOccurrenceLike]] = {}
+    for occurrence in computation_occurrences:
+        key = (
+            occurrence.start,
+            occurrence.end,
+            occurrence.raw,
+            occurrence.has_rate_context,
+            occurrence.has_temporal_context,
+            occurrence.has_structural_context,
+            occurrence.requires_rate_context,
+            occurrence.is_word_number,
+        )
+        evidence_groups.setdefault(key, []).append(occurrence)
     return bool(candidate_values) and all(
         any(
             numeric_value_is_grounded(value, (source_occurrence,))
+            for source_occurrence in alternatives
             for value in candidate_values
         )
-        for source_occurrence in computation_occurrences
+        for alternatives in evidence_groups.values()
     )
 
 
@@ -25222,7 +25240,9 @@ def _numeric_exception_witness_matches_source(
     if transition is None:
         return False
     interval = _formula_interval_from_text(
-        authoritative_numeric_recall_text(branch.text),
+        authoritative_numeric_recall_text(
+            _source_exception_condition_text(branch.text)
+        ),
         extract_numeric_occurrences=extract_numeric_occurrences,
     )
     if interval is None:
