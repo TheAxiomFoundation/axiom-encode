@@ -1537,7 +1537,7 @@ jobs:
           target_require_complete_source_unit="$(jq -r \
             '.require_complete_source_unit' <<< "$atomic_source_payload")"
           manifest_only_refresh="$(jq -r \
-            '.manifest_only_refresh' <<< "$atomic_source_payload")"
+            '.manifest_only_refresh // false' <<< "$atomic_source_payload")"
           case "$manifest_only_refresh" in
             true|false) ;;
             *)
