@@ -6497,7 +6497,7 @@ def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.1982"')
+        .startswith('__version__ = "0.2.1983"')
     )
 
 
@@ -6729,13 +6729,13 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.1982"
+    assert encoder_package["version"] == "0.2.1983"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.1982"
+    assert project["project"]["version"] == "0.2.1983"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.1982"')
+        .startswith('__version__ = "0.2.1983"')
     )
 
 
@@ -6997,13 +6997,13 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.1982"
+    assert encoder_package["version"] == "0.2.1983"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.1982"
+    assert project["project"]["version"] == "0.2.1983"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.1982"')
+        .startswith('__version__ = "0.2.1983"')
     )
 
 
@@ -51463,3 +51463,37 @@ def test_scoped_grounding_accepts_authoritative_source_without_excerpt():
     )
 
     assert any("0.5" in issue for issue in issues), issues
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("One Two Three", [1, 2, 3]),
+        ("Twenty One Twenty Two", [21, 22]),
+        ("one hundred and twenty", [120]),
+        ("twenty-one", [21]),
+        ("sixteen and eighteen", [16, 18]),
+    ],
+)
+def test_cardinal_table_labels_are_not_summed(source, expected):
+    matches = validator_pipeline._iter_cardinal_word_number_matches(source)
+    assert [value for _span, value in matches] == expected
+    for (start, end), value in matches:
+        assert (
+            validator_pipeline._parse_strict_cardinal_number_words(source[start:end])
+            == value
+        )
+
+
+def test_numeric_inventory_does_not_sum_flattened_child_count_columns():
+    source = "Number of Qualifying Children Item One Two Three or More None"
+    occurrences = (
+        validator_pipeline.extract_typed_numeric_inventory_occurrences_from_text(
+            source, profile="legacy"
+        )
+    )
+    values = {occurrence.value for occurrence in occurrences}
+    # Existing inventory rules may omit bare column labels; they must never
+    # turn adjacent labels into an invented substantive amount.
+    assert 6 not in values
+    assert 6 not in extract_numbers_from_text(source)
