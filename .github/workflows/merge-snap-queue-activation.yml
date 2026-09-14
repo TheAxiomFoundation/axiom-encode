@@ -190,10 +190,11 @@ jobs:
               and (.conclusion | IN("success", "neutral", "skipped"))
             )
           ' "$RUNNER_TEMP/live-rulespec-check-runs.json" > /dev/null
+          pr_base_branch="$(jq -r '.dispatch.pr_base_branch' "$candidate_queue")"
           test "$(gh api \
             --header "Accept: application/vnd.github+json" \
             --header "X-GitHub-Api-Version: $api_version" \
-            repos/TheAxiomFoundation/rulespec-us/git/ref/heads/hard-cut/canonical-layout-us \
+            "repos/TheAxiomFoundation/rulespec-us/git/ref/heads/$pr_base_branch" \
             --jq '.object.sha')" = "$rulespec_ref"
           gh pr merge "$PULL_REQUEST_NUMBER" \
             --repo "$GITHUB_REPOSITORY" \

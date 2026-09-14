@@ -41,6 +41,12 @@ ALLOWED_STATUSES = frozenset(
 SELECTABLE_STATUSES = frozenset({"pending", "retryable"})
 TERMINAL_STATUSES = frozenset({"blocked", "completed", "no-executable-rule"})
 MAX_BATCH_SIZE = 4
+# Branches a queue may open its draft RuleSpec pull requests against. The
+# canonical-layout cutover branch is the original target; ``main`` is where
+# production encodes have landed since the targeted workflow started
+# accepting main-ancestor refs (prepare_signed_backfill's "main" admission).
+DEFAULT_PR_BASE_BRANCH = "hard-cut/canonical-layout-us"
+APPROVED_PR_BASE_BRANCHES = frozenset({DEFAULT_PR_BASE_BRANCH, "main"})
 EXPECTED_COUNTS = {"total": 831, "us-or": 530, "us-ut": 301}
 ALL_STATE_EXPECTED_COUNTS = {
     "total": 17784,
@@ -263,6 +269,11 @@ def _logical_source_units(records: list[dict[str, Any]]) -> list[dict[str, Any]]
     )
 
 
+def _require_approved_pr_base_branch(value: object) -> None:
+    if value not in APPROVED_PR_BASE_BRANCHES:
+        raise ValueError("SNAP queue PR base branch is not approved")
+
+
 def _require_sha(value: object, label: str) -> str:
     if not isinstance(value, str) or SHA_PATTERN.fullmatch(value) is None:
         raise ValueError(f"{label} must be a full lowercase commit SHA")
@@ -442,6 +453,7 @@ def build_snap_queue(
     release_public_key_path: Path,
     state: str,
     pause_reason: str | None,
+    pr_base_branch: str = DEFAULT_PR_BASE_BRANCH,
 ) -> dict[str, Any]:
     """Build the reviewed Oregon and Utah SNAP source-unit inventory."""
 
@@ -449,6 +461,7 @@ def build_snap_queue(
     _require_sha(rulespec_ref, "rulespec_ref")
     _require_sha(rules_engine_ref, "rules_engine_ref")
     _require_digest(release_content_sha256, "release_content_sha256")
+    _require_approved_pr_base_branch(pr_base_branch)
     provisions = corpus_root / "data/corpus/provisions"
     or_paths = sorted((provisions / "us-or/manual").glob("*.jsonl"))
     ut_paths = sorted((provisions / "us-ut/manual").glob("*.jsonl"))
@@ -560,7 +573,7 @@ def build_snap_queue(
             "country": "us",
             "max_batch_size": MAX_BATCH_SIZE,
             "open_pr": True,
-            "pr_base_branch": "hard-cut/canonical-layout-us",
+            "pr_base_branch": pr_base_branch,
             "rules_engine_ref": rules_engine_ref,
             "rulespec_ref": rulespec_ref,
         },
@@ -586,6 +599,7 @@ def build_all_state_snap_queue(
     release_public_key_path: Path,
     state: str,
     pause_reason: str | None,
+    pr_base_branch: str = DEFAULT_PR_BASE_BRANCH,
 ) -> dict[str, Any]:
     """Build the signed all-state SNAP logical source-unit inventory."""
 
@@ -593,6 +607,7 @@ def build_all_state_snap_queue(
     _require_sha(rulespec_ref, "rulespec_ref")
     _require_sha(rules_engine_ref, "rules_engine_ref")
     _require_digest(release_content_sha256, "release_content_sha256")
+    _require_approved_pr_base_branch(pr_base_branch)
 
     inventory_path = corpus_root / ALL_STATE_INVENTORY_PATH
     try:
@@ -747,7 +762,7 @@ def build_all_state_snap_queue(
             "country": "us",
             "max_batch_size": MAX_BATCH_SIZE,
             "open_pr": True,
-            "pr_base_branch": "hard-cut/canonical-layout-us",
+            "pr_base_branch": pr_base_branch,
             "rules_engine_ref": rules_engine_ref,
             "rulespec_ref": rulespec_ref,
         },
@@ -864,8 +879,7 @@ def validate_queue(payload: dict[str, Any]) -> None:
         raise ValueError("queue dispatch binding is missing")
     if dispatch.get("country") != "us":
         raise ValueError("SNAP queue country must be us")
-    if dispatch.get("pr_base_branch") != "hard-cut/canonical-layout-us":
-        raise ValueError("SNAP queue PR base branch is not approved")
+    _require_approved_pr_base_branch(dispatch.get("pr_base_branch"))
     if dispatch.get("open_pr") is not True:
         raise ValueError("SNAP queue must publish draft pull requests")
     if dispatch.get("max_batch_size") != MAX_BATCH_SIZE:
@@ -1494,8 +1508,13 @@ def verify_paused_transition(
     if toolchain_repin:
         if previous["state"] != "paused":
             raise ValueError("paused queue toolchain repin requires a paused base")
+        # A pristine toolchain repin may also move the queue to another
+        # approved base branch (validate_queue bounds the value): the
+        # rulespec_ref it carries must be that branch's exact tip, which the
+        # validate workflow checks live before regenerating the queue.
         unchanged_dispatch_fields = set(queue["dispatch"]) - {
             "corpus_ref",
+            "pr_base_branch",
             "rules_engine_ref",
             "rulespec_ref",
         }
@@ -2112,7 +2131,15 @@ def finalize_and_repin(
 
         reviewed_rulespec_refs = REVIEWED_RULESPEC_REFS
     country = payload["dispatch"]["country"]
-    if (country, new_rulespec_ref) not in reviewed_rulespec_refs:
+    pr_base_branch = payload["dispatch"]["pr_base_branch"]
+    # A queue on ``main`` advances to main's exact protected tip. This
+    # relies on rulespec-us branch protection (main only moves by merged,
+    # reviewed pull requests), the same assumption behind
+    # prepare_signed_backfill's main-ancestor admission; the exact-remote-tip
+    # check below is the gate. Any other base needs an allowlisted head.
+    if pr_base_branch != "main" and (
+        (country, new_rulespec_ref) not in reviewed_rulespec_refs
+    ):
         raise ValueError(
             "new_rulespec_ref is not independently reviewed and allowlisted"
         )
@@ -2400,6 +2427,11 @@ def main() -> None:
     build.add_argument("--release-public-key", type=Path, required=True)
     build.add_argument("--state", choices=("active", "paused"), required=True)
     build.add_argument("--pause-reason")
+    build.add_argument(
+        "--pr-base-branch",
+        choices=sorted(APPROVED_PR_BASE_BRANCHES),
+        default=DEFAULT_PR_BASE_BRANCH,
+    )
 
     build_all = subparsers.add_parser("build-snap-all-states")
     build_all.add_argument("corpus_root", type=Path)
@@ -2413,6 +2445,11 @@ def main() -> None:
     build_all.add_argument("--release-public-key", type=Path, required=True)
     build_all.add_argument("--state", choices=("active", "paused"), required=True)
     build_all.add_argument("--pause-reason")
+    build_all.add_argument(
+        "--pr-base-branch",
+        choices=sorted(APPROVED_PR_BASE_BRANCHES),
+        default=DEFAULT_PR_BASE_BRANCH,
+    )
 
     validate = subparsers.add_parser("validate")
     validate.add_argument("queue", type=Path)
@@ -2537,6 +2574,7 @@ def main() -> None:
                     release_public_key_path=args.release_public_key,
                     state=args.state,
                     pause_reason=args.pause_reason,
+                    pr_base_branch=args.pr_base_branch,
                 )
             )
         elif args.command == "build-snap-all-states":
@@ -2553,6 +2591,7 @@ def main() -> None:
                     release_public_key_path=args.release_public_key,
                     state=args.state,
                     pause_reason=args.pause_reason,
+                    pr_base_branch=args.pr_base_branch,
                 )
             )
         elif args.command == "validate":
