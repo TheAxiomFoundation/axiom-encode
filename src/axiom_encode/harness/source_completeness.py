@@ -15391,6 +15391,21 @@ def _companion_test_issues(
             extract_numeric_occurrences=extract_numeric_occurrences,
         )
         if missing_exception_branches:
+            recognized_pair_feedback = ""
+            if toggled_exception_selectors:
+                recognized_pairs = {
+                    witness.case_pair_identity
+                    for witness in toggled_exception_selectors
+                }
+                recognized_pair_feedback = (
+                    f" The evaluator recognized {len(toggled_exception_selectors)} "
+                    "directional formula-toggle witnesses from "
+                    f"{len(recognized_pairs)} distinct case pairs, but these do not "
+                    "cover every listed source condition. Check affected rule/path, "
+                    "source-selector relevance, active orientation, required effect, "
+                    "and distinct-condition witness allocation before adding cases. "
+                    "Recognized test pairs alone do not establish source coverage."
+                )
             missing_conditions = "; ".join(
                 f"{_branch_citation(corpus_citation_path, branch)} "
                 f"[{_source_exception_effect_requirement(branch.text)}]: `"
@@ -15403,7 +15418,7 @@ def _companion_test_issues(
                 "that assert the affected principal output and toggle its "
                 "controlling formula selector. Each listed condition needs its "
                 "own same-period case pair differing in exactly that one input; "
-                f"missing: {missing_conditions}."
+                f"missing: {missing_conditions}.{recognized_pair_feedback}"
             )
         missing_unconditional_branches = _unmatched_evidence_obligations(
             {
