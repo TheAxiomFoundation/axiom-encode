@@ -3447,6 +3447,7 @@ jobs:
         id: commit_reviewed_lane_changes
         if: ${{ inputs.open_pr }}
         env:
+          ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
           COUNTRY: ${{ inputs.country }}
           CITATION: ${{ inputs.citation }}
           RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
@@ -3460,7 +3461,11 @@ jobs:
             axiom-encode/scripts/prepare_signed_backfill.py branch-name \
             "$COUNTRY" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT")"
           git -C "$RULESPEC_CHECKOUT" switch -c "$branch"
-          if jq -e 'length > 0' \
+          manifest_only_refresh="$(jq -r \
+            'if type == "object" then .manifest_only_refresh // false else false end' \
+            <<<"$ATOMIC_SOURCE_JSON")"
+          if [ "$manifest_only_refresh" = "true" ] || \
+             jq -e 'length > 0' \
                "$RUNNER_TEMP/source-bundle.json" > /dev/null || \
              jq -e 'length > 0' \
                "$RUNNER_TEMP/canonical-refresh-bundle.json" > /dev/null; then
