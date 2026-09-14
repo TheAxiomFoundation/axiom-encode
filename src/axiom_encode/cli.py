@@ -53342,6 +53342,7 @@ def _require_staged_manifest_matches_validation_snapshot(
         }
         for relative, raw in planned.items()
     ]
+    manifest_only_refresh = vars(result).get(_MANIFEST_ONLY_REFRESH_ATTR) is True
     expected_fields = {
         "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
         "tool": result_metadata.get("tool"),
@@ -53361,8 +53362,12 @@ def _require_staged_manifest_matches_validation_snapshot(
         "generated_output_sha256": output.get("sha256"),
         "trace_file": trace.get("path") or None,
         "trace_sha256": trace.get("sha256"),
-        "context_manifest_file": context.get("path") or None,
-        "context_manifest_sha256": context.get("sha256"),
+        "context_manifest_file": (
+            None if manifest_only_refresh else context.get("path") or None
+        ),
+        "context_manifest_sha256": (
+            None if manifest_only_refresh else context.get("sha256")
+        ),
         "applied_files": expected_applied_files,
         "source_attestation": expected_source_attestation,
         "validation_execution": manifest_validation_execution,
