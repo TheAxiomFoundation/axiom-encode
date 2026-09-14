@@ -37,6 +37,7 @@ from axiom_encode.cli import (
     _APPLY_TRANSACTION_SCHEMA,
     _APPLY_VALIDATION_SNAPSHOT_ATTR,
     _IMMUTABLE_RULESPEC_SHA256_ATTR,
+    _MANIFEST_ONLY_REFRESH_ATTR,
     _PRESERVED_COMPANION_TESTS_ATTR,
     _REPLACEMENT_OVERLAY_SCOPE_ATTR,
     _REQUIRED_TEST_CASE_CONTRACTS_ATTR,
@@ -89,6 +90,7 @@ from axiom_encode.cli import (
     _factual_input_appears_numeric,
     _find_rulespec_dependents,
     _format_estimated_cost_usd,
+    _generated_result_source_attestation,
     _generated_result_source_metadata,
     _git_changed_files,
     _grounded_formula_literal_for_scalar_expression,
@@ -177,6 +179,7 @@ from axiom_encode.cli import (
     _repair_upstream_placement_duplicate_imports,
     _require_axiom_encode_version_provenance,
     _require_clean_axiom_encode_git_provenance,
+    _require_staged_manifest_matches_validation_snapshot,
     _required_deferred_output_contract_issues,
     _required_generated_import_issues,
     _RequiredTestCaseContract,
@@ -1466,6 +1469,15 @@ def _manifest_refresh_command_args(tmp_path, repo):
     )
 
 
+def _manifest_refresh_source_unit():
+    return SimpleNamespace(
+        body="authoritative source text\n",
+        source_attestation={
+            "requested_corpus_citation_path": "us/statute/7/2015/f",
+        },
+    )
+
+
 def test_refresh_applied_manifest_command_changes_only_manifest(tmp_path, capsys):
     repo, rule, companion, manifest = _manifest_refresh_repo(tmp_path)
     args = _manifest_refresh_command_args(tmp_path, repo)
@@ -1481,6 +1493,8 @@ def test_refresh_applied_manifest_command_changes_only_manifest(tmp_path, capsys
             getattr(result, _IMMUTABLE_RULESPEC_SHA256_ATTR)
             == hashlib.sha256(original_rule).hexdigest()
         )
+        assert getattr(result, _MANIFEST_ONLY_REFRESH_ATTR) is True
+        assert _generated_result_source_attestation(result) == result.source_attestation
         manifest.write_bytes(original_manifest + b" \n")
         return [rule, companion, manifest]
 
@@ -1495,8 +1509,8 @@ def test_refresh_applied_manifest_command_changes_only_manifest(tmp_path, capsys
             return_value=([], "rulespec-us/us"),
         ),
         patch(
-            "axiom_encode.cli._resolver_attestation_for_manifest_source",
-            return_value={"schema": "test/source-attestation"},
+            "axiom_encode.cli.resolve_corpus_source_unit",
+            return_value=_manifest_refresh_source_unit(),
         ),
         patch(
             "axiom_encode.cli._run_generated_encoding_overlay_validation",
@@ -1555,8 +1569,8 @@ def test_refresh_applied_manifest_command_rejects_non_manifest_output(
             return_value=([], "rulespec-us/us"),
         ),
         patch(
-            "axiom_encode.cli._resolver_attestation_for_manifest_source",
-            return_value={"schema": "test/source-attestation"},
+            "axiom_encode.cli.resolve_corpus_source_unit",
+            return_value=_manifest_refresh_source_unit(),
         ),
         patch(
             "axiom_encode.cli._run_generated_encoding_overlay_validation",
@@ -1608,8 +1622,8 @@ def test_refresh_applied_manifest_command_rejects_ignored_post_apply_file(
             return_value=([], "rulespec-us/us"),
         ),
         patch(
-            "axiom_encode.cli._resolver_attestation_for_manifest_source",
-            return_value={"schema": "test/source-attestation"},
+            "axiom_encode.cli.resolve_corpus_source_unit",
+            return_value=_manifest_refresh_source_unit(),
         ),
         patch(
             "axiom_encode.cli._run_generated_encoding_overlay_validation",
@@ -19946,9 +19960,11 @@ rules: []
         generated = output_root / "manual-attestation" / relative_output
         generated.parent.mkdir(parents=True)
         generated.write_text(program.read_text())
+        transient_context = tmp_path / "manifest-refresh-context.json"
+        transient_context.write_text("{}\n")
         result = SimpleNamespace(
             output_file=str(generated),
-            context_manifest_file=None,
+            context_manifest_file=str(transient_context),
             trace_file=None,
             generation_prompt_sha256=None,
             tool=APPLIED_ENCODING_MODEL_TOOL,
@@ -19958,6 +19974,7 @@ rules: []
             model="program-placement-test",
             source_attestation={},
         )
+        setattr(result, _MANIFEST_ONLY_REFRESH_ATTR, True)
         setattr(
             result,
             _APPLY_VALIDATION_SNAPSHOT_ATTR,
@@ -20005,6 +20022,8 @@ rules: []
             }
         ]
         assert payload["signature"]["value"]
+        assert payload["context_manifest_file"] is None
+        assert payload["context_manifest_sha256"] is None
 
     def test_resolve_applied_manifest_placement_always_uses_checkout_root(
         self, tmp_path
@@ -50024,6 +50043,105 @@ class TestManifestCurrentState:
         assert payload["source_attestation"]["rulespec_root"] == "rulespec-be/be"
         assert "supersedes" not in payload
         assert payload["backend"] == "codex"
+
+    def test_manifest_only_refresh_writer_matches_staged_verifier(self, tmp_path):
+        from axiom_encode.toolchain import load_rulespec_local_corpus_release
+
+        (
+            checkout,
+            repo,
+            corpus_path,
+            rule,
+            gen,
+            source_attestation,
+            context_manifest,
+        ) = self._setup(tmp_path)
+        result = self._make_result(
+            gen,
+            source_attestation=source_attestation,
+            context_manifest_file=context_manifest,
+        )
+        setattr(result, _MANIFEST_ONLY_REFRESH_ATTR, True)
+        output_root = tmp_path / "gen"
+        run_id = "manifest-only-refresh"
+        axiom_encode_git = {
+            "root": "/repo/axiom-encode",
+            "commit": TEST_PINNED_ENCODER_IDENTITY["commit"],
+            "dirty_tracked": False,
+            "version": AXIOM_ENCODE_TEST_VERSION,
+            "version_commit": "b" * 40,
+            "identity_source": "git",
+        }
+
+        manifest = _write_applied_encoding_manifest(
+            result,
+            output_root=output_root,
+            policy_repo_path=repo,
+            corpus_path=corpus_path,
+            relative_output=Path("statutes/be/example.yaml"),
+            applied_files=[rule],
+            run_id=run_id,
+            signing_broker=TEST_APPLY_SIGNING_BROKER,
+            axiom_encode_git=axiom_encode_git,
+        )
+        payload = json.loads(manifest.read_text())
+        local_release = load_rulespec_local_corpus_release(repo, corpus_path)
+        snapshot = {
+            "corpus_release": local_release.name,
+            "corpus_release_content_sha256": local_release.content_sha256,
+            "corpus_release_selector_sha256": local_release.selector_sha256,
+            "output": {
+                "path": str(gen.resolve()),
+                "sha256": _sha256_file(gen),
+            },
+            "trace": {"path": None, "sha256": None},
+            "context_manifest": {
+                "path": str(context_manifest.resolve()),
+                "sha256": _sha256_file(context_manifest),
+            },
+            "result_metadata": {
+                "tool": result.tool,
+                "citation": result.citation,
+                "runner": result.runner,
+                "backend": result.backend,
+                "model": result.model,
+                "generation_prompt_sha256": result.generation_prompt_sha256,
+                "codex_cli_version": result.codex_cli_version,
+                "codex_cli_sha256": result.codex_cli_sha256,
+                "source_attestation": source_attestation,
+            },
+            "validation_execution": {
+                "policy_root_identity": {
+                    "validation_waiver_set_sha256": payload[
+                        "validation_waiver_set_sha256"
+                    ]
+                },
+                "axiom_encode_identity": {
+                    "kind": "git",
+                    "dirty": False,
+                    "path": axiom_encode_git["root"],
+                    "commit": axiom_encode_git["commit"],
+                    "version": axiom_encode_git["version"],
+                },
+            },
+            "manifest_validation_execution": payload["validation_execution"],
+        }
+        setattr(result, _APPLY_VALIDATION_SNAPSHOT_ATTR, snapshot)
+
+        _require_staged_manifest_matches_validation_snapshot(
+            result,
+            manifest.read_bytes(),
+            output_root=output_root,
+            content_root=repo,
+            planned={Path("statutes/be/example.yaml"): rule.read_bytes()},
+            run_id=run_id,
+            signing_broker=TEST_APPLY_SIGNING_BROKER,
+            axiom_encode_git=axiom_encode_git,
+            local_corpus_release=local_release,
+        )
+
+        assert payload["context_manifest_file"] is None
+        assert payload["context_manifest_sha256"] is None
 
     def test_overwrite_replaces_prior_manifest(self, tmp_path):
         (
