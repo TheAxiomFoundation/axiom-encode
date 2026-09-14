@@ -1387,9 +1387,7 @@ def _manifest_refresh_repo(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
         "rules: []\n"
     )
     companion.write_text("[]\n")
-    manifest = repo / _applied_encoding_manifest_path(
-        Path("us/statutes/7/2015/f.yaml")
-    )
+    manifest = repo / _applied_encoding_manifest_path(Path("us/statutes/7/2015/f.yaml"))
     manifest.parent.mkdir(parents=True)
     payload = _signed_manifest_payload(
         {
@@ -1468,9 +1466,7 @@ def _manifest_refresh_command_args(tmp_path, repo):
     )
 
 
-def test_refresh_applied_manifest_command_changes_only_manifest(
-    tmp_path, capsys
-):
+def test_refresh_applied_manifest_command_changes_only_manifest(tmp_path, capsys):
     repo, rule, companion, manifest = _manifest_refresh_repo(tmp_path)
     args = _manifest_refresh_command_args(tmp_path, repo)
     original_rule = rule.read_bytes()
@@ -1481,18 +1477,19 @@ def test_refresh_applied_manifest_command_changes_only_manifest(
         generated = Path(result.output_file)
         assert generated.read_bytes() == original_rule
         assert _rulespec_test_path(generated).read_bytes() == original_companion
-        assert getattr(result, _IMMUTABLE_RULESPEC_SHA256_ATTR) == hashlib.sha256(
-            original_rule
-        ).hexdigest()
+        assert (
+            getattr(result, _IMMUTABLE_RULESPEC_SHA256_ATTR)
+            == hashlib.sha256(original_rule).hexdigest()
+        )
         manifest.write_bytes(original_manifest + b" \n")
         return [rule, companion, manifest]
 
     with (
         patch("axiom_encode.cli._recover_apply_transaction"),
+        patch("axiom_encode.cli._isolated_apply_manifest_signer") as signer_context,
         patch(
-            "axiom_encode.cli._isolated_apply_manifest_signer"
-        ) as signer_context,
-        patch("axiom_encode.cli.load_rulespec_local_corpus_release", return_value=object()),
+            "axiom_encode.cli.load_rulespec_local_corpus_release", return_value=object()
+        ),
         patch(
             "axiom_encode.cli._manifest_primary_source_verifications",
             return_value=([], "rulespec-us/us"),
@@ -1510,9 +1507,7 @@ def test_refresh_applied_manifest_command_changes_only_manifest(
             side_effect=apply_refresh,
         ) as apply_mock,
     ):
-        signer_context.return_value.__enter__.return_value = (
-            TEST_APPLY_SIGNING_BROKER
-        )
+        signer_context.return_value.__enter__.return_value = TEST_APPLY_SIGNING_BROKER
         cmd_refresh_applied_manifest(args)
 
     assert rule.read_bytes() == original_rule
@@ -1538,7 +1533,9 @@ def test_refresh_applied_manifest_command_rejects_non_manifest_output(
 
     def validate(result, **_kwargs):
         if failure_kind == "mutated":
-            Path(result.output_file).write_text("format: rulespec/v1\nrules: [changed]\n")
+            Path(result.output_file).write_text(
+                "format: rulespec/v1\nrules: [changed]\n"
+            )
             return True, [], []
         return True, [], [Path(result.output_file).with_name("extra.yaml")]
 
@@ -1549,10 +1546,10 @@ def test_refresh_applied_manifest_command_rejects_non_manifest_output(
     )
     with (
         patch("axiom_encode.cli._recover_apply_transaction"),
+        patch("axiom_encode.cli._isolated_apply_manifest_signer") as signer_context,
         patch(
-            "axiom_encode.cli._isolated_apply_manifest_signer"
-        ) as signer_context,
-        patch("axiom_encode.cli.load_rulespec_local_corpus_release", return_value=object()),
+            "axiom_encode.cli.load_rulespec_local_corpus_release", return_value=object()
+        ),
         patch(
             "axiom_encode.cli._manifest_primary_source_verifications",
             return_value=([], "rulespec-us/us"),
@@ -1568,13 +1565,15 @@ def test_refresh_applied_manifest_command_rejects_non_manifest_output(
         patch("axiom_encode.cli._apply_generated_encoding_result") as apply_mock,
         pytest.raises(RuntimeError, match=expected),
     ):
-        signer_context.return_value.__enter__.return_value = (
-            TEST_APPLY_SIGNING_BROKER
-        )
+        signer_context.return_value.__enter__.return_value = TEST_APPLY_SIGNING_BROKER
         cmd_refresh_applied_manifest(args)
 
     apply_mock.assert_not_called()
-    assert (rule.read_bytes(), companion.read_bytes(), manifest.read_bytes()) == originals
+    assert (
+        rule.read_bytes(),
+        companion.read_bytes(),
+        manifest.read_bytes(),
+    ) == originals
     assert _git(repo, "status", "--short").stdout == ""
 
 
@@ -1600,10 +1599,10 @@ def test_refresh_applied_manifest_command_rejects_ignored_post_apply_file(
 
     with (
         patch("axiom_encode.cli._recover_apply_transaction"),
+        patch("axiom_encode.cli._isolated_apply_manifest_signer") as signer_context,
         patch(
-            "axiom_encode.cli._isolated_apply_manifest_signer"
-        ) as signer_context,
-        patch("axiom_encode.cli.load_rulespec_local_corpus_release", return_value=object()),
+            "axiom_encode.cli.load_rulespec_local_corpus_release", return_value=object()
+        ),
         patch(
             "axiom_encode.cli._manifest_primary_source_verifications",
             return_value=([], "rulespec-us/us"),
@@ -1622,9 +1621,7 @@ def test_refresh_applied_manifest_command_rejects_ignored_post_apply_file(
         ),
         pytest.raises(RuntimeError, match="paths other than its manifest"),
     ):
-        signer_context.return_value.__enter__.return_value = (
-            TEST_APPLY_SIGNING_BROKER
-        )
+        signer_context.return_value.__enter__.return_value = TEST_APPLY_SIGNING_BROKER
         cmd_refresh_applied_manifest(args)
 
     assert "refreshed" not in capsys.readouterr().out

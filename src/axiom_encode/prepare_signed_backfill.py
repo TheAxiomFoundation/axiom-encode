@@ -330,7 +330,6 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
     if isinstance(payload, list):
         return {
             "canonical_refresh_bundle": [],
-            "manifest_only_refresh": False,
             "primary_required_test_cases": [],
             "require_complete_source_unit": True,
             "source_bundle": payload,
@@ -341,7 +340,6 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
             raise ValueError("canonical_refresh_bundle must be an array")
         return {
             "canonical_refresh_bundle": refresh_bundle,
-            "manifest_only_refresh": False,
             "primary_required_test_cases": [],
             "require_complete_source_unit": True,
             "source_bundle": [],
@@ -406,13 +404,15 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
             "manifest-only refresh cannot include source, canonical refresh, or "
             "required-test bundles"
         )
-    return {
+    normalized = {
         "canonical_refresh_bundle": refresh_bundle,
-        "manifest_only_refresh": manifest_only_refresh,
         "primary_required_test_cases": primary_required_test_cases,
         "require_complete_source_unit": require_complete_source_unit,
         "source_bundle": source_bundle,
     }
+    if payload["schema"] == "axiom-encode/atomic-source-transaction/v4":
+        normalized["manifest_only_refresh"] = manifest_only_refresh
+    return normalized
 
 
 def parse_source_bundle(

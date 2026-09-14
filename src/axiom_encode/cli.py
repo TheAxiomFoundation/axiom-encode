@@ -7529,7 +7529,9 @@ def _historical_manifest_refresh_inputs(
         ]
     )
     if status:
-        raise ValueError("manifest refresh requires a completely clean RuleSpec checkout")
+        raise ValueError(
+            "manifest refresh requires a completely clean RuleSpec checkout"
+        )
 
     def head_bound_file(relative: Path, *, label: str, max_bytes: int) -> bytes:
         path = repo_path / relative
@@ -7686,7 +7688,9 @@ def cmd_refresh_applied_manifest(args):
                 relative_checkout_path: rulespec_file.read_bytes(),
             }
             if companion_file is not None:
-                before[companion_file.relative_to(repo_path)] = companion_file.read_bytes()
+                before[companion_file.relative_to(repo_path)] = (
+                    companion_file.read_bytes()
+                )
 
             with tempfile.TemporaryDirectory() as temporary:
                 output_root = Path(temporary)
@@ -7703,9 +7707,7 @@ def cmd_refresh_applied_manifest(args):
                     model=str(historical["model"]),
                     tool=APPLIED_ENCODING_MODEL_TOOL,
                     citation=citation,
-                    generation_prompt_sha256=historical.get(
-                        "generation_prompt_sha256"
-                    ),
+                    generation_prompt_sha256=historical.get("generation_prompt_sha256"),
                     codex_cli_version=historical.get("codex_cli_version"),
                     codex_cli_sha256=historical.get("codex_cli_sha256"),
                     trace_file=None,
@@ -7791,7 +7793,9 @@ def cmd_refresh_applied_manifest(args):
             expected_applied.append(manifest_path)
             if applied != expected_applied:
                 # The apply result order is part of the fail-closed publication scope.
-                raise RuntimeError("manifest-only refresh returned an unexpected apply set")
+                raise RuntimeError(
+                    "manifest-only refresh returned an unexpected apply set"
+                )
             print(f"refreshed {expected_manifest}")
 
 
