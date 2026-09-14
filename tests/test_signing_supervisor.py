@@ -2130,7 +2130,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert inputs["source_bundle_json"] == {
         "description": (
             "JSON citation array, canonical_refresh_bundle object, or "
-            "atomic-source-transaction/v2/v3 envelope for an independent refresh "
+            "atomic-source-transaction/v2/v3/v4 envelope for an independent refresh "
             "transaction"
         ),
         "required": False,
@@ -2488,6 +2488,16 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert "--require-complete-source-unit" in command
     assert 'local require_complete_source_unit="${10:-true}"' in command
     assert 'target_require_complete_source_unit="$(jq -r' in command
+    assert 'manifest_only_refresh="$(jq -r' in command
+    assert "'.manifest_only_refresh // false'" in command
+    assert 'if [ "$manifest_only_refresh" = "true" ]' in command
+    assert "refresh-applied-manifest" in command
+    assert '--rulespec-path "$REPLACE_RULESPEC_PATH"' in command
+    assert '--run-id "$GITHUB_RUN_ID"' in command
+    assert (
+        "manifest-only refresh requires exactly one existing target and cannot mix "
+        "with other transaction modes"
+    ) in command
     assert (
         "scoped source-unit validation requires a normal source-bundle replacement"
         in command
@@ -2958,6 +2968,36 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     )
     assert steps.index(checksum_step) + 1 == steps.index(upload_step)
     assert steps.index(failure_upload_step) == len(steps) - 1
+
+
+def test_targeted_reencode_defaults_legacy_manifest_refresh_mode_to_false() -> None:
+    jq = shutil.which("jq")
+    if jq is None:
+        pytest.skip("jq is required for workflow value-flow coverage")
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    command = next(
+        step["run"]
+        for step in workflow["jobs"]["encode"]["steps"]
+        if step.get("name") == "Encode, review, validate, and apply"
+    )
+    match = re.search(
+        r'manifest_only_refresh="\$\(jq -r \\\n\s+\'([^\']+)\'',
+        command,
+    )
+    assert match is not None
+    legacy_payload = compatibility_backfill.split_atomic_source_input("[]")
+
+    completed = subprocess.run(
+        [jq, "-r", match.group(1)],
+        input=json.dumps(legacy_payload),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert completed.stdout == "false\n"
 
 
 def test_targeted_reencode_extracts_false_complete_source_scope() -> None:

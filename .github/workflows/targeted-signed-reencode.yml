@@ -39,7 +39,7 @@ on:
         required: false
         type: string
       source_bundle_json:
-        description: JSON citation array, canonical_refresh_bundle object, or atomic-source-transaction/v2/v3 envelope for an independent refresh transaction
+        description: JSON citation array, canonical_refresh_bundle object, or atomic-source-transaction/v2/v3/v4 envelope for an independent refresh transaction
         required: false
         default: "[]"
         type: string
@@ -1536,6 +1536,15 @@ jobs:
             '.primary_required_test_cases' <<< "$atomic_source_payload")"
           target_require_complete_source_unit="$(jq -r \
             '.require_complete_source_unit' <<< "$atomic_source_payload")"
+          manifest_only_refresh="$(jq -r \
+            '.manifest_only_refresh // false' <<< "$atomic_source_payload")"
+          case "$manifest_only_refresh" in
+            true|false) ;;
+            *)
+              echo "manifest_only_refresh must normalize to a boolean" >&2
+              exit 1
+              ;;
+          esac
           canonical_refresh_primary_required_test_cases_json="$primary_required_test_cases_json"
           if [ "$REPAIR_TESTS_ONLY" = "true" ]; then
             canonical_refresh_primary_required_test_cases_json="[]"
@@ -1696,6 +1705,22 @@ jobs:
             echo "canonical refresh bundles cannot mix with imports, composition bundles, legacy/dependent migration, repair replay, or queue authorization" >&2
             exit 1
           fi
+          if [ "$manifest_only_refresh" = "true" ] && \
+            { [ -z "$REPLACE_RULESPEC_PATH" ] || \
+              [ -n "$REPLACE_LEGACY_RULESPEC_PATH" ] || \
+              [ "$source_bundle_count" -gt 0 ] || \
+              [ "$canonical_refresh_count" -gt 0 ] || \
+              [ "$existing_import_count" -gt 0 ] || \
+              [ -n "$LEGACY_EXACT_DEPENDENT_RULESPEC_PATH" ] || \
+              [ -n "$SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH" ] || \
+              [ "$retained_successor_count" -gt 0 ] || \
+              [ -n "$DEPENDENT_CITATION" ] || \
+              [ -n "$SECOND_DEPENDENT_CITATION" ] || \
+              [ -n "${REPAIR_CANDIDATE_ROOT:-}" ] || \
+              [ -n "$QUEUE_ID" ]; }; then
+            echo "manifest-only refresh requires exactly one existing target and cannot mix with other transaction modes" >&2
+            exit 1
+          fi
           if [ "$source_bundle_enabled" = "true" ] && \
              [ -n "$REPLACE_LEGACY_RULESPEC_PATH" ]; then
             echo "source bundles require legacy replacements to merge first" >&2
@@ -1808,6 +1833,32 @@ jobs:
               refresh_index=$((refresh_index + 1))
             done < <(jq -c '.[]' \
               "$RUNNER_TEMP/canonical-refresh-bundle.json")
+          elif [ "$manifest_only_refresh" = "true" ]; then
+            refresh_args=(
+              /opt/axiom-verification/axiom-encode
+              refresh-applied-manifest
+              --repo "$RULESPEC_CHECKOUT"
+              --rulespec-path "$REPLACE_RULESPEC_PATH"
+              --axiom-rules-engine-path "$GITHUB_WORKSPACE/axiom-rules-engine"
+              --corpus-path "$GITHUB_WORKSPACE/axiom-corpus"
+              --run-id "$GITHUB_RUN_ID"
+            )
+            /opt/axiom-verification/axiom-encode-apply-signer run \
+              --scope apply_ed25519 \
+              --key-env AXIOM_ENCODE_APPLY_SIGNING_KEY \
+              --supervisor /opt/axiom-verification/axiom-encode-signing-supervisor \
+              --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
+              --trusted-python-runtime-root /opt/axiom-verification/python \
+              --trusted-python-import-root /opt/axiom-verification/python/lib/python3.13/site-packages \
+              --trusted-python-package-root /opt/axiom-verification/python/lib/python3.13/site-packages/axiom_encode \
+              --expected-github-repository TheAxiomFoundation/axiom-encode \
+              --allowed-workflow-ref TheAxiomFoundation/axiom-encode/.github/workflows/targeted-signed-reencode.yml@refs/heads/main \
+              --allowed-event-name workflow_dispatch \
+              -- "${refresh_args[@]}"
+            checkpoint_signed_changes \
+              "Refresh signed manifest for ${CITATION} without changing RuleSpec"
+            cp "$RUNNER_TEMP/checkpoint-guard-generated.json" \
+              "$RUNNER_TEMP/target-guard-generated.json"
           else
             if [ "$source_bundle_enabled" = "true" ] && \
                [ "$source_repair_candidates_json" = "[]" ] && \
@@ -1972,6 +2023,7 @@ jobs:
       - name: Package exact generated changes
         id: package_exact_generated_changes
         env:
+          ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
           CITATION: ${{ inputs.citation }}
           DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
           DEPENDENT_REVIEW_FINDING: ${{ inputs.dependent_review_finding }}
@@ -2141,6 +2193,13 @@ jobs:
               os.environ.get("SECOND_DEPENDENT_CITATION") or ""
           )
           replacement_path = os.environ.get("REPLACE_RULESPEC_PATH") or ""
+          atomic_source = json.loads(os.environ.get("ATOMIC_SOURCE_JSON") or "[]")
+          manifest_only_refresh = (
+              isinstance(atomic_source, dict)
+              and atomic_source.get("schema")
+              == "axiom-encode/atomic-source-transaction/v4"
+              and atomic_source.get("manifest_only_refresh") is True
+          )
           legacy_source_path = (
               os.environ.get("REPLACE_LEGACY_RULESPEC_PATH") or ""
           )
@@ -3059,9 +3118,47 @@ jobs:
                           "replacement apply manifest primary path does not "
                           "match the requested RuleSpec target"
                       )
-              context_path = Path(
-                  evidence_manifest["context_manifest_file"]
-              ).resolve()
+              if manifest_only_refresh:
+                  if (
+                      lane != "target"
+                      or evidence_manifest.get("context_manifest_file") is not None
+                      or evidence_manifest.get("context_manifest_sha256") is not None
+                      or expected_review_finding is not None
+                  ):
+                      raise SystemExit(
+                          "manifest-only refresh has unexpected generation evidence"
+                      )
+                  destination.write_text(
+                      json.dumps(
+                          {
+                              "schema": (
+                                  "axiom-encode/manifest-only-refresh-evidence/v1"
+                              ),
+                              "citation": citation,
+                              "rulespec_path": normalized_replacement_path,
+                          },
+                          indent=2,
+                          sort_keys=True,
+                      )
+                      + "\n",
+                      encoding="utf-8",
+                  )
+                  applied_inventory.append(
+                      {
+                          "citation": citation,
+                          "path": relative_path.as_posix(),
+                          "sha256": hashlib.sha256(
+                              read_bounded_regular(
+                                  os.environ["RULESPEC_CHECKOUT"],
+                                  relative_path,
+                                  label="packaged apply manifest",
+                                  max_bytes=1024 * 1024,
+                              )
+                          ).hexdigest(),
+                      }
+                  )
+                  continue
+              context_path = Path(evidence_manifest["context_manifest_file"]).resolve()
               try:
                   context_path.relative_to(generated_root / lane)
               except ValueError as exc:

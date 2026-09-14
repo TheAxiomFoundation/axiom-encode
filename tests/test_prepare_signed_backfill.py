@@ -259,6 +259,25 @@ def test_split_atomic_source_input_rejects_nonboolean_v3_scope() -> None:
         split_atomic_source_input(json.dumps(payload))
 
 
+def test_split_atomic_source_input_selects_v4_manifest_only_refresh() -> None:
+    payload = {
+        "schema": "axiom-encode/atomic-source-transaction/v4",
+        "source_bundle": [],
+        "canonical_refresh_bundle": [],
+        "primary_required_test_cases": [],
+        "require_complete_source_unit": True,
+        "manifest_only_refresh": True,
+    }
+
+    assert split_atomic_source_input(json.dumps(payload)) == {
+        "canonical_refresh_bundle": [],
+        "manifest_only_refresh": True,
+        "primary_required_test_cases": [],
+        "require_complete_source_unit": True,
+        "source_bundle": [],
+    }
+
+
 @pytest.mark.parametrize("period_kind", ["month", "benefit_week"])
 def test_required_test_case_normalization_accepts_engine_period_kinds(
     period_kind: str,
