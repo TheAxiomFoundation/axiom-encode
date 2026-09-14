@@ -1,0 +1,116 @@
+format: rulespec/v1
+inputs:
+- name: qualifying_child_count
+  entity: TaxUnit
+  dtype: Count
+  period: Year
+- name: aggregate_investment_income
+  entity: TaxUnit
+  dtype: Money
+  period: Year
+  unit: USD
+- name: state_population
+  entity: StateAgency
+  dtype: Integer
+  period: Year
+module:
+  source_verification:
+    corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-15
+rules:
+- name: housing_credit_ceiling_amount_per_state_population
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Rev. Proc. 2025-32 section 3.08(1)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-15
+          excerpt: $3.416 multiplied by the State population
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-15
+          excerpt: For calendar year 2026
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-15
+          excerpt: For calendar year 2026
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '3.416'
+- name: housing_credit_ceiling_minimum_amount
+  kind: parameter
+  dtype: Money
+  unit: USD
+  source: Rev. Proc. 2025-32 section 3.08(2)
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: amount
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-15
+          excerpt: $3,953,600
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-15
+          excerpt: For calendar year 2026
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-15
+          excerpt: For calendar year 2026
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: '3953600'
+- name: state_housing_credit_ceiling
+  kind: derived
+  entity: StateAgency
+  dtype: Money
+  period: Year
+  unit: USD
+  source: Rev. Proc. 2025-32 section 3.08
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: formula
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-15
+          excerpt: the greater of (1) $3.416 multiplied by the State population, or
+            (2) $3,953,600
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:policies/irs/rev-proc-2025-32/page-15#housing_credit_ceiling_amount_per_state_population
+          output: housing_credit_ceiling_amount_per_state_population
+          hash: sha256:local
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us:policies/irs/rev-proc-2025-32/page-15#housing_credit_ceiling_minimum_amount
+          output: housing_credit_ceiling_minimum_amount
+          hash: sha256:local
+      - path: versions[0].effective_from
+        kind: effective_period
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-15
+          excerpt: For calendar year 2026
+      - path: versions[0].effective_to
+        kind: effective_period
+        source:
+          corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-15
+          excerpt: For calendar year 2026
+  versions:
+  - effective_from: '2026-01-01'
+    effective_to: '2026-12-31'
+    formula: "max(\n    housing_credit_ceiling_amount_per_state_population * state_population,\n\
+      \    housing_credit_ceiling_minimum_amount\n)"
