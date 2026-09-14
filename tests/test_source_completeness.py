@@ -24935,7 +24935,33 @@ rules:
     )
 
     assert _has_issue(positive_only, "applicability", "paired")
+    assert not any(
+        "directional formula-toggle witnesses" in issue
+        for issue in positive_only.issues
+    )
     assert not paired.issues
+
+    # A real evaluated pair can still fail to witness the source condition.
+    # Feedback must distinguish this from absent pairs without accepting it.
+    unrelated = _analyze(
+        content.replace("is_eligible", "vehicle_is_blue"),
+        source,
+        test_cases=[
+            {
+                "name": f"blue={blue}",
+                "input": {"vehicle_is_blue": blue},
+                "output": {"payable_supplement": 259 if blue else 0},
+            }
+            for blue in (False, True)
+        ],
+    )
+    assert _has_issue(unrelated, "applicability", "paired")
+    assert _has_issue(
+        unrelated,
+        "recognized 2 directional formula-toggle witnesses",
+        "1 distinct case pairs",
+        "source-selector relevance",
+    )
 
 
 def test_predicate_only_boundary_requires_an_exact_boundary_case():
