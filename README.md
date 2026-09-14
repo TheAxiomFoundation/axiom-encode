@@ -35,6 +35,15 @@ pipeline produces. The chartered admission model — where generation runs,
 what gets signed, and what CI is allowed to do — is
 [axiom-encode#1192](https://github.com/TheAxiomFoundation/axiom-encode/issues/1192).
 
+**Local contributions:** supervised generation using a personal Codex
+subscription is supported, but the current US admission path cannot accept
+that draft without a trusted apply manifest. Matching the pinned encoder
+version and passing local validation are not sufficient to satisfy the PR
+manifest guard. See the [local contribution admission proposal](docs/local-contribution-admission.md)
+for the reproduced failure, the proposed contributor experience, and the
+decisions and implementation work still required. This proposal does not
+enable local-draft admission or change the current signing policy.
+
 If you are not running the supervised pipeline, you generally do not need
 this repo:
 
