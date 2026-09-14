@@ -59510,14 +59510,36 @@ def _insert_input_default_in_test_cases(
 
     rendered = _format_yaml_scalar(value)
     for start, end in sorted(target_blocks, reverse=True):
-        block_text = "".join(lines[start:end])
-        if re.search(rf"^\s*{re.escape(input_ref)}\s*:", block_text, re.MULTILINE):
-            continue
         match = re.match(r"^(?P<indent>\s*)input:\s*", lines[start])
         if not match:
             continue
-        indent = match.group("indent") + "  "
-        newline = "\n" if lines[start].endswith("\n") else ""
+        parent_indent = match.group("indent")
+        indent = parent_indent + "  "
+        for line in lines[start + 1 : end]:
+            if not line.strip() or line.lstrip().startswith("#"):
+                continue
+            child_match = re.match(r"^(?P<indent>[ \t]*)", line)
+            if child_match and len(child_match.group("indent")) > len(parent_indent):
+                indent = child_match.group("indent")
+                break
+        escaped_ref = re.escape(input_ref)
+        scalar_key = rf'(?:{escaped_ref}|\'{escaped_ref}\'|"{escaped_ref}")'
+        simple_key = re.compile(rf"^{re.escape(indent)}{scalar_key}[ \t]*:")
+        explicit_key = re.compile(
+            rf"^{re.escape(indent)}\?[ \t]+{scalar_key}"
+            rf"[ \t]*(?:#[^\r\n]*)?(?:\r?\n)?$"
+        )
+        if any(
+            simple_key.match(line) or explicit_key.match(line)
+            for line in lines[start + 1 : end]
+        ):
+            continue
+        if lines[start].endswith("\r\n"):
+            newline = "\r\n"
+        elif lines[start].endswith("\n"):
+            newline = "\n"
+        else:
+            newline = ""
         lines.insert(start + 1, f"{indent}{input_ref}: {rendered}{newline}")
     lines = _insert_input_default_in_relation_rows(
         lines,
