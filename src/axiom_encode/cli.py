@@ -7759,14 +7759,28 @@ def cmd_refresh_applied_manifest(args):
             }
             if after != before:
                 raise RuntimeError("manifest-only refresh changed live RuleSpec bytes")
-            changed = subprocess.check_output(
-                ["git", "-C", str(repo_path), "status", "--porcelain=v1"]
-            ).decode("utf-8")
-            changed_paths = {
-                line[3:] for line in changed.splitlines() if len(line) >= 4
-            }
             expected_manifest = manifest_path.relative_to(repo_path).as_posix()
-            if changed_paths != {expected_manifest}:
+            changed_records = {
+                record
+                for record in subprocess.check_output(
+                    [
+                        "git",
+                        "-C",
+                        str(repo_path),
+                        "status",
+                        "--porcelain=v1",
+                        "-z",
+                        "--untracked-files=all",
+                        "--ignored=matching",
+                    ]
+                ).split(b"\0")
+                if record
+            }
+            if changed_records != {b" M " + os.fsencode(expected_manifest)}:
+                changed_paths = {
+                    os.fsdecode(record[3:]) if len(record) >= 4 else repr(record)
+                    for record in changed_records
+                }
                 raise RuntimeError(
                     "manifest-only refresh changed paths other than its manifest: "
                     + ", ".join(sorted(changed_paths))

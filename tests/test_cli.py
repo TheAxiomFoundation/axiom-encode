@@ -1578,6 +1578,58 @@ def test_refresh_applied_manifest_command_rejects_non_manifest_output(
     assert _git(repo, "status", "--short").stdout == ""
 
 
+def test_refresh_applied_manifest_command_rejects_ignored_post_apply_file(
+    tmp_path, capsys
+):
+    repo, rule, companion, manifest = _manifest_refresh_repo(tmp_path)
+    (repo / ".gitignore").write_text("validator-cache.bin\n")
+    subprocess.run(["git", "add", ".gitignore"], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "ignore fixture"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    args = _manifest_refresh_command_args(tmp_path, repo)
+    original_manifest = manifest.read_bytes()
+
+    def apply_refresh(_result, **_kwargs):
+        manifest.write_bytes(original_manifest + b" \n")
+        (repo / "validator-cache.bin").write_bytes(b"local validation state")
+        return [rule, companion, manifest]
+
+    with (
+        patch("axiom_encode.cli._recover_apply_transaction"),
+        patch(
+            "axiom_encode.cli._isolated_apply_manifest_signer"
+        ) as signer_context,
+        patch("axiom_encode.cli.load_rulespec_local_corpus_release", return_value=object()),
+        patch(
+            "axiom_encode.cli._manifest_primary_source_verifications",
+            return_value=([], "rulespec-us/us"),
+        ),
+        patch(
+            "axiom_encode.cli._resolver_attestation_for_manifest_source",
+            return_value={"schema": "test/source-attestation"},
+        ),
+        patch(
+            "axiom_encode.cli._run_generated_encoding_overlay_validation",
+            return_value=(True, [], []),
+        ),
+        patch(
+            "axiom_encode.cli._apply_generated_encoding_result",
+            side_effect=apply_refresh,
+        ),
+        pytest.raises(RuntimeError, match="paths other than its manifest"),
+    ):
+        signer_context.return_value.__enter__.return_value = (
+            TEST_APPLY_SIGNING_BROKER
+        )
+        cmd_refresh_applied_manifest(args)
+
+    assert "refreshed" not in capsys.readouterr().out
+
+
 def test_manifest_refresh_rejects_resigned_manifest_with_inexact_scope(tmp_path):
     repo, _rule, _companion, manifest = _manifest_refresh_repo(tmp_path)
     payload = json.loads(manifest.read_text())
