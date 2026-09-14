@@ -93,6 +93,7 @@ from axiom_encode.cli import (
     _git_changed_files,
     _grounded_formula_literal_for_scalar_expression,
     _has_zero_output_test,
+    _historical_manifest_refresh_inputs,
     _hoist_nested_test_tables,
     _immutable_planned_rulespec_digest_issue,
     _import_base_to_repo_file,
@@ -278,6 +279,7 @@ from axiom_encode.cli import (
     cmd_normalize_proof_atom_kinds,
     cmd_oracle_candidates,
     cmd_oracle_coverage,
+    cmd_refresh_applied_manifest,
     cmd_retire,
     cmd_runs,
     cmd_session_end,
@@ -1368,6 +1370,255 @@ def _signed_manifest_payload(payload: dict) -> dict:
             )
     _sign_applied_encoding_manifest(payload, TEST_APPLY_SIGNING_BROKER)
     return payload
+
+
+def _manifest_refresh_repo(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
+    repo = tmp_path / "rulespec-us"
+    _init_test_git_repo(repo)
+    rule = repo / "us/statutes/7/2015/f.yaml"
+    companion = rule.with_name("f.test.yaml")
+    rule.parent.mkdir(parents=True)
+    rule.write_text(
+        "format: rulespec/v1\n"
+        "module:\n"
+        "  source_verification:\n"
+        "    corpus_citation_path: us/statute/7/2015/f\n"
+        f"    source_sha256: {'a' * 64}\n"
+        "rules: []\n"
+    )
+    companion.write_text("[]\n")
+    manifest = repo / _applied_encoding_manifest_path(
+        Path("us/statutes/7/2015/f.yaml")
+    )
+    manifest.parent.mkdir(parents=True)
+    payload = _signed_manifest_payload(
+        {
+            "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+            "backend": "openai",
+            "citation": "us/statute/7/2015/f",
+            "source_attestation": None,
+            "applied_files": [
+                {
+                    "path": rule.relative_to(repo).as_posix(),
+                    "sha256": _sha256_file(rule),
+                },
+                {
+                    "path": companion.relative_to(repo).as_posix(),
+                    "sha256": _sha256_file(companion),
+                },
+            ],
+        }
+    )
+    manifest.write_text(json.dumps(payload, sort_keys=True) + "\n")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "fixture"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    return repo, rule, companion, manifest
+
+
+def test_manifest_refresh_admits_only_exact_signed_head_bytes(tmp_path):
+    repo, rule, companion, manifest = _manifest_refresh_repo(tmp_path)
+
+    admitted = _historical_manifest_refresh_inputs(
+        repo,
+        "us/statutes/7/2015/f.yaml",
+        signing_broker=TEST_APPLY_SIGNING_BROKER,
+    )
+
+    assert admitted[:3] == (rule, companion, manifest)
+    assert admitted[3]["citation"] == "us/statute/7/2015/f"
+
+
+def test_manifest_refresh_rejects_ignored_checkout_content(tmp_path):
+    repo, _rule, _companion, _manifest = _manifest_refresh_repo(tmp_path)
+    (repo / ".gitignore").write_text("ignored-dependency.yaml\n")
+    subprocess.run(["git", "add", ".gitignore"], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "ignore fixture"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    (repo / "ignored-dependency.yaml").write_text("unsafe: local-only\n")
+
+    with pytest.raises(ValueError, match="completely clean"):
+        _historical_manifest_refresh_inputs(
+            repo,
+            "us/statutes/7/2015/f.yaml",
+            signing_broker=TEST_APPLY_SIGNING_BROKER,
+        )
+
+
+def _manifest_refresh_command_args(tmp_path, repo):
+    axiom_rules = tmp_path / "axiom-rules-engine"
+    corpus = tmp_path / "axiom-corpus"
+    axiom_rules.mkdir()
+    corpus.mkdir()
+    return SimpleNamespace(
+        repo=repo,
+        axiom_rules_path=axiom_rules,
+        corpus_path=corpus,
+        rulespec_dependency_root=[],
+        rulespec_path="us/statutes/7/2015/f.yaml",
+        run_id="refresh-test-run",
+    )
+
+
+def test_refresh_applied_manifest_command_changes_only_manifest(
+    tmp_path, capsys
+):
+    repo, rule, companion, manifest = _manifest_refresh_repo(tmp_path)
+    args = _manifest_refresh_command_args(tmp_path, repo)
+    original_rule = rule.read_bytes()
+    original_companion = companion.read_bytes()
+    original_manifest = manifest.read_bytes()
+
+    def apply_refresh(result, **_kwargs):
+        generated = Path(result.output_file)
+        assert generated.read_bytes() == original_rule
+        assert _rulespec_test_path(generated).read_bytes() == original_companion
+        assert getattr(result, _IMMUTABLE_RULESPEC_SHA256_ATTR) == hashlib.sha256(
+            original_rule
+        ).hexdigest()
+        manifest.write_bytes(original_manifest + b" \n")
+        return [rule, companion, manifest]
+
+    with (
+        patch("axiom_encode.cli._recover_apply_transaction"),
+        patch(
+            "axiom_encode.cli._isolated_apply_manifest_signer"
+        ) as signer_context,
+        patch("axiom_encode.cli.load_rulespec_local_corpus_release", return_value=object()),
+        patch(
+            "axiom_encode.cli._manifest_primary_source_verifications",
+            return_value=([], "rulespec-us/us"),
+        ),
+        patch(
+            "axiom_encode.cli._resolver_attestation_for_manifest_source",
+            return_value={"schema": "test/source-attestation"},
+        ),
+        patch(
+            "axiom_encode.cli._run_generated_encoding_overlay_validation",
+            return_value=(True, [], []),
+        ),
+        patch(
+            "axiom_encode.cli._apply_generated_encoding_result",
+            side_effect=apply_refresh,
+        ) as apply_mock,
+    ):
+        signer_context.return_value.__enter__.return_value = (
+            TEST_APPLY_SIGNING_BROKER
+        )
+        cmd_refresh_applied_manifest(args)
+
+    assert rule.read_bytes() == original_rule
+    assert companion.read_bytes() == original_companion
+    assert manifest.read_bytes() != original_manifest
+    assert _git(repo, "status", "--short").stdout.splitlines() == [
+        " M .axiom/encoding-manifests/us/statutes/7/2015/f.json"
+    ]
+    assert (
+        "refreshed .axiom/encoding-manifests/us/statutes/7/2015/f.json"
+        in capsys.readouterr().out
+    )
+    apply_mock.assert_called_once()
+
+
+@pytest.mark.parametrize("failure_kind", ["supplemental", "mutated"])
+def test_refresh_applied_manifest_command_rejects_non_manifest_output(
+    tmp_path, failure_kind
+):
+    repo, rule, companion, manifest = _manifest_refresh_repo(tmp_path)
+    args = _manifest_refresh_command_args(tmp_path, repo)
+    originals = (rule.read_bytes(), companion.read_bytes(), manifest.read_bytes())
+
+    def validate(result, **_kwargs):
+        if failure_kind == "mutated":
+            Path(result.output_file).write_text("format: rulespec/v1\nrules: [changed]\n")
+            return True, [], []
+        return True, [], [Path(result.output_file).with_name("extra.yaml")]
+
+    expected = (
+        "produced supplemental RuleSpec changes"
+        if failure_kind == "supplemental"
+        else "validation changed RuleSpec bytes"
+    )
+    with (
+        patch("axiom_encode.cli._recover_apply_transaction"),
+        patch(
+            "axiom_encode.cli._isolated_apply_manifest_signer"
+        ) as signer_context,
+        patch("axiom_encode.cli.load_rulespec_local_corpus_release", return_value=object()),
+        patch(
+            "axiom_encode.cli._manifest_primary_source_verifications",
+            return_value=([], "rulespec-us/us"),
+        ),
+        patch(
+            "axiom_encode.cli._resolver_attestation_for_manifest_source",
+            return_value={"schema": "test/source-attestation"},
+        ),
+        patch(
+            "axiom_encode.cli._run_generated_encoding_overlay_validation",
+            side_effect=validate,
+        ),
+        patch("axiom_encode.cli._apply_generated_encoding_result") as apply_mock,
+        pytest.raises(RuntimeError, match=expected),
+    ):
+        signer_context.return_value.__enter__.return_value = (
+            TEST_APPLY_SIGNING_BROKER
+        )
+        cmd_refresh_applied_manifest(args)
+
+    apply_mock.assert_not_called()
+    assert (rule.read_bytes(), companion.read_bytes(), manifest.read_bytes()) == originals
+    assert _git(repo, "status", "--short").stdout == ""
+
+
+def test_manifest_refresh_rejects_resigned_manifest_with_inexact_scope(tmp_path):
+    repo, _rule, _companion, manifest = _manifest_refresh_repo(tmp_path)
+    payload = json.loads(manifest.read_text())
+    payload["applied_files"] = payload["applied_files"][:1]
+    _sign_applied_encoding_manifest(payload, TEST_APPLY_SIGNING_BROKER)
+    manifest.write_text(json.dumps(payload, sort_keys=True) + "\n")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "inexact manifest"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+
+    with pytest.raises(ValueError, match="does not exclusively cover"):
+        _historical_manifest_refresh_inputs(
+            repo,
+            "us/statutes/7/2015/f.yaml",
+            signing_broker=TEST_APPLY_SIGNING_BROKER,
+        )
+
+
+def test_manifest_refresh_rejects_unsigned_manifest_mutation(tmp_path):
+    repo, _rule, _companion, manifest = _manifest_refresh_repo(tmp_path)
+    payload = json.loads(manifest.read_text())
+    payload["run_id"] = "tampered"
+    manifest.write_text(json.dumps(payload, sort_keys=True) + "\n")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "tampered manifest"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+
+    with pytest.raises(ValueError, match="invalid encoder apply manifest signature"):
+        _historical_manifest_refresh_inputs(
+            repo,
+            "us/statutes/7/2015/f.yaml",
+            signing_broker=TEST_APPLY_SIGNING_BROKER,
+        )
 
 
 def test_apply_manifest_environment_public_key_cannot_replace_protected_broker(

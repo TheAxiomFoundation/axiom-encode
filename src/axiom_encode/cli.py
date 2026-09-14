@@ -2381,6 +2381,40 @@ def main():
     )
     _add_required_corpus_path_argument(stage_signed_backfill_parser)
 
+    refresh_applied_manifest_parser = subparsers.add_parser(
+        "refresh-applied-manifest",
+        help=(
+            "Revalidate and re-sign one byte-identical historical RuleSpec "
+            "without model regeneration"
+        ),
+    )
+    refresh_applied_manifest_parser.add_argument(
+        "--repo",
+        type=Path,
+        required=True,
+        help="Exact clean canonical rulespec-<country> checkout",
+    )
+    refresh_applied_manifest_parser.add_argument(
+        "--rulespec-path",
+        required=True,
+        help="Exact checkout-relative primary RuleSpec module",
+    )
+    refresh_applied_manifest_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        required=True,
+        help="Exact axiom-rules-engine checkout (no sibling discovery)",
+    )
+    _add_required_corpus_path_argument(refresh_applied_manifest_parser)
+    _add_rulespec_dependency_root_argument(refresh_applied_manifest_parser)
+    refresh_applied_manifest_parser.add_argument(
+        "--run-id",
+        default=None,
+        help="Optional protected workflow run identifier recorded in the manifest",
+    )
+
     signed_import_parser = subparsers.add_parser(
         "signed-import-inventory",
         help=(
@@ -3560,6 +3594,8 @@ def main():
         cmd_guard_generated(args)
     elif args.command == "stage-signed-backfill":
         cmd_stage_signed_backfill(args)
+    elif args.command == "refresh-applied-manifest":
+        cmd_refresh_applied_manifest(args)
     elif args.command == "signed-import-inventory":
         cmd_signed_import_inventory(args)
     elif args.command == "manifest-census":
@@ -7446,6 +7482,303 @@ def cmd_stage_signed_backfill(args):
         label="RuleSpec checkout",
     )
     stage_authorized_changes(repo_path, corpus_root=Path(args.corpus_path))
+
+
+def _historical_manifest_refresh_inputs(
+    repo_path: Path,
+    rulespec_path_raw: str,
+    *,
+    signing_broker: SigningBroker,
+) -> tuple[Path, Path | None, Path, dict[str, object]]:
+    """Admit only unchanged HEAD bytes covered by one historical signature."""
+
+    rulespec_path = Path(rulespec_path_raw)
+    roots = tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS))
+    if (
+        rulespec_path.is_absolute()
+        or rulespec_path.as_posix() != rulespec_path_raw
+        or any(part in {"", ".", ".."} for part in rulespec_path.parts)
+        or len(rulespec_path.parts) < 3
+        or rulespec_path.parts[1] not in roots
+        or rulespec_path.suffix != RULESPEC_FILE_SUFFIX
+        or rulespec_path.name.endswith(RULESPEC_TEST_FILE_SUFFIX)
+        or not _is_protected_rulespec_yaml_path(rulespec_path, roots=roots)
+    ):
+        raise ValueError(
+            "manifest refresh path must be a canonical checkout-relative primary "
+            "RuleSpec module"
+        )
+
+    content_root = repo_path / rulespec_path.parts[0]
+    if not content_root.is_dir():
+        raise ValueError("manifest refresh jurisdiction root is missing")
+    manifest_path = repo_path / _applied_encoding_manifest_path(rulespec_path)
+    companion_relative = _rulespec_test_path(rulespec_path)
+    companion_path = repo_path / companion_relative
+
+    status = subprocess.check_output(
+        [
+            "git",
+            "-C",
+            str(repo_path),
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all",
+            "--ignored=matching",
+        ]
+    )
+    if status:
+        raise ValueError("manifest refresh requires a completely clean RuleSpec checkout")
+
+    def head_bound_file(relative: Path, *, label: str, max_bytes: int) -> bytes:
+        path = repo_path / relative
+        try:
+            raw = read_bounded_regular_file(
+                repo_path,
+                path,
+                label=label,
+                max_bytes=max_bytes,
+            )
+            head_raw = subprocess.check_output(
+                ["git", "-C", str(repo_path), "show", f"HEAD:{relative.as_posix()}"]
+            )
+        except (OSError, subprocess.CalledProcessError, UnsafeCorpusPathError) as exc:
+            raise ValueError(f"{label} must be a regular file tracked at HEAD") from exc
+        if raw != head_raw:
+            raise ValueError(f"{label} differs from HEAD")
+        return raw
+
+    rulespec_raw = head_bound_file(
+        rulespec_path,
+        label="manifest refresh RuleSpec",
+        max_bytes=10 * 1024 * 1024,
+    )
+    companion_raw = (
+        head_bound_file(
+            companion_relative,
+            label="manifest refresh companion",
+            max_bytes=10 * 1024 * 1024,
+        )
+        if companion_path.exists()
+        else None
+    )
+    manifest_relative = manifest_path.relative_to(repo_path)
+    manifest_raw = head_bound_file(
+        manifest_relative,
+        label="historical apply manifest",
+        max_bytes=1024 * 1024,
+    )
+    try:
+        payload = json.loads(manifest_raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
+        raise ValueError("historical apply manifest is not valid JSON") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("historical apply manifest is not a JSON object")
+    issues = _applied_manifest_exact_schema_issues(
+        payload,
+        manifest_label=manifest_relative.as_posix(),
+    )
+    signature_issue = _applied_encoding_manifest_signature_issue(
+        payload,
+        signing_broker,
+    )
+    if signature_issue:
+        issues.append(f"historical apply manifest {signature_issue}")
+    if (
+        payload.get("tool") != APPLIED_ENCODING_MODEL_TOOL
+        or payload.get("backend") not in APPLIED_ENCODING_ENCODER_BACKENDS
+    ):
+        issues.append("historical apply manifest is not a model apply manifest")
+    citation = payload.get("citation")
+    if not isinstance(citation, str) or not citation:
+        issues.append("historical apply manifest citation is invalid")
+
+    expected_files = {
+        rulespec_path.as_posix(): hashlib.sha256(rulespec_raw).hexdigest(),
+    }
+    if companion_raw is not None:
+        expected_files[companion_relative.as_posix()] = hashlib.sha256(
+            companion_raw
+        ).hexdigest()
+    applied_files = payload.get("applied_files")
+    actual_files = {
+        item.get("path"): item.get("sha256")
+        for item in applied_files or []
+        if isinstance(item, dict)
+        and isinstance(item.get("path"), str)
+        and isinstance(item.get("sha256"), str)
+    }
+    if (
+        not isinstance(applied_files, list)
+        or len(actual_files) != len(applied_files)
+        or actual_files != expected_files
+    ):
+        issues.append(
+            "historical apply manifest does not exclusively cover the exact "
+            "current RuleSpec and companion bytes"
+        )
+    if issues:
+        raise ValueError("; ".join(issues))
+    return (
+        repo_path / rulespec_path,
+        companion_path if companion_raw is not None else None,
+        manifest_path,
+        payload,
+    )
+
+
+def cmd_refresh_applied_manifest(args):
+    """Revalidate unchanged historical bytes and replace only their manifest."""
+
+    repo_path = _resolve_canonical_rulespec_checkout(
+        args.repo,
+        label="RuleSpec checkout",
+    )
+    axiom_rules_path = _resolve_explicit_existing_directory(
+        args.axiom_rules_path,
+        label="Axiom rules engine",
+    )
+    corpus_path = _resolve_explicit_existing_directory(
+        args.corpus_path,
+        label="Axiom Corpus",
+    )
+    dependency_roots = _normalize_rulespec_dependency_roots(
+        _rulespec_dependency_roots_from_args(args)
+    )
+    _recover_apply_transaction(repo_path)
+    with _authoritative_rulespec_dependency_scope(dependency_roots):
+        with _isolated_apply_manifest_signer(preflight=True) as signing_broker:
+            rulespec_file, companion_file, manifest_path, historical = (
+                _historical_manifest_refresh_inputs(
+                    repo_path,
+                    args.rulespec_path,
+                    signing_broker=signing_broker,
+                )
+            )
+            citation = str(historical["citation"])
+            relative_checkout_path = rulespec_file.relative_to(repo_path)
+            content_root = repo_path / relative_checkout_path.parts[0]
+            relative_output = Path(*relative_checkout_path.parts[1:])
+            local_corpus_release = load_rulespec_local_corpus_release(
+                repo_path,
+                corpus_path,
+            )
+            _verifications, rulespec_root = _manifest_primary_source_verifications(
+                manifest_root=repo_path,
+                applied_files=[
+                    rulespec_file,
+                    *([companion_file] if companion_file is not None else []),
+                ],
+            )
+            source_attestation = _resolver_attestation_for_manifest_source(
+                citation,
+                local_corpus_release=local_corpus_release,
+                rulespec_root=rulespec_root,
+            )
+            runner = historical.get("runner")
+            if (
+                not isinstance(runner, str)
+                or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", runner) is None
+            ):
+                raise ValueError("historical apply manifest runner is unsafe")
+            before = {
+                relative_checkout_path: rulespec_file.read_bytes(),
+            }
+            if companion_file is not None:
+                before[companion_file.relative_to(repo_path)] = companion_file.read_bytes()
+
+            with tempfile.TemporaryDirectory() as temporary:
+                output_root = Path(temporary)
+                generated_file = output_root / runner / relative_output
+                generated_file.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(rulespec_file, generated_file)
+                generated_companion = _rulespec_test_path(generated_file)
+                if companion_file is not None:
+                    shutil.copyfile(companion_file, generated_companion)
+                result = argparse.Namespace(
+                    output_file=str(generated_file),
+                    runner=runner,
+                    backend=str(historical["backend"]),
+                    model=str(historical["model"]),
+                    tool=APPLIED_ENCODING_MODEL_TOOL,
+                    citation=citation,
+                    generation_prompt_sha256=historical.get(
+                        "generation_prompt_sha256"
+                    ),
+                    codex_cli_version=historical.get("codex_cli_version"),
+                    codex_cli_sha256=historical.get("codex_cli_sha256"),
+                    trace_file=None,
+                    context_manifest_file=None,
+                    source_attestation=source_attestation,
+                )
+                setattr(
+                    result,
+                    _IMMUTABLE_RULESPEC_SHA256_ATTR,
+                    hashlib.sha256(before[relative_checkout_path]).hexdigest(),
+                )
+                valid, validation_issues, supplemental_files = (
+                    _run_generated_encoding_overlay_validation(
+                        result,
+                        output_root=output_root,
+                        policy_repo_path=content_root,
+                        axiom_rules_path=axiom_rules_path,
+                        local_corpus_release=local_corpus_release,
+                        rulespec_dependency_roots=dependency_roots,
+                    )
+                )
+                if not valid:
+                    raise RuntimeError(
+                        "unchanged RuleSpec failed current overlay validation: "
+                        + "; ".join(validation_issues)
+                    )
+                if supplemental_files:
+                    raise RuntimeError(
+                        "manifest-only refresh produced supplemental RuleSpec changes"
+                    )
+                generated_after = {relative_checkout_path: generated_file.read_bytes()}
+                if companion_file is not None:
+                    generated_after[companion_file.relative_to(repo_path)] = (
+                        generated_companion.read_bytes()
+                    )
+                if generated_after != before:
+                    raise RuntimeError(
+                        "manifest-only refresh validation changed RuleSpec bytes"
+                    )
+                applied = _apply_generated_encoding_result(
+                    result,
+                    output_root=output_root,
+                    policy_repo_path=content_root,
+                    corpus_path=corpus_path,
+                    run_id=args.run_id,
+                    signing_broker=signing_broker,
+                )
+
+            after = {
+                relative: (repo_path / relative).read_bytes() for relative in before
+            }
+            if after != before:
+                raise RuntimeError("manifest-only refresh changed live RuleSpec bytes")
+            changed = subprocess.check_output(
+                ["git", "-C", str(repo_path), "status", "--porcelain=v1"]
+            ).decode("utf-8")
+            changed_paths = {
+                line[3:] for line in changed.splitlines() if len(line) >= 4
+            }
+            expected_manifest = manifest_path.relative_to(repo_path).as_posix()
+            if changed_paths != {expected_manifest}:
+                raise RuntimeError(
+                    "manifest-only refresh changed paths other than its manifest: "
+                    + ", ".join(sorted(changed_paths))
+                )
+            expected_applied = [rulespec_file]
+            if companion_file is not None:
+                expected_applied.append(companion_file)
+            expected_applied.append(manifest_path)
+            if applied != expected_applied:
+                # The apply result order is part of the fail-closed publication scope.
+                raise RuntimeError("manifest-only refresh returned an unexpected apply set")
+            print(f"refreshed {expected_manifest}")
 
 
 def cmd_signed_import_inventory(args):

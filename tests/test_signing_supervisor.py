@@ -2130,7 +2130,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert inputs["source_bundle_json"] == {
         "description": (
             "JSON citation array, canonical_refresh_bundle object, or "
-            "atomic-source-transaction/v2/v3 envelope for an independent refresh "
+            "atomic-source-transaction/v2/v3/v4 envelope for an independent refresh "
             "transaction"
         ),
         "required": False,
@@ -2488,6 +2488,15 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert "--require-complete-source-unit" in command
     assert 'local require_complete_source_unit="${10:-true}"' in command
     assert 'target_require_complete_source_unit="$(jq -r' in command
+    assert 'manifest_only_refresh="$(jq -r' in command
+    assert 'if [ "$manifest_only_refresh" = "true" ]' in command
+    assert "refresh-applied-manifest" in command
+    assert '--rulespec-path "$REPLACE_RULESPEC_PATH"' in command
+    assert '--run-id "$GITHUB_RUN_ID"' in command
+    assert (
+        "manifest-only refresh requires exactly one existing target and cannot mix "
+        "with other transaction modes"
+    ) in command
     assert (
         "scoped source-unit validation requires a normal source-bundle replacement"
         in command
