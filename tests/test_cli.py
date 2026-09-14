@@ -37,6 +37,7 @@ from axiom_encode.cli import (
     _APPLY_TRANSACTION_SCHEMA,
     _APPLY_VALIDATION_SNAPSHOT_ATTR,
     _IMMUTABLE_RULESPEC_SHA256_ATTR,
+    _MANIFEST_ONLY_REFRESH_ATTR,
     _PRESERVED_COMPANION_TESTS_ATTR,
     _REPLACEMENT_OVERLAY_SCOPE_ATTR,
     _REQUIRED_TEST_CASE_CONTRACTS_ATTR,
@@ -89,6 +90,7 @@ from axiom_encode.cli import (
     _factual_input_appears_numeric,
     _find_rulespec_dependents,
     _format_estimated_cost_usd,
+    _generated_result_source_attestation,
     _generated_result_source_metadata,
     _git_changed_files,
     _grounded_formula_literal_for_scalar_expression,
@@ -1466,6 +1468,15 @@ def _manifest_refresh_command_args(tmp_path, repo):
     )
 
 
+def _manifest_refresh_source_unit():
+    return SimpleNamespace(
+        body="authoritative source text\n",
+        source_attestation={
+            "requested_corpus_citation_path": "us/statute/7/2015/f",
+        },
+    )
+
+
 def test_refresh_applied_manifest_command_changes_only_manifest(tmp_path, capsys):
     repo, rule, companion, manifest = _manifest_refresh_repo(tmp_path)
     args = _manifest_refresh_command_args(tmp_path, repo)
@@ -1481,6 +1492,8 @@ def test_refresh_applied_manifest_command_changes_only_manifest(tmp_path, capsys
             getattr(result, _IMMUTABLE_RULESPEC_SHA256_ATTR)
             == hashlib.sha256(original_rule).hexdigest()
         )
+        assert getattr(result, _MANIFEST_ONLY_REFRESH_ATTR) is True
+        assert _generated_result_source_attestation(result) == result.source_attestation
         manifest.write_bytes(original_manifest + b" \n")
         return [rule, companion, manifest]
 
@@ -1495,8 +1508,8 @@ def test_refresh_applied_manifest_command_changes_only_manifest(tmp_path, capsys
             return_value=([], "rulespec-us/us"),
         ),
         patch(
-            "axiom_encode.cli._resolver_attestation_for_manifest_source",
-            return_value={"schema": "test/source-attestation"},
+            "axiom_encode.cli.resolve_corpus_source_unit",
+            return_value=_manifest_refresh_source_unit(),
         ),
         patch(
             "axiom_encode.cli._run_generated_encoding_overlay_validation",
@@ -1555,8 +1568,8 @@ def test_refresh_applied_manifest_command_rejects_non_manifest_output(
             return_value=([], "rulespec-us/us"),
         ),
         patch(
-            "axiom_encode.cli._resolver_attestation_for_manifest_source",
-            return_value={"schema": "test/source-attestation"},
+            "axiom_encode.cli.resolve_corpus_source_unit",
+            return_value=_manifest_refresh_source_unit(),
         ),
         patch(
             "axiom_encode.cli._run_generated_encoding_overlay_validation",
@@ -1608,8 +1621,8 @@ def test_refresh_applied_manifest_command_rejects_ignored_post_apply_file(
             return_value=([], "rulespec-us/us"),
         ),
         patch(
-            "axiom_encode.cli._resolver_attestation_for_manifest_source",
-            return_value={"schema": "test/source-attestation"},
+            "axiom_encode.cli.resolve_corpus_source_unit",
+            return_value=_manifest_refresh_source_unit(),
         ),
         patch(
             "axiom_encode.cli._run_generated_encoding_overlay_validation",
@@ -19946,9 +19959,11 @@ rules: []
         generated = output_root / "manual-attestation" / relative_output
         generated.parent.mkdir(parents=True)
         generated.write_text(program.read_text())
+        transient_context = tmp_path / "manifest-refresh-context.json"
+        transient_context.write_text("{}\n")
         result = SimpleNamespace(
             output_file=str(generated),
-            context_manifest_file=None,
+            context_manifest_file=str(transient_context),
             trace_file=None,
             generation_prompt_sha256=None,
             tool=APPLIED_ENCODING_MODEL_TOOL,
@@ -19958,6 +19973,7 @@ rules: []
             model="program-placement-test",
             source_attestation={},
         )
+        setattr(result, _MANIFEST_ONLY_REFRESH_ATTR, True)
         setattr(
             result,
             _APPLY_VALIDATION_SNAPSHOT_ATTR,
@@ -20005,6 +20021,8 @@ rules: []
             }
         ]
         assert payload["signature"]["value"]
+        assert payload["context_manifest_file"] is None
+        assert payload["context_manifest_sha256"] is None
 
     def test_resolve_applied_manifest_placement_always_uses_checkout_root(
         self, tmp_path

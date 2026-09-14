@@ -7673,11 +7673,6 @@ def cmd_refresh_applied_manifest(args):
                     *([companion_file] if companion_file is not None else []),
                 ],
             )
-            source_attestation = _resolver_attestation_for_manifest_source(
-                citation,
-                local_corpus_release=local_corpus_release,
-                rulespec_root=rulespec_root,
-            )
             runner = historical.get("runner")
             if (
                 not isinstance(runner, str)
@@ -7694,6 +7689,43 @@ def cmd_refresh_applied_manifest(args):
 
             with tempfile.TemporaryDirectory() as temporary:
                 output_root = Path(temporary)
+                source_unit = resolve_corpus_source_unit(
+                    citation,
+                    local_corpus_release,
+                )
+                normalized_source = source_unit.body.replace("\r\n", "\n").replace(
+                    "\r", "\n"
+                )
+                source_attestation = {
+                    **source_unit.source_attestation,
+                    "generation_input_sha256": hashlib.sha256(
+                        normalized_source.encode("utf-8")
+                    ).hexdigest(),
+                    "rulespec_root": rulespec_root,
+                }
+                context_root = output_root / "manifest-refresh-context"
+                context_root.mkdir()
+                source_text_file = context_root / "source.txt"
+                source_text_file.write_text(
+                    normalized_source,
+                    encoding="utf-8",
+                    newline="",
+                )
+                context_manifest = context_root / "context-manifest.json"
+                context_manifest.write_text(
+                    json.dumps(
+                        {
+                            "source_text_file": source_text_file.name,
+                            "source_metadata": {
+                                "source_attestation": source_attestation,
+                            },
+                        },
+                        indent=2,
+                        sort_keys=True,
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
                 generated_file = output_root / runner / relative_output
                 generated_file.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(rulespec_file, generated_file)
@@ -7711,9 +7743,11 @@ def cmd_refresh_applied_manifest(args):
                     codex_cli_version=historical.get("codex_cli_version"),
                     codex_cli_sha256=historical.get("codex_cli_sha256"),
                     trace_file=None,
-                    context_manifest_file=None,
+                    context_manifest_file=str(context_manifest),
+                    context_manifest_sha256=_sha256_file(context_manifest),
                     source_attestation=source_attestation,
                 )
+                setattr(result, _MANIFEST_ONLY_REFRESH_ATTR, True)
                 setattr(
                     result,
                     _IMMUTABLE_RULESPEC_SHA256_ATTR,
@@ -27451,6 +27485,7 @@ class _EncodeReplacementTarget(NamedTuple):
 _LEGACY_REPLACEMENT_ATTR = "_axiom_legacy_replacement_contract"
 _REPLACEMENT_OVERLAY_SCOPE_ATTR = "_axiom_replacement_overlay_scope"
 _IMMUTABLE_RULESPEC_SHA256_ATTR = "_axiom_immutable_rulespec_sha256"
+_MANIFEST_ONLY_REFRESH_ATTR = "_axiom_manifest_only_refresh"
 _PRESERVED_COMPANION_TESTS_ATTR = "_axiom_preserved_companion_tests"
 _REQUIRED_TEST_CASE_CONTRACTS_ATTR = "_axiom_required_test_case_contracts"
 
@@ -55198,6 +55233,7 @@ def _write_applied_encoding_manifest(
     codex_cli_version, codex_cli_sha256 = _result_codex_cli_provenance(result)
     if backend == "codex" and (codex_cli_version is None or codex_cli_sha256 is None):
         raise RuntimeError("Codex backend result has no trusted CLI provenance")
+    manifest_only_refresh = vars(result).get(_MANIFEST_ONLY_REFRESH_ATTR) is True
     payload = {
         "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -55222,12 +55258,20 @@ def _write_applied_encoding_manifest(
         "trace_sha256": _sha256_file(trace_file)
         if trace_file is not None and trace_file.is_file()
         else None,
-        "context_manifest_file": str(context_manifest)
-        if context_manifest is not None
-        else None,
-        "context_manifest_sha256": _sha256_file(context_manifest)
-        if context_manifest is not None and context_manifest.is_file()
-        else None,
+        "context_manifest_file": (
+            None
+            if manifest_only_refresh
+            else str(context_manifest)
+            if context_manifest is not None
+            else None
+        ),
+        "context_manifest_sha256": (
+            None
+            if manifest_only_refresh
+            else _sha256_file(context_manifest)
+            if context_manifest is not None and context_manifest.is_file()
+            else None
+        ),
         "applied_files": [
             {
                 "path": path.relative_to(manifest_root).as_posix(),
