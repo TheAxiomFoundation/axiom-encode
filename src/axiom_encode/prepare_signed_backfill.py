@@ -136,11 +136,23 @@ REVIEWED_RULESPEC_REFS = frozenset(
         ),
     }
 )
-REVIEWED_RULESPEC_PR_BASE_BRANCHES = frozenset(
+REVIEWED_RULESPEC_PR_BASES = frozenset(
     {
-        ("dk", "pin/dk-rulespec-2026-08-07"),
-        ("us", "hard-cut/canonical-layout-us"),
-        ("us", "axiom/signed-backfill-us-35001504609-1"),
+        (
+            "dk",
+            "06489d04e7d4b8d424d1711d99df883c6411248a",
+            "pin/dk-rulespec-2026-08-07",
+        ),
+        (
+            "us",
+            "2a503a5c9a2227c363aceaece6c547429c3c0878",
+            "hard-cut/canonical-layout-us",
+        ),
+        (
+            "us",
+            "297aec1691edf7b3a21781c8a825690db1e7c988",
+            "axiom/signed-backfill-us-35001504609-1",
+        ),
     }
 )
 
@@ -276,7 +288,7 @@ def validate_rulespec_base(
             "rulespec ref is neither on main nor an approved reviewed head"
         )
     if open_pr:
-        if (country, pr_base_branch) not in REVIEWED_RULESPEC_PR_BASE_BRANCHES:
+        if (country, requested_ref, pr_base_branch) not in REVIEWED_RULESPEC_PR_BASES:
             raise ValueError(
                 "reviewed-head runs are artifact-only unless the pull request "
                 "targets an approved protected base branch"
