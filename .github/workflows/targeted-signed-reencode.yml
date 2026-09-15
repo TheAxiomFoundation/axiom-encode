@@ -497,7 +497,10 @@ jobs:
                 citation-rulespec-path "$DEPENDENT_CITATION"
             )"
           fi
-          if [ -z "$REPLACE_RULESPEC_PATH" ] || \
+          if { [ "$REPAIR_RUN_LANE" = "dependent" ] && \
+               [ -z "$REPLACE_RULESPEC_PATH" ]; } || \
+             { [ "$repair_tests_only" = "true" ] && \
+               [ -z "$REPLACE_RULESPEC_PATH" ]; } || \
              [ -n "$REPLACE_LEGACY_RULESPEC_PATH" ] || \
              [ -n "$LEGACY_EXACT_DEPENDENT_RULESPEC_PATH" ] || \
              [ -n "$SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH" ] || \
@@ -1347,8 +1350,7 @@ jobs:
             if [ -n "${REPAIR_CANDIDATE_ROOT:-}" ] && \
                { [ "$output_lane" = "$REPAIR_RUN_LANE" ] || \
                  { [ "$REPAIR_RUN_LANE" = "target" ] && \
-                   [[ "$output_lane" =~ ^target(-preflight)?$ ]]; }; } && \
-               [ -n "$replacement_path" ]; then
+                   [[ "$output_lane" =~ ^target(-preflight)?$ ]]; }; }; then
               candidate_root="$REPAIR_CANDIDATE_ROOT"
               candidate_path="$REPAIR_CANDIDATE_PATH"
               candidate_rulespec_sha256="$REPAIR_CANDIDATE_RULESPEC_SHA256"

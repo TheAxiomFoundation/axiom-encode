@@ -12,6 +12,8 @@ import runpy
 import tarfile
 from pathlib import Path, PurePosixPath
 
+from axiom_encode.corpus_resolver import require_canonical_corpus_citation_path
+
 SCHEMA = "axiom-encode/failed-reencode-diagnostics/v1"
 FAILED_CANDIDATE_SCHEMA = "axiom-encode/failed-encode-candidate/v1"
 FAILED_CANDIDATE_KEYS = {
@@ -43,6 +45,7 @@ BACKFILL_CONTRACT = runpy.run_path(
     Path(__file__).with_name("prepare_signed_backfill.py")
 )
 SPLIT_ATOMIC_SOURCE_INPUT = BACKFILL_CONTRACT["split_atomic_source_input"]
+CITATION_RULESPEC_PATH = BACKFILL_CONTRACT["citation_rulespec_path"]
 MAX_CANDIDATE_BYTES = CONTRACT["VALIDATION_RETRY_CANDIDATE_MAX_FILE_BYTES"]
 SINGLE_TARGET_MODE_FIELDS = {
     "dependent_citation": None,
@@ -414,7 +417,9 @@ def extract_candidate(args: argparse.Namespace) -> dict[str, object]:
         raise ValueError("repair lane must be target or dependent")
     transaction_citation = getattr(args, "transaction_citation", None) or args.citation
     transaction_rulespec_path = (
-        getattr(args, "transaction_rulespec_path", None) or args.replace_rulespec_path
+        getattr(args, "transaction_rulespec_path", None)
+        or args.replace_rulespec_path
+        or None
     )
     expected_fields = {
         "citation": transaction_citation,
@@ -425,11 +430,12 @@ def extract_candidate(args: argparse.Namespace) -> dict[str, object]:
         "rules_engine_ref": args.rules_engine_ref,
         "workflow_run_id": args.workflow_run_id,
     }
-    _expected_module_path(args.country, transaction_rulespec_path)
-    expected_module = _expected_module_path(
-        args.country,
-        args.replace_rulespec_path,
-    )
+    if args.replace_rulespec_path:
+        expected_rulespec_path = args.replace_rulespec_path
+    else:
+        canonical_citation = require_canonical_corpus_citation_path(args.citation)
+        expected_rulespec_path = str(CITATION_RULESPEC_PATH(canonical_citation))
+    expected_module = _expected_module_path(args.country, expected_rulespec_path)
 
     with tarfile.open(args.archive, mode="r:") as bundle:
         members = _member_index(bundle)
