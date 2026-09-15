@@ -11881,7 +11881,7 @@ def _rulespec_target_base(corpus_citation_path: str) -> str:
         "statute": "statutes",
         "regulation": "regulations",
         "manual": "manuals",
-        "guidance": "guidance",
+        "guidance": "policies",
         "policy": "policies",
         "form": "forms",
     }.get(document_class, f"{document_class}s")
