@@ -24861,7 +24861,9 @@ def _source_exception_selector_is_relevant(
 
     normalized_name = _normalized_selector_name(name)
     collapsed = _collapse_text(text).lower()
-    if _source_age_relative_deviation_predicate(collapsed, normalized_name):
+    if _source_age_relative_deviation_predicate(
+        collapsed, normalized_name
+    ) or _source_impairment_expectation_predicate(collapsed, normalized_name):
         return True
     distinctive_tokens = _source_selector_distinctive_tokens(normalized_name)
     if len(distinctive_tokens) <= 2 and _source_selector_concept_matches(
@@ -24901,19 +24903,31 @@ def _source_age_relative_deviation_predicate(
 ) -> re.Match[str] | None:
     """Match one bilingual comparison, preserving its entire condition scope."""
 
-    tokens = set(normalized_name.split("_"))
-    comparisons = {"deviate", "deviates", "deviation", "differ", "differs"}
-    nouns = {"body", "health", "condition", "age", "typical", "from"}
-    if (
-        not nouns.issubset(tokens)
-        or not tokens.intersection(comparisons)
-        or tokens - nouns - comparisons - {"or", "and", "not", "does"}
+    if not re.fullmatch(
+        r"body_(?:or|and)_health_condition_(?:does_)?(?:not_)?"
+        r"(?:deviates?|differs?)_from_age_typical_condition",
+        normalized_name,
     ):
         return None
     return re.fullmatch(
         r"(?:(?:wenn|falls|sofern)\s+)?der\s+körper-\s+und\s+"
         r"gesundheitszustand\s+von\s+dem\s+für\s+das\s+lebensalter\s+"
         r"typischen\s+zustand\s+(?P<negation>nicht\s+)?abweicht\.?",
+        _collapse_text(text).lower(),
+    )
+
+
+def _source_impairment_expectation_predicate(
+    text: str,
+    normalized_name: str,
+) -> re.Match[str] | None:
+    """Match the complete expected-impairment predicate, not its evidence."""
+
+    if not re.fullmatch(r"impairment_(?:is_)?(?:not_)?expected", normalized_name):
+        return None
+    return re.fullmatch(
+        r"(?:(?:wenn|falls|sofern)\s+)?eine\s+beeinträchtigung\s+"
+        r"nach\s+satz\s+1\s+(?P<negation>nicht\s+)?zu\s+erwarten\s+ist\.?",
         _collapse_text(text).lower(),
     )
 
@@ -25201,11 +25215,11 @@ def _source_exception_selector_active_value(text: str, name: str) -> bool:
 
     normalized_name = _normalized_selector_name(name)
     collapsed = _collapse_text(text).lower()
-    age_relative_deviation = _source_age_relative_deviation_predicate(
+    bilingual_predicate = _source_age_relative_deviation_predicate(
         collapsed, normalized_name
-    )
-    if age_relative_deviation is not None:
-        source_is_positive = age_relative_deviation.group("negation") is None
+    ) or _source_impairment_expectation_predicate(collapsed, normalized_name)
+    if bilingual_predicate is not None:
+        source_is_positive = bilingual_predicate.group("negation") is None
         selector_is_positive = not (
             _selector_identifier_negation_count(normalized_name) % 2
         )

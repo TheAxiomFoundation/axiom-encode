@@ -34,6 +34,9 @@ def test_age_relative_comparison_preserves_both_negations(
     "selector",
     [
         SELECTOR + "_and_vehicle_is_blue",
+        SELECTOR + "_and_" + SELECTOR,
+        SELECTOR.replace("deviates", "does_not_deviate") + "_and_" + SELECTOR,
+        SELECTOR.replace("deviates", "not_not_deviates"),
         SELECTOR.replace("age_typical", "population_typical"),
         SELECTOR.replace("deviates", "equals"),
         SELECTOR.replace("body_or_health", "tax_or_income"),
