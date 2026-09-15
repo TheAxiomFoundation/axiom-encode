@@ -5390,15 +5390,20 @@ def _deferred_coverage(
                     exact_blockers
                     and bool(_MISSING_DEPENDENCY_LANGUAGE.search(reason))
                     and all(
-                        _reason_identifies_blocker(
-                            reason,
-                            blocker,
-                            corpus_citation_path=corpus_citation_path,
+                        (
+                            _reason_identifies_blocker(
+                                reason,
+                                blocker,
+                                corpus_citation_path=corpus_citation_path,
+                            )
+                            and _source_scope_identifies_blocker(
+                                candidate_scope_text,
+                                blocker,
+                                corpus_citation_path=corpus_citation_path,
+                            )
                         )
-                        for blocker in blocker_targets
-                    )
-                    and all(
-                        _source_scope_identifies_blocker(
+                        or _source_bound_dakg_review_dependency(
+                            reason,
                             candidate_scope_text,
                             blocker,
                             corpus_citation_path=corpus_citation_path,
@@ -5613,6 +5618,101 @@ def _deferred_branch_display_path(
                 break
         display_path.append(display_segment)
     return tuple(display_path)
+
+
+def _source_bound_dakg_review_dependency(
+    reason: str,
+    source_scope_text: str,
+    blocker: str,
+    *,
+    corpus_citation_path: str,
+) -> bool:
+    """Recognize the DA-KG's explicit assessment-review referral, not generic vgl."""
+
+    owner = re.fullmatch(
+        r"de/guidance/(?P<edition>bzst-dakg-2025)/"
+        r"(?:a-\d+(?:-\d+)+/document-1|numbered-sections/a-\d+(?:-\d+)+)",
+        corpus_citation_path,
+    )
+    if owner is None:
+        return False
+    source = re.fullmatch(
+        r"(?:[1-9]\d*)?Zur Überprüfung der Festsetzung vgl\. "
+        r"A\s*(?P<section>\d+(?:\.\d+)+) Abs\. "
+        r"(?P<first>\d+) und (?P<second>\d+)\.",
+        " ".join(source_scope_text.split()),
+    )
+    if source is None:
+        return False
+    section = source.group("section").replace(".", "-")
+    owner_section = re.search(
+        r"/a-(\d+(?:-\d+)+)(?:/document-1)?$", corpus_citation_path
+    )
+    if owner_section is None or owner_section.group(1) == section:
+        return False
+    if any(
+        year != "2025"
+        for year in re.findall(
+            r"(?:DA-KG\s*|bzst-dakg-)(20\d\d)",
+            reason,
+            re.IGNORECASE,
+        )
+    ):
+        return False
+    target = re.fullmatch(
+        rf"de:policies/{re.escape(owner.group('edition'))}/"
+        rf"numbered-sections/a-{re.escape(section)}"
+        r"#(?P<symbol>[A-Za-z_][A-Za-z0-9_]*)",
+        blocker,
+    )
+    if target is None:
+        return False
+    if not re.fullmatch(
+        r"(?:next_)?(?:child_)?(?:disability_)?(?:assessment_)?review_"
+        r"(?:interval|period|date|deadline|frequency|schedule|scheduling|due|required)",
+        target.group("symbol"),
+    ):
+        return False
+    reference = (
+        rf"(?<![A-Za-z0-9])A\s*{re.escape(source.group('section'))}"
+        rf"\s+Abs\.\s*{source.group('first')}\s+und\s+{source.group('second')}"
+        r"(?![A-Za-z0-9]|\s*(?:und|oder|,|bis)\s*\d)"
+    )
+    if not re.search(reference, reason):
+        return False
+    if re.search(
+        r"\b(?:unrelated|irrelevant|historical[- ]only|only historically|"
+        r"not applicable|does not apply|not required)\b",
+        reason,
+        re.IGNORECASE,
+    ):
+        return False
+    # Tie the missing state to this exact output, not another gap in the reason.
+    matches = re.finditer(
+        rf"(?<![A-Za-z0-9_:/#-]){re.escape(blocker)}(?![A-Za-z0-9_:/#-])",
+        reason,
+    )
+    for match in matches:
+        start, end = _reason_clause_bounds(reason, match)
+        clause = reason[start:end].strip()
+        # An affirmative availability statement or a different missing input
+        # cannot be rescued by an earlier occurrence of the word "missing".
+        missing_state = r"(?:missing|unavailable|not\s+(?:yet\s+)?(?:encoded|implemented|available))"
+        missing_statement = re.fullmatch(
+            rf"(?:The\s+)?missing\s+(?:(?:executable\s+)?dependency\s+)?"
+            rf"{re.escape(blocker)}(?:\s+is\s+{missing_state})?",
+            clause,
+            re.IGNORECASE,
+        )
+        explicit_missing_state = re.fullmatch(
+            rf"(?:(?:The\s+)?(?:executable\s+)?dependency\s+)?"
+            rf"{re.escape(blocker)}\s+is\s+{missing_state}",
+            clause,
+            re.IGNORECASE,
+        )
+        if missing_statement or explicit_missing_state:
+            return True
+    return False
 
 
 def _reason_identifies_blocker(
@@ -7742,6 +7842,18 @@ def _reason_dependency_is_source_bound(
         for dependency in louisiana_dependencies
     ):
         return False
+    for match in re.finditer(
+        r"\bde:policies/bzst-dakg-2025/numbered-sections/"
+        r"a-\d+(?:-\d+)+#[A-Za-z_][A-Za-z0-9_]*(?![A-Za-z0-9_:/#-])",
+        reason,
+    ):
+        if _source_bound_dakg_review_dependency(
+            reason,
+            source_scope_text,
+            match.group(0),
+            corpus_citation_path=corpus_citation_path,
+        ):
+            return True
     try:
         current_citation = parse_usc_citation(corpus_citation_path)
     except ValueError:

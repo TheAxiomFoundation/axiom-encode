@@ -44056,3 +44056,208 @@ def test_guidance_deferral_does_not_cover_wrong_source_or_legacy_root(target):
         ["de:statutes/estg/32#child_test"],
     )
     assert not covered
+
+
+_DAKG_REVIEW_SOURCE = "3Zur Überprüfung der Festsetzung vgl. A 19.1 Abs. 7 und 8."
+_DAKG_REVIEW_TARGET = (
+    "de:policies/bzst-dakg-2025/numbered-sections/a-19-1#review_interval"
+)
+_DAKG_REVIEW_REASON = (
+    "DA-KG A 19.2 Absatz 2 Satz 3 refers assessment review to A 19.1 Abs. 7 und 8. "
+    f"The missing dependency {_DAKG_REVIEW_TARGET} is not yet encoded."
+)
+
+
+def _dakg_review_deferral(
+    source=_DAKG_REVIEW_SOURCE,
+    reason=_DAKG_REVIEW_REASON,
+    target=_DAKG_REVIEW_TARGET,
+    typed=True,
+    extra_blocker=None,
+    citation="de/guidance/bzst-dakg-2025/a-19-2/document-1",
+):
+    record = {
+        "output": completeness_module._rulespec_target_base(citation)
+        + "/2/satz-3#assessment_review_schedule",
+        "reason": reason,
+    }
+    if typed:
+        record["blocked_by"] = [target]
+        if extra_blocker is not None:
+            record["blocked_by"].append(extra_blocker)
+    branch = completeness_module.SourceStructureBranch(
+        path=("2", "satz-3"),
+        kind="sentence",
+        label="Satz 3",
+        text=source,
+        start=0,
+        end=len(source),
+    )
+    return completeness_module._deferred_coverage(
+        {"module": {"deferred_outputs": [record]}},
+        corpus_citation_path=citation,
+        source_text=source,
+        branches=(branch,),
+    )
+
+
+@pytest.mark.parametrize("typed", [True, False])
+def test_dakg_review_reference_accepts_exact_missing_schedule(typed):
+    # Exact operative sentence from the SHA-bound A19.2 source fixture.
+    source = (Path(__file__).parent / "fixtures/dakg-a19-2-source.txt").read_text()
+    assert _DAKG_REVIEW_SOURCE in " ".join(source.split())
+    covered, issues = _dakg_review_deferral(typed=typed)
+    assert covered == {("2", "satz-3")}
+    assert not issues
+
+
+@pytest.mark.parametrize("typed", [True, False])
+@pytest.mark.parametrize(
+    "source",
+    [
+        _DAKG_REVIEW_SOURCE.replace("A 19.1", "A 19.3"),
+        _DAKG_REVIEW_SOURCE.replace("7 und 8", "7 und 9"),
+        _DAKG_REVIEW_SOURCE.replace("7 und 8", "7"),
+        "Nicht zur Überprüfung der Festsetzung vgl. A 19.1 Abs. 7 und 8.",
+        "Historically: " + _DAKG_REVIEW_SOURCE,
+        "Unrelated reference: A 19.1 Abs. 7 und 8.",
+    ],
+)
+def test_dakg_review_reference_rejects_other_or_nonoperative_source(source, typed):
+    covered, issues = _dakg_review_deferral(source=source, typed=typed)
+    assert not covered
+    assert issues
+
+
+@pytest.mark.parametrize("typed", [True, False])
+@pytest.mark.parametrize(
+    "target",
+    [
+        _DAKG_REVIEW_TARGET.replace("a-19-1", "a-19-3"),
+        _DAKG_REVIEW_TARGET.replace("2025", "2024"),
+        _DAKG_REVIEW_TARGET.replace("de:", "uk:"),
+        _DAKG_REVIEW_TARGET.replace("bzst-dakg", "other-guidance"),
+        _DAKG_REVIEW_TARGET.replace("review_interval", "kindergeld_amount"),
+        _DAKG_REVIEW_TARGET.replace("a-19-1#", "a-19-1/7#"),
+    ],
+)
+def test_dakg_review_reference_rejects_wrong_target(target, typed):
+    reason = _DAKG_REVIEW_REASON.replace(_DAKG_REVIEW_TARGET, target)
+    covered, issues = _dakg_review_deferral(target=target, reason=reason, typed=typed)
+    assert not covered
+    assert issues
+
+
+@pytest.mark.parametrize("typed", [True, False])
+@pytest.mark.parametrize(
+    "reason",
+    [
+        _DAKG_REVIEW_REASON.replace("7 und 8", "7"),
+        _DAKG_REVIEW_REASON.replace("7 und 8", "7 und 9"),
+        _DAKG_REVIEW_REASON.replace("7 und 8", "7 und 8 und 9"),
+        _DAKG_REVIEW_REASON.replace("A 19.1", "A 19.3"),
+        _DAKG_REVIEW_REASON.replace("DA-KG A", "DA-KG 2024 A"),
+        _DAKG_REVIEW_REASON.replace(
+            "is not yet encoded.", "is available; another input is missing."
+        ),
+        _DAKG_REVIEW_REASON.replace(
+            "The missing dependency", "The not missing dependency"
+        ),
+        "This is unrelated. " + _DAKG_REVIEW_REASON,
+        "This is historical-only. " + _DAKG_REVIEW_REASON,
+    ],
+)
+def test_dakg_review_reference_requires_precise_reason(reason, typed):
+    covered, issues = _dakg_review_deferral(reason=reason, typed=typed)
+    assert not covered
+    assert issues
+
+
+@pytest.mark.parametrize(
+    "citation",
+    [
+        "de/statute/bzst-dakg-2025/a-19-2/document-1",
+        "de/guidance/bzst-dakg-2024/a-19-2/document-1",
+        "uk/guidance/bzst-dakg-2025/a-19-2/document-1",
+        "de/guidance/other-guidance-2025/a-19-2/document-1",
+        "de/guidance/bzst-dakg-2025/numbered-sections/a-19-1",
+    ],
+)
+def test_dakg_review_reference_authenticates_origin_and_rejects_self(citation):
+    covered, issues = _dakg_review_deferral(citation=citation)
+    assert not covered
+    assert issues
+
+
+@pytest.mark.parametrize("typed", [True, False])
+@pytest.mark.parametrize(
+    "symbol", ["next_assessment_review_date", "assessment_review_required"]
+)
+def test_dakg_review_reference_accepts_review_concepts_without_asserting_encoding(
+    typed, symbol
+):
+    target = _DAKG_REVIEW_TARGET.replace("review_interval", symbol)
+    covered, issues = _dakg_review_deferral(
+        target=target,
+        reason=_DAKG_REVIEW_REASON.replace(_DAKG_REVIEW_TARGET, target),
+        typed=typed,
+    )
+    assert covered == {("2", "satz-3")}
+    assert not issues
+
+
+def test_dakg_review_reference_requires_every_typed_blocker_to_match_source():
+    extra = _DAKG_REVIEW_TARGET.replace("a-19-1", "a-19-3")
+    covered, issues = _dakg_review_deferral(
+        extra_blocker=extra,
+        reason=_DAKG_REVIEW_REASON
+        + f" The missing dependency {extra} is not yet encoded.",
+    )
+    assert not covered
+    assert issues
+
+
+def test_dakg_review_reference_accepts_same_source_numbered_section_representation():
+    covered, issues = _dakg_review_deferral(
+        citation="de/guidance/bzst-dakg-2025/numbered-sections/a-19-2",
+    )
+    assert covered == {("2", "satz-3")}
+    assert not issues
+
+
+@pytest.mark.parametrize("typed", [True, False])
+@pytest.mark.parametrize(
+    "symbol",
+    [
+        "income_tax_audit_review_deadline",
+        "payment_review_date",
+        "not_review_required",
+    ],
+)
+def test_dakg_review_reference_rejects_unrelated_or_negated_scheduling_symbols(
+    typed, symbol
+):
+    target = _DAKG_REVIEW_TARGET.replace("review_interval", symbol)
+    covered, issues = _dakg_review_deferral(
+        target=target,
+        reason=_DAKG_REVIEW_REASON.replace(_DAKG_REVIEW_TARGET, target),
+        typed=typed,
+    )
+    assert not covered
+    assert issues
+
+
+@pytest.mark.parametrize("typed", [True, False])
+@pytest.mark.parametrize(
+    "introduction", ["The executable dependency", "The dependency", ""]
+)
+def test_dakg_review_reference_accepts_explicit_missing_state_without_redundant_missing(
+    typed, introduction
+):
+    reason = (
+        "DA-KG A 19.2 Absatz 2 Satz 3 refers assessment review to A 19.1 Abs. 7 und 8. "
+        f"{introduction} {_DAKG_REVIEW_TARGET} is not yet encoded."
+    )
+    covered, issues = _dakg_review_deferral(reason=reason, typed=typed)
+    assert covered == {("2", "satz-3")}
+    assert not issues
