@@ -43884,3 +43884,78 @@ def test_ordinary_numeric_sentence_end_remains_a_clause_boundary():
         "Der Betrag ist 25.",
         "Wenn ein Antrag fehlt, entfällt er.",
     ]
+
+
+def test_dakg_sentence_list_thresholds_have_only_operative_item_owners():
+    source = (Path(__file__).parent / "fixtures/dakg-a19-2-source.txt").read_text()
+    assert hashlib.sha256(source.encode()).hexdigest() == (
+        "6691a6027b1764fcfb309aedbcc4466dade9fc48ec6ad2f85847630220669e7e"
+    )
+    branches = recognize_source_structure(source)
+    obligations = completeness_module._source_boundary_obligations(
+        branches, extract_numeric_occurrences=DE_NUMERIC_OCCURRENCE_EXTRACTOR
+    )
+    fifty_owners = [branch.path for branch, value in obligations if value.value == 50]
+    assert fifty_owners == [("1", "1"), ("1", "2")]
+    assert [
+        (branch.path, value.value) for branch, value in obligations if value.value == 20
+    ] == [(("1", "2"), 20.0)]
+
+
+@pytest.mark.parametrize("separate_sentence", [False, True])
+def test_german_sentence_list_preserves_its_own_and_later_thresholds(separate_sentence):
+    source = """(1) 1Bei mindestens 10 Tagen gelten folgende Voraussetzungen:
+1. Ein Grad von mindestens 50 liegt vor;
+2. Ein Grad von weniger als 50 liegt vor.
+"""
+    if separate_sentence:
+        source += "2Danach gilt eine Grenze von mindestens 50 Tagen."
+    branches = recognize_source_structure(source)
+    obligations = completeness_module._source_boundary_obligations(
+        branches, extract_numeric_occurrences=DE_NUMERIC_OCCURRENCE_EXTRACTOR
+    )
+    assert any(
+        branch.path == ("1", "satz-1") and value.value == 10
+        for branch, value in obligations
+    )
+    assert any(
+        branch.path == ("1", "1") and value.value == 50 for branch, value in obligations
+    )
+    assert any(
+        branch.path == ("1", "2") and value.value == 50 for branch, value in obligations
+    )
+    assert (
+        any(
+            branch.path == ("1", "satz-2") and value.value == 50
+            for branch, value in obligations
+        )
+        == separate_sentence
+    )
+
+
+@pytest.mark.parametrize("connector", ["aber", "und"])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_german_conjoined_bounds_keep_both_endpoints(connector, reverse):
+    source = (
+        f"weniger als 50, {connector} mindestens 20"
+        if reverse
+        else f"mindestens 20, {connector} weniger als 50"
+    )
+    interval = completeness_module._formula_interval_from_text(
+        source, extract_numeric_occurrences=DE_NUMERIC_OCCURRENCE_EXTRACTOR
+    )
+    assert interval is not None
+    assert interval.lower is not None and interval.lower.value == 20
+    assert interval.lower_inclusive
+    assert interval.upper is not None and interval.upper.value == 50
+    assert not interval.upper_inclusive
+
+
+def test_german_disjunction_does_not_create_a_conjoined_lower_bound():
+    interval = completeness_module._formula_interval_from_text(
+        "weniger als 50 oder mindestens 20",
+        extract_numeric_occurrences=DE_NUMERIC_OCCURRENCE_EXTRACTOR,
+    )
+    assert interval is not None
+    assert interval.lower is None
+    assert interval.upper is not None and interval.upper.value == 50
