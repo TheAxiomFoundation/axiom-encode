@@ -3929,6 +3929,7 @@ def test_validate_rulespec_base_rejects_stale_main_pr_base(
         ("us", "2a503a5c9a2227c363aceaece6c547429c3c0878"),
         ("us", "6535019ce780d9e78f10509f2fe7a2607fb2bdc4"),
         ("us", "c482ef6506c50b54236354926bbce1bcd6434132"),
+        ("us", "297aec1691edf7b3a21781c8a825690db1e7c988"),
         ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
     ],
 )
@@ -3955,11 +3956,16 @@ def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
             ("us", "2a503a5c9a2227c363aceaece6c547429c3c0878"),
             ("us", "6535019ce780d9e78f10509f2fe7a2607fb2bdc4"),
             ("us", "c482ef6506c50b54236354926bbce1bcd6434132"),
+            ("us", "297aec1691edf7b3a21781c8a825690db1e7c988"),
             ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
         }
     )
     assert REVIEWED_RULESPEC_PR_BASE_BRANCHES == frozenset(
-        {("dk", "pin/dk-rulespec-2026-08-07"), ("us", "hard-cut/canonical-layout-us")}
+        {
+            ("dk", "pin/dk-rulespec-2026-08-07"),
+            ("us", "hard-cut/canonical-layout-us"),
+            ("us", "axiom/signed-backfill-us-35001504609-1"),
+        }
     )
     monkeypatch.setattr(
         "scripts.prepare_signed_backfill._git",
@@ -4011,6 +4017,35 @@ def test_validate_rulespec_base_accepts_exact_reviewed_protected_branch_tip(
         "rev-parse",
         "refs/remotes/origin/hard-cut/canonical-layout-us",
     ) in git_calls
+
+
+def test_validate_rulespec_base_accepts_reviewed_immigration_repair_branch_tip(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "rulespec-us"
+    reviewed_ref = "297aec1691edf7b3a21781c8a825690db1e7c988"
+    branch = "axiom/signed-backfill-us-35001504609-1"
+
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill._git",
+        lambda _repo, *_args: f"{reviewed_ref}\n".encode(),
+    )
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill.subprocess.run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+    )
+
+    assert (
+        validate_rulespec_base(
+            repo,
+            "us",
+            reviewed_ref,
+            open_pr=True,
+            pr_base_branch=branch,
+        )
+        == "reviewed-head-pr"
+    )
 
 
 def test_validate_rulespec_base_rejects_stale_reviewed_protected_branch_tip(

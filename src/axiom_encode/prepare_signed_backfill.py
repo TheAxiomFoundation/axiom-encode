@@ -127,6 +127,10 @@ REVIEWED_RULESPEC_REFS = frozenset(
             "c482ef6506c50b54236354926bbce1bcd6434132",
         ),
         (
+            "us",
+            "297aec1691edf7b3a21781c8a825690db1e7c988",
+        ),
+        (
             "ca",
             "f60f7a84c30e38c7d4961d70647eb0457e7d76c2",
         ),
@@ -136,6 +140,7 @@ REVIEWED_RULESPEC_PR_BASE_BRANCHES = frozenset(
     {
         ("dk", "pin/dk-rulespec-2026-08-07"),
         ("us", "hard-cut/canonical-layout-us"),
+        ("us", "axiom/signed-backfill-us-35001504609-1"),
     }
 )
 
