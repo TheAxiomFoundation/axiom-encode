@@ -24843,6 +24843,8 @@ def _source_exception_selector_is_relevant(
 
     normalized_name = _normalized_selector_name(name)
     collapsed = _collapse_text(text).lower()
+    if _source_age_relative_deviation_predicate(collapsed, normalized_name):
+        return True
     distinctive_tokens = _source_selector_distinctive_tokens(normalized_name)
     if len(distinctive_tokens) <= 2 and _source_selector_concept_matches(
         collapsed, normalized_name
@@ -24873,6 +24875,29 @@ def _source_exception_selector_is_relevant(
             for supporting_text in supporting_texts
         )
     return _source_selector_relevance_matches(collapsed, normalized_name)
+
+
+def _source_age_relative_deviation_predicate(
+    text: str,
+    normalized_name: str,
+) -> re.Match[str] | None:
+    """Match one bilingual comparison, preserving its entire condition scope."""
+
+    tokens = set(normalized_name.split("_"))
+    comparisons = {"deviate", "deviates", "deviation", "differ", "differs"}
+    nouns = {"body", "health", "condition", "age", "typical", "from"}
+    if (
+        not nouns.issubset(tokens)
+        or not tokens.intersection(comparisons)
+        or tokens - nouns - comparisons - {"or", "and", "not", "does"}
+    ):
+        return None
+    return re.fullmatch(
+        r"(?:(?:wenn|falls|sofern)\s+)?der\s+körper-\s+und\s+"
+        r"gesundheitszustand\s+von\s+dem\s+für\s+das\s+lebensalter\s+"
+        r"typischen\s+zustand\s+(?P<negation>nicht\s+)?abweicht\.?",
+        _collapse_text(text).lower(),
+    )
 
 
 def _source_selector_distinctive_tokens(normalized_name: str) -> tuple[str, ...]:
@@ -25158,6 +25183,15 @@ def _source_exception_selector_active_value(text: str, name: str) -> bool:
 
     normalized_name = _normalized_selector_name(name)
     collapsed = _collapse_text(text).lower()
+    age_relative_deviation = _source_age_relative_deviation_predicate(
+        collapsed, normalized_name
+    )
+    if age_relative_deviation is not None:
+        source_is_positive = age_relative_deviation.group("negation") is None
+        selector_is_positive = not (
+            _selector_identifier_negation_count(normalized_name) % 2
+        )
+        return source_is_positive == selector_is_positive
     source_polarity = _source_selector_concept_polarity(
         collapsed,
         normalized_name,
