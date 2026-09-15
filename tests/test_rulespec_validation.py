@@ -15848,9 +15848,7 @@ def test_the_fraction_pass_scans_thousands_of_phrases_in_linear_time():
     elapsed = time.perf_counter() - started
     assert len(matches) == 4000
     assert all(abs(value - 0.2) < 1e-12 for _span, value in matches)
-    # Keep enough headroom for shared hosted-runner variance while still
-    # rejecting the former quadratic implementation (about 3.77 seconds).
-    assert elapsed < 3.0, elapsed
+    assert elapsed < 2.0, elapsed
 
 
 def test_a_prefixed_percent_noun_is_still_a_rate():
@@ -23517,7 +23515,9 @@ def test_the_percentage_pass_scans_thousands_of_phrases_in_linear_time():
     elapsed = time.perf_counter() - started
     assert len(matches) == 4000
     assert all(abs(rate - 0.05) < 1e-12 for _span, rate in matches)
-    assert elapsed < 2.0, elapsed
+    # Keep enough headroom for shared hosted-runner variance while still
+    # rejecting the former quadratic implementation (about 3.77 seconds).
+    assert elapsed < 3.0, elapsed
 
 
 def test_hebrew_number_words_join_the_recall_inventory():
