@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ast
 import bisect
+import calendar
 import contextlib
 import copy
 import functools
@@ -4526,6 +4527,7 @@ def _analyze_rulespec_payload(
         if isinstance(rule, dict) and str(rule.get("name") or "").strip()
     }
     test_cases = _typed_numeric_expected_cases(test_cases, named_rules)
+    test_cases = _typed_date_cases(test_cases, payload)
     deferred_paths, imprecise_deferrals = _deferred_coverage(
         payload,
         corpus_citation_path=corpus_citation_path,
@@ -20535,6 +20537,8 @@ def _evaluate_rulespec_formula(
     def evaluate_call(function_name: str, arguments: list[Any]) -> Any:
         if any(value is _UNRESOLVED_CONDITION_VALUE for value in arguments):
             return _UNRESOLVED_CONDITION_VALUE
+        if function_name in {"date_add_days", "date_add_months", "date_add_years"}:
+            return _evaluate_calendar_call(function_name, arguments)
         numbers = [_rulespec_runtime_decimal(value) for value in arguments]
         try:
             if (
@@ -20562,6 +20566,34 @@ def _evaluate_rulespec_formula(
         return _UNRESOLVED_CONDITION_VALUE
 
     return resolve(parse_expression())
+
+
+def _evaluate_calendar_call(function_name: str, arguments: Sequence[Any]) -> Any:
+    """Evaluate pinned calendar shifts within Python's supported date range."""
+
+    if len(arguments) != 2 or type(arguments[0]) is not date:
+        return _UNRESOLVED_CONDITION_VALUE
+    number = _rulespec_runtime_decimal(arguments[1])
+    if number is None or number != number.to_integral_value():
+        return _UNRESOLVED_CONDITION_VALUE
+    offset = int(number)
+    if not -(2**63) <= offset < 2**63:
+        return _UNRESOLVED_CONDITION_VALUE
+    base = arguments[0]
+    with contextlib.suppress(ValueError, OverflowError):
+        if function_name == "date_add_days":
+            return date.fromordinal(base.toordinal() + offset)
+        if function_name not in {"date_add_months", "date_add_years"}:
+            return _UNRESOLVED_CONDITION_VALUE
+        months = offset * 12 if function_name == "date_add_years" else offset
+        if not -(2**63) <= months < 2**63 or abs(months) > 2**32 - 1:
+            return _UNRESOLVED_CONDITION_VALUE
+        year, month_index = divmod(base.year * 12 + base.month - 1 + months, 12)
+        if not 1 <= year <= 9999:
+            return _UNRESOLVED_CONDITION_VALUE
+        month = month_index + 1
+        return date(year, month, min(base.day, calendar.monthrange(year, month)[1]))
+    return _UNRESOLVED_CONDITION_VALUE
 
 
 def _rulespec_runtime_decimal(value: Any) -> Decimal | None:
@@ -26720,6 +26752,12 @@ def _case_formula_execution_with_boolean_selector(
 def _formula_execution_runtime_value(execution: _FormulaExecution) -> Any:
     if execution.evaluated_value is not None:
         value_type, raw_value = execution.evaluated_value
+        if value_type == "date":
+            match = re.fullmatch(r"datetime\.date\((\d+), (\d+), (\d+)\)", raw_value)
+            if match is not None:
+                with contextlib.suppress(ValueError, OverflowError):
+                    return date(*(int(part) for part in match.groups()))
+            return _UNRESOLVED_CONDITION_VALUE
         if value_type == "Decimal" and raw_value.startswith("Decimal('"):
             with contextlib.suppress(InvalidOperation, ValueError):
                 return Decimal(raw_value[9:-2])
@@ -28184,6 +28222,53 @@ def _selected_rule_formula_version_index(
     return selected[0] if len(selected) == 1 else None
 
 
+def _typed_date_cases(
+    test_cases: Sequence[object] | None,
+    payload: Mapping[str, Any],
+) -> Sequence[object] | None:
+    """Decode ISO strings only for unambiguous declared Date inputs/outputs."""
+
+    if test_cases is None:
+        return None
+    declared: dict[str, list[dict[str, Any]]] = {}
+    for field in ("inputs", "rules"):
+        records = payload.get(field, [])
+        if not isinstance(records, list):
+            return test_cases
+        for record in records:
+            if isinstance(record, dict) and isinstance(record.get("name"), str):
+                declared.setdefault(record["name"], []).append(record)
+    date_names = {
+        name
+        for name, records in declared.items()
+        if len(records) == 1 and records[0].get("dtype") == "Date"
+    }
+    if not date_names:
+        return test_cases
+    result: list[object] = []
+    for case in test_cases:
+        if not isinstance(case, dict):
+            result.append(case)
+            continue
+        normalized = dict(case)
+        for field in ("input", "output"):
+            values = case.get(field)
+            if not isinstance(values, dict):
+                continue
+            normalized[field] = dict(values)
+            for key, value in values.items():
+                matching = _input_key_names(key) & declared.keys()
+                if (
+                    len(matching) == 1
+                    and matching <= date_names
+                    and isinstance(value, str)
+                    and _is_iso_calendar_date(value)
+                ):
+                    normalized[field][key] = date.fromisoformat(value)
+        result.append(normalized)
+    return result
+
+
 def _typed_numeric_expected_cases(
     test_cases: Sequence[object] | None,
     named_rules: Mapping[str, dict[str, Any]],
@@ -28607,8 +28692,12 @@ def _formula_environment_for_case(
     case: dict[str, Any],
 ) -> dict[str, Any]:
     period = _normalized_case_period(case)
-    resolved: dict[str, Any] = {}
+    resolved: dict[str, Any] = {"period_start": _case_runtime_period_start(case)}
     for name, value in environment.items():
+        if name == "period_start":
+            if not _formula_runtime_values_equal(resolved.get(name), value):
+                resolved[name] = _UNRESOLVED_CONDITION_VALUE
+            continue
         if not isinstance(value, _TemporalFormulaValue):
             resolved[name] = value
             continue
@@ -28627,6 +28716,41 @@ def _formula_environment_for_case(
             continue
         resolved[name] = value.versions[selected_indexes[0]][2]
     return resolved
+
+
+def _case_runtime_period_start(case: dict[str, Any]) -> Any:
+    """Validate companion period syntax before exposing a runtime coordinate."""
+
+    value = case.get("period")
+    if type(value) is date:
+        return value
+    if isinstance(value, str):
+        value = value.strip()
+        if re.fullmatch(r"\d{4}-\d{2}", value):
+            with contextlib.suppress(ValueError):
+                return date(int(value[:4]), int(value[5:]), 1)
+        return _UNRESOLVED_CONDITION_VALUE
+    if not isinstance(value, dict):
+        return _UNRESOLVED_CONDITION_VALUE
+    kind = value.get("period_kind")
+    if kind not in ("month", "benefit_week", "tax_year", "custom"):
+        return _UNRESOLVED_CONDITION_VALUE
+    if kind == "custom" and (
+        not isinstance(value.get("name"), str) or not value["name"].strip()
+    ):
+        return _UNRESOLVED_CONDITION_VALUE
+    endpoints = []
+    for field in ("start", "end"):
+        endpoint = value.get(field)
+        if type(endpoint) is date:
+            endpoints.append(endpoint)
+        elif isinstance(endpoint, str) and _is_iso_calendar_date(endpoint):
+            endpoints.append(date.fromisoformat(endpoint))
+        else:
+            return _UNRESOLVED_CONDITION_VALUE
+    if endpoints[0] > endpoints[1]:
+        return _UNRESOLVED_CONDITION_VALUE
+    return endpoints[0]
 
 
 def _normalized_case_period(case: dict[str, Any]) -> str:
