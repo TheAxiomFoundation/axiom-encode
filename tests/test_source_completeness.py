@@ -43812,3 +43812,75 @@ def test_numeric_exception_threshold_ignores_introductory_year(transition, match
         )
         is matches
     )
+
+
+@pytest.mark.parametrize("separator", [" ", "\n"])
+def test_bfh_medical_proof_citation_is_not_a_computation(separator):
+    # DA-KG 2025 A19.2(1) sentence2, corpus body SHA6691a6027b1764fc...
+    source = (
+        "Der Nachweis der Behinderung kann auch in Form einer Bescheinigung "
+        "bzw. eines Zeugnisses des behandelnden Arztes oder eines ärztlichen "
+        "Gutachtens erbracht werden (BFH vom 16.04.2002,"
+        + separator
+        + "VIII R 62/99, BStBl II S. 738)."
+    )
+    assert not source_states_explicit_computation(source)
+    assert not completeness_module._source_states_nonrounding_computation(source)
+    inventory = extract_typed_numeric_inventory_occurrences_from_text(
+        authoritative_numeric_recall_text(source), profile="de-DE"
+    )
+    assert not inventory
+    operative = source + " Der Betrag ist 62/99; mindestens 50 und weniger als 20."
+    assert source_states_explicit_computation(operative)
+    values = extract_typed_numeric_inventory_occurrences_from_text(
+        authoritative_numeric_recall_text(operative), profile="de-DE"
+    )
+    assert {50.0, 20.0} <= {item.value for item in values}
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "Der Betrag ist 62/99.",
+        "VIII R 62/99",
+        "(BFH vom 16.04.2002, VIII R 62/99/2, BStBl II S. 738)",
+        "(BFH vom 16.04.2002, VIII R 62/99.5, BStBl II S. 738)",
+        "(BFH vom 16.04.2002, VIII R 62/99, BStBl II S. 738; Betrag 2/3)",
+        "(BFH vom 16.04.2002, VIII R 62/99, BStBl II S. 738) Betrag 2/3",
+    ],
+)
+def test_bfh_citation_mask_preserves_arithmetic_and_incomplete_references(source):
+    assert source_states_explicit_computation(source)
+
+
+@pytest.mark.parametrize("age, noun", [(25, "Lebensjahr"), (18, "Lebensjahres")])
+@pytest.mark.parametrize("separator", [" ", "\n"])
+def test_german_age_ordinal_keeps_conditional_clause_and_source_offsets(
+    age, noun, separator
+):
+    source = (
+        "(1) 1Aus der Bescheinigung muss der Beginn der Behinderung hervorgehen, "
+        f"soweit das Kind das {age}.{separator}{noun} vollendet hat. "
+        "2Wenn die Bescheinigung fehlt, ist der Nachweis nicht erbracht."
+    )
+    branches = recognize_source_structure(source)
+    conditions = completeness_module._source_exception_branches(
+        source, branches=branches, active_branches=branches, deferred_paths=set()
+    )
+    age_conditions = [branch for branch in conditions if "soweit" in branch.text]
+    assert len(age_conditions) == 1
+    branch = age_conditions[0]
+    assert f"{age}.{separator}{noun} vollendet hat." in branch.text
+    assert "Bescheinigung fehlt" not in branch.text
+    assert source[branch.start : branch.end] == branch.text
+    clauses = completeness_module._source_clause_spans(source, branches=branches)
+    assert any("Bescheinigung fehlt" in text for _, _, text in clauses)
+
+
+def test_ordinary_numeric_sentence_end_remains_a_clause_boundary():
+    source = "Der Betrag ist 25. Wenn ein Antrag fehlt, entfällt er."
+    clauses = list(completeness_module._source_clause_spans(source, branches=()))
+    assert [text for _, _, text in clauses] == [
+        "Der Betrag ist 25.",
+        "Wenn ein Antrag fehlt, entfällt er.",
+    ]

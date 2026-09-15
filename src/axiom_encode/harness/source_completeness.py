@@ -2062,6 +2062,13 @@ _EU_REGULATION_NUMERIC_RECALL_CITATION = re.compile(
     r"(?:Nr\.\s*)?\d{1,5}/\d{2,5}(?![\w/]|[.,]\d))*",
     flags=re.IGNORECASE,
 )
+# Match a complete, court-identified bibliographic parenthesis only. A bare
+# slash-separated number or partial docket may still be actual arithmetic.
+_BFH_DECISION_NUMERIC_RECALL_CITATION = re.compile(
+    r"\(\s*BFH\s+vom\s+\d{1,2}\.\d{1,2}\.\d{4},\s*"
+    r"[IVX]+\s+[RB]\s+\d{1,5}/\d{2,4},\s*"
+    r"BStBl\s+(?:\d{4}\s+)?II\s+S\.\s*\d+\s*\)",
+)
 _GERMAN_GAZETTE_NUMERIC_RECALL_CITATION = re.compile(
     r"\(\s*(?:"
     r"ABl\.\s*[LC]\s+\d+\s+vom\s+\d{1,2}\.\d{1,2}\.\d{4},\s*"
@@ -4388,6 +4395,7 @@ def _has_substantive_arithmetic_expression(source_text: str) -> bool:
     for metadata_pattern in (
         _STATED_CONVERSION_DATE,
         _EU_REGULATION_NUMERIC_RECALL_CITATION,
+        _BFH_DECISION_NUMERIC_RECALL_CITATION,
     ):
         for metadata in metadata_pattern.finditer(source_text):
             if metadata_pattern is _EU_REGULATION_NUMERIC_RECALL_CITATION and (
@@ -12257,6 +12265,7 @@ def authoritative_numeric_recall_text(
     # Gazette parentheses must contain only the citation, never operative text.
     cleaned = _EU_REGULATION_NUMERIC_RECALL_CITATION.sub("", cleaned)
     cleaned = _GERMAN_GAZETTE_NUMERIC_RECALL_CITATION.sub("", cleaned)
+    cleaned = _BFH_DECISION_NUMERIC_RECALL_CITATION.sub("", cleaned)
     cleaned = _GERMAN_LEGAL_CITATION.sub("", cleaned)
     cleaned = _TITLE_SUFFIX_LEGAL_CITATION.sub("", cleaned)
     cleaned = _ENGLISH_LEGAL_CITATION.sub("", cleaned)
@@ -15915,6 +15924,11 @@ def _source_clause_spans(
         match
         for match in boundary.finditer(boundary_text)
         if not _source_clause_boundary_splits_state_code_citation(source_text, match)
+        and not (
+            match.group() == "."
+            and re.search(r"(?<!\w)\d+\.$", source_text[: match.end()])
+            and re.match(r"\s+Lebensjahr(?:es|e|en)?\b", source_text[match.end() :])
+        )
         and not any(
             start < match.end() < end for start, end in inline_operand_list_spans
         )
