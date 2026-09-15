@@ -13874,9 +13874,7 @@ def _inline_pipe_table_rate_cell_spans(
                 break
             if tail < len(line) and line[tail] != "|":
                 next_pipe = line.find("|", tail)
-                if next_pipe >= 0 and not re.search(
-                    r"[.!?()]", line[tail:next_pipe]
-                ):
+                if next_pipe >= 0 and not re.search(r"[.!?()]", line[tail:next_pipe]):
                     break
             rate_cells.extend(row_cells[column] for column in sorted(columns))
             previous_table_end = cursor
@@ -13911,8 +13909,7 @@ def _pipe_table_rate_cell_spans(
             spans, continuation_columns, inline_width = inline_cells
             rate_columns = set(continuation_columns)
             rate_cells.extend(
-                (line_offset + start, line_offset + end)
-                for start, end in spans
+                (line_offset + start, line_offset + end) for start, end in spans
             )
             line_offset += len(line_with_ending)
             continue
