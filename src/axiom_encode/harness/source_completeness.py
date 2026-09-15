@@ -15927,9 +15927,7 @@ def _source_clause_spans(
         and not (
             match.group() == "."
             and re.search(r"(?<!\w)\d+\.$", source_text[: match.end()])
-            and re.match(
-                r"\s+Lebensjahr(?:es|e|en)?\b", source_text[match.end() :]
-            )
+            and re.match(r"\s+Lebensjahr(?:es|e|en)?\b", source_text[match.end() :])
         )
         and not any(
             start < match.end() < end for start, end in inline_operand_list_spans

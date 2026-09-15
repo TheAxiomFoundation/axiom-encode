@@ -43872,7 +43872,7 @@ def test_german_age_ordinal_keeps_conditional_clause_and_source_offsets(
     branch = age_conditions[0]
     assert f"{age}.{separator}{noun} vollendet hat." in branch.text
     assert "Bescheinigung fehlt" not in branch.text
-    assert source[branch.start:branch.end] == branch.text
+    assert source[branch.start : branch.end] == branch.text
     clauses = completeness_module._source_clause_spans(source, branches=branches)
     assert any("Bescheinigung fehlt" in text for _, _, text in clauses)
 
@@ -43881,5 +43881,6 @@ def test_ordinary_numeric_sentence_end_remains_a_clause_boundary():
     source = "Der Betrag ist 25. Wenn ein Antrag fehlt, entfällt er."
     clauses = list(completeness_module._source_clause_spans(source, branches=()))
     assert [text for _, _, text in clauses] == [
-        "Der Betrag ist 25.", "Wenn ein Antrag fehlt, entfällt er."
+        "Der Betrag ist 25.",
+        "Wenn ein Antrag fehlt, entfällt er.",
     ]
