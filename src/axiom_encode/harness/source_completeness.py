@@ -247,6 +247,7 @@ class _ExceptionWitness:
     numeric_transition: tuple[float, float] | None
     relational_transitions: tuple[tuple[str, str, str], ...] = ()
     case_pair_identity: tuple[int, ...] = ()
+    calendar_attainment_age: int | None = None
 
 
 @dataclass(frozen=True)
@@ -4794,6 +4795,7 @@ def _analyze_rulespec_payload(
                         extract_numeric_occurrences=extract_numeric_occurrences,
                     )
                 ),
+                calendar_date_declarations=_calendar_date_declarations(payload),
                 declared_input_names={
                     str(item.get("name") or "").strip()
                     for item in payload.get("inputs", [])
@@ -15271,6 +15273,7 @@ def _companion_test_issues(
     formula_environment: dict[str, Any],
     source_bound_constant_occurrences: dict[str, tuple[NumericOccurrenceLike, ...]],
     declared_input_names: set[str],
+    calendar_date_declarations: Mapping[str, bool] | None = None,
 ) -> list[str]:
     issues: list[str] = []
     cases = [case for case in (test_cases or ()) if isinstance(case, dict)]
@@ -15504,6 +15507,7 @@ def _companion_test_issues(
             principal_rules,
             asserted_by_rule=asserted_by_rule,
             formula_environment=formula_environment,
+            calendar_date_declarations=calendar_date_declarations,
         )
         missing_exception_branches = _unwitnessed_exception_branches(
             paired_exception_branches,
@@ -24426,30 +24430,35 @@ def _exception_witnesses_for_branch(
         for witness in toggled_exception_selectors
         if witness.rule_name in affecting_rules
         and (
-            _numeric_exception_witness_matches_source(
-                branch,
-                witness,
-                extract_numeric_occurrences=extract_numeric_occurrences,
-            )
-            if witness.numeric_transition is not None
+            _calendar_age_witness_matches_source(condition_text, witness)
+            if witness.calendar_attainment_age is not None
             else (
-                (
-                    numeric_interval is None
-                    or not _selector_targets_numeric_condition(
+                _numeric_exception_witness_matches_source(
+                    branch,
+                    witness,
+                    extract_numeric_occurrences=extract_numeric_occurrences,
+                )
+                if witness.numeric_transition is not None
+                else (
+                    (
+                        numeric_interval is None
+                        or not _selector_targets_numeric_condition(
+                            condition_text,
+                            witness.selector_name,
+                            numeric_interval=numeric_interval,
+                        )
+                    )
+                    and witness.active_value
+                    == _source_exception_selector_active_value(
                         condition_text,
                         witness.selector_name,
-                        numeric_interval=numeric_interval,
                     )
-                )
-                and witness.active_value
-                == _source_exception_selector_active_value(
-                    condition_text,
-                    witness.selector_name,
                 )
             )
         )
         and (
-            _source_exception_selector_is_relevant(
+            witness.calendar_attainment_age is not None
+            or _source_exception_selector_is_relevant(
                 condition_text,
                 witness.selector_name,
                 supporting_texts=tuple(
@@ -25962,6 +25971,7 @@ def _toggled_formula_boolean_selectors(
     *,
     asserted_by_rule: dict[str, list[dict[str, Any]]],
     formula_environment: dict[str, Any],
+    calendar_date_declarations: Mapping[str, bool] | None = None,
 ) -> set[_ExceptionWitness]:
     toggled: set[_ExceptionWitness] = set()
     for rule_name, rule in principal_rules.items():
@@ -26035,7 +26045,280 @@ def _toggled_formula_boolean_selectors(
     )
     toggled.update(_composed_numeric_dependency_witnesses(toggled, numeric_witnesses))
     toggled.update(numeric_witnesses)
+    toggled.update(
+        _toggled_formula_calendar_age_selectors(
+            principal_rules,
+            asserted_by_rule=asserted_by_rule,
+            formula_environment=formula_environment,
+            calendar_date_declarations=calendar_date_declarations,
+        )
+    )
     return toggled
+
+
+def _calendar_age_witness_matches_source(text: str, witness: _ExceptionWitness) -> bool:
+    """Bind a typed calendar transition to the complete attained-age condition."""
+
+    match = re.fullmatch(
+        r"soweit das Kind das (\d{1,3})\. Lebensjahr vollendet hat\.?",
+        _collapse_text(text),
+        flags=re.IGNORECASE,
+    )
+    return bool(
+        match
+        and witness.active_value
+        and witness.numeric_transition is None
+        and witness.calendar_attainment_age == int(match.group(1))
+    )
+
+
+def _calendar_date_declarations(payload: Mapping[str, Any]) -> dict[str, bool]:
+    """Keep declaration provenance even when YAML already decoded a date value."""
+
+    declarations: dict[str, list[tuple[str, Any]]] = {}
+    for field in ("inputs", "rules"):
+        records = payload.get(field, [])
+        if not isinstance(records, list):
+            return {}
+        for record in records:
+            if isinstance(record, dict) and isinstance(record.get("name"), str):
+                declarations.setdefault(record["name"], []).append(
+                    (field, record.get("dtype"))
+                )
+    return {
+        name: records == [("inputs", "Date")] for name, records in declarations.items()
+    }
+
+
+def _calendar_attainment_basis(
+    rule: dict[str, Any],
+    case: dict[str, Any],
+    *,
+    birth_name: str,
+    formula_environment: dict[str, Any],
+) -> int | None:
+    """Recognize an explicit leap-corrected birthday calculation, not a label."""
+
+    if rule.get("dtype") != "Date" or not re.fullmatch(
+        r"(?:(?:subject|current)_)?(?:child|kind)_"
+        r"(?:(?:recorded|registered|observed)_)?"
+        r"(?:birth_date|date_of_birth|geburtsdatum)",
+        birth_name,
+    ):
+        return None
+    formula = _rule_formula_text_for_case(rule, case)
+    if formula is None:
+        return None
+    compact = re.sub(r"\s+", "", formula)
+    match = re.fullmatch(
+        r"ifdate_add_years\(date_add_years\("
+        + re.escape(birth_name)
+        + r",(?P<age>[A-Za-z_][A-Za-z0-9_]*|\d+)\),-(?P=age)\)!="
+        + re.escape(birth_name)
+        + r":date_add_days\(date_add_years\("
+        + re.escape(birth_name)
+        + r",(?P=age)\),1\)else:date_add_years\("
+        + re.escape(birth_name)
+        + r",(?P=age)\)",
+        compact,
+    )
+    if match is None:
+        return None
+    # Offsets come from literal syntax or encoded constants, never case inputs.
+    value = _evaluate_rulespec_formula(
+        match.group("age"),
+        environment=_formula_environment_for_case(formula_environment, case),
+    )
+    number = _rulespec_runtime_decimal(value)
+    if number is None or number != number.to_integral_value() or not 0 < number < 200:
+        return None
+    return int(number)
+
+
+def _toggled_formula_calendar_age_selectors(
+    principal_rules: dict[str, dict[str, Any]],
+    *,
+    asserted_by_rule: dict[str, list[dict[str, Any]]],
+    formula_environment: dict[str, Any],
+    calendar_date_declarations: Mapping[str, bool] | None = None,
+) -> set[_ExceptionWitness]:
+    """Trace a single Date input through an executed local birthday dependency."""
+
+    witnesses: set[_ExceptionWitness] = set()
+    for rule_name, rule in principal_rules.items():
+        cases = asserted_by_rule.get(rule_name, ())
+        for left_index, left_case in enumerate(cases):
+            for right_case in cases[left_index + 1 :]:
+                period = _case_runtime_period_start(left_case)
+                if (
+                    type(period) is not date
+                    or left_case.get("period") != right_case.get("period")
+                    or not _cases_differ_by_one_input(left_case, right_case)
+                    or not _cases_have_same_output_keys(left_case, right_case)
+                ):
+                    continue
+                left_inputs = left_case["input"]
+                right_inputs = right_case["input"]
+                changed_key = next(
+                    key
+                    for key in left_inputs
+                    if not _formula_runtime_values_equal(
+                        left_inputs[key], right_inputs[key]
+                    )
+                )
+                if (
+                    type(left_inputs[changed_key]) is not date
+                    or type(right_inputs[changed_key]) is not date
+                ):
+                    continue
+                birth_names = (
+                    _input_key_names(changed_key)
+                    & (calendar_date_declarations or {}).keys()
+                )
+                if len(birth_names) != 1 or not all(
+                    calendar_date_declarations[name] for name in birth_names
+                ):
+                    continue
+                formula = _rule_formula_text_for_case(rule, left_case)
+                if formula is None or formula != _rule_formula_text_for_case(
+                    rule, right_case
+                ):
+                    continue
+                formula_names = _FORMULA_IDENTIFIER.findall(formula)
+                dependency_names = set(formula_names) & principal_rules.keys() - {
+                    rule_name
+                }
+                # Reconstruct local values without importing an expected assertion
+                # into an unresolved formula, including through intermediate rules.
+                environments = [
+                    _case_dependency_environment(
+                        principal_rules,
+                        case,
+                        formula_environment=formula_environment,
+                        require_asserted_value=False,
+                    )
+                    for case in (left_case, right_case)
+                ]
+                runtimes = [
+                    _formula_case_runtime_environment(
+                        case,
+                        dependency_environment=dependencies,
+                        formula_environment=formula_environment,
+                    )
+                    for case, dependencies in zip((left_case, right_case), environments)
+                ]
+                if any(runtime is None for runtime in runtimes):
+                    continue
+                executions = [
+                    _case_formula_execution(
+                        rule,
+                        case,
+                        formula_environment=formula_environment,
+                        dependency_environment=dependencies,
+                    )
+                    for case, dependencies in zip((left_case, right_case), environments)
+                ]
+                if any(execution is None for execution in executions):
+                    continue
+                values = [
+                    _formula_execution_runtime_value(execution)
+                    for execution in executions
+                ]
+                if not all(
+                    _asserted_formula_runtime_values_equal(
+                        rule, value, _test_case_asserted_output_value(case, rule_name)
+                    )
+                    for case, value in zip((left_case, right_case), values)
+                ) or not _exception_effect_changes(*values):
+                    continue
+                for birthday_name in dependency_names:
+                    if formula_names.count(birthday_name) != 1:
+                        continue
+                    # Other directly read values must be fixed: a coincident date
+                    # relation in an unreachable branch cannot explain the effect.
+                    if any(
+                        not _formula_runtime_values_equal(
+                            runtimes[0].get(name), runtimes[1].get(name)
+                        )
+                        for name in set(formula_names) - {birthday_name}
+                    ):
+                        continue
+                    birthdays = [
+                        environment.get(birthday_name) for environment in environments
+                    ]
+                    if not all(type(birthday) is date for birthday in birthdays):
+                        continue
+                    if not all(
+                        (
+                            asserted := _test_case_asserted_output_value(
+                                case, birthday_name
+                            )
+                        )
+                        is _UNRESOLVED_CONDITION_VALUE
+                        or _asserted_formula_runtime_values_equal(
+                            principal_rules[birthday_name], birthday, asserted
+                        )
+                        for case, birthday in zip((left_case, right_case), birthdays)
+                    ):
+                        continue
+                    mature = [period >= birthday for birthday in birthdays]
+                    if mature[0] == mature[1]:
+                        continue
+                    for birth_name in birth_names:
+                        ages = [
+                            _calendar_attainment_basis(
+                                principal_rules[birthday_name],
+                                case,
+                                birth_name=birth_name,
+                                formula_environment=formula_environment,
+                            )
+                            for case in (left_case, right_case)
+                        ]
+                        if ages[0] is None or ages[0] != ages[1]:
+                            continue
+                        relations = [
+                            _formula_execution_relational_values(
+                                execution,
+                                environment=runtime,
+                                changed_names={birthday_name},
+                            )
+                            for execution, runtime in zip(executions, runtimes)
+                        ]
+                        valid_relations = {
+                            ("period_start", ">=", birthday_name): mature,
+                            (birthday_name, "<=", "period_start"): mature,
+                            ("period_start", "<", birthday_name): [
+                                not value for value in mature
+                            ],
+                            (birthday_name, ">", "period_start"): [
+                                not value for value in mature
+                            ],
+                        }
+                        if not any(
+                            [relation.get(descriptor) for relation in relations]
+                            == expected
+                            for descriptor, expected in valid_relations.items()
+                        ):
+                            continue
+                        older = 0 if mature[0] else 1
+                        ordinary, exception = values[1 - older], values[older]
+                        witnesses.add(
+                            _ExceptionWitness(
+                                rule_name,
+                                birth_name,
+                                True,
+                                _exception_effect_is_blocking(ordinary, exception),
+                                _boolean_value(ordinary) is not None
+                                and _boolean_value(exception) is not None,
+                                _exception_effect_is_zero(exception),
+                                None,
+                                case_pair_identity=_case_pair_identity(
+                                    left_case, right_case
+                                ),
+                                calendar_attainment_age=ages[0],
+                            )
+                        )
+    return witnesses
 
 
 def _composed_numeric_dependency_witnesses(
