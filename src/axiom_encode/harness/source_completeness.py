@@ -15391,6 +15391,21 @@ def _companion_test_issues(
             extract_numeric_occurrences=extract_numeric_occurrences,
         )
         if missing_exception_branches:
+            recognized_pair_feedback = ""
+            if toggled_exception_selectors:
+                recognized_pairs = {
+                    witness.case_pair_identity
+                    for witness in toggled_exception_selectors
+                }
+                recognized_pair_feedback = (
+                    f" The evaluator recognized {len(toggled_exception_selectors)} "
+                    "directional formula-toggle witnesses from "
+                    f"{len(recognized_pairs)} distinct case pairs, but these do not "
+                    "cover every listed source condition. Check affected rule/path, "
+                    "source-selector relevance, active orientation, required effect, "
+                    "and distinct-condition witness allocation before adding cases. "
+                    "Recognized test pairs alone do not establish source coverage."
+                )
             missing_conditions = "; ".join(
                 f"{_branch_citation(corpus_citation_path, branch)} "
                 f"[{_source_exception_effect_requirement(branch.text)}]: `"
@@ -15403,7 +15418,7 @@ def _companion_test_issues(
                 "that assert the affected principal output and toggle its "
                 "controlling formula selector. Each listed condition needs its "
                 "own same-period case pair differing in exactly that one input; "
-                f"missing: {missing_conditions}."
+                f"missing: {missing_conditions}.{recognized_pair_feedback}"
             )
         missing_unconditional_branches = _unmatched_evidence_obligations(
             {
@@ -24846,6 +24861,10 @@ def _source_exception_selector_is_relevant(
 
     normalized_name = _normalized_selector_name(name)
     collapsed = _collapse_text(text).lower()
+    if _source_age_relative_deviation_predicate(
+        collapsed, normalized_name
+    ) or _source_impairment_expectation_predicate(collapsed, normalized_name):
+        return True
     distinctive_tokens = _source_selector_distinctive_tokens(normalized_name)
     if len(distinctive_tokens) <= 2 and _source_selector_concept_matches(
         collapsed, normalized_name
@@ -24876,6 +24895,41 @@ def _source_exception_selector_is_relevant(
             for supporting_text in supporting_texts
         )
     return _source_selector_relevance_matches(collapsed, normalized_name)
+
+
+def _source_age_relative_deviation_predicate(
+    text: str,
+    normalized_name: str,
+) -> re.Match[str] | None:
+    """Match one bilingual comparison, preserving its entire condition scope."""
+
+    if not re.fullmatch(
+        r"body_(?:or|and)_health_condition_(?:does_)?(?:not_)?"
+        r"(?:deviates?|differs?)_from_age_typical_condition",
+        normalized_name,
+    ):
+        return None
+    return re.fullmatch(
+        r"(?:(?:wenn|falls|sofern)\s+)?der\s+körper-\s+und\s+"
+        r"gesundheitszustand\s+von\s+dem\s+für\s+das\s+lebensalter\s+"
+        r"typischen\s+zustand\s+(?P<negation>nicht\s+)?abweicht\.?",
+        _collapse_text(text).lower(),
+    )
+
+
+def _source_impairment_expectation_predicate(
+    text: str,
+    normalized_name: str,
+) -> re.Match[str] | None:
+    """Match the complete expected-impairment predicate, not its evidence."""
+
+    if not re.fullmatch(r"impairment_(?:is_)?(?:not_)?expected", normalized_name):
+        return None
+    return re.fullmatch(
+        r"(?:(?:wenn|falls|sofern)\s+)?eine\s+beeinträchtigung\s+"
+        r"nach\s+satz\s+1\s+(?P<negation>nicht\s+)?zu\s+erwarten\s+ist\.?",
+        _collapse_text(text).lower(),
+    )
 
 
 def _source_selector_distinctive_tokens(normalized_name: str) -> tuple[str, ...]:
@@ -25161,6 +25215,15 @@ def _source_exception_selector_active_value(text: str, name: str) -> bool:
 
     normalized_name = _normalized_selector_name(name)
     collapsed = _collapse_text(text).lower()
+    bilingual_predicate = _source_age_relative_deviation_predicate(
+        collapsed, normalized_name
+    ) or _source_impairment_expectation_predicate(collapsed, normalized_name)
+    if bilingual_predicate is not None:
+        source_is_positive = bilingual_predicate.group("negation") is None
+        selector_is_positive = not (
+            _selector_identifier_negation_count(normalized_name) % 2
+        )
+        return source_is_positive == selector_is_positive
     source_polarity = _source_selector_concept_polarity(
         collapsed,
         normalized_name,
