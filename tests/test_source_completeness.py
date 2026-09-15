@@ -43959,3 +43959,100 @@ def test_german_disjunction_does_not_create_a_conjoined_lower_bound():
     assert interval is not None
     assert interval.lower is None
     assert interval.upper is not None and interval.upper.value == 50
+
+
+@pytest.mark.parametrize(
+    "citation",
+    (
+        "de/guidance/bzst-dakg-2025/a-19-2/document-1",
+        "de/guidance/bzst-dakg-2025/numbered-sections/a-19-1",
+    ),
+)
+def test_guidance_deferral_root_matches_native_artifact_routing(citation):
+    from axiom_encode.harness.evals import (
+        _source_identifier_to_relative_rulespec_path,
+    )
+
+    relative = _source_identifier_to_relative_rulespec_path(citation)
+    jurisdiction, _, tail = citation.split("/", 2)
+    expected = f"{jurisdiction}:policies/{tail}"
+    assert completeness_module._rulespec_target_base(citation) == expected
+    assert relative.as_posix() == f"policies/{tail}.yaml"
+
+
+def _guidance_deferral_coverage(output, reason, blocked_by):
+    citation = "de/guidance/bzst-dakg-2025/a-19-2/document-1"
+    # Synthetic explicit-reference fixture isolates output routing from citation parsing.
+    source = (
+        "(1) The result is determined under § 32 EStG (de:statutes/estg/32#child_test)."
+    )
+    branch = completeness_module.SourceStructureBranch(
+        path=("1",),
+        kind="paragraph",
+        label="1",
+        text=source,
+        start=0,
+        end=len(source),
+    )
+    payload = {
+        "module": {
+            "deferred_outputs": [
+                {
+                    "output": output,
+                    "reason": reason,
+                    "blocked_by": blocked_by,
+                }
+            ]
+        }
+    }
+    return completeness_module._deferred_coverage(
+        payload,
+        corpus_citation_path=citation,
+        source_text=source,
+        branches=(branch,),
+    )
+
+
+def test_canonical_guidance_deferral_checks_source_bound_dependency():
+    covered, issues = _guidance_deferral_coverage(
+        "de:policies/bzst-dakg-2025/a-19-2/document-1/1#child_test",
+        "The executable dependency de:statutes/estg/32#child_test is missing.",
+        ["de:statutes/estg/32#child_test"],
+    )
+    assert covered == {("1",)}
+    assert not issues
+
+
+@pytest.mark.parametrize(
+    "blocker",
+    (
+        "de:statutes/estg/99#child_test",
+        "de:policies/bzst-dakg-2025/a-19-2/document-1#child_test",
+        "malformed",
+    ),
+)
+def test_guidance_deferral_does_not_accept_invalid_dependency(blocker):
+    covered, issues = _guidance_deferral_coverage(
+        "de:policies/bzst-dakg-2025/a-19-2/document-1/1#child_test",
+        f"The executable dependency {blocker} is missing.",
+        [blocker],
+    )
+    assert not covered
+    assert issues
+
+
+@pytest.mark.parametrize(
+    "target",
+    (
+        "de:policies/unrelated/document-1/1#child_test",
+        "uk:policies/bzst-dakg-2025/a-19-2/document-1/1#child_test",
+        "de:guidance/bzst-dakg-2025/a-19-2/document-1/1#child_test",
+    ),
+)
+def test_guidance_deferral_does_not_cover_wrong_source_or_legacy_root(target):
+    covered, _ = _guidance_deferral_coverage(
+        target,
+        "The executable dependency de:statutes/estg/32#child_test is missing.",
+        ["de:statutes/estg/32#child_test"],
+    )
+    assert not covered
