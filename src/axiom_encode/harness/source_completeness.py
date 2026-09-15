@@ -24487,6 +24487,19 @@ def _source_exception_condition_text(text: str) -> str:
     """Return the condition region without the ordinary claim subject."""
 
     clause = _strip_source_clause_marker(text)
+    medical_age_condition = re.fullmatch(
+        r"Aus der Bescheinigung bzw\. dem Gutachten muss Folgendes hervorgehen: "
+        r"[−–-] Vorliegen der Behinderung, "
+        r"[−–-] Beginn der Behinderung, "
+        r"(?P<condition>soweit das Kind das \d+\. Lebensjahr vollendet hat), und "
+        r"[−–-] Auswirkungen der Behinderung auf die Erwerbsfähigkeit des Kindes\.",
+        _collapse_text(clause),
+        flags=re.IGNORECASE,
+    )
+    if medical_age_condition is not None:
+        # Only the onset item is age-qualified.  The following complete list
+        # item remains an independent requirement of the original source.
+        return medical_age_condition.group("condition")
     notwithstanding_tail = _louisiana_notwithstanding_reference_tail(clause)
     if notwithstanding_tail is not None:
         return notwithstanding_tail
@@ -24991,6 +25004,8 @@ def _source_exception_selector_is_relevant(
         collapsed, normalized_name
     ) or _source_impairment_expectation_predicate(collapsed, normalized_name):
         return True
+    if _source_disability_payment_proof_predicate(collapsed, normalized_name):
+        return True
     distinctive_tokens = _source_selector_distinctive_tokens(normalized_name)
     if len(distinctive_tokens) <= 2 and _source_selector_concept_matches(
         collapsed, normalized_name
@@ -25054,6 +25069,25 @@ def _source_impairment_expectation_predicate(
     return re.fullmatch(
         r"(?:(?:wenn|falls|sofern)\s+)?eine\s+beeinträchtigung\s+"
         r"nach\s+satz\s+1\s+(?P<negation>nicht\s+)?zu\s+erwarten\s+ist\.?",
+        _collapse_text(text).lower(),
+    )
+
+
+def _source_disability_payment_proof_predicate(
+    text: str,
+    normalized_name: str,
+) -> re.Match[str] | None:
+    """Link the complete pension-evidence condition across its two languages."""
+
+    if not re.fullmatch(
+        r"pension_or_ongoing_payment_is_stated_as_due_because_of_disability",
+        normalized_name,
+    ):
+        return None
+    return re.fullmatch(
+        r"wenn dem kind wegen seiner behinderung nach den gesetzlichen "
+        r"vorschriften renten oder andere laufende bezüge zustehen, "
+        r"durch den rentenbescheid oder einen entsprechenden bescheid[,\.]?",
         _collapse_text(text).lower(),
     )
 
