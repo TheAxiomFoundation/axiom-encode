@@ -43897,6 +43897,9 @@ def test_dakg_sentence_list_thresholds_have_only_operative_item_owners():
     )
     fifty_owners = [branch.path for branch, value in obligations if value.value == 50]
     assert fifty_owners == [("1", "1"), ("1", "2")]
+    assert [
+        (branch.path, value.value) for branch, value in obligations if value.value == 20
+    ] == [(("1", "2"), 20.0)]
 
 
 @pytest.mark.parametrize("separate_sentence", [False, True])
@@ -43928,3 +43931,31 @@ def test_german_sentence_list_preserves_its_own_and_later_thresholds(separate_se
         )
         == separate_sentence
     )
+
+
+@pytest.mark.parametrize("connector", ["aber", "und"])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_german_conjoined_bounds_keep_both_endpoints(connector, reverse):
+    source = (
+        f"weniger als 50, {connector} mindestens 20"
+        if reverse
+        else f"mindestens 20, {connector} weniger als 50"
+    )
+    interval = completeness_module._formula_interval_from_text(
+        source, extract_numeric_occurrences=DE_NUMERIC_OCCURRENCE_EXTRACTOR
+    )
+    assert interval is not None
+    assert interval.lower is not None and interval.lower.value == 20
+    assert interval.lower_inclusive
+    assert interval.upper is not None and interval.upper.value == 50
+    assert not interval.upper_inclusive
+
+
+def test_german_disjunction_does_not_create_a_conjoined_lower_bound():
+    interval = completeness_module._formula_interval_from_text(
+        "weniger als 50 oder mindestens 20",
+        extract_numeric_occurrences=DE_NUMERIC_OCCURRENCE_EXTRACTOR,
+    )
+    assert interval is not None
+    assert interval.lower is None
+    assert interval.upper is not None and interval.upper.value == 50

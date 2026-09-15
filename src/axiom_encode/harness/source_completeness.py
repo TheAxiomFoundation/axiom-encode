@@ -22365,7 +22365,7 @@ def _formula_conjoined_bound(
     normalized_upper_gap = " ".join(upper_gap.replace(",", " , ").split())
     gap_match = re.fullmatch(
         r"(?:(?:dollars?|usd|euros?|eur) )?(?:, )?"
-        r"(?:and|but|und) (?P<body>.+)",
+        r"(?:and|but|und|aber) (?P<body>.+)",
         normalized_upper_gap,
         flags=re.IGNORECASE,
     )
