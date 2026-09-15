@@ -18,30 +18,37 @@ from scripts.extract_repair_candidate import (
 )
 
 
-def _archive(tmp_path: Path, *, candidate: bytes | None = None) -> tuple[Path, dict]:
+def _archive(
+    tmp_path: Path,
+    *,
+    candidate: bytes | None = None,
+    citation: str = "us/statute/42/1437c\u20131",
+    module: str = "statutes/42/1437c-1.yaml",
+    replace_rulespec_path: str | None = "us/statutes/42/1437c-1.yaml",
+) -> tuple[Path, dict]:
     candidate = candidate or b"format: rulespec/v1\nrules: []\n"
     tests = b"[]\n"
     repair = json.dumps(
         {
             "schema_version": "axiom-encode/repair-manifest/v1",
-            "citation": "us/statute/42/1437c\u20131",
+            "citation": citation,
             "runner": "openai-gpt-5.6-sol",
         }
     ).encode()
     payloads = {
-        "target/openai-gpt-5.6-sol/statutes/42/1437c-1.yaml": candidate,
-        "target/openai-gpt-5.6-sol/statutes/42/1437c-1.test.yaml": tests,
-        "target/openai-gpt-5.6-sol/statutes/42/1437c-1.repair.json": repair,
+        f"target/openai-gpt-5.6-sol/{module}": candidate,
+        f"target/openai-gpt-5.6-sol/{module.removesuffix('.yaml')}.test.yaml": tests,
+        f"target/openai-gpt-5.6-sol/{module.removesuffix('.yaml')}.repair.json": repair,
     }
     metadata = {
         "schema": "axiom-encode/failed-reencode-diagnostics/v1",
-        "citation": "us/statute/42/1437c\u20131",
+        "citation": citation,
         "country": "us",
         "encoder_commit": "a" * 40,
         "corpus_ref": "b" * 40,
         "rules_engine_ref": "c" * 40,
         "rulespec_ref": "d" * 40,
-        "replace_rulespec_path": "us/statutes/42/1437c-1.yaml",
+        "replace_rulespec_path": replace_rulespec_path,
         "workflow_run_id": "1234",
         "workflow_run_attempt": 1,
         "failed_steps": ["encode_apply"],
@@ -75,13 +82,14 @@ def _add_retained_candidate(
     *,
     candidate: bytes,
     tests: bytes = b"[]\n",
+    citation: str = "us/statute/42/1437c\u20131",
+    module: str = "statutes/42/1437c-1.yaml",
 ) -> Path:
-    module = "statutes/42/1437c-1.yaml"
     root = "target/final-rejected-candidate"
     issues = json.dumps(
         {
             "schema": "axiom-encode/failed-encode-candidate/v1",
-            "citation": "us/statute/42/1437c\u20131",
+            "citation": citation,
             "path": module,
             "issues": ["best candidate still needs one repair"],
             "rulespec_sha256": hashlib.sha256(candidate).hexdigest(),
@@ -869,6 +877,90 @@ def test_allows_explicit_rulespec_base_advance_for_later_workflow_proof(tmp_path
     )
 
     assert result["source_rulespec_ref"] == "d" * 40
+
+
+def test_extracts_new_source_repair_without_replace_path(tmp_path):
+    archive, metadata = _archive(
+        tmp_path,
+        citation="us/guidance/example/new-source",
+        module="policies/example/new-source.yaml",
+        replace_rulespec_path=None,
+    )
+    candidate = b"format: rulespec/v1\nrules: []\n"
+    replacement = _add_retained_candidate(
+        archive,
+        tmp_path / "new-source-repair.tar",
+        metadata,
+        candidate=candidate,
+        citation="us/guidance/example/new-source",
+        module="policies/example/new-source.yaml",
+    )
+
+    result = extract_candidate(
+        _args(
+            tmp_path,
+            replacement,
+            citation="us/guidance/example/new-source",
+            replace_rulespec_path="",
+        )
+    )
+
+    assert result["path"] == "policies/example/new-source.yaml"
+    assert (Path(result["root"]) / result["path"]).read_bytes() == candidate
+
+
+def test_extracts_new_source_repair_with_empty_cli_transaction_path(tmp_path):
+    archive, metadata = _archive(
+        tmp_path,
+        citation="us/guidance/example/new-source",
+        module="policies/example/new-source.yaml",
+        replace_rulespec_path=None,
+    )
+    replacement = _add_retained_candidate(
+        archive,
+        tmp_path / "new-source-cli-repair.tar",
+        metadata,
+        candidate=b"format: rulespec/v1\nrules: []\n",
+        citation="us/guidance/example/new-source",
+        module="policies/example/new-source.yaml",
+    )
+    args = _args(
+        tmp_path,
+        replacement,
+        citation="us/guidance/example/new-source",
+        replace_rulespec_path="",
+    )
+    args.transaction_rulespec_path = ""
+
+    result = extract_candidate(args)
+
+    assert result["path"] == "policies/example/new-source.yaml"
+
+
+@pytest.mark.parametrize(
+    "citation",
+    [
+        "us/guidance/example/new-source/",
+        "us//guidance/example/new-source",
+    ],
+)
+def test_rejects_noncanonical_new_source_citation(tmp_path, citation):
+    archive, _ = _archive(
+        tmp_path,
+        citation=citation,
+        module="policies/example/new-source.yaml",
+        replace_rulespec_path=None,
+    )
+
+    with pytest.raises(ValueError, match="exact canonical"):
+        extract_candidate(
+            _args(
+                tmp_path,
+                archive,
+                citation=citation,
+                replace_rulespec_path="",
+            )
+        )
 
 
 def test_rejects_malformed_source_rulespec_ref_during_base_advance(tmp_path):
