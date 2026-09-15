@@ -27814,8 +27814,24 @@ def _source_branch_direct_text(
     descendant_starts = [
         candidate.start
         for candidate in branches
-        if len(candidate.path) > len(branch.path)
-        and candidate.path[: len(branch.path)] == branch.path
+        if (
+            (
+                len(candidate.path) > len(branch.path)
+                and candidate.path[: len(branch.path)] == branch.path
+            )
+            or (
+                # German sentence labels and numbered items share paragraph
+                # paths, even when the sentence text contains the whole list.
+                branch.kind == "sentence"
+                and branch.path
+                and branch.path[-1].startswith("satz-")
+                and candidate.kind in {"number", "letter"}
+                and len(candidate.path) >= len(branch.path)
+                and candidate.path[: len(branch.path) - 1] == branch.path[:-1]
+                and branch.start < candidate.start
+                and candidate.end <= branch.end
+            )
+        )
         and branch.start <= candidate.start < branch.end
     ]
     if not descendant_starts:
