@@ -22390,9 +22390,9 @@ _TAXPAYER_TAX_UNIT_SOURCE_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 _PERSON_SCOPE_SOURCE_PATTERN = re.compile(
-    r"\b(?:no|any|each|every|all|a|an|the|that|such)\s+"
+    r"\b(?:no|any|each|every|all|a|an|the|that|such|certain)\s+"
     r"(?:(?:resident|nonresident|qualifying|qualified|eligible)\s+)?"
-    r"(?:individual|person|(?:household\s+|family\s+)?member|claimant|child|"
+    r"(?:individual|person|(?:household\s+|family\s+)?members?|claimant|child|"
     r"(?:sponsored\s+)?alien|qualified\s+alien|applicant|recipient|"
     r"participant|client|case\s+member)\b"
     r"[\s\S]{0,180}\b(?:eligible|ineligible|disqualif|excluded?|participat|"
@@ -22418,13 +22418,13 @@ _HEAD_OF_HOUSEHOLD_FILING_STATUS_PATTERN = re.compile(
     r"(?:\s+|\s*[-‐‑‒–—―−]\s*)household\b",
     flags=re.IGNORECASE,
 )
-_HOUSEHOLD_UNIT_SOURCE_TOKEN = r"\bhousehold\b(?!\s+member\b)"
+_HOUSEHOLD_UNIT_SOURCE_TOKEN = r"\bhousehold\b(?!\s+members?\b)"
 _UNIT_SCOPE_SOURCE_PATTERN = re.compile(
     r"(?:"
     + _HOUSEHOLD_UNIT_SOURCE_TOKEN
     + r"|\bsnap\s+unit|\bfood\s+assistance\s+unit|"
     r"\bassistance\s+unit|\btax\s+unit|\bfiling\s+unit|"
-    r"\bfamily\b(?!\s+member\b)|\bspm\s+unit\b)"
+    r"\bfamily\b(?!\s+members?\b)|\bspm\s+unit\b)"
     r"[\s\S]{0,180}\b"
     r"(?:eligible|eligibility|test|requirement|resources?|income|standard|"
     r"benefit|allotment)\b",
@@ -22440,7 +22440,7 @@ _UNIT_SOURCE_ENTITY_PATTERNS = (
         re.compile(r"\b(?:snap|food\s+assistance)\s+unit\b", flags=re.IGNORECASE),
     ),
     ("taxunit", re.compile(r"\b(?:tax|filing)\s+unit\b", flags=re.IGNORECASE)),
-    ("family", re.compile(r"\bfamily\b(?!\s+member\b)", flags=re.IGNORECASE)),
+    ("family", re.compile(r"\bfamily\b(?!\s+members?\b)", flags=re.IGNORECASE)),
     ("spmunit", re.compile(r"\bspm\s+unit\b", flags=re.IGNORECASE)),
 )
 _FEDERAL_TAX_HOUSEHOLD_INCOME_TAXUNIT_CONTEXT_PATTERN = re.compile(
@@ -22554,7 +22554,7 @@ _SHARED_STATUTORY_RATE_SECTION_PREFIX_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 _HOUSEHOLD_MEMBER_MIXED_SCOPE_PATTERN = re.compile(
-    r"\bhousehold\b(?!\s+member\b)[\s\S]{0,180}"
+    r"\bhousehold\b(?!\s+members?\b)[\s\S]{0,180}"
     r"\b(?:each|every|all|no)\s+(?:household\s+)?member\b"
     r"|"
     r"\b(?:individuals?|persons?|clients?|participants?|recipients?)\b"

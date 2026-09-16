@@ -6497,7 +6497,7 @@ def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.1999"')
+        .startswith('__version__ = "0.2.2000"')
     )
 
 
@@ -6729,13 +6729,13 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.1999"
+    assert encoder_package["version"] == "0.2.2000"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.1999"
+    assert project["project"]["version"] == "0.2.2000"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.1999"')
+        .startswith('__version__ = "0.2.2000"')
     )
 
 
@@ -6997,13 +6997,13 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.1999"
+    assert encoder_package["version"] == "0.2.2000"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.1999"
+    assert project["project"]["version"] == "0.2.2000"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.1999"')
+        .startswith('__version__ = "0.2.2000"')
     )
 
 
@@ -41521,6 +41521,75 @@ rules:
       - effective_from: '2026-01-01'
         formula: |-
           is_qualifying_family_member
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
+def test_source_scope_consistency_treats_eligible_family_members_as_people():
+    content = """format: rulespec/v1
+rules:
+  - name: trafficking_victim_lpr_path_applies
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              excerpt: Victims of Severe Trafficking and Certain Family Members Eligible immediately
+    versions:
+      - effective_from: '2025-07-04'
+        formula: person_is_trafficking_victim_or_covered_family_member
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
+def test_source_scope_consistency_rejects_family_unit_for_eligible_family_members():
+    content = """format: rulespec/v1
+rules:
+  - name: trafficking_victim_lpr_path_applies
+    kind: derived
+    entity: Family
+    dtype: Judgment
+    period: Month
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              excerpt: Victims of Severe Trafficking and Certain Family Members Eligible immediately
+    versions:
+      - effective_from: '2025-07-04'
+        formula: person_is_trafficking_victim_or_covered_family_member
+"""
+
+    issues = find_source_scope_consistency_issues(content)
+
+    assert len(issues) == 1
+    assert "declared on `Family`" in issues[0]
+    assert "person/member-scoped eligibility" in issues[0]
+
+
+def test_source_scope_consistency_does_not_treat_household_members_as_household():
+    content = """format: rulespec/v1
+module:
+  summary: Certain household members are eligible for SNAP.
+rules:
+  - name: household_member_snap_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: state manual
+    versions:
+      - effective_from: '2026-01-01'
+        formula: is_eligible_household_member
 """
 
     assert find_source_scope_consistency_issues(content) == []
