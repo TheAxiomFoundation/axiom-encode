@@ -16975,7 +16975,8 @@ def _generated_test_period_for_rule(
         }
     if period_kind == "day":
         return {
-            "period_kind": "day",
+            "period_kind": "custom",
+            "name": "day",
             "start": start.isoformat(),
             "end": start.isoformat(),
         }
@@ -43401,6 +43402,10 @@ def _day_period_test_cases_from_issues(issues: list[str]) -> dict[str, str]:
         match = _DAY_PERIOD_TEST_ISSUE_PATTERN.search(str(issue))
         if match is not None:
             case_periods[match.group("case").strip()] = match.group("period")
+            continue
+        match = _UNSUPPORTED_DAY_PERIOD_KIND_ISSUE_PATTERN.search(str(issue))
+        if match is not None:
+            case_periods[match.group("case").strip()] = ""
     return case_periods
 
 
@@ -43455,12 +43460,41 @@ def _rewrite_generated_day_period_test_shorthands(
                 if dates:
                     midmonth_effective_dates[rule_name] = dates
 
+    case_name_counts = Counter(
+        str(case.get("name") or f"case[{index}]")
+        for index, case in enumerate(test_cases)
+        if isinstance(case, dict)
+    )
     repaired: list[str] = []
     for index, case in enumerate(test_cases):
         if not isinstance(case, dict):
             continue
         case_name = str(case.get("name") or f"case[{index}]")
         current_period = case.get("period")
+        if isinstance(current_period, dict):
+            start = str(current_period.get("start") or "").strip()
+            end = str(current_period.get("end") or "").strip()
+            if (
+                case_periods.get(case_name) != ""
+                or case_name_counts[case_name] != 1
+                or set(current_period) != {"period_kind", "start", "end"}
+                or str(current_period.get("period_kind") or "").lower() != "day"
+                or start != end
+                or _DAY_PERIOD_VALUE_PATTERN.fullmatch(start) is None
+            ):
+                continue
+            try:
+                date.fromisoformat(start)
+            except ValueError:
+                continue
+            case["period"] = {
+                "period_kind": "custom",
+                "name": "day",
+                "start": start,
+                "end": end,
+            }
+            repaired.append(case_name)
+            continue
         if isinstance(current_period, date):
             current_day = current_period.isoformat()
         else:
@@ -43678,6 +43712,10 @@ _EMPTY_TEST_OUTPUT_ISSUE_PATTERN = re.compile(
 _DAY_PERIOD_TEST_ISSUE_PATTERN = re.compile(
     r"Test case `(?P<case>[^`]+)` period invalid: unsupported period shorthand: "
     r"['\"](?P<period>\d{4}-\d{2}-\d{2})['\"]"
+)
+_UNSUPPORTED_DAY_PERIOD_KIND_ISSUE_PATTERN = re.compile(
+    r"Test case `(?P<case>[^`]+)` period invalid: unsupported period_kind: "
+    r"['\"]day['\"]"
 )
 _DAY_PERIOD_VALUE_PATTERN = re.compile(r"\d{4}-\d{2}-\d{2}")
 _SHARED_STATUTORY_RATE_NAME_ISSUE_PATTERN = re.compile(
