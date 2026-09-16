@@ -131,6 +131,10 @@ REVIEWED_RULESPEC_REFS = frozenset(
             "297aec1691edf7b3a21781c8a825690db1e7c988",
         ),
         (
+            "us",
+            "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683",
+        ),
+        (
             "ca",
             "f60f7a84c30e38c7d4961d70647eb0457e7d76c2",
         ),
@@ -152,6 +156,11 @@ REVIEWED_RULESPEC_PR_BASES = frozenset(
             "us",
             "297aec1691edf7b3a21781c8a825690db1e7c988",
             "axiom/signed-backfill-us-35001504609-1",
+        ),
+        (
+            "us",
+            "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683",
+            "axiom/signed-backfill-us-35145159769-1",
         ),
     }
 )
