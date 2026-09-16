@@ -1,1 +1,1 @@
-Generate engine-supported custom one-day periods for automatic RuleSpec companion tests, so signed SNAP memo repairs can validate day-scoped outputs.
+Generate engine-supported custom one-day periods for automatic RuleSpec companion tests and normalize validator-flagged legacy day mappings during signed repair replay.

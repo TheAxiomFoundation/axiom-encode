@@ -39230,6 +39230,101 @@ rules:
         assert payload[2]["period"] == "2025-07"
         assert payload[3]["period"] == "2025-07"
 
+    def test_repair_only_reported_unsupported_day_period_mapping(self, tmp_path):
+        output_root = tmp_path / "out"
+        rules_file = (
+            output_root
+            / "openai-gpt-5.6-sol"
+            / "policies/usda/fns/snap-alien-status.yaml"
+        )
+        test_file = rules_file.with_name("snap-alien-status.test.yaml")
+        rules_file.parent.mkdir(parents=True)
+        rules_file.write_text("format: rulespec/v1\nrules: []\n")
+        test_file.write_text(
+            """- name: auto_output_quality_control
+  period:
+    period_kind: day
+    start: '2025-07-04'
+    end: '2025-07-04'
+  input: {}
+  output:
+    us:policies/usda/fns/snap-alien-status#quality_control_applies: holds
+- name: unreported_day_case
+  period:
+    period_kind: day
+    start: '2025-07-04'
+    end: '2025-07-04'
+  input: {}
+  output:
+    us:policies/usda/fns/snap-alien-status#quality_control_applies: holds
+- name: invalid_date_case
+  period:
+    period_kind: day
+    start: '2025-02-30'
+    end: '2025-02-30'
+  input: {}
+  output:
+    us:policies/usda/fns/snap-alien-status#quality_control_applies: holds
+- name: extra_key_case
+  period:
+    period_kind: day
+    name: unexpected
+    start: '2025-07-04'
+    end: '2025-07-04'
+  input: {}
+  output:
+    us:policies/usda/fns/snap-alien-status#quality_control_applies: holds
+- name: duplicate_case
+  period:
+    period_kind: day
+    start: '2025-07-04'
+    end: '2025-07-04'
+  input: {}
+  output:
+    us:policies/usda/fns/snap-alien-status#quality_control_applies: holds
+- name: duplicate_case
+  period:
+    period_kind: day
+    start: '2025-07-04'
+    end: '2025-07-04'
+  input: {}
+  output:
+    us:policies/usda/fns/snap-alien-status#quality_control_applies: holds
+"""
+        )
+        result = SimpleNamespace(
+            output_file=str(rules_file),
+            runner="openai-gpt-5.6-sol",
+        )
+
+        repaired = _try_repair_generated_day_period_test_shorthands_for_apply(
+            result,
+            output_root=output_root,
+            issues=[
+                "policies/usda/fns/snap-alien-status.yaml: ci: "
+                f"Test case `{name}` period invalid: unsupported period_kind: 'day'"
+                for name in (
+                    "auto_output_quality_control",
+                    "invalid_date_case",
+                    "extra_key_case",
+                    "duplicate_case",
+                )
+            ],
+        )
+
+        payload = yaml.safe_load(test_file.read_text())
+        assert repaired == ["auto_output_quality_control"]
+        assert payload[0]["period"] == {
+            "period_kind": "custom",
+            "name": "day",
+            "start": "2025-07-04",
+            "end": "2025-07-04",
+        }
+        assert payload[1]["period"]["period_kind"] == "day"
+        assert all(
+            case["period"]["period_kind"] == "day" for case in payload[1:]
+        )
+
     def test_unsafe_formula_output_repair_defers_tax_status_components(self, tmp_path):
         output_root = tmp_path / "out"
         rules_file = output_root / "openai-gpt-5.5" / "statutes/26/3402/l.yaml"
