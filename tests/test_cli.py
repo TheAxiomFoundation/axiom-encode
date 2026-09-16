@@ -39321,9 +39321,7 @@ rules:
             "end": "2025-07-04",
         }
         assert payload[1]["period"]["period_kind"] == "day"
-        assert all(
-            case["period"]["period_kind"] == "day" for case in payload[1:]
-        )
+        assert all(case["period"]["period_kind"] == "day" for case in payload[1:])
 
     def test_unsafe_formula_output_repair_defers_tax_status_components(self, tmp_path):
         output_root = tmp_path / "out"
