@@ -3930,6 +3930,7 @@ def test_validate_rulespec_base_rejects_stale_main_pr_base(
         ("us", "6535019ce780d9e78f10509f2fe7a2607fb2bdc4"),
         ("us", "c482ef6506c50b54236354926bbce1bcd6434132"),
         ("us", "297aec1691edf7b3a21781c8a825690db1e7c988"),
+        ("us", "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683"),
         ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
     ],
 )
@@ -3957,6 +3958,7 @@ def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
             ("us", "6535019ce780d9e78f10509f2fe7a2607fb2bdc4"),
             ("us", "c482ef6506c50b54236354926bbce1bcd6434132"),
             ("us", "297aec1691edf7b3a21781c8a825690db1e7c988"),
+            ("us", "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683"),
             ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
         }
     )
@@ -3976,6 +3978,11 @@ def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
                 "us",
                 "297aec1691edf7b3a21781c8a825690db1e7c988",
                 "axiom/signed-backfill-us-35001504609-1",
+            ),
+            (
+                "us",
+                "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683",
+                "axiom/signed-backfill-us-35145159769-1",
             ),
         }
     )
@@ -4031,13 +4038,26 @@ def test_validate_rulespec_base_accepts_exact_reviewed_protected_branch_tip(
     ) in git_calls
 
 
+@pytest.mark.parametrize(
+    ("reviewed_ref", "branch"),
+    [
+        (
+            "297aec1691edf7b3a21781c8a825690db1e7c988",
+            "axiom/signed-backfill-us-35001504609-1",
+        ),
+        (
+            "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683",
+            "axiom/signed-backfill-us-35145159769-1",
+        ),
+    ],
+)
 def test_validate_rulespec_base_accepts_reviewed_immigration_repair_branch_tip(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    reviewed_ref: str,
+    branch: str,
 ) -> None:
     repo = tmp_path / "rulespec-us"
-    reviewed_ref = "297aec1691edf7b3a21781c8a825690db1e7c988"
-    branch = "axiom/signed-backfill-us-35001504609-1"
 
     monkeypatch.setattr(
         "scripts.prepare_signed_backfill._git",
@@ -4071,6 +4091,14 @@ def test_validate_rulespec_base_accepts_reviewed_immigration_repair_branch_tip(
             "2a503a5c9a2227c363aceaece6c547429c3c0878",
             "axiom/signed-backfill-us-35001504609-1",
         ),
+        (
+            "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683",
+            "axiom/signed-backfill-us-35001504609-1",
+        ),
+        (
+            "297aec1691edf7b3a21781c8a825690db1e7c988",
+            "axiom/signed-backfill-us-35145159769-1",
+        ),
     ],
 )
 def test_validate_rulespec_base_rejects_reviewed_head_branch_cross_pairs(
@@ -4099,15 +4127,29 @@ def test_validate_rulespec_base_rejects_reviewed_head_branch_cross_pairs(
         )
 
 
+@pytest.mark.parametrize(
+    ("reviewed_ref", "branch"),
+    [
+        (
+            "2a503a5c9a2227c363aceaece6c547429c3c0878",
+            "hard-cut/canonical-layout-us",
+        ),
+        (
+            "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683",
+            "axiom/signed-backfill-us-35145159769-1",
+        ),
+    ],
+)
 def test_validate_rulespec_base_rejects_stale_reviewed_protected_branch_tip(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    reviewed_ref: str,
+    branch: str,
 ) -> None:
     repo = tmp_path / "rulespec-us"
-    reviewed_ref = "2a503a5c9a2227c363aceaece6c547429c3c0878"
 
     def fake_git(_repo: Path, *args: str) -> bytes:
-        if args[-1] == "refs/remotes/origin/hard-cut/canonical-layout-us":
+        if args[-1] == f"refs/remotes/origin/{branch}":
             return f"{'f' * 40}\n".encode()
         return f"{reviewed_ref}\n".encode()
 
@@ -4123,7 +4165,7 @@ def test_validate_rulespec_base_rejects_stale_reviewed_protected_branch_tip(
             "us",
             reviewed_ref,
             open_pr=True,
-            pr_base_branch="hard-cut/canonical-layout-us",
+            pr_base_branch=branch,
         )
 
 
