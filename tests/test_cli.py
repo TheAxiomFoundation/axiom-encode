@@ -92,6 +92,7 @@ from axiom_encode.cli import (
     _format_estimated_cost_usd,
     _generated_result_source_attestation,
     _generated_result_source_metadata,
+    _generated_test_period_for_rule,
     _git_changed_files,
     _grounded_formula_literal_for_scalar_expression,
     _has_zero_output_test,
@@ -50652,6 +50653,20 @@ rules: []
 
         census = json.loads(capsys.readouterr().out)
         assert census["captured_at"].endswith("Z")
+
+
+def test_generated_day_output_companion_uses_supported_custom_period():
+    assert _generated_test_period_for_rule(
+        {
+            "period": "Day",
+            "versions": [{"effective_from": "2025-07-04"}],
+        }
+    ) == {
+        "period_kind": "custom",
+        "name": "day",
+        "start": "2025-07-04",
+        "end": "2025-07-04",
+    }
 
 
 def test_initial_encode_outcome_records_multigate_validation_failures():

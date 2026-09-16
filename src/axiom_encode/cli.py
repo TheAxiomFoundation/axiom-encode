@@ -16975,7 +16975,8 @@ def _generated_test_period_for_rule(
         }
     if period_kind == "day":
         return {
-            "period_kind": "day",
+            "period_kind": "custom",
+            "name": "day",
             "start": start.isoformat(),
             "end": start.isoformat(),
         }
