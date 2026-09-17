@@ -24,7 +24,7 @@ encodebench_verifier/
   metrics.py                    AUC, paired rise, detection at a false-alarm ceiling
   localization.py               does a finding name the mutated rule or token?
   board.py                      fold + leaderboard; refuses non-comparable inputs
-  cli.py                        build-synthetic, build-real, show-suite, run, board
+  cli.py                        build-synthetic, build-real, filter-suite, show-suite, run, board
 fixtures/real_defects_example/  two-case stand-in for real_defects_v0 (loader tests)
 ```
 

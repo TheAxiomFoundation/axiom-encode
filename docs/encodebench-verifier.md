@@ -171,6 +171,25 @@ uv run python benchmarks/verifier/verifier.py build-synthetic \
 (identities and digests only, small enough to commit). Load the real corpus
 with `build-real --dir benchmarks/verifier/real_defects_v0 --out ...`.
 
+`encodings.db` holds generations for several jurisdictions. To restrict a
+built suite, derive a child suite by citation prefix; pairs are kept or
+dropped whole, and the child records its parent's digest, the filter and
+every dropped pair:
+
+```bash
+uv run python benchmarks/verifier/verifier.py filter-suite \
+  --suite _axiom-runs/encodebench-verifier/synthetic_us_v1 \
+  --drop-citation-prefix uk/ be/ \
+  --name "EncodeBench verifier synthetic US v1 (US citations only)" \
+  --out _axiom-runs/encodebench-verifier/synthetic_us_v1_us_only
+```
+
+A filter must never depend on judge outputs. Rows already judged against the
+parent fold into the child without re-judging: point `run` at the child suite
+and the same `--out` directory, and it re-assembles `results.json` from
+`cases.jsonl`, re-stamping row positions. Parent-suite and child-suite runs
+carry different digests and never fold together.
+
 Run each judge into its own output directory (resumable; rows land in
 `cases.jsonl` as they finish and error rows are retried on resume):
 
@@ -226,6 +245,17 @@ as the record of which cases it scored.
 
 - Synthetic defects are single edits and a lower bound on difficulty. A real
   encoder error is rarely one token.
+- Controls are gate-passing, not human-verified. "Known-good" means the
+  artifact passed compile, CI and apply (or the encoder track's gate
+  battery); it does not mean a lawyer confirmed it faithful. A judge that
+  flags a control may be right about a defect the gates cannot see, so the
+  native false-alarm rate is an upper bound on true false alarms. The paired
+  and pooled within-kind metrics are less exposed, because a pre-existing
+  defect sits in both members of a pair.
+- A binary kind channel has one operating point. When a judge names a kind
+  on more controls than the ceiling allows, its detection at the ceiling is
+  zero for that kind: the channel cannot be run at that false-alarm budget,
+  whatever its AUC.
 - A judge that has seen the artifact shape before may recognise the canonical
   formatting rather than read the law; both members of a pair share it, so
   paired metrics are unaffected, but native flag rates can be.
@@ -239,7 +269,12 @@ as the record of which cases it scored.
 - The referee's kind channel is binary (named the kind or not), so its
   per-kind AUC equals balanced accuracy and carries many ties; Jev's kind
   channel is continuous. The verdict-channel AUC is reported beside it for
-  a like-for-like comparison.
+  a like-for-like comparison. A binary channel also collapses at the
+  ceiling: once the referee names a kind on more than the ceiling's share of
+  clean controls, the admissible threshold is the top score itself and
+  nothing scores strictly above it, so `det@ceil` reads 0 percent. That is
+  the correct reading of the operating point, not a rendering fault; the
+  paired rise rate and AUC beside it carry the graded picture.
 - The `entity_wrong` guard keys on entity vocabulary (person, household,
   taxpayer, employer, ...) and is the weakest of the six; treat that column
   as indicative.

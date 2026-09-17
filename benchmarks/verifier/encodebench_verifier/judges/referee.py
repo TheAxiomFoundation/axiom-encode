@@ -72,6 +72,11 @@ def verdict_score_from(verdict: str, confidence: Optional[float]) -> float:
     The referee reports ``confidence`` as P(verdict is correct), so a flag at
     confidence c is P(defective) = c and a pass at confidence c is 1 - c. A
     missing confidence is treated as 1.0 (a bare verdict).
+
+    The verdict here is the *production* verdict: ``statutory_fidelity.run``
+    turns a raw ``pass`` that still lists findings into a flag, and the
+    confidence the model gave then refers to its raw answer. The runner scores
+    the production verdict because that is what the pipeline acts on.
     """
 
     conf = clamp_unit(confidence)
