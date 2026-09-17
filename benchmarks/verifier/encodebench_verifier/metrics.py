@@ -6,6 +6,7 @@ means the judge is more suspicious. Nothing here assumes a distribution.
 
 from __future__ import annotations
 
+import math
 from statistics import median
 from typing import Optional, Sequence
 
@@ -59,7 +60,8 @@ def detection_at_false_alarm_ceiling(
         return None
     if not 0.0 <= ceiling <= 1.0:
         raise ValueError("ceiling must be within [0, 1]")
-    allowed = int(ceiling * len(negatives))
+    # Float-safe floor: 0.29 * 100 is 28.999999999999996 in binary floating point.
+    allowed = math.floor(ceiling * len(negatives) + 1e-9)
     ordered = sorted(negatives, reverse=True)
     threshold = ordered[allowed] if allowed < len(ordered) else float("-inf")
     return round(sum(1 for pos in positives if pos > threshold) / len(positives), 6)

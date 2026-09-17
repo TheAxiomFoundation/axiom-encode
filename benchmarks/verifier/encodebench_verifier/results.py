@@ -15,10 +15,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from . import DEFECT_KINDS, RESULTS_SCHEMA, __version__
+from . import DEFECT_KINDS, RESULTS_SCHEMA, SUITE_SCHEMA, __version__
 from .canonical import canonical_json_sha256, utc_now_iso
 from .cases import CaseSuite, VerifierCase
-from .judges.base import JudgeResponse, JudgeRunner
+from .judges.base import JudgeResponse, JudgeRunner, error_response
 from .localization import localize
 from .pricing import Price, cost_usd
 
@@ -73,6 +73,22 @@ def _verify_row(row: dict[str, Any], context: str) -> None:
         raise ResultsError(f"{context} is missing its result_sha256 or does not match")
 
 
+def _restamp(row: dict[str, Any], index: int) -> dict[str, Any]:
+    """Bind a row to its position in the suite being assembled.
+
+    Rows judged against a parent suite fold into a derived (filtered) suite
+    without re-judging; only their position changes, so the digest is
+    recomputed over the re-indexed row.
+    """
+
+    if row.get("index") == index:
+        return row
+    restamped = {k: v for k, v in row.items() if k != RESULT_SHA256_FIELD}
+    restamped["index"] = index
+    restamped[RESULT_SHA256_FIELD] = canonical_json_sha256(restamped)
+    return restamped
+
+
 def load_completed_rows(out_dir: Path) -> dict[str, dict[str, Any]]:
     path = Path(out_dir) / CASES_FILE
     rows: dict[str, dict[str, Any]] = {}
@@ -112,10 +128,11 @@ def run_suite(
     completed = load_completed_rows(out_dir) if resume else {}
     if retry_errors:
         completed = {k: v for k, v in completed.items() if not v.get("error")}
+    wanted = {case.case_id for case in cases}
     todo = [
         (index, case)
         for index, case in enumerate(suite.cases, 1)
-        if case in cases and case.case_id not in completed
+        if case.case_id in wanted and case.case_id not in completed
     ]
     lock = threading.Lock()
     jsonl_path = out_dir / CASES_FILE
@@ -124,7 +141,15 @@ def run_suite(
 
     def work(item: tuple[int, VerifierCase]) -> dict[str, Any]:
         index, case = item
-        response = runner.judge(case)
+        try:
+            response = runner.judge(case)
+        except Exception as exc:  # noqa: BLE001 - fail closed, keep the run alive
+            # A runner is expected to return an error response itself; if it
+            # raises instead, the case is still recorded as an error (never a
+            # pass, never silently dropped) and is retried on resume.
+            response = error_response(
+                runner.model, f"runner_exception:{type(exc).__name__}", str(exc)[:500]
+            )
         row = result_row(
             index,
             case,
@@ -165,7 +190,12 @@ def assemble_results(
     limit: Optional[int] = None,
 ) -> dict[str, Any]:
     expected = suite.cases if limit is None else suite.cases[: max(0, limit)]
-    rows = [completed[c.case_id] for c in expected if c.case_id in completed]
+    position = {case.case_id: index for index, case in enumerate(suite.cases, 1)}
+    rows = [
+        _restamp(completed[c.case_id], position[c.case_id])
+        for c in expected
+        if c.case_id in completed
+    ]
     errors = sum(1 for row in rows if row.get("error"))
     return {
         "schema": RESULTS_SCHEMA,
@@ -226,6 +256,24 @@ def load_results(path: Path) -> dict[str, Any]:
     identities = payload["case_identities"]
     if not isinstance(identities, list):
         raise ResultsError(f"results {path} carry malformed case identities")
+    # The suite digest must be the digest of the identities this payload
+    # carries: a payload cannot keep a suite's sha256 while altering its cases.
+    recomputed = canonical_json_sha256(
+        {
+            "schema": SUITE_SCHEMA,
+            "name": suite.get("name"),
+            "source_kind": suite.get("source_kind"),
+            "corpus_release": suite.get("corpus_release"),
+            "mutator_version": suite.get("mutator_version"),
+            "provision_chars": suite.get("provision_chars"),
+            "case_identities": identities,
+        }
+    )
+    if recomputed != suite["sha256"]:
+        raise ResultsError(
+            f"results {path} carry a suite sha256 that does not match their own "
+            "suite identity and case identities"
+        )
     by_case = {str(item.get("case_id")): item for item in identities}
     seen: set[str] = set()
     for position, row in enumerate(rows, 1):

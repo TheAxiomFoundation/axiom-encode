@@ -1116,3 +1116,198 @@ def test_localization_is_blank_for_probability_only_judges(tmp_path):
         price=None,
     )
     assert errored["localized"] is None
+
+
+def test_filtered_suite_records_parent_and_folds_existing_rows_without_rejudging(
+    tmp_path,
+):
+    parent = _suite_for_board()
+    replay = _replay_file(tmp_path, parent, "f")
+
+    class Counting(ReplayRunner):
+        calls = 0
+
+        def judge(self, case):
+            Counting.calls += 1
+            return super().judge(case)
+
+    runner = Counting(replay, name="f")
+    run_suite(parent, runner, tmp_path / "f", price=None)
+    judged = Counting.calls
+    drop_citation = parent.cases[0].citation
+    child = parent.filtered(
+        name="child",
+        keep_pair=lambda case: case.citation != drop_citation,
+        description={"drop_citation": drop_citation},
+    )
+    assert child.sha256 != parent.sha256
+    derived = child.source_identity["derived_from"]
+    assert derived["parent_suite_sha256"] == parent.sha256
+    assert derived["dropped_pairs"] == [parent.cases[0].pair_id]
+    assert len(child.cases) == len(parent.cases) - 2
+    assert all(c.citation != drop_citation for c in child.cases)
+    # Re-assembling against the child re-judges nothing and re-stamps positions.
+    payload = run_suite(child, runner, tmp_path / "f", price=None)
+    assert Counting.calls == judged
+    assert payload["suite"]["sha256"] == child.sha256
+    assert payload["coverage"]["complete"] is True
+    assert [row["index"] for row in payload["results"]] == list(
+        range(1, len(child.cases) + 1)
+    )
+    loaded = load_results(tmp_path / "f")
+    assert len(loaded["results"]) == len(child.cases)
+    # Parent-suite and child-suite runs never fold together.
+    other = ReplayRunner(_replay_file(tmp_path, parent, "g"), name="g")
+    run_suite(parent, other, tmp_path / "g", price=None)
+    with pytest.raises(board_module.VerifierBoardError, match="not comparable"):
+        board_module.fold_verifier_board([tmp_path / "f", tmp_path / "g"])
+
+
+def test_cli_filter_suite_by_citation_prefix(tmp_path):
+    suite = _suite_for_board()
+    suite.write(tmp_path / "suite")
+    assert (
+        verifier_cli.main(
+            [
+                "filter-suite",
+                "--suite",
+                str(tmp_path / "suite"),
+                "--name",
+                "x",
+                "--out",
+                str(tmp_path / "o"),
+            ]
+        )
+        == 2
+    )
+    assert (
+        verifier_cli.main(
+            [
+                "filter-suite",
+                "--suite",
+                str(tmp_path / "suite"),
+                "--keep-citation-prefix",
+                "us-de/",
+                "--drop-citation-prefix",
+                suite.cases[0].citation,
+                "--name",
+                "us only",
+                "--out",
+                str(tmp_path / "child"),
+            ]
+        )
+        == 0
+    )
+    child = CaseSuite.load(tmp_path / "child")
+    assert child.name == "us only"
+    assert len(child.cases) == len(suite.cases) - 2
+
+
+def test_runner_exception_is_recorded_as_error_row_not_a_crash(tmp_path):
+    suite = _suite_for_board()
+
+    class Exploding(ReplayRunner):
+        def judge(self, case):
+            if case.case_id == suite.cases[0].case_id:
+                raise RuntimeError("sdk blew up")
+            return super().judge(case)
+
+    runner = Exploding(_replay_file(tmp_path, suite, "x"), name="x")
+    payload = run_suite(suite, runner, tmp_path / "x", price=None)
+    assert payload["coverage"]["errors"] == 1
+    assert payload["coverage"]["complete"] is False
+    row = payload["results"][0]
+    assert row["verdict"] == "error"
+    assert row["error"]["type"] == "runner_exception:RuntimeError"
+    assert row["verdict_score"] is None and row["localized"] is None
+
+
+def test_results_loader_refuses_case_identities_that_do_not_match_the_suite_digest(
+    tmp_path,
+):
+    suite = _suite_for_board()
+    runner = ReplayRunner(_replay_file(tmp_path, suite, "d"), name="d")
+    run_suite(suite, runner, tmp_path / "d", price=None)
+    path = tmp_path / "d" / "results.json"
+    payload = json.loads(path.read_text())
+    payload["case_identities"][0]["artifact_sha256"] = "0" * 64
+    path.write_text(json.dumps(payload))
+    with pytest.raises(ResultsError, match="suite sha256"):
+        load_results(path)
+
+
+def test_detection_at_ceiling_floor_is_float_safe():
+    negatives = [i / 100 for i in range(100)]
+    positives = [0.705, 0.715]
+    # 0.29 * 100 must admit 29 controls (threshold 0.70), not 28 (threshold 0.71).
+    assert detection_at_false_alarm_ceiling(positives, negatives, 0.29) == 1.0
+    assert detection_at_false_alarm_ceiling(positives, negatives, 0.28) == 0.5
+
+
+def test_eval_suite_source_reads_gate_pass_artifacts_through_the_board_loader(tmp_path):
+    import hashlib
+
+    from encodebench_verifier.sources import eval_suite as eval_suite_source
+
+    from tests import test_eval_board as board_fixtures
+
+    cases = board_fixtures.CASE_IDENTITIES
+    rows = []
+    for case in cases[:2]:
+        row = board_fixtures._result("terra", case)
+        artifact = tmp_path / "out" / "terra" / f"{case['index']}.yaml"
+        artifact.parent.mkdir(parents=True, exist_ok=True)
+        artifact.write_text(ARTIFACT)
+        row["output_file"] = str(artifact)
+        row["generated_output_sha256"] = hashlib.sha256(
+            artifact.read_bytes()
+        ).hexdigest()
+        workspace = (
+            tmp_path
+            / "out"
+            / "_eval_workspaces"
+            / "terra"
+            / eval_suite_source._slugify(case["corpus_citation_path"])
+            / "workspace"
+        )
+        workspace.mkdir(parents=True)
+        (workspace / "source.txt").write_text(PROVISION)
+        rows.append(row)
+    # A gate-failing row must be ignored even though its artifact is missing.
+    failing = board_fixtures._result(
+        "terra", cases[2], metrics=board_fixtures._metrics(ci_pass=False)
+    )
+    rows.append(failing)
+    payload = board_fixtures._payload([("terra", "codex", "gpt-5.6-terra")], rows)
+    (tmp_path / "out" / "results.json").write_text(json.dumps(payload))
+
+    artifacts, identity = eval_suite_source.load_known_good([tmp_path / "out"])
+    assert [a.citation for a in artifacts] == [
+        c["corpus_citation_path"] for c in cases[:2]
+    ]
+    assert artifacts[0].provision_text == PROVISION
+    assert artifacts[0].artifact_text == ARTIFACT
+    assert artifacts[0].origin["generator_model"] == "gpt-5.6-terra"
+    assert identity["corpus_releases"] == ["uk-rulespec-2026-07-14"]
+    assert identity["suite_names"] == ["EncodeBench UK v1"]
+
+    suite, report = build_synthetic_suite(
+        artifacts,
+        name="from eval suite",
+        source_kind="eval_suite",
+        source_identity=identity,
+        provision_chars=24_000,
+        truncate=truncate_provision,
+        per_kind=1,
+        seed=1,
+        corpus_release=identity["corpus_releases"][0],
+    )
+    assert suite.corpus_release == "uk-rulespec-2026-07-14"
+    assert suite.summary()["pair_count"] == 2
+
+    # A tampered artifact is refused rather than mutated.
+    (tmp_path / "out" / "terra" / "1.yaml").write_text(ARTIFACT + "# edited\n")
+    with pytest.raises(
+        eval_suite_source.EvalSuiteSourceError, match="generated_output_sha256"
+    ):
+        eval_suite_source.load_known_good([tmp_path / "out"])

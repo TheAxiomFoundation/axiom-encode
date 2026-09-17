@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from . import (
     DEFECT_KINDS,
@@ -208,6 +208,51 @@ class CaseSuite:
             "pair_count": sum(1 for case in self.cases if case.is_defective),
             "defective_by_kind": kinds,
         }
+
+    # -- derivation ---------------------------------------------------------
+
+    def filtered(
+        self,
+        *,
+        name: str,
+        keep_pair: "Callable[[VerifierCase], bool]",
+        description: dict[str, Any],
+    ) -> "CaseSuite":
+        """A child suite keeping only the pairs whose control satisfies ``keep_pair``.
+
+        Pairs are kept or dropped whole. The child records its parent's
+        digest, the filter and every dropped pair, so a board over the child
+        can be traced back to the suite that was actually judged. The filter
+        must not depend on judge outputs.
+        """
+
+        decisions: dict[str, bool] = {}
+        for case in self.cases:
+            if case.variant == VARIANT_CONTROL:
+                decisions[case.pair_id] = bool(keep_pair(case))
+        kept = [case for case in self.cases if decisions.get(case.pair_id, False)]
+        dropped = sorted(pair for pair, keep in decisions.items() if not keep)
+        identity = dict(self.source_identity)
+        identity["derived_from"] = {
+            "parent_suite_name": self.name,
+            "parent_suite_sha256": self.sha256,
+            "filter": description,
+            "dropped_pairs": dropped,
+        }
+        return CaseSuite(
+            name=name,
+            source_kind=self.source_kind,
+            source_identity=identity,
+            cases=kept,
+            provision_chars=self.provision_chars,
+            corpus_release=self.corpus_release,
+            mutator=self.mutator,
+            notes=list(self.notes)
+            + [
+                f"Derived from suite {self.sha256[:12]} by filter {description}; "
+                f"{len(dropped)} pair(s) dropped."
+            ],
+        )
 
     # -- serialisation --------------------------------------------------------
 

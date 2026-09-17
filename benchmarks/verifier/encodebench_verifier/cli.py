@@ -91,6 +91,38 @@ def cmd_build_real(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_filter_suite(args: argparse.Namespace) -> int:
+    suite = CaseSuite.load(Path(args.suite))
+    keep = tuple(args.keep_citation_prefix or ())
+    drop = tuple(args.drop_citation_prefix or ())
+    if not keep and not drop:
+        _eprint(
+            "filter-suite needs --keep-citation-prefix and/or --drop-citation-prefix"
+        )
+        return 2
+
+    def keep_pair(case) -> bool:
+        citation = case.citation
+        if keep and not citation.startswith(keep):
+            return False
+        return not (drop and citation.startswith(drop))
+
+    child = suite.filtered(
+        name=args.name,
+        keep_pair=keep_pair,
+        description={
+            "keep_citation_prefix": list(keep),
+            "drop_citation_prefix": list(drop),
+        },
+    )
+    suite_path, manifest_path = child.write(Path(args.out))
+    _eprint(json.dumps(child.summary(), indent=1))
+    dropped = child.source_identity["derived_from"]["dropped_pairs"]
+    _eprint(f"dropped {len(dropped)} pair(s): {dropped}")
+    _eprint(f"wrote {suite_path} and {manifest_path}")
+    return 0
+
+
 def cmd_show_suite(args: argparse.Namespace) -> int:
     suite = CaseSuite.load(Path(args.suite))
     print(json.dumps(suite.summary(), indent=1))
@@ -225,6 +257,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--name", default=None)
     p.add_argument("--out", required=True)
     p.set_defaults(func=cmd_build_real)
+
+    p = sub.add_parser(
+        "filter-suite",
+        help="derive a child suite by citation prefix (records parent digest)",
+    )
+    p.add_argument("--suite", required=True)
+    p.add_argument("--keep-citation-prefix", nargs="*", default=None)
+    p.add_argument("--drop-citation-prefix", nargs="*", default=None)
+    p.add_argument("--name", required=True)
+    p.add_argument("--out", required=True)
+    p.set_defaults(func=cmd_filter_suite)
 
     p = sub.add_parser("show-suite", help="summarise a suite")
     p.add_argument("suite")
