@@ -2354,9 +2354,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert 'echo "tests_only=$repair_tests_only" >> "$GITHUB_OUTPUT"' in (
         repair_command
     )
-    assert 'if [ "$REPAIR_RUN_ID" = "35160240952" ]; then' in (
-        repair_command
-    )
+    assert 'if [ "$REPAIR_RUN_ID" = "35160240952" ]; then' in (repair_command)
     assert "79ffd74fe3d3c83665335ec64feb7458d9cc877a" in repair_command
     assert 'git -C "$RULESPEC_CHECKOUT" diff --quiet HEAD' in repair_command
     assert 'test ! -L "$RULESPEC_CHECKOUT/$candidate_tests_path"' in repair_command
