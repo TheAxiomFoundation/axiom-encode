@@ -12715,6 +12715,97 @@ class TestGeneratedBundleCleaning:
         assert "required-witness" in output_file.with_suffix(".test.yaml").read_text()
         assert materialized == {output_file, output_file.with_suffix(".test.yaml")}
 
+    def test_materialize_tests_only_repair_appends_exact_contract_fragment(
+        self, tmp_path
+    ):
+        output_file = tmp_path / "regulation/7/273/4.yaml"
+        rulespec = "format: rulespec/v1\nrules: []\n"
+        original_tests = (
+            "- name: existing\n"
+            "  period: 2025-06\n"
+            "  input: {}\n"
+            "  output:\n    result: holds\n"
+        )
+        candidate = ValidationRetryCandidate(rulespec, original_tests)
+        contracts = (
+            {
+                "name": "before",
+                "period": "2025-07-03",
+                "input": {"refugee": True},
+                "required_output": {"eligible": "holds"},
+            },
+            {
+                "name": "after",
+                "period": "2025-07-04",
+                "input": {"refugee": True},
+                "required_output": {"eligible": "not_holds"},
+            },
+        )
+        response = (
+            "=== FILE: 4.test.yaml ===\n"
+            "- name: before\n"
+            "  period: '2025-07-03'\n"
+            "  input: &refugee\n    refugee: true\n"
+            "  output:\n    eligible: holds\n"
+            "- name: after\n"
+            "  period: '2025-07-04'\n"
+            "  input: *refugee\n"
+            "  output:\n    eligible: not_holds\n"
+        )
+
+        assert _materialize_eval_artifact(
+            response,
+            output_file,
+            artifact_root=tmp_path,
+            repair_candidate=candidate,
+            required_test_case_contracts=contracts,
+        )
+        assert output_file.read_text() == rulespec
+        combined = output_file.with_suffix(".test.yaml").read_text()
+        assert combined.startswith(original_tests)
+        assert [case["name"] for case in yaml.safe_load(combined)] == [
+            "existing",
+            "before",
+            "after",
+        ]
+
+    @pytest.mark.parametrize(
+        "fragment",
+        [
+            "- name: unsigned\n  period: 2025-07\n  input: {}\n  output: {}\n",
+            "- name: required\n  period: 2025-07\n  input: {}\n"
+            "  output:\n    result: not_holds\n",
+            "- name: existing\n  period: 2025-06\n  input: {}\n"
+            "  output:\n    result: not_holds\n",
+            "- name: required\n  period: 2025-07\n  input: {}\n"
+            "  output:\n    result: holds\n    extra: holds\n",
+        ],
+    )
+    def test_materialize_tests_only_repair_rejects_bad_fragment(
+        self, tmp_path, fragment
+    ):
+        output_file = tmp_path / "regulation/7/273/4.yaml"
+        candidate = ValidationRetryCandidate(
+            "format: rulespec/v1\nrules: []\n",
+            "- name: existing\n  period: 2025-06\n  input: {}\n"
+            "  output:\n    result: holds\n",
+        )
+        contract = {
+            "name": "required",
+            "period": "2025-07",
+            "input": {},
+            "required_output": {"result": "holds"},
+        }
+
+        assert not _materialize_eval_artifact(
+            "=== FILE: 4.test.yaml ===\n" + fragment,
+            output_file,
+            artifact_root=tmp_path,
+            repair_candidate=candidate,
+            required_test_case_contracts=(contract,),
+        )
+        assert not output_file.exists()
+
     def test_materialize_tests_only_repair_preserves_cases_wrapper(self, tmp_path):
         output_file = tmp_path / "regulation/7/273/4.yaml"
         rulespec = "format: rulespec/v1\nrules: []\n"

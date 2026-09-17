@@ -17777,6 +17777,59 @@ def _preserves_companion_test_cases(
     return True
 
 
+def _append_contract_test_fragment(
+    original_content: str,
+    fragment_content: str,
+    required_test_case_contracts: Sequence[Mapping[str, object]],
+) -> str | None:
+    """Append a model's exact contracted new cases to preserved list-style tests."""
+
+    try:
+        original_cases = yaml.safe_load(original_content)
+        fragment_cases = yaml.safe_load(fragment_content)
+    except (yaml.YAMLError, RecursionError):
+        return None
+    if not isinstance(original_cases, list) or not isinstance(fragment_cases, list):
+        return None
+    if not fragment_cases or any(
+        not isinstance(case, dict) or not isinstance(case.get("name"), str)
+        for case in (*original_cases, *fragment_cases)
+    ):
+        return None
+    original_names = {case["name"] for case in original_cases}
+    fragment_names = {case["name"] for case in fragment_cases}
+    contracts_by_name = {
+        contract.get("name"): contract for contract in required_test_case_contracts
+    }
+    if (
+        not contracts_by_name
+        or None in contracts_by_name
+        or len(contracts_by_name) != len(required_test_case_contracts)
+        or len(original_names) != len(original_cases)
+        or len(fragment_names) != len(fragment_cases)
+        or fragment_names != set(contracts_by_name) - original_names
+    ):
+        return None
+    for case in fragment_cases:
+        contract = contracts_by_name[case["name"]]
+        output = case.get("output")
+        required_output = contract.get("required_output")
+        if (
+            not isinstance(output, dict)
+            or not isinstance(required_output, dict)
+            or set(output) != set(required_output)
+        ):
+            return None
+    appended = original_content.rstrip() + "\n" + fragment_content.lstrip()
+    return (
+        appended
+        if _preserves_companion_test_cases(
+            original_content, appended, required_test_case_contracts
+        )
+        else None
+    )
+
+
 def _materialize_tests_only_repair_artifact(
     llm_response: str,
     *,
@@ -17808,10 +17861,18 @@ def _materialize_tests_only_repair_artifact(
         bundled_test = candidate_files.get(expected_test_path.name)
         if bundled_test is not None:
             test_content = bundled_test
-    if test_content is None or not _preserves_companion_test_cases(
+    if test_content is None:
+        return False
+    if not _preserves_companion_test_cases(
         repair_candidate.tests, test_content, required_test_case_contracts
     ):
-        return False
+        test_content = _append_contract_test_fragment(
+            repair_candidate.tests,
+            test_content,
+            required_test_case_contracts,
+        )
+        if test_content is None:
+            return False
     if hashlib.sha256(repair_candidate.rulespec.encode("utf-8")).hexdigest() != (
         repair_candidate.rulespec_sha256
     ):

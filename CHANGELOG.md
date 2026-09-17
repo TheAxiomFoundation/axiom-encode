@@ -2,6 +2,11 @@
 
 All notable changes to Axiom Encode will be documented here.
 
+- Accept an additive companion-test fragment during protected tests-only repair
+  only when every new case exactly matches the required case contract. The
+  encoder appends it to retained tests, preserves all existing cases, and keeps
+  the signed RuleSpec body byte-identical.
+
 - Permit a tests-only signed revision of the exact reviewed SNAP OBBB memo
   RuleSpec head. The protected workflow binds the immutable source SHA and
   target path, rejects dirty or untracked candidate files, and keeps the
