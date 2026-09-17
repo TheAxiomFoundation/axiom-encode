@@ -317,9 +317,30 @@ def run(
     records the responding model's family.
     """
 
-    client = client or SystemOneClient()
     policy = policy or ScreenPolicy.from_env()
     subject = citation or rule_path
+    if client is None:
+        try:
+            client = SystemOneClient()
+        except ValueError:
+            # A malformed numeric setting must not raise out of a judge stage.
+            # The message is fixed text: it never echoes an environment value.
+            event = error_event(
+                JudgeStage.STATUTORY_FIDELITY_SCREEN,
+                "invalid screen client configuration; check "
+                "AXIOM_JUDGE_SCREEN_TIMEOUT_SECONDS, AXIOM_JUDGE_SCREEN_MAX_RETRIES "
+                "and AXIOM_JUDGE_PROVISION_CHARS",
+                error_type="invalid_configuration",
+                run_id=run_id,
+                subject_ref=subject,
+            )
+            event.extra["screen"] = {
+                **policy.to_dict(),
+                "questions_version": QUESTIONS_VERSION,
+                "latency_ms": 0,
+            }
+            event.extra["screen"]["cascade"] = cascade_decision(event, policy).to_dict()
+            return event
     state = build_state(
         truncate_provision(provision_text, client.provision_chars),
         generated_rule,

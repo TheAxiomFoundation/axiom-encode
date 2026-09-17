@@ -185,6 +185,13 @@ class SystemOneClient:
             else _env_int("AXIOM_JUDGE_SCREEN_MAX_RETRIES", DEFAULT_MAX_RETRIES)
         )
 
+        if self.timeout <= 0:
+            raise ValueError("screen timeout must be positive")
+        if self.max_retries < 0:
+            raise ValueError("screen max_retries must not be negative")
+        if self.provision_chars <= 0:
+            raise ValueError("screen provision window must be positive")
+
     def __repr__(self) -> str:  # never echo the key
         return (
             f"SystemOneClient(model={self.model!r}, "

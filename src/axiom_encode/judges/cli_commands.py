@@ -359,6 +359,11 @@ def cmd_judge_fidelity(args: argparse.Namespace) -> int:
 
     screen_event = None
     decision = None
+    if getattr(args, "screen_mode", None) and not getattr(args, "screen", False):
+        # Silently ignoring the mode would let an operator believe a cascade
+        # was in force while the screen never ran.
+        print("--screen-mode requires --screen", file=sys.stderr)
+        return 2
     if getattr(args, "screen", False):
         outcome = _run_fidelity_screen(args, source, generated_rule)
         if outcome is None:
@@ -686,7 +691,11 @@ def _emit_event(event, as_json: bool, args: argparse.Namespace | None = None) ->
         f"escalated={event.escalated}"
     )
     for f in event.findings:
-        print(f"  - [{f.kind}] {f.clause_ref} @ {f.rule_path}: {f.explanation}")
+        if f.clause_ref or f.rule_path:
+            print(f"  - [{f.kind}] {f.clause_ref} @ {f.rule_path}: {f.explanation}")
+        else:
+            # Screen findings carry no locator; do not print an empty one.
+            print(f"  - [{f.kind}] {f.explanation}")
     if event.judge_error:
         print(f"  judge_error: {event.judge_error.type}: {event.judge_error.message}")
 

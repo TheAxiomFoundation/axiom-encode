@@ -600,6 +600,35 @@ def test_client_failure_is_an_error_event_never_a_pass(monkeypatch):
     assert validate_event_dict(payload) == []
 
 
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("AXIOM_JUDGE_SCREEN_TIMEOUT_SECONDS", "soon"),
+        ("AXIOM_JUDGE_SCREEN_TIMEOUT_SECONDS", "0"),
+        ("AXIOM_JUDGE_SCREEN_MAX_RETRIES", "-1"),
+        ("AXIOM_JUDGE_PROVISION_CHARS", "lots"),
+    ],
+)
+def test_malformed_client_configuration_fails_closed(monkeypatch, name, value):
+    monkeypatch.setenv(name, value)
+    monkeypatch.setenv("TYPESAFE_API_KEY", SECRET)
+    seen = install_fake_typesafe(monkeypatch, [recorded_response(RECORDED_ORIGINAL)])
+    policy = ScreenPolicy(mode="cascade")
+    event = statutory_fidelity_screen.run("prov", "rule", citation="c", policy=policy)
+    assert event.verdict == Verdict.ERROR
+    assert event.judge_error.type == "invalid_configuration"
+    # Fixed text only: the offending value is never echoed.
+    if value.isalpha():
+        assert value not in event.judge_error.message
+    assert seen["calls"] == []
+    assert event.extra["screen"]["cascade"] == {
+        "request_referee": True,
+        "reason": "screen_error",
+        "triggered": [],
+    }
+    assert validate_event_dict(event.to_dict()) == []
+
+
 def test_screen_sends_the_same_truncated_provision_window_as_the_referee():
     provision = "HEAD" + ("x" * 60_000) + "TAILBOUNDARY"
     fake = FakeSystemOneClient(_call_from(RECORDED_ORIGINAL))
@@ -995,6 +1024,24 @@ def test_invalid_screen_policy_exits_before_any_judge_runs(
     assert status == 2
     assert "invalid screen policy" in capsys.readouterr().err
     assert cli["referee_calls"] == 0
+
+
+def test_screen_mode_without_screen_is_refused(cli, tmp_path, capsys):
+    args = _cli_args(tmp_path, screen=False, screen_mode="cascade")
+    assert cli_commands.cmd_judge_fidelity(args) == 2
+    assert "--screen-mode requires --screen" in capsys.readouterr().err
+    assert cli["referee_calls"] == 0
+
+
+def test_text_output_prints_locatorless_findings_without_an_empty_locator(
+    cli, tmp_path, capsys
+):
+    cli["row"] = RECORDED_PLANTED_AMOUNT
+    args = _cli_args(tmp_path, json=False)
+    assert cli_commands.cmd_judge_fidelity_screen(args) == 0
+    out = capsys.readouterr().out
+    assert "  - [amount_mismatch] screen probability 0.97" in out
+    assert " @ :" not in out
 
 
 def test_dispatch_routes_the_standalone_screen_command(cli, tmp_path, capsys):

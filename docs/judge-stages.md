@@ -168,6 +168,27 @@ reader of provision plus artifact cannot see, and both the screen and the
 referee were near chance on them (Jev AUC 0.546). The verifier track under
 `benchmarks/verifier/` is the authority for the real threshold.
 
+### Live check on real generations
+
+On 2026-09-17 the shipped stage ran live on three `gpt-5.6-terra` generations
+with outcome `apply_applied` from `encodings.db` (script, results and run logs
+under `_axiom-runs/jev-prescreen-live-2026-09-17/` in the foundation mirror).
+The responding model was `jev-1.13.0`. The three calls used 15,196 input
+tokens, about 0.06 cents at the published price, with latencies of 394 to 467
+milliseconds. Every event validated, each was appended to a run log, and
+neither the key nor an authorization header appeared in anything written.
+
+| Citation | Choice verdict (confidence) | Amount | Boundary | Unrepresented clause | Cascade at 0.25 |
+|---|---|---|---|---|---|
+| `us-mn/statute/290.0661` | flag (0.41) | 0.12 | 0.14 | 0.96 | referee skipped |
+| `us-co/regulation/9-ccr-2503-5/3.544` | flag (0.94) | 0.44 | 0.32 | 0.93 | referee requested |
+| `us-il/statute/35/5/201` | pass (0.27) | 0.12 | 0.10 | 0.96 | referee skipped |
+
+All three merged generations scored 0.93 or higher on `unrepresented_clause`.
+That matches the pilot, where the kind did not separate clean from defective
+artifacts, and it is why the kind stays record-only. Three cases are a wiring
+check, not evidence for a threshold.
+
 ### Limits
 
 - The screen cannot see a dropped conjunct (AUC 0.603), so a cascade that
