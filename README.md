@@ -626,5 +626,8 @@ changes and current evidence.
 
 - `docs/axiom-encode-methods-log.md` tracks the last meaningful harness changes,
   their hypotheses, and the evidence path to justify them later.
+- `docs/judge-stages.md` documents the judge stages, including the TypeSafe
+  System One pre-screen ahead of the statutory-fidelity referee and the
+  placeholder threshold the verifier track must replace.
 - `docs/rulespec-proof-validation.md` defines the proof-tree contract that keeps
   immutable corpus evidence and executable RuleSpec separated.

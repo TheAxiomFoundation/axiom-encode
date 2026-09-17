@@ -27,12 +27,16 @@ from .run_log import (
     error_event,
 )
 
-_KINDS = [
+# The fidelity finding taxonomy, shared with the System One pre-screen
+# (:mod:`~axiom_encode.judges.statutory_fidelity_screen`) so both stages
+# report the same four kinds.
+FIDELITY_KINDS: tuple[str, ...] = (
     "unrepresented_clause",
     "untraceable_branch",
     "boundary_direction",
     "amount_mismatch",
-]
+)
+_KINDS = list(FIDELITY_KINDS)
 
 _SYSTEM = (
     "You are a statutory-fidelity referee for encoded law. You receive the "

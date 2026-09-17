@@ -3,7 +3,10 @@
 The generator is ``gpt-5.6-terra``; the judges MUST run on a Claude-family
 model so a judge's errors do not correlate with the generator's (the 9/9 identical
 hardcoded-600,000 incident is the cautionary tale). This module enforces that
-guard and the fail-closed contract:
+guard and the fail-closed contract. (The statutory-fidelity *screen* is the one
+non-Claude judge stage: it runs on TypeSafe System One, family ``typesafe``,
+through :mod:`~axiom_encode.judges.system_one`, under the same cross-family
+rule.)
 
 * Any failure — missing ``ANTHROPIC_API_KEY``, missing ``anthropic`` SDK, API
   error after retries, JSON parse failure, or a cross-family guard trip — returns
@@ -62,6 +65,11 @@ def model_family(model: str) -> str:
         return "openai"
     if m.startswith("gemini") or m.startswith("models/gemini"):
         return "google"
+    if m.startswith("jev"):
+        # TypeSafe System One models (``jev-1.13.0``, ``jev-latest``): the
+        # statutory-fidelity screen's family. Cross-family with every LLM
+        # generator, so the guard passes and the family is recorded as such.
+        return "typesafe"
     return "unknown"
 
 
