@@ -2486,6 +2486,26 @@ jobs:
                   payload["required_test_cases"] = required_cases
               return payload
 
+          def primary_review_contract():
+              if not isinstance(atomic_source, dict):
+                  return None
+              required_cases = atomic_source.get("primary_required_test_cases", [])
+              if not isinstance(required_cases, list):
+                  raise SystemExit("primary required test cases are malformed")
+              if not required_cases:
+                  return None
+              if not normalized_replacement_path:
+                  raise SystemExit(
+                      "primary required test cases need an exact replacement path"
+                  )
+              return {
+                  "schema": "axiom-encode/review-contract/v2",
+                  "citation": os.environ["CITATION"],
+                  "rulespec_path": normalized_replacement_path,
+                  "required_deferred_outputs": [],
+                  "required_test_cases": required_cases,
+              }
+
           expected = []
           if canonical_refresh_items:
               for refresh_index, refresh_item in enumerate(
@@ -2528,7 +2548,7 @@ jobs:
                       normalized_replacement_path or None,
                       None,
                       None,
-                      None,
+                      primary_review_contract(),
                   )
               )
           for source_index, source_citation in enumerate(

@@ -5838,7 +5838,10 @@ def test_targeted_review_finding_temp_file_is_valid_context(tmp_path: Path) -> N
     assert validate_explicit_context_file(finding_path, policy_root) == finding_path
 
 
-def test_targeted_artifact_packages_signed_review_context(tmp_path: Path) -> None:
+@pytest.mark.parametrize("contract_case", ["none", "exact", "tampered"])
+def test_targeted_artifact_packages_signed_review_context(
+    tmp_path: Path, contract_case: str
+) -> None:
     workflow = yaml.safe_load(
         (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
     )
@@ -5886,6 +5889,35 @@ def test_targeted_artifact_packages_signed_review_context(tmp_path: Path) -> Non
             }
         ],
     }
+    replacement_path = "us-la/statutes/47/294.yaml"
+    required_cases = [
+        {
+            "name": "status_changes_on_enactment",
+            "period": {
+                "period_kind": "custom",
+                "name": "day",
+                "start": "2025-07-04",
+                "end": "2025-07-04",
+            },
+            "input": {"us-la:statutes/47/294#input.status": False},
+            "required_output": {"us-la:statutes/47/294#eligible": "not_holds"},
+        }
+    ]
+    if contract_case != "none":
+        context_payload["review_contract"] = {
+            "schema": "axiom-encode/review-contract/v2",
+            "citation": citation,
+            "rulespec_path": replacement_path,
+            "required_deferred_outputs": [],
+            "required_test_cases": required_cases,
+        }
+        if contract_case == "tampered":
+            context_payload["review_contract"]["required_test_cases"] = [
+                {
+                    **required_cases[0],
+                    "required_output": {"us-la:statutes/47/294#eligible": "holds"},
+                }
+            ]
     context_bytes = json.dumps(context_payload, sort_keys=True).encode()
     context_path = tmp_path / "generated" / "target" / "context-manifest.json"
     context_path.parent.mkdir(parents=True)
@@ -5896,6 +5928,8 @@ def test_targeted_artifact_packages_signed_review_context(tmp_path: Path) -> Non
         "context_manifest_file": str(context_path),
         "context_manifest_sha256": hashlib.sha256(context_bytes).hexdigest(),
     }
+    if contract_case != "none":
+        applied_manifest["applied_files"] = [{"path": replacement_path}]
     applied_path = (
         rulespec / ".axiom" / "encoding-manifests" / "statutes" / "47" / "294.yaml.json"
     )
@@ -5921,9 +5955,30 @@ def test_targeted_artifact_packages_signed_review_context(tmp_path: Path) -> Non
             "RUNNER_TEMP": str(tmp_path),
             "RULESPEC_CHECKOUT": "rulespec-nz",
             "RULESPEC_REF": rulespec_ref,
+            "REPLACE_RULESPEC_PATH": (
+                replacement_path if contract_case != "none" else ""
+            ),
+            "ATOMIC_SOURCE_JSON": (
+                json.dumps(
+                    {
+                        "schema": "axiom-encode/atomic-source-transaction/v2",
+                        "source_bundle": [],
+                        "canonical_refresh_bundle": [],
+                        "primary_required_test_cases": required_cases,
+                    }
+                )
+                if contract_case != "none"
+                else "[]"
+            ),
         },
     )
 
+    if contract_case == "tampered":
+        assert completed.returncode != 0
+        assert "context manifest does not bind the normalized review contract" in (
+            completed.stderr
+        )
+        return
     assert completed.returncode == 0, completed.stderr
     assert packaged_context.read_bytes() == context_bytes
     inventory = json.loads(packaged_inventory.read_text())
