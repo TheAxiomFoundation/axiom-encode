@@ -1,0 +1,21 @@
+{
+  "case_id": "rd-0002",
+  "citation": "us/regulation/2/25/200",
+  "defect_kind": "dropped_conjunct",
+  "locator": {
+    "path": "rules[0].versions[0].formula",
+    "rule_name": "lead_applicant_uei_used_for_consortium_application",
+    "detail": "lead-entity award condition missing",
+    "token": "federal_agency_policy_is_to_make_award_to_lead_entity_for_consortium"
+  },
+  "generator_model": "gpt-5.5",
+  "fix_reference": "repair round example",
+  "provision": "provision.txt",
+  "pre_fix": "pre_fix.yaml",
+  "post_fix": "post_fix.yaml",
+  "hashes": {
+    "provision": "91638bb3fbf7e4d6e29a185bb378f3442ca24984b9f16ca1add915a2b5598889",
+    "pre_fix": "6a30feb821f5ba9df9a48ed6dc7667e89c43fd321889ada8cfe0fac57b57a197",
+    "post_fix": "19881282c429f08d0b027ff913b1db4a398345700291f0b5dee80d34fea611b9"
+  }
+}

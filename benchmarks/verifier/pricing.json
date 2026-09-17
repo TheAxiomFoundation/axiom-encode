@@ -1,0 +1,28 @@
+{
+  "note": "Published prices only, each with its source. Models absent here render cost as blank on the board. Do not fill an entry from memory.",
+  "models": {
+    "claude-haiku-4-5-20251001": {
+      "input_usd_per_million": 1.0,
+      "output_usd_per_million": 5.0,
+      "source": "claude-api skill, Current Models table (cached 2026-06-24): Claude Haiku 4.5, $1.00 in / $5.00 out per 1M tokens; claude-haiku-4-5-20251001 is the dated id of alias claude-haiku-4-5 per that skill's shared/models.md"
+    },
+    "claude-haiku-4-5": {
+      "input_usd_per_million": 1.0,
+      "output_usd_per_million": 5.0,
+      "source": "claude-api skill, Current Models table (cached 2026-06-24): Claude Haiku 4.5, $1.00 in / $5.00 out per 1M tokens"
+    },
+    "claude-opus-4-6": {
+      "input_usd_per_million": 5.0,
+      "output_usd_per_million": 25.0,
+      "source": "claude-api skill, Current Models table (cached 2026-06-24): Claude Opus 4.6, $5.00 in / $25.00 out per 1M tokens"
+    },
+    "jev-1.13.0": {
+      "input_usd_per_million": 0.042,
+      "output_usd_per_million": 0.0,
+      "source": "TypeSafe published price as recorded in the 2026-09-17 Jev judge pilot README (_axiom-runs/jev-judge-pilot-2026-09-17): $0.042 per million input tokens, output free"
+    }
+  },
+  "unpriced": {
+    "claude-sonnet-4-5": "No price row in the claude-api skill's model tables consulted on 2026-09-17 (Sonnet 4.5 is listed as a legacy active model without a price); cost renders blank."
+  }
+}
