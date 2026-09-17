@@ -35,7 +35,7 @@ on:
         required: false
         type: string
       repair_run_id:
-        description: Prior failed protected run whose final candidate is replayed as untrusted repair context
+        description: Prior failed protected run ID, or reviewed memo success run 35160240952 for tests-only revision
         required: false
         type: string
       source_bundle_json:
@@ -440,6 +440,8 @@ jobs:
           CITATION: ${{ inputs.citation }}
           CORPUS_REF: ${{ inputs.corpus_ref }}
           COUNTRY: ${{ inputs.country }}
+          OPEN_PR: ${{ inputs.open_pr }}
+          PR_BASE_BRANCH: ${{ inputs.pr_base_branch }}
           DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
           EXISTING_SIGNED_IMPORTS_JSON: ${{ inputs.existing_signed_imports_json }}
           GH_TOKEN: ${{ github.token }}
@@ -477,6 +479,49 @@ jobs:
             exit 1
           fi
           echo "tests_only=$repair_tests_only" >> "$GITHUB_OUTPUT"
+          if [ "$REPAIR_RUN_ID" = "35160240952" ]; then
+            # Pilot only: the immutable, independently reviewed signed memo head.
+            # The encoder's tests-only contract rejects any changed RuleSpec body.
+            if [ "$repair_tests_only" != "true" ] || \
+               [ "$CITATION" != "us/guidance/usda/fns/snap-obbb-alien-eligibility-implementation-memo" ] || \
+               [ "$COUNTRY" != "us" ] || \
+               [ "$RULESPEC_REF" != "79ffd74fe3d3c83665335ec64feb7458d9cc877a" ] || \
+               [ "$PR_BASE_BRANCH" != "axiom/signed-backfill-us-35160240952-1" ] || \
+               [ "$OPEN_PR" != "true" ] || \
+               [ "$CORPUS_REF" != "aad094d00e42b2766b12393e662473bda81411b0" ] || \
+               [ "$RULES_ENGINE_REF" != "af6e4ea2920b0c0a97bf6a6f45b0c6643e93c0ca" ] || \
+               [ "$REPLACE_RULESPEC_PATH" != "us/policies/usda/fns/snap-obbb-alien-eligibility-implementation-memo.yaml" ] || \
+               [ -n "$DEPENDENT_CITATION" ] || [ -n "$SECOND_DEPENDENT_CITATION" ] || \
+               [ -n "$REPLACE_LEGACY_RULESPEC_PATH" ] || \
+               [ -n "$LEGACY_EXACT_DEPENDENT_RULESPEC_PATH" ] || \
+               [ -n "$SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH" ] || \
+               [ -n "$QUEUE_ID" ] || \
+               ! jq -e 'type == "array" and length == 0' <<< "$source_bundle_json" > /dev/null || \
+               ! jq -e 'type == "array" and length == 0' <<< "$canonical_refresh_bundle_json" > /dev/null || \
+               ! jq -e 'type == "array" and length == 0' <<< "${EXISTING_SIGNED_IMPORTS_JSON:-[]}" > /dev/null || \
+               ! jq -e 'type == "array" and length == 0' <<< "${LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON:-[]}" > /dev/null; then
+              echo "signed tests-only revision is limited to the reviewed memo head and exact target" >&2
+              exit 1
+            fi
+            candidate_tests_path="${REPLACE_RULESPEC_PATH%.yaml}.test.yaml"
+            test -f "$RULESPEC_CHECKOUT/$REPLACE_RULESPEC_PATH"
+            test -f "$RULESPEC_CHECKOUT/$candidate_tests_path"
+            test ! -L "$RULESPEC_CHECKOUT/$REPLACE_RULESPEC_PATH"
+            test ! -L "$RULESPEC_CHECKOUT/$candidate_tests_path"
+            git -C "$RULESPEC_CHECKOUT" ls-files --error-unmatch -- \
+              "$REPLACE_RULESPEC_PATH" "$candidate_tests_path" > /dev/null
+            git -C "$RULESPEC_CHECKOUT" diff --quiet HEAD -- \
+              "$REPLACE_RULESPEC_PATH" "$candidate_tests_path"
+            echo "lane=target" >> "$GITHUB_OUTPUT"
+            echo "rulespec_path=$REPLACE_RULESPEC_PATH" >> "$GITHUB_OUTPUT"
+            echo "root=$(realpath "$RULESPEC_CHECKOUT")" >> "$GITHUB_OUTPUT"
+            echo "path=$REPLACE_RULESPEC_PATH" >> "$GITHUB_OUTPUT"
+            echo "runner=signed-rulespec-head" >> "$GITHUB_OUTPUT"
+            echo "source_rulespec_ref=$RULESPEC_REF" >> "$GITHUB_OUTPUT"
+            echo "rulespec_sha256=$(shasum -a 256 "$RULESPEC_CHECKOUT/$REPLACE_RULESPEC_PATH" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+            echo "tests_sha256=$(shasum -a 256 "$RULESPEC_CHECKOUT/$candidate_tests_path" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [[ ! "$REPAIR_RUN_ID" =~ ^[0-9]+$ ]] || \
              [ "$REPAIR_RUN_ID" = "$GITHUB_RUN_ID" ]; then
             echo "repair_run_id must identify a different decimal workflow run" >&2

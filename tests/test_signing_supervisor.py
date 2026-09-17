@@ -2116,8 +2116,8 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert inputs["open_pr"]["default"] is False
     assert inputs["repair_run_id"] == {
         "description": (
-            "Prior failed protected run whose final candidate is replayed as "
-            "untrusted repair context"
+            "Prior failed protected run ID, or reviewed memo success run "
+            "35160240952 for tests-only revision"
         ),
         "required": False,
         "type": "string",
@@ -2354,6 +2354,10 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert 'echo "tests_only=$repair_tests_only" >> "$GITHUB_OUTPUT"' in (
         repair_command
     )
+    assert 'if [ "$REPAIR_RUN_ID" = "35160240952" ]; then' in (repair_command)
+    assert "79ffd74fe3d3c83665335ec64feb7458d9cc877a" in repair_command
+    assert 'git -C "$RULESPEC_CHECKOUT" diff --quiet HEAD' in repair_command
+    assert 'test ! -L "$RULESPEC_CHECKOUT/$candidate_tests_path"' in repair_command
     assert 'test -n "$REPLACE_RULESPEC_PATH"' not in repair_command
     assert "targeted-reencode-failure-${REPAIR_RUN_ID}-1" in repair_command
     assert "extract_repair_candidate.py" in repair_command
@@ -3141,6 +3145,135 @@ def test_repair_preflight_splits_atomic_source(
     assert (tmp_path / "github-output").read_text(encoding="utf-8") == (
         f"tests_only={expected_tests_only}\n"
     )
+
+
+def test_signed_head_tests_only_preflight_binds_exact_reviewed_files(
+    tmp_path: Path,
+) -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    command = next(
+        step["run"]
+        for step in workflow["jobs"]["encode"]["steps"]
+        if step.get("name") == "Resolve trusted prior-run repair candidate"
+    ).split('api_version="', 1)[0]
+    command = command.replace("axiom-encode/.venv/bin/python", sys.executable)
+    command = command.replace(
+        "axiom-encode/scripts/prepare_signed_backfill.py",
+        str(ROOT / "scripts/prepare_signed_backfill.py"),
+    )
+    checkout = tmp_path / "rulespec-us"
+    target = Path(
+        "us/policies/usda/fns/snap-obbb-alien-eligibility-implementation-memo.yaml"
+    )
+    rulespec_file = checkout / target
+    tests_file = rulespec_file.with_name(
+        "snap-obbb-alien-eligibility-implementation-memo.test.yaml"
+    )
+    tests_file.parent.mkdir(parents=True)
+    rulespec_file.write_text("format: rulespec/v1\n", encoding="utf-8")
+    tests_file.write_text("cases: []\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(checkout)], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(checkout),
+            "add",
+            "--",
+            str(target),
+            str(tests_file.relative_to(checkout)),
+        ],
+        check=True,
+    )
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(checkout),
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.org",
+            "commit",
+            "-qm",
+            "signed fixture",
+        ],
+        check=True,
+    )
+    case_contract = json.dumps(
+        {
+            "schema": "axiom-encode/atomic-source-transaction/v2",
+            "source_bundle": [],
+            "canonical_refresh_bundle": [],
+            "primary_required_test_cases": [
+                {
+                    "name": "required control",
+                    "period": {
+                        "period_kind": "custom",
+                        "name": "day",
+                        "start": "2025-07-04",
+                        "end": "2025-07-04",
+                    },
+                    "input": {"example_input": True},
+                    "required_output": {"example_output": "holds"},
+                }
+            ],
+        }
+    )
+    env = {
+        **os.environ,
+        "ATOMIC_SOURCE_JSON": case_contract,
+        "CITATION": "us/guidance/usda/fns/snap-obbb-alien-eligibility-implementation-memo",
+        "CORPUS_REF": "aad094d00e42b2766b12393e662473bda81411b0",
+        "COUNTRY": "us",
+        "DEPENDENT_CITATION": "",
+        "EXISTING_SIGNED_IMPORTS_JSON": "[]",
+        "GITHUB_OUTPUT": str(tmp_path / "github-output"),
+        "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
+        "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON": "[]",
+        "OPEN_PR": "true",
+        "PR_BASE_BRANCH": "axiom/signed-backfill-us-35160240952-1",
+        "QUEUE_ID": "",
+        "REPAIR_RUN_ID": "35160240952",
+        "REPLACE_LEGACY_RULESPEC_PATH": "",
+        "REPLACE_RULESPEC_PATH": target.as_posix(),
+        "RULES_ENGINE_REF": "af6e4ea2920b0c0a97bf6a6f45b0c6643e93c0ca",
+        "RULESPEC_CHECKOUT": str(checkout),
+        "RULESPEC_REF": "79ffd74fe3d3c83665335ec64feb7458d9cc877a",
+        "SECOND_DEPENDENT_CITATION": "",
+        "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
+    }
+
+    def run_preflight() -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["bash", "-c", command],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+    valid = run_preflight()
+    assert valid.returncode == 0, valid.stderr
+    output = (tmp_path / "github-output").read_text(encoding="utf-8")
+    assert "tests_only=true\n" in output
+    assert "lane=target\n" in output
+    assert f"rulespec_path={target.as_posix()}\n" in output
+    assert f"root={checkout.resolve()}\n" in output
+    assert f"path={target.as_posix()}\n" in output
+    assert "runner=signed-rulespec-head\n" in output
+    assert "source_rulespec_ref=79ffd74fe3d3c83665335ec64feb7458d9cc877a\n" in output
+
+    env["RULESPEC_REF"] = "0" * 40
+    invalid_ref = run_preflight()
+    assert invalid_ref.returncode != 0
+    env["RULESPEC_REF"] = "79ffd74fe3d3c83665335ec64feb7458d9cc877a"
+
+    tests_file.write_text("cases: [changed]\n", encoding="utf-8")
+    dirty_checkout = run_preflight()
+    assert dirty_checkout.returncode != 0
 
 
 def test_repair_preflight_accepts_one_bound_dependent_lane(tmp_path: Path) -> None:
