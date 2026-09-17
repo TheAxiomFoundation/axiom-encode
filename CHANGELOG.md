@@ -2,6 +2,11 @@
 
 All notable changes to Axiom Encode will be documented here.
 
+- Permit a tests-only signed revision of the exact reviewed SNAP OBBB memo
+  RuleSpec head. The protected workflow binds the immutable source SHA and
+  target path, rejects dirty or untracked candidate files, and keeps the
+  encoder's unchanged-rule-body contract in force.
+
 - Remove a generated `module.source_verification.values` mapping only after the
   rules engine identifies that exact unknown field and its complete accepted
   schema, preserving all other RuleSpec bytes and revalidating the overlay.
