@@ -8,7 +8,7 @@ version = "0.2.2005"
 description = "AI-assisted RuleSpec encoding infrastructure - fully self-contained"
 readme = "README.md"
 requires-python = ">=3.13"
-license = "Apache-2.0"
+license = "MIT"
 authors = [
     { name = "The Axiom Foundation", email = "hello@axiom-foundation.org" }
 ]
