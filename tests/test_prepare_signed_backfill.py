@@ -4110,6 +4110,14 @@ def test_validate_rulespec_base_accepts_reviewed_immigration_repair_branch_tip(
             "297aec1691edf7b3a21781c8a825690db1e7c988",
             "axiom/signed-backfill-us-35145159769-1",
         ),
+        (
+            "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683",
+            "axiom/signed-backfill-us-35160240952-1",
+        ),
+        (
+            "79ffd74fe3d3c83665335ec64feb7458d9cc877a",
+            "axiom/signed-backfill-us-35145159769-1",
+        ),
     ],
 )
 def test_validate_rulespec_base_rejects_reviewed_head_branch_cross_pairs(
@@ -4148,6 +4156,10 @@ def test_validate_rulespec_base_rejects_reviewed_head_branch_cross_pairs(
         (
             "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683",
             "axiom/signed-backfill-us-35145159769-1",
+        ),
+        (
+            "79ffd74fe3d3c83665335ec64feb7458d9cc877a",
+            "axiom/signed-backfill-us-35160240952-1",
         ),
     ],
 )
