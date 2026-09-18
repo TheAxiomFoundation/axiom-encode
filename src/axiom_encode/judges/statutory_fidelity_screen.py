@@ -34,6 +34,7 @@ or used by the cascade unless a per-kind threshold is configured.
 
 from __future__ import annotations
 
+import math
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -258,6 +259,14 @@ class CascadeDecision:
         }
 
 
+def _finite(value: Any) -> Optional[float]:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
 def cascade_decision(event: JudgeEvent, policy: ScreenPolicy) -> CascadeDecision:
     """Decide whether the referee runs. Fail closed: errors always request it."""
 
@@ -269,12 +278,12 @@ def cascade_decision(event: JudgeEvent, policy: ScreenPolicy) -> CascadeDecision
     probabilities = screen.get("probabilities") or {}
     triggered: list[str] = []
     for kind, threshold in policy.thresholds.items():
-        probability = probabilities.get(kind)
+        probability = _finite(probabilities.get(kind))
         if probability is None:
-            # A configured kind without a probability is an incomplete screen;
-            # never let it read as "below threshold".
+            # A configured kind without a finite probability is an incomplete
+            # screen; never let it read as "below threshold" (NaN would).
             return CascadeDecision(True, "screen_incomplete", tuple(triggered))
-        if float(probability) >= threshold:
+        if probability >= threshold:
             triggered.append(kind)
     if not policy.cascade:
         return CascadeDecision(True, "advisory_mode", tuple(triggered))

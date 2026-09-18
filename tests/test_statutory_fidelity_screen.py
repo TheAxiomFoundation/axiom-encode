@@ -496,6 +496,32 @@ def test_missing_or_malformed_answers_are_schema_errors(monkeypatch, response):
     assert call.answers is None
 
 
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf"), 1.5, -0.1])
+def test_non_finite_or_out_of_range_probabilities_are_schema_errors(monkeypatch, bad):
+    for answers in (
+        {"amount_mismatch": _NoulAnswer(bad)},
+        {"verdict": _ChoiceAnswer("pass", 0.5, {"pass": bad, "flag": 0.5})},
+    ):
+        install_fake_typesafe(
+            monkeypatch, [recorded_response(RECORDED_ORIGINAL, answers=answers)]
+        )
+        call = _client().call(
+            state={}, questions=statutory_fidelity_screen.build_questions()
+        )
+        assert not call.ok
+        assert call.error.type == "schema_error"
+
+
+def test_a_pinned_non_typesafe_model_is_guarded_before_any_spend(monkeypatch):
+    seen = install_fake_typesafe(monkeypatch, [recorded_response(RECORDED_ORIGINAL)])
+    call = _client(model="gpt-5.6-terra").call(
+        state={}, questions={"q": NoulQuestion(instructions="x")}
+    )
+    assert not call.ok
+    assert call.error.type == "cross_family_guard"
+    assert seen["calls"] == []
+
+
 def test_client_repr_and_call_result_never_carry_the_key(monkeypatch):
     install_fake_typesafe(monkeypatch, [recorded_response(RECORDED_ORIGINAL)])
     client = _client()
@@ -788,6 +814,22 @@ def test_an_incomplete_screen_requests_the_referee():
     decision = statutory_fidelity_screen.cascade_decision(event, policy)
     assert decision.request_referee is True
     assert decision.reason == "screen_incomplete"
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), None, "high"])
+def test_a_non_finite_probability_in_an_event_requests_the_referee(bad):
+    policy = ScreenPolicy(mode="cascade")
+    event = JudgeEvent(
+        stage=JudgeStage.STATUTORY_FIDELITY_SCREEN,
+        verdict=Verdict.PASS,
+        extra={
+            "screen": {
+                "probabilities": {"amount_mismatch": bad, "boundary_direction": 0.0}
+            }
+        },
+    )
+    decision = statutory_fidelity_screen.cascade_decision(event, policy)
+    assert decision == CascadeDecision(True, "screen_incomplete", ())
 
 
 def test_cascade_decision_refuses_events_from_other_stages():

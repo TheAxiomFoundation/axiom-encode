@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import time
 from collections.abc import Mapping
@@ -41,7 +42,7 @@ from typing import Any, Optional, Union
 from axiom_encode.constants import DEFAULT_OPENAI_MODEL
 
 from .client import DEFAULT_PROVISION_CHARS, model_family
-from .run_log import JudgeError, TokenCounts, coerce_confidence
+from .run_log import JudgeError, TokenCounts
 
 TYPESAFE_API_KEY_ENV = "TYPESAFE_API_KEY"
 SYSTEM_ONE_FAMILY = "typesafe"
@@ -266,7 +267,9 @@ class SystemOneClient:
             return failed(
                 JudgeError(type="empty_questions", message="no questions to ask")
             )
-        problem = self.cross_family_problem(None)
+        # Guard the generator now and, when a model is pinned, the pin too;
+        # the responding model is guarded again after the call.
+        problem = self.cross_family_problem(self.model)
         if problem:
             return failed(JudgeError(type="cross_family_guard", message=problem))
         if not self.api_key:
@@ -306,17 +309,13 @@ class SystemOneClient:
             response = sdk_client.system_one(dict(state), sdk_questions)
         except Exception as exc:  # noqa: BLE001 - normalized, by class name only
             latency_ms = int((time.perf_counter() - started) * 1000)
+            _close_quietly(sdk_client)
             return failed(
                 _class_only_error(exc, phase="request"), latency_ms=latency_ms
             )
-        finally:
-            close = getattr(sdk_client, "close", None)
-            if callable(close):
-                try:
-                    close()
-                except Exception:  # noqa: BLE001 - closing is best effort
-                    pass
+        # Latency is the request alone; closing the transport is not judged time.
         latency_ms = int((time.perf_counter() - started) * 1000)
+        _close_quietly(sdk_client)
 
         model_id = getattr(response, "model", None)
         model_id = str(model_id) if model_id else None
@@ -368,6 +367,34 @@ def _to_sdk_questions(sdk: Any, questions: Mapping[str, Question]) -> dict[str, 
     return out
 
 
+def _finite_probability(value: Any) -> Optional[float]:
+    """A model-supplied probability, or ``None`` unless it is finite in [0, 1].
+
+    Stricter than ``coerce_confidence``, which clamps: a probability model that
+    returns NaN, an infinity, or a value outside [0, 1] has answered with a
+    malformed response. Clamping would let NaN (below every threshold) or a
+    negative infinity (clamped to 0) read as a clean artifact, so the screen
+    refuses the answer instead.
+    """
+
+    try:
+        prob = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(prob) or prob < 0.0 or prob > 1.0:
+        return None
+    return round(prob, 4)
+
+
+def _close_quietly(sdk_client: Any) -> None:
+    close = getattr(sdk_client, "close", None)
+    if callable(close):
+        try:
+            close()
+        except Exception:  # noqa: BLE001 - closing is best effort
+            pass
+
+
 def _class_only_error(exc: BaseException, *, phase: str) -> JudgeError:
     """Map an exception to a JudgeError by class name only.
 
@@ -409,7 +436,7 @@ def _map_answers(
                 )
             clean: dict[str, float] = {}
             for label, value in probabilities.items():
-                prob = coerce_confidence(value)
+                prob = _finite_probability(value)
                 if prob is None:
                     return None, JudgeError(
                         type="schema_error",
@@ -421,11 +448,11 @@ def _map_answers(
                 clean[str(label)] = prob
             mapped[name] = ChoiceAnswer(
                 choice=choice,
-                confidence=coerce_confidence(getattr(answer, "confidence", None)),
+                confidence=_finite_probability(getattr(answer, "confidence", None)),
                 probabilities=clean,
             )
         else:
-            value = coerce_confidence(getattr(answer, "noul", None))
+            value = _finite_probability(getattr(answer, "noul", None))
             if value is None:
                 return None, JudgeError(
                     type="schema_error",
