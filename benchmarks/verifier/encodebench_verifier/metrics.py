@@ -49,11 +49,11 @@ def detection_at_false_alarm_ceiling(
 ) -> Optional[float]:
     """Detection rate when the threshold lets at most ``ceiling`` of controls through.
 
-    The threshold is the largest control score such that strictly more than
-    it is at most ``floor(ceiling * n_controls)`` controls; detection is the
-    share of defective cases strictly above that threshold. With a 0.0
-    ceiling this is "the share of defective cases scoring above every
-    control".
+    The threshold is the lowest score that admits at most
+    ``floor(ceiling * n_controls)`` controls strictly above it (the (k+1)-th
+    largest control score); detection is the share of defective cases
+    strictly above that threshold. With a 0.0 ceiling this is "the share of
+    defective cases scoring above every control".
     """
 
     if not positives or not negatives:

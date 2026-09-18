@@ -6,6 +6,12 @@ always empty and localisation is blank by construction. The provision window
 is truncated exactly the way the referee truncates it, so both judge
 families read identical text.
 
+Fail closed: a missing SDK or key, any exception from the SDK, a response
+without the Choice verdict or without every kind's Noul, a verdict outside
+pass/flag, and a served model other than the pinned one all become error
+responses, never passes and never partial scores. A model alias ending in
+``-latest`` is the one case where the served id may differ; it is recorded.
+
 Requires ``typesafe-sdk`` and ``TYPESAFE_API_KEY`` (read by the SDK from the
 environment; this module never prints or stores it).
 """
@@ -23,6 +29,7 @@ from ..cases import VerifierCase
 from .base import (
     CHANNEL_NATIVE,
     VERDICT_FLAG,
+    VERDICT_PASS,
     JudgeResponse,
     clamp_unit,
     error_response,
@@ -114,6 +121,12 @@ def question_set_sha256() -> str:
     )
 
 
+def _count(value: Any) -> Optional[int]:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
+
+
 class JevRunner:
     family = "jev"
     supports_localization = False
@@ -125,6 +138,7 @@ class JevRunner:
         name: Optional[str] = None,
         provision_chars: int = 24_000,
         client: Any = None,
+        questions: Optional[dict[str, Any]] = None,
         timeout: float = 60.0,
         max_retries: int = 3,
     ) -> None:
@@ -134,7 +148,11 @@ class JevRunner:
         self.timeout = timeout
         self.max_retries = max_retries
         self._client = client
-        self._questions: Optional[dict[str, Any]] = None
+        self._questions = questions
+
+    @property
+    def _is_alias(self) -> bool:
+        return self.model.endswith("-latest")
 
     def _get_client(self) -> Any:
         if self._client is None:
@@ -172,7 +190,9 @@ class JevRunner:
             if self._questions is None:
                 self._questions = build_questions()
         except ImportError as exc:
-            return error_response(self.model, "sdk_missing", str(exc))
+            return error_response(self.model, "sdk_missing", str(exc)[:500])
+        except Exception as exc:  # noqa: BLE001 - e.g. no API key configured
+            return error_response(self.model, type(exc).__name__, str(exc)[:500])
         state = build_state(case, self.provision_chars)
         started = time.perf_counter()
         try:
@@ -183,42 +203,56 @@ class JevRunner:
                 self.model, type(exc).__name__, str(exc)[:500], latency_ms=latency_ms
             )
         latency_ms = int((time.perf_counter() - started) * 1000)
-        answers = getattr(result, "answers", {}) or {}
-        verdict_answer = answers.get("verdict")
-        if verdict_answer is None or not hasattr(verdict_answer, "choice"):
+        usage = getattr(result, "usage", None)
+        tokens_in = _count(getattr(usage, "input_tokens", None))
+        tokens_out = _count(getattr(usage, "output_tokens", None))
+        served_model = str(getattr(result, "model", "") or "")
+        provenance = {"served_model": served_model, "requested_model": self.model}
+
+        def fail(error_type: str, message: str) -> JudgeResponse:
             return error_response(
-                self.model, "malformed_response", "no Choice verdict in answers"
+                served_model or self.model,
+                error_type,
+                message,
+                latency_ms=latency_ms,
+                tokens_input=tokens_in,
+                tokens_output=tokens_out,
+                raw=provenance,
             )
-        choice = str(verdict_answer.choice)
-        probabilities = dict(getattr(verdict_answer, "probabilities", {}) or {})
+
+        if served_model and served_model != self.model and not self._is_alias:
+            return fail(
+                "served_model_mismatch",
+                f"requested {self.model}, served {served_model}",
+            )
+        answers = getattr(result, "answers", None) or {}
+        verdict_answer = answers.get("verdict")
+        choice = str(getattr(verdict_answer, "choice", "") or "")
+        if choice not in (VERDICT_PASS, VERDICT_FLAG):
+            return fail("unrecognized_verdict", f"Choice verdict was {choice!r}")
+        probabilities = dict(getattr(verdict_answer, "probabilities", None) or {})
         p_flag = clamp_unit(probabilities.get(VERDICT_FLAG))
         if p_flag is None:
-            p_flag = 1.0 if choice == VERDICT_FLAG else 0.0
+            return fail("malformed_response", "Choice verdict carries no P(flag)")
         kind_scores: dict[str, Optional[float]] = {}
         for kind in DEFECT_KINDS:
-            answer = answers.get(kind)
-            kind_scores[kind] = clamp_unit(getattr(answer, "noul", None))
-        usage = getattr(result, "usage", None)
-        served_model = str(getattr(result, "model", "") or self.model)
+            score = clamp_unit(getattr(answers.get(kind), "noul", None))
+            if score is None:
+                return fail("malformed_response", f"no Noul answer for {kind}")
+            kind_scores[kind] = score
         return JudgeResponse(
-            verdict=choice if choice in ("pass", "flag") else "error",
+            verdict=choice,
             verdict_score=p_flag,
             kind_scores=kind_scores,
             kind_score_channels={kind: CHANNEL_NATIVE for kind in DEFECT_KINDS},
             findings=[],
             latency_ms=latency_ms,
-            tokens_input=int(getattr(usage, "input_tokens", 0) or 0),
-            tokens_output=int(getattr(usage, "output_tokens", 0) or 0),
-            model=served_model,
-            error=(
-                None
-                if choice in ("pass", "flag")
-                else {"type": "unrecognized_verdict", "message": choice}
-            ),
+            tokens_input=tokens_in,
+            tokens_output=tokens_out,
+            model=served_model or self.model,
             raw={
                 "confidence": clamp_unit(getattr(verdict_answer, "confidence", None)),
                 "probabilities": {k: clamp_unit(v) for k, v in probabilities.items()},
-                "served_model": served_model,
-                "requested_model": self.model,
+                **provenance,
             },
         )

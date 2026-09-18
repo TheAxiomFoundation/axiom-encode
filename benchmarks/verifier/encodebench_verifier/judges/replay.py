@@ -1,9 +1,12 @@
 """Replay runner: serve pre-recorded responses from a file (tests, re-folds).
 
 The response file is JSON: either ``{"<case_id>": {...JudgeResponse...}}``
-or ``{"responses": {...}, "model": "...", "family": "..."}``. Cases without
-an entry get a fail-closed error response, so a partial replay is visible as
-errors rather than as passes.
+or ``{"responses": {...}, "model": "...", "family": "...",
+"supports_localization": true}``. Cases without an entry, and entries that
+break the response contract (unknown verdict, scores outside [0, 1], a scored
+verdict missing a kind score, an error without a reason), become fail-closed
+error responses, so a partial or drifted replay is visible as errors rather
+than as passes.
 """
 
 from __future__ import annotations
@@ -12,8 +15,15 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .. import DEFECT_KINDS
 from ..cases import VerifierCase
-from .base import JudgeResponse, error_response
+from .base import (
+    CHANNEL_VERDICT_FALLBACK,
+    VERDICT_ERROR,
+    JudgeResponse,
+    checked,
+    error_response,
+)
 
 
 class ReplayRunner:
@@ -52,7 +62,17 @@ class ReplayRunner:
             return error_response(
                 self.model, "missing_replay", f"no recorded response for {case.case_id}"
             )
+        if not isinstance(entry, dict):
+            return error_response(self.model, "replay_schema", "entry is not an object")
         response = JudgeResponse.from_dict(entry)
         if not response.model:
             response.model = self.model
-        return response
+        if response.verdict != VERDICT_ERROR and response.verdict_score is not None:
+            # A recording may carry only a verdict score; kinds it omits fall
+            # back to it, exactly as a live judge without a kind question does.
+            for kind in DEFECT_KINDS:
+                if response.kind_scores.get(kind) is None:
+                    response.kind_scores[kind] = response.verdict_score
+                    response.kind_score_channels[kind] = CHANNEL_VERDICT_FALLBACK
+                response.kind_score_channels.setdefault(kind, CHANNEL_VERDICT_FALLBACK)
+        return checked(response)
