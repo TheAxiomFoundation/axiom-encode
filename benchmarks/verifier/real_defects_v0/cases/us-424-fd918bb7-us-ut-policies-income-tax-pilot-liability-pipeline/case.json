@@ -1,0 +1,124 @@
+{
+  "id": "us-424-fd918bb7-us-ut-policies-income-tax-pilot-liability-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "fd918bb79f229464558b7e60c65899b15f7d9afa",
+  "parent_commit": "0ddfa1215cb5e0298b5c849c6738b2dfe5c77399",
+  "commit_date": "2026-07-21",
+  "commit_subject": "Promote Utah PIT to full-Populace taxable-income boundary (#955)",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/955",
+  "module_path": "us-ut/policies/income_tax/pilot_liability_pipeline.yaml",
+  "corpus_citation_path": "us-ut/statute/59-10-104",
+  "corpus_citation_paths_all": [
+    "us-ut/statute/59-10-104",
+    "us-ut/statute/59-10-1018"
+  ],
+  "corpus_release": "us-rulespec-2026-07-19-dedup",
+  "corpus_release_content_sha256": "5b52bfb379fcd94250a835a604bb3383991dcca848778e29510c333d5adde731",
+  "corpus_commit": "9bcd8345798c0e0a9b54ab3f5962abbb3663c049",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.6,
+  "description": "replace Utah PIT caller-supplied AGI, subtraction, and rate slots with one completed-return Utah taxable-income boundary",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        16,
+        31
+      ],
+      [
+        33,
+        50
+      ],
+      [
+        58,
+        58
+      ],
+      [
+        70,
+        70
+      ],
+      [
+        89,
+        89
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        16,
+        26
+      ],
+      [
+        28,
+        37
+      ],
+      [
+        45,
+        45
+      ],
+      [
+        57,
+        57
+      ],
+      [
+        68,
+        73
+      ],
+      [
+        82,
+        82
+      ]
+    ],
+    "rule_names": [
+      "ut_pit_pilot_taxable_income",
+      "ut_pit_pilot_income_tax_liability"
+    ],
+    "rule_path": "rules[ut_pit_pilot_taxable_income].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "899232480598ae76d2538bf56914a6b7903a79897df9aa8f565812beb03fafcf",
+  "post_fix_artifact_sha256": "18a20c68d731ee1084c5692bf689c4beaebc21d8b92ccee7c6361a78656c0160",
+  "provision_sha256": "0a168df47c1f24ab9e7ac7173f00e819a89dad29c54b50922f6097fc66001b73",
+  "provision_chars": 1063,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-ut/statute/59-10-104",
+    "provision_file": "data/corpus/provisions/us-ut/statute/2026-07-13-recovery.jsonl",
+    "provision_file_sha256": "3252bc2ef5530efc0930695068e0b22de1bc4586ad1cb5e7d838333837bbeb86",
+    "line_number": 3,
+    "record_id": "5d071801-2826-57c8-bfb6-9436c2d3be96",
+    "stored_body_sha256": "0a168df47c1f24ab9e7ac7173f00e819a89dad29c54b50922f6097fc66001b73",
+    "resolved_text_sha256": "0a168df47c1f24ab9e7ac7173f00e819a89dad29c54b50922f6097fc66001b73",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "9bcd8345798c0e0a9b54ab3f5962abbb3663c049",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "f66b3628a97c96bb0ab71809434ecaf84b6ad091",
+    "requested_citation_path": "us-ut/statute/59-10-104",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module asserted that Utah state taxable income equals caller-supplied federal AGI less caller-supplied subtractions and multiplied that base by a caller-supplied rate, but the cited provision (Utah Code 59-10-104, whose proof-atom excerpt is 'a tax on the state taxable income of a resident individual') neither defines the base that way (Utah's state taxable income also carries additions) nor leaves the rate free — it fixes the tax at 4.45% of state taxable income — so both the base derivation and the rate had no grounding in the cited source.",
+    "triage_notes": "Provision read through the pinned corpus (us-rulespec-2026-07-19-dedup, release sha 5b52bfb3…): 59-10-104 says only '(1) A tax is imposed on the state taxable income of a resident individual… (2) …the tax is an amount equal to the product of: (a) the resident individual's state taxable income…; and (b) 4.45%.' Nothing there supports the pre-fix 'max(0, ut_pit_pilot_adjusted_gross_income - ut_pit_pilot_supplied_subtractions)' base, and the pre-fix module rationale made the unsupported claim that 'Utah taxable income for the resident wage earner is federal adjusted gross income'; the fix deletes that derivation and the caller-supplied rate slot and re-grounds the rate via 'imports: us-ut:statutes/59-10-104#resident_individual_income_tax_rate' with an import proof atom (hash sha256:a6a9d878…). Two changes in one module (base re-grounded, rate re-grounded); I chose the base formula as the decisive path because the commit title centers on the taxable-income boundary. Counter-reading a reviewer should weigh (why confidence is 0.6, not higher): the commit body and PR describe this as a promotion from a narrow 'resident wage-earner slice' to a full-Populace boundary and never say the prior encoding contradicted the source; for the six retained positive fixtures the expected outputs are unchanged (30k→1335 etc.), so no computed value moved inside the old declared scope, and part of the change is scope/provenance hardening rather than a value correction. Supporting evidence that the repo itself treated the pre-fix module as failing its own gate: the commit removes the module's 'validate_failures' pending waiver in known-validation-gaps.yaml (second commit-body bullet: 'Retire obsolete Utah validation waiver'); that waiver class is the merge-bypass allowlist described in rulespec-us issue 782. Other files in the commit are the companion test fixtures, the re-signed .axiom encoding manifest (adds a 'supersedes' block), and the waiver file — no unrelated rule changes. Follow-up noticed: commit 4bca2b9f3 ('Bound RI and UT 2026 tax pilots', 2026-07-23) later added effective_to: '2026-12-31' to both versions of this module, a separate period-bounding fix not part of this commit. No PR reviews or review comments exist on #955.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "untraceable_branch",
+    "verifier_confidence": 0.72,
+    "verifier_justification": "The diff changes encoded meaning in both rules, not just scope or provenance: the taxable-income formula stops asserting that Utah state taxable income equals caller AGI minus caller subtractions (an arithmetic the cited 59-10-104 never states — the pinned corpus text only says \"A tax is imposed on the state taxable income of a resident individual\"), and the liability formula stops multiplying by a free caller-supplied rate slot. The pinned provision fixes the rate — \"the tax is an amount equal to the product of: (a) the resident individual's state taxable income for that taxable year; and (b) 4.45%\" — and the already-encoded us-ut/statutes/59-10-104 module carried 0.0445 grounded to the excerpt \"4.45%\", so the pre-fix module left ungrounded a value its own cited section specifies; the fix re-grounds it through an import with an exact sha256 proof atom. Both edits are removals/re-groundings of values with no basis in the cited source rather than added clauses, so untraceable_branch fits better than unrepresented_clause or amount_mismatch (no wrong number was ever written; the tests supplied 0.0445 correctly). Corroboration: the same commit retires this module's entry from known-validation-gaps.yaml, whose header reads \"Modules failing encode validate (source grounding etc.)\".",
+    "verifier_quote": "-          ut_pit_pilot_taxable_income * ut_pit_pilot_supplied_rate\n+          ut_pit_pilot_taxable_income * resident_individual_income_tax_rate",
+    "verifier_notes": "Strongest refutation available, and I considered it seriously: the commit is framed as a promotion (\"Promote Utah PIT to full-Populace taxable-income boundary\"), and part of it really is coverage expansion (wage-earner slice -> all full-year resident tax units, plus new zero/negative fixtures), which the rubric says is not a defect on its own. The pre-fix rationale also openly declared the rate as \"a declared caller-supplied current-authority input\", so one could call the old state an honest boundary rather than a misencoding. I still land on confirmed because a boundary is defensible for state taxable income (defined outside 59-10-104 via the additions/subtractions chain) but not for the rate, which 59-10-104(2)(b) fixes in the very provision the rule's proof atom cites, and because the old base formula operationalized a claim (\"Utah taxable income for the resident wage earner is federal adjusted gross income\") that the source does not support and the fix explicitly retracts (\"this module does not claim to reconstruct the federal and Utah adjustments\"). Second-best kind if a reviewer disagrees: unrepresented_clause, on the reading that the fix adds the statutory 4.45% the encoding never represented. Not mechanical under any reading — formulas, inputs, and the imports block all changed. Confidence held at 0.72 because the defect is entangled with a genuine scope expansion in the same commit, and there are no PR review comments naming a defect.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Provision read through the pinned corpus (us-rulespec-2026-07-19-dedup, release sha 5b52bfb3…): 59-10-104 says only '(1) A tax is imposed on the state taxable income of a resident individual… (2) …the tax is an amount equal to the product of: (a) the resident individual's state taxable income…; and (b) 4.45%.' Nothing there supports the pre-fix 'max(0, ut_pit_pilot_adjusted_gross_income - ut_pit_pilot_supplied_subtractions)' base, and the pre-fix module rationale made the unsupported claim that 'Utah taxable income for the resident wage earner is federal adjusted gross income'; the fix deletes that derivation and the caller-supplied rate slot and re-grounds the rate via 'imports: us-ut:statutes/59-10-104#resident_individual_income_tax_rate' with an import proof atom (hash sha256:a6a9d878…). Two changes in one module (base re-grounded, rate re-grounded); I chose the base formula as the decisive path because the commit title centers on the taxable-income boundary. Counter-reading a reviewer should weigh (why confidence is 0.6, not higher): the commit body and PR describe this as a promotion from a narrow 'resident wage-earner slice' to a full-Populace boundary and never say the prior encoding contradicted the source; for the six retained positive fixtures the expected outputs are unchanged (30k→1335 etc.), so no computed value moved inside the old declared scope, and part of the change is scope/provenance hardening rather than a value correction. Supporting evidence that the repo itself treated the pre-fix module as failing its own gate: the commit removes the module's 'validate_failures' pending waiver in known-validation-gaps.yaml (second commit-body bullet: 'Retire obsolete Utah validation waiver'); that waiver class is the merge-bypass allowlist described in rulespec-us issue 782. Other files in the commit are the companion test fixtures, the re-signed .axiom encoding manifest (adds a 'supersedes' block), and the waiver file — no unrelated rule changes. Follow-up noticed: commit 4bca2b9f3 ('Bound RI and UT 2026 tax pilots', 2026-07-23) later added effective_to: '2026-12-31' to both versions of this module, a separate period-bounding fix not part of this commit. No PR reviews or review comments exist on #955. | verifier confirmed at 0.72",
+  "family_id": "us-fd918bb7-30d18670aadc",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

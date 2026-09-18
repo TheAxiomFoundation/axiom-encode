@@ -1,0 +1,151 @@
+{
+  "id": "us-475-86d35779-us-policies-usitc-us-tariff-duty-overlays-section-232-aluminum-rev12-consolidati",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "86d35779d9eea3ec3f1c9ca211c4a78226878093",
+  "parent_commit": "b58a5c650ba76fb2313b53d006dd8a708d3fd2de",
+  "commit_date": "2026-08-01",
+  "commit_subject": "Repair overlay effective dates and retire heading 9903.01.20 module",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1192",
+  "module_path": "us/policies/usitc/us-tariff-duty/overlays/section-232-aluminum/rev12-consolidation.yaml",
+  "corpus_citation_path": "us/statute/hts/9903.82.02",
+  "corpus_citation_paths_all": [
+    "us/statute/hts/9903.82.02"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "wrong_period_or_effective_date",
+  "other_kind": null,
+  "confidence": 0.85,
+  "description": "Rev12 section-232 consolidations effective 2026-07-21 (was 07-23).",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        23,
+        23
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        23,
+        23
+      ]
+    ],
+    "rule_names": [
+      "section_232_non_excepted_aluminum_steel_copper_derivative_articles_additional_duty_rate"
+    ],
+    "rule_path": "rules[section_232_non_excepted_aluminum_steel_copper_derivative_articles_additional_duty_rate].versions[0].effective_from"
+  },
+  "pre_fix_artifact_sha256": "50c755d77ef39807e2069b1e9e7f9094ac5e24a2acda1463698ff977c878ba84",
+  "post_fix_artifact_sha256": "06a340f2b7b3a5a58ad4d2835edcdaa1da046f4ee9932a81e53a23c088a2767b",
+  "provision_sha256": "714421e9b882da54ff5d5f39b72aafe394962f1812dbe621fbfba6433c7f19e5",
+  "provision_chars": 528,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/hts/9903.82.02",
+    "provision_file": "data/corpus/provisions/us/statute/2026-08-03-rulespec-hts-current-with-legacy-aluminum.jsonl",
+    "provision_file_sha256": "7406b42f2f6a35bd43ed67d7fe4d0f7323e12c3e49c67b8d6699f9978d23b770",
+    "line_number": 1535,
+    "record_id": "205bc18b-57a2-5010-aee7-91f31117a6a8",
+    "stored_body_sha256": "714421e9b882da54ff5d5f39b72aafe394962f1812dbe621fbfba6433c7f19e5",
+    "resolved_text_sha256": "714421e9b882da54ff5d5f39b72aafe394962f1812dbe621fbfba6433c7f19e5",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-31",
+    "source_as_of": "2026-08-01",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "2ccb67efa41f60b5a80cb736c0272e68d5591389",
+    "requested_citation_path": "us/statute/hts/9903.82.02",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us/statute/hts/9903.82.02'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us/statute/hts/9903.82.02'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us/statute/hts/9903.82.02'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us/statute/hts/9903.82.02'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us/statute/hts/9903.82.02'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us/statute/hts/9903.82.02'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us/statute/hts/9903.82.02'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us/statute/hts/9903.82.02'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.82.02'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.82.02'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us/statute/hts/9903.82.02'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us/statute/hts/9903.82.02'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.82.02'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.82.02'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.82.02'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.82.02'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The +50% section 232 consolidated rate under HTS 9903.82.02 was encoded as starting 2026-07-23 when the Rev12 consolidation took effect 2026-07-21, so the overlay was inert for entries on 07-21 and 07-22.",
+    "triage_notes": "Single-rule module; only the effective_from line changed (formula 0.50 and the proof atom excerpt are untouched). I resolved us/statute/hts/9903.82.02 in the pinned corpus: the row body confirms the +50% rate and the 9903.82.14/9903.85.67/9903.85.68 exceptions, but HTS rows carry no effective-date field, so the 2026-07-21 date is attested by the commit message (HTS Revision 12) rather than by the pinned corpus — hence 0.85 rather than higher. The companion test rev12-consolidation.test.yaml was not touched by this commit, so no case exercises the corrected boundary. The accompanying .axiom manifest change is re-signing bookkeeping (manual_exception \"repair\").",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_period_or_effective_date",
+    "verifier_confidence": 0.85,
+    "verifier_justification": "The entire module diff is one meaning-bearing line: the sole version window of the +50% section 232 consolidated rate moves from effective_from '2026-07-23' to '2026-07-21', with the formula (0.50), rule name, scope, proof atom, excerpt, and citation path all unchanged — so it is neither mechanical nor a different kind, and only wrong_period_or_effective_date fits. I tried to refute it as a policy choice with no source basis: the pre-fix state shows otherwise, since every overlay touched in this commit (section 232 Rev12, Brazil 301, forced-labor 301) uniformly carried the placeholder 2026-07-23 and the repair split them into three separately-grounded dates (07-21, 07-22 per FR 2026-14542, 07-24 per FR 2026-15181), which is a date audit against source, not an enhancement. The one genuine weakness is that the HTS provision text itself carries no effective date (resolver returns expression_date 2026-07-31 and fix_time_corpus_match \"provision_file_absent_at_corpus_ref\"), so 07-21 rests on the Rev12 publication asserted in the commit message and the cross-review rather than on corpus text — enough to hold confidence below 0.9 but not enough to unseat the classification.",
+    "verifier_quote": "-      - effective_from: '2026-07-23'\n+      - effective_from: '2026-07-21'",
+    "verifier_notes": "Refutation attempts and what survives, for the pruning reviewer:\n\n1. Mechanical? No. effective_from is an explicitly meaning-bearing field (version window). The manifest churn (.axiom/encoding-manifests/.../rev12-consolidation.json, manual_exception \"repair\", runner \"manual-attestation\") is bookkeeping riding along with a real meaning change, not the substance of it.\n\n2. Different kind? The rate stays 0.50, the rule name, entity/scope, proof atom path, excerpt string, and corpus_citation_path (us/statute/hts/9903.82.02) are byte-identical pre and post. Nothing but the date moved, so amount_mismatch, boundary_direction, unrepresented_clause, untraceable_branch, wrong_entity_or_scope and polarity_or_logic are all excluded.\n\n3. Not a defect? Rejected. Pre-fix, all eight repaired overlays shared the single date 2026-07-23; the commit splits them into 07-21 / 07-22 / 07-24 with distinct grounds. A uniform placeholder replaced by per-heading dates is a fidelity correction, not new coverage the module never claimed.\n\nTwo caveats worth recording:\n- Weaker source grounding than its siblings. The forced-labor and Brazil lines in the commit message cite FR DATES sections (FR 2026-15181, FR 2026-14542); the section 232 line cites only \"Rev12 section-232 consolidations effective 2026-07-21 (was 07-23)\" with no FR or Federal Register number. The pinned corpus cannot corroborate: the provision text for 9903.82.02 contains only article description and rate lines, the resolver reports the provision file was absent at the toolchain corpus ref, and the earliest release carrying the heading is us-rulespec-2026-08-03-ecps-pit-tariff-union at expression_date 2026-07-31. So the corrected date is attested by review, not by readable source text.\n- The first reader's impact reading (\"the overlay was inert for entries on 07-21 and 07-22\") likely overstates the runtime effect. The sibling module general-rate.yaml (HTS 9903.85.02) already carries the same +50% from 2026-02-15, so depending on how the composition ordered the consolidated and pre-consolidation headings, those two days may have fallen through to the general rate at the identical 0.50 rather than to zero. That affects the severity story, not the classification: the module's encoded window still disagreed with the cited revision.\n- No test evidence either way: us/policies/usitc/us-tariff-duty/overlays/section-232-aluminum/rev12-consolidation.test.yaml is an empty list ([]) at the fix commit, so no companion case exercises the 07-21..07-23 boundary.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Single-rule module; only the effective_from line changed (formula 0.50 and the proof atom excerpt are untouched). I resolved us/statute/hts/9903.82.02 in the pinned corpus: the row body confirms the +50% rate and the 9903.82.14/9903.85.67/9903.85.68 exceptions, but HTS rows carry no effective-date field, so the 2026-07-21 date is attested by the commit message (HTS Revision 12) rather than by the pinned corpus — hence 0.85 rather than higher. The companion test rev12-consolidation.test.yaml was not touched by this commit, so no case exercises the corrected boundary. The accompanying .axiom manifest change is re-signing bookkeeping (manual_exception \"repair\"). | verifier confirmed at 0.85",
+  "family_id": "us-86d35779-02ff97d4f990",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

@@ -1,0 +1,384 @@
+{
+  "id": "uk-002-2d8fded7-uk-barnsley-policies-barnsley-council-tax-reduction",
+  "jurisdiction": "uk",
+  "repo": "TheAxiomFoundation/rulespec-uk",
+  "commit": "2d8fded7c8cc11bb922117cbc09861a6e6873db7",
+  "parent_commit": "598382330dcfb1a6afef21b9a314631484fd2289",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Subject says Encode, but the diff reworks the Barnsley module already committed the same day in 598382330d: citations re-anchored (page-51->page-52, page-10->page-11, page-13->page-14), band table changed (0: 0.90 -> 0: 0, band 5 removed) and protected-group logic/summary rewritten; corrects existing encoded semantics and source grounding",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-uk/pull/243",
+  "module_path": "uk-barnsley/policies/barnsley/council-tax-reduction.yaml",
+  "corpus_citation_path": "uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-52",
+  "corpus_citation_paths_all": [
+    "uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-52"
+  ],
+  "corpus_release": "uk-rulespec-2026-08-04",
+  "corpus_release_content_sha256": "c55631bb2a1680f213e956967fc535e406c6d2b4e543dde1f247e5ea1dd1e2e7",
+  "corpus_commit": "029f784d7185bad376145b36b85b713674061d6f",
+  "defect_kind": "amount_mismatch",
+  "other_kind": null,
+  "confidence": 0.72,
+  "description": "protected-group per-household Band-1 ceilings (sol-corrected)",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        6,
+        6
+      ],
+      [
+        12,
+        12
+      ],
+      [
+        17,
+        17
+      ],
+      [
+        33,
+        34
+      ],
+      [
+        52,
+        52
+      ],
+      [
+        69,
+        70
+      ],
+      [
+        88,
+        89
+      ],
+      [
+        108,
+        109
+      ],
+      [
+        131,
+        155
+      ],
+      [
+        163,
+        163
+      ],
+      [
+        168,
+        168
+      ],
+      [
+        170,
+        170
+      ],
+      [
+        176,
+        177
+      ],
+      [
+        184,
+        184
+      ],
+      [
+        192,
+        192
+      ],
+      [
+        200,
+        200
+      ],
+      [
+        203,
+        210
+      ],
+      [
+        217,
+        217
+      ],
+      [
+        225,
+        225
+      ],
+      [
+        233,
+        233
+      ],
+      [
+        236,
+        243
+      ],
+      [
+        250,
+        250
+      ],
+      [
+        258,
+        258
+      ],
+      [
+        266,
+        266
+      ],
+      [
+        269,
+        276
+      ],
+      [
+        283,
+        283
+      ],
+      [
+        291,
+        291
+      ],
+      [
+        299,
+        299
+      ],
+      [
+        314,
+        315
+      ],
+      [
+        333,
+        333
+      ],
+      [
+        352,
+        352
+      ],
+      [
+        357,
+        357
+      ],
+      [
+        371,
+        372
+      ],
+      [
+        391,
+        392
+      ],
+      [
+        411,
+        412
+      ],
+      [
+        416,
+        417
+      ],
+      [
+        421,
+        421
+      ],
+      [
+        436,
+        437
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        6,
+        6
+      ],
+      [
+        12,
+        12
+      ],
+      [
+        17,
+        17
+      ],
+      [
+        33,
+        34
+      ],
+      [
+        52,
+        52
+      ],
+      [
+        69,
+        70
+      ],
+      [
+        88,
+        89
+      ],
+      [
+        108,
+        109
+      ],
+      [
+        131,
+        132
+      ],
+      [
+        140,
+        140
+      ],
+      [
+        146,
+        167
+      ],
+      [
+        172,
+        172
+      ],
+      [
+        174,
+        220
+      ],
+      [
+        227,
+        227
+      ],
+      [
+        235,
+        235
+      ],
+      [
+        243,
+        243
+      ],
+      [
+        252,
+        252
+      ],
+      [
+        260,
+        260
+      ],
+      [
+        268,
+        268
+      ],
+      [
+        277,
+        277
+      ],
+      [
+        285,
+        285
+      ],
+      [
+        293,
+        293
+      ],
+      [
+        302,
+        302
+      ],
+      [
+        310,
+        310
+      ],
+      [
+        318,
+        318
+      ],
+      [
+        333,
+        334
+      ],
+      [
+        352,
+        352
+      ],
+      [
+        359,
+        386
+      ],
+      [
+        399,
+        399
+      ],
+      [
+        404,
+        427
+      ],
+      [
+        441,
+        442
+      ],
+      [
+        461,
+        462
+      ],
+      [
+        481,
+        482
+      ],
+      [
+        486,
+        487
+      ],
+      [
+        491,
+        491
+      ],
+      [
+        506,
+        507
+      ]
+    ],
+    "rule_names": [
+      "barnsley_council_tax_reduction_protected_group",
+      "barnsley_council_tax_reduction_band_1_upper_income_weekly_by_household_category",
+      "barnsley_council_tax_reduction_income_band",
+      "barnsley_council_tax_reduction_selected_support_rate",
+      "barnsley_council_tax_reduction_support_rate_by_income_band",
+      "barnsley_council_tax_reduction_band_4_code",
+      "simulated_barnsley_council_tax_reduction_annual_amount",
+      "barnsley_council_tax_reduction_single_band_1_upper_income_weekly",
+      "barnsley_council_tax_reduction_couple_band_1_upper_income_weekly",
+      "barnsley_council_tax_reduction_family_one_child_band_1_upper_income_weekly",
+      "barnsley_council_tax_reduction_family_two_plus_children_band_1_upper_income_weekly"
+    ],
+    "rule_path": "rules[barnsley_council_tax_reduction_protected_group].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "438bc3c90332bf651a9aeeeefbd124657fdd4267af4d1813507ab47e822cdb55",
+  "post_fix_artifact_sha256": "5c3c1705b490ab4c3e1375d906ea030fe9ef0a10f2ad2e0ac920cd96f2259729",
+  "provision_sha256": "782d03526dd6cc17b86327541621cab45519af4e684a810164882c046c1699c3",
+  "provision_chars": 2037,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-52",
+    "provision_file": "data/corpus/provisions/uk-barnsley/manual/2026-08-03-barnsley-council-tax-reduction-2026-2027.jsonl",
+    "provision_file_sha256": "7fb496a9c0e917ce8e5b4c2dfd10362f270768587fcee70dea8100b88fc6dabf",
+    "line_number": 53,
+    "record_id": "03a6ef4e-c68f-522b-bf11-562a3864cdc0",
+    "stored_body_sha256": "782d03526dd6cc17b86327541621cab45519af4e684a810164882c046c1699c3",
+    "resolved_text_sha256": "782d03526dd6cc17b86327541621cab45519af4e684a810164882c046c1699c3",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-04-01",
+    "source_as_of": "2026-08-03",
+    "corpus_commit": "029f784d7185bad376145b36b85b713674061d6f",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "toolchain_release_pin",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "uk-barnsley/manual/council-tax-reduction-scheme-2026-2027/page-52",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix encoding tested protected-group entitlement against the single-person Band 1 ceiling (barnsley_council_tax_reduction_single_band_1_upper_income_weekly, £98.05) for every household type, so a couple or family whose income fell within its own printed Band 1 ceiling (£153.92, £241.80, £329.68 on page 52) was wrongly denied the 90% protected rate and dropped to the ordinary 85%/70% ladder.",
+    "triage_notes": "Provision read through the pinned corpus release uk-rulespec-2026-08-04 (resolver, corpus commit 029f784d): page-52 carries Appendix 3, the four-column band table, and the sentence 'These are applicants who are in receipt of certain types of disability income49, have no earnings and fall within the band 1 income from the table above.' — 'the table above' is the per-household-type table, confirming the per-category ceilings. page-51 in the same release is unrelated text (second-adult gross income disregards), so the page-51->52 / 10->11 / 13->14 moves are genuine off-by-one citation re-anchoring; taken alone those are mechanical provenance, but the module also changes meaning, so the module is fidelity. Decisive semantic change: pre-fix `barnsley_council_tax_reduction_protected_group` was an opaque external input gated on the single ceiling; post-fix it is a derived rule `receives_qualifying_disability_income and has_no_earnings and weekly_assessed_income <= band_1_upper_income_weekly_by_household_category[household_income_category]`, with two new inputs and a new indexed parameter {0: 98.05, 1: 153.92, 2: 241.80, 3: 329.68} replacing the four scalar per-type Band 1 parameters. Behaviour change is confirmed by the companion test file: barnsley_ctr_protected_couple_below_ceiling (£153.91, disability income, no earnings) now expects protected_group holds and selected_support_rate 0.9, where the pre-fix module would have treated it as unprotected Band 1 at 0.85. The other changes in the same diff are behaviour-preserving refactors: support_rate_by_income_band 0 moved from 0.90 to 0 and band 5 removed while income_band's no-discount branch moved from 5 to 0 (net rate for a no-discount household is 0 both ways), protected 90% now flows through the new selected_support_rate rule instead of the old min(rate, maximum_support_rate) in the award formula (0.90 either way), and a band_4_code parameter was introduced. maximum_support_rate stays 0.90 — only its citation/excerpt moved, so the PR's '90% max' half of the finding was already correct pre-fix. Commit has exactly one module file; PR #243 has no reviews or review comments and the commit body contains only a Co-Authored-By trailer, so the PR body is the only stated reason. No follow-up commits touch this file (git log shows only 5983823 then 2d8fded). Kind alternative considered: wrong_entity_or_scope, since the single-person threshold was applied to couples and families; I chose amount_mismatch because the entity and population were right and the wrong thing was the threshold number used for three of the four household categories.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "amount_mismatch",
+    "verifier_confidence": 0.72,
+    "verifier_justification": "The pre-fix protected-group gate read `if barnsley_council_tax_reduction_protected_group and barnsley_council_tax_reduction_weekly_assessed_income <= barnsley_council_tax_reduction_single_band_1_upper_income_weekly: 0`, applying the Single column's £98.05 Band-1 ceiling to every household category, while the pinned page-52 provision prints four Band-1 ceilings (£98.05 / £153.92 / £241.80 / £329.68) and says protected groups are those who \"have no earnings and fall within the band 1 income from the table above.\" The fix replaces that scalar with `barnsley_council_tax_reduction_band_1_upper_income_weekly_by_household_category[...household_income_category]`, and the companion tests added in the same commit pin the changed outcome (`barnsley_ctr_protected_couple_at_ceiling`, income 153.92 → protected holds, selected_support_rate 0.9), which the pre-fix formula would have scored 0.85. So the threshold actually applied to couples and families was numerically wrong against the printed table — the encoding read the wrong table cell — which is amount_mismatch under the stated definition (\"a numeric value, rate, threshold, table cell ... was wrong versus the source\"). The rest of the diff (page-51→52 / 10→11 / 13→14 re-anchoring, excerpt expansion, band-code renumbering from {0 protected, 5 no-discount} to {0 no-discount} plus the new `selected_support_rate` indirection) is provenance and semantically neutral restructuring, so this is the one meaning change and it matches the first reader's reading.",
+    "verifier_quote": "barnsley_council_tax_reduction_receives_qualifying_disability_income and barnsley_council_tax_reduction_has_no_earnings and barnsley_council_tax_reduction_weekly_assessed_income <= barnsley_council_tax_reduction_band_1_upper_income_weekly_by_household_category[barnsley_council_tax_reduction_household_income_category]",
+    "verifier_notes": "Refutation attempts that failed: (1) \"mechanical / restructure only\" — rejected: the added test `barnsley_ctr_protected_couple_at_ceiling` (category 1, income 153.92) expects protected_group holds and rate 0.9, while the pre-fix formula gates on 153.92 <= 98.05 and would yield band 1 → 0.85; the meaning genuinely changed for 3 of 4 household categories. (2) \"not_a_defect / new coverage\" — rejected: all four Band-1 ceilings were already encoded pre-fix as `*_band_1_upper_income_weekly` parameters with correct values, and the ordinary band ladder already indexed by household category, so the module already claimed per-household banding; the protected gate simply used the wrong one. (3) \"unrepresented_clause\" — the fix does newly in-line `receives_qualifying_disability_income and has_no_earnings` (pre-fix these were delegated to an imported `protected_group` input, per the deferred_outputs reason), but that is a relocation of an already-represented condition, not a missing clause. The near-miss kind a reviewer should weigh is wrong_entity_or_scope: no literal number in the file was mis-transcribed, and the mechanism is \"the single-person column applied to all household types,\" which is a parameter-selection error. I kept amount_mismatch because the rule's entity (Household), covered population, and outputs are unchanged pre and post; only the threshold value in force varies, and the taxonomy lists \"threshold\" and \"table cell\" explicitly under amount_mismatch. Source verified through the pinned release: corpus_release uk-rulespec-2026-08-04, provision record 03a6ef4e-c68f-522b-bf11-562a3864cdc0, resolved_text_sha256 782d0352…1699c3. Band-code renumbering check: pre band 5 → rate 0 and post band 0 → rate 0 are equivalent, and pre `min(rate, maximum_support_rate)` equals post `selected_support_rate` on both branches, so neither is a second defect.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Provision read through the pinned corpus release uk-rulespec-2026-08-04 (resolver, corpus commit 029f784d): page-52 carries Appendix 3, the four-column band table, and the sentence 'These are applicants who are in receipt of certain types of disability income49, have no earnings and fall within the band 1 income from the table above.' — 'the table above' is the per-household-type table, confirming the per-category ceilings. page-51 in the same release is unrelated text (second-adult gross income disregards), so the page-51->52 / 10->11 / 13->14 moves are genuine off-by-one citation re-anchoring; taken alone those are mechanical provenance, but the module also changes meaning, so the module is fidelity. Decisive semantic change: pre-fix `barnsley_council_tax_reduction_protected_group` was an opaque external input gated on the single ceiling; post-fix it is a derived rule `receives_qualifying_disability_income and has_no_earnings and weekly_assessed_income <= band_1_upper_income_weekly_by_household_category[household_income_category]`, with two new inputs and a new indexed parameter {0: 98.05, 1: 153.92, 2: 241.80, 3: 329.68} replacing the four scalar per-type Band 1 parameters. Behaviour change is confirmed by the companion test file: barnsley_ctr_protected_couple_below_ceiling (£153.91, disability income, no earnings) now expects protected_group holds and selected_support_rate 0.9, where the pre-fix module would have treated it as unprotected Band 1 at 0.85. The other changes in the same diff are behaviour-preserving refactors: support_rate_by_income_band 0 moved from 0.90 to 0 and band 5 removed while income_band's no-discount branch moved from 5 to 0 (net rate for a no-discount household is 0 both ways), protected 90% now flows through the new selected_support_rate rule instead of the old min(rate, maximum_support_rate) in the award formula (0.90 either way), and a band_4_code parameter was introduced. maximum_support_rate stays 0.90 — only its citation/excerpt moved, so the PR's '90% max' half of the finding was already correct pre-fix. Commit has exactly one module file; PR #243 has no reviews or review comments and the commit body contains only a Co-Authored-By trailer, so the PR body is the only stated reason. No follow-up commits touch this file (git log shows only 5983823 then 2d8fded). Kind alternative considered: wrong_entity_or_scope, since the single-person threshold was applied to couples and families; I chose amount_mismatch because the entity and population were right and the wrong thing was the threshold number used for three of the four household categories. | verifier confirmed at 0.72",
+  "family_id": "uk-2d8fded7-3b9cba5adffd",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

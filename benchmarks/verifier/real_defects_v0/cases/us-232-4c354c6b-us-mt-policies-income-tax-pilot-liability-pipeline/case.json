@@ -1,0 +1,212 @@
+{
+  "id": "us-232-4c354c6b-us-mt-policies-income-tax-pilot-liability-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "4c354c6b5354905b850122f319566680add274b4",
+  "parent_commit": "5de8701625540d4d423890e15a07c09537922139",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Closes gap: existing MT pilot encoded only two ordinary brackets; commit adds head-of-household $71,250 threshold, subsection (2) capital-gain rates, and fails closed outside 2026.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/973",
+  "module_path": "us-mt/policies/income_tax/pilot_liability_pipeline.yaml",
+  "corpus_citation_path": "us-mt/statute/15-30-2103",
+  "corpus_citation_paths_all": [
+    "us-mt/statute/15-30-2103"
+  ],
+  "corpus_release": "us-rulespec-2026-07-22-current",
+  "corpus_release_content_sha256": "7b1c6c0ec237dc3767f770fbb30178d6857bbe43fd4d952f57ebfc8409874bcc",
+  "corpus_commit": "c5af541326e024e04cb533bbf5709ae04e6305f6",
+  "defect_kind": "wrong_period_or_effective_date",
+  "other_kind": null,
+  "confidence": 0.49,
+  "description": "The module fails closed outside 2026.",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        12,
+        21
+      ],
+      [
+        23,
+        45
+      ],
+      [
+        53,
+        53
+      ],
+      [
+        65,
+        66
+      ],
+      [
+        72,
+        72
+      ],
+      [
+        84,
+        85
+      ],
+      [
+        92,
+        92
+      ],
+      [
+        103,
+        104
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        12,
+        24
+      ],
+      [
+        26,
+        35
+      ],
+      [
+        37,
+        172
+      ],
+      [
+        179,
+        179
+      ],
+      [
+        190,
+        260
+      ],
+      [
+        262,
+        270
+      ],
+      [
+        276,
+        276
+      ],
+      [
+        287,
+        329
+      ],
+      [
+        331,
+        333
+      ],
+      [
+        340,
+        340
+      ],
+      [
+        351,
+        375
+      ]
+    ],
+    "rule_names": [
+      "mt_pit_pilot_income_tax_liability",
+      "mt_pit_pilot_taxable_income",
+      "mt_pit_pilot_bracket_tax",
+      "mt_pit_pilot_ordinary_income_tax",
+      "mt_pit_pilot_capital_gains_tax",
+      "mt_pit_pilot_filing_status_threshold",
+      "mt_pit_pilot_head_of_household_threshold",
+      "mt_pit_pilot_nonqualified_taxable_income",
+      "mt_pit_pilot_net_long_term_capital_gain",
+      "mt_pit_pilot_capital_gain_lower_band"
+    ],
+    "rule_path": "rules[mt_pit_pilot_income_tax_liability].versions[0].effective_to"
+  },
+  "pre_fix_artifact_sha256": "ce9f5adefd465e844268126fcf06e8fcc06c7972420d400bcba0e25342a0d947",
+  "post_fix_artifact_sha256": "2d18cf76d6dfbd3d92dfa3b2819ca58a749aae06daa94f491f1f9a978b4dfb06",
+  "provision_sha256": "ab94b8947f717606ae6dede11ee12c21213b3612cc4333c2278082b45dae48cd",
+  "provision_chars": 3923,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-mt/statute/15-30-2103",
+    "provision_file": "data/corpus/provisions/us-mt/statute/2026-07-16-pit-central-us-mt-title-15.jsonl",
+    "provision_file_sha256": "c464e5931eb7d9eb0ea0e703996c9f0a260c6cb661b6d3dca80629ac496a87f4",
+    "line_number": 1263,
+    "record_id": "112e18c9-4161-51d1-a9f0-d6d7858988dc",
+    "stored_body_sha256": "ab94b8947f717606ae6dede11ee12c21213b3612cc4333c2278082b45dae48cd",
+    "resolved_text_sha256": "ab94b8947f717606ae6dede11ee12c21213b3612cc4333c2278082b45dae48cd",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-03-24",
+    "source_as_of": "2026-03-24",
+    "corpus_commit": "c5af541326e024e04cb533bbf5709ae04e6305f6",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 12,
+    "toolchain_corpus_ref": "abeab6a9f4ec432eb8fb7bb131f561cb3bcf6181",
+    "requested_citation_path": "us-mt/statute/15-30-2103",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us-mt/statute/15-30-2103'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us-mt/statute/15-30-2103'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us-mt/statute/15-30-2103'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us-mt/statute/15-30-2103'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us-mt/statute/15-30-2103'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us-mt/statute/15-30-2103'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us-mt/statute/15-30-2103'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us-mt/statute/15-30-2103'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us-mt/statute/15-30-2103'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us-mt/statute/15-30-2103'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us-mt/statute/15-30-2103'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us-mt/statute/15-30-2103'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "Every pre-fix version carried only effective_from: '2026-01-01' with no effective_to, so the module encoded a schedule the source labels \"(Temporary)\" and closes with \"(Terminates December 31, 2026--sec. 7, Ch. 227, L. 2025.)\" as applying indefinitely, silently returning the 2026 rates for post-2026 periods instead of failing closed.",
+    "triage_notes": "Provision was read through the pinned resolver (release us-rulespec-2026-07-22-current, corpus commit c5af5413, expression_date 2026-03-24) and confirms the $95,000/$71,250/$47,500 thresholds, the subsection (2) 3.0%/4.1% rates, and the December 31, 2026 termination line. Two candidate defects are bundled in this one rewrite: (a) the period defect I classified (pre-fix versions open-ended vs. an expressly temporary statute; post-fix adds effective_to '2026-12-31' to all version blocks and states \"The module fails closed outside 2026\"), and (b) the missing subsection (2) carve-out - subsection (1) opens \"Except as provided in subsection (2)\" yet the pre-fix mt_pit_pilot_bracket_tax applied the ordinary brackets to the whole of Montana taxable income with no net-long-term-capital-gain split, which the fix corrects by routing nonqualified income through (1) and the gain portion through (2). I did not make (b) the reported kind because the pre-fix module explicitly declared that branch out of scope via deferred_outputs (\"This pilot is limited to ordinary income for resident wage earners with no capital gains\"), which under the scope rule reads partly as declared-scope expansion rather than a defect; the alternative kind is unrepresented_clause. Similarly, the head-of-household $71,250 threshold was not an encoded wrong number pre-fix: thresholds and rates were caller inputs (mt_pit_pilot_supplied_bracket_floor_1/2, mt_pit_pilot_supplied_bracket_rate_1/2), so adding literals moves the oracle boundary inward rather than fixing a value - not amount_mismatch. The fail-closed claim is untested: all eight post-fix fixtures use tax_year 2026; no 2027 fixture exercises the new effective_to. Commit body is empty; the PR body frames the work as encoding (\"encode the Montana 2026 ordinary income and net long-term-capital-gain schedules\") rather than as a bug fix, which is why confidence is mid-range. Non-module files in the commit: the fixture file (rewritten for the new input surface) and oracle-coverage-pending.yaml (ledger entries for the new rules, ceiling 1589 -> 1601). Follow-up commit 8485c359c on the same PR branch adds only one proof-atom excerpt for the single-filer threshold to this module - provenance-only, mechanical.",
+    "verifier_verdict": "reclassify",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.58,
+    "verifier_justification": "The pre-fix module computed `mt_pit_pilot_income_tax_liability` as the ordinary-rate tax on all Montana taxable income, with no guard, even though the cited source opens \"(1) Except as provided in subsection (2), there must be levied...\" and then states a separate 3.0%/4.1% net-long-term-capital-gain schedule — so for any filer with long-term gains the old encoding disagreed with the source, and the fix adds exactly that carve-out plus the head-of-household band. The reader's period reading is also mechanically false as stated: the pre-fix module carried no numeric literals at all (thresholds and rates were caller-supplied inputs `mt_pit_pilot_supplied_bracket_floor_1/2` and `..._rate_1/2`, and its own rationale said \"The module adds no operative numeric literals\"), so it could not have \"silently return[ed] the 2026 rates for post-2026 periods.\" The reader's quote is a sentence in the post-fix rationale describing the new design, not evidence of the pre-fix flaw; the real commit body is empty and its subject is \"feat: complete Montana 2026 PIT schedule.\" The unbounded `effective_from: '2026-01-01'` window against a text that \"(Terminates December 31, 2026)\" is a genuine secondary flaw, but the added `effective_to` is applied uniformly across a wholesale rewrite whose stated and dominant correction is the missing subsection (2) clause.",
+    "verifier_quote": "+        formula: mt_pit_pilot_ordinary_income_tax + mt_pit_pilot_capital_gains_tax",
+    "verifier_notes": "Two fidelity flaws are bundled in one commit, so a reviewer must pick the headline kind. (a) unrepresented_clause: subsection (2)'s express carve-out (\"Except as provided in subsection (2)\") and its 3.0%/4.1% bands were absent; the fix adds `mt_pit_pilot_net_long_term_capital_gain`, `..._nonqualified_taxable_income`, `..._capital_gain_lower_band`, `..._capital_gains_tax` and folds them into the existing liability output — changing the value of an output the module already published. (b) wrong_period_or_effective_date: every pre-fix version had `effective_from: '2026-01-01'` with no `effective_to`, contradicting \"(Terminates December 31, 2026--sec. 7, Ch. 227, L. 2025.)\" and the module's own pre-fix rationale (\"applies through December 31, 2026\"). If the corpus tracks the reader's kind by what the encoding asserted rather than what it computed, (b) is defensible and the verdict becomes confirmed.\n\nCaveats that argue for keeping confidence moderate: the pre-fix module explicitly declared `deferred_outputs` for both subsection (3) definitions and scoped itself to a \"no-capital-gains pilot\" (\"Candidate 2026 ... pipeline for an ordinary full-year resident wage earner ... No capital gains or credits are active\"), and every rule is named `mt_pit_pilot_*`. A reviewer applying the \"new coverage the module never claimed\" rule strictly could push this to not_a_defect. I did not, because the liability output was unguarded (no input or condition restricted it to zero-gain filers) and the deferrals covered only the two definitions, not the liability itself.\n\nAlso note the head-of-household $71,250 addition is NOT an amount_mismatch: pre-fix the threshold was the caller-supplied `mt_pit_pilot_supplied_bracket_floor_2`, so HOH was reachable if the caller passed $71,250; the fix internalizes the parameter rather than correcting a wrong number. Source verified through the pinned release: corpus_release `us-rulespec-2026-07-22-current`, provision file `data/corpus/provisions/us-mt/statute/2026-07-16-pit-central-us-mt-title-15.jsonl` line 1263, body sha256 `ab94b8947f717606ae6dede11ee12c21213b3612cc4333c2278082b45dae48cd`, `fix_time_corpus_match: same_body`.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Provision was read through the pinned resolver (release us-rulespec-2026-07-22-current, corpus commit c5af5413, expression_date 2026-03-24) and confirms the $95,000/$71,250/$47,500 thresholds, the subsection (2) 3.0%/4.1% rates, and the December 31, 2026 termination line. Two candidate defects are bundled in this one rewrite: (a) the period defect I classified (pre-fix versions open-ended vs. an expressly temporary statute; post-fix adds effective_to '2026-12-31' to all version blocks and states \"The module fails closed outside 2026\"), and (b) the missing subsection (2) carve-out - subsection (1) opens \"Except as provided in subsection (2)\" yet the pre-fix mt_pit_pilot_bracket_tax applied the ordinary brackets to the whole of Montana taxable income with no net-long-term-capital-gain split, which the fix corrects by routing nonqualified income through (1) and the gain portion through (2). I did not make (b) the reported kind because the pre-fix module explicitly declared that branch out of scope via deferred_outputs (\"This pilot is limited to ordinary income for resident wage earners with no capital gains\"), which under the scope rule reads partly as declared-scope expansion rather than a defect; the alternative kind is unrepresented_clause. Similarly, the head-of-household $71,250 threshold was not an encoded wrong number pre-fix: thresholds and rates were caller inputs (mt_pit_pilot_supplied_bracket_floor_1/2, mt_pit_pilot_supplied_bracket_rate_1/2), so adding literals moves the oracle boundary inward rather than fixing a value - not amount_mismatch. The fail-closed claim is untested: all eight post-fix fixtures use tax_year 2026; no 2027 fixture exercises the new effective_to. Commit body is empty; the PR body frames the work as encoding (\"encode the Montana 2026 ordinary income and net long-term-capital-gain schedules\") rather than as a bug fix, which is why confidence is mid-range. Non-module files in the commit: the fixture file (rewritten for the new input surface) and oracle-coverage-pending.yaml (ledger entries for the new rules, ceiling 1589 -> 1601). Follow-up commit 8485c359c on the same PR branch adds only one proof-atom excerpt for the single-filer threshold to this module - provenance-only, mechanical. | verifier proposed unrepresented_clause at 0.58 (below 0.6); triage kind kept",
+  "family_id": "us-4c354c6b-d408345dbfd5",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

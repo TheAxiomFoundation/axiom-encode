@@ -1,0 +1,420 @@
+{
+  "id": "us-224-2ef1729c-us-wi-policies-income-tax-2026-full-year-resident-core",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "2ef1729c01035b0519ff88726fd262c84b8f7390",
+  "parent_commit": "caa6e96f8e5fbe04afbd8f9ed049094a4e63ca53",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Converts Wisconsin annual liability to a hold pending the tax table (110 deletions in the module): scope/retire correction.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1037",
+  "module_path": "us-wi/policies/income_tax/2026_full_year_resident_core.yaml",
+  "corpus_citation_path": "us-wi/statute/71.01",
+  "corpus_citation_paths_all": [
+    "us-wi/statute/71.01",
+    "us-wi/statute/71.02",
+    "us-wi/statute/71.05",
+    "us-wi/statute/71.06",
+    "us-wi/statute/71.07",
+    "us-wi/statute/71.10",
+    "us-wi/form/individual-income-tax/2026/1-es/document-1"
+  ],
+  "corpus_release": "us-rulespec-2026-07-22-current-la-status-fix",
+  "corpus_release_content_sha256": "6bfd97b24cb63cb709fa52e9a5e6764c916dec95c5557447e11f47778ee4768f",
+  "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.72,
+  "description": "Independent review found that the original candidate incorrectly treated continuous Form 1-ES schedules as the annual Tax Table required by Wis. Stat. § 71.06(3).",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        31,
+        33
+      ],
+      [
+        37,
+        40
+      ],
+      [
+        46,
+        50
+      ],
+      [
+        55,
+        66
+      ],
+      [
+        1156,
+        1156
+      ],
+      [
+        1167,
+        1167
+      ],
+      [
+        1596,
+        1596
+      ],
+      [
+        1601,
+        1601
+      ],
+      [
+        1627,
+        1627
+      ],
+      [
+        1632,
+        1632
+      ],
+      [
+        1649,
+        1649
+      ],
+      [
+        1651,
+        1651
+      ],
+      [
+        1657,
+        1657
+      ],
+      [
+        1669,
+        1669
+      ],
+      [
+        1672,
+        1673
+      ],
+      [
+        1676,
+        1676
+      ],
+      [
+        1685,
+        1685
+      ],
+      [
+        1691,
+        1691
+      ],
+      [
+        1695,
+        1699
+      ],
+      [
+        1701,
+        1701
+      ],
+      [
+        1707,
+        1707
+      ],
+      [
+        1721,
+        1721
+      ],
+      [
+        1725,
+        1725
+      ],
+      [
+        1731,
+        1731
+      ],
+      [
+        1745,
+        1745
+      ],
+      [
+        1749,
+        1749
+      ],
+      [
+        1755,
+        1755
+      ],
+      [
+        1769,
+        1769
+      ],
+      [
+        1773,
+        1773
+      ],
+      [
+        1779,
+        1779
+      ],
+      [
+        1793,
+        1793
+      ],
+      [
+        1803,
+        1803
+      ],
+      [
+        1809,
+        1809
+      ],
+      [
+        1813,
+        1817
+      ],
+      [
+        1819,
+        1819
+      ],
+      [
+        1825,
+        1825
+      ],
+      [
+        1837,
+        1837
+      ],
+      [
+        1846,
+        1846
+      ],
+      [
+        1852,
+        1852
+      ],
+      [
+        1856,
+        1860
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        31,
+        34
+      ],
+      [
+        38,
+        42
+      ],
+      [
+        48,
+        53
+      ],
+      [
+        58,
+        67
+      ],
+      [
+        1152,
+        1168
+      ],
+      [
+        1174,
+        1174
+      ],
+      [
+        1185,
+        1186
+      ],
+      [
+        1615,
+        1615
+      ],
+      [
+        1620,
+        1620
+      ],
+      [
+        1646,
+        1646
+      ],
+      [
+        1651,
+        1651
+      ],
+      [
+        1668,
+        1668
+      ],
+      [
+        1670,
+        1670
+      ],
+      [
+        1676,
+        1676
+      ],
+      [
+        1688,
+        1688
+      ],
+      [
+        1691,
+        1692
+      ],
+      [
+        1695,
+        1695
+      ],
+      [
+        1704,
+        1704
+      ],
+      [
+        1710,
+        1710
+      ],
+      [
+        1714,
+        1714
+      ],
+      [
+        1716,
+        1716
+      ],
+      [
+        1722,
+        1722
+      ],
+      [
+        1736,
+        1736
+      ],
+      [
+        1740,
+        1740
+      ],
+      [
+        1746,
+        1746
+      ],
+      [
+        1760,
+        1760
+      ],
+      [
+        1764,
+        1764
+      ],
+      [
+        1770,
+        1770
+      ],
+      [
+        1784,
+        1784
+      ],
+      [
+        1788,
+        1788
+      ],
+      [
+        1794,
+        1794
+      ],
+      [
+        1808,
+        1808
+      ],
+      [
+        1818,
+        1818
+      ],
+      [
+        1824,
+        1824
+      ],
+      [
+        1828,
+        1828
+      ],
+      [
+        1830,
+        1830
+      ],
+      [
+        1836,
+        1836
+      ],
+      [
+        1848,
+        1848
+      ],
+      [
+        1857,
+        1857
+      ],
+      [
+        1863,
+        1863
+      ],
+      [
+        1867,
+        1867
+      ]
+    ],
+    "rule_names": [
+      "wi_pit_2026_complete_gross_tax",
+      "wi_pit_2026_complete_tax_after_nonrefundable_credits",
+      "wi_pit_2026_net_income_tax_liability_before_payments",
+      "wi_pit_2026_complete_liability_source_hold_applies",
+      "wi_pit_2026_annual_tax_table_source_hold_applies",
+      "wi_pit_2026_profile_candidate_gross_tax",
+      "wi_pit_2026_final_bracket_selector",
+      "wi_pit_2026_final_bracket_within_schedule",
+      "wi_pit_2026_tax_after_stillbirth_credit",
+      "wi_pit_2026_tax_after_transportation_credit",
+      "wi_pit_2026_tax_after_school_property_credit",
+      "wi_pit_2026_profile_candidate_tax_after_nonrefundable_credits",
+      "wi_pit_2026_profile_candidate_net_income_tax_liability_before_payments"
+    ],
+    "rule_path": "rules[wi_pit_2026_complete_gross_tax].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "d1b40bd92fb99aeb403198417d8e4346c3855805b6802f9269da314ac47d4fe8",
+  "post_fix_artifact_sha256": "463229405cff16821b15eabd4c5b66605feeea17b2920fde6b775bb5b60ec5ce",
+  "provision_sha256": "f8510c1b31a573916af3fd42a4d46cfc65554d8fd68d342ef95a00435e11dbea",
+  "provision_chars": 23706,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-wi/statute/71.01",
+    "provision_file": "data/corpus/provisions/us-wi/statute/2026-07-16-pit-west-chapter-71.jsonl",
+    "provision_file_sha256": "af1b3afb17c7a3979e4a8ade6d0a56162c7490dfea1f2baeb28d149d52a55147",
+    "line_number": 18,
+    "record_id": "7893c742-5f81-5e97-9734-b9f1f8f27473",
+    "stored_body_sha256": "f8510c1b31a573916af3fd42a4d46cfc65554d8fd68d342ef95a00435e11dbea",
+    "resolved_text_sha256": "f8510c1b31a573916af3fd42a4d46cfc65554d8fd68d342ef95a00435e11dbea",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-04-03",
+    "source_as_of": "2026-04-03",
+    "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "ddc9b0f95cb0cd7ed24d42bd62fec4dbf0e1b846",
+    "requested_citation_path": "us-wi/statute/71.01",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module grounded its public annual Wisconsin gross tax (and the post-credit tax and net liability derived from it) on the continuous Form 1-ES estimated-tax bracket schedule (base + rate * (taxable income - floor), proof atom us-wi/form/individual-income-tax/2026/1-es/document-1, excerpt \"The 2026 Gross Tax is\"), whereas Wis. Stat. 71.06(3) requires annual personal income tax to be determined from the secretary of revenue's published Tax Table using brackets of not more than $100 with tax computed at the middle of each bracket to the nearest dollar, so the annual liability chain rested on a provision/document that does not supply the annual tax it claimed to compute.",
+    "triage_notes": "Read the provision: resolve_provision.py on us-wi/statute/71.06 (corpus release us-rulespec-2026-07-22-current-la-status-fix, provision file data/corpus/provisions/us-wi/statute/2026-07-16-pit-west-chapter-71.jsonl, fix_time_corpus_match=same_body) returns subsection \"(3) Tax table. The secretary of revenue shall prepare a table from which the tax in effect on taxable personal income shall be determined... (b) The first 2 columns shall contain the minimum and the maximum amounts, respectively, of taxable income in brackets of not more than $100... (c) ...rates shall be applied to the amount of income at the middle of each bracket. The amount of tax for each bracket shall be computed to the nearest dollar.\" That confirms the reviewer's stated ground. Kind chosen as untraceable_branch under the rule that formulas grounded on the wrong provision belong there; an alternative reading is amount_mismatch (continuous-schedule tax differs from midpoint/whole-dollar table tax by a few dollars), but the fix removes/re-grounds rather than re-values, and the reviewer framed it as the wrong source document, so untraceable_branch fits better. Scope of the single-module diff: three public Money rules changed from a supported-profile computation to constant 0 with re-grounded proof atoms; a new Judgment rule wi_pit_2026_annual_tax_table_source_hold_applies (formula: true) was added and OR-ed into wi_pit_2026_complete_liability_source_hold_applies; six private candidate rules were renamed to *_estimated_tax_schedule_*_probe with source strings rewritten; module description/summary prose was rewritten to match. Those renames and prose edits are provenance/bookkeeping riding along with the substantive hold, so the decisive change is the gross-tax formula. Provenance doubt worth a reviewer's eye: the new proof-atom excerpt \"shall determine income tax from the tax table\" is NOT a verbatim substring of the resolved 71.06 text (the statute reads \"shall prepare a table from which the tax ... shall be determined\"); it is a paraphrase, though that is a separate provenance issue, not the fidelity defect. Provenance of the defect itself: it was introduced in the immediate parent caa6e96f8 \"Encode Wisconsin 2026 resident liability end to end\" on the same PR branch (#1037) and repaired here before merge, so this is an intra-PR encoder defect caught by independent review rather than one that reached main. The commit body is empty; all quotable evidence is in the PR body. Non-module files in the commit (encoding manifest, oracle-coverage-pending.yaml, companion test file) moved consistently with the hold. Follow-up commits touching the same module later: e45d2f9e4 \"Floor Wisconsin completed taxable income\" and e1296d6c1 \"Consolidate Wisconsin Form 1-ES schedule (#1111)\". Bundle contained exactly the one module index expected for this chunk.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "untraceable_branch",
+    "verifier_confidence": 0.72,
+    "verifier_justification": "I tried to refute this three ways and it survived. The diff changes encoded meaning, not bookkeeping: the three public annual rules (`wi_pit_2026_complete_gross_tax`, `..._complete_tax_after_nonrefundable_credits`, `..._net_income_tax_liability_before_payments`) drop their computed formulas for `formula: 0`, a new `wi_pit_2026_annual_tax_table_source_hold_applies` Judgment is added and OR'd into the liability hold, and each formula proof atom is re-grounded from the Form 1-ES estimated-tax schedule to `us-wi/statute/71.06`. Reading § 71.06 in the pinned release confirms the reviewer's premise: sub. (3) says \"The secretary of revenue shall prepare a table from which the tax in effect on taxable personal income shall be determined,\" with brackets \"of not more than $100,\" rates \"applied to the amount of income at the middle of each bracket,\" and tax \"computed to the nearest dollar\" — so a continuous base+rate formula is not the determination the statute prescribes for in-table annual income. That is the taxonomy's untraceable_branch case verbatim (\"including formulas grounded on the wrong provision\"): the fix removes/re-grounds a public value whose cited basis was the wrong instrument, rather than correcting a number, a bound, a date, or a boolean.",
+    "verifier_quote": "-            source: {corpus_citation_path: us-wi/form/individual-income-tax/2026/1-es/document-1, excerpt: \"The 2026 Gross Tax is\"}\n+            source: {corpus_citation_path: us-wi/statute/71.06, excerpt: \"shall determine income tax from the tax table\"}\n     versions:\n       - effective_from: '2026-01-01'\n         effective_to: '2026-12-31'\n-        formula: |-\n-          if wi_pit_2026_supported_liability_profile_applies:\n-            wi_pit_2026_profile_candidate_gross_tax\n-          else:\n-            0\n+        formula: 0",
+    "verifier_notes": "Refutations attempted and why they failed. (1) mechanical: most of the 357-line diff really is renames (`wi_pit_2026_final_bracket_selector` → `..._estimated_tax_schedule_bracket_selector_probe`, etc.), `source:` prose, and header/summary rewrites — and the renamed rules already carried `private: true` before the fix, so no rule changed visibility. But three public formulas collapse to `0` and a new Judgment rule appears, so meaning changed. (2) wrong_entity_or_scope (\"output surface\"): entity TaxUnit, dtype Money, unit USD, period Year, effective window, and the module's public/private split are all unchanged; only the formulas and their grounding moved. (3) amount_mismatch: the true arithmetic disagreement is midpoint-of-$100-band vs continuous, but the fix installs no corrected amount, so nothing supports that kind.\n\nCaveats a reviewer should weigh, which is why I am at 0.72 rather than higher. The pre-fix formula was not invented: the Form 1-ES text I pulled titles that page \"2026 Tax Rate Schedules for Full-Year Residents*\" and its rates/brackets are the § 71.06(1r)/(2)(k)(L) rates with 2026 indexing under (2e)(bm); § 71.06(3)(b) even contemplates formula computation above the table's range (\"Computation of tax on taxable income in excess of the amount shown on the table may be set forth at the foot of such table\"). So the pre-fix divergence is bounded by midpoint/whole-dollar rounding inside the table range (a few dollars), not a structurally wrong tax. And the post-fix value `0` is not the statutory amount either — it is this repo's fail-closed hold convention, paired with the new hold Judgment; the screening line itself called this a \"scope/retire correction.\" A reviewer who holds that a retraction-to-hold is a provenance/coverage decision rather than a source-meaning correction could reasonably land on not_a_defect.\n\nSeparate finding for the fix itself: the new proof excerpt \"shall determine income tax from the tax table\" is not verbatim in § 71.06(3) as stored in the pinned corpus (release us-rulespec-2026-07-22-current-la-status-fix, provision record 4cbb170f-8857-5c09-a1f1-e8aa1aec125f), which reads \"shall prepare a table from which the tax in effect on taxable personal income shall be determined.\" Four atoms in this commit carry that non-verbatim excerpt (diff lines 88, 194, 301, 345).",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Read the provision: resolve_provision.py on us-wi/statute/71.06 (corpus release us-rulespec-2026-07-22-current-la-status-fix, provision file data/corpus/provisions/us-wi/statute/2026-07-16-pit-west-chapter-71.jsonl, fix_time_corpus_match=same_body) returns subsection \"(3) Tax table. The secretary of revenue shall prepare a table from which the tax in effect on taxable personal income shall be determined... (b) The first 2 columns shall contain the minimum and the maximum amounts, respectively, of taxable income in brackets of not more than $100... (c) ...rates shall be applied to the amount of income at the middle of each bracket. The amount of tax for each bracket shall be computed to the nearest dollar.\" That confirms the reviewer's stated ground. Kind chosen as untraceable_branch under the rule that formulas grounded on the wrong provision belong there; an alternative reading is amount_mismatch (continuous-schedule tax differs from midpoint/whole-dollar table tax by a few dollars), but the fix removes/re-grounds rather than re-values, and the reviewer framed it as the wrong source document, so untraceable_branch fits better. Scope of the single-module diff: three public Money rules changed from a supported-profile computation to constant 0 with re-grounded proof atoms; a new Judgment rule wi_pit_2026_annual_tax_table_source_hold_applies (formula: true) was added and OR-ed into wi_pit_2026_complete_liability_source_hold_applies; six private candidate rules were renamed to *_estimated_tax_schedule_*_probe with source strings rewritten; module description/summary prose was rewritten to match. Those renames and prose edits are provenance/bookkeeping riding along with the substantive hold, so the decisive change is the gross-tax formula. Provenance doubt worth a reviewer's eye: the new proof-atom excerpt \"shall determine income tax from the tax table\" is NOT a verbatim substring of the resolved 71.06 text (the statute reads \"shall prepare a table from which the tax ... shall be determined\"); it is a paraphrase, though that is a separate provenance issue, not the fidelity defect. Provenance of the defect itself: it was introduced in the immediate parent caa6e96f8 \"Encode Wisconsin 2026 resident liability end to end\" on the same PR branch (#1037) and repaired here before merge, so this is an intra-PR encoder defect caught by independent review rather than one that reached main. The commit body is empty; all quotable evidence is in the PR body. Non-module files in the commit (encoding manifest, oracle-coverage-pending.yaml, companion test file) moved consistently with the hold. Follow-up commits touching the same module later: e45d2f9e4 \"Floor Wisconsin completed taxable income\" and e1296d6c1 \"Consolidate Wisconsin Form 1-ES schedule (#1111)\". Bundle contained exactly the one module index expected for this chunk. | verifier confirmed at 0.72",
+  "family_id": "us-2ef1729c-6c5f5f1f269f",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

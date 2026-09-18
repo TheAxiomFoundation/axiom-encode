@@ -1,0 +1,480 @@
+{
+  "id": "us-253-86e2549d-statutes-26-63-c",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "86e2549dc760f652ab5419fa52d4cb6eeba1f87b",
+  "parent_commit": "b3801ee4eb82f8fc2c753d809c8b36d9ae6c42c2",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Subject says Encode, but it re-encodes existing 63, 63(c), 63(c)(5) and rev-proc standard-deduction modules: taxable_income restructured into 63(a)/(b) branches, standard_deduction effective_from 2026 to 2018, inputs and rule sets replaced; unsure.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/25",
+  "module_path": "statutes/26/63/c.yaml",
+  "corpus_citation_path": "us/statute/26/63",
+  "corpus_citation_paths_all": [
+    "us/statute/26/63"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.49,
+  "description": "encode 26 USC 63(c) standard deduction through the encoder apply flow",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        10,
+        11
+      ],
+      [
+        13,
+        18
+      ],
+      [
+        23,
+        23
+      ],
+      [
+        26,
+        26
+      ],
+      [
+        28,
+        28
+      ],
+      [
+        31,
+        31
+      ],
+      [
+        33,
+        33
+      ],
+      [
+        36,
+        36
+      ],
+      [
+        38,
+        38
+      ],
+      [
+        41,
+        41
+      ],
+      [
+        43,
+        43
+      ],
+      [
+        45,
+        48
+      ],
+      [
+        50,
+        50
+      ],
+      [
+        53,
+        53
+      ],
+      [
+        55,
+        55
+      ],
+      [
+        60,
+        60
+      ],
+      [
+        63,
+        63
+      ],
+      [
+        65,
+        65
+      ],
+      [
+        67,
+        67
+      ],
+      [
+        69,
+        69
+      ],
+      [
+        75,
+        75
+      ],
+      [
+        80,
+        80
+      ],
+      [
+        83,
+        83
+      ],
+      [
+        85,
+        89
+      ],
+      [
+        91,
+        91
+      ],
+      [
+        93,
+        93
+      ],
+      [
+        95,
+        95
+      ],
+      [
+        101,
+        101
+      ],
+      [
+        106,
+        106
+      ],
+      [
+        109,
+        109
+      ],
+      [
+        111,
+        111
+      ],
+      [
+        114,
+        114
+      ],
+      [
+        118,
+        120
+      ],
+      [
+        124,
+        126
+      ],
+      [
+        128,
+        128
+      ],
+      [
+        130,
+        131
+      ],
+      [
+        133,
+        133
+      ],
+      [
+        135,
+        135
+      ],
+      [
+        141,
+        141
+      ],
+      [
+        146,
+        146
+      ],
+      [
+        149,
+        149
+      ],
+      [
+        154,
+        154
+      ],
+      [
+        156,
+        160
+      ],
+      [
+        162,
+        166
+      ],
+      [
+        168,
+        168
+      ],
+      [
+        171,
+        171
+      ],
+      [
+        173,
+        173
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        10,
+        12
+      ],
+      [
+        14,
+        17
+      ],
+      [
+        22,
+        22
+      ],
+      [
+        25,
+        38
+      ],
+      [
+        40,
+        40
+      ],
+      [
+        43,
+        56
+      ],
+      [
+        58,
+        58
+      ],
+      [
+        61,
+        74
+      ],
+      [
+        76,
+        76
+      ],
+      [
+        79,
+        79
+      ],
+      [
+        81,
+        81
+      ],
+      [
+        83,
+        83
+      ],
+      [
+        85,
+        121
+      ],
+      [
+        124,
+        124
+      ],
+      [
+        126,
+        127
+      ],
+      [
+        132,
+        132
+      ],
+      [
+        135,
+        150
+      ],
+      [
+        152,
+        152
+      ],
+      [
+        154,
+        157
+      ],
+      [
+        159,
+        159
+      ],
+      [
+        165,
+        165
+      ],
+      [
+        170,
+        170
+      ],
+      [
+        173,
+        173
+      ],
+      [
+        175,
+        188
+      ],
+      [
+        190,
+        190
+      ],
+      [
+        192,
+        195
+      ],
+      [
+        197,
+        197
+      ],
+      [
+        203,
+        203
+      ],
+      [
+        208,
+        208
+      ],
+      [
+        211,
+        211
+      ],
+      [
+        213,
+        213
+      ],
+      [
+        216,
+        247
+      ],
+      [
+        251,
+        253
+      ],
+      [
+        257,
+        259
+      ],
+      [
+        261,
+        261
+      ],
+      [
+        263,
+        264
+      ],
+      [
+        266,
+        266
+      ],
+      [
+        268,
+        268
+      ],
+      [
+        274,
+        274
+      ],
+      [
+        279,
+        279
+      ],
+      [
+        282,
+        302
+      ],
+      [
+        307,
+        325
+      ],
+      [
+        327,
+        330
+      ],
+      [
+        332,
+        335
+      ],
+      [
+        337,
+        337
+      ],
+      [
+        340,
+        340
+      ],
+      [
+        342,
+        342
+      ]
+    ],
+    "rule_names": [
+      "basic_standard_deduction_before_dependent_limitation",
+      "basic_standard_deduction",
+      "basic_standard_deduction_limited_for_dependents",
+      "head_of_household_basic_standard_deduction_amount",
+      "other_case_basic_standard_deduction_amount",
+      "additional_standard_deduction",
+      "additional_std_ded_amount",
+      "num_additional_standard_deduction_conditions",
+      "standard_deduction",
+      "standard_deduction_ineligible"
+    ],
+    "rule_path": "rules[basic_standard_deduction_before_dependent_limitation].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "b0456fe4c1b877d2a461fbc8d56bf84e647d94ca604b0487835cfb769583b517",
+  "post_fix_artifact_sha256": "f0837d58e11fb24050ea1937569bc990f5c8bc5df3eb21a04047cde587b9d905",
+  "provision_sha256": "7fa5f5d72de7ef69a3543175d7f57f83aaee5defb237144d85afef68564f153b",
+  "provision_chars": 8017,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/63",
+    "provision_file": "data/corpus/provisions/us/statute/2026-05-10-tax-sections-r2026-07-15-self-contained-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "f48f152a03f99915c6ac9a847986e238ebeddd29ffb4199f0528c5e2a406eae4",
+    "line_number": 3,
+    "record_id": "7acfd1b0-b61a-5a75-ab49-380a365a45a2",
+    "stored_body_sha256": "7fa5f5d72de7ef69a3543175d7f57f83aaee5defb237144d85afef68564f153b",
+    "resolved_text_sha256": "7fa5f5d72de7ef69a3543175d7f57f83aaee5defb237144d85afef68564f153b",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2025-12-03",
+    "source_as_of": "2025-12-03",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us/statute/26/63",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/63'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/63'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/63'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/63'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix 63(c) module never encoded 63(c)(2) at all — no '200 percent of the dollar amount in effect under subparagraph (C)' rule for a joint return or surviving spouse, no (2)(B)/(C) amounts, and no (4)/(7)(A)/(7)(B)(ii) substituted amounts or inflation adjustment — it imported a single basic_standard_deduction_amount wholesale from Rev. Proc. 2025-32, so the statute it cites was not represented (and, combined with index 0's missing filing-status 4 arm, surviving spouses got no basic standard deduction).",
+    "triage_notes": "Provision READ via resolve_provision; 63(c)(2)(A)-(C), (4), (5), (6), (7) confirmed verbatim. Pre-fix rule list verified by git show of the parent file: only standard_deduction_ineligible, num_additional_standard_deduction_conditions, additional_std_ded_amount, basic_standard_deduction_limited_for_dependents, standard_deduction. Alternative kind a reviewer may prefer: wrong_period_or_effective_date — every version's effective_from moved 2026-01-01 to 2018-01-01, which matches 63(c)(7)'s 'In the case of a taxable year beginning after December 31, 2017' but follows from the content change rather than standing alone. Confounder that keeps confidence at 0.5: the fix also swaps the additional standard deduction from the Rev. Proc.'s 2026 indexed $1,650/$2,050 to 63(f)'s unindexed $600/$750 (the companion test at this commit asserts us:statutes/26/63/c#additional_standard_deduction: 600 for tax year 2026) and turns the cost-of-living adjustment into a free input, so the module is more literally statute-faithful but no longer produces applied-year 2026 amounts; the dependent limitation also changes from substituting the dependent amount to min(own basic SD, statutory limit). Later commits 3fe1c7bc3/f1ad4f927/095d680d4 touch 63(f) and 26 USC encodings again.",
+    "verifier_verdict": "unclear",
+    "verifier_defect_kind": "wrong_entity_or_scope",
+    "verifier_confidence": 0.62,
+    "verifier_justification": "The commit is a re-encode, not a repair: subject \"Encode upstream IRC 63 dependencies\", PR title \"Encode 26 USC 63(c) standard deduction\", no reviews or comments, and the reader's quote is the PR's build description, containing no defect language. The pre-fix module was scoped `effective_from: '2026-01-01'` and delegated the dollar amounts to `us:policies/irs/rev-proc-2025-32/standard-deduction#basic_standard_deduction_amount`, which publishes the actual 2026 §63(c)(2)-as-adjusted figures (16,100 / 32,200 / 24,150) correctly for filing statuses 0, 1, 2 and 3 — so for its declared window it produced right answers, and the fix's own new tests show the post-fix module no longer reproduces published amounts at all (joint 2026 = 34,600 with `cost_of_living_adjustment_under_section_1_f_3: 0.1` as a synthetic input). The one concrete behavioral gap the reader cites — no filing-status 4 arm, so surviving spouses got nothing — lives in module index 0's `match filing_status` (arms 1, 2, 3, 0 only), not in this file, whose pre-fix formulas had no filing-status logic to be wrong; and the 2026→2018 window move is coverage the module never claimed, not a date correction. What keeps this from a clean not_a_defect is that the pre-fix rule declared `source: IRC section 63(c)(2), (5), and (7)` with proof atoms excerpting the statutory (2)(B)/(C) amounts while its formula resolved to a Rev. Proc. table import, so the module did assert statutory coverage it did not deliver.",
+    "verifier_quote": "-          if deduction_under_section_151_allowable_to_another_taxpayer:\n-              dependent_standard_deduction\n-          else:\n-              basic_standard_deduction_amount\n+          if filing_status == 1 or filing_status == 4:\n+            joint_or_surviving_spouse_multiplier * other_case_basic_standard_deduction_amount",
+    "verifier_notes": "Refutation targets, in order of strength. (1) Kind is wrong even if the case is credited: the only population that changes from \"no value\" to \"a value\" is filing status 4, which the harness's own definition puts under wrong_entity_or_scope (\"filing status\"), not unrepresented_clause; and the substitution of statutory §63(c)(2)/(7) base amounts for a Rev. Proc. import is closer to untraceable_branch (\"formulas grounded on the wrong provision\") than to an added clause. The reader's own reading concedes the surviving-spouse gap is \"combined with index 0's missing filing-status 4 arm\" — i.e. the defect it describes is module index 0's, and crediting it here double-counts the same gap across two candidate cases. (2) Direction-of-accuracy check: the post-fix HoH formula is `head_of_household_basic_standard_deduction_after_2017_base_amount + floor((... * cost_of_living_adjustment_under_section_1_f_3 / post_2025_inflation_increase_rounding_multiple)) * post_2025_inflation_increase_rounding_multiple`, i.e. 23,625 plus an increase rounded down to a multiple of 50. The published 2026 HoH amount is 24,150; 24,150 − 23,625 = 525, which is not a multiple of 50, so no COLA value makes the post-fix formula emit the published figure (it can only reach 24,125 or 24,175). That is arithmetic I computed from the diff and the pre-fix Rev. Proc. parameters, not a claim about IRS methodology, but it means the change cannot be characterized as making 2026 amounts more accurate. (3) Both `standard_deduction_ineligible` and `standard_deduction` keep identical logic across the diff; only input names and indentation change there, so the §63(c)(6) half of the module is pure rename. (4) If a reviewer keeps this case, the honest framing is \"re-grounded a guidance-backed 2026 module on its cited statute and extended the window to 2018,\" with the filing-status-4 arm as the single meaning-changing consequence — and the pre-fix rule's `source: IRC section 63(c)(2), (5), and (7)` with (2)(B)/(C) proof excerpts is the only thing that makes the pre-fix state arguably wrong rather than merely narrower.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Provision READ via resolve_provision; 63(c)(2)(A)-(C), (4), (5), (6), (7) confirmed verbatim. Pre-fix rule list verified by git show of the parent file: only standard_deduction_ineligible, num_additional_standard_deduction_conditions, additional_std_ded_amount, basic_standard_deduction_limited_for_dependents, standard_deduction. Alternative kind a reviewer may prefer: wrong_period_or_effective_date — every version's effective_from moved 2026-01-01 to 2018-01-01, which matches 63(c)(7)'s 'In the case of a taxable year beginning after December 31, 2017' but follows from the content change rather than standing alone. Confounder that keeps confidence at 0.5: the fix also swaps the additional standard deduction from the Rev. Proc.'s 2026 indexed $1,650/$2,050 to 63(f)'s unindexed $600/$750 (the companion test at this commit asserts us:statutes/26/63/c#additional_standard_deduction: 600 for tax year 2026) and turns the cost-of-living adjustment into a free input, so the module is more literally statute-faithful but no longer produces applied-year 2026 amounts; the dependent limitation also changes from substituting the dependent amount to min(own basic SD, statutory limit). Later commits 3fe1c7bc3/f1ad4f927/095d680d4 touch 63(f) and 26 USC encodings again. | verifier unclear at 0.62",
+  "family_id": "us-86e2549d-84c448a4fba0",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

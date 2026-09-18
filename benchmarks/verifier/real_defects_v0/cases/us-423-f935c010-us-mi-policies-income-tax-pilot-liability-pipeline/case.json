@@ -1,0 +1,237 @@
+{
+  "id": "us-423-f935c010-us-mi-policies-income-tax-pilot-liability-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "f935c010009cdfbff953b86258051806706c39f0",
+  "parent_commit": "fd918bb79f229464558b7e60c65899b15f7d9afa",
+  "commit_date": "2026-07-21",
+  "commit_subject": "Promote Michigan PIT to taxable-income boundary",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/963",
+  "module_path": "us-mi/policies/income_tax/pilot_liability_pipeline.yaml",
+  "corpus_citation_path": "us-mi/guidance/treasury/taxpayer-notices/2026/04/15/individual-income-tax-rate/rate-determination",
+  "corpus_citation_paths_all": [
+    "us-mi/guidance/treasury/taxpayer-notices/2026/04/15/individual-income-tax-rate/rate-determination"
+  ],
+  "corpus_release": "us-rulespec-2026-07-22-current",
+  "corpus_release_content_sha256": "7b1c6c0ec237dc3767f770fbb30178d6857bbe43fd4d952f57ebfc8409874bcc",
+  "corpus_commit": "c5af541326e024e04cb533bbf5709ae04e6305f6",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.62,
+  "description": "promotes Michigan 2026 personal income tax at the completed-return `mi_taxable_income` boundary",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        7,
+        8
+      ],
+      [
+        10,
+        10
+      ],
+      [
+        12,
+        13
+      ],
+      [
+        15,
+        34
+      ],
+      [
+        36,
+        56
+      ],
+      [
+        64,
+        64
+      ],
+      [
+        71,
+        72
+      ],
+      [
+        76,
+        77
+      ],
+      [
+        83,
+        83
+      ],
+      [
+        90,
+        91
+      ],
+      [
+        95,
+        98
+      ],
+      [
+        103,
+        115
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        7,
+        7
+      ],
+      [
+        9,
+        9
+      ],
+      [
+        11,
+        12
+      ],
+      [
+        14,
+        24
+      ],
+      [
+        26,
+        36
+      ],
+      [
+        44,
+        44
+      ],
+      [
+        51,
+        52
+      ],
+      [
+        55,
+        55
+      ],
+      [
+        57,
+        58
+      ],
+      [
+        64,
+        64
+      ],
+      [
+        68,
+        73
+      ],
+      [
+        77,
+        78
+      ],
+      [
+        81,
+        81
+      ],
+      [
+        83,
+        85
+      ],
+      [
+        90,
+        90
+      ]
+    ],
+    "rule_names": [
+      "mi_pit_pilot_income_tax_liability",
+      "mi_pit_pilot_schedule_tax",
+      "mi_pit_pilot_taxable_income"
+    ],
+    "rule_path": "rules[mi_pit_pilot_income_tax_liability].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "d971200a1690316ad7c3e9831a53757ed09741bc40666fbe04aa5d750465025d",
+  "post_fix_artifact_sha256": "1321090c4aa273dc68bd7d56d9ff35a31e00fabbb26b6679984cb6e774312aa5",
+  "provision_sha256": "f96c7125a24e2788fe40af27d95a66efa2fd369fcc665a1701b6ba124d730791",
+  "provision_chars": 1089,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-mi/guidance/treasury/taxpayer-notices/2026/04/15/individual-income-tax-rate/rate-determination",
+    "provision_file": "data/corpus/provisions/us-mi/guidance/2026-07-21-mi-2026-income-tax-rate-notice.jsonl",
+    "provision_file_sha256": "8b215e0dd3ecf57cb186314450c9a78bab1f342282222d8fcf2e636f12d824c1",
+    "line_number": 2,
+    "record_id": "b83a5301-30f5-5aec-812a-47fe0b03c15f",
+    "stored_body_sha256": "f96c7125a24e2788fe40af27d95a66efa2fd369fcc665a1701b6ba124d730791",
+    "resolved_text_sha256": "f96c7125a24e2788fe40af27d95a66efa2fd369fcc665a1701b6ba124d730791",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-04-15",
+    "source_as_of": "2026-07-21",
+    "corpus_commit": "c5af541326e024e04cb533bbf5709ae04e6305f6",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 12,
+    "toolchain_corpus_ref": "f66b3628a97c96bb0ab71809434ecaf84b6ad091",
+    "requested_citation_path": "us-mi/guidance/treasury/taxpayer-notices/2026/04/15/individual-income-tax-rate/rate-determination",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us-mi/guidance/treasury/taxpayer-notices/2026/04/15/individual-income-tax-rate/rate-determination'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us-mi/guidance/treasury/taxpayer-notices/2026/04/15/individual-income-tax-rate/rate-determination'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us-mi/guidance/treasury/taxpayer-notices/2026/04/15/individual-income-tax-rate/rate-determination'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us-mi/guidance/treasury/taxpayer-notices/2026/04/15/individual-income-tax-rate/rate-determination'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us-mi/guidance/treasury/taxpayer-notices/2026/04/15/individual-income-tax-rate/rate-determination'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us-mi/guidance/treasury/taxpayer-notices/2026/04/15/individual-income-tax-rate/rate-determination'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us-mi/guidance/treasury/taxpayer-notices/2026/04/15/individual-income-tax-rate/rate-determination'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us-mi/guidance/treasury/taxpayer-notices/2026/04/15/individual-income-tax-rate/rate-determination'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us-mi/guidance/treasury/taxpayer-notices/2026/04/15/individual-income-tax-rate/rate-determination'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us-mi/guidance/treasury/taxpayer-notices/2026/04/15/individual-income-tax-rate/rate-determination'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us-mi/guidance/treasury/taxpayer-notices/2026/04/15/individual-income-tax-rate/rate-determination'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us-mi/guidance/treasury/taxpayer-notices/2026/04/15/individual-income-tax-rate/rate-determination'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module proved its tax formulas on MCL 206.51(1), which levies a single flat rate on taxable income, yet encoded a bracket-base-plus-marginal-rate-above-a-bracket-floor schedule minus a nonrefundable credit whose rate, base, floor and credit were all ungrounded caller-supplied values the statute itself supplies or does not contain, and it reconstructed 'Michigan taxable income' as AGI minus a supplied personal exemption on the authority of a 206.30(2) exemption excerpt that does not define that full adjustment chain.",
+    "triage_notes": "Provision read: MCL 206.51(1) resolves through the pinned release and says '(b) Except as otherwise provided under subdivision (c), on and after October 1, 2012, 4.25%' with the (1)(c) annual formulary redetermination - there is no bracket base, bracket floor, or credit subtraction in it, and the rate is supplied by law rather than by a caller, which is what makes the pre-fix wiring untraceable. The fix deletes rule mi_pit_pilot_schedule_tax, replaces mi_pit_pilot_taxable_income's formula with max(0, mi_pit_pilot_state_taxable_income) over a newly declared inputs: block, and sets mi_pit_pilot_income_tax_liability to mi_pit_pilot_taxable_income * individual_income_tax_rate imported from index 0 (import proof atom hash sha256:9c683c65...). Numbers do not move: the same taxable income (24050) still yields 1022.125, so this is a grounding/scope correction, not an amount_mismatch. Secondary fidelity fix in the same diff: both versions gain effective_to '2026-12-31' where the pre-fix versions were open-ended even though 206.51(1)(c) redetermines the rate each year - a reviewer could reasonably tag that as wrong_period_or_effective_date, and the PR notes '2025 and 2027 fail closed with no applicable formula version'. Alternative kind reading is wrong_entity_or_scope, since the subject line frames it as moving the module's claimed boundary; I chose untraceable_branch because the decisive edits remove ungrounded values/structure and re-ground the rate on a real source. Non-fidelity churn in the same commit: corpus_citation_paths and upstream_source_check status changed, the module's pending entry was removed from known-validation-gaps.yaml, the companion test fixtures were rewritten to the new boundary, and the encoding manifest and reverse index were regenerated. The added module rationale states it directly: 'The encoded Treasury determination supplies the final 2026 rate of 4.25 per cent rather than accepting a policy-bearing rate from the caller.' (verbatim words, line wrapping collapsed). Pre-fix state originated in the pilot composition commit ebb7afef4; eight later commits re-anchored the proofs.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "untraceable_branch",
+    "verifier_confidence": 0.7,
+    "verifier_justification": "The pre-fix module proof-anchored a bracket-base-plus-marginal-rate-above-a-floor schedule, minus a nonrefundable credit, to MCL 206.51(1), and I confirmed against the pinned corpus (us-rulespec-2026-07-19-dedup, provision sha256:3489129f...) that 206.51(1) levies only \"a tax at the following rates,\" i.e. 4.35%/4.25% flat with a formulary reduction under (c) — it contains no bracket base, no bracket floor, and no general nonrefundable credit; its only credit is the (7) trust-accumulation credit. It likewise anchored `max(0, AGI - supplied_personal_exemptions)` to the 206.30(2) exemption sentence, while 206.30(1) defines taxable income as AGI \"subject to the following adjustments under this section\" (a long additions/subtractions list the formula omits entirely). The fix deletes both ungrounded structures and re-grounds the operative rate on the Treasury 2026 determination via an imported parameter, which is exactly \"a branch, condition, or value with no basis in the cited source ... the fix removes or re-grounds it\"; it also drops the module from `known-validation-gaps.yaml` `validate_failures`, corroborating that the pre-fix content did not validate. I tested the competing readings and rejected them: amount_mismatch fails because the fixtures give identical tax at identical taxable income (24050 → 1022.125, 108100 → 4594.25); wrong_period_or_effective_date fails because the added `effective_to: '2026-12-31'` is a consequence of newly hard-coding 0.0425 rather than a correction of a pre-existing stale number (the pre-fix rate was caller-supplied); and unrepresented_clause fails because the fix removes the overclaim instead of adding the missing 206.30(1) adjustments.",
+    "verifier_quote": "-          mi_pit_pilot_supplied_bracket_base\n-          + mi_pit_pilot_supplied_marginal_rate * max(0, mi_pit_pilot_taxable_income - mi_pit_pilot_supplied_bracket_floor)\n...\n-          max(0, mi_pit_pilot_schedule_tax - mi_pit_pilot_supplied_nonrefundable_credit)\n+          mi_pit_pilot_taxable_income * individual_income_tax_rate",
+    "verifier_notes": "Kind is right but the first reader's evidence was weak; the quote it cited (\"promotes Michigan 2026 personal income tax at the completed-return `mi_taxable_income` boundary\") is promotion framing, not a defect statement. The real evidence is the diff plus the source text, so the confidence is justified on different grounds than the reader gave.\n\nStrongest surviving counter-argument for a reviewer (why this is 0.7 and not 0.85): every removed policy-bearing element was a declared caller input set to zero, so with base=0/floor=0/credit=0 the pre-fix pipeline is arithmetically identical to the post-fix one at the same taxable income — the unchanged fixtures prove it. A reviewer could read this as a provenance/architecture \"promotion\" (caller-supplied parameters → imported official rate; AGI boundary → completed-return taxable-income boundary) rather than a meaning correction. What defeats that: the formula *shape* and its proof atoms are themselves encoded assertions about 206.51(1), and the pre-fix rationale admits the shape had no Michigan basis — the removed line reads \"Michigan imposes the flat rate from the first dollar of taxable income and allows no per-exemption tax credit for these cases, so the supplied bracket floor, bracket base, and nonrefundable credit are zero.\"\n\nProvenance of the defect: it is a template artifact, not a Michigan-specific misreading. The module was created in ebb7afef4 \"Compose AZ/GA/MI/NC income-tax liability pipelines (flat) (#794)\", and the AZ sibling at the same parent carries the identical `source: 43-1011, flat tax as the supplied bracket base plus the supplied marginal rate on income above the supplied bracket floor` and the same `- az_pit_pilot_supplied_nonrefundable_credit` line. So the same untraceable structure exists across AZ/GA/MI/NC and was corrected state by state (see a76b6afda \"Tighten Arizona taxable-income boundary proof\", 02f5ae9e6 \"Promote Indiana PIT to 2026 AGI boundary\", branch `pit-2026-boundary-truthfulness-closeout`). If the corpus wants independent cases, these siblings are near-duplicates of this one and should be deduped or sampled, not counted as distinct defects.\n\nSecondary aspects present in the same commit but not the primary kind: (a) the pre-fix liability was an after-credit amount (`schedule_tax - supplied_nonrefundable_credit`) while the summary targeted `mi_income_tax_before_non_refundable_credits`, a scope/output-surface mismatch (wrong_entity_or_scope) papered over by \"the credit is zero for the childless wage-earner grid\"; (b) the removed proof excerpt \"the tax imposed ... upon the taxable income of every person other than a corporation\" is not verbatim — the statute reads \"there is levied and imposed under this part upon the taxable income of every person other than a corporation a tax at the following rates.\" On its own (b) would be mechanical (provenance), but formulas changed here too.\n\nNot a bookkeeping-only change, so `mechanical` is excluded: formulas, the input set, the output set (`mi_pit_pilot_schedule_tax` removed), and the version windows all changed. `not_a_rule_module` is excluded: it is a rulespec/v1 module with rules, versions, formulas and required proof validation, though its manifest carries `\"manual_exception\": \"composition\"` (assembled, not encoder-generated), which is worth knowing if the corpus is meant to sample encoder output specifically.\n\nmodule_files[0], `us-mi/policies/income_tax/2026_rate_determination.yaml`, is a newly added parameter module in the same commit and needs its own classification; as pure new coverage it is most likely not_a_defect.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Provision read: MCL 206.51(1) resolves through the pinned release and says '(b) Except as otherwise provided under subdivision (c), on and after October 1, 2012, 4.25%' with the (1)(c) annual formulary redetermination - there is no bracket base, bracket floor, or credit subtraction in it, and the rate is supplied by law rather than by a caller, which is what makes the pre-fix wiring untraceable. The fix deletes rule mi_pit_pilot_schedule_tax, replaces mi_pit_pilot_taxable_income's formula with max(0, mi_pit_pilot_state_taxable_income) over a newly declared inputs: block, and sets mi_pit_pilot_income_tax_liability to mi_pit_pilot_taxable_income * individual_income_tax_rate imported from index 0 (import proof atom hash sha256:9c683c65...). Numbers do not move: the same taxable income (24050) still yields 1022.125, so this is a grounding/scope correction, not an amount_mismatch. Secondary fidelity fix in the same diff: both versions gain effective_to '2026-12-31' where the pre-fix versions were open-ended even though 206.51(1)(c) redetermines the rate each year - a reviewer could reasonably tag that as wrong_period_or_effective_date, and the PR notes '2025 and 2027 fail closed with no applicable formula version'. Alternative kind reading is wrong_entity_or_scope, since the subject line frames it as moving the module's claimed boundary; I chose untraceable_branch because the decisive edits remove ungrounded values/structure and re-ground the rate on a real source. Non-fidelity churn in the same commit: corpus_citation_paths and upstream_source_check status changed, the module's pending entry was removed from known-validation-gaps.yaml, the companion test fixtures were rewritten to the new boundary, and the encoding manifest and reverse index were regenerated. The added module rationale states it directly: 'The encoded Treasury determination supplies the final 2026 rate of 4.25 per cent rather than accepting a policy-bearing rate from the caller.' (verbatim words, line wrapping collapsed). Pre-fix state originated in the pilot composition commit ebb7afef4; eight later commits re-anchored the proofs. | verifier confirmed at 0.70",
+  "family_id": "us-f935c010-3412ee6a0c59",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

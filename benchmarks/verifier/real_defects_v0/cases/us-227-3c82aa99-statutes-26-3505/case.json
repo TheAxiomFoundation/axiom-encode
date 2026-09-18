@@ -1,0 +1,135 @@
+{
+  "id": "us-227-3c82aa99-statutes-26-3505",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "3c82aa9922548a8a12620c47e47965d708895859",
+  "parent_commit": "d0c911b3b0fa271affb224fcff69f067f6dba90a",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Refresh of 3505 removes the 3102/3202/3402/3403 imports and changes the direct_wage_payment_third_party_liability_applies formula, dropping the imported employer-withholding-duty conditions (logic/scope change in a merged module).",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/331",
+  "module_path": "statutes/26/3505.yaml",
+  "corpus_citation_path": "us/statute/26/3505",
+  "corpus_citation_paths_all": [
+    "us/statute/26/3505"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.82,
+  "description": "the generated rule treats sections 3102, 3202, 3402, and 3403 as the statutory scope of the direct-payment liability rule, not as separate runtime applicability gates",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        7,
+        18
+      ],
+      [
+        20,
+        130
+      ],
+      [
+        132,
+        132
+      ],
+      [
+        134,
+        134
+      ],
+      [
+        136,
+        231
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        7,
+        8
+      ],
+      [
+        10,
+        25
+      ],
+      [
+        27,
+        46
+      ],
+      [
+        48,
+        72
+      ],
+      [
+        74,
+        203
+      ]
+    ],
+    "rule_names": [
+      "direct_wage_payment_third_party_liability_applies"
+    ],
+    "rule_path": "rules[direct_wage_payment_third_party_liability_applies].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "4a4c292bfc38ba96454a32e707f75b7c825be241471a9e32d7014e0b5578f6f9",
+  "post_fix_artifact_sha256": "8ea23e204869f5d62e7dec8e22ccaa5b806dbc4ce6744a7a170b9926ec8ee26d",
+  "provision_sha256": "52bb756b631434753de6fc041ed2769b52335607d5d30a7004e05839fbb93170",
+  "provision_chars": 1677,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/3505",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "1b0b185ca3335eb06c4fe10af488a8984bdd2cedd4087badf78583c267af7b7b",
+    "line_number": 101,
+    "record_id": "d3be06e5-2131-53e4-bc41-7d6a66ad4aaa",
+    "stored_body_sha256": "52bb756b631434753de6fc041ed2769b52335607d5d30a7004e05839fbb93170",
+    "resolved_text_sha256": "52bb756b631434753de6fc041ed2769b52335607d5d30a7004e05839fbb93170",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us/statute/26/3505",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3505'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3505'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3505'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3505'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix applies-rule required, on top of the three conditions 26 USC 3505(a) actually states, an extra conjunct that at least one imported employer-side value be true or positive (employer_required_to_collect_section_3101_tax_by_wage_deduction, employer_section_3201_tax_payment_liability > 0, amount_of_wages_for_withholding_tables > 0, employer_liability_for_chapter_withholding_tax_payment > 0), a runtime gate with no basis in the provision, whose 'For purposes of sections 3102, 3202, 3402, and 3403' opener is a scope phrase, not a condition.",
+    "triage_notes": "Provision read through the pinned corpus release (us/statute/26/3505): 3505(a) conditions are exactly (1) a lender, surety, or other person, (2) who is not an employer under such sections with respect to the employee(s), (3) pays wages directly to the employee(s) or to an agent; nothing conditions liability on the employer's own withholding duty being live. The third disjunct in the removed gate, amount_of_wages_for_withholding_tables > 0, is a 3402(a) wage/withholding-table amount rather than any duty, which is further evidence the branch was invented rather than sourced. The commit message itself is bare ('Refresh generated section 3505 payroll rules'); the naming evidence is the PR Notes section, so this is a regeneration in which the maintainer explicitly identified and defended the semantic delta rather than a targeted bug-fix commit -- that is the main reason confidence is 0.82 rather than higher. Same commit also carries non-fidelity noise that should not be treated as the defect: whole-file YAML restyling (block scalars, list indentation), a reworded module summary, several proof-atom excerpt strings broadened to match the source text, and a commutative reorder of rules[supplied_funds_third_party_liability_limit].versions[0].formula from `rate * max(0, amount)` to `max(0, amount) * rate` (no meaning change); also an added proof atom on supplied_funds_third_party_liability. Effective dates (all 1990-01-01), entities, periods, dtypes, and the 0.25 rate are unchanged. Companion test 3505.test.yaml drops the now-unused imported employer-side inputs and renames cases; the 25 percent cap-binding case survives as supplied_funds_liability_is_capped_at_twenty_five_percent_of_amount_supplied, so cap coverage was not lost. The screening note framed this as a possible logic/scope regression; on the source text the direction is the opposite -- the pre-fix module was over-gated and the refresh re-grounds it.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "untraceable_branch",
+    "verifier_confidence": 0.87,
+    "verifier_justification": "26 USC 3505(a), read through the pinned corpus release, conditions third-party direct-payment liability on exactly three facts (lender/surety/other person; not an employer under such sections; pays wages directly), with \"For purposes of sections 3102, 3202, 3402, and 3403\" serving as a scope preamble and the only employer-side reference sitting in the amount clause (\"taxes ... required to be deducted and withheld from such wages by such employer\"). The pre-fix formula added a fourth conjunct requiring at least one of four imported employer-side values to be true or positive, a runtime gate with no counterpart in the provision; the fix deletes it along with the four `imports:` entries, so encoded meaning changed (a direct-paying lender now correctly holds even when the employer-side imports are false/zero). Attempts to refute fail: entity, dtype, period, effective window and outputs are unchanged, so `wrong_entity_or_scope` does not fit; the disjunction was not a mis-combination of source-stated conditions, so `polarity_or_logic` does not fit; and it is not mechanical because a formula's truth conditions changed. Corroborating: the pre-fix proof atoms backing that conjunct were all `kind: import` with hashes and no `source.excerpt`, i.e. the encoding's own proof record had no source grounding for it.",
+    "verifier_quote": "-      and third_party_pays_wages_directly_to_employee_group_or_agent\\nand (\\n    employer_required_to_collect_section_3101_tax_by_wage_deduction\\n\\\n-      \\    or employer_section_3201_tax_payment_liability > 0\\n    or amount_of_wages_for_withholding_tables\\\n-      \\ > 0\\n    or employer_liability_for_chapter_withholding_tax_payment > 0\\n)\"",
+    "verifier_notes": "Caveats for the reviewer: (1) the commit body is empty and the PR is framed as a regeneration (\"regenerate 26 USC 3505 with axiom-encode 0.2.532 and gpt-5.5\"), so this was not authored as a targeted defect repair; the fidelity reasoning appears only in the PR Notes bullet the first reader quoted. It is still a maintainer statement of why the old encoding was wrong, and the diff independently supports it. (2) The diff is a whole-file restyle (flow to block scalars, quoted excerpts), so most removed lines are cosmetic; the only meaning-bearing changes are the removed conjunct plus the four `imports:` lines. The other formula edit, supplied_funds_third_party_liability_limit, is a commutative reorder (rate * max(0, amount) -> max(0, amount) * rate) and is meaning-preserving. (3) Several proof-atom excerpt strings were lengthened or trimmed; those are provenance-only. (4) Companion test evidence: the pre-fix test cases had to supply us:statutes/26/3102/a#input.employer_is_employer_of_taxpayer and three sibling cross-module inputs to make the gate pass; the fix deletes them, which is direct evidence the removed conjunct was load-bearing at runtime rather than dead code. (5) Provision verified at corpus release us-rulespec-2026-07-13, provision sha256 52bb756b631434753de6fc041ed2769b52335607d5d30a7004e05839fbb93170; selection_basis was \"no_toolchain_corpus_pin\", so the release is a fallback rather than the fix-time pin, but 3505 has not been amended in a way that bears on this reading.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Provision read through the pinned corpus release (us/statute/26/3505): 3505(a) conditions are exactly (1) a lender, surety, or other person, (2) who is not an employer under such sections with respect to the employee(s), (3) pays wages directly to the employee(s) or to an agent; nothing conditions liability on the employer's own withholding duty being live. The third disjunct in the removed gate, amount_of_wages_for_withholding_tables > 0, is a 3402(a) wage/withholding-table amount rather than any duty, which is further evidence the branch was invented rather than sourced. The commit message itself is bare ('Refresh generated section 3505 payroll rules'); the naming evidence is the PR Notes section, so this is a regeneration in which the maintainer explicitly identified and defended the semantic delta rather than a targeted bug-fix commit -- that is the main reason confidence is 0.82 rather than higher. Same commit also carries non-fidelity noise that should not be treated as the defect: whole-file YAML restyling (block scalars, list indentation), a reworded module summary, several proof-atom excerpt strings broadened to match the source text, and a commutative reorder of rules[supplied_funds_third_party_liability_limit].versions[0].formula from `rate * max(0, amount)` to `max(0, amount) * rate` (no meaning change); also an added proof atom on supplied_funds_third_party_liability. Effective dates (all 1990-01-01), entities, periods, dtypes, and the 0.25 rate are unchanged. Companion test 3505.test.yaml drops the now-unused imported employer-side inputs and renames cases; the 25 percent cap-binding case survives as supplied_funds_liability_is_capped_at_twenty_five_percent_of_amount_supplied, so cap coverage was not lost. The screening note framed this as a possible logic/scope regression; on the source text the direction is the opposite -- the pre-fix module was over-gated and the refresh re-grounds it. | verifier confirmed at 0.87",
+  "family_id": "us-3c82aa99-3011fc17cbe5",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

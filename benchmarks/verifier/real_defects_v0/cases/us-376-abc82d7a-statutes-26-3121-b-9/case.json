@@ -1,0 +1,115 @@
+{
+  "id": "us-376-abc82d7a-statutes-26-3121-b-9",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "abc82d7a76a9a1da5cfc77d228a0eeace1e5cde6",
+  "parent_commit": "5323ecb4055fe6b6029ed953020b15237f835b87",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Bulk refresh with entity corrections (3101(a) and 3101(b)(1) TaxUnit->Person; 3111(a) and 3111(b) Business->Employer), 3121(b) rules removed and deferred, 3121(b)(8) rule deferred, and formula changes in 3121(b)(9), 3121(a)(8), 3121(g), 3121(j), 3402(n).",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/328",
+  "module_path": "statutes/26/3121/b/9.yaml",
+  "corpus_citation_path": "us/statute/26/3121",
+  "corpus_citation_paths_all": [
+    "us/statute/26/3121"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.49,
+  "description": "refresh generated RuleSpec artifacts for the Chapter 21 FICA wage/tax chain, including `3101`, `3111`, and selected `3121` wage/employment rules",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        32,
+        33
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        8,
+        11
+      ],
+      [
+        32,
+        43
+      ],
+      [
+        47,
+        48
+      ]
+    ],
+    "rule_names": [
+      "employee_or_employee_representative_service_excluded_from_employment"
+    ],
+    "rule_path": "rules[employee_or_employee_representative_service_excluded_from_employment].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "e3927d932b47f951c70774dd7d06ca64311f1de12102820c50a0b46301754ddc",
+  "post_fix_artifact_sha256": "aab908b748bcfa022c45f551a8cf59ffaa30be6f7485bde28a9ce3005b4a5668",
+  "provision_sha256": "b559f25fcb8a8e6a2bf4bb37235c24b3065fe118eb7349bc78fbac2cfccbdba3",
+  "provision_chars": 79043,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/3121",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "1b0b185ca3335eb06c4fe10af488a8984bdd2cedd4087badf78583c267af7b7b",
+    "line_number": 64,
+    "record_id": "81cdf05a-27b2-597a-aa7d-0e9ff6cba484",
+    "stored_body_sha256": "b559f25fcb8a8e6a2bf4bb37235c24b3065fe118eb7349bc78fbac2cfccbdba3",
+    "resolved_text_sha256": "b559f25fcb8a8e6a2bf4bb37235c24b3065fe118eb7349bc78fbac2cfccbdba3",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "earliest_release_after_toolchain_corpus_ref",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": "9b575a00116da20b0952644f14d8530896f72cd3",
+    "requested_citation_path": "us/statute/26/3121",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3121'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3121'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3121'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3121'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The exclusion was computed from two free placeholder predicates (service_performed_by_individual_as_employee_under_section_3231 / ..._as_employee_representative_under_section_3231) that no module defined, so the rule asserted the section 3231 definitions the source incorporates by reference without actually being grounded on them.",
+    "triage_notes": "Confirmed by reading the full pre-fix and post-fix files: pre-fix the module had no imports section and no input rules for those two identifiers; post-fix it imports us:statutes/26/3231/b#employee and us:statutes/26/3231/c#employee_representative (with real sha256 hashes) and the formula becomes 'employee or employee_representative'. Targets match the source's cross-reference ('as defined in section 3231'): 3231(b) defines 'employee', 3231(c) 'employee representative'. Kind untraceable_branch under the re-grounding clause; a reviewer could instead call this a provenance/wiring change with no meaning shift if the placeholders were intended as caller-supplied inputs, hence confidence 0.55. Boolean shape (or) and effective_from '1990-01-01' unchanged.",
+    "verifier_verdict": "unclear",
+    "verifier_defect_kind": "untraceable_branch",
+    "verifier_confidence": 0.58,
+    "verifier_justification": "The fix replaces two free local predicates with imports of `us:statutes/26/3231/b#employee` and `us:statutes/26/3231/c#employee_representative`, so how the condition is obtained changed (asserted module input vs. computed from the incorporated definitions) — that is a real change, not hashes or metadata, so \"mechanical\" is refuted. But the \"untraceable_branch\" label is only half-supported: the pre-fix branch was verbatim in the cited source (\"(9) service performed by an individual as an employee or employee representative as defined in section 3231;\", confirmed through the pinned corpus release us-rulespec-2026-07-13), and I diffed the proof atoms — the two source-condition atoms with their excerpts are byte-identical pre and post, with only import atoms appended, while entity (Payment), dtype (Judgment), period (Year), the disjunction, and effective_from '1990-01-01' are all unchanged. What the encoder's regime treats as the fault is narrower than \"no basis in the source\": axiom-encode's validator has an enforced check `_check_encoded_cross_reference_placeholders` (\"Encoded cross-reference placeholder: ... uses local `{identifier}` for an already encoded or required cited source. Import `{import_base}` and reference the upstream output instead of keeping a local cross-reference input.\"), which is exactly this change — so it is a grounding fault under the regime, but the evidence does not settle that the pre-fix encoding stated a meaning that disagrees with 3121(b)(9) itself.",
+    "verifier_quote": "-          service_performed_by_individual_as_employee_under_section_3231\n-          or service_performed_by_individual_as_employee_representative_under_section_3231\n+          employee\n+          or employee_representative",
+    "verifier_notes": "Refutation attempts and what survived:\n\n1. REFUTES \"no basis in the cited source\": the source sentence resolved through the pinned release (corpus_release us-rulespec-2026-07-13, resolved_text_sha256 b559f25f...) reads \"(9) service performed by an individual as an employee or employee representative as defined in section 3231;\". Both limbs, the disjunction, and both verbatim proof excerpts existed before the fix. `diff` of the atoms block shows the pre-fix condition atoms are byte-identical post-fix; the fix only APPENDS two `kind: import` atoms. So the branch was textually traceable; only the incorporated definition was unwired.\n\n2. REFUTES \"free predicates are per se a defect in this repo\": bare local predicates are the standard vocabulary of these generated modules. In the same commit, statutes/26/3121/j.yaml keeps dozens (e.g. `service_performed_in_employ_of_state_or_political_subdivision_in_connection_with_operation_of_public_transportation_system`) and even drops local `hash: sha256:local` import atoms. The pre-fix identifiers were legitimate declared module inputs — the pre-fix companion test drives them as `us:statutes/26/3121/b/9#input.service_performed_by_individual_as_employee_under_section_3231: true`.\n\n3. REFUTES \"the message evidences a correction\": the commit body is EMPTY (subject only: \"Refresh payroll generated rules\"); the screen-flag text in the task prompt is not the commit message. PR #328's body is a generic bulk-refresh note (\"refresh generated RuleSpec artifacts for the Chapter 21 FICA wage/tax chain\") with zero reviews and zero review comments, and never names a 3121(b)(9) error. The apply manifest (`git show abc82d7a76:.axiom/encoding-manifests/statutes/26/3121/b/9.json`) records a plain re-encode — `\"tool\": \"axiom-encode encode --apply\"`, `\"model\": \"gpt-5.5\"`, `\"run_id\": \"98d7beaa\"` — with no findings/repair record. So the first reader's quote (a PR-body bullet about refreshing artifacts) does not evidence this module's defect at all.\n\n4. SURVIVES the refutation: axiom-encode/src/axiom_encode/harness/validator_pipeline.py:37261 `_check_encoded_cross_reference_placeholders` and :38265 `_check_resolved_defined_term_imports` (\"Defined term import missing: `{term}` resolves to {citation} but file does not import from {import_base}\"), plus validator_pipeline.py:861 \"Defined terms and imports: Explicitly or implicitly legally defined terms are imported from their canonical source when one exists.\" Under the regime, an unimported placeholder standing for a cited section IS a fault, and the prescribed resolution is precisely this diff. TEMPORAL CAVEAT: I read that validator at axiom-encode HEAD today (2026-09-18); the commit is 2026-06-01, so I have not verified the check existed then.\n\nReviewer call: this is a grounding/wiring correction that is invisible to a source-vs-encoding fidelity comparison — a verifier reading only 26 USC 3121(b)(9) would rate pre and post equally faithful. If the corpus is meant to hold defects detectable from the source text, prune this one or relabel it as a regime/grounding case. If the corpus admits regime-level grounding faults, keep it as untraceable_branch, since no other listed kind fits (nothing numeric, no boundary, no missing clause of (b)(9), no entity/period/date change, no inverted logic).\n\nFiles: diff /private/tmp/claude-501/-Users-maxghenis-TheAxiomFoundation-axiom-encode--claude-worktrees-zealous-heyrovsky-31a96b/86103d8f-b97f-4559-a96c-7e79bdbe616d/scratchpad/diffs/us/abc82d7a76/011.diff; module /Users/maxghenis/TheAxiomFoundation/rulespec-us/statutes/26/3121/b/9.yaml; validator /Users/maxghenis/TheAxiomFoundation/axiom-encode/.claude/worktrees/zealous-heyrovsky-31a96b/src/axiom_encode/harness/validator_pipeline.py.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Confirmed by reading the full pre-fix and post-fix files: pre-fix the module had no imports section and no input rules for those two identifiers; post-fix it imports us:statutes/26/3231/b#employee and us:statutes/26/3231/c#employee_representative (with real sha256 hashes) and the formula becomes 'employee or employee_representative'. Targets match the source's cross-reference ('as defined in section 3231'): 3231(b) defines 'employee', 3231(c) 'employee representative'. Kind untraceable_branch under the re-grounding clause; a reviewer could instead call this a provenance/wiring change with no meaning shift if the placeholders were intended as caller-supplied inputs, hence confidence 0.55. Boolean shape (or) and effective_from '1990-01-01' unchanged. | verifier unclear at 0.58",
+  "family_id": "us-abc82d7a-b96c5a2cf4a7",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

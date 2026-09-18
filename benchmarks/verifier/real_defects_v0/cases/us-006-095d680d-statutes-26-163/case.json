@@ -1,0 +1,156 @@
+{
+  "id": "us-006-095d680d-statutes-26-163",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "095d680d471e75d35256db564f5dd547ca248a1e",
+  "parent_commit": "7d6981ae34844c047d9fee10a181438a9b5d6de1",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Bulk mixed refresh whose squash body includes \"Repair RuleSpec validation coverage\" and \"Repair validation tail for refreshed RuleSpecs\"; module diffs carry semantic changes (151 adds a deferred_output making exemption_phaseout_applicable_percentage non-executable because 68(b) no longer defines the applicable amount; 24 rewrites phaseout threshold selection and qualifying-child predicates; 1402/a drops 1401 import proof atoms) alongside text->excerpt format renames and new subsection modules; later stage should read the diff.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/46",
+  "module_path": "statutes/26/163.yaml",
+  "corpus_citation_path": "us/statute/26/163",
+  "corpus_citation_paths_all": [
+    "us/statute/26/163"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "wrong_entity_or_scope",
+  "other_kind": null,
+  "confidence": 0.4,
+  "description": "Under the current executable schema, this aggregate parent cannot faithfully recompute or wire adjusted bases into those child results without local placeholders or import cycles; executable rules are therefore deferred for this parent artifact.",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        8,
+        30
+      ],
+      [
+        32,
+        47
+      ],
+      [
+        49,
+        64
+      ],
+      [
+        66,
+        81
+      ],
+      [
+        83,
+        330
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        3,
+        3
+      ],
+      [
+        8,
+        58
+      ],
+      [
+        60,
+        60
+      ],
+      [
+        62,
+        62
+      ],
+      [
+        64,
+        64
+      ],
+      [
+        66,
+        66
+      ],
+      [
+        68,
+        69
+      ]
+    ],
+    "rule_names": [
+      "qualified_passenger_vehicle_loan_interest_applies",
+      "applicable_passenger_vehicle",
+      "passenger_vehicle_loan_interest_before_phaseout",
+      "passenger_vehicle_loan_interest_phaseout_amount",
+      "qualified_passenger_vehicle_loan_interest_deduction",
+      "passenger_vehicle_loan_interest_modified_adjusted_gross_income",
+      "passenger_vehicle_loan_interest_phaseout_threshold",
+      "passenger_vehicle_loan_interest_cap",
+      "passenger_vehicle_loan_interest_phaseout_reduction",
+      "passenger_vehicle_loan_interest_phaseout_increment",
+      "passenger_vehicle_loan_interest_phaseout_threshold_other",
+      "passenger_vehicle_loan_interest_phaseout_threshold_joint",
+      "applicable_passenger_vehicle_minimum_wheels",
+      "applicable_passenger_vehicle_gvwr_limit"
+    ],
+    "rule_path": "rules[qualified_passenger_vehicle_loan_interest_applies].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "d39253efec325457d494d5b609f2c65f16f2244679095c8b13530a657f9c2a18",
+  "post_fix_artifact_sha256": "e51f3b0effdc3d5e13c42c439af52c0b0fc78107713d4fe5ea63f722ebe4ee8d",
+  "provision_sha256": "feda5fa27c036af544afd240d60d850c6a98db1a312d1766964a0ed7005b8c43",
+  "provision_chars": 52598,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/163",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "1b0b185ca3335eb06c4fe10af488a8984bdd2cedd4087badf78583c267af7b7b",
+    "line_number": 36,
+    "record_id": "c6e8d8d2-fbba-5b12-bd72-9c107aff7b6a",
+    "stored_body_sha256": "feda5fa27c036af544afd240d60d850c6a98db1a312d1766964a0ed7005b8c43",
+    "resolved_text_sha256": "feda5fa27c036af544afd240d60d850c6a98db1a312d1766964a0ed7005b8c43",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us/statute/26/163",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/163'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/163'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/163'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/163'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "unclear",
+    "pre_fix_wrong_because": "unclear: the pre-fix parent encoded the whole 163(h)(4) passenger-vehicle-loan-interest regime as TaxUnit-level rules over per-loan and per-vehicle facts (and off local placeholders), which the maintainers judged impossible to compose faithfully, so the fix strips all 14 rules and defers the parent; the stated reason is a schema limitation rather than a named disagreement with the source.",
+    "triage_notes": "Largest structural change in this chunk: the module becomes `status: entity_not_supported` with `rules: []` and seven deferred_outputs for 163(b), (d), (e), (f), (h), (j), (l); the summary is replaced with pinned-corpus text. The deleted (h)(4) content is re-encoded in this same commit as new child modules - indices 17-23 here and 24-31 (163/h/4/B/ii/IV, V, B/iii, C, C/ii, C/ii/I, D, E) outside this chunk - where the judgments move from entity: TaxUnit to entity: Payment. I chose wrong_entity_or_scope for that granularity shift, but a reviewer could equally read the removal as untraceable_branch (placeholder-grounded formulas removed) or as a non-defect relocation; hence unclear at 0.4. Also note the deleted parent rule `qualified_passenger_vehicle_loan_interest_applies` carried the 163(h)(4)(E)(iii) related-party exclusion, which now lives in the new E fragment (index 31, other chunk).",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_entity_or_scope",
+    "verifier_confidence": 0.62,
+    "verifier_justification": "I tried to refute the entity/scope reading as a mere structural refactor, but the diff names the entity as the blocker: the parent gains `status: entity_not_supported` and strips 14 rules that encoded per-vehicle and per-loan statutory terms as annual `entity: TaxUnit` Judgments over facts like `vehicle_wheel_count`, while the same commit re-encodes exactly those terms at the correct entities — `asset_is_applicable_passenger_vehicle` at `entity: Asset` (statutes/26/163/h/4/D.yaml) and `interest_is_qualified_passenger_vehicle_loan_interest` at `entity: Payment` (statutes/26/163/h/4/B.yaml, plus the (E)(ii)/(E)(iii) indebtedness rules at Payment). The pinned corpus text confirms the source scopes these per-subject, not per-taxpayer: \"the term 'applicable passenger vehicle' means any vehicle—\" and \"means any interest which is paid or accrued ... on indebtedness incurred by the taxpayer,\" with the (B)(ii) exceptions attaching to \"any amount paid or incurred on\" a particular loan — so a single TaxUnit boolean cannot represent a taxpayer holding one qualifying and one non-qualifying vehicle or loan. The change is therefore not mechanical (14 executable rules and their TaxUnit output surface are removed) and not a mere enhancement: the pre-fix parent asserted the whole 163(h)(4) regime at an entity and output surface the source does not support.",
+    "verifier_quote": "+  status: entity_not_supported\n-  - name: applicable_passenger_vehicle\n-    entity: TaxUnit\n-          and vehicle_wheel_count >= applicable_passenger_vehicle_minimum_wheels",
+    "verifier_notes": "Refutation attempted and failed on three fronts. (1) \"Mechanical\" is excluded: rules[] goes from 14 rules to `rules: []`, removing formulas, parameters and outputs. (2) \"not_a_defect / pure refactor\" is the strongest surviving counter-argument and is why I hold confidence at 0.62 rather than higher: module 16's own message frames the cause as an executable-schema limitation (\"cannot faithfully recompute or wire adjusted bases into those child results without local placeholders or import cycles\"), and the corrected encoding lives in sibling files of the same commit rather than in this diff. A reviewer who requires the defect to be visible inside module 16 alone could legitimately hold this at \"unclear\". (3) \"untraceable_branch\" fits worse than wrong_entity_or_scope: every deleted number checks out against the pinned release (us-rulespec-2026-07-13, corpus commit 612d20ca43) — $10,000 cap, $200 per $1,000, $100,000/$200,000 thresholds, 2 wheels, GVWR < 14,000 lbs, 911/931/933 MAGI add-backs — so the content was faithful and only its entity/output surface was wrong.\n\nTwo secondary defects visible in the removed text, both corrected in sibling modules rather than here, so they should not be double-counted against module 16: (a) `passenger_vehicle_loan_interest_phaseout_threshold` mapped filing_status 1 AND 4 to the joint threshold, while the replacement in statutes/26/163/h/4/C/ii/I.yaml uses `if filing_status == 1` only — the source says \"$200,000 in the case of a joint return\"; (b) the deleted `qualified_passenger_vehicle_loan_interest_applies` cited \"26 USC 163(h)(4)(A)-(B), (E)(ii)-(iii)\" but encoded only the (E)(iii) related-party exclusion, omitting the (E)(ii) refinancing inclusion, which the new statutes/26/163/h/4/E.yaml adds as `refinancing_indebtedness_included_under_subparagraph_B` (unrepresented_clause, at module 31).\n\nAlso note the summary block changed from paraphrase to verbatim corpus excerpt in the same diff; that part is provenance/mechanical and is not what carries the verdict.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Largest structural change in this chunk: the module becomes `status: entity_not_supported` with `rules: []` and seven deferred_outputs for 163(b), (d), (e), (f), (h), (j), (l); the summary is replaced with pinned-corpus text. The deleted (h)(4) content is re-encoded in this same commit as new child modules - indices 17-23 here and 24-31 (163/h/4/B/ii/IV, V, B/iii, C, C/ii, C/ii/I, D, E) outside this chunk - where the judgments move from entity: TaxUnit to entity: Payment. I chose wrong_entity_or_scope for that granularity shift, but a reviewer could equally read the removal as untraceable_branch (placeholder-grounded formulas removed) or as a non-defect relocation; hence unclear at 0.4. Also note the deleted parent rule `qualified_passenger_vehicle_loan_interest_applies` carried the 163(h)(4)(E)(iii) related-party exclusion, which now lives in the new E fragment (index 31, other chunk). | verifier confirmed at 0.62",
+  "family_id": "us-095d680d-1331ea6edf83",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

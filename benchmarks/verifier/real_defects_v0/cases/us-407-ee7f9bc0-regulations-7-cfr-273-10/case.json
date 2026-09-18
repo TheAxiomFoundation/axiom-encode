@@ -1,0 +1,86 @@
+{
+  "id": "us-407-ee7f9bc0-regulations-7-cfr-273-10",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "ee7f9bc09acb3f5dac1a39fa77970f54096ff81b",
+  "parent_commit": "86e2549dc760f652ab5419fa52d4cb6eeba1f87b",
+  "commit_date": "2026-05-12",
+  "commit_subject": "Repair generated RuleSpec validation coverage",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/25",
+  "module_path": "regulations/7-cfr/273/10.yaml",
+  "corpus_citation_path": "us/regulation/7/273/10",
+  "corpus_citation_paths_all": [
+    "us/regulation/7/273/10"
+  ],
+  "corpus_release": "us-sc-snap-2026-07-15",
+  "corpus_release_content_sha256": "23e17c993eeae58e83347e77be35c92d75623cc0304c0b5c3b951a900b0029fe",
+  "corpus_commit": "3932af44ea0fb6dd5a7432959a4396356ef8e6ae",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.6,
+  "description": "Repair generated RuleSpec validation coverage",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        383,
+        383
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        383,
+        383
+      ]
+    ],
+    "rule_names": [
+      "snap_calculated_monthly_allotment_before_minimums"
+    ],
+    "rule_path": "rules[snap_calculated_monthly_allotment_before_minimums].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "6e08bfce49e813ccd8425b0353f6167070cc5e34e0edc0be40bb3c58a00d5bda",
+  "post_fix_artifact_sha256": "48662fef23fc70bd8645cc6eeb4e3a7215042f297dba45d030993179f4c14b3f",
+  "provision_sha256": "c23a70d7cd1839003de34b92291b09e860e1c7562bbdac92ab3cbfa68f8e8044",
+  "provision_chars": 52226,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/regulation/7/273/10",
+    "provision_file": "data/corpus/provisions/us/regulation/2026-07-15-title-7-part-273.jsonl",
+    "provision_file_sha256": "57dd752844884c36999ff701c1057406a026b57be44d144dc484fdfbed56b9c9",
+    "line_number": 15,
+    "record_id": "a1d18c47-e3ef-5f3b-8481-79d6077ad559",
+    "stored_body_sha256": "c23a70d7cd1839003de34b92291b09e860e1c7562bbdac92ab3cbfa68f8e8044",
+    "resolved_text_sha256": "c23a70d7cd1839003de34b92291b09e860e1c7562bbdac92ab3cbfa68f8e8044",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-09",
+    "source_as_of": "2026-07-09",
+    "corpus_commit": "3932af44ea0fb6dd5a7432959a4396356ef8e6ae",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us/regulation/7/273/10",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix formula subtracted 30 percent of net monthly income from the maximum allotment with no lower bound, so a household whose 30-percent reduction exceeded the maximum allotment received a negative allotment, whereas 7 CFR 273.10(e)(2) contemplates at worst a household 'entitled to no benefits' (zero), never a negative benefit.",
+    "triage_notes": "Sole change to this module is wrapping both branches of the rounding conditional in max(0, ...). The companion test added in the same commit (initial_month_high_income_zero_allotment: 1-person household, $1,200 unearned income, $298 max allotment) asserts snap_calculated_monthly_allotment_before_minimums = 0; pre-fix that expression evaluates to 298 - ceil(0.3 * net) = -1, so the change is behavioral, not cosmetic. Downstream snap_monthly_allotment masks the negative for initial months (<$10 rule) and for 1-2 person non-initial months (minimum benefit), but a 3+ person non-initial-month household would have emitted a negative allotment. Provision read through the pinned corpus release: 273.10(e)(2)(ii)(A) states the allotment 'shall be equal to the maximum SNAP allotment for the household's size reduced by 30 percent of the household's net monthly income' and (e)(2)(iii) refers to 'an eligible household with three or more members which is entitled to no benefits'; the zero floor is implied by that language rather than stated as an explicit clause, so an 'other: missing zero floor' kind is a defensible alternative. Commit message is generic (subject only, empty body) and the attached PR body describes a different module, hence confidence below 0.8.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.72,
+    "verifier_justification": "The single hunk in regulations/7-cfr/273/10.yaml changes the formula of a derived Money rule, wrapping both rounding branches in max(0, ...), so it changes encoded meaning and cannot be mechanical. The pre-fix value propagated: snap_monthly_allotment returns snap_calculated_monthly_allotment_before_minimums unchanged for a non-initial-month household above snap_minimum_benefit_household_size_limit, so a three-or-more-person household whose 30 percent net-income reduction exceeded its maximum allotment received a negative benefit, while 7 CFR 273.10(e)(2)(ii)(A) opens \"Except as provided in paragraphs (a)(1), (e)(2)(iii) and (e)(2)(vi) of this section\" and (e)(2)(iii) governs \"an eligible household with three or more members which is entitled to no benefits\" — the source floor is no benefits, never a negative allotment. The encoder already applied max(0, ...) to snap_net_monthly_income in the same module, so the omission here was a missing carve-out rather than a design choice, and the companion test added in the same commit pins the calculated allotment at 0. The missing element is the source's \"entitled to no benefits\" carve-out that (e)(2)(ii)(A) expressly excepts, which the fix adds, so unrepresented_clause fits better than boundary_direction (no existing bound had its side or strictness flipped).",
+    "verifier_quote": "+          if state_agency_rounds_thirty_percent_net_income_up: max(0, snap_maximum_allotment_for_household_size - ceil(snap_net_monthly_income * snap_allotment_net_income_reduction_rate)) else: max(0, floor(snap_maximum_allotment_for_household_size - (snap_net_monthly_income * snap_allotment_net_income_reduction_rate)))",
+    "verifier_notes": "Refutation attempts and why they fail: (1) Mechanical — no: the formula text changed, not just proof atoms/manifests (the manifest and .test.yaml churn in this commit is separate). (2) No output effect — no: only the initial-month (<$10 -> 0) and one/two-person minimum-benefit branches masked the negative; for household_size > snap_minimum_benefit_household_size_limit outside an initial month the negative reaches snap_monthly_allotment directly. (3) New coverage never claimed — no: the rule claims to encode 7 CFR 273.10(e)(2)(ii)(A) and emits dtype Money / unit USD allotments; a negative allotment contradicts the cited source rather than extending it. (4) Wrong kind — boundary_direction is the closest rival, since a reviewer could read an absent lower clamp as a floor/ceiling-side error; I rejected it because no comparison strictness or bound side was flipped, a max(0, ...) clamp was added where none existed. Caveats a reviewer should weigh: the commit message (\"Repair generated RuleSpec validation coverage\") is generic and the PR (#25, \"Encode 26 USC 63(c) standard deduction\") never mentions this module, so the fidelity reading comes from the diff plus the source, not from any authored statement; and the zero floor is implied by (e)(2)(iii)/(e)(2)(ii)(B) (\"no benefits shall be issued\") rather than stated verbatim as \"not less than zero\" — the regulation's own remedy for that case is denial or suspension, which max(0, ...) approximates numerically but does not model. Provision read through the pinned release us-sc-snap-2026-07-15 (corpus commit 3932af44ea0fb6dd5a7432959a4396356ef8e6ae), citation us/regulation/7/273/10. The new test initial_month_high_income_zero_allotment (household_size 1, unearned 1200, max allotment 298, initial month) exercises the clamp on the intermediate rule but its final allotment would be 0 either way, so the test alone is not the evidence — the 3+ person propagation path is.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Sole change to this module is wrapping both branches of the rounding conditional in max(0, ...). The companion test added in the same commit (initial_month_high_income_zero_allotment: 1-person household, $1,200 unearned income, $298 max allotment) asserts snap_calculated_monthly_allotment_before_minimums = 0; pre-fix that expression evaluates to 298 - ceil(0.3 * net) = -1, so the change is behavioral, not cosmetic. Downstream snap_monthly_allotment masks the negative for initial months (<$10 rule) and for 1-2 person non-initial months (minimum benefit), but a 3+ person non-initial-month household would have emitted a negative allotment. Provision read through the pinned corpus release: 273.10(e)(2)(ii)(A) states the allotment 'shall be equal to the maximum SNAP allotment for the household's size reduced by 30 percent of the household's net monthly income' and (e)(2)(iii) refers to 'an eligible household with three or more members which is entitled to no benefits'; the zero floor is implied by that language rather than stated as an explicit clause, so an 'other: missing zero floor' kind is a defensible alternative. Commit message is generic (subject only, empty body) and the attached PR body describes a different module, hence confidence below 0.8. | verifier confirmed at 0.72",
+  "family_id": "us-ee7f9bc0-1a567dac2a1b",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

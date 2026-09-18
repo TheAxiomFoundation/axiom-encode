@@ -1,0 +1,123 @@
+{
+  "id": "us-258-8d3d0f5e-us-la-policies-income-tax-2026-resident-core",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "8d3d0f5e30375755f0245e3e3580d6f52b26984a",
+  "parent_commit": "f1ed255931bac6f288780ebd19e8123d234cbd62",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Fail closed: adds la_2026_resident_filing_status_selection_valid guard to every joint-status branch of Louisiana 2026_resident_core (logic/polarity).",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1026",
+  "module_path": "us-la/policies/income_tax/2026_resident_core.yaml",
+  "corpus_citation_path": "us-la/statute/47:32",
+  "corpus_citation_paths_all": [
+    "us-la/statute/47:32",
+    "us-la/statute/47:44.1",
+    "us-la/statute/47:44.2",
+    "us-la/statute/47:293",
+    "us-la/statute/47:294",
+    "us-la/statute/47:295",
+    "us-la/statute/47:297.3",
+    "us-la/statute/47:297.4",
+    "us-la/statute/47:297.8",
+    "us-la/statute/47:297.10",
+    "us-la/statute/47:297.11",
+    "us-la/statute/47:297.12",
+    "us-la/statute/47:297.14",
+    "us-la/statute/47:297.17",
+    "us-la/statute/47:297.20",
+    "us-la/statute/47:297.21",
+    "us-la/statute/47:297.23",
+    "us-la/statute/47:297.26",
+    "us-la/statute/47:1675",
+    "us-la/form/individual-income-tax/2026/it-540es-instructions/document-1"
+  ],
+  "corpus_release": "us-rulespec-2026-07-22-current-la-status-fix",
+  "corpus_release_content_sha256": "6bfd97b24cb63cb709fa52e9a5e6764c916dec95c5557447e11f47778ee4768f",
+  "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+  "defect_kind": "polarity_or_logic",
+  "other_kind": null,
+  "confidence": 0.82,
+  "description": "Re-review found one conflicting-status component leak; the fix requires both valid status and joint for every spouse branch.",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        461,
+        461
+      ],
+      [
+        500,
+        500
+      ],
+      [
+        592,
+        592
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        461,
+        462
+      ],
+      [
+        501,
+        502
+      ],
+      [
+        594,
+        595
+      ]
+    ],
+    "rule_names": [
+      "la_2026_resident_disability_income_exemption",
+      "la_2026_resident_active_duty_outside_louisiana_exclusion",
+      "la_2026_resident_volunteer_deduction"
+    ],
+    "rule_path": "rules[la_2026_resident_disability_income_exemption].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "e2fa5fa13bcbf5e74fd4fe966da4d823660ffd08f2c26906c642574a77416375",
+  "post_fix_artifact_sha256": "5c0b38a5a32698db4229888dd24d83b5914dd87e428f8406b43c8f79123aeda3",
+  "provision_sha256": "b9e7c752af88f097d669f8fbfe7048d305d110dadf57c108521a8362a680f37f",
+  "provision_chars": 427,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-la/statute/47:32",
+    "provision_file": "data/corpus/provisions/us-la/statute/2026-07-22-la-title-47-official-current-us-la-title-47.jsonl",
+    "provision_file_sha256": "5718e5920daf430b4529b156bbf88d6a00d00d1df510a91ea1654812989c1f15",
+    "line_number": 19,
+    "record_id": "064aa413-3f0d-5dae-ab7c-669c0090cd40",
+    "stored_body_sha256": "b9e7c752af88f097d669f8fbfe7048d305d110dadf57c108521a8362a680f37f",
+    "resolved_text_sha256": "b9e7c752af88f097d669f8fbfe7048d305d110dadf57c108521a8362a680f37f",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-22",
+    "source_as_of": "2026-07-22",
+    "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "dc965655f3b2a7ac39e58f426eaf86e73e331520",
+    "requested_citation_path": "us-la/statute/47:32",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The three spouse branches keyed only on the raw `la_2026_resident_filing_status_joint` input flag, so a return with a contradictory filing-status selection (the IT-540ESi line 3 list is five mutually exclusive statuses, and the module's own `filing_status_selection_valid` requires exactly one) still received the joint-return-only spouse disability exemption, active-duty exclusion and volunteer deduction — failing open on a return the encoding elsewhere treats as having no valid filing status, and on which the source gives no basis for counting spouse facts.",
+    "triage_notes": "Single rule module in the commit; the same two-line guard (`if la_2026_resident_filing_status_selection_valid and la_2026_resident_filing_status_joint`) is added to three separate rules in one file — identical hunk shape each time. Companions changed alongside it are mechanical: the companion fixture file (which flips the `conflicting_filing_statuses_fail_closed` fixture's spouse inputs from false/0 to true/6000, true/50000, true and adds assertions that `la_2026_resident_disability_income_exemption`, `la_2026_resident_active_duty_outside_louisiana_exclusion` and `la_2026_resident_volunteer_deduction` are all 0) and the `.axiom/encoding-manifests` hash file. Provisions read through the pinned corpus: La. R.S. 47:44.1(B) reads \"Six thousand dollars of annual disability income received by an individual shall be exempt from state income taxation\" (per-individual, so a second allowance depends on the spouse being on the return, i.e. a joint return), and the 2026 IT-540ESi worksheet line 3 enumerates Single / Married Filing Joint / Married Filing Separate / Head of Household / Qualifying Surviving Spouse as one choice. Caps are 6000, 50000 and 500, so under a conflicting-status return up to $56,500 of spouse amounts leaked; `la_2026_resident_partial_tax_table_income_before_held_adjustments` already failed closed on invalid status, so the leak surfaced in the exempt-income / deduction component outputs (which are asserted fixture outputs and feed the oracle surface) rather than in the partial tax figure. This commit is a pre-merge repair round inside PR #1026 (parent f1ed255931 is on the same branch), following an earlier round that first gated spouse items on joint returns at all; a later repair in the same PR replaced a flattened EITC rate import, unrelated to this module change. Main doubt for a reviewer: an alternative kind is wrong_entity_or_scope (joint-only spouse items applied to a return that is not validly joint), and a strict reader could call this defensive hardening against an input state the form forbids rather than a direct disagreement with source text — I kept polarity_or_logic because the kind list explicitly places fail-open vs fail-closed there and because the commit subject is \"Fail closed Louisiana spouse components\".",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "polarity_or_logic",
+    "verifier_confidence": 0.85,
+    "verifier_justification": "The diff changes executable boolean logic in three formulas, adding `la_2026_resident_filing_status_selection_valid and` as a conjunct to the joint-only spouse branches of the disability exemption, the active-duty-outside-Louisiana exclusion, and the volunteer deduction, and the companion fixture flips from spouse flags false to true on the `filing_status_selection_count: 2` case while newly asserting all three components equal 0 — so encoded meaning, not bookkeeping, changed. The pre-fix module was internally contradictory against its own source-anchored filing-status rule: `la_2026_resident_filing_status_selection_valid` (proof-atomed to the IT-540ESi line 3 list, which the resolved corpus text confirms enumerates Single / Married Filing Joint / Married Filing Separate / Head of Household / Qualifying Surviving Spouse as one mutually exclusive choice) already forced the standard deduction and partial tax-table income to 0, and the parent file's own summary already asserted \"Filing status fails closed unless exactly one recognized status is selected\" — while these three branches still paid out on a contradictory selection. That is precisely the fail-open-vs-fail-closed / mis-combined-`and` case, which the kind list places under polarity_or_logic, and the commit subject \"Fail closed Louisiana spouse components\" names it directly.",
+    "verifier_quote": "-            if la_2026_resident_filing_status_joint\n+            if la_2026_resident_filing_status_selection_valid\n+               and la_2026_resident_filing_status_joint",
+    "verifier_notes": "Refutation attempts that failed: (1) \"Defensive hardening for an impossible input, so an enhancement rather than a defect\" — killed by the parent file, which already documented the fail-closed contract in `module.summary` (\"Filing status fails closed unless exactly one recognized status is selected\") and already implemented it at `la_2026_resident_standard_deduction` and `la_2026_resident_partial_tax_table_income_before_held_adjustments`; the three spouse branches simply did not honor a contract the module had claimed. The five status flags are raw undeclared inputs (they appear only inside `la_2026_resident_filing_status_selection_count`), so the contradictory state is representable and the fixture exercises it. (2) \"Mechanical\" — rejected; the only bookkeeping is the manifest's two applied-file sha256s plus generated_at/tmpdir, which follow the real formula change. (3) \"reclassify to wrong_entity_or_scope or unrepresented_clause\" — considered, since the defect does concern filing status and does add a conjunct; rejected because the joint-scope condition was already present and correct for well-formed returns, the added guard is an already-encoded, already-source-proved predicate rather than a newly represented source clause, and the failure mode is exactly the fail-open default the polarity_or_logic definition enumerates. Genuine caveat for the reviewer, the reason confidence is not higher: the blast radius is confined to the three component outputs, because `la_2026_resident_partial_tax_table_income_before_held_adjustments` already returned 0 on an invalid selection, so the module's headline partial income and 3% tax figures were unaffected pre-fix. The wrong values were nonetheless published on declared module outputs ($6,000 / $50,000 / $500 for a return the encoding elsewhere treats as having no valid status), which is what the new fixture assertions pin. Provenance note: the defect and the fix both live inside PR #1026, which introduced the module, so this never reached main in the broken state; the quoted \"Re-review found one conflicting-status component leak\" line is the PR's own narrative of its review-fix cycle, and it matches the diff exactly. Post-fix grep confirms no bare `if la_2026_resident_filing_status_joint` joint-only payout branch remains (lines 365 and 423 are the status counter and the standard deduction, which is already inside a `selection_valid` gate), so the PR's \"every spouse branch\" claim holds.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Single rule module in the commit; the same two-line guard (`if la_2026_resident_filing_status_selection_valid and la_2026_resident_filing_status_joint`) is added to three separate rules in one file — identical hunk shape each time. Companions changed alongside it are mechanical: the companion fixture file (which flips the `conflicting_filing_statuses_fail_closed` fixture's spouse inputs from false/0 to true/6000, true/50000, true and adds assertions that `la_2026_resident_disability_income_exemption`, `la_2026_resident_active_duty_outside_louisiana_exclusion` and `la_2026_resident_volunteer_deduction` are all 0) and the `.axiom/encoding-manifests` hash file. Provisions read through the pinned corpus: La. R.S. 47:44.1(B) reads \"Six thousand dollars of annual disability income received by an individual shall be exempt from state income taxation\" (per-individual, so a second allowance depends on the spouse being on the return, i.e. a joint return), and the 2026 IT-540ESi worksheet line 3 enumerates Single / Married Filing Joint / Married Filing Separate / Head of Household / Qualifying Surviving Spouse as one choice. Caps are 6000, 50000 and 500, so under a conflicting-status return up to $56,500 of spouse amounts leaked; `la_2026_resident_partial_tax_table_income_before_held_adjustments` already failed closed on invalid status, so the leak surfaced in the exempt-income / deduction component outputs (which are asserted fixture outputs and feed the oracle surface) rather than in the partial tax figure. This commit is a pre-merge repair round inside PR #1026 (parent f1ed255931 is on the same branch), following an earlier round that first gated spouse items on joint returns at all; a later repair in the same PR replaced a flattened EITC rate import, unrelated to this module change. Main doubt for a reviewer: an alternative kind is wrong_entity_or_scope (joint-only spouse items applied to a return that is not validly joint), and a strict reader could call this defensive hardening against an input state the form forbids rather than a direct disagreement with source text — I kept polarity_or_logic because the kind list explicitly places fail-open vs fail-closed there and because the commit subject is \"Fail closed Louisiana spouse components\". | verifier confirmed at 0.85",
+  "family_id": "us-8d3d0f5e-564b5b96fcd6",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

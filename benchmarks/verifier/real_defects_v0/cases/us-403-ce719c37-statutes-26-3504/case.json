@@ -1,0 +1,127 @@
+{
+  "id": "us-403-ce719c37-statutes-26-3504",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "ce719c379f9e6964ec9fc3bf8e4fe794fd36d3d3",
+  "parent_commit": "f9281ecbadb0f7a3851c80d222419ae6799ab990",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Refresh of 3504 changes the designation condition to person_has_control_receipt_custody_disposal_or_pays_employee_wages, adding the statute's 'or pays the wages' branch (clause/branch correction).",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/329",
+  "module_path": "statutes/26/3504.yaml",
+  "corpus_citation_path": "us/statute/26/3504",
+  "corpus_citation_paths_all": [
+    "us/statute/26/3504"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.7,
+  "description": "Update the wage-control condition to include payment of wages, matching the statutory control/receipt/custody/disposal-or-payment phrasing",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        28,
+        28
+      ],
+      [
+        33,
+        33
+      ],
+      [
+        38,
+        38
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        28,
+        28
+      ],
+      [
+        33,
+        33
+      ],
+      [
+        38,
+        38
+      ]
+    ],
+    "rule_names": [
+      "secretary_may_designate_wage_control_person_to_perform_employer_acts"
+    ],
+    "rule_path": "rules[secretary_may_designate_wage_control_person_to_perform_employer_acts].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "da65366e0b33cb8fdbbfa36eb046b78d1d9d8fde5f0ae223a6cd22df2edd4a6f",
+  "post_fix_artifact_sha256": "ee9c24f17c36ccc6ca3dbcb0279516d07d39a065aead2e4bdd388ca0a5270a3f",
+  "provision_sha256": "819c84b0117fe36a110807a6a238386f89ad26b499dbc8601796a5c8e7f0ff11",
+  "provision_chars": 812,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/3504",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "1b0b185ca3335eb06c4fe10af488a8984bdd2cedd4087badf78583c267af7b7b",
+    "line_number": 100,
+    "record_id": "bac0a189-48ee-55ff-a1df-b2a6eed902cb",
+    "stored_body_sha256": "819c84b0117fe36a110807a6a238386f89ad26b499dbc8601796a5c8e7f0ff11",
+    "resolved_text_sha256": "819c84b0117fe36a110807a6a238386f89ad26b499dbc8601796a5c8e7f0ff11",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us/statute/26/3504",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3504'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3504'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3504'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3504'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The designation condition required control, receipt, custody, or disposal of employee wages and omitted the statute's fourth disjunct \"or pays the wages\", so a fiduciary/agent who merely pays the wages of an employee would not satisfy the condition even though 26 USC 3504 authorizes the Secretary to designate such a person.",
+    "triage_notes": "Provision was read through the pinned corpus release: the text is \"In case a fiduciary, agent, or other person has the control, receipt, custody, or disposal of, or pays the wages of an employee or group of employees, employed by one or more employers, the Secretary ... is authorized to designate ...\", confirming the missing disjunct. Single-module commit; the only formula change is the free-input identifier rename (there is no separate input definition block, so the input name is the entire semantic definition of the condition, and the companion test rekeys us:statutes/26/3504#input.person_has_control_receipt_custody_or_disposal_of_employee_wages to the new name, showing downstream callers must now supply the broader condition). The commit also rewrote the module summary into a paraphrase and widened two proof-atom excerpts (both mechanical/provenance-only), and added a generated negative test secretary_provides_employer_exception in statutes/26/3504.test.yaml (test file, not in this chunk). Residual doubt kept confidence at 0.75: a reviewer could read a free-variable rename as cosmetic rather than semantic, but both the screen-flag description and the PR body frame it as a condition correction adding the statutory payment branch. Commit message body is empty; the only quotable text is the PR body. No PR reviews or review comments exist.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.7,
+    "verifier_justification": "The pinned corpus text of 26 USC 3504 reads \"has the control, receipt, custody, or disposal of, or pays the wages of an employee or group of employees\", and the pre-fix formula's second conjunct encoded only the first four alternatives (`person_has_control_receipt_custody_or_disposal_of_employee_wages`), so a fiduciary or agent who merely pays the wages would make the conjunct false and the designation judgment not_holds contrary to the statute. The module declares no `inputs:` block, so this identifier — bound in the companion test as `us:statutes/26/3504#input.<name>` — is the only carrier of that condition's meaning, and the fix widens it to include the statute's fourth disjunct; this is a clause the source states that the encoding omitted, i.e. unrepresented_clause rather than polarity (no operator changed) or scope. The strongest refutation I could build is that the compiled logic is structurally identical (same four AND-ed opaque booleans, no branch or OR added), so the change is arguably a rename of an uninterpreted input; I reject it because the pre-fix module's own summary and its unchanged proof atom already quoted \"or pays the wages\", showing the formula, not the provenance, was the narrow part. The other edits in the same diff (summary rewrite, two proof-atom excerpt strings) are provenance/mechanical, so the single formula line is the meaning-bearing change.",
+    "verifier_quote": "-          and person_has_control_receipt_custody_or_disposal_of_employee_wages\n+          and person_has_control_receipt_custody_disposal_or_pays_employee_wages",
+    "verifier_notes": "Bundle: /private/tmp/claude-501/-Users-maxghenis-TheAxiomFoundation-axiom-encode--claude-worktrees-zealous-heyrovsky-31a96b/86103d8f-b97f-4559-a96c-7e79bdbe616d/scratchpad/inputs/us/ce719c379f.json; diff: .../scratchpad/diffs/us/ce719c379f/000.diff. Corpus resolution (us-rulespec-2026-07-13, record bac0a189-48ee-55ff-a1df-b2a6eed902cb, body sha256 819c84b0...) confirms the statutory \"or pays the wages\" disjunct. Reviewer caveat worth weighing: the defect lives entirely in an undeclared free-input identifier, since the module has no `inputs:` block and `git grep` at both the parent (f9281ecb) and ce719c379f shows the symbol referenced only by statutes/26/3504.yaml and statutes/26/3504.test.yaml — no cross-module consumer changes behavior, and the engine's output for any fixed input vector is unchanged. If the corpus convention is that only operator/value/branch changes count as encoded meaning, this would fall to \"mechanical (rename)\"; if input identifiers are treated as the semantic contract with fact suppliers (which this encoding style requires, since conditions are never decomposed into OR-chains), it is a genuine fidelity narrowing. I take the latter, but that convention call, not the diff, is the whole disagreement. Also note the rest of the diff is provenance-only: the module summary was rewritten from the verbatim statute to a paraphrase, and two proof-atom excerpts were re-cut; the test file change is the matching rename plus one added negative test for the employer exception.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Provision was read through the pinned corpus release: the text is \"In case a fiduciary, agent, or other person has the control, receipt, custody, or disposal of, or pays the wages of an employee or group of employees, employed by one or more employers, the Secretary ... is authorized to designate ...\", confirming the missing disjunct. Single-module commit; the only formula change is the free-input identifier rename (there is no separate input definition block, so the input name is the entire semantic definition of the condition, and the companion test rekeys us:statutes/26/3504#input.person_has_control_receipt_custody_or_disposal_of_employee_wages to the new name, showing downstream callers must now supply the broader condition). The commit also rewrote the module summary into a paraphrase and widened two proof-atom excerpts (both mechanical/provenance-only), and added a generated negative test secretary_provides_employer_exception in statutes/26/3504.test.yaml (test file, not in this chunk). Residual doubt kept confidence at 0.75: a reviewer could read a free-variable rename as cosmetic rather than semantic, but both the screen-flag description and the PR body frame it as a condition correction adding the statutory payment branch. Commit message body is empty; the only quotable text is the PR body. No PR reviews or review comments exist. | verifier confirmed at 0.70",
+  "family_id": "us-ce719c37-f8bef9e0020d",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

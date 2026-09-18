@@ -1,0 +1,146 @@
+{
+  "id": "us-444-497f1b95-us-policies-income-tax-additional-medicare-tax-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "497f1b95e3a57b9721cd2d33c80fa019f55189e7",
+  "parent_commit": "791ff29eb58023f02e8d15174cc59216edde83d7",
+  "commit_date": "2026-07-24",
+  "commit_subject": "fix: gate additional Medicare SE domain",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1003",
+  "module_path": "us/policies/income_tax/additional_medicare_tax_pipeline.yaml",
+  "corpus_citation_path": "us/statute/26/3101",
+  "corpus_citation_paths_all": [
+    "us/statute/26/3101",
+    "us/statute/26/1401",
+    "us/statute/26/1402"
+  ],
+  "corpus_release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+  "corpus_release_content_sha256": "cb275c76c4f07f8ad37470a32296bb1763e5db853d152697524ab07021b6d544",
+  "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.78,
+  "description": "Required attestation that no self-employment income of the tax unit is exempt from section 1401 under subsection (c) because it is subject exclusively to a foreign social-security system under a section 233 agreement.",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        23,
+        23
+      ],
+      [
+        46,
+        49
+      ],
+      [
+        108,
+        108
+      ],
+      [
+        239,
+        239
+      ],
+      [
+        334,
+        335
+      ],
+      [
+        362,
+        363
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        23,
+        24
+      ],
+      [
+        47,
+        54
+      ],
+      [
+        99,
+        120
+      ],
+      [
+        135,
+        135
+      ],
+      [
+        266,
+        266
+      ],
+      [
+        357,
+        362
+      ],
+      [
+        367,
+        371
+      ],
+      [
+        394,
+        399
+      ],
+      [
+        404,
+        408
+      ],
+      [
+        422,
+        426
+      ]
+    ],
+    "rule_names": [
+      "additional_medicare_tax_pipeline_self_employment_domain_is_valid",
+      "federal_additional_medicare_self_employment_tax",
+      "federal_additional_medicare_tax"
+    ],
+    "rule_path": "rules[federal_additional_medicare_self_employment_tax].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "e3d2a5d9961bc568e86b4aa276068719aaf6870192f3ab2c0ee5a3c0d9371775",
+  "post_fix_artifact_sha256": "bf038c0cb0fef6d561bc6c5c1b18f3fbcf23d7988e350e2d6869bd62eabdd724",
+  "provision_sha256": "3fa3fc0b75faa2701c24747d44bf2a351beec597d7ef67823f6b4e78452300a0",
+  "provision_chars": 1694,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/3101",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-19-rulespec-title-26-consolidated.jsonl",
+    "provision_file_sha256": "397ee850815df0a050da457b5d08b557e9130e863a9c1473f19de52b0439ede6",
+    "line_number": 5,
+    "record_id": "600fc3e5-1430-5d90-bdd8-13116a58f062",
+    "stored_body_sha256": "3fa3fc0b75faa2701c24747d44bf2a351beec597d7ef67823f6b4e78452300a0",
+    "resolved_text_sha256": "3fa3fc0b75faa2701c24747d44bf2a351beec597d7ef67823f6b4e78452300a0",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2025-12-03",
+    "source_as_of": "2025-12-03",
+    "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "5dfd89d131564e4ee0e1e763571dbb5d7fc7f5e7",
+    "requested_citation_path": "us/statute/26/3101",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module computed and published the section 1401(b)(2) self-employment additional Medicare leg (and the combined tax) unconditionally for every tax unit, with no representation of the section 1401(c) exemption for self-employment income that a section 233 totalization agreement subjects exclusively to a foreign social-security system, so it asserted positive tax for taxpayers the cited source exempts.",
+    "triage_notes": "Provision read through the pinned corpus release (us/statute/26/1401 resolved; 1,924 chars): subsection (c) states 'During any period in which there is in effect an agreement entered into pursuant to section 233 of the Social Security Act with any foreign country, the self-employment income of an individual shall be exempt from the taxes imposed by this section to the extent that such self-employment income is subject under such agreement exclusively to the laws applicable to the social security system of such foreign country.' The pre-fix summary already disclosed that the executable surfaces 'cover the ordinary case in which section 1401(c) foreign-system relief is not implicated', but nothing enforced that domain, so the encoding silently produced out-of-domain numbers; the fix does not model the relief computation (still deferred upstream) but fails closed, which is the represented-clause repair rather than added scope. Single-module commit, so no repeated pattern. Mechanical/provenance changes ride along in the same diff and are not the defect: both 1401(b)(2)(B) proof-atom excerpts are expanded from the truncated 'shall be reduced (but not below zero) by the amount of wages taken into account' to the full served sentence (which exposes the enacted '3121(b)(2)' scrivener's cross-reference discussed in the PR body), and a new comment records that the corpus record's source_url wrongly points at 26 USC 45A (no corpus edit here). The commit message body is empty and there are no PR reviews or review comments; the PR body's 'FAIL CLOSED' language concerns a different fail-closed condition (the pinned corpus record's 1401 cross-reference), so the quote was taken from the module diff instead. Companion tests added in the same commit: amt-foreign-system-boundary-fails-closed asserts wage leg 450 with SE leg and combined both 0 when the attestation is false, plus a joint two-earner threshold case; every pre-existing case gained the attestation input via a YAML anchor.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.78,
+    "verifier_justification": "The refutation attempts fail: the pinned corpus record for us/statute/26/1401 carries subsection (c) verbatim (\"the self-employment income of an individual shall be exempt from the taxes imposed by this section to the extent that such self-employment income is subject under such agreement exclusively to the laws applicable to the social security system of such foreign country\"), and \"this section\" is §1401, which contains the (b)(2) additional-Medicare leg this module encodes, so the exception is on-point for the encoded rules. Pre-fix, both public outputs computed unconditionally (`pipeline_additional_medicare_self_employment_tax_base * pipeline_additional_medicare_self_employment_tax_rate`) with no applicability condition anywhere in the chain — I checked the sibling `self_employment_tax_pipeline.yaml` at parent 791ff29eb5 and it had no §1401(c) attestation or gate either, so nothing upstream represented the exemption; the only representation was prose in the module summary, which does not constrain encoded meaning. The fix adds a new Judgment rule whose proof atom is `kind: exception` quoting §1401(c) verbatim, a new required Boolean input, and rewrites two previously unconditional public formulas into gated ones, which is a change in encoded meaning plus input scope, not bookkeeping. That is exactly the rubric's \"adds a missing exception the source states\" case, so unrepresented_clause fits better than boundary/polarity (there was no prior condition to invert) or wrong_entity_or_scope (the narrowing derives from a statutory exception clause, not an entity/population mis-assignment).",
+    "verifier_quote": "+          if additional_medicare_tax_pipeline_self_employment_domain_is_valid:\n+            pipeline_additional_medicare_self_employment_tax_base\n+            * pipeline_additional_medicare_self_employment_tax_rate\n+          else:\n+            0",
+    "verifier_notes": "Caveats a reviewer should keep with this case. (1) The fix is a partial representation: §1401(c) exempts SE income \"to the extent that\" it is foreign-exclusive, while the encoding uses a Boolean attestation and fails closed to zero for the whole leg; the deferred outputs `pipeline_additional_medicare_self_employment_income_exempt_under_international_agreement` and `pipeline_taxable_self_employment_income_for_additional_medicare_tax` remain blocked on upstream `us:statutes/26/1401#self_employment_tax_after_international_agreement_exemption`. So the defect is corrected in the direction of removing a false positive assertion, not by implementing the relief arithmetic. (2) Possible residual fidelity issue introduced by the same fix: `federal_additional_medicare_tax` (combined) also returns 0 when the attestation fails, which zeroes the §3101(b)(2) wage leg — a tax §1401(c) does not exempt (it is imposed by §3101, not \"this section\"). The new companion `amt-foreign-system-boundary-fails-closed` asserts wage leg 450 but combined 0, i.e. combined ≠ sum of legs out of domain. (3) The diff also contains genuinely mechanical content — two proof-atom excerpts expanded from \"shall be reduced (but not below zero) by the amount of wages taken into account\" to the full 1401(b)(2)(B) sentence, plus a comment about the corpus record's wrong `source_url`. Those alone would be provenance-only; they ride along with the meaning change and should not be scored as the defect. (4) Pre-fix PROGRESS.md listed \"Add the section 1401(c) boundary gate and companion case\" under Next, i.e. the gap was identified in review before this commit; the commit is labeled \"fix:\". PR #1003's separate scrivener's-error/corpus-pin fail-closed discussion (3121(b)(2) vs 3101(b)(2)) is a different matter and is not what this commit changes.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Provision read through the pinned corpus release (us/statute/26/1401 resolved; 1,924 chars): subsection (c) states 'During any period in which there is in effect an agreement entered into pursuant to section 233 of the Social Security Act with any foreign country, the self-employment income of an individual shall be exempt from the taxes imposed by this section to the extent that such self-employment income is subject under such agreement exclusively to the laws applicable to the social security system of such foreign country.' The pre-fix summary already disclosed that the executable surfaces 'cover the ordinary case in which section 1401(c) foreign-system relief is not implicated', but nothing enforced that domain, so the encoding silently produced out-of-domain numbers; the fix does not model the relief computation (still deferred upstream) but fails closed, which is the represented-clause repair rather than added scope. Single-module commit, so no repeated pattern. Mechanical/provenance changes ride along in the same diff and are not the defect: both 1401(b)(2)(B) proof-atom excerpts are expanded from the truncated 'shall be reduced (but not below zero) by the amount of wages taken into account' to the full served sentence (which exposes the enacted '3121(b)(2)' scrivener's cross-reference discussed in the PR body), and a new comment records that the corpus record's source_url wrongly points at 26 USC 45A (no corpus edit here). The commit message body is empty and there are no PR reviews or review comments; the PR body's 'FAIL CLOSED' language concerns a different fail-closed condition (the pinned corpus record's 1401 cross-reference), so the quote was taken from the module diff instead. Companion tests added in the same commit: amt-foreign-system-boundary-fails-closed asserts wage leg 450 with SE leg and combined both 0 when the attestation is false, plus a joint two-earner threshold case; every pre-existing case gained the attestation input via a YAML anchor. | verifier confirmed at 0.78",
+  "family_id": "us-497f1b95-f24aa312b4cc",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

@@ -1,0 +1,222 @@
+{
+  "id": "us-418-0c4a1564-us-pa-policies-income-tax-pilot-liability-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "0c4a15643c04624c315c225bbff3b2f898858d20",
+  "parent_commit": "fd918bb79f229464558b7e60c65899b15f7d9afa",
+  "commit_date": "2026-07-21",
+  "commit_subject": "Promote Pennsylvania PIT to taxable-income boundary",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/961",
+  "module_path": "us-pa/policies/income_tax/pilot_liability_pipeline.yaml",
+  "corpus_citation_path": "us-pa/statute/act-1971-2/article-3/section-302",
+  "corpus_citation_paths_all": [
+    "us-pa/statute/act-1971-2/article-3/section-302",
+    "us-pa/guidance/department-of-revenue/resources/tax-rates/personal-income-tax-rates/rate-table"
+  ],
+  "corpus_release": "us-rulespec-2026-07-22-current",
+  "corpus_release_content_sha256": "7b1c6c0ec237dc3767f770fbb30178d6857bbe43fd4d952f57ebfc8409874bcc",
+  "corpus_commit": "c5af541326e024e04cb533bbf5709ae04e6305f6",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.49,
+  "description": "imports the statute-backed 3.07% rate from Tax Reform Code §302",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        6,
+        6
+      ],
+      [
+        8,
+        8
+      ],
+      [
+        12,
+        19
+      ],
+      [
+        21,
+        30
+      ],
+      [
+        38,
+        38
+      ],
+      [
+        49,
+        51
+      ],
+      [
+        57,
+        57
+      ],
+      [
+        65,
+        65
+      ],
+      [
+        69,
+        73
+      ],
+      [
+        78,
+        89
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        6,
+        8
+      ],
+      [
+        10,
+        10
+      ],
+      [
+        13,
+        13
+      ],
+      [
+        15,
+        22
+      ],
+      [
+        24,
+        34
+      ],
+      [
+        42,
+        42
+      ],
+      [
+        53,
+        56
+      ],
+      [
+        62,
+        62
+      ],
+      [
+        66,
+        71
+      ],
+      [
+        76,
+        76
+      ],
+      [
+        79,
+        79
+      ],
+      [
+        81,
+        83
+      ],
+      [
+        88,
+        88
+      ]
+    ],
+    "rule_names": [
+      "pa_pit_pilot_income_tax_liability",
+      "pa_pit_pilot_schedule_tax",
+      "pa_pit_pilot_taxable_income"
+    ],
+    "rule_path": "rules[pa_pit_pilot_income_tax_liability].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "f49f2a0a9d71e8e148aeab28b4d68c22358cfd21b3989673f4067d353273c627",
+  "post_fix_artifact_sha256": "ed7d98afe3f63b2acca583b23eb2ce75f6f4229159657dce642254e651170acd",
+  "provision_sha256": "35ed859438e081162507e6daeb539ac0088c0fe1f03926c3c15e40785b54584f",
+  "provision_chars": 1754,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-pa/statute/act-1971-2/article-3/section-302",
+    "provision_file": "data/corpus/provisions/us-pa/statute/2026-07-16-pit-west-us-pa-act-1971-2-article-3.jsonl",
+    "provision_file_sha256": "21779a88e294a15cd7fb9d9d0915ea492cc665769727ca3eaebf0fe3bd24e93f",
+    "line_number": 4,
+    "record_id": "767cad8e-191b-576c-972f-d4576d72501f",
+    "stored_body_sha256": "35ed859438e081162507e6daeb539ac0088c0fe1f03926c3c15e40785b54584f",
+    "resolved_text_sha256": "35ed859438e081162507e6daeb539ac0088c0fe1f03926c3c15e40785b54584f",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2025-05-29",
+    "source_as_of": "2025-05-29",
+    "corpus_commit": "c5af541326e024e04cb533bbf5709ae04e6305f6",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 12,
+    "toolchain_corpus_ref": "f66b3628a97c96bb0ab71809434ecaf84b6ad091",
+    "requested_citation_path": "us-pa/statute/act-1971-2/article-3/section-302",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us-pa/statute/act-1971-2/article-3/section-302'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us-pa/statute/act-1971-2/article-3/section-302'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us-pa/statute/act-1971-2/article-3/section-302'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us-pa/statute/act-1971-2/article-3/section-302'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us-pa/statute/act-1971-2/article-3/section-302'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us-pa/statute/act-1971-2/article-3/section-302'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us-pa/statute/act-1971-2/article-3/section-302'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us-pa/statute/act-1971-2/article-3/section-302'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us-pa/statute/act-1971-2/article-3/section-302'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us-pa/statute/act-1971-2/article-3/section-302'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us-pa/statute/act-1971-2/article-3/section-302'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us-pa/statute/act-1971-2/article-3/section-302'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module computed Pennsylvania resident tax as a caller-supplied cumulative bracket base plus a caller-supplied marginal rate applied above a caller-supplied bracket floor -- a graduated-schedule structure section 302(a) does not contain -- and never encoded the statute's flat three and seven hundredths per cent on each dollar, so its formula had no grounding in the provision its own proof atom cited.",
+    "triage_notes": "Provision read through the pinned corpus resolver (release us-rulespec-2026-07-22-current, corpus commit c5af541326e0, provision line 4): section 302(a) says \"a tax upon each dollar of income received by that resident during that resident's taxable year at the rate of three and seven hundredths per cent\" -- a flat rate, with no bracket base, floor, or marginal-rate schedule anywhere in subsections (a)-(c). Pre-fix rule pa_pit_pilot_schedule_tax had formula 'pa_pit_pilot_supplied_bracket_base + pa_pit_pilot_supplied_marginal_rate * max(0, pa_pit_pilot_taxable_income - pa_pit_pilot_supplied_bracket_floor)' while its proof atom quoted the excerpt \"at the rate of three and seven hundredths per cent.\" -- the cited text supports a fixed 3.07 percent multiplication, not three caller-supplied schedule parameters, which is why I read this as untraceable_branch (ungrounded structure removed and re-grounded) rather than amount_mismatch: no number in the pre-fix file was numerically wrong, the statutory number was simply absent. The pre-fix test file had to feed base=0, floor=0, marginal_rate=0.0307 to obtain the statutory answer, confirming the statute's own rate lived outside the encoding. The fix deletes pa_pit_pilot_schedule_tax entirely, makes pa_pit_pilot_income_tax_liability = pa_pit_pilot_taxable_income * personal_income_tax_rate with an import proof atom (hash sha256:326e196b...) pointing at the new index-0 module, renames the single remaining input to pa_pit_pilot_state_taxable_income with an explicit inputs: block, and rewrites the module summary and rationale. Secondary aspect for a reviewer: both surviving versions gain effective_to '2026-12-31' where the pre-fix versions were open-ended from 2026-01-01 although the module claimed only the 2026 slice -- that alone would read as wrong_period_or_effective_date (PR: \"9 focused fixtures passed; adjacent years fail closed\") -- but the decisive change is the formula regrounding, so I recorded one kind. The commit also touches the two companion test files, two encoding manifests, and .axiom/index/provisions_to_rules.json (outside this chunk). The commit body is empty; all quotable evidence is the PR body (PR #961) and the bundle has no reviews, review comments, or issue comments, which is why confidence is 0.72: the PR names the fix (importing the statute-backed rate, promoting to a single taxable-income boundary) but never explicitly calls the removed bracket structure ungrounded.",
+    "verifier_verdict": "not_a_defect",
+    "verifier_defect_kind": "none",
+    "verifier_confidence": 0.67,
+    "verifier_justification": "The companion fixture diff is decisive against a fidelity reading: the pre-fix cases supplied `pa_pit_pilot_supplied_bracket_base: 0`, `pa_pit_pilot_supplied_bracket_floor: 0`, `pa_pit_pilot_supplied_marginal_rate: 0.0307` and expected 921 / 1,842 / 4,605 / 9,210 at 30k / 60k / 150k / 300k, and the post-fix cases at the same taxable incomes expect the identical amounts, so the encoded meaning under section 302(a)'s parameters never disagreed with the source and no output value was corrected. The removed bracket-base-plus-marginal shape was not an ungrounded branch the encoder invented but a declared repo-wide pilot convention — the module carried `status: composed_from_supplied_current_authority` and a rationale naming \"the active flat bracket's cumulative base tax, floor, and marginal rate as caller-supplied current-authority inputs\", and the NY and NC sibling pilots still use that same supplied-schedule form at this very commit. What the commit actually does is internalize a parameter the module explicitly disclaimed encoding and bound the version window to the DOR table's horizon, i.e. added grounding and precision the module never claimed, which the instructions classify as an enhancement rather than a defect. The commit and PR language is uniformly promotion language (\"Promote\", \"promotes\", \"imports\", \"excludes ... from the comparison target\") with no correction, error, or mismatch claim anywhere.",
+    "verifier_quote": "- promotes Pennsylvania 2026 personal income tax to one completed-return adjusted-taxable-income boundary",
+    "verifier_notes": "Source text confirmed through the pinned release (us-rulespec-2026-07-22-current, corpus commit c5af541326): 302(a) is a flat \"tax upon each dollar of income received by that resident during that resident's taxable year at the rate of three and seven hundredths per cent\" with no brackets — so the first reader is right that section 302(a) contains no graduated schedule. The strongest surviving argument for their view, which a reviewer may weigh differently than I did, is the pre-fix proof atom: excerpt \"at the rate of three and seven hundredths per cent.\" was attached to `pa_pit_pilot_schedule_tax` versions[0].formula, a formula whose rate was a free caller variable, so the module asserted grounding its formula did not carry. I treated that as a provenance/traceability overclaim rather than a fidelity error, both because the instructions put excerpt and citation-grounding corrections on the provenance side and because the fixtures prove no encoded value was wrong; a reviewer who treats untraceability itself as the fidelity standard would land on confirmed/untraceable_branch instead. Note also that the pre-fix module declared no `inputs:` block at all (four undeclared free variables) — a schema/validation gap, not a source-fidelity one. Secondary changes worth recording: both versions gained `effective_to: '2026-12-31'` (bounding to the DOR table's observation horizon, not correcting a superseded-text window, since the pre-fix module encoded no rate), and the boundary input was renamed `pa_pit_pilot_supplied_taxable_income` -> `pa_pit_pilot_state_taxable_income` with the label moved to \"adjusted taxable income\" — a labeling clarification, since the pre-fix test header already said \"Supplied taxable-income inputs equal PolicyEngine's pa_adjusted_taxable_income for this ordinary wage-only grid\". Finally, the PR's parity figure (max abs difference $0.416 over 2,457 TaxUnits) is a broader Certified Populace comparison, not an improvement on the six-case grid, which the pre-fix test header said matched \"exactly\". If the corpus maintainers intend \"formula not traceable to cited text\" to count as a defect regardless of numeric equivalence, reclassify to fidelity/untraceable_branch; otherwise this belongs out of the real-defect corpus.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Provision read through the pinned corpus resolver (release us-rulespec-2026-07-22-current, corpus commit c5af541326e0, provision line 4): section 302(a) says \"a tax upon each dollar of income received by that resident during that resident's taxable year at the rate of three and seven hundredths per cent\" -- a flat rate, with no bracket base, floor, or marginal-rate schedule anywhere in subsections (a)-(c). Pre-fix rule pa_pit_pilot_schedule_tax had formula 'pa_pit_pilot_supplied_bracket_base + pa_pit_pilot_supplied_marginal_rate * max(0, pa_pit_pilot_taxable_income - pa_pit_pilot_supplied_bracket_floor)' while its proof atom quoted the excerpt \"at the rate of three and seven hundredths per cent.\" -- the cited text supports a fixed 3.07 percent multiplication, not three caller-supplied schedule parameters, which is why I read this as untraceable_branch (ungrounded structure removed and re-grounded) rather than amount_mismatch: no number in the pre-fix file was numerically wrong, the statutory number was simply absent. The pre-fix test file had to feed base=0, floor=0, marginal_rate=0.0307 to obtain the statutory answer, confirming the statute's own rate lived outside the encoding. The fix deletes pa_pit_pilot_schedule_tax entirely, makes pa_pit_pilot_income_tax_liability = pa_pit_pilot_taxable_income * personal_income_tax_rate with an import proof atom (hash sha256:326e196b...) pointing at the new index-0 module, renames the single remaining input to pa_pit_pilot_state_taxable_income with an explicit inputs: block, and rewrites the module summary and rationale. Secondary aspect for a reviewer: both surviving versions gain effective_to '2026-12-31' where the pre-fix versions were open-ended from 2026-01-01 although the module claimed only the 2026 slice -- that alone would read as wrong_period_or_effective_date (PR: \"9 focused fixtures passed; adjacent years fail closed\") -- but the decisive change is the formula regrounding, so I recorded one kind. The commit also touches the two companion test files, two encoding manifests, and .axiom/index/provisions_to_rules.json (outside this chunk). The commit body is empty; all quotable evidence is the PR body (PR #961) and the bundle has no reviews, review comments, or issue comments, which is why confidence is 0.72: the PR names the fix (importing the statute-backed rate, promoting to a single taxable-income boundary) but never explicitly calls the removed bracket structure ungrounded. | verifier said not_a_defect at 0.67 (below 0.7); kept as unclear",
+  "family_id": "us-0c4a1564-ca3f431b9ed3",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

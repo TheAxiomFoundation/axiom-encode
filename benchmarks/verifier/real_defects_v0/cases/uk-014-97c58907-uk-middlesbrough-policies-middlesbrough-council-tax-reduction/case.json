@@ -1,0 +1,100 @@
+{
+  "id": "uk-014-97c58907-uk-middlesbrough-policies-middlesbrough-council-tax-reduction",
+  "jurisdiction": "uk",
+  "repo": "TheAxiomFoundation/rulespec-uk",
+  "commit": "97c58907b22b1874adcc97f07666695f423db6a9",
+  "parent_commit": "d82295d2d5a45ce3f5f44bba9714d61cf403d62c",
+  "commit_date": "2026-09-05",
+  "commit_subject": "Address sol round-1: add paragraph-8 override and edge coverage",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-uk/pull/307",
+  "module_path": "uk-middlesbrough/policies/middlesbrough/council-tax-reduction.yaml",
+  "corpus_citation_path": "uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-65",
+  "corpus_citation_paths_all": [
+    "uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-65"
+  ],
+  "corpus_release": "uk-rulespec-2026-09-05",
+  "corpus_release_content_sha256": "94f59eb25e85fe23487a978f79510a4285f3e5c9a4114ef23801fa26d610b336",
+  "corpus_commit": "019e8600f6a62814d686502fa161303194355b41",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.9,
+  "description": "Address sol round-1: add paragraph-8 override and edge coverage",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        681,
+        681
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        20,
+        36
+      ],
+      [
+        631,
+        650
+      ],
+      [
+        718,
+        718
+      ],
+      [
+        888,
+        888
+      ]
+    ],
+    "rule_names": [
+      "middlesbrough_council_tax_reduction_selected_band_index",
+      "middlesbrough_council_tax_reduction_paragraph_8_adverse_evidence_or_failure_applies",
+      "middlesbrough_council_tax_reduction_per_cent_unit"
+    ],
+    "rule_path": "rules[middlesbrough_council_tax_reduction_selected_band_index].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "6157922b9c46879dc926cf73ea03a913036b7bb76d24305c5f2bac3ef47b7d44",
+  "post_fix_artifact_sha256": "87c12a4a2a545cf91c917c230f7c449d28b5e25fcb2a11b761bcb1726323a7fe",
+  "provision_sha256": "ebe639685556e906862d625225d8bedfd3d3115035e8b15c743a4a8c1c5e44be",
+  "provision_chars": 2520,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-65",
+    "provision_file": "data/corpus/provisions/uk-middlesbrough/manual/2026-08-14-middlesbrough-council-tax-reduction-2026-2027.jsonl",
+    "provision_file_sha256": "e128dd311425cb4ae906ac5d5d8fc2ad7de16da4fac865b85935ab06865720c0",
+    "line_number": 66,
+    "record_id": "18774ba0-6566-5e52-95f6-efc1342dff32",
+    "stored_body_sha256": "ebe639685556e906862d625225d8bedfd3d3115035e8b15c743a4a8c1c5e44be",
+    "resolved_text_sha256": "ebe639685556e906862d625225d8bedfd3d3115035e8b15c743a4a8c1c5e44be",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-04-01",
+    "source_as_of": "2026-08-14",
+    "corpus_commit": "019e8600f6a62814d686502fa161303194355b41",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "toolchain_release_pin",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-65",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix selected_band_index awarded Band 1 to every passported applicant with no path to zero discount, omitting the Schedule 1 paragraph 8 carve-out that denies any discount where the authority holds adverse income/capital evidence or the applicant failed to respond to an evidence request — an exception the rule's own paragraph-7 proof excerpt already flagged ('except where the authority determines that 8 below applies').",
+    "triage_notes": "Provision read via resolve_provision on uk-middlesbrough/.../page-65 (pinned release): paragraph 7 awards Band 1 to IS/IR-ESA/IB-JSA recipients 'except where the authority determines that 8 below applies', and paragraph 8 states the no-discount override verbatim as quoted in the new rule's proof excerpt. Decisive evidence that this is a missing-clause defect rather than added scope: the pre-fix selected_band_index proof atom ALREADY cited the paragraph-7 sentence containing 'except where the authority determines that 8 below applies', while its formula encoded no such exception; the only change to that rule is the single formula line prepending 'if ..._paragraph_8_adverse_evidence_or_failure_applies: ..._zero_band_index else: <old formula>'. The new derived rule gates on passported_to_band_1, which is consistent with paragraph 8's scope ('bands 1 to 4, where that band is determined as a result of state benefit entitlement') because in this scheme benefit entitlement only ever determines Band 1 (paragraph 7); paragraph 4's separate capital>£10,000 disentitlement is untouched and already encoded. Secondary, non-defect change in the same module: a new parameter middlesbrough_council_tax_reduction_per_cent_unit = 0.01 with a page-70 excerpt ('100 per cent. of such payments', Schedule 1 para 25 board-and-lodging disregard). I confirmed via `git show 97c58907b2:<path> | grep -n per_cent_unit` that nothing references it, and `git log 97c58907b2..HEAD -- <path>` shows no later commits on the file, so it stays dangling — it changes no computed meaning and is at most added precision, not a correction; it does not alter the module-level classification. Also in the commit but outside this module: one new input (authority_has_paragraph_8_adverse_evidence_or_evidence_response_failure, Boolean/Household/Week), two oracle-coverage-pending entries with ceiling 3056 -> 3058, and ~1,600 lines of companion tests (a paragraph_8_classifier case plus single/couple band edge cases at 126.77/126.78, 228.17, etc.). Caveat on quote provenance: the bundle's PR record for #307 has empty reviews/review_comments/issue_comments, so the named 'sol round-1' review itself is not retrievable here; the commit subject is the only maintainer statement naming the fix, and the paragraph-8 excerpt inside the module diff corroborates it.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.93,
+    "verifier_justification": "Every refutation route fails. The pinned-release resolver (uk-rulespec-2026-09-05, corpus commit 019e8600f6, page-65) returns Schedule 1 paragraph 8 verbatim as quoted in the fix, and paragraph 7 in that same page reads \"discount will be awarded at Band 1 level except where the authority determines that 8 below applies\" — a sentence the PRE-fix module already carried as the proof excerpt on the very rule being fixed (pre.yaml line 677, rules[...selected_band_index].versions[0].formula), so the omission is a gap against the encoding's own cited text, not uncovered scope. It is also not an enhancement the module never claimed: Schedule 1 paragraph 8 appears nowhere in module.deferred_outputs (the only deferred \"paragraph 8\" is Schedule 3 paragraph 8 joint-claim-couple status, a different provision), and the module summary claims the Schedule 1 banded grid. The diff changes encoded meaning — a passported household with authority adverse evidence moves from band_1_index (90 per cent) to zero_band_index (0 per cent) — which is the addition of a source-stated carve-out, i.e. unrepresented_clause, not polarity inversion, boundary strictness, or an untraceable branch.",
+    "verifier_quote": "if middlesbrough_council_tax_reduction_paragraph_8_adverse_evidence_or_failure_applies: middlesbrough_council_tax_reduction_zero_band_index else: if middlesbrough_council_tax_reduction_passported_to_band_1: middlesbrough_council_tax_reduction_band_1_index",
+    "verifier_notes": "Verified source text (resolver, page-65, resolved_text_sha256 ebe639685556e906862d625225d8bedfd3d3115035e8b15c743a4a8c1c5e44be): \"8. Where an applicant is otherwise entitled to discount in bands 1 to 4, where that band is determined as a result of state benefit entitlement, but the authority has evidence or there has been a failure to respond to a request for evidence concerning income or capital that would otherwise mean no discount then no discount may be granted.\" Matches the added proof excerpt exactly. Two side observations for the reviewer, neither of which alters the verdict: (1) the same commit adds a parameter middlesbrough_council_tax_reduction_per_cent_unit = 0.01 that no formula in the post-fix module references (grep of post.yaml shows only its definition) — dead additive metadata asserted by a companion-test expectation, not part of the defect; (2) the new paragraph-8 rule fires only when passported_to_band_1, narrowing the source's \"bands 1 to 4, where that band is determined as a result of state benefit entitlement\" — defensible because paragraph 7 makes Band 1 the only benefit-determined band in this scheme, but a residual fidelity question if any other band can be benefit-determined. Paragraph 4's capital cliff (\"including where the authority determines that 8 below applies\") is handled upstream in award_conditions_met, so there is no ordering conflict with the new first branch. Companion tests added: middlesbrough_paragraph_8_classifier plus band-edge cases.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Provision read via resolve_provision on uk-middlesbrough/.../page-65 (pinned release): paragraph 7 awards Band 1 to IS/IR-ESA/IB-JSA recipients 'except where the authority determines that 8 below applies', and paragraph 8 states the no-discount override verbatim as quoted in the new rule's proof excerpt. Decisive evidence that this is a missing-clause defect rather than added scope: the pre-fix selected_band_index proof atom ALREADY cited the paragraph-7 sentence containing 'except where the authority determines that 8 below applies', while its formula encoded no such exception; the only change to that rule is the single formula line prepending 'if ..._paragraph_8_adverse_evidence_or_failure_applies: ..._zero_band_index else: <old formula>'. The new derived rule gates on passported_to_band_1, which is consistent with paragraph 8's scope ('bands 1 to 4, where that band is determined as a result of state benefit entitlement') because in this scheme benefit entitlement only ever determines Band 1 (paragraph 7); paragraph 4's separate capital>£10,000 disentitlement is untouched and already encoded. Secondary, non-defect change in the same module: a new parameter middlesbrough_council_tax_reduction_per_cent_unit = 0.01 with a page-70 excerpt ('100 per cent. of such payments', Schedule 1 para 25 board-and-lodging disregard). I confirmed via `git show 97c58907b2:<path> | grep -n per_cent_unit` that nothing references it, and `git log 97c58907b2..HEAD -- <path>` shows no later commits on the file, so it stays dangling — it changes no computed meaning and is at most added precision, not a correction; it does not alter the module-level classification. Also in the commit but outside this module: one new input (authority_has_paragraph_8_adverse_evidence_or_evidence_response_failure, Boolean/Household/Week), two oracle-coverage-pending entries with ceiling 3056 -> 3058, and ~1,600 lines of companion tests (a paragraph_8_classifier case plus single/couple band edge cases at 126.77/126.78, 228.17, etc.). Caveat on quote provenance: the bundle's PR record for #307 has empty reviews/review_comments/issue_comments, so the named 'sol round-1' review itself is not retrievable here; the commit subject is the only maintainer statement naming the fix, and the paragraph-8 excerpt inside the module diff corroborates it. | verifier confirmed at 0.93",
+  "family_id": "uk-97c58907-21ddcd031c77",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}
