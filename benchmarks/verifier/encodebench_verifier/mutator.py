@@ -20,9 +20,19 @@ What is and is not touched:
 * ``entity_wrong`` edits ``rules[i].entity``.
 
 Detectability guards: a planted defect must be visible to a reader of the
-provision window plus the artifact. Amounts must occur verbatim in the
-window; effective dates only move when the window states the original year;
-periods and entities only change when the window mentions the original.
+provision window plus the artifact. An amount must equal a number the window
+states (numeric equality on whole numbers, so ``60000`` matches ``$60,000.00``
+but ``200`` does not match inside ``2008`` and ``11`` does not match inside
+``3211(b)``), and its replacement must not; effective dates only move when
+the window states the original year as a word of its own and not the shifted
+one; periods and entities only change when the window mentions the original
+and not the replacement. Conjuncts are only dropped from pure conjunctions:
+a formula with a top-level ``or`` or an ``if``/``else`` is left alone.
+
+Version history: 1.0.0 matched amounts and years by substring (two of the
+first suite's 180 pairs were undetectable for that reason and are dropped
+from the first board); 1.0.1 uses numeric equality and word-bounded years,
+and refuses conjunct drops next to a top-level ``or``.
 
 Bump :data:`MUTATOR_VERSION` for any change to candidate selection, edit
 arithmetic, guards or the canonical dump — boards refuse to fold runs whose
@@ -36,13 +46,14 @@ import datetime
 import random
 import re
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from typing import Any, Callable, Iterator, Optional
 
 from . import DEFECT_KINDS
 from .canonical import dump_yaml_document, load_yaml_document
 from .cases import Locator
 
-MUTATOR_VERSION = "1.0.0"
+MUTATOR_VERSION = "1.0.1"
 
 _YEAR_RE = re.compile(r"^(19|20)\d\d$")
 _NUMBER_RE = re.compile(r"(?<![\w.#:/-])(\d{2,}(?:\.\d+)?|0\.\d+)(?![\w/-])")
@@ -151,8 +162,34 @@ def iter_formula_targets(
 # -- helpers ------------------------------------------------------------------
 
 
-def _normalise_provision(provision: str) -> str:
-    return provision.replace(",", "").lower()
+_PROVISION_NUMBER_RE = re.compile(r"(?<![\w.])\d[\d,]*(?:\.\d+)?")
+
+
+def provision_numbers(provision: str) -> set[Decimal]:
+    """Every number the provision window states, as normalised decimals."""
+
+    numbers: set[Decimal] = set()
+    for match in _PROVISION_NUMBER_RE.finditer(provision):
+        raw = match.group(0).replace(",", "").rstrip(".")
+        try:
+            numbers.add(Decimal(raw).normalize())
+        except InvalidOperation:
+            continue
+    return numbers
+
+
+def _as_decimal(token: str) -> Optional[Decimal]:
+    try:
+        return Decimal(token).normalize()
+    except InvalidOperation:
+        return None
+
+
+def _states_year(provision: str, year: str) -> bool:
+    return (
+        re.search(rf"(?<![\w.,]){re.escape(year)}(?![\w]|[.,]\d)", provision)
+        is not None
+    )
 
 
 def _mentions(provision_lower: str, words: tuple[str, ...]) -> bool:
@@ -210,7 +247,7 @@ def _perturb_number(token: str, forbidden: Callable[[str], bool]) -> Optional[st
 def _mutate_amount(
     document: dict[str, Any], provision: str, rng: random.Random
 ) -> Optional[Locator]:
-    provision_norm = _normalise_provision(provision)
+    stated = provision_numbers(provision)
     candidates: list[tuple[int, str, list[Any], str, re.Match[str]]] = []
     for rule_index, path, slot, raw in iter_formula_targets(document):
         text = str(raw)
@@ -218,13 +255,13 @@ def _mutate_amount(
             token = match.group(1)
             if _YEAR_RE.match(token):
                 continue
-            if token not in provision_norm:
+            if _as_decimal(token) not in stated:
                 continue
             candidates.append((rule_index, path, slot, text, match))
     rng.shuffle(candidates)
     for rule_index, path, slot, text, match in candidates:
         token = match.group(1)
-        new_token = _perturb_number(token, lambda t: t in provision_norm)
+        new_token = _perturb_number(token, lambda t: _as_decimal(t) in stated)
         if new_token is None:
             continue
         container, key = slot
@@ -288,6 +325,10 @@ def _mutate_conjunct(
         # ``if ...:`` / ``else:`` formulas interleave branches with conditions;
         # splitting them at depth zero could delete a branch head. Skip them.
         if ":" in flat:
+            continue
+        # ``a and b or c`` parses as ``(a and b) or c``: removing the text
+        # between two ``and`` tokens would delete the alternative as well.
+        if _depth0_matches(flat, _OR_RE):
             continue
         ands = _depth0_matches(flat, _AND_RE)
         if not ands:
@@ -390,7 +431,9 @@ def _mutate_date_or_period(
                     continue
                 # Detectability: the window must state the original year and
                 # must not also state the shifted year.
-                if effective[:4] not in provision or shifted[:4] in provision:
+                if not _states_year(provision, effective[:4]) or _states_year(
+                    provision, shifted[:4]
+                ):
                     continue
                 candidates.append(
                     (

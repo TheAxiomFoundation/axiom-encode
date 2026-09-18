@@ -31,15 +31,33 @@ class Price:
 
 
 def load_pricing(path: Path = DEFAULT_PRICING_FILE) -> dict[str, Price]:
-    payload = json.loads(Path(path).read_text())
+    try:
+        payload = json.loads(Path(path).read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"could not read pricing file {path}: {exc}") from exc
+    if not isinstance(payload, dict) or not isinstance(payload.get("models"), dict):
+        raise ValueError(f"pricing file {path} must carry a 'models' object")
     prices: dict[str, Price] = {}
-    for model, entry in (payload.get("models") or {}).items():
-        prices[model] = Price(
-            model=model,
-            input_usd_per_million=float(entry["input_usd_per_million"]),
-            output_usd_per_million=float(entry["output_usd_per_million"]),
-            source=str(entry["source"]),
-        )
+    for model, entry in payload["models"].items():
+        if not isinstance(entry, dict):
+            raise ValueError(f"pricing entry for {model!r} is not an object")
+        try:
+            price = Price(
+                model=model,
+                input_usd_per_million=float(entry["input_usd_per_million"]),
+                output_usd_per_million=float(entry["output_usd_per_million"]),
+                source=str(entry["source"]),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(
+                f"pricing entry for {model!r} needs numeric input/output prices "
+                f"and a source: {exc}"
+            ) from exc
+        if price.input_usd_per_million < 0 or price.output_usd_per_million < 0:
+            raise ValueError(f"pricing entry for {model!r} has a negative price")
+        if not price.source.strip():
+            raise ValueError(f"pricing entry for {model!r} has an empty source")
+        prices[model] = price
     return prices
 
 
@@ -49,9 +67,11 @@ def price_for(model: str, prices: Optional[dict[str, Price]] = None) -> Optional
 
 
 def cost_usd(
-    price: Optional[Price], tokens_input: int, tokens_output: int
+    price: Optional[Price], tokens_input: Optional[int], tokens_output: Optional[int]
 ) -> Optional[float]:
-    if price is None:
+    """Cost from a published price and *reported* usage; unknown usage is blank."""
+
+    if price is None or tokens_input is None or tokens_output is None:
         return None
     return round(
         tokens_input * price.input_usd_per_million / 1_000_000

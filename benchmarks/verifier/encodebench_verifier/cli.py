@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import sqlite3
 import sys
 from pathlib import Path
 from typing import Optional
@@ -23,7 +24,7 @@ from .board import (
 from .cases import CaseSuite, SuiteError
 from .judges import make_runner
 from .pricing import load_pricing, price_for
-from .results import run_suite
+from .results import ResultsError, run_suite
 from .sources import encodings_db, eval_suite, real, synthetic
 
 
@@ -95,14 +96,26 @@ def cmd_filter_suite(args: argparse.Namespace) -> int:
     suite = CaseSuite.load(Path(args.suite))
     keep = tuple(args.keep_citation_prefix or ())
     drop = tuple(args.drop_citation_prefix or ())
-    if not keep and not drop:
+    drop_pairs = set(args.drop_pair or ())
+    if not keep and not drop and not drop_pairs:
         _eprint(
-            "filter-suite needs --keep-citation-prefix and/or --drop-citation-prefix"
+            "filter-suite needs --keep-citation-prefix, --drop-citation-prefix "
+            "and/or --drop-pair"
         )
+        return 2
+    known_pairs = {case.pair_id for case in suite.cases}
+    unknown = sorted(drop_pairs - known_pairs)
+    if unknown:
+        _eprint(f"error: --drop-pair names pairs not in the suite: {unknown}")
+        return 2
+    if drop_pairs and not args.reason:
+        _eprint("error: --drop-pair needs --reason (recorded in the child suite)")
         return 2
 
     def keep_pair(case) -> bool:
         citation = case.citation
+        if case.pair_id in drop_pairs:
+            return False
         if keep and not citation.startswith(keep):
             return False
         return not (drop and citation.startswith(drop))
@@ -113,6 +126,8 @@ def cmd_filter_suite(args: argparse.Namespace) -> int:
         description={
             "keep_citation_prefix": list(keep),
             "drop_citation_prefix": list(drop),
+            "drop_pairs": sorted(drop_pairs),
+            "reason": args.reason,
         },
     )
     suite_path, manifest_path = child.write(Path(args.out))
@@ -144,27 +159,34 @@ def cmd_run(args: argparse.Namespace) -> int:
         max_attempts=args.max_attempts,
         retry_seconds=args.retry_seconds,
         timeout=args.timeout,
-        max_retries=args.max_attempts,
+        # JudgeClient counts attempts; the TypeSafe RetryPolicy counts retries
+        # after the first attempt. Keep both families on the same budget.
+        max_retries=max(0, args.max_attempts - 1),
     )
     prices = load_pricing(Path(args.pricing)) if args.pricing else load_pricing()
     price = price_for(runner.model, prices)
     if price is None:
         _eprint(f"no published price recorded for {runner.model}; cost will be blank")
-    payload = run_suite(
-        suite,
-        runner,
-        Path(args.out),
-        price=price,
-        workers=args.workers,
-        resume=not args.fresh,
-        limit=args.limit,
-        progress=_eprint if not args.quiet else None,
-    )
+    try:
+        payload = run_suite(
+            suite,
+            runner,
+            Path(args.out),
+            price=price,
+            workers=args.workers,
+            resume=not args.fresh,
+            limit=args.limit,
+            progress=_eprint if not args.quiet else None,
+        )
+    except KeyboardInterrupt:
+        _eprint(
+            "interrupted: queued cases cancelled, finished rows kept; re-run to resume"
+        )
+        return 130
     coverage = payload["coverage"]
     _eprint(
         f"{runner.name}: scored {coverage['scored']} errors {coverage['errors']} "
-        f"of {coverage['requested']} requested ({coverage['expected']} in suite); "
-        f"complete={coverage['complete']}"
+        f"of {coverage['expected']} in suite; complete={coverage['complete']}"
     )
     return 0 if coverage["errors"] == 0 else 1
 
@@ -193,6 +215,7 @@ def cmd_board(args: argparse.Namespace) -> int:
                 [
                     "judge",
                     "model",
+                    "rank_status",
                     "kind",
                     "pairs",
                     "kind_auc",
@@ -207,12 +230,13 @@ def cmd_board(args: argparse.Namespace) -> int:
                 ]
             )
             for stats in board.ordered_runners():
-                for kind in DEFECT_KINDS:
+                for kind in board.kinds:
                     ks = stats.kinds[kind]
                     writer.writerow(
                         [
                             stats.runner,
                             stats.model,
+                            stats.rank_status,
                             kind,
                             ks.complete_pairs,
                             ks.kind_auc,
@@ -265,6 +289,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--suite", required=True)
     p.add_argument("--keep-citation-prefix", nargs="*", default=None)
     p.add_argument("--drop-citation-prefix", nargs="*", default=None)
+    p.add_argument(
+        "--drop-pair",
+        nargs="*",
+        default=None,
+        help="pair ids to drop; the criterion must not depend on judge outputs",
+    )
+    p.add_argument("--reason", default=None, help="why pairs were dropped (recorded)")
     p.add_argument("--name", required=True)
     p.add_argument("--out", required=True)
     p.set_defaults(func=cmd_filter_suite)
@@ -282,9 +313,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--name", default=None, help="runner name on the board")
     p.add_argument("--out", required=True)
     p.add_argument("--workers", type=int, default=4)
-    p.add_argument("--limit", type=int, default=None)
     p.add_argument(
-        "--fresh", action="store_true", help="ignore cases.jsonl and restart"
+        "--limit",
+        type=int,
+        default=None,
+        help="judge only the first N suite cases (rows already done are kept)",
+    )
+    p.add_argument(
+        "--fresh",
+        action="store_true",
+        help="rotate cases.jsonl and results.json to .bak files and start over",
     )
     p.add_argument("--max-attempts", type=int, default=4)
     p.add_argument("--retry-seconds", type=float, default=15.0)
@@ -315,10 +353,13 @@ def main(argv: Optional[list[str]] = None) -> int:
         SuiteError,
         real.RealDefectsError,
         eval_suite.EvalSuiteSourceError,
-        FileNotFoundError,
+        ResultsError,
         ValueError,
+        KeyError,
+        OSError,
+        sqlite3.Error,
     ) as exc:
-        _eprint(f"error: {exc}")
+        _eprint(f"error: {type(exc).__name__}: {exc}")
         return 2
 
 
