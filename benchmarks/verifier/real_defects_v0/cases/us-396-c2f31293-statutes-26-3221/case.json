@@ -1,0 +1,120 @@
+{
+  "id": "us-396-c2f31293-statutes-26-3221",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "c2f312931f5f44c8ac5843b94d6d9881816f5b09",
+  "parent_commit": "6874470918ed1655ad3380cb402e7f9949de71c8",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Refresh removes the previously executable 3201 tier_2_employee_tax (compensation * 3241 percentage) and its 3202 import, deferring both because applying the rate to raw compensation \"would ignore the cross-referenced base limitation\" of 3231(e)(2); PR body: \"Keep unsafe railroad payroll tax amount surfaces deferred\" (wrong amount / missing contribution base, fixed by fail-closed deferral).",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/191",
+  "module_path": "statutes/26/3221.yaml",
+  "corpus_citation_path": "us/statute/26/3221",
+  "corpus_citation_paths_all": [
+    "us/statute/26/3221"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.78,
+  "description": "The available section 3231(e)(2) context defers the applicable base for tier 2 taxes, so the tier 2 tax cannot be faithfully computed on raw compensation paid.",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        3,
+        28
+      ],
+      [
+        34,
+        39
+      ],
+      [
+        41,
+        42
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        3,
+        4
+      ],
+      [
+        10,
+        14
+      ],
+      [
+        16,
+        70
+      ]
+    ],
+    "rule_names": [
+      "tier_2_employer_tax",
+      "tier_1_applicable_percentage"
+    ],
+    "rule_path": "rules[tier_2_employer_tax].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "099f43b59c0f599b2eb767b7f22a08105dda6d4e4b200673027b96d4969ebc5c",
+  "post_fix_artifact_sha256": "f0af8da8f6d85fe7a51373d5411c6f22695933f847adc44c0fb123a4c79e53f2",
+  "provision_sha256": "9fc1b9839af85b7aa8ceb2e3b21e34ac81afe3529598d67761e61cf1363ba68f",
+  "provision_chars": 987,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/3221",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "1b0b185ca3335eb06c4fe10af488a8984bdd2cedd4087badf78583c267af7b7b",
+    "line_number": 75,
+    "record_id": "58cfdec7-d50a-51e5-afeb-9fe3036a148b",
+    "stored_body_sha256": "9fc1b9839af85b7aa8ceb2e3b21e34ac81afe3529598d67761e61cf1363ba68f",
+    "resolved_text_sha256": "9fc1b9839af85b7aa8ceb2e3b21e34ac81afe3529598d67761e61cf1363ba68f",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us/statute/26/3221",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3221'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3221'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3221'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3221'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix tier_2_employer_tax computed max(0, compensation_paid) times the section 3241 percentage, omitting the different contribution base that 3221(c) cross-references to section 3231(e)(2), so the employer excise tax was applied to the entire compensation paid.",
+    "triage_notes": "Same pattern as index 0, on the employer excise tax. Provision read: 26 USC 3221(c) carries the identical 3231(e)(2) cross reference. Both 3221(a) and 3221(b) money outputs are now deferred (blocked by us:statutes/26/3231/e/2#compensation_excess_excluded_for_section_3201_a_or_3221_a_rate_portion and #applicable_base_for_tier_2_taxes_and_average_monthly_compensation). The commit also ADDS a new Rate rule tier_1_applicable_percentage = employer_oasdi_excise_tax_rate + hospital_insurance_employer_tax_rate with imports from 3111(a) and 3111(b); that is new coverage matching 3221(a)'s definition, not a defect fix, and a third deferral notes the tier 2 applicable percentage was withheld only because of a sibling-export name collision (mechanical/naming, not fidelity).",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.78,
+    "verifier_justification": "The pre-fix module exported an executable Money rule `tier_2_employer_tax` whose only formula was `max(0, compensation_paid) * applicable_percentage_for_sections_3211_b_and_3221_b`, i.e. the section 3241 rate applied to the entire compensation paid. Read through the pinned release, 3221(c) cross-references 3231(e)(2), and 3231(e)(2)(A)(i) excludes from \"compensation\" remuneration paid \"after remuneration equal to the applicable base has been paid\", with (B)(ii) fixing that applicable base specifically for \"the taxes imposed by sections 3201(b), 3211(b), and 3221(b)\" — so the encoded meaning overstated the tier 2 employer excise tax for any employee paid above the tier 2 base. That is a clause the source states and the encoding omitted, and the fix changes real encoded meaning: the rule, its formula, and its 3241(b) import are deleted and the output moved to `deferred_outputs` blocked by `us:statutes/26/3231/e/2#applicable_base_for_tier_2_taxes_and_average_monthly_compensation`. Attempts to refute as mechanical, not_a_defect, untraceable_branch, amount_mismatch, or polarity_or_logic all fail (see notes), so I confirm the first reader's classification and kind.",
+    "verifier_quote": "-          max(0, compensation_paid) * applicable_percentage_for_sections_3211_b_and_3221_b",
+    "verifier_notes": "Corroborating verbatim text from the post-fix module: \"The available section 3231(e)(2) context defers the applicable base for tier 2 taxes, so the tier 2 tax cannot be faithfully computed on raw compensation paid.\" Source read via the pinned resolver: corpus release us-rulespec-2026-07-13, resolved_text_sha256 9fc1b9839af85b7aa8ceb2e3b21e34ac81afe3529598d67761e61cf1363ba68f for us/statute/26/3221; 3231(e)(2) text retrieved from the same release.\n\nKind-boundary note for the reviewer: the remedy here is fail-closed deferral, not literally adding the missing cap, so unrepresented_clause is being applied to the defect (a required carve-out absent from the encoding) rather than to the shape of the fix. Alternatives I rejected: untraceable_branch (the formula was grounded in 3221(b) and used a correctly targeted 3241(b) import — it was under-qualified, not ungrounded); amount_mismatch (no literal rate or threshold in the module was wrong); polarity_or_logic (the pre-fix rule contained no boolean logic or branch; \"fail-closed\" describes the repo's remediation policy, not an inverted condition in the encoding).\n\nTwo parts of this diff are NOT the defect and should not be counted as evidence: (1) the newly added `tier_1_applicable_percentage` rule (3111(a)+3111(b) rates) is new coverage the module never claimed — by the rubric that alone would be at most \"unclear\"; (2) the third deferral, `tier_2_applicable_percentage`, is deferred for an export-name collision, which is hygiene, not fidelity. The decisive meaning change is solely the removal of the executable `tier_2_employer_tax` amount surface.\n\nScope note: the orchestrator's commit description mentions the 3201 `tier_2_employee_tax` removal, which belongs to module index 0; this case (module index 3, statutes/26/3221.yaml) is the employer-side analogue, and the quoted reason and rule path both match 3221.yaml, so the attribution is correct for this module.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Same pattern as index 0, on the employer excise tax. Provision read: 26 USC 3221(c) carries the identical 3231(e)(2) cross reference. Both 3221(a) and 3221(b) money outputs are now deferred (blocked by us:statutes/26/3231/e/2#compensation_excess_excluded_for_section_3201_a_or_3221_a_rate_portion and #applicable_base_for_tier_2_taxes_and_average_monthly_compensation). The commit also ADDS a new Rate rule tier_1_applicable_percentage = employer_oasdi_excise_tax_rate + hospital_insurance_employer_tax_rate with imports from 3111(a) and 3111(b); that is new coverage matching 3221(a)'s definition, not a defect fix, and a third deferral notes the tier 2 applicable percentage was withheld only because of a sibling-export name collision (mechanical/naming, not fidelity). | verifier confirmed at 0.78",
+  "family_id": "us-c2f31293-02d293c8fc9b",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

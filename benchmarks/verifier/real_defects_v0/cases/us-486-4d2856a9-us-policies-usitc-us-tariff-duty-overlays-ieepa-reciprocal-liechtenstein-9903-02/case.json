@@ -1,0 +1,276 @@
+{
+  "id": "us-486-4d2856a9-us-policies-usitc-us-tariff-duty-overlays-ieepa-reciprocal-liechtenstein-9903-02",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "4d2856a9587ea13d74d6321a79dcde956bb239e2",
+  "parent_commit": "75a3677870cc38e35dffbe9099f363a82bde53aa",
+  "commit_date": "2026-08-02",
+  "commit_subject": "Fix sol r2 findings: legal handoff dates and Boolean polarity coverage",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1197",
+  "module_path": "us/policies/usitc/us-tariff-duty/overlays/ieepa/reciprocal-liechtenstein-9903-02-36.yaml",
+  "corpus_citation_path": "us/statute/hts/9903.02.36",
+  "corpus_citation_paths_all": [
+    "us/statute/hts/9903.02.36",
+    "us/rulemaking/federal-register/2025-12-18/2025-23316"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "wrong_period_or_effective_date",
+  "other_kind": null,
+  "confidence": 0.9,
+  "description": "li-36 and ch-58 are terminated 2025-11-13 per Annex II of the implementing notice (90 FR 59281), which terminates headings 9903.02.36/.58 and inserts 9903.02.82-.91 effective November 14, 2025",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        6,
+        6
+      ],
+      [
+        8,
+        8
+      ],
+      [
+        32,
+        32
+      ],
+      [
+        62,
+        62
+      ],
+      [
+        100,
+        100
+      ],
+      [
+        129,
+        129
+      ],
+      [
+        159,
+        159
+      ],
+      [
+        191,
+        191
+      ],
+      [
+        216,
+        216
+      ],
+      [
+        241,
+        241
+      ],
+      [
+        266,
+        266
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        6,
+        8
+      ],
+      [
+        10,
+        10
+      ],
+      [
+        32,
+        36
+      ],
+      [
+        39,
+        39
+      ],
+      [
+        67,
+        71
+      ],
+      [
+        74,
+        74
+      ],
+      [
+        110,
+        114
+      ],
+      [
+        117,
+        117
+      ],
+      [
+        144,
+        148
+      ],
+      [
+        151,
+        151
+      ],
+      [
+        179,
+        183
+      ],
+      [
+        186,
+        186
+      ],
+      [
+        216,
+        220
+      ],
+      [
+        223,
+        223
+      ],
+      [
+        246,
+        250
+      ],
+      [
+        253,
+        253
+      ],
+      [
+        276,
+        280
+      ],
+      [
+        283,
+        283
+      ],
+      [
+        306,
+        310
+      ],
+      [
+        313,
+        313
+      ]
+    ],
+    "rule_names": [
+      "reciprocal_liechtenstein_additional_duty_rate",
+      "reciprocal_liechtenstein_in_transit_exception_applies",
+      "reciprocal_liechtenstein_heading_product_exception_applies",
+      "reciprocal_liechtenstein_otherwise_provision_exception_applies",
+      "reciprocal_liechtenstein_additional_duty_applies",
+      "reciprocal_liechtenstein_additional_duty",
+      "reciprocal_liechtenstein_general_duty_rate",
+      "reciprocal_liechtenstein_special_duty_rate",
+      "reciprocal_liechtenstein_column_2_duty_change"
+    ],
+    "rule_path": "rules[reciprocal_liechtenstein_general_duty_rate].versions[0].effective_to"
+  },
+  "pre_fix_artifact_sha256": "e83c7a97be4067e29488e61e6d47cd19c1e38020590e816516f08ca53b997d9f",
+  "post_fix_artifact_sha256": "307a8690c81fc84fed0717e9787142333bc38f6dad722431c663ae92668cc17b",
+  "provision_sha256": "e39d2570a833228e5a65ede43c921b9eb9708ad1b9099b735ee5c3b799941ba0",
+  "provision_chars": 898,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/hts/9903.02.36",
+    "provision_file": "data/corpus/provisions/us/statute/2026-08-03-rulespec-hts-current-with-legacy-aluminum.jsonl",
+    "provision_file_sha256": "7406b42f2f6a35bd43ed67d7fe4d0f7323e12c3e49c67b8d6699f9978d23b770",
+    "line_number": 1196,
+    "record_id": "a82a1c36-7b8b-5694-be12-83b6ce6a0b2b",
+    "stored_body_sha256": "e39d2570a833228e5a65ede43c921b9eb9708ad1b9099b735ee5c3b799941ba0",
+    "resolved_text_sha256": "e39d2570a833228e5a65ede43c921b9eb9708ad1b9099b735ee5c3b799941ba0",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-31",
+    "source_as_of": "2026-08-01",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "05ce3d3dd21b0ced76f9af40c2ecc02c1c57d9c6",
+    "requested_citation_path": "us/statute/hts/9903.02.36",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.36'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.36'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.36'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.36'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.36'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.36'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.36'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.36'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.36'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.36'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.36'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.36'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.36'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.36'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.36'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.36'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "All nine rules ended at 2026-02-14, a placeholder the pre-fix summary admitted was 'a conservative no-later-than bound', so the module kept applying the terminated heading's +15% Liechtenstein duty for three months after Annex II terminated heading 9903.02.36 for goods entered on or after 12:01 a.m. November 14, 2025.",
+    "triage_notes": "Read the source: resolve_provision.py on us/rulemaking/federal-register/2025-12-18/2025-23316 confirms 'Annex II Effective with respect to goods entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern time on November 14, 2025 ... 1. Headings 9903.02.36 and 9903.02.58 are hereby terminated.' effective_to 2025-11-13 is the correct inclusive last day. Diff changes only effective_to (9x), the module summary, module source_verification (single corpus_citation_path -> corpus_citation_paths with the FR notice added), and adds one effective_period proof atom per rule; no formula, rate, input or scope change.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_period_or_effective_date",
+    "verifier_confidence": 0.94,
+    "verifier_justification": "The only meaning-bearing change is the version window: all nine rules move `versions[0].effective_to` from '2026-02-14' to '2025-11-13' while every formula, input, output, and `effective_from` is untouched. Reading the sources through the pinned release settles that the pre-fix window disagreed with the law: the HTS text for 9903.02.36 carries only \"[Compiler's note: provision terminated. See 90 Fed. Reg. 59281.]\" with no date, and that notice's Annex II states the modifications are \"effective with respect to goods entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern time on November 14, 2025\" and that \"Headings 9903.02.36 and 9903.02.58 are hereby terminated.\" The pre-fix encoding thus kept the terminated heading's +15% duty live three months past termination, so this is a source disagreement, not added precision, and not mechanical (dates changed, not only excerpts or citation strings). The competing kind untraceable_branch (a placeholder value with no source basis) is subsumed by the more specific effective-date kind, since nothing but the period bound moved.",
+    "verifier_quote": "-        effective_to: '2026-02-14'\n+        effective_to: '2025-11-13'",
+    "verifier_notes": "Verified end to end, read-only. Diff bundle: /private/tmp/claude-501/-Users-maxghenis-TheAxiomFoundation-axiom-encode--claude-worktrees-zealous-heyrovsky-31a96b/86103d8f-b97f-4559-a96c-7e79bdbe616d/scratchpad/diffs/us/4d2856a958/002.diff. git diff --stat vs parent 75a3677870: 58 insertions, 11 deletions, one file; the 11 deletions are the summary line plus the single old corpus_citation_path plus the nine old effective_to lines, so no formula, input, output, or scope changed. Refutations tried and rejected: (1) mechanical fails because effective_to is a version-window value, not an excerpt or citation string; the provenance edits (corpus_citation_paths, nine new effective_period proof atoms, summary rewrite) ride along with a real date change. (2) not_a_defect (\"new source, old bound was a documented placeholder\") fails because the module positively asserted a window through 2026-02-14 that the cited HTS note's own referenced notice contradicts; the pre-fix summary even admits the bound was invented (\"a conservative no-later-than bound, the last day before the successor floor headings' 2026-02-15 panel domain\"). (3) reclassify to untraceable_branch is defensible in the abstract but loses to the more specific date/version-window kind. (4) boundary_direction fails: the inclusive-end convention (\"effective_to 2025-11-13 is the last effective day (inclusive end)\") is a representation choice, not the defect; the defect is the three-month overrun. Source confirmation used resolve_provision.py at --rulespec-commit 4d2856a958, corpus release us-rulespec-2026-08-03-ecps-pit-tariff-union, provisions file line 1196 (HTS 9903.02.36) and line 12 (FR 2025-12-18/2025-23316); the Annex II excerpt in the new proof atoms matches the corpus text modulo the FR hard-wrap normalization the commit message discloses. Materiality note for a reviewer: the successor headings 9903.02.87/.88 (also in this commit) use the 15%-floor mechanic rather than a flat +15% additive, so the corrected handoff changes computed duty, not just labels.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Read the source: resolve_provision.py on us/rulemaking/federal-register/2025-12-18/2025-23316 confirms 'Annex II Effective with respect to goods entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern time on November 14, 2025 ... 1. Headings 9903.02.36 and 9903.02.58 are hereby terminated.' effective_to 2025-11-13 is the correct inclusive last day. Diff changes only effective_to (9x), the module summary, module source_verification (single corpus_citation_path -> corpus_citation_paths with the FR notice added), and adds one effective_period proof atom per rule; no formula, rate, input or scope change. | verifier confirmed at 0.94",
+  "family_id": "us-4d2856a9-2fdd4f1b563c",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

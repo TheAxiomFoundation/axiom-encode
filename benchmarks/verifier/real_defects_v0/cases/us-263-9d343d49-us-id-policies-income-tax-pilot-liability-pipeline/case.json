@@ -1,0 +1,117 @@
+{
+  "id": "us-263-9d343d49-us-id-policies-income-tax-pilot-liability-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "9d343d49a3d8355b3801ef5deb9288b97c3a7260",
+  "parent_commit": "07f5517d7416416a753e57b591f632ae99d310d7",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Time-bound: Idaho pilot bounded to 2026, drops source-certified parity claim and relabels 2026 indexed amounts as caller-supplied projections.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1017",
+  "module_path": "us-id/policies/income_tax/pilot_liability_pipeline.yaml",
+  "corpus_citation_path": "us-id/statute/63-3024",
+  "corpus_citation_paths_all": [
+    "us-id/statute/63-3024",
+    "us-id/statute/63-3022D"
+  ],
+  "corpus_release": "us-rulespec-2026-07-22-current-la-status-fix",
+  "corpus_release_content_sha256": "6bfd97b24cb63cb709fa52e9a5e6764c916dec95c5557447e11f47778ee4768f",
+  "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+  "defect_kind": "wrong_period_or_effective_date",
+  "other_kind": null,
+  "confidence": 0.49,
+  "description": "bounds the projected/caller-supplied scaffold through 2026, adds dense floor/threshold fixtures, explicitly retains the official-source HOLD/no-parity boundary",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        23,
+        33
+      ],
+      [
+        38,
+        42
+      ],
+      [
+        50,
+        53
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        23,
+        31
+      ],
+      [
+        36,
+        39
+      ],
+      [
+        47,
+        50
+      ],
+      [
+        69,
+        69
+      ],
+      [
+        89,
+        89
+      ],
+      [
+        110,
+        110
+      ]
+    ],
+    "rule_names": [
+      "id_pit_pilot_taxable_income",
+      "id_pit_pilot_schedule_tax",
+      "id_pit_pilot_income_tax_liability"
+    ],
+    "rule_path": "rules[id_pit_pilot_income_tax_liability].versions[0].effective_to"
+  },
+  "pre_fix_artifact_sha256": "b095e006bc308f1d8e54b77ba5841c587af1afad1673798c83195594b6943104",
+  "post_fix_artifact_sha256": "27bb7da1ff86ee90e88c6c1fdfe27b7e8f77538c08fe42eae654e15fca81c5c7",
+  "provision_sha256": "5686f0b7e9106cf9a12ceff77d66dd2e4334762b049870341d7d1917115ebd7a",
+  "provision_chars": 955,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-id/statute/63-3024",
+    "provision_file": "data/corpus/provisions/us-id/statute/2026-07-13-recovery.jsonl",
+    "provision_file_sha256": "6987dc19511419b1358437719e648a62784cd50d18fc9d55d86f674209bd4001",
+    "line_number": 7,
+    "record_id": "9f169636-2dd7-545d-91ef-c407e1871f2a",
+    "stored_body_sha256": "5686f0b7e9106cf9a12ceff77d66dd2e4334762b049870341d7d1917115ebd7a",
+    "resolved_text_sha256": "5686f0b7e9106cf9a12ceff77d66dd2e4334762b049870341d7d1917115ebd7a",
+    "slice_required": false,
+    "component_rows": 2,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+    "fix_time_corpus_match": "row_body_empty_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "527a5be2ca97f19301c2e8964d305548cadefa03",
+    "requested_citation_path": "us-id/statute/63-3024",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "All three versions opened at 2026-01-01 with no effective_to, so the module asserted that a configuration built entirely on unverified 2026 projections (the indexed no-tax threshold and the post-step rate) was valid for every period from 2026 onward, even though the cited section 63-3024 directs the State Tax Commission to reindex the threshold annually and the pinned corpus holds no source certifying any of those year-specific values.",
+    "triage_notes": "Single module in the commit. The only semantic delta is three identical '+ effective_to: 2026-12-31' hunks (one per rule version); the rest of the module diff is rationale/summary prose that removes the pre-fix claims that 'the operative 2026 rate and threshold are the indexed values PolicyEngine projects', the literal '$4,920 single / $9,840 joint at 2026' and '5.3-per-cent' figures, and the 'comparable to PolicyEngine id_income_tax to the cent' parity assertion. Formulas, inputs, outputs, entity, and citation paths are unchanged, so on its own the prose rewrite would be metadata/mechanical; the effective_to additions are what make this a period-scope correction. I read the cited provision through the pinned corpus (release us-rulespec-2026-07-22-current-la-status-fix): us-id/statute/63-3024 resolves to legislature site navigation chrome only, with fix_time_corpus_match = row_body_empty_at_corpus_ref, i.e. the corpus row carries no operative statutory text, which corroborates the module's new 'corpus does not yet contain a Tax Commission source certifying the operative 2026 indexed values' rationale and the withdrawal of the parity claim. Residual doubt on the classification: because every year-specific amount is a caller-supplied input rather than a literal, no source sentence is directly contradicted by the pre-fix formulas, so a reviewer could read the bounding as fail-closed scaffolding hygiene rather than a source disagreement; I kept 'fidelity' because the encoded version window claimed validity the module's own cited authority (annual reindexation, no certified source) cannot support, and PR #1017 names it as a 'period-boundary' gap. Companion test file gained five boundary fixtures in the same commit (test-side, not counted here). Follow-ups in the same PR but NOT in this commit: removal of the incorrect legacy us-id/statute/63-3022D citation/index edge (63-3022D is still listed in this commit's corpus_citation_paths), and a later head fed5817295 that deleted a stale Idaho pending-validation waiver block after CI failed with 'pending validation fingerprint evidence mismatch'.",
+    "verifier_verdict": "not_a_defect",
+    "verifier_defect_kind": "none",
+    "verifier_confidence": 0.62,
+    "verifier_justification": "The only meaning change is three added `effective_to: '2026-12-31'` lines; formulas, inputs, entity/period kind, proof atoms and citation paths are untouched, and the pre-fix module contains no year-specific literal at all — the threshold, both rates, the deduction subtraction and the exemption credit are all caller-supplied inputs, so nothing encoded goes stale in 2027. Resolving both cited paths through the fix commit's pinned toolchain returns only Idaho Legislature navigation chrome, with `\"fix_time_corpus_match\": \"row_body_empty_at_corpus_ref\"` at corpus ref 527a5be2, so the pinned corpus holds no operative text of 63-3024 that could make the open-ended window disagree with the source, and Idaho's single-rate structure has no 2026 sunset. The commit's own added rationale grounds the bound in corpus *absence* (\"The corpus does not yet contain a Tax Commission source certifying the operative 2026 indexed values\"), and the PR frames it as \"Fail close 2026 state income-tax boundary modules\" alongside withdrawal of an unsupported oracle-parity claim. That is a fail-closed governance/truthfulness scoping choice plus a provenance retraction, not a correction of encoded meaning against cited source text.",
+    "verifier_quote": "+        corpus does not yet contain a Tax Commission source certifying the\n+        operative 2026 indexed values, so every year-specific amount is a\n+        declared caller-supplied projection: the filing-status no-tax threshold,",
+    "verifier_notes": "Refutation targets the classification, not the kind: if the corpus's convention is that an unbounded window on unverified-projection scaffolding is itself a period-truthfulness defect, then wrong_period_or_effective_date is the right kind and the first reader stands — my disagreement is whether any source-fidelity defect exists when the cited provision has no text in the pinned corpus. Verified facts for the reviewer: (1) module diff meaning change is exactly three `effective_to: '2026-12-31'` additions (rules[0..2].versions[0]); everything else is rationale/summary prose. (2) Pre-fix file (parent 07f5517d74) has zero numeric literals in any formula — all year-specific amounts arrive as `id_pit_pilot_supplied_*` inputs, so the post-2026 window could not produce a wrong number. (3) resolve_provision.py for us-id/statute/63-3024 and us-id/statute/63-3022D at commit 9d343d49a3 returns 956 chars of site navigation (\"Senate Senate Leadership … How current is this law?\") and reports row bodies empty at the toolchain corpus ref — no statutory rate, threshold, or effective-period text exists to be disagreed with. (4) Side effects worth a second look, both out of scope for this verdict: the bound now makes the module fail closed for 2027+ although the statutory single-rate mechanics continue (an under-claim with no statutory sunset), and the unchanged proof-atom excerpts (\"5.3% of taxable income over $2,500, or over $5,000 for joint returns\"; \"a tax measured by Idaho taxable income\") cannot be located in the resolved corpus body — a separate provenance issue this commit did not fix. (5) The same commit adds five 2026-period boundary fixtures (floor, ±$0.01 around the supplied threshold, credit floor) that exercise only caller-supplied mechanics; test additions do not bear on fidelity. If a reviewer prefers not to acquit outright, \"unclear\" is the next-best label; \"mechanical\" is wrong because version windows changed.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Single module in the commit. The only semantic delta is three identical '+ effective_to: 2026-12-31' hunks (one per rule version); the rest of the module diff is rationale/summary prose that removes the pre-fix claims that 'the operative 2026 rate and threshold are the indexed values PolicyEngine projects', the literal '$4,920 single / $9,840 joint at 2026' and '5.3-per-cent' figures, and the 'comparable to PolicyEngine id_income_tax to the cent' parity assertion. Formulas, inputs, outputs, entity, and citation paths are unchanged, so on its own the prose rewrite would be metadata/mechanical; the effective_to additions are what make this a period-scope correction. I read the cited provision through the pinned corpus (release us-rulespec-2026-07-22-current-la-status-fix): us-id/statute/63-3024 resolves to legislature site navigation chrome only, with fix_time_corpus_match = row_body_empty_at_corpus_ref, i.e. the corpus row carries no operative statutory text, which corroborates the module's new 'corpus does not yet contain a Tax Commission source certifying the operative 2026 indexed values' rationale and the withdrawal of the parity claim. Residual doubt on the classification: because every year-specific amount is a caller-supplied input rather than a literal, no source sentence is directly contradicted by the pre-fix formulas, so a reviewer could read the bounding as fail-closed scaffolding hygiene rather than a source disagreement; I kept 'fidelity' because the encoded version window claimed validity the module's own cited authority (annual reindexation, no certified source) cannot support, and PR #1017 names it as a 'period-boundary' gap. Companion test file gained five boundary fixtures in the same commit (test-side, not counted here). Follow-ups in the same PR but NOT in this commit: removal of the incorrect legacy us-id/statute/63-3022D citation/index edge (63-3022D is still listed in this commit's corpus_citation_paths), and a later head fed5817295 that deleted a stale Idaho pending-validation waiver block after CI failed with 'pending validation fingerprint evidence mismatch'. | verifier said not_a_defect at 0.62 (below 0.7); kept as unclear",
+  "family_id": "us-9d343d49-cc66ff120a3f",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

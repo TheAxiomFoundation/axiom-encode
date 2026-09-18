@@ -1,0 +1,151 @@
+{
+  "id": "us-420-28b65a58-us-nc-statutes-105-105-153-7",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "28b65a58b2de477827a97af5d78920fad8899aee",
+  "parent_commit": "fd918bb79f229464558b7e60c65899b15f7d9afa",
+  "commit_date": "2026-07-21",
+  "commit_subject": "Draft North Carolina PIT taxable-income boundary",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/959",
+  "module_path": "us-nc/statutes/105/105-153/7.yaml",
+  "corpus_citation_path": "us-nc/statute/105/105-153.7",
+  "corpus_citation_paths_all": [
+    "us-nc/statute/105/105-153.7"
+  ],
+  "corpus_release": "us-rulespec-2026-07-19-dedup",
+  "corpus_release_content_sha256": "5b52bfb379fcd94250a835a604bb3383991dcca848778e29510c333d5adde731",
+  "corpus_commit": "9bcd8345798c0e0a9b54ab3f5962abbb3663c049",
+  "defect_kind": "amount_mismatch",
+  "other_kind": null,
+  "confidence": 0.75,
+  "description": "The fixed subsection (a) schedule sets the rate at 3.99% after 2025.",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        19,
+        64
+      ],
+      [
+        70,
+        70
+      ],
+      [
+        72,
+        81
+      ],
+      [
+        83,
+        100
+      ],
+      [
+        102,
+        104
+      ],
+      [
+        108,
+        108
+      ],
+      [
+        148,
+        148
+      ],
+      [
+        169,
+        170
+      ],
+      [
+        177,
+        177
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        24,
+        24
+      ],
+      [
+        26,
+        26
+      ],
+      [
+        29,
+        29
+      ],
+      [
+        33,
+        33
+      ],
+      [
+        73,
+        74
+      ],
+      [
+        95,
+        96
+      ],
+      [
+        103,
+        103
+      ]
+    ],
+    "rule_names": [
+      "individual_income_tax_rate",
+      "individual_income_tax"
+    ],
+    "rule_path": "rules[individual_income_tax_rate].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "594b191130912c073719a143ffca21ce1814dd1f159b68f2dcdaaa732eac8a30",
+  "post_fix_artifact_sha256": "c0306fd55fd67ea700a1abdc65cdbfa473c781522aa15e9f4d2b4fecc2277e0d",
+  "provision_sha256": "e174d86f3f866609e4ea700ca6ffde8204b1aee6213713507209c7001cd311a6",
+  "provision_chars": 9291,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-nc/statute/105/105-153.7",
+    "provision_file": "data/corpus/provisions/us-nc/statute/2026-07-13-recovery.jsonl",
+    "provision_file_sha256": "671d105b274dc6d7bd7faeadceecf6aa2f5850444d2785c5e752e6e5604c1bb7",
+    "line_number": 53,
+    "record_id": "87e8f1e6-2622-55a3-8c79-7b0bd039d804",
+    "stored_body_sha256": "e174d86f3f866609e4ea700ca6ffde8204b1aee6213713507209c7001cd311a6",
+    "resolved_text_sha256": "e174d86f3f866609e4ea700ca6ffde8204b1aee6213713507209c7001cd311a6",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "9bcd8345798c0e0a9b54ab3f5962abbb3663c049",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "f66b3628a97c96bb0ab71809434ecaf84b6ad091",
+    "requested_citation_path": "us-nc/statute/105/105-153.7",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix rate schedule was shifted one row off the statutory table -- it encoded 0.046 from 2024, 0.045 from 2025, 0.0425 from 2026 and 0.0399 only from 2027, so the operative TY2026 rate was 4.25% -- while the cited provision's table reads 'In 2024 4.5% In 2025 4.25% After 2025 3.99%', making 3.99% the 2026 rate.",
+    "triage_notes": "Provision read through the pinned resolver (us-nc/statute/105/105-153.7, corpus release us-rulespec-2026-07-19-dedup, resolved_text_sha256 e174d86f38..., fix_time_corpus_match same_body): the table is 'In 2022 4.99% In 2023 4.75% In 2024 4.5% In 2025 4.25% After 2025 3.99%'. The pre-fix proof atoms quoted excerpts that do not appear in that text at all ('In 2024 4.6%', 'In 2025 4.5%', 'In 2026 4.25%', 'After 2026 3.99%') -- i.e. the superseded pre-2023-134 schedule -- and the deleted companion test asserted $4,600 tax on $100,000 for TY2024 (4.6%), confirming the encoded cells disagreed with the source. Competing kind: wrong_period_or_effective_date, since the defect can be read as version windows carrying superseded text; I chose amount_mismatch because the decisive consequence is that the value applied in the module's own target year changed from 0.0425 to 0.0399. Other changes in this module are collateral: individual_income_tax's window narrowed from effective_from 2014-01-01 to 2026-01-01/2026-12-31 (deferring subsection (a1) trigger years), and short_period_return_month_threshold was renamed to short_period_return_month_count with its value of 12 and its predicate logic unchanged (mechanical). Waiver for this file removed from known-validation-gaps.yaml in the same commit. Follow-up d1ed1b594 (2026-07-26) later re-labeled the proof atom row/excerpt from 'After 2025 3.99%' to 'In 2026 3.99%' without changing the 0.0399 value -- provenance only.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "amount_mismatch",
+    "verifier_confidence": 0.88,
+    "verifier_justification": "The pinned corpus text of N.C. Gen. Stat. § 105-153.7(a) reads \"Taxable Years Beginning Tax In 2022 4.99% In 2023 4.75% In 2024 4.5% In 2025 4.25% After 2025 3.99%\", while the pre-fix module encoded 0.046 from 2024-01-01, 0.045 from 2025-01-01, 0.0425 from 2026-01-01 and 0.0399 only from 2027-01-01 — the superseded pre-S.L. 2023-134 schedule, one row late — so the operative TY2026 rate was 4.25% instead of the source's 3.99%. The fix changes the 2026-01-01 version's formula to 0.0399 and replaces the proof atom's fabricated row \"In 2026 4.25%\" (no such row exists in the provision) with the real row \"After 2025 3.99%\", which is a change to encoded meaning, not provenance alone. I tried the competing kind wrong_period_or_effective_date and it fits worse: the 2024 and 2025 versions carry effective dates that match the source's own rows while holding wrong values, so most of the defect is wrong table cells rather than wrong windows, and the kind's parenthetical covers timeless encoding of superseded text whereas this encoding was dated. Subsection (a1) cannot rescue the old value, since its trigger table's earliest affected year is \"In 2027\", leaving subsection (a) governing TY2026.",
+    "verifier_quote": "-              excerpt: \"In 2026 4.25%\"\n+              excerpt: \"After 2025 3.99%\"",
+    "verifier_notes": "Decisive evidence is threefold. (1) Source, read through resolve_provision.py at corpus release us-rulespec-2026-07-19-dedup (provision file data/corpus/provisions/us-nc/statute/2026-07-13-recovery.jsonl line 53, body sha256 e174d86f...), with fix_time_corpus_match \"same_body\", so the pre-fix module cannot be excused by a corpus that changed: \"In 2024 4.5% In 2025 4.25% After 2025 3.99%\". (2) The formula change itself is split across the diff hunk because the line \"- effective_from: '2026-01-01'\" survives as context; the net effect is that the 2026-01-01 version's body goes from \"0.0425\" to \"0.0399\" (verbatim removed lines: \"-        formula: |-\" / \"-          0.0425\" and \"-      - effective_from: '2027-01-01'\"). (3) The pre-fix proof atoms quoted rows that do not appear in the cited provision at all (\"In 2026 4.25%\", \"After 2026 3.99%\", and the pre-2022 excerpts \"before January 1, 2019 ... five and four hundred ninety-nine thousandths percent (5.499%)\"), corroborating that the encoding tracked a superseded version of the table.\n\nTwo secondary observations for the reviewer, neither of which changes the primary kind. First, the same commit deletes every pre-2026 version and bounds individual_income_tax_rate and individual_income_tax to effective_from 2026-01-01 / effective_to 2026-12-31; the module summary explains this as deliberate deferral because subsection (a1) can reduce the rate beginning in 2027. That is pilot scope-bounding, not a scope correction, so wrong_entity_or_scope is not the right kind. Second, the removed pre-2022 versions (5.499%, 5.25%) are ungrounded in the current cited text and could read as untraceable_branch, but they are removed as part of the blanket scope narrowing rather than because they were ungrounded, and the reader's cited reading is about the operative TY2026 rate.\n\nAlso cosmetic in this diff: short_period_return_month_threshold renamed to short_period_return_month_count, with the import target and the consuming formula updated consistently; no meaning change there.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Provision read through the pinned resolver (us-nc/statute/105/105-153.7, corpus release us-rulespec-2026-07-19-dedup, resolved_text_sha256 e174d86f38..., fix_time_corpus_match same_body): the table is 'In 2022 4.99% In 2023 4.75% In 2024 4.5% In 2025 4.25% After 2025 3.99%'. The pre-fix proof atoms quoted excerpts that do not appear in that text at all ('In 2024 4.6%', 'In 2025 4.5%', 'In 2026 4.25%', 'After 2026 3.99%') -- i.e. the superseded pre-2023-134 schedule -- and the deleted companion test asserted $4,600 tax on $100,000 for TY2024 (4.6%), confirming the encoded cells disagreed with the source. Competing kind: wrong_period_or_effective_date, since the defect can be read as version windows carrying superseded text; I chose amount_mismatch because the decisive consequence is that the value applied in the module's own target year changed from 0.0425 to 0.0399. Other changes in this module are collateral: individual_income_tax's window narrowed from effective_from 2014-01-01 to 2026-01-01/2026-12-31 (deferring subsection (a1) trigger years), and short_period_return_month_threshold was renamed to short_period_return_month_count with its value of 12 and its predicate logic unchanged (mechanical). Waiver for this file removed from known-validation-gaps.yaml in the same commit. Follow-up d1ed1b594 (2026-07-26) later re-labeled the proof atom row/excerpt from 'After 2025 3.99%' to 'In 2026 3.99%' without changing the 0.0399 value -- provenance only. | verifier confirmed at 0.88",
+  "family_id": "us-28b65a58-70f48a615b2a",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

@@ -1,0 +1,23 @@
+(e) the amount of any premiums which may be applicable to him determined in accordance with Parts 3 and 4 of that Schedule (premiums); (f) the amount of either the— (i) work-related activity component; or (ii) support component, which may be applicable to him in accordance with Parts 5 and 6 of that Schedule (the components); (g) the amount of any transitional addition which may be applicable to him in accordance with Parts 7 and 8 of that Schedule (transitional addition).
+
+Applicable amount: persons who are not pensioners who have an award of universal credit 28.—(1) Subject to sub-paragraph (2), in determining the applicable amount for a week of an applicant who is not a pensioner— (a) who has, or (b) who (jointly with his partner) has, an award of universal credit, the authority must use the calculation or estimate of the maximum amount of the applicant, or the applicant and his partner jointly (as the case may be), subject to the adjustment described in subparagraph (3).
+
+(2) In determining the applicable amount for a week of an applicant who is a member of a polygamous marriage, the fact that two people are husband and wife is to be disregarded if— (a) one of them is a party to an earlier marriage that still subsists; and (b) the other party to that earlier marriage is living in the same household.
+
+(3) The adjustment referred to in sub-paragraph (1) is to multiply the maximum amount by 12 and divide the product by 52.
+
+(4) In this paragraph “maximum amount” means the maximum amount calculated by the Secretary of State in accordance with section 8(2) of the Welfare Reform Act 2012141.
+
+PART 7 Maximum council tax reduction for the purposes of calculating eligibility for a reduction under this scheme and amount of reduction
+
+Maximum council tax reduction amount under this scheme: pensioners and persons who are not pensioners 29.—(1) Subject to sub-paragraphs (2) to (4), a person’s maximum council tax reduction amount in respect of a day is 100 per cent of the amount A/B where— (a) A is the amount set by the authority as the council tax for the relevant financial year in respect of the dwelling in which he is a resident and for which he is liable, subject to any discount which may be appropriate to that dwelling under the 1992 Act; and (b) B is the number of days in that financial year, less any deductions in respect of non-dependants which fall to be made under paragraph 30 (non-dependant deductions: pensioners and persons who are not pensioners).
+
+(2) In calculating a person’s maximum council tax reduction under this scheme any reduction in the amount that person is liable to pay in respect of council tax, which is made in consequence of any enactment in, or made under, the 1992 Act (other than a reduction under this scheme), is to be taken into account.
+
+(3) Subject to sub-paragraph (4), where an applicant is jointly and severally liable for council tax in respect of a dwelling in which he is resident with one or more other persons, in determining the maximum council tax reduction in his case in accordance with sub-paragraph (1), the amount A is to be divided by the number of persons who are jointly and severally liable for that tax.
+
+(4) Where an applicant is jointly and severally liable for council tax in respect of a dwelling with only his partner, sub-paragraph (3) does not apply in his case.
+
+(5) The reference in sub-paragraph (3) to a person with whom an applicant is jointly and severally liable for council tax, where the applicant is a person who is not a pensioner, does not include a student to
+
+141 2012 c.5.

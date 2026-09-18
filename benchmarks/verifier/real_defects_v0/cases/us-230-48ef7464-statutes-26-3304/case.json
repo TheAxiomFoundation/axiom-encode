@@ -1,0 +1,143 @@
+{
+  "id": "us-230-48ef7464-statutes-26-3304",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "48ef746464b521396d99b55c6291a16b278908a7",
+  "parent_commit": "86fd93fa60ef8a89e4ca6dc96dc51c070a3e45b7",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Refresh of 3304 changes institution_of_higher_education effective_from from '2024-01-01' to '1990-01-01' (effective period correction).",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/336",
+  "module_path": "statutes/26/3304.yaml",
+  "corpus_citation_path": "us/statute/26/3304",
+  "corpus_citation_paths_all": [
+    "us/statute/26/3304"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "wrong_period_or_effective_date",
+  "other_kind": null,
+  "confidence": 0.6,
+  "description": "regenerate 26 USC 3304 with axiom-encode 0.2.532 and gpt-5.5",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        11,
+        11
+      ],
+      [
+        18,
+        18
+      ],
+      [
+        26,
+        26
+      ],
+      [
+        41,
+        41
+      ],
+      [
+        48,
+        48
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        11,
+        12
+      ],
+      [
+        19,
+        19
+      ],
+      [
+        27,
+        27
+      ],
+      [
+        42,
+        42
+      ],
+      [
+        49,
+        49
+      ]
+    ],
+    "rule_names": [
+      "institution_of_higher_education"
+    ],
+    "rule_path": "rules[institution_of_higher_education].versions[0].effective_from"
+  },
+  "pre_fix_artifact_sha256": "8d3fecbaac2527e7db2b241088d2cf53c68699f0ee895a966b95098757d444e9",
+  "post_fix_artifact_sha256": "86fc1e04b86968a3fea7737fce53a8297bc20be9c7896e4527512caed95bff86",
+  "provision_sha256": "31846ac812a0602116a51a985678f0475ebbb8f88e0b3b4e5d99aa33736a71e5",
+  "provision_chars": 17990,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/3304",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "1b0b185ca3335eb06c4fe10af488a8984bdd2cedd4087badf78583c267af7b7b",
+    "line_number": 83,
+    "record_id": "774aa904-8cc2-5d7a-bd4a-fcce0856f22e",
+    "stored_body_sha256": "31846ac812a0602116a51a985678f0475ebbb8f88e0b3b4e5d99aa33736a71e5",
+    "resolved_text_sha256": "31846ac812a0602116a51a985678f0475ebbb8f88e0b3b4e5d99aa33736a71e5",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us/statute/26/3304",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3304'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3304'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3304'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3304'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module gave the 26 USC 3304(f) definition of \"institution of higher education\" a version window starting 2024-01-01, so the long-standing statutory definition would not resolve for any period before 2024 even though nothing in the cited provision ties it to that date.",
+    "triage_notes": "Provision read through the pinned corpus (release us-rulespec-2026-07-13, resolver exit 0): the cited text of 26 USC 3304(f) is purely definitional and contains no dates, no 'Effective' note and no amendment history, so there is no basis in the cited source for the pre-fix 2024-01-01 start; the replacement 1990-01-01 is the repo's standing convention for long-standing statutory text (213 of 710 modules under statutes/26 at this commit carry effective_from '1990-01-01'). Rest of the module diff is provenance/metadata only and mechanical by the stated rules: rewritten module summary, a new `source:` field plus expanded reason on the deferred output us:statutes/26/3304/a#state_law_approval_requirements, the rule `source` string expanded to an inline excerpt, and two proof-atom excerpt strings corrected to match the corpus text verbatim (em-dash dropped from the definition excerpt; the ellipsis-compressed (3) excerpt replaced with contiguous text). The formula, its five input concepts, entity Business, dtype Judgment and period Year are unchanged. Neither the commit subject ('Refresh generated section 3304 payroll rules', empty body) nor the PR body/reviews (PR #336, zero reviews and zero comments) mentions the effective date, so the quote is only the generic fix description and confidence is held at 0.6; the defect kind rests on the diff plus the absence of any 2024 anchor in the source. Note this is a whole-module regeneration under a new encoder version and backend (codex/0.2.343 -> openai/0.2.532), not a targeted date fix, so the date change is a side effect of regeneration. The companion test file added two branch tests, but all four tests use 2024 calendar-year periods, so they neither exercise nor would have caught the pre-fix window.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_period_or_effective_date",
+    "verifier_confidence": 0.78,
+    "verifier_justification": "The only meaning-bearing change in the module is the version window for institution_of_higher_education, moved from effective_from '2024-01-01' to '1990-01-01'; the formula, inputs, entity, dtype, period kind, and output name are byte-identical before and after, so this is not a mechanical/provenance-only diff under the stated rule (mechanical requires versions and effective dates to stay the same). The resolved source text for us/statute/26/3304 contains no date at all in subsection (f) — it is an unconditional definition \"For purposes of subsection (a)(6)\" with no 2024 trigger — so the pre-fix encoding affirmatively asserted the definition did not exist before 2024, which disagrees with the cited provision. Repo evidence confirms 2024-01-01 was an outlier defect rather than a policy choice: at the parent commit this was the only file under statutes/ using '2024-01-01' (1 file) against 212 files on the '1990-01-01' floor. I tried to refute the kind as untraceable_branch (an ungrounded value) or as regeneration churn, but dates have a dedicated kind, and the companion tests all run in calendar year 2024 so the pre-fix window still passed — the correction was not test-forced.",
+    "verifier_quote": "-      - effective_from: '2024-01-01'\n+      - effective_from: '1990-01-01'",
+    "verifier_notes": "Caveats for the reviewer. (1) No authored evidence names the date: the commit body is empty and the PR body only says \"regenerate 26 USC 3304 with axiom-encode 0.2.532 and gpt-5.5\", \"add generated test coverage...\", \"refresh signed apply manifest\". The date correction is a byproduct of a full regeneration, not a documented targeted fix — the first reader's quote is therefore generic and does not itself support the kind; the diff line does. (2) The replacement value is not source-derived either: 1990-01-01 is the repo-wide convention floor (212 files at the parent commit, 213 after), not a date stated in 26 USC 3304(f), which carries no date. So the fix moves an affirmatively wrong window onto the house floor rather than onto a statutory effective date; it remains a correction because 2024-01-01 contradicted the source for 1990-2023 while 1990-01-01 does not. I did not verify the enactment Public Law for 3304(f) this session and make no claim about it. (3) Everything else in the diff is provenance: summary rewrite, added deferred_outputs `source:` string, expanded rule `source:` string, and two proof-atom excerpt corrections (em-dash trim; ellipsis excerpt replaced with contiguous text). Those alone would have been mechanical. (4) Provision read through release us-rulespec-2026-07-13, corpus commit 612d20ca43, body sha256 31846ac812a0602116a51a985678f0475ebbb8f88e0b3b4e5d99aa33736a71e5; selection_basis was \"no_toolchain_corpus_pin\" with fallback_index 4, i.e. the 2026-07 corpus, not a fix-time pin.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Provision read through the pinned corpus (release us-rulespec-2026-07-13, resolver exit 0): the cited text of 26 USC 3304(f) is purely definitional and contains no dates, no 'Effective' note and no amendment history, so there is no basis in the cited source for the pre-fix 2024-01-01 start; the replacement 1990-01-01 is the repo's standing convention for long-standing statutory text (213 of 710 modules under statutes/26 at this commit carry effective_from '1990-01-01'). Rest of the module diff is provenance/metadata only and mechanical by the stated rules: rewritten module summary, a new `source:` field plus expanded reason on the deferred output us:statutes/26/3304/a#state_law_approval_requirements, the rule `source` string expanded to an inline excerpt, and two proof-atom excerpt strings corrected to match the corpus text verbatim (em-dash dropped from the definition excerpt; the ellipsis-compressed (3) excerpt replaced with contiguous text). The formula, its five input concepts, entity Business, dtype Judgment and period Year are unchanged. Neither the commit subject ('Refresh generated section 3304 payroll rules', empty body) nor the PR body/reviews (PR #336, zero reviews and zero comments) mentions the effective date, so the quote is only the generic fix description and confidence is held at 0.6; the defect kind rests on the diff plus the absence of any 2024 anchor in the source. Note this is a whole-module regeneration under a new encoder version and backend (codex/0.2.343 -> openai/0.2.532), not a targeted date fix, so the date change is a side effect of regeneration. The companion test file added two branch tests, but all four tests use 2024 calendar-year periods, so they neither exercise nor would have caught the pre-fix window. | verifier confirmed at 0.78",
+  "family_id": "us-48ef7464-edc3cacc3b12",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

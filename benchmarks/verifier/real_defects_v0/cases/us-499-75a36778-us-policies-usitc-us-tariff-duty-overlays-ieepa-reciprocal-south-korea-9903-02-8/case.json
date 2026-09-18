@@ -1,0 +1,189 @@
+{
+  "id": "us-499-75a36778-us-policies-usitc-us-tariff-duty-overlays-ieepa-reciprocal-south-korea-9903-02-8",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "75a3677870cc38e35dffbe9099f363a82bde53aa",
+  "parent_commit": "91d3b50b9c75b266a1c54596477171fd40cf44d3",
+  "commit_date": "2026-08-02",
+  "commit_subject": "Sol r1 fixes: afghanistan 02.78 exception, five floor modules completed, terminated predecessors, FALSE-origin witnesses",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1197",
+  "module_path": "us/policies/usitc/us-tariff-duty/overlays/ieepa/reciprocal-south-korea-9903-02-80.yaml",
+  "corpus_citation_path": "us/statute/hts/9903.02.80",
+  "corpus_citation_paths_all": [
+    "us/statute/hts/9903.02.80"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.4,
+  "description": "the five floor stub modules are complete encodings",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        8,
+        36
+      ],
+      [
+        42,
+        42
+      ],
+      [
+        52,
+        52
+      ],
+      [
+        55,
+        55
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        8,
+        16
+      ],
+      [
+        18,
+        19
+      ],
+      [
+        24,
+        24
+      ],
+      [
+        34,
+        34
+      ],
+      [
+        37,
+        37
+      ],
+      [
+        41,
+        223
+      ]
+    ],
+    "rule_names": [
+      "reciprocal_south_korea_below_floor_column_1_duty_rate_threshold",
+      "reciprocal_south_korea_below_floor_heading_product_exception_applies",
+      "reciprocal_south_korea_below_floor_otherwise_provision_exception_applies",
+      "reciprocal_south_korea_floor_duty_applies",
+      "reciprocal_south_korea_below_floor_general_duty_rate",
+      "reciprocal_south_korea_below_floor_special_duty_rate",
+      "reciprocal_south_korea_below_floor_column_2_duty_change"
+    ],
+    "rule_path": "rules[reciprocal_south_korea_floor_duty_applies].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "837fad0478d643483697401210969153031df44c185dab5c50079683491ae146",
+  "post_fix_artifact_sha256": "d7c1058afcd170d3bd6a64ae8279d0526d6c11e83be26be62ed269391bbc0c05",
+  "provision_sha256": "9aecd3cb9b0dde4e81c1a81ebf86577a5aff2bac4994e5312edeb660833eeb5d",
+  "provision_chars": 581,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/hts/9903.02.80",
+    "provision_file": "data/corpus/provisions/us/statute/2026-08-03-rulespec-hts-current-with-legacy-aluminum.jsonl",
+    "provision_file_sha256": "7406b42f2f6a35bd43ed67d7fe4d0f7323e12c3e49c67b8d6699f9978d23b770",
+    "line_number": 1240,
+    "record_id": "adbb8c0a-b30f-59c7-b7c2-cda67e36d3dc",
+    "stored_body_sha256": "9aecd3cb9b0dde4e81c1a81ebf86577a5aff2bac4994e5312edeb660833eeb5d",
+    "resolved_text_sha256": "9aecd3cb9b0dde4e81c1a81ebf86577a5aff2bac4994e5312edeb660833eeb5d",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-31",
+    "source_as_of": "2026-08-01",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "05ce3d3dd21b0ced76f9af40c2ecc02c1c57d9c6",
+    "requested_citation_path": "us/statute/hts/9903.02.80",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.80'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.80'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.80'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.80'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.80'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.80'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.80'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.80'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.80'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.80'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.80'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.80'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.80'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.80'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.80'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.80'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "unclear",
+    "pre_fix_wrong_because": "unclear: the pre-fix module held only the 15 percent floor rate parameter with all six operative outputs under deferred_outputs, so the below-threshold scope, the heading exceptions, and the 15% column 1 replacement rates were not encoded at all.",
+    "triage_notes": "Same pattern as index 4, with one extra wrinkle: an existing proof atom on reciprocal_south_korea_floor_duty_rate was re-kinded and re-excerpted from condition/'less than 15 percent' to parameter/'Rates of duty (1-Special): 15%' (and its source label from 'HTS 9903.02.80 Rates of duty (1-General)' to 'HTS 9903.02.80 Rates of duty'), i.e. the 0.15 rate parameter had been grounded on the threshold clause rather than the rate lines - an excerpt/provenance correction, mechanical under the rubric, not a formula change. The new scope formula encodes the source's 'column 1-General or column 1-Special less than 15 percent' as both rates below the threshold, which the new summary justifies as the exact complement of sibling 9903.02.79 so the pair partitions without overlap; worth a reviewer's eye since 'or ... less than' read literally would be a disjunction. Source text for 9903.02.80 not separately re-read.",
+    "verifier_verdict": "not_a_defect",
+    "verifier_defect_kind": "none",
+    "verifier_confidence": 0.66,
+    "verifier_justification": "The pre-fix module was an explicitly declared stub: its header carried a `deferred_outputs` block naming all six operative outputs (floor_duty_applies, the two exception judgments, and the general/special/column-2 rate outputs) with stated deferral reasons (sibling-name collision, or dependence on a deferred output), so the module formally never claimed to encode the below-threshold scope, the heading exceptions, or the 15% column-1 replacement rates. The only meaning it did encode — the `reciprocal_south_korea_floor_duty_rate` parameter — survives the fix byte-identical in value (`formula: '0.15'`) and window (`effective_from: '2026-02-15'`); the only edits to it are a `source:` string and a proof-atom kind/excerpt swap, which the rubric classes as provenance/mechanical. Nothing encoded disagreed with HTS 9903.02.80 (resolved text confirms the 15% rates, the exception headings, and the subdivision (v)(xxiv)(a) scope), and the composition in the same commit imports only \"each country heading's rate parameter\", so no consumer received a wrong answer from the stub. This is completion of declared-absent coverage inside the same PR that introduced the stub, i.e. new outputs and scope the module never claimed, not a fidelity correction.",
+    "verifier_quote": "-  deferred_outputs:\n-  - output: us:policies/usitc/us-tariff-duty/overlays/ieepa/reciprocal-south-korea-9903-02-80#reciprocal_south_korea_floor_duty_applies",
+    "verifier_notes": "Counter-argument a reviewer should weigh: the pre-fix `summary` did recite the full provision (exceptions plus the 15% replacement rates) while the module exported nothing operative, so someone reading the summary as a claim could call the gap `unrepresented_clause`. I weight the `deferred_outputs` block higher because it is RuleSpec's formal non-claim marker and it sat in the same header; the deferral reasons are encoder mechanics (name collision with the terminated predecessor's plain exports), not a mis-encoding of source meaning. Commit F2 frames it the same way: \"the five floor stub modules are complete encodings\" — completion language, not correction language, and the same PR (#1197) both created and completed the stub, so nothing wrong was ever in a merged state.\n\nTwo follow-ups that are about the POST-fix content, not the candidate defect, and would need their own cases if the corpus wants them: (1) the source text reads \"rate of duty under column 1-General or column 1-Special less than 15 percent\" but the new `reciprocal_south_korea_floor_duty_applies` formula conjoins both (\"applicable_subheading_general_duty_rate < threshold and applicable_subheading_special_duty_rate < threshold\"); the new summary defends this as the complement of sibling 9903.02.79 so the pair partitions without overlap — defensible, but it is an or/and divergence from the literal text worth a reviewer's eye. (2) The pre-fix second proof atom on the rate parameter was `kind: condition` / `excerpt: less than 15 percent` — grounding a 15% rate parameter on the threshold clause; the fix re-grounds it to \"Rates of duty (1-Special): 15%\". That is a real mis-grounding but excerpt/citation-string only, which the rubric calls mechanical (provenance), and the value never changed.\n\nSource verification: resolved us/statute/hts/9903.02.80 through release us-rulespec-2026-08-03-ecps-pit-tariff-union (corpus commit d9d6fba0b9), text sha256 9aecd3cb9b0d…; note `fix_time_corpus_match: provision_file_absent_at_corpus_ref`, so the pinned-release text is a later expression (2026-07-31) than the fix-time toolchain ref.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Same pattern as index 4, with one extra wrinkle: an existing proof atom on reciprocal_south_korea_floor_duty_rate was re-kinded and re-excerpted from condition/'less than 15 percent' to parameter/'Rates of duty (1-Special): 15%' (and its source label from 'HTS 9903.02.80 Rates of duty (1-General)' to 'HTS 9903.02.80 Rates of duty'), i.e. the 0.15 rate parameter had been grounded on the threshold clause rather than the rate lines - an excerpt/provenance correction, mechanical under the rubric, not a formula change. The new scope formula encodes the source's 'column 1-General or column 1-Special less than 15 percent' as both rates below the threshold, which the new summary justifies as the exact complement of sibling 9903.02.79 so the pair partitions without overlap; worth a reviewer's eye since 'or ... less than' read literally would be a disjunction. Source text for 9903.02.80 not separately re-read. | verifier said not_a_defect at 0.66 (below 0.7); kept as unclear",
+  "family_id": "us-75a36778-a9330e9fab98",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

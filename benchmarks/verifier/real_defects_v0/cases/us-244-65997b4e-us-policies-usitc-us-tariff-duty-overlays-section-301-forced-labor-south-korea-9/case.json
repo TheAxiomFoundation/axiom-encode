@@ -1,0 +1,164 @@
+{
+  "id": "us-244-65997b4e-us-policies-usitc-us-tariff-duty-overlays-section-301-forced-labor-south-korea-9",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "65997b4e4960f6d918e498f7d2c8df34855fe971",
+  "parent_commit": "4dfebb74e4e0ddfd19224cb104a4d414933c31d6",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) fl301 r2: addresses five review blockers, including \"repair 54 modules' heading-range excerpts to the Rev14 en-dash\" (proof grounding) and an entry-rule split (intra-PR #1196 repair round).",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1196",
+  "module_path": "us/policies/usitc/us-tariff-duty/overlays/section-301/forced-labor-south-korea-9903-05-71.yaml",
+  "corpus_citation_path": "us/statute/hts/9903.05.71",
+  "corpus_citation_paths_all": [
+    "us/statute/hts/9903.05.71",
+    "us/statute/hts/9903.05.70"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.49,
+  "description": "encode the five deferred column-1 floor headings (9903.05.39/.49/.71/.74/.76) with boundary and exception tests",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        6,
+        23
+      ],
+      [
+        25,
+        59
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        6,
+        10
+      ],
+      [
+        12,
+        178
+      ]
+    ],
+    "rule_names": [
+      "forced_labor_south_korea_floor_heading_applies",
+      "general_duty_rate_after_forced_labor_south_korea_floor_overlay",
+      "special_duty_rate_after_forced_labor_south_korea_floor_overlay",
+      "forced_labor_south_korea_floor_column_1_rate_threshold",
+      "forced_labor_south_korea_floor_duty_rate"
+    ],
+    "rule_path": "rules[general_duty_rate_after_forced_labor_south_korea_floor_overlay].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "77e7f17cbed11642fbac1bbc68ee1732c94d1383aa5b989e3649725c00611fcf",
+  "post_fix_artifact_sha256": "a166e97815ab187d43044818a618e53eaf1b71e8ce03bae4e08bfd39a386e342",
+  "provision_sha256": "8e369d5f103921e3a72066815d4bac03c1e9b543e0331d45d6530a52a9c73e1a",
+  "provision_chars": 403,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/hts/9903.05.71",
+    "provision_file": "data/corpus/provisions/us/statute/2026-08-03-rulespec-hts-current-with-legacy-aluminum.jsonl",
+    "provision_file_sha256": "7406b42f2f6a35bd43ed67d7fe4d0f7323e12c3e49c67b8d6699f9978d23b770",
+    "line_number": 1344,
+    "record_id": "a947b00e-c277-54f8-832d-7c27840e4ded",
+    "stored_body_sha256": "8e369d5f103921e3a72066815d4bac03c1e9b543e0331d45d6530a52a9c73e1a",
+    "resolved_text_sha256": "8e369d5f103921e3a72066815d4bac03c1e9b543e0331d45d6530a52a9c73e1a",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-31",
+    "source_as_of": "2026-08-01",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "05ce3d3dd21b0ced76f9af40c2ecc02c1c57d9c6",
+    "requested_citation_path": "us/statute/hts/9903.05.71",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.71'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.71'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.71'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.71'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.71'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.71'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.71'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.71'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.71'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.71'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.71'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.71'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.71'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.71'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.71'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.71'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module encoded none of HTS 9903.05.71's operative content — the country/column-1-below-12.5% condition, the 9903.05.85–9903.05.92 exception, and the 12.5% floor rates for columns (1-General) and (1-Special) were all parked as deferred_outputs, so the heading's floor rule and its exception clause were unrepresented in the module.",
+    "triage_notes": "This is the only substantive module change in chunk 4; indices 36-46 are the en-dash provenance sweep. Pre-fix the file held only two orphan parameters (threshold 0.125, floor rate 0.125) plus three deferred_outputs entries (name collision with the sibling .70 export and 'flattened thresholded/capped mechanics'); post-fix it exports a renamed floor_heading_applies plus general/special rate rules. Borderline call flagged for the reviewer: the gap was explicitly declared via deferred_outputs rather than silently mis-encoded, and the parent composition (us/policies/cbp/us-tariff-duty/composition.yaml, index 0) already cited us/statute/hts/9903.05.71 directly in its own proof atoms, so no wrong number was being computed end-to-end — under the 'adds outputs the module never claimed' carve-out a reviewer could downgrade this to unclear. I kept it as fidelity/unrepresented_clause because the missing content is the heading's entire operative clause and the commit treats it as one of five review blockers. Provision read through the pinned corpus (us-rulespec-2026-08-03-ecps-pit-tariff-union): HTS 9903.05.71 = 'Except for products described in headings 9903.05.85–9903.05.92, articles the product of South Korea, with an ad valorem ... rate of duty under column 1 less than 12.5 percent ... Rates of duty (1-General): 12.5% / (1-Special): 12.5% / (2): No change', which matches the new '<' boundary, the 0.125 floor and the 'No change' column-2 silence. The fix also widened source_verification to corpus_citation_paths [9903.05.71, 9903.05.70] and grounds the else-branch (rate unchanged) on the .70 complement — defensible cross-grounding, but note it is a second provision now cited by this module. A new companion test forced-labor-south-korea-9903-05-71.test.yaml adds the at-threshold boundary case (0.125 -> not_holds) and the exception case.",
+    "verifier_verdict": "not_a_defect",
+    "verifier_defect_kind": "none",
+    "verifier_confidence": 0.66,
+    "verifier_justification": "The pre-fix module encoded exactly two parameters (threshold 0.125 and floor rate 0.125), both of which match HTS 9903.05.71 (\"less than 12.5 percent\", \"Rates of duty (1-General): 12.5%\") and are carried into the post-fix file unchanged in value, dtype, and effective_from — nothing the module asserted disagreed with the source. The country condition, the 12.5% floor branch, and the 9903.05.85–9903.05.92 exception were not silently omitted: the module carried an explicit `deferred_outputs` block naming those three outputs, and the stated reason is a RuleSpec naming collision (\"used a local name that collides with a sibling RuleSpec export\"), i.e. a tooling/export-hygiene deferral, not a misreading of the provision. The pre-fix composition already computed the Korea floor top-up from these parameters (`elif origin_is_japan or origin_is_korea or origin_is_switzerland: (if mfn_ad_valorem_rate < forced_labor_section_301_twelve_and_one_half_percent_rate: ...`), so the deferral produced no wrong duty downstream. Per the rubric, adding outputs the module explicitly never claimed is new coverage, not a fidelity correction, so unrepresented_clause is not supported for this file.",
+    "verifier_quote": "-  deferred_outputs:\n-  - output: us:policies/usitc/us-tariff-duty/overlays/section-301/forced-labor-south-korea-9903-05-71#forced_labor_south_korea_heading_applies\n-    reason: Generated rule used a local name that collides with a sibling RuleSpec\n-      export. This output is deferred until it can be encoded with a semantic branch-specific\n-      name without creating ambiguous sibling imports.",
+    "verifier_notes": "Evidence checked: pinned-release text of us/statute/hts/9903.05.71 (corpus release us-rulespec-2026-08-03-ecps-pit-tariff-union, provision line 1344) reads \"Except for products described in headings 9903.05.85–9903.05.92, articles the product of South Korea, with an ad valorem (or ad valorem equivalent) rate of duty under column 1 less than 12.5 percent, as provided for in U.S. note 52 to this subchapter / Rates of duty (1-General): 12.5% / Rates of duty (1-Special): 12.5%\". The new formula uses strict `<` against the 0.125 threshold, matching \"less than\", so there is no boundary_direction issue either way.\n\nWhat actually changed in module 47: (a) three previously deferred outputs are now encoded (heading_applies + general/special rate overlays); (b) both surviving parameters were renamed (south_korea_section_301_column_1_duty_rate_threshold -> forced_labor_south_korea_floor_column_1_rate_threshold; south_korea_section_301_floor_duty_rate -> forced_labor_south_korea_floor_duty_rate) with identical formulas '0.125' and identical effective_from '2026-07-24'; (c) provenance-only edits — hyphen to en-dash in the heading range, \"as provided for in U.S. note 52 to this subchapter\" added to the summary, and corpus_citation_path -> corpus_citation_paths with 9903.05.70 added for the else-branch grounding. No pre-existing formula, parameter value, version window, date, or scope was corrected.\n\nResidual uncertainty (why 0.66 and not higher): if the reviewer's convention is that a heading module MUST export its own operative rate rule, then the deferral is itself the defect and unrepresented_clause could be defended. I weight against that because the deferral was declared in-file with a naming-collision reason and the operative floor logic was already live in us/policies/cbp/us-tariff-duty/composition.yaml.\n\nReviewer pointer: the genuine fidelity content of commit 65997b4e49 (the 9903.05.85 in-transit safe harbor, note 52(g)/(h) USMCA exception, note 52(a) chapter-98 exclusion, personal-use baggage) lands in module index 0, us/policies/cbp/us-tariff-duty/composition.yaml (321 diff lines) — that is where an unrepresented_clause claim for this commit should be adjudicated, not in this overlay file. A companion test file forced-labor-south-korea-9903-05-71.test.yaml was added alongside, consistent with new coverage rather than a corrected computation.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "This is the only substantive module change in chunk 4; indices 36-46 are the en-dash provenance sweep. Pre-fix the file held only two orphan parameters (threshold 0.125, floor rate 0.125) plus three deferred_outputs entries (name collision with the sibling .70 export and 'flattened thresholded/capped mechanics'); post-fix it exports a renamed floor_heading_applies plus general/special rate rules. Borderline call flagged for the reviewer: the gap was explicitly declared via deferred_outputs rather than silently mis-encoded, and the parent composition (us/policies/cbp/us-tariff-duty/composition.yaml, index 0) already cited us/statute/hts/9903.05.71 directly in its own proof atoms, so no wrong number was being computed end-to-end — under the 'adds outputs the module never claimed' carve-out a reviewer could downgrade this to unclear. I kept it as fidelity/unrepresented_clause because the missing content is the heading's entire operative clause and the commit treats it as one of five review blockers. Provision read through the pinned corpus (us-rulespec-2026-08-03-ecps-pit-tariff-union): HTS 9903.05.71 = 'Except for products described in headings 9903.05.85–9903.05.92, articles the product of South Korea, with an ad valorem ... rate of duty under column 1 less than 12.5 percent ... Rates of duty (1-General): 12.5% / (1-Special): 12.5% / (2): No change', which matches the new '<' boundary, the 0.125 floor and the 'No change' column-2 silence. The fix also widened source_verification to corpus_citation_paths [9903.05.71, 9903.05.70] and grounds the else-branch (rate unchanged) on the .70 complement — defensible cross-grounding, but note it is a second provision now cited by this module. A new companion test forced-labor-south-korea-9903-05-71.test.yaml adds the at-threshold boundary case (0.125 -> not_holds) and the exception case. | verifier said not_a_defect at 0.66 (below 0.7); kept as unclear",
+  "family_id": "us-65997b4e-7e643725399b",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

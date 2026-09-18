@@ -1,0 +1,185 @@
+{
+  "id": "us-240-62833ba1-us-policies-usitc-us-tariff-duty-overlays-ieepa-fentanyl-energy-9903-01-13",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "62833ba10c83d4225762be2f2eefe4835169bda2",
+  "parent_commit": "426f1a72374b37d41558de9e84cda6cf4565e527",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Splits declared-exception rate off the panel-demanded rate; \"the energy overlay judgment now carries the full U.S. note 2(j) scope\" — scope/exception correction (PR #1195).",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1195",
+  "module_path": "us/policies/usitc/us-tariff-duty/overlays/ieepa/fentanyl-energy-9903-01-13.yaml",
+  "corpus_citation_path": "us/statute/hts/9903.01.13",
+  "corpus_citation_paths_all": [
+    "us/statute/hts/9903.01.13",
+    "us/statute/hts/9903.01.10",
+    "us/statute/hts/9903.01.11",
+    "us/statute/hts/9903.01.12",
+    "us/statute/hts/9903.01.14",
+    "us/statute/hts/9903.01.15",
+    "us/statute/hts/chapter-99/page-174"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.75,
+  "description": "the energy overlay judgment now carries the full U.S. note 2(j) scope: Canada-product gate, the 9903.01.11-.15 exception carve-outs, and accompanied-baggage exclusion",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        6,
+        6
+      ],
+      [
+        8,
+        8
+      ],
+      [
+        32,
+        32
+      ],
+      [
+        44,
+        54
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        6,
+        13
+      ],
+      [
+        15,
+        15
+      ],
+      [
+        39,
+        39
+      ],
+      [
+        48,
+        82
+      ],
+      [
+        86,
+        102
+      ]
+    ],
+    "rule_names": [
+      "fentanyl_energy_additional_duty_applies"
+    ],
+    "rule_path": "rules[fentanyl_energy_additional_duty_applies].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "efd19a9c5d4283c5f6181ff541b3a5dd96b3d6ecde4589b07c95f0a7b0a6faf4",
+  "post_fix_artifact_sha256": "bca59c69f58781ff8e06cc37eedf84bf7a0ac580e869335d1891d53821f600ee",
+  "provision_sha256": "b6762c3f5a1058084b905e80e87da95a93c7d04f869f73345ebe588eea887639",
+  "provision_chars": 477,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/hts/9903.01.13",
+    "provision_file": "data/corpus/provisions/us/statute/2026-08-03-rulespec-hts-current-with-legacy-aluminum.jsonl",
+    "provision_file_sha256": "7406b42f2f6a35bd43ed67d7fe4d0f7323e12c3e49c67b8d6699f9978d23b770",
+    "line_number": 1094,
+    "record_id": "4af929c8-26db-5fa5-b1dd-db517100f355",
+    "stored_body_sha256": "b6762c3f5a1058084b905e80e87da95a93c7d04f869f73345ebe588eea887639",
+    "resolved_text_sha256": "b6762c3f5a1058084b905e80e87da95a93c7d04f869f73345ebe588eea887639",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-31",
+    "source_as_of": "2026-08-01",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "05ce3d3dd21b0ced76f9af40c2ecc02c1c57d9c6",
+    "requested_citation_path": "us/statute/hts/9903.01.13",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix judgment fired on the bare article list alone (crude oil, natural gas, ... critical minerals), so it held for energy articles of any origin and ignored U.S. note 2(j)'s limitation to \"the covered products of Canada\" and its carve-outs for donations, informational materials, USMCA duty-free goods, potash, and personal-use goods in accompanied baggage.",
+    "triage_notes": "Provision read through the pinned corpus: `us/statute/hts/9903.01.13` is only the article list plus rates (477 chars, no origin or exception language), and `us/statute/hts/chapter-99/page-174` carries U.S. note 2(j) verbatim: \"For the purposes of heading 9903.01.10, products of Canada, other than products described in headings 9903.01.11, 9903.01.12, 9903.01.13, 9903.01.14, 9903.01.15, 9903.01.16, 9903.76.01, 9903.76.02 and 9903.76.03 and other than products for personal use included in accompanied baggage of persons arriving in the United States, shall be subject to an additional 35% ad valorem rate of duty. For the purposes of heading 9903.01.13, the covered products of Canada shall be subject to an additional 10% ad valorem rate of duty.\" That confirms both the Canada-product gate and the accompanied-baggage exclusion. `wrong_entity_or_scope` is an equally defensible kind here: the single most consequential omission is the missing geography gate (`article_is_product_of_canada`), while four of the six added conjuncts are explicit carve-outs, which is why I chose unrepresented_clause; a judge that answers either should count. Caveat for the reviewer: headings 9903.01.11/.12/.14/.15 are textually exceptions to 9903.01.10, not to .13, so making .13 disjoint from them (and extending the accompanied-baggage exclusion to .13) is an encoder reading of the note's structure rather than literal .13 text - defensible but interpretive. The diff also widens `module.source_verification` from a single `corpus_citation_path` to seven `corpus_citation_paths`, rewrites the module summary, and retitles the rule's `source` string; those are provenance/mechanical and ride along with the formula fix. Companion test `fentanyl-energy-9903-01-13.test.yaml` changed in the same commit (new bare-fact inputs).",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.78,
+    "verifier_justification": "I tried to refute this as an enhancement (the composition already gates energy on `origin_is_canada`, so the module's judgment might have been deliberately origin-agnostic \"article scope\"), but the module is a standalone overlay whose judgment feeds `fentanyl_energy_additional_duty` -> `fentanyl_energy_general_duty_rate`/`_special_duty_rate`, so pre-fix it asserted heading 9903.01.13's +10% on energy articles of any origin. The pinned release settles the source: U.S. note 2(j) says \"For the purposes of heading 9903.01.13, the covered products of Canada shall be subject to an additional 10% ad valorem rate of duty,\" and the pre-fix summary (\"Energy articles including crude oil ... are subject to the applicable subheading duty plus 10%\") carried no Canada limitation — so the encoded meaning disagreed with the cited source and the fix adds the missing condition. The added `and article_is_product_of_canada` conjunct is a required clause the source states and the encoding omitted, which is unrepresented_clause; the change is a formula change, not metadata, so it is not mechanical.",
+    "verifier_quote": "+          and article_is_product_of_canada",
+    "verifier_notes": "Two caveats a reviewer should weigh. (1) Kind is arguably contestable: the decisive, source-mandated conjunct is an origin gate, so wrong_entity_or_scope (geography) is a live alternative; I kept unrepresented_clause because five of the six added conjuncts are exception carve-outs and the fix's mechanism is adding conditions the source states, not retargeting the entity (entity stays Asset, heading stays 9903.01.13). (2) The carve-outs the fix adds over-reach their cited source. Read in the pinned release (us-rulespec-2026-08-03-ecps-pit-tariff-union, corpus commit d9d6fba), note 2(j) attaches \"other than products described in headings 9903.01.11, 9903.01.12, 9903.01.13, 9903.01.14, 9903.01.15 ... and other than products for personal use included in accompanied baggage\" to heading 9903.01.10, not to 9903.01.13; the 9903.01.13 sentence says only \"the covered products of Canada shall be subject to an additional 10% ad valorem rate of duty.\" Likewise the atom citing us/statute/hts/9903.01.10 (\"Except for products described in headings 9903.01.11, 9903.01.12, 9903.01.13, 9903.01.14 or 9903.01.15\") states that .13 is an exception FROM .10, i.e. the inverse of the relation the fix uses it for, and the \"accompanied baggage\" atom cites the same page-174 text that governs .10/.05. So `not article_is_humanitarian_donation / _informational_material / _usmca_duty_free_good / _potash / _personal_use_accompanied_baggage` is a defensible practical reading of the Canada fentanyl heading stack but is not stated for 9903.01.13 in the cited text — potentially a new untraceable_branch introduced by the fix. That does not disturb the verdict on the pre-fix defect (the Canada gate is squarely required), but if a reviewer wants the corpus text for the carve-out portion to be the defect evidence, the grounding is weaker than the commit message implies. The corpus record for us/statute/hts/9903.01.13 itself is only the article list (\"Crude oil, natural gas, lease condensates, ... critical minerals, as defined by 30 U.S.C. 1606(a)(3)\" plus the rate lines) — no Canada prefix — so the Canada gate is evidenced solely through note 2(j) on us/statute/hts/chapter-99/page-174, which the fix correctly added to corpus_citation_paths.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Provision read through the pinned corpus: `us/statute/hts/9903.01.13` is only the article list plus rates (477 chars, no origin or exception language), and `us/statute/hts/chapter-99/page-174` carries U.S. note 2(j) verbatim: \"For the purposes of heading 9903.01.10, products of Canada, other than products described in headings 9903.01.11, 9903.01.12, 9903.01.13, 9903.01.14, 9903.01.15, 9903.01.16, 9903.76.01, 9903.76.02 and 9903.76.03 and other than products for personal use included in accompanied baggage of persons arriving in the United States, shall be subject to an additional 35% ad valorem rate of duty. For the purposes of heading 9903.01.13, the covered products of Canada shall be subject to an additional 10% ad valorem rate of duty.\" That confirms both the Canada-product gate and the accompanied-baggage exclusion. `wrong_entity_or_scope` is an equally defensible kind here: the single most consequential omission is the missing geography gate (`article_is_product_of_canada`), while four of the six added conjuncts are explicit carve-outs, which is why I chose unrepresented_clause; a judge that answers either should count. Caveat for the reviewer: headings 9903.01.11/.12/.14/.15 are textually exceptions to 9903.01.10, not to .13, so making .13 disjoint from them (and extending the accompanied-baggage exclusion to .13) is an encoder reading of the note's structure rather than literal .13 text - defensible but interpretive. The diff also widens `module.source_verification` from a single `corpus_citation_path` to seven `corpus_citation_paths`, rewrites the module summary, and retitles the rule's `source` string; those are provenance/mechanical and ride along with the formula fix. Companion test `fentanyl-energy-9903-01-13.test.yaml` changed in the same commit (new bare-fact inputs). | verifier confirmed at 0.78",
+  "family_id": "us-62833ba1-4657ea483158",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

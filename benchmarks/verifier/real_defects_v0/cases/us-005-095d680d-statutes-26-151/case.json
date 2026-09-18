@@ -1,0 +1,443 @@
+{
+  "id": "us-005-095d680d-statutes-26-151",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "095d680d471e75d35256db564f5dd547ca248a1e",
+  "parent_commit": "7d6981ae34844c047d9fee10a181438a9b5d6de1",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Bulk mixed refresh whose squash body includes \"Repair RuleSpec validation coverage\" and \"Repair validation tail for refreshed RuleSpecs\"; module diffs carry semantic changes (151 adds a deferred_output making exemption_phaseout_applicable_percentage non-executable because 68(b) no longer defines the applicable amount; 24 rewrites phaseout threshold selection and qualifying-child predicates; 1402/a drops 1401 import proof atoms) alongside text->excerpt format renames and new subsection modules; later stage should read the diff.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/46",
+  "module_path": "statutes/26/151.yaml",
+  "corpus_citation_path": "us/statute/26/151",
+  "corpus_citation_paths_all": [
+    "us/statute/26/151"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.49,
+  "description": "Current section 151(d)(3) continues to refer to the applicable amount in effect under section 68(b), but section 68(b), as amended for taxable years beginning after December 31, 2025, no longer defines that applicable amount. The 2026 RuleSpec therefore leaves this phaseout percentage non-executable rather than preserving a local cross-reference placeholder.",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        8,
+        15
+      ],
+      [
+        47,
+        47
+      ],
+      [
+        64,
+        64
+      ],
+      [
+        82,
+        82
+      ],
+      [
+        100,
+        100
+      ],
+      [
+        117,
+        117
+      ],
+      [
+        135,
+        135
+      ],
+      [
+        153,
+        153
+      ],
+      [
+        170,
+        170
+      ],
+      [
+        187,
+        187
+      ],
+      [
+        205,
+        205
+      ],
+      [
+        223,
+        223
+      ],
+      [
+        235,
+        235
+      ],
+      [
+        240,
+        240
+      ],
+      [
+        243,
+        257
+      ],
+      [
+        259,
+        259
+      ],
+      [
+        262,
+        262
+      ],
+      [
+        266,
+        273
+      ],
+      [
+        280,
+        280
+      ],
+      [
+        288,
+        288
+      ],
+      [
+        295,
+        295
+      ],
+      [
+        298,
+        298
+      ],
+      [
+        310,
+        310
+      ],
+      [
+        318,
+        318
+      ],
+      [
+        332,
+        332
+      ],
+      [
+        337,
+        337
+      ],
+      [
+        340,
+        340
+      ],
+      [
+        344,
+        345
+      ],
+      [
+        350,
+        350
+      ],
+      [
+        368,
+        368
+      ],
+      [
+        372,
+        375
+      ],
+      [
+        388,
+        388
+      ],
+      [
+        391,
+        391
+      ],
+      [
+        395,
+        395
+      ],
+      [
+        403,
+        403
+      ],
+      [
+        411,
+        411
+      ],
+      [
+        420,
+        420
+      ],
+      [
+        429,
+        429
+      ],
+      [
+        437,
+        437
+      ],
+      [
+        441,
+        441
+      ],
+      [
+        443,
+        444
+      ],
+      [
+        461,
+        461
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        2,
+        5
+      ],
+      [
+        11,
+        25
+      ],
+      [
+        27,
+        35
+      ],
+      [
+        67,
+        67
+      ],
+      [
+        84,
+        84
+      ],
+      [
+        102,
+        102
+      ],
+      [
+        120,
+        120
+      ],
+      [
+        137,
+        137
+      ],
+      [
+        155,
+        155
+      ],
+      [
+        173,
+        173
+      ],
+      [
+        190,
+        190
+      ],
+      [
+        207,
+        207
+      ],
+      [
+        225,
+        225
+      ],
+      [
+        243,
+        243
+      ],
+      [
+        255,
+        255
+      ],
+      [
+        260,
+        260
+      ],
+      [
+        263,
+        263
+      ],
+      [
+        265,
+        265
+      ],
+      [
+        268,
+        268
+      ],
+      [
+        272,
+        276
+      ],
+      [
+        283,
+        283
+      ],
+      [
+        291,
+        296
+      ],
+      [
+        305,
+        305
+      ],
+      [
+        317,
+        317
+      ],
+      [
+        325,
+        337
+      ],
+      [
+        351,
+        351
+      ],
+      [
+        356,
+        361
+      ],
+      [
+        364,
+        364
+      ],
+      [
+        368,
+        369
+      ],
+      [
+        374,
+        374
+      ],
+      [
+        392,
+        410
+      ],
+      [
+        414,
+        420
+      ],
+      [
+        433,
+        433
+      ],
+      [
+        436,
+        436
+      ],
+      [
+        440,
+        443
+      ],
+      [
+        451,
+        451
+      ],
+      [
+        459,
+        471
+      ],
+      [
+        480,
+        484
+      ],
+      [
+        493,
+        493
+      ],
+      [
+        497,
+        501
+      ],
+      [
+        506,
+        506
+      ],
+      [
+        510,
+        511
+      ],
+      [
+        513,
+        514
+      ],
+      [
+        531,
+        549
+      ]
+    ],
+    "rule_names": [
+      "exemption_phaseout_applicable_percentage",
+      "exemption_individual_eligible",
+      "senior_deduction_modified_adjusted_gross_income",
+      "senior_deduction_eligible",
+      "exemption_amount"
+    ],
+    "rule_path": "rules[exemption_phaseout_applicable_percentage].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "db47b3e58db9e596745abd57de0d7fbf6e404db52813c7928d6e4dd5a3548afb",
+  "post_fix_artifact_sha256": "28fb0e7c50d48ad764ff1ddee8b654a18006fc3dde026034b4dfb6efb90a0fb2",
+  "provision_sha256": "d7e3e8660c4d7671df246499b9ccf473826a1f24199c2dcc09e8cec7ba001ce1",
+  "provision_chars": 5165,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/151",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "1b0b185ca3335eb06c4fe10af488a8984bdd2cedd4087badf78583c267af7b7b",
+    "line_number": 34,
+    "record_id": "c5fd105f-240d-53cd-9a05-07816ae8dfa0",
+    "stored_body_sha256": "d7e3e8660c4d7671df246499b9ccf473826a1f24199c2dcc09e8cec7ba001ce1",
+    "resolved_text_sha256": "d7e3e8660c4d7671df246499b9ccf473826a1f24199c2dcc09e8cec7ba001ce1",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us/statute/26/151",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/151'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/151'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/151'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/151'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module computed an exemption phaseout percentage for taxable years from 2026-01-01 off `applicable_amount_in_effect_under_section_68_b`, a value the cited 2026 source does not define, so the branch had no basis in the law it claimed to encode.",
+    "triage_notes": "Provision read: I resolved us/statute/26/68 through the pinned corpus at this rulespec commit; 68(b) is 'Coordination with other limitations' and contains no applicable amount, confirming the deferral reason. The fix deletes rules[exemption_phaseout_applicable_percentage] entirely and records it under module.deferred_outputs blocked_by us:statutes/26/68/b#applicable_amount (the four phaseout parameter rules survive as source_values). The same diff carries several other semantic edits a reviewer should split out or discount: (a) exemption_individual_eligible drops `or is_dependent_under_section_152_of_taxpayer` and its source label drops 151(c), which NARROWS coverage relative to 151(c) (section_151_exemption_deduction still lists 151(c) in its source) - that looks like a possible regression, not a correction, though exemption_amount is zero post-2017 so it is numerically inert; (b) senior_deduction_modified_adjusted_gross_income is newly wrapped in max(0, ...), a floor the 151(d)(5)(C)(iii)(II) text does not state; (c) placeholders grounded into filing_status (`not joint_return_made_by_taxpayer_and_spouse` -> `not (filing_status == 1)`; `not taxpayer_is_married_individual_within_section_7703` -> `not (filing_status == 1 or filing_status == 2)`), plus a new `taxpayer_is_individual` conjunct and new imports of 911(a)/931/933. Everything else is summary refresh and text->excerpt renames. The quote is the folded YAML `reason:` scalar from the added deferred_outputs block in the diff.",
+    "verifier_verdict": "not_a_defect",
+    "verifier_defect_kind": "none",
+    "verifier_confidence": 0.68,
+    "verifier_justification": "The pinned 2026 text of the cited source (us/statute/26/151, release us-rulespec-2026-07-13) still contains 151(d)(3) verbatim — \"the applicable amount in effect under section 68(b), 1 1 See References in Text note below\" and \"2 percentage points for each $2,500 (or fraction thereof)\" — so the deleted branch was a faithful transcription of the cited provision, complete with a proof atom quoting it, not a branch \"with no basis in the cited source\"; untraceable_branch therefore does not fit. What the fix changes is executability of a cross-module dependency that lives in a different section (68(b), whose module at this commit encodes only \"Coordination with other limitations\"), and the module's own comment frames it as a representational choice (\"leaves this phaseout percentage non-executable rather than preserving a local cross-reference placeholder\") while retaining the phaseout rate, increments and 100% cap as source_values. The PR describes exactly this as metadata for \"surfaces that are intentionally not executable yet,\" and no computed result changes because 151(d)(5)(A) already zeroes the exemption amount and exemption_amount never consumed the phaseout percentage. The pre-fix content was not wrong against 26 USC 151, so this is a modeling/executability decision rather than a fidelity correction.",
+    "verifier_quote": "- Adds or repairs deferred-output metadata for legacy surfaces that are intentionally not executable yet, especially SNAP regulation sections and cross-subsection 26 USC fragments.",
+    "verifier_notes": "Evidence trail: (1) resolve_provision --citation us/statute/26/151 --rulespec-commit 095d680d47 returns corpus_release us-rulespec-2026-07-13 whose text retains \"(3) Phaseout (A) In general In the case of any taxpayer whose adjusted gross income for the taxable year exceeds the applicable amount in effect under section 68(b), 1 1 See References in Text note below.\" — the source itself flags the dangling cross-reference, and the encoder transcribed it correctly. (2) Pre-fix file (7d6981ae34:statutes/26/151.yaml, line 270) references `applicable_amount_in_effect_under_section_68_b` as a free/caller-supplied identifier; it is defined nowhere in the module, so the pre-fix state is a dangling cross-module input, not an invented value or branch. (3) `git show 095d680d47:statutes/26/68/b.yaml` contains only `section_68_applied_after_other_itemized_deduction_limitations` — the missing definition is in section 68, not a disagreement with section 151. If a reviewer keeps this case, the honest framing is \"unresolvable cross-reference deferred\", which no listed kind covers well; it is certainly not untraceable_branch. Reviewer should also know this same diff introduces meaning changes that look like regressions rather than corrections, so the module is a poor fidelity exemplar either way: `exemption_individual_eligible` drops `or is_dependent_under_section_152_of_taxpayer` and its source line drops 151(c), even though the pinned source states \"(c) Additional exemption for dependents An exemption of the exemption amount for each individual who is a dependent (as defined in section 152)\"; `senior_deduction_modified_adjusted_gross_income` gains a `max(0, ...)` floor the statute does not state; and `senior_deduction_eligible` swaps the 7703 married predicate for `not (filing_status == 1 or filing_status == 2)`. Also note the commit is the bulk \"Refresh 26 USC rulespec encodings (#46)\" with 68 module files, and most of this module's 472 diff lines are `text:` -> `excerpt:` proof-atom renames plus curly-quote requoting, i.e. provenance-only.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Provision read: I resolved us/statute/26/68 through the pinned corpus at this rulespec commit; 68(b) is 'Coordination with other limitations' and contains no applicable amount, confirming the deferral reason. The fix deletes rules[exemption_phaseout_applicable_percentage] entirely and records it under module.deferred_outputs blocked_by us:statutes/26/68/b#applicable_amount (the four phaseout parameter rules survive as source_values). The same diff carries several other semantic edits a reviewer should split out or discount: (a) exemption_individual_eligible drops `or is_dependent_under_section_152_of_taxpayer` and its source label drops 151(c), which NARROWS coverage relative to 151(c) (section_151_exemption_deduction still lists 151(c) in its source) - that looks like a possible regression, not a correction, though exemption_amount is zero post-2017 so it is numerically inert; (b) senior_deduction_modified_adjusted_gross_income is newly wrapped in max(0, ...), a floor the 151(d)(5)(C)(iii)(II) text does not state; (c) placeholders grounded into filing_status (`not joint_return_made_by_taxpayer_and_spouse` -> `not (filing_status == 1)`; `not taxpayer_is_married_individual_within_section_7703` -> `not (filing_status == 1 or filing_status == 2)`), plus a new `taxpayer_is_individual` conjunct and new imports of 911(a)/931/933. Everything else is summary refresh and text->excerpt renames. The quote is the folded YAML `reason:` scalar from the added deferred_outputs block in the diff. | verifier said not_a_defect at 0.68 (below 0.7); kept as unclear",
+  "family_id": "us-095d680d-69680d0e5f02",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

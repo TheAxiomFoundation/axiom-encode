@@ -1,0 +1,271 @@
+{
+  "id": "us-485-426f1a72-us-policies-cbp-us-tariff-duty-composition",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "426f1a72374b37d41558de9e84cda6cf4565e527",
+  "parent_commit": "0ce1cf3d962235db10ed5c82a0aebb2293ddb579",
+  "commit_date": "2026-08-02",
+  "commit_subject": "Model the fentanyl exception headings and fix the energy carve-out scope",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1195",
+  "module_path": "us/policies/cbp/us-tariff-duty/composition.yaml",
+  "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
+  "corpus_citation_paths_all": [
+    "us/statute/hts/general-note-3/page-1",
+    "us/statute/hts/general-note-3/page-4",
+    "us/statute/hts/7202",
+    "us/statute/hts/7202.11.10.00",
+    "us/statute/hts/7601.10.30.00",
+    "us/statute/hts/9506.62.40",
+    "us/statute/hts/9506.62.40.40",
+    "us/statute/hts/9903.01.01",
+    "us/statute/hts/9903.01.02",
+    "us/statute/hts/9903.01.03",
+    "us/statute/hts/9903.01.04",
+    "us/statute/hts/9903.01.05",
+    "us/statute/hts/9903.01.10",
+    "us/statute/hts/9903.01.11",
+    "us/statute/hts/9903.01.12",
+    "us/statute/hts/9903.01.13",
+    "us/statute/hts/9903.01.14",
+    "us/statute/hts/9903.01.15",
+    "us/statute/hts/9903.01.25",
+    "us/statute/hts/9903.01.26",
+    "us/statute/hts/9903.01.27",
+    "us/statute/hts/9903.01.33",
+    "us/statute/hts/9903.05.01",
+    "us/statute/hts/9903.90.09",
+    "us/statute/hts/chapter-99/page-175",
+    "us/statute/hts/chapter-99/page-176",
+    "us/statute/hts/chapter-99/page-177",
+    "us/statute/hts/chapter-99/page-182",
+    "us/statute/hts/chapter-99/page-219",
+    "us/statute/hts/chapter-99/page-221",
+    "us/statute/hts/chapter-99/page-226",
+    "us/statute/hts/chapter-99/page-230",
+    "us/statute/hts/chapter-99/page-508",
+    "us/statute/hts/chapter-99/page-509",
+    "us/statute/hts/chapter-99/page-542",
+    "us/statute/hts/chapter-99/page-545",
+    "us/statute/hts/chapter-99/page-553",
+    "us/statute/hts/chapter-99/page-555",
+    "us/statute/hts/chapter-99/page-558",
+    "us/statute/hts/chapter-99/page-566",
+    "us/statute/hts/chapter-99/page-640",
+    "us/rulemaking/federal-register/2026-02-25/2026-03824",
+    "us/rulemaking/federal-register/2026-02-25/2026-03829",
+    "us/rulemaking/federal-register/2026-02-25/2026-03832",
+    "us/rulemaking/federal-register/2026-06-24/2026-12669",
+    "us/rulemaking/federal-register/2026-07-20/2026-14542",
+    "us/rulemaking/federal-register/2026-07-28/2026-15181"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.9,
+  "description": "encode the heading 9903.01.11-9903.01.15 and 9903.01.02-9903.01.05 exceptions (donations, informational materials, USMCA duty-free entry, potash at +10%) as composition judgments over free entry facts",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        116,
+        122
+      ],
+      [
+        517,
+        517
+      ],
+      [
+        621,
+        621
+      ],
+      [
+        623,
+        623
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        14,
+        17
+      ],
+      [
+        19,
+        20
+      ],
+      [
+        22,
+        23
+      ],
+      [
+        56,
+        56
+      ],
+      [
+        64,
+        67
+      ],
+      [
+        69,
+        70
+      ],
+      [
+        72,
+        73
+      ],
+      [
+        134,
+        147
+      ],
+      [
+        542,
+        542
+      ],
+      [
+        556,
+        565
+      ],
+      [
+        571,
+        686
+      ],
+      [
+        746,
+        760
+      ],
+      [
+        787,
+        789
+      ],
+      [
+        791,
+        794
+      ]
+    ],
+    "rule_names": [
+      "ieepa_component_rate",
+      "entry_is_fentanyl_canada_excepted",
+      "entry_is_fentanyl_mexico_excepted",
+      "entry_is_potash_article",
+      "fentanyl_canada_potash_additional_duty_rate",
+      "fentanyl_mexico_potash_additional_duty_rate",
+      "entry_is_energy_resource"
+    ],
+    "rule_path": "rules[ieepa_component_rate].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "763726d0b0df055170160d86dbb6258e62552c4e1791d072e58dff9a94d55adc",
+  "post_fix_artifact_sha256": "8044f5e72d5e2feeec4d7643902528cb03f60fdbcedece242da90df1e831a17a",
+  "provision_sha256": "00d95211f2040a84be41d52b92256f93047713f97f45318e5945139cb1d8cb36",
+  "provision_chars": 4835,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/hts/general-note-3/page-1",
+    "provision_file": "data/corpus/provisions/us/statute/2026-08-01-usitc-hts-2026-rev3-notes.jsonl",
+    "provision_file_sha256": "818d993ea9bbb613b1c78ec03e1394b4d2b2468c259c3b1ff89ca3a004cf129c",
+    "line_number": 2,
+    "record_id": "6623bf55-dd9b-572a-a1c9-62e4af7c2829",
+    "stored_body_sha256": "00d95211f2040a84be41d52b92256f93047713f97f45318e5945139cb1d8cb36",
+    "resolved_text_sha256": "00d95211f2040a84be41d52b92256f93047713f97f45318e5945139cb1d8cb36",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-02-12",
+    "source_as_of": "2026-08-01",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "05ce3d3dd21b0ced76f9af40c2ecc02c1c57d9c6",
+    "requested_citation_path": "us/statute/hts/general-note-3/page-1",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix ieepa_component_rate charged the full fentanyl rate (+35% Canada under 9903.01.10, +25% Mexico under 9903.01.01) on every entry except the 9903.01.13 energy carve-out, ignoring the source's own \"Except for products described in headings 9903.01.11 ... or 9903.01.15\" and \"9903.01.02 ... and 9903.01.05\" exclusions, so humanitarian donations, informational materials, and USMCA duty-free entries were dutied instead of exempt and Canadian/Mexican potash paid the full rate instead of the +10% that headings 9903.01.15 and 9903.01.05 assign.",
+    "triage_notes": "Provision read through the pinned corpus release: us/statute/hts/9903.01.01 returns \"Except for products described in headings 9903.01.02, 9903.01.03, 9903.01.04 and 9903.01.05 articles the product of Mexico, as provided for in U.S. note 2(a) to this subchapter / Rates of duty (1-General): The duty provided in the applicable subheading + 25%\", and us/statute/hts/9903.01.15 returns \"Potash that is a product of Canada ... The duty provided in the applicable subheading +10%\" — confirming both the missing exceptions and the potash rate. Strongest internal evidence: the PRE-fix module already carried a proof atom on rules[ieepa_component_rate] quoting 9903.01.10's \"Except for products described in headings 9903.01.11, 9903.01.12, 9903.01.13, 9903.01.14 or 9903.01.15\" while the formula implemented only the 9903.01.13 energy branch; the exception was cited but unencoded, and no Mexico exception was modeled at all. The new gates read four new composition inputs (entry_is_humanitarian_donation_article, entry_is_informational_material_article, entry_is_usmca_duty_free_entry, article_is_potash) that default to not holding; the test diff adds them as false to all existing cases and adds five new cases (CA donation -> ieepa_component_rate 0, MX informational material -> 0, CA USMCA duty-free -> 0, CA potash -> 0.10, MX potash -> 0.10), pinning the pre-fix behavior as wrong. Two secondary, non-defect changes ride along in the same module: (a) the rename entry_is_canada_energy_resource -> entry_is_energy_resource is naming only — the formula stays hts_number == \"7202.11.10.00\" and the rule is referenced only from the Canada branch both pre- and post-fix, so the commit message's \"Mexico 7202 branch\" rationale is not visible in this file; (b) the re-grounding of the 9903.01.13 reach from a ferrosilicon/silicon rationale to a manganese one changes module notes, proof atoms, and adds corpus_citation_path us/statute/hts/7202, but leaves the formula unchanged — on its own that piece is provenance (mechanical), though the pre-fix rationale was factually wrong (7202.11.10.00 is a ferromanganese line), which would read as untraceable_branch if judged alone. The dominant behavior-changing defect is the unrepresented exception clauses, so the module is classified on that. This is a review-fix follow-up commit inside merged PR #1195 (\"Address review findings on the Canada and Mexico IEEPA fentanyl composition\"), but pr.reviews and pr.review_comments in the bundle are both empty, so the reviewer's own wording was unavailable and the quote comes from the commit message. Non-module files in the commit (.axiom encoding manifest, provisions_to_rules index, oracle-coverage-pending.yaml) are bookkeeping.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.93,
+    "verifier_justification": "The pinned-release text of HTS 9903.01.10 reads \"Except for products described in headings 9903.01.11, 9903.01.12, 9903.01.13, 9903.01.14 or 9903.01.15, articles the product of Canada ... + 35%\", and 9903.01.01 reads \"Except for products described in headings 9903.01.02, 9903.01.03, 9903.01.04 and 9903.01.05 ... + 25%\", yet the pre-fix `rules[ieepa_component_rate].versions[0].formula` implemented only the 9903.01.13 energy branch for Canada and no exception at all for Mexico, charging the full rate on donations, informational materials, USMCA duty-free entries, and potash. The fix adds those exception branches plus `entry_is_potash_article` and the two +10% potash rate parameters (matching the resolved 9903.01.15 \"+10%\" and 9903.01.05 \"+ 10%\" rate lines), so a stated source clause that was absent is now encoded — squarely unrepresented_clause. This is not \"coverage the module never claimed\": the pre-fix file already carried a proof atom on the same formula path quoting the 9903.01.10 \"Except for products described in headings ...\" exception while the formula ignored four of the five named headings. The commit's other two aims are provenance/mechanical (the `entry_is_canada_energy_resource` → `entry_is_energy_resource` rename, and re-grounding the 9903.01.13 reach from ferrosilicon to manganese, which leaves the formula `hts_number == \"7202.11.10.00\"` untouched), so they do not displace the kind.",
+    "verifier_quote": "+           elif origin_is_mexico:\n+             (if entry_is_fentanyl_mexico_excepted: 0\n+              elif entry_is_potash_article: fentanyl_mexico_potash_additional_duty_rate\n+              else: fentanyl_mexico_note_a_additional_duty_rate)",
+    "verifier_notes": "Refutation attempts and what they found: (1) \"Behaviorally inert / mechanical\" — rejected. The four new gate facts (entry_is_humanitarian_donation_article, entry_is_informational_material_article, entry_is_usmca_duty_free_entry, article_is_potash) are free inputs defaulting to not-holding, but the formula text itself changed and the companion test file adds cases that set each of them true (composition.test.yaml lines 663, 691, 717, 743, 770 at 426f1a7237) with changed expected rates, so encoded meaning and behavior both move. (2) \"Enhancement, not a defect\" — rejected: the pre-file's own proof atom at rules[ieepa_component_rate] already quoted the 9903.01.10 exception clause verbatim while implementing only 9903.01.13, so the module claimed the clause and got it wrong. (3) \"amount_mismatch fits better\" (potash paid +35%/+25% instead of +10%) — considered and rejected as primary: no existing literal or parameter was corrected; two new parameters and new branch conditions were added, and the wrong amount is a downstream consequence of the missing 9903.01.15/9903.01.05 carve-out. (4) \"untraceable_branch\" for the ferrosilicon→manganese re-grounding — real but mechanical under the rubric: only the module rationale prose and proof-atom excerpts/citation paths changed; the energy formula is identical. Reviewer caveat: the commit subject \"fix the energy carve-out scope\" overstates this module's change — after the rename, entry_is_energy_resource is still consulted only inside the origin_is_canada branch (post.yaml line 788), so no Mexico energy branch was actually added here. Source verified through the pinned resolver against corpus release us-rulespec-2026-08-03-ecps-pit-tariff-union (corpus commit d9d6fba0b9), which post-dates the fix; the resolver reported fix_time_corpus_match \"provision_file_absent_at_corpus_ref\" for the toolchain ref, so the exact rev14 text the encoder saw was not re-read, only the nearest release — the exception clauses and the +10% potash rates are identical to the quoted excerpts, so this does not change the verdict.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Provision read through the pinned corpus release: us/statute/hts/9903.01.01 returns \"Except for products described in headings 9903.01.02, 9903.01.03, 9903.01.04 and 9903.01.05 articles the product of Mexico, as provided for in U.S. note 2(a) to this subchapter / Rates of duty (1-General): The duty provided in the applicable subheading + 25%\", and us/statute/hts/9903.01.15 returns \"Potash that is a product of Canada ... The duty provided in the applicable subheading +10%\" — confirming both the missing exceptions and the potash rate. Strongest internal evidence: the PRE-fix module already carried a proof atom on rules[ieepa_component_rate] quoting 9903.01.10's \"Except for products described in headings 9903.01.11, 9903.01.12, 9903.01.13, 9903.01.14 or 9903.01.15\" while the formula implemented only the 9903.01.13 energy branch; the exception was cited but unencoded, and no Mexico exception was modeled at all. The new gates read four new composition inputs (entry_is_humanitarian_donation_article, entry_is_informational_material_article, entry_is_usmca_duty_free_entry, article_is_potash) that default to not holding; the test diff adds them as false to all existing cases and adds five new cases (CA donation -> ieepa_component_rate 0, MX informational material -> 0, CA USMCA duty-free -> 0, CA potash -> 0.10, MX potash -> 0.10), pinning the pre-fix behavior as wrong. Two secondary, non-defect changes ride along in the same module: (a) the rename entry_is_canada_energy_resource -> entry_is_energy_resource is naming only — the formula stays hts_number == \"7202.11.10.00\" and the rule is referenced only from the Canada branch both pre- and post-fix, so the commit message's \"Mexico 7202 branch\" rationale is not visible in this file; (b) the re-grounding of the 9903.01.13 reach from a ferrosilicon/silicon rationale to a manganese one changes module notes, proof atoms, and adds corpus_citation_path us/statute/hts/7202, but leaves the formula unchanged — on its own that piece is provenance (mechanical), though the pre-fix rationale was factually wrong (7202.11.10.00 is a ferromanganese line), which would read as untraceable_branch if judged alone. The dominant behavior-changing defect is the unrepresented exception clauses, so the module is classified on that. This is a review-fix follow-up commit inside merged PR #1195 (\"Address review findings on the Canada and Mexico IEEPA fentanyl composition\"), but pr.reviews and pr.review_comments in the bundle are both empty, so the reviewer's own wording was unavailable and the quote comes from the commit message. Non-module files in the commit (.axiom encoding manifest, provisions_to_rules index, oracle-coverage-pending.yaml) are bookkeeping. | verifier confirmed at 0.93",
+  "family_id": "us-426f1a72-baf5194f93f3",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

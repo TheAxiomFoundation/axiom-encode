@@ -1,0 +1,176 @@
+{
+  "id": "us-009-095d680d-statutes-26-24",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "095d680d471e75d35256db564f5dd547ca248a1e",
+  "parent_commit": "7d6981ae34844c047d9fee10a181438a9b5d6de1",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Bulk mixed refresh whose squash body includes \"Repair RuleSpec validation coverage\" and \"Repair validation tail for refreshed RuleSpecs\"; module diffs carry semantic changes (151 adds a deferred_output making exemption_phaseout_applicable_percentage non-executable because 68(b) no longer defines the applicable amount; 24 rewrites phaseout threshold selection and qualifying-child predicates; 1402/a drops 1401 import proof atoms) alongside text->excerpt format renames and new subsection modules; later stage should read the diff.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/46",
+  "module_path": "statutes/26/24.yaml",
+  "corpus_citation_path": "us/statute/26/24",
+  "corpus_citation_paths_all": [
+    "us/statute/26/24"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "wrong_entity_or_scope",
+  "other_kind": null,
+  "confidence": 0.49,
+  "description": "Repairs generated test/input drift in 26 USC child tax credit and related tax modules so current child-module input slots and cross-module proof hashes resolve cleanly.",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        217,
+        219
+      ],
+      [
+        243,
+        243
+      ],
+      [
+        245,
+        245
+      ],
+      [
+        377,
+        382
+      ],
+      [
+        404,
+        404
+      ],
+      [
+        408,
+        408
+      ],
+      [
+        433,
+        433
+      ],
+      [
+        437,
+        437
+      ],
+      [
+        506,
+        506
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        10,
+        34
+      ],
+      [
+        242,
+        244
+      ],
+      [
+        268,
+        268
+      ],
+      [
+        270,
+        270
+      ],
+      [
+        402,
+        408
+      ],
+      [
+        430,
+        430
+      ],
+      [
+        434,
+        434
+      ],
+      [
+        459,
+        459
+      ],
+      [
+        463,
+        463
+      ],
+      [
+        532,
+        532
+      ]
+    ],
+    "rule_names": [
+      "ctc_phaseout_threshold_base",
+      "ctc_qualifying_child",
+      "ctc_modified_adjusted_gross_income",
+      "ctc_phaseout_threshold",
+      "ctc_maximum_before_phaseout",
+      "ctc_after_advance_payments"
+    ],
+    "rule_path": "rules[ctc_phaseout_threshold_base].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "8d23b96bb966cf5671d870a437a2d8f03effdb9703aa4d411278c8c6b0449165",
+  "post_fix_artifact_sha256": "77b2f1231813f3321fae607588eaa840f103243067725aa08a4517d91d7d87a2",
+  "provision_sha256": "646a541a7de0684e472cba321a463df8e074a572eb730a1ead2bb8423d7c8439",
+  "provision_chars": 16265,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/24",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "1b0b185ca3335eb06c4fe10af488a8984bdd2cedd4087badf78583c267af7b7b",
+    "line_number": 12,
+    "record_id": "96d9e9c9-315d-5ccd-aae0-fca1ae79fc66",
+    "stored_body_sha256": "646a541a7de0684e472cba321a463df8e074a572eb730a1ead2bb8423d7c8439",
+    "resolved_text_sha256": "646a541a7de0684e472cba321a463df8e074a572eb730a1ead2bb8423d7c8439",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us/statute/26/24",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/24'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/24'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/24'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/24'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix selector mapped filing_status 4 (surviving spouse) alongside 1 to ctc_joint_threshold_base, giving a surviving-spouse return the $110,000 threshold that 26 USC 24(b)(2)(A) reserves for a joint return, when 24(b)(2)(B) plus the paragraph's 'marital status shall be determined under section 7703' sentence makes such a taxpayer an individual who is not married ($75,000).",
+    "triage_notes": "Provision read through the pinned corpus release: '(2) Threshold amount ... (A) $110,000 in the case of a joint return, (B) $75,000 in the case of an individual who is not married, and (C) $55,000 in the case of a married individual filing a separate return. For purposes of this paragraph, marital status shall be determined under section 7703.' Same filing_status-4 pattern as index 39, and the encoder's habit of folding 4 into joint is visible in policies/irs/rev-proc-2025-32/income-tax-brackets.yaml where it is correct (rate schedules under 26 USC 1(a)) but not for a 'joint return' threshold. Important qualification for a reviewer: the fix does not re-encode the correct mapping - it replaces the whole match on filing_status with two opaque input predicates (ctc_phaseout_joint_threshold_applies, ctc_phaseout_separate_threshold_applies), which removes the unsupported branch and arguably lets 7703 marital status be supplied, but also de-grounds a mapping the statute states explicitly. Hence confidence 0.55 and defensible as 'untraceable_branch' instead. The same diff also renames qualifying_child_under_section_152_c -> ctc_child_satisfies_dependency_rules, allowed_deduction_under_section_151_for_child -> ctc_child_deduction_allowed, taxable_year_begins_after_2017 -> ctc_subsection_h_special_rules_apply, aggregate_advance_payments_under_section_7527A -> ctc_advance_payments_received, renames the three 911/931/933 MAGI addends, refreshes two 24/h import hashes, and adds deferred_outputs for subsections (d), (h) and (k). Per the PR, 26 USC 24 was the concrete validation failure this checkpoint stopped on.",
+    "verifier_verdict": "unclear",
+    "verifier_defect_kind": "wrong_entity_or_scope",
+    "verifier_confidence": 0.62,
+    "verifier_justification": "The substantive reading is defensible on the source — 24(b)(2) lists only joint return / individual who is not married / married filing separately with \"marital status shall be determined under section 7703\", and 24(j)(2)(B)(iii)(I) shows Congress writes \"joint return or surviving spouse (as defined in section 2(a))\" when it means to include them — and the repo's enum convention (26/1411 maps `1 => niit_threshold_joint` and `4 => niit_threshold_joint`, matching 1411(b)(1)'s explicit \"joint return ... or a surviving spouse\") supports reading 4 as surviving spouse. But the fix does not encode a corrected mapping: it deletes filing-status logic from the module entirely and consumes two opaque caller-supplied booleans, so after the change the module neither gives a surviving spouse $75,000 nor says anything about the case. Every other change in this module diff is a pure input-slot rename with identical test values (911/931/933 → ctc_* adjustments, `qualifying_child_under_section_152_c` → `ctc_child_satisfies_dependency_rules`, `aggregate_advance_payments_under_section_7527A` → `ctc_advance_payments_received`), plus two import-hash bumps and deferred_outputs metadata, exactly matching the PR body's \"generated test/input drift ... input slots and cross-module proof hashes resolve cleanly\"; the proof atom citing (b)(2) is byte-identical pre and post, and the sibling 24/h module moved the opposite way in the same commit (`filing_status_is_joint_return` → `filing_status == 1`). On a generic message plus an interface-refactor diff with no surviving-spouse signal anywhere, this should stay unclear rather than confirmed.",
+    "verifier_quote": "-          match filing_status:\n-              1 => ctc_joint_threshold_base\n-              4 => ctc_joint_threshold_base\n-              2 => ctc_separate_threshold_base\n-              0 => ctc_unmarried_threshold_base\n-              3 => ctc_unmarried_threshold_base\n+          if ctc_phaseout_joint_threshold_applies:\n+              ctc_joint_threshold_base\n+          else:\n+              if ctc_phaseout_separate_threshold_applies:\n+                  ctc_separate_threshold_base\n+              else:\n+                  ctc_unmarried_threshold_base",
+    "verifier_notes": "Evidence a reviewer should weigh before promoting this to confirmed:\n\n1. No enum is declared. `filing_status` is an undeclared implicit input in statutes/26/24.yaml (pre) — nothing in the module, its proof atoms, or a registry defines code 4. \"4 = surviving spouse\" is inferred from sibling modules, not stated.\n2. Cross-module corroboration of the enum: `git -C /Users/maxghenis/TheAxiomFoundation/rulespec-us show 095d680d47:statutes/26/1411.yaml` (lines ~116-121) maps `1 => niit_threshold_joint` and `4 => niit_threshold_joint`, which is correct there because 1411(b)(1) says \"joint return under section 6013 or a surviving spouse (as defined in section 2(a))\". 26/1211 maps `2 => married_separate_capital_loss_limit` with 0/1/3/4 in the other group. So 0=single, 1=joint, 2=MFS, 3=HoH, 4=surviving spouse is the house convention.\n3. Source read through the pinned release (us-rulespec-2026-07-13, corpus commit 612d20ca43): 24(b)(2) = \"(A) $110,000 in the case of a joint return, (B) $75,000 in the case of an individual who is not married, and (C) $55,000 in the case of a married individual filing a separate return. For purposes of this paragraph, marital status shall be determined under section 7703.\" No surviving-spouse grouping; 24(j)(2)(B)(iii)(I) supplies the contrast (\"joint return or surviving spouse\"). So the pre-fix `4 => ctc_joint_threshold_base` most likely WAS wrong on the merits.\n4. But the fix is not a targeted repair of that. 26/1411.yaml and 26/1211.yaml are untouched by this commit, so the identical 1-and-4 pattern survives elsewhere — the sweep was not hunting this pattern. The replacement is an abstraction, not a corrected mapping.\n5. Test diff (statutes/26/24.test.yaml) makes the plumbing story explicit: `input.filing_status: 1` → `ctc_phaseout_joint_threshold_applies: true` + `ctc_phaseout_separate_threshold_applies: false`, alongside 1:1 renames of every other slot. No test exercises status 4 before or after.\n6. Sibling churn in the opposite direction: statutes/26/24/h.yaml changed `if filing_status_is_joint_return:` → `if filing_status == 1:` in the same commit, i.e. convention churn from regeneration rather than a scope correction.\n\nIf the corpus counts \"the fix deletes an encoding that disagreed with the source, even incidentally\", then wrong_entity_or_scope remains the right kind (filing status is explicitly that kind) and the verdict would be confirmed at low confidence. If it requires the fix to be about the defect, this is closer to plumbing: the rest of the module diff is rename/metadata/hash-only and would read mechanical on its own. I did not use \"mechanical\" as the verdict only because this one formula does change the module's decision surface and input signature, which the mechanical definition excludes.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Provision read through the pinned corpus release: '(2) Threshold amount ... (A) $110,000 in the case of a joint return, (B) $75,000 in the case of an individual who is not married, and (C) $55,000 in the case of a married individual filing a separate return. For purposes of this paragraph, marital status shall be determined under section 7703.' Same filing_status-4 pattern as index 39, and the encoder's habit of folding 4 into joint is visible in policies/irs/rev-proc-2025-32/income-tax-brackets.yaml where it is correct (rate schedules under 26 USC 1(a)) but not for a 'joint return' threshold. Important qualification for a reviewer: the fix does not re-encode the correct mapping - it replaces the whole match on filing_status with two opaque input predicates (ctc_phaseout_joint_threshold_applies, ctc_phaseout_separate_threshold_applies), which removes the unsupported branch and arguably lets 7703 marital status be supplied, but also de-grounds a mapping the statute states explicitly. Hence confidence 0.55 and defensible as 'untraceable_branch' instead. The same diff also renames qualifying_child_under_section_152_c -> ctc_child_satisfies_dependency_rules, allowed_deduction_under_section_151_for_child -> ctc_child_deduction_allowed, taxable_year_begins_after_2017 -> ctc_subsection_h_special_rules_apply, aggregate_advance_payments_under_section_7527A -> ctc_advance_payments_received, renames the three 911/931/933 MAGI addends, refreshes two 24/h import hashes, and adds deferred_outputs for subsections (d), (h) and (k). Per the PR, 26 USC 24 was the concrete validation failure this checkpoint stopped on. | verifier unclear at 0.62",
+  "family_id": "us-095d680d-ebab1a407cbc",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

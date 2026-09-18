@@ -1,0 +1,184 @@
+{
+  "id": "uk-008-60501ec6-policies-govuk-pension-credit",
+  "jurisdiction": "uk",
+  "repo": "TheAxiomFoundation/rulespec-uk",
+  "commit": "60501ec6fd17753059cc604f61be7c12096ecff0",
+  "parent_commit": "00faa4332f510bbabbbef5456e057ce83a74da3a",
+  "commit_date": "2026-06-10",
+  "commit_subject": "ground policy surfaces in ingested sources",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-uk/pull/44",
+  "module_path": "policies/govuk/pension-credit.yaml",
+  "corpus_citation_path": "uk/guidance/govuk/pension-credit/what-youll-get",
+  "corpus_citation_paths_all": [
+    "uk/guidance/govuk/pension-credit/what-youll-get",
+    "uk/guidance/govuk/pension-credit/eligibility",
+    "uk/regulation/uksi/2002/1792/6",
+    "uk/regulation/uksi/2013/376/schedule/4/paragraph/7"
+  ],
+  "corpus_release": "uk-rulespec-2026-07-12",
+  "corpus_release_content_sha256": "ec59e4017cd0c9b935ffed9092506fcc15313f58fe1ed18c1af909c8d0cd47e1",
+  "corpus_commit": "3cc9219ac4ce8d6f0bb30ad08960209f699a7ac5",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.7,
+  "description": "pension credit guarantee top-up over the reg 6 minimum guarantee",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        6,
+        6
+      ],
+      [
+        8,
+        8
+      ],
+      [
+        10,
+        10
+      ],
+      [
+        12,
+        12
+      ],
+      [
+        14,
+        14
+      ],
+      [
+        16,
+        16
+      ],
+      [
+        21,
+        21
+      ],
+      [
+        23,
+        24
+      ],
+      [
+        26,
+        26
+      ],
+      [
+        28,
+        29
+      ],
+      [
+        33,
+        34
+      ],
+      [
+        38,
+        38
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        6,
+        10
+      ],
+      [
+        12,
+        19
+      ],
+      [
+        21,
+        38
+      ],
+      [
+        40,
+        40
+      ],
+      [
+        42,
+        42
+      ],
+      [
+        44,
+        44
+      ],
+      [
+        49,
+        49
+      ],
+      [
+        51,
+        52
+      ],
+      [
+        54,
+        54
+      ],
+      [
+        56,
+        78
+      ],
+      [
+        82,
+        83
+      ],
+      [
+        87,
+        87
+      ]
+    ],
+    "rule_names": [
+      "guarantee_credit_weekly_top_up",
+      "guarantee_credit_annual_amount",
+      "pension_credit_weeks_in_year"
+    ],
+    "rule_path": "rules[guarantee_credit_weekly_top_up].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "426f6ce0b735b8cf736a416d54196307f6ce3ecf211b93c498e03c006c80f828",
+  "post_fix_artifact_sha256": "6238030a38ba8510cc90a3a5366db79fcdecb4a61ef52fe5f258d39d1c9d710a",
+  "provision_sha256": "ee76cc0b0a96651301b4a9457c1bfce8734d08f19b7f04bda5fee42d4bf090a2",
+  "provision_chars": 189,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "uk/guidance/govuk/pension-credit/what-youll-get",
+    "provision_file": "data/corpus/provisions/uk/guidance/2026-07-10-uk-rulespec-source-promotion.jsonl",
+    "provision_file_sha256": "91208a858cdfd837af1d01cbcc4bbe7c57e6e37b681b70b02d0489ee3dfebc2b",
+    "line_number": 9,
+    "record_id": "eff60cd4-a0d6-5199-a070-e459922616ca",
+    "stored_body_sha256": "ee76cc0b0a96651301b4a9457c1bfce8734d08f19b7f04bda5fee42d4bf090a2",
+    "resolved_text_sha256": "ee76cc0b0a96651301b4a9457c1bfce8734d08f19b7f04bda5fee42d4bf090a2",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-06-10",
+    "source_as_of": "2026-06-10",
+    "corpus_commit": "3cc9219ac4ce8d6f0bb30ad08960209f699a7ac5",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "earliest_release_after_toolchain_corpus_ref",
+    "fallback_index": 1,
+    "toolchain_corpus_ref": "de9b2eb9bcd03356cc8d5855216f2c83e7a085ab",
+    "requested_citation_path": "uk/guidance/govuk/pension-credit/what-youll-get",
+    "release_errors_before_success": [
+      {
+        "release": "uk-legislation-pilot",
+        "error": "No active corpus source found for 'uk/guidance/govuk/pension-credit/what-youll-get'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module encoded no source-derived amount at all - it returned an external `pension_credit_entitlement_for_year` whenever the PolicyEngine takeup input `person_or_partner_would_claim_pension_credit` was true - although it claimed to encode State Pension Credit Act 2002 s.1, which conditions entitlement on state pension age and income below the standard minimum guarantee, not on whether a household would claim.",
+    "triage_notes": "Verified against the pre-fix file: the whole module was one rule whose formula was `if person_or_partner_would_claim_pension_credit: pension_credit_entitlement_for_year else: 0`, so both the branch and the amount were ungrounded. The fix imports the reg 6 standard minimum guarantee and computes max(0, guarantee - weekly income) gated on `person_has_reached_state_pension_age`. Two things a reviewer should weigh: (a) the entity changes from Family to Person, which is arguably wrong for a benefit-unit-assessed benefit and may be a new scope problem introduced by the fix; (b) the new summary mentions savings credit but the module still does not encode it, and the annual rule is renamed (pension_credit_annual_amount -> guarantee_credit_annual_amount), a public-surface rename. Provision text for reg 6 / s.1 not read (no vendored slice in this commit for them).",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "untraceable_branch",
+    "verifier_confidence": 0.85,
+    "verifier_justification": "The pre-fix module set `proof_validation.required: true` and bound `versions[0].formula` to s.1 proof atoms (\"A claimant is entitled to state pension credit if\", \"entitled to a guarantee credit\"), yet its only formula was `if person_or_partner_would_claim_pension_credit: pension_credit_entitlement_for_year else: 0` — a gate on a PolicyEngine takeup input over an external annual entitlement, both declared as module inputs (confirmed in the companion test file, which supplies `#input.pension_credit_entitlement_for_year` and `#input.person_or_partner_would_claim_pension_credit`), so nothing in the branch or the value derived from the cited provision. Resolving uk/statute/ukpga/2002/16/1 through the pinned release shows s.1 conditions entitlement on being \"in Great Britain\", having \"attained the qualifying age\" and satisfying the s.2(1)/s.3(1)-(2) conditions — it says nothing about whether a household would claim, so the branch had no basis in the cited source. The fix deletes that branch and re-grounds the formula on an imported reg 6 `standard_minimum_guarantee` and a state-pension-age condition, which is exactly the \"removes or re-grounds a branch with no basis in the cited source\" pattern. I could not sustain a refutation: \"mechanical\" fails because formulas, entity, period and rule set all changed, and \"not_a_defect\" fails because the module's own source_verification and proof atoms asserted s.1 grounding rather than merely declaring itself a wrapper.",
+    "verifier_quote": "-          if person_or_partner_would_claim_pension_credit: pension_credit_entitlement_for_year else: 0",
+    "verifier_notes": "Competing kinds considered and rejected as secondary: (1) unrepresented_clause — the fix does add the state-pension-age condition and the income-below-minimum-guarantee top-up that the source states, but it is not adding a clause to an otherwise sound formula; the pre-fix formula contained no source-derived computation at all, so removal/re-grounding dominates. (2) wrong_entity_or_scope — entity moves Family -> Person and period Year -> Week (plus an annualised Year rule), but that re-shaping follows from the re-grounding, and s.1's \"a claimant\" does not clearly make the old Family entity the defect; PC is in practice assessed at benefit-unit level, so the entity move is not independently the correction. Quality caveats on the fix itself (not reasons to reject the pre-fix defect, but worth a reviewer's eye): the new `pension_credit_weeks_in_year` = 52 is proof-bound to \"uk/regulation/uksi/2013/376/schedule/4/paragraph/7\" with excerpt \"calculated as a monthly amount\" — a Universal Credit provision that does not support 52 weeks in a pension credit module, so the fix may itself introduce an untraceable grounding; the new module also re-grounds on gov.uk guidance pages rather than the statute, and the author commented on the PR \"Ah I see I should have got the encoder to do this rather than claude... will refile\", so this commit was hand-authored, not encoder-produced. Also note the pre-fix proof excerpt \"to both, if the claimant satisfies both\" is not verbatim in the resolved s.1 text, which reads \"(or to both, if he satisfies both the condition mentioned in paragraph (a) ...)\" — a provenance defect layered on top of the formula defect, but excerpt-only issues are mechanical and are not the basis for this verdict. The first reader's quote (\"pension credit guarantee top-up over the reg 6 minimum guarantee\") is verbatim in the PR body and commit body; I substituted the deleted formula line as the decisive quote because it is the line that carries the defect.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Verified against the pre-fix file: the whole module was one rule whose formula was `if person_or_partner_would_claim_pension_credit: pension_credit_entitlement_for_year else: 0`, so both the branch and the amount were ungrounded. The fix imports the reg 6 standard minimum guarantee and computes max(0, guarantee - weekly income) gated on `person_has_reached_state_pension_age`. Two things a reviewer should weigh: (a) the entity changes from Family to Person, which is arguably wrong for a benefit-unit-assessed benefit and may be a new scope problem introduced by the fix; (b) the new summary mentions savings credit but the module still does not encode it, and the annual rule is renamed (pension_credit_annual_amount -> guarantee_credit_annual_amount), a public-surface rename. Provision text for reg 6 / s.1 not read (no vendored slice in this commit for them). | verifier confirmed at 0.85",
+  "family_id": "uk-60501ec6-fa7690aebed9",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

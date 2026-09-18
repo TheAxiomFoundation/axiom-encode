@@ -1,0 +1,231 @@
+{
+  "id": "us-495-75a36778-us-policies-usitc-us-tariff-duty-overlays-ieepa-reciprocal-japan-9903-02-30",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "75a3677870cc38e35dffbe9099f363a82bde53aa",
+  "parent_commit": "91d3b50b9c75b266a1c54596477171fd40cf44d3",
+  "commit_date": "2026-08-02",
+  "commit_subject": "Sol r1 fixes: afghanistan 02.78 exception, five floor modules completed, terminated predecessors, FALSE-origin witnesses",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1197",
+  "module_path": "us/policies/usitc/us-tariff-duty/overlays/ieepa/reciprocal-japan-9903-02-30.yaml",
+  "corpus_citation_path": "us/statute/hts/9903.02.30",
+  "corpus_citation_paths_all": [
+    "us/statute/hts/9903.02.30"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "wrong_period_or_effective_date",
+  "other_kind": null,
+  "confidence": 0.82,
+  "description": "Terminated per the compiler's note (90 Fed. Reg. 44638; no termination date in the corpus text); effective_to 2026-02-14 is a conservative no-later-than bound",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        8,
+        8
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        25,
+        29
+      ],
+      [
+        32,
+        32
+      ],
+      [
+        55,
+        59
+      ],
+      [
+        62,
+        62
+      ],
+      [
+        93,
+        97
+      ],
+      [
+        100,
+        100
+      ],
+      [
+        122,
+        126
+      ],
+      [
+        129,
+        129
+      ],
+      [
+        152,
+        156
+      ],
+      [
+        159,
+        159
+      ],
+      [
+        184,
+        188
+      ],
+      [
+        191,
+        191
+      ],
+      [
+        209,
+        213
+      ],
+      [
+        216,
+        216
+      ],
+      [
+        234,
+        238
+      ],
+      [
+        241,
+        241
+      ],
+      [
+        259,
+        263
+      ],
+      [
+        266,
+        266
+      ]
+    ],
+    "rule_names": [
+      "reciprocal_japan_additional_duty_rate",
+      "reciprocal_japan_in_transit_exception_applies",
+      "reciprocal_japan_heading_product_exception_applies",
+      "reciprocal_japan_otherwise_provision_exception_applies",
+      "reciprocal_japan_additional_duty_applies",
+      "reciprocal_japan_additional_duty",
+      "reciprocal_japan_general_duty_rate",
+      "reciprocal_japan_special_duty_rate",
+      "reciprocal_japan_column_2_duty_change"
+    ],
+    "rule_path": "rules[reciprocal_japan_additional_duty_applies].versions[0].effective_to"
+  },
+  "pre_fix_artifact_sha256": "1381fff5665349e38d78332e7b94a6bc424e3d681a5df81973cef6d3dbf1548e",
+  "post_fix_artifact_sha256": "ee3df96951dfd3cc38eaa8f258776a4de1cc0f70416a79380dd2c4f69f0616d3",
+  "provision_sha256": "5d7942a50162b8dd7b5cd82c43f4b78e8e172d57cb59dc0909a5951183b9f18a",
+  "provision_chars": 889,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/hts/9903.02.30",
+    "provision_file": "data/corpus/provisions/us/statute/2026-08-03-rulespec-hts-current-with-legacy-aluminum.jsonl",
+    "provision_file_sha256": "7406b42f2f6a35bd43ed67d7fe4d0f7323e12c3e49c67b8d6699f9978d23b770",
+    "line_number": 1190,
+    "record_id": "2fbf2e3d-6c35-5166-b284-7267a10dab78",
+    "stored_body_sha256": "5d7942a50162b8dd7b5cd82c43f4b78e8e172d57cb59dc0909a5951183b9f18a",
+    "resolved_text_sha256": "5d7942a50162b8dd7b5cd82c43f4b78e8e172d57cb59dc0909a5951183b9f18a",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-31",
+    "source_as_of": "2026-08-01",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "05ce3d3dd21b0ced76f9af40c2ecc02c1c57d9c6",
+    "requested_citation_path": "us/statute/hts/9903.02.30",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.30'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.30'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.30'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.30'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.30'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.30'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.30'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.30'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.30'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.30'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.30'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.30'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.30'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.30'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.30'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.30'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The corpus text of 9903.02.30 carries a compiler's note that the provision is terminated, yet all nine rule versions were encoded open-ended from 2025-08-07 with no effective_to, so the heading's +15% Japan duty kept applying indefinitely, including after the successor floor headings took over.",
+    "triage_notes": "Provision read: the note is '[Compiler's note: provision terminated. See 90 Fed. Reg. 44638]' with no date, so the chosen 2026-02-14 end is the encoder's conservative no-later-than bound (day before the 9903.02.72/.73 successor domain at 2026-02-15), not a source-stated date; the fidelity defect is the timeless encoding of a terminated provision, not the specific day. The commit message says the terminations 'match their compiler's-note termination dates', which is exact only for South Korea (index 6). The pre-fix summary already read 'Compiler's note: provision terminated.', so the encoding contradicted its own summary. Identical pattern in indices 3, 6, 9; each rule also gains an effective_period proof atom quoting the note.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_period_or_effective_date",
+    "verifier_confidence": 0.89,
+    "verifier_justification": "The pre-fix module encoded all nine rules open-ended from 2025-08-07 with no effective_to, while its own summary already said \"Compiler's note: provision terminated\" and the pinned corpus text of 9903.02.30 ends with the verbatim \"[Compiler's note: provision terminated. See 90 Fed. Reg. 44638]\" — so a terminated +15% Japan duty applied indefinitely, disagreeing with the source. The fix adds effective_to: '2026-02-14' to all nine versions plus kind: effective_period proof atoms quoting that note, which changes runtime meaning rather than provenance strings, so it is not mechanical. The commit body's F3 confirms intent: the superseded modules \"now carry effective_to termination matching their compiler's-note termination dates, with proof atoms citing the notes.\" The one refutation with traction is that the exact bound is not in the source (the fix says \"no termination date in the corpus text\"), but an ungrounded conservative bound does not make the prior open-ended window correct, so wrong_period_or_effective_date still fits best.",
+    "verifier_quote": "+        effective_to: '2026-02-14'",
+    "verifier_notes": "Corroboration: resolve_provision.py against release us-rulespec-2026-08-03-ecps-pit-tariff-union (corpus commit d9d6fba0b9, provision file line 1190, body sha256 5d7942a501...) returns source text ending \"...subdivision (v) of U.S. note 2 to this subchapter [Compiler's note: provision terminated. See 90 Fed. Reg. 44638]\" — the note is real and byte-matches the added proof-atom excerpts, and the source carries no termination date. Pre vs post grep: pre-fix has nine bare `effective_from: '2025-08-07'` lines and zero effective_to; post-fix has nine effective_to: '2026-02-14'. Residual caveat for the reviewer: the value 2026-02-14 is an encoder convention (\"the last day before the successor floor headings' 2026-02-15 panel domain\"), not a source-stated date, and the commit body's F3 overstates it as \"matching their compiler's-note termination dates\" while the module comment correctly says there is none — so the direction of the correction is source-grounded but the precise bound is not. That makes the fix's chosen date a candidate for a separate, weaker untraceable-value note; it does not rescue the pre-fix open-ended encoding. Same pattern applies to the three sibling terminated predecessors in this commit (Liechtenstein 9903.02.36, South Korea 9903.02.56, Switzerland 9903.02.58), so if those are separate corpus cases they should get the same verdict and the same caveat.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Provision read: the note is '[Compiler's note: provision terminated. See 90 Fed. Reg. 44638]' with no date, so the chosen 2026-02-14 end is the encoder's conservative no-later-than bound (day before the 9903.02.72/.73 successor domain at 2026-02-15), not a source-stated date; the fidelity defect is the timeless encoding of a terminated provision, not the specific day. The commit message says the terminations 'match their compiler's-note termination dates', which is exact only for South Korea (index 6). The pre-fix summary already read 'Compiler's note: provision terminated.', so the encoding contradicted its own summary. Identical pattern in indices 3, 6, 9; each rule also gains an effective_period proof atom quoting the note. | verifier confirmed at 0.89",
+  "family_id": "us-75a36778-4fc57553e160",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

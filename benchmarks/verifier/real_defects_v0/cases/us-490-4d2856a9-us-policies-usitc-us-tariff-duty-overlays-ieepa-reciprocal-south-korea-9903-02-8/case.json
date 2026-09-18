@@ -1,0 +1,259 @@
+{
+  "id": "us-490-4d2856a9-us-policies-usitc-us-tariff-duty-overlays-ieepa-reciprocal-south-korea-9903-02-8",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "4d2856a9587ea13d74d6321a79dcde956bb239e2",
+  "parent_commit": "75a3677870cc38e35dffbe9099f363a82bde53aa",
+  "commit_date": "2026-08-02",
+  "commit_subject": "Fix sol r2 findings: legal handoff dates and Boolean polarity coverage",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1197",
+  "module_path": "us/policies/usitc/us-tariff-duty/overlays/ieepa/reciprocal-south-korea-9903-02-80.yaml",
+  "corpus_citation_path": "us/statute/hts/9903.02.80",
+  "corpus_citation_paths_all": [
+    "us/statute/hts/9903.02.80",
+    "us/statute/hts/9903.02.56"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "wrong_period_or_effective_date",
+  "other_kind": null,
+  "confidence": 0.85,
+  "description": "kr-79/80 dates are pinned by the 9903.02.56 compiler's-note termination (90 Fed. Reg. 55964)",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        6,
+        6
+      ],
+      [
+        39,
+        39
+      ],
+      [
+        55,
+        55
+      ],
+      [
+        85,
+        85
+      ],
+      [
+        112,
+        112
+      ],
+      [
+        153,
+        153
+      ],
+      [
+        182,
+        182
+      ],
+      [
+        204,
+        204
+      ],
+      [
+        222,
+        222
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        6,
+        8
+      ],
+      [
+        19,
+        22
+      ],
+      [
+        44,
+        48
+      ],
+      [
+        50,
+        50
+      ],
+      [
+        65,
+        69
+      ],
+      [
+        71,
+        71
+      ],
+      [
+        100,
+        104
+      ],
+      [
+        106,
+        106
+      ],
+      [
+        132,
+        136
+      ],
+      [
+        138,
+        138
+      ],
+      [
+        178,
+        182
+      ],
+      [
+        184,
+        184
+      ],
+      [
+        212,
+        216
+      ],
+      [
+        218,
+        218
+      ],
+      [
+        239,
+        243
+      ],
+      [
+        245,
+        245
+      ],
+      [
+        262,
+        266
+      ],
+      [
+        268,
+        268
+      ]
+    ],
+    "rule_names": [
+      "reciprocal_south_korea_floor_duty_rate",
+      "reciprocal_south_korea_below_floor_column_1_duty_rate_threshold",
+      "reciprocal_south_korea_below_floor_heading_product_exception_applies",
+      "reciprocal_south_korea_below_floor_otherwise_provision_exception_applies",
+      "reciprocal_south_korea_floor_duty_applies",
+      "reciprocal_south_korea_below_floor_general_duty_rate",
+      "reciprocal_south_korea_below_floor_special_duty_rate",
+      "reciprocal_south_korea_below_floor_column_2_duty_change"
+    ],
+    "rule_path": "rules[reciprocal_south_korea_below_floor_general_duty_rate].versions[0].effective_from"
+  },
+  "pre_fix_artifact_sha256": "d7c1058afcd170d3bd6a64ae8279d0526d6c11e83be26be62ed269391bbc0c05",
+  "post_fix_artifact_sha256": "4c8e047380e6cf8b3f29eeb8aa112183777e393221280aeeb363026e8e270927",
+  "provision_sha256": "9aecd3cb9b0dde4e81c1a81ebf86577a5aff2bac4994e5312edeb660833eeb5d",
+  "provision_chars": 581,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/hts/9903.02.80",
+    "provision_file": "data/corpus/provisions/us/statute/2026-08-03-rulespec-hts-current-with-legacy-aluminum.jsonl",
+    "provision_file_sha256": "7406b42f2f6a35bd43ed67d7fe4d0f7323e12c3e49c67b8d6699f9978d23b770",
+    "line_number": 1240,
+    "record_id": "adbb8c0a-b30f-59c7-b7c2-cda67e36d3dc",
+    "stored_body_sha256": "9aecd3cb9b0dde4e81c1a81ebf86577a5aff2bac4994e5312edeb660833eeb5d",
+    "resolved_text_sha256": "9aecd3cb9b0dde4e81c1a81ebf86577a5aff2bac4994e5312edeb660833eeb5d",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-31",
+    "source_as_of": "2026-08-01",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "05ce3d3dd21b0ced76f9af40c2ecc02c1c57d9c6",
+    "requested_citation_path": "us/statute/hts/9903.02.80",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.80'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.80'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.80'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.80'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.80'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.80'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.80'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.80'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.80'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.80'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.80'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.80'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.80'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.80'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.80'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.80'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The below-floor half of the South Korea pair (heading 9903.02.80) started at 2026-02-15 instead of at the 2025-11-14 handoff from terminated heading 9903.02.56, so its 15 percent floor top-up was missing for three months.",
+    "triage_notes": "Same pattern as index 5 (kr-79), below-floor sibling: 8 effective_from changes plus one effective_period proof atom per rule quoting the 9903.02.56 compiler's note; module source_verification gains us/statute/hts/9903.02.56 as a second corpus_citation_path. Same indirect-grounding caveat as index 5. No formula change.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_period_or_effective_date",
+    "verifier_confidence": 0.91,
+    "verifier_justification": "The diff moves versions[0].effective_from from '2026-02-15' to '2025-11-14' on all eight rules of the 9903.02.80 module while leaving every formula, parameter value, import, input, and output byte-identical, so the only meaning change is the version window — squarely wrong_period_or_effective_date. Reading the provision through the pinned release (us-rulespec-2026-08-03-ecps-pit-tariff-union, corpus commit d9d6fba0b9) shows 9903.02.80 itself states no effective date, while 9903.02.56 ends with the verbatim string \"[Compiler's note: This provision was terminated on November 14, 2025. See 90 Fed. Reg. 55964]\" that the new effective_period atoms cite, so the pre-fix February date had no source grounding and the corrected date is anchored to the in-corpus predecessor termination. I could not refute the kind: it is not mechanical (eight effective dates changed, not just excerpts or hashes), not untraceable_branch (a date-specific kind exists and fits better), and not an enhancement (the module already claimed a start date and claimed the wrong one). The sibling 9903.02.79 moves identically, matching the \"handoff with no gap\" reading.",
+    "verifier_quote": "-  - effective_from: '2026-02-15'\n+  - effective_from: '2025-11-14'",
+    "verifier_notes": "Two caveats a reviewer should weigh, neither of which overturns the verdict. (1) Grounding is cross-source inference, not a stated date: the corpus text of us/statute/hts/9903.02.80 carries no effective date, so the corrected 2025-11-14 comes from the predecessor heading 9903.02.56's compiler's-note termination — which is exactly why the module header changed from the singular corpus_citation_path to corpus_citation_paths listing both headings. The commit body is candid about this (\"kr-79/80 dates are pinned by the 9903.02.56 compiler's-note termination\"), and it is a weaker form of grounding than the Switzerland/Liechtenstein siblings, which cite Annex II of 90 FR 59281 inserting 9903.02.82-.91 effective November 14, 2025 (a range that does not include .79/.80). (2) This is an intra-PR review-round fix: commit 4d2856a958 is dated 2026-08-02 and PR #1197 merged 2026-08-02T18:34Z, so the defective 2026-02-15 date was introduced and corrected within the same PR and never stood on main. If the corpus is meant to hold defects that survived to main, flag this one; if it holds any encoding-vs-source correction, it qualifies. Also note the rest of the diff (proof atoms, plural citation paths, the summary paragraph about the handoff) is provenance/mechanical — the eight date lines are the sole meaning change. The first reader's impact reading checks out arithmetically: 2025-11-14 to 2026-02-15 is three months during which the below-floor 15 percent arm would not have fired, leaving a coverage gap after 9903.02.56 terminated.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Same pattern as index 5 (kr-79), below-floor sibling: 8 effective_from changes plus one effective_period proof atom per rule quoting the 9903.02.56 compiler's note; module source_verification gains us/statute/hts/9903.02.56 as a second corpus_citation_path. Same indirect-grounding caveat as index 5. No formula change. | verifier confirmed at 0.91",
+  "family_id": "us-4d2856a9-66bddae04a47",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

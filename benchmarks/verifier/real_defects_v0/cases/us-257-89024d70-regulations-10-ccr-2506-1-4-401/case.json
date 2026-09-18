@@ -1,0 +1,116 @@
+{
+  "id": "us-257-89024d70-regulations-10-ccr-2506-1-4-401",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "89024d705919130b1f14e5361dd1f9121b1ce7be",
+  "parent_commit": "65eadad2ff4b7027badb7005430083f26da15e1a",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Corrects merged Colorado SNAP modules despite the bland subject: 4.401.yaml flips snap_elderly_disabled_separate_household_allowed from entity Person to Household and replaces the gross-income comparison with a new household-size-scaled 165% FPL limit rule; 4.207.2.yaml rewrites the initial-month proration formula to min(allotment, floor(allotment * factor)). No commit body.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/395",
+  "module_path": "regulations/10-ccr-2506-1/4.401.yaml",
+  "corpus_citation_path": "us-co/regulation/10-ccr-2506-1/4.401",
+  "corpus_citation_paths_all": [
+    "us-co/regulation/10-ccr-2506-1/4.401"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "wrong_entity_or_scope",
+  "other_kind": null,
+  "confidence": 0.82,
+  "description": "use a separate co-resident group-size threshold for the 4.401 165% FPL test",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        59,
+        59
+      ],
+      [
+        67,
+        67
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        57,
+        69
+      ],
+      [
+        72,
+        72
+      ],
+      [
+        80,
+        80
+      ]
+    ],
+    "rule_names": [
+      "snap_elderly_disabled_separate_household_allowed",
+      "co_resident_gross_income_limit_165_percent_fpl_48_states_dc"
+    ],
+    "rule_path": "rules[snap_elderly_disabled_separate_household_allowed].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "d2c1c8c71d056840db67b1aa6ca4c9cc5f69e2777a43fc4600eb53573ab20185",
+  "post_fix_artifact_sha256": "2b504f14b3da4b042fffcadc84aee3a57923b1ebbad18b0123bf28f8bdc495dd",
+  "provision_sha256": "4c3d76958fbe05dcf9924826d09f938c4dcef466efddee618df0906fb2fa49c3",
+  "provision_chars": 2228,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-co/regulation/10-ccr-2506-1/4.401",
+    "provision_file": "data/corpus/provisions/us-co/regulation/2026-04-29-10-ccr-2506-1-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "690056c197e6c505adbc5bd8aceec55c48d7b459e570017576b0a871009dac8f",
+    "line_number": 36,
+    "record_id": "14ff99bf-adec-5d5d-b143-449100fa1cd4",
+    "stored_body_sha256": "4c3d76958fbe05dcf9924826d09f938c4dcef466efddee618df0906fb2fa49c3",
+    "resolved_text_sha256": "4c3d76958fbe05dcf9924826d09f938c4dcef466efddee618df0906fb2fa49c3",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-05-29",
+    "source_as_of": "2026-05-29",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us-co/regulation/10-ccr-2506-1/4.401",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us-co/regulation/10-ccr-2506-1/4.401'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us-co/regulation/10-ccr-2506-1/4.401'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us-co/regulation/10-ccr-2506-1/4.401'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us-co/regulation/10-ccr-2506-1/4.401'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The separate-household test compared the co-residents' combined income against snap_gross_income_limit_165_percent_fpl_48_states_dc, the federal 165% FPL limit keyed to the applicant SNAP household's size, when 4.401(A)(4) measures 'the combined income of the others with whom the individual ... resides' against the poverty level for that co-resident group, and it was declared on entity Person rather than Household.",
+    "triage_notes": "This is the real defect in the commit and the only module where an outcome changes. Read 10 CCR 2506-1 4.401 through the pinned corpus (us-rulespec-2026-07-13): '(4) ... The combined income of the others with whom the individual who is aged sixty (60) and older and a person with disabilities resides (excluding the income of the individual ... and his or her spouse) must not exceed one hundred sixty-five percent (165%) of the poverty level.' The fix adds co_resident_gross_income_limit_165_percent_fpl_48_states_dc = table[clamp(co_resident_group_size,1,8)] + max(co_resident_group_size-8,0) * additional_member and points the comparison at it; the companion test adds two new cases proving the behavior change (co_resident_group_size 3 -> limit 3665, income 3000 holds, income 3666 not_holds), whereas pre-fix a household_size of 1 forced the 2152 limit regardless of how many co-residents were being tested. Two changes in one module, both scope: the entity flip Person -> Household (PR: 'repair ... 4.401 separate-household source scope') and the threshold population. I chose wrong_entity_or_scope because both point at the member set; a judge answering amount_mismatch (wrong FPL table cell) would also be defensible. The 'must not exceed' -> '<=' direction was already correct and is unchanged, so this is not boundary_direction. No unrelated changes in this module; the rest of the 4.401 test diff is federal input-surface re-addressing (snap_gross_monthly_income / snap_net_income now fed to us:regulations/7-cfr/273/9) with unchanged expectations.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_entity_or_scope",
+    "verifier_confidence": 0.87,
+    "verifier_justification": "I tried to refute the classification and could not: the pre-fix formula compared the co-residents' combined income against `snap_gross_income_limit_165_percent_fpl_48_states_dc`, which `us/policies/usda/snap/fy-2026-cola/income-eligibility-standards.yaml` defines as `..._table[max(min(household_size, 8), 1)] + ...` — i.e. the limit scaled to the *applicant SNAP household's* size — while 4.401(A)(4) as resolved from the pinned corpus says \"The combined income of the others with whom the individual ... resides (excluding the income of the individual ... and his or her spouse) must not exceed one hundred sixty-five percent (165%) of the poverty level,\" so the threshold must scale to the co-resident group. The fix adds a co-resident-keyed limit rule and re-points the comparison at it, and the new companion test `separate_household_allowed_uses_co_resident_group_size` makes the meaning change concrete: with `household_size: 1` but `co_resident_group_size: 3`, the limit moves from 2152 to 3665, flipping a $3,000 co-resident group from denied to allowed. That is a wrong population / household member set (plus the rule's declared entity moving Person → Household), not a wrong number, a missing clause, or an ungrounded branch — the 165% FPL table itself was and remains the correct source parameter. It is a correction rather than new coverage, because the module already asserted this comparison and the old assertion produces the wrong answer whenever the co-resident group size differs from the applicant household size.",
+    "verifier_quote": "-          and co_resident_gross_income <= snap_gross_income_limit_165_percent_fpl_48_states_dc\n+          and co_resident_gross_income <= co_resident_gross_income_limit_165_percent_fpl_48_states_dc",
+    "verifier_notes": "CITATION PROBLEM (fix before the corpus ships): the first reader's quote \"use a separate co-resident group-size threshold for the 4.401 165% FPL test\" is attributed to pr_body but appears nowhere in the bundle. The commit body is empty (\"\\n\"), and PR #395's body is the monorepo-consolidation text — it never mentions 4.401, 165%, or co-residents (a substring probe for \"co-resident group-size\", \"165%\", \"separate co-resident\" all return False against the bundle JSON). The verdict here rests entirely on the diff, the imported federal limit definition, and the companion tests; the quote field should be replaced with the diff lines above.\n\nSecond caveat: the entity Person → Household flip is the weaker half of the classification. The source frames the determination individually (\"For household members who are persons that are aged sixty (60) and older ... may be considered, together with his or her spouse ... a separate household from the others with whom the individual lives\"), so moving the rule to Household plausibly serves engine/entity consistency with the new Household-entity limit rule rather than source fidelity, and arguably drifts from the individual-level framing. The load-bearing correction is the threshold keying, which stands on its own.\n\nResidual gap the fix does not close: `co_resident_group_size` is an undeclared free input (it appears only in the formula and the test fixtures at 89024d7059). The source requires the group to *exclude* the elderly/disabled individual and their spouse; nothing in the module encodes that membership definition, so the group-size semantics remain unpinned. Worth flagging as a follow-up, not as a reason to downgrade this verdict.\n\nFiles: /Users/maxghenis/TheAxiomFoundation/rulespec-us/regulations/10-ccr-2506-1/4.401.yaml (at 89024d7059), /Users/maxghenis/TheAxiomFoundation/rulespec-us/us/policies/usda/snap/fy-2026-cola/income-eligibility-standards.yaml (lines 43-52 table, 267-268 household_size keying), /private/tmp/claude-501/-Users-maxghenis-TheAxiomFoundation-axiom-encode--claude-worktrees-zealous-heyrovsky-31a96b/86103d8f-b97f-4559-a96c-7e79bdbe616d/scratchpad/diffs/us/89024d7059/002.diff",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "This is the real defect in the commit and the only module where an outcome changes. Read 10 CCR 2506-1 4.401 through the pinned corpus (us-rulespec-2026-07-13): '(4) ... The combined income of the others with whom the individual who is aged sixty (60) and older and a person with disabilities resides (excluding the income of the individual ... and his or her spouse) must not exceed one hundred sixty-five percent (165%) of the poverty level.' The fix adds co_resident_gross_income_limit_165_percent_fpl_48_states_dc = table[clamp(co_resident_group_size,1,8)] + max(co_resident_group_size-8,0) * additional_member and points the comparison at it; the companion test adds two new cases proving the behavior change (co_resident_group_size 3 -> limit 3665, income 3000 holds, income 3666 not_holds), whereas pre-fix a household_size of 1 forced the 2152 limit regardless of how many co-residents were being tested. Two changes in one module, both scope: the entity flip Person -> Household (PR: 'repair ... 4.401 separate-household source scope') and the threshold population. I chose wrong_entity_or_scope because both point at the member set; a judge answering amount_mismatch (wrong FPL table cell) would also be defensible. The 'must not exceed' -> '<=' direction was already correct and is unchanged, so this is not boundary_direction. No unrelated changes in this module; the rest of the 4.401 test diff is federal input-surface re-addressing (snap_gross_monthly_income / snap_net_income now fed to us:regulations/7-cfr/273/9) with unchanged expectations. | verifier confirmed at 0.87",
+  "family_id": "us-89024d70-70f0ee02f2ee",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

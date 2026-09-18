@@ -1,0 +1,98 @@
+{
+  "id": "us-464-48da39b8-us-sc-policies-dss-snap-policy-manual-page-163",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "48da39b8747813f972c7647121b2700a0279374c",
+  "parent_commit": "198f20b05810e7190463ae8807207e38175c000b",
+  "commit_date": "2026-07-27",
+  "commit_subject": "fix: preserve SC heating and cooling qualifications",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1139",
+  "module_path": "us-sc/policies/dss/snap-policy-manual/page-163.yaml",
+  "corpus_citation_path": "us-sc/manual/dss/snap-policy-manual/page-163",
+  "corpus_citation_paths_all": [
+    "us-sc/manual/dss/snap-policy-manual/page-163"
+  ],
+  "corpus_release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+  "corpus_release_content_sha256": "cb275c76c4f07f8ad37470a32296bb1763e5db853d152697524ab07021b6d544",
+  "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.9,
+  "description": "dropped timing/separate-from-rent qualifications on p.163",
+  "description_source": "pr_review",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        21,
+        23
+      ],
+      [
+        65,
+        68
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        21,
+        24
+      ],
+      [
+        63,
+        63
+      ],
+      [
+        67,
+        78
+      ]
+    ],
+    "rule_names": [
+      "household_has_mua_heating_or_cooling_cost"
+    ],
+    "rule_path": "rules[household_has_mua_heating_or_cooling_cost].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "5d0a3f0f05f58b0ebd1a9fd4dba093718aaec2062c6970e6c3d6e7066143b360",
+  "post_fix_artifact_sha256": "c9bcd297050aecc9ea14448d6229a00ac8398532670f7383e86d822131ea3a29",
+  "provision_sha256": "eb3408ac6f1bdfc79468280396b35cd0e7c8c30bb8750d18915214beb5a465ab",
+  "provision_chars": 1601,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-sc/manual/dss/snap-policy-manual/page-163",
+    "provision_file": "data/corpus/provisions/us-sc/manual/2026-05-27-sc-snap-manual.jsonl",
+    "provision_file_sha256": "c21539d472ea105695da5e007b24839b5f4e8cea9f4e6066a933e6d3817a8e13",
+    "line_number": 164,
+    "record_id": "e5dac343-0f44-56f2-951f-3d6a8d806e9f",
+    "stored_body_sha256": "eb3408ac6f1bdfc79468280396b35cd0e7c8c30bb8750d18915214beb5a465ab",
+    "resolved_text_sha256": "eb3408ac6f1bdfc79468280396b35cd0e7c8c30bb8750d18915214beb5a465ab",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-01-01",
+    "source_as_of": "2025-12-30",
+    "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "bf97b17baebfdf12601f7c23697524bf5adcdaed",
+    "requested_citation_path": "us-sc/manual/dss/snap-policy-manual/page-163",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix formula was a bare four-way disjunction of heating/cooling cost facts, omitting the source's two stated MUA prerequisites -- that the cost be incurred \"During the year\" and \"separately from their rent or mortgage\" -- so a household whose heating cost was bundled into rent, or whose billed cost fell outside the year, would wrongly qualify for the Mandatory Utility Allowance.",
+    "triage_notes": "Provision read through the pinned corpus release (us-sc/manual/dss/snap-policy-manual/page-163): \"(2) Mandatory Utility Allowance (MUA) To be entitled to the MUA, the following criteria must be met: (A) During the year, separately from their rent or mortgage, the households must incur and be billed for, or expect to incur during the next heating or cooling season: - Heating cost - Cooling cost (air conditioning)\". The fix gates the whole disjunction on the new free input household_heating_or_cooling_cost_is_separate_from_rent_or_mortgage and gates the incurred-and-billed branch (only) on household_incurred_heating_or_cooling_cost_during_year, matching the source's sentence structure; it also adds the verbatim excerpt to the condition proof atom and updates the module summary. Both new symbols are undeclared free inputs resolved by the harness (no new rule blocks were added). Companion tests gained 93 lines / 5 cases, including 'stale_incurred_heating_cost_outside_year_does_not_establish_mua', which would have failed pre-fix. This commit is one of four repair fixes in PR #1139; the other three findings (orphaned shared-residence condition, page-369 $33 vs $27 telephone setter collision, uncited rent exclusion on p.165) landed in sibling commits, so only the timing/separate-from-rent finding is in scope here. The quote is from a PR issue comment recording the blind review round-1 REQUEST-CHANGES verdict (the bundle's `reviews` and `review_comments` arrays are empty; the verdict lives in `issue_comments`).",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.92,
+    "verifier_justification": "The pinned corpus text for us-sc/manual/dss/snap-policy-manual/page-163 states the MUA criterion as \"(A) During the year, separately from their rent or mortgage, the households must incur and be billed for, or expect to incur during the next heating or cooling season: Heating cost / Cooling cost\", and the pre-fix formula for household_has_mua_heating_or_cooling_cost was a bare four-way disjunction with no during-the-year term and no separateness gate on the two \"expects to incur next season\" disjuncts. The fix adds two new source-stated conditions as conjuncts (household_heating_or_cooling_cost_is_separate_from_rent_or_mortgage and household_incurred_heating_or_cooling_cost_during_year), which changes encoded meaning: the companion suite gains cases next_season_heating_cost_included_in_rent_does_not_establish_mua and stale_incurred_heating_cost_outside_year_does_not_establish_mua that return not_holds where the old formula returned holds. This is a source-stated condition missing from the encoding that the fix restores, so unrepresented_clause fits; it is not wrong_period_or_effective_date (the version window stays effective_from '0001-01-01' and \"During the year\" is a substantive predicate, not a period or effective-date field) and not polarity_or_logic (the existing disjuncts were not inverted or mis-combined, they were under-qualified). The maintainer review names exactly this: \"dropped timing/separate-from-rent qualifications on p.163\", repaired as \"page 163's timing and separate-from-rent qualifications are restored with cases\".",
+    "verifier_quote": "+          household_heating_or_cooling_cost_is_separate_from_rent_or_mortgage\n+          and (\n+            (\n+              household_incurred_heating_or_cooling_cost_during_year",
+    "verifier_notes": "Verified read-only. Source resolved through the pinned release us-rulespec-2026-07-24-snap-cms-pit-union (corpus commit 0fd35bfbda), provision file data/corpus/provisions/us-sc/manual/2026-05-27-sc-snap-manual.jsonl line 164, fix_time_corpus_match \"same_body\" — the added proof-atom excerpt is verbatim source text, not invented. Strongest refutation attempt considered and rejected: the pre-fix disjuncts household_incurred_and_billed_separately_for_heating_cost / _cooling_cost already carry \"separately\" in their symbol names, so one could argue the separate-from-rent qualification was partly represented. It fails on two counts: (a) the two \"expects_to_incur_..._next_heating_or_cooling_season\" disjuncts carried no separateness qualification at all, so a household whose anticipated heating cost is bundled in rent qualified pre-fix (now covered by the new not_holds case); and (b) \"During the year\" had no representation whatsoever. Second refutation attempt rejected: this is not \"new coverage the module never claimed\" — the rule already claimed to encode SNAP Manual 12.5(2)(A) (source: SNAP Manual 12.5(2)(A) on the rule), and the pre-fix encoding was over-inclusive against that same provision. These symbols are free input facts (the module declares no inputs block), so adding them adds two required inputs; the companion test file updates the shared constant_inputs anchor accordingly. The module diff also adds a proof-atom excerpt string and rewrites the module summary — those parts alone would be mechanical/provenance, but the formula rewrite is substantive and decisive. Note commit 48da39b874 touches three module files; this verdict covers module index 1 (page-163.yaml) only.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Provision read through the pinned corpus release (us-sc/manual/dss/snap-policy-manual/page-163): \"(2) Mandatory Utility Allowance (MUA) To be entitled to the MUA, the following criteria must be met: (A) During the year, separately from their rent or mortgage, the households must incur and be billed for, or expect to incur during the next heating or cooling season: - Heating cost - Cooling cost (air conditioning)\". The fix gates the whole disjunction on the new free input household_heating_or_cooling_cost_is_separate_from_rent_or_mortgage and gates the incurred-and-billed branch (only) on household_incurred_heating_or_cooling_cost_during_year, matching the source's sentence structure; it also adds the verbatim excerpt to the condition proof atom and updates the module summary. Both new symbols are undeclared free inputs resolved by the harness (no new rule blocks were added). Companion tests gained 93 lines / 5 cases, including 'stale_incurred_heating_cost_outside_year_does_not_establish_mua', which would have failed pre-fix. This commit is one of four repair fixes in PR #1139; the other three findings (orphaned shared-residence condition, page-369 $33 vs $27 telephone setter collision, uncited rent exclusion on p.165) landed in sibling commits, so only the timing/separate-from-rent finding is in scope here. The quote is from a PR issue comment recording the blind review round-1 REQUEST-CHANGES verdict (the bundle's `reviews` and `review_comments` arrays are empty; the verdict lives in `issue_comments`). | verifier confirmed at 0.92",
+  "family_id": "us-48da39b8-75e9c5842e1a",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

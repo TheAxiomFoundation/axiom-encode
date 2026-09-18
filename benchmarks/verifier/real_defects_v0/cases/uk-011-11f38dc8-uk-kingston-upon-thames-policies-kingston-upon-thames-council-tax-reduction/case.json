@@ -1,0 +1,96 @@
+{
+  "id": "uk-011-11f38dc8-uk-kingston-upon-thames-policies-kingston-upon-thames-council-tax-reduction",
+  "jurisdiction": "uk",
+  "repo": "TheAxiomFoundation/rulespec-uk",
+  "commit": "11f38dc8996b41d4ae041820b1f61d952e490a3c",
+  "parent_commit": "61a256069cca2cc5bf4dcf934e162b6015c012bf",
+  "commit_date": "2026-07-19",
+  "commit_subject": "Kingston #46 closeout: encoder pin + re-emitted module + waiver removal (atomic) (#158)",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-uk/pull/158",
+  "module_path": "uk-kingston-upon-thames/policies/kingston-upon-thames/council-tax-reduction.yaml",
+  "corpus_citation_path": "uk-kingston-upon-thames/manual/council-tax-reduction-scheme-2026-2027/page-38",
+  "corpus_citation_paths_all": [
+    "uk-kingston-upon-thames/manual/council-tax-reduction-scheme-2026-2027/page-38"
+  ],
+  "corpus_release": "uk-rulespec-2026-07-14",
+  "corpus_release_content_sha256": "0e53dfd3acb628bd942e9c655837a3776c8fd608a62d4520a821c92549827538",
+  "corpus_commit": "592ac64312d3654d0de78900480bf14de1d780a2",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.79,
+  "description": "drop the ungrounded annual_taper_denominator (5); derive withdrawal_rate = daily_taper_rate * days_per_week (2 6/7 per cent x 7 = 20 per cent, manual pages 28/40)",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        138,
+        155
+      ],
+      [
+        172,
+        172
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        138,
+        138
+      ],
+      [
+        155,
+        155
+      ]
+    ],
+    "rule_names": [
+      "kingston_upon_thames_council_tax_reduction_withdrawal_rate",
+      "kingston_upon_thames_council_tax_reduction_annual_taper_denominator",
+      "kingston_upon_thames_council_tax_reduction_daily_taper_rate"
+    ],
+    "rule_path": "rules[kingston_upon_thames_council_tax_reduction_withdrawal_rate].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "fc2cc6cc8775ef08102977e9da7b071de383064476d63296fdf6205939cb05cf",
+  "post_fix_artifact_sha256": "fa3663785b02256504648387f805434a597938011064f3af7a6579729c521f48",
+  "provision_sha256": "b3e8043ddd13f20b6ac490b317cceafab9f62351b1ac060156bb30dd70d51d54",
+  "provision_chars": 3587,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "uk-kingston-upon-thames/manual/council-tax-reduction-scheme-2026-2027/page-38",
+    "provision_file": "data/corpus/provisions/uk-kingston-upon-thames/manual/2026-06-07-kingston-council-tax-reduction-2026-2027.jsonl",
+    "provision_file_sha256": "58a0a016539a0b3bcdda27b84f325c1d98b009db7a02ad6598eaebb6dfecbc83",
+    "line_number": 39,
+    "record_id": "9852c267-c5f2-57da-bd56-f335d818653a",
+    "stored_body_sha256": "b3e8043ddd13f20b6ac490b317cceafab9f62351b1ac060156bb30dd70d51d54",
+    "resolved_text_sha256": "b3e8043ddd13f20b6ac490b317cceafab9f62351b1ac060156bb30dd70d51d54",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-04-01",
+    "source_as_of": "2026-06-07",
+    "corpus_commit": "592ac64312d3654d0de78900480bf14de1d780a2",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "toolchain_release_pin",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "uk-kingston-upon-thames/manual/council-tax-reduction-scheme-2026-2027/page-38",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module computed the class E taper as 1 divided by an invented parameter `annual_taper_denominator = 5` whose proof atom cited page-28 text ('amount B is 2 6/7 per cent') that states no denominator of 5 and no annualization, so the taper rate rested on a value with no basis in the cited provision instead of on the source's daily 2 6/7 per cent rate converted over seven days.",
+    "triage_notes": "Single module in the commit; the module diff is only two hunks (39 lines). Hunk 1 deletes the entire `annual_taper_denominator` parameter rule (value 5, source line 'annualized class E amount B percentage', proof excerpt 'amount B is 2 6/7 per cent' at page-28) and extends the `daily_taper_rate` literal from 0.02857142857142857 to 0.02857142857142857142857142857; hunk 2 rewrites `withdrawal_rate` from `1 / ..._annual_taper_denominator` to `..._daily_taper_rate * ..._days_per_week`. Provision WAS read through the pinned release: page-28 says '(ii) amount B is 2 6/7 per cent of the difference between his income for the relevant week and his applicable amount' within class E ('On any day class E consists of...'), and contains no 5 and no annualization — confirming the deleted parameter was ungrounded. Important caveat for a reviewer: the numeric outcome is unchanged (1/5 = 0.2 and the 28-digit daily literal x 7 = exactly 0.2, which is why all 7 companion tests hold unchanged), so this is a grounding/derivation defect rather than a value defect; if the corpus wants only behavior-changing defects this one is a boundary case, but the maintainers tracked it as a real defect (issue #46 with an active validation waiver) and the PR body calls the deleted parameter 'fabricated'. The module header (singular source_verification with the page-38 locator) is byte-identical to the parent because PR commits 2 and 3 undid the re-emitter's plural corpus_citation_paths/upstream_source_check shape, so none of that contract churn appears in the net diff. Other files in the commit (.axiom/toolchain.toml, both workflow YAMLs, known-validation-gaps.yaml, the release fingerprint JSON) are pin/waiver bookkeeping, not rule content. Corroborating quotes: PR body — 'fabricated `annual_taper_denominator=5` deleted'; PR issue comment (Sol verdict) — 'the withdrawal rate is transparently derived as daily rate x 7 rather than through the erroneous denominator.'",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "untraceable_branch",
+    "verifier_confidence": 0.79,
+    "verifier_justification": "The pre-fix module carried a source-attributed parameter rule (`kind: parameter`, `source: \"... annualized class E amount B percentage\"`) whose value was `5` and whose only proof atom cited page-28 with the excerpt \"amount B is 2 6/7 per cent\"; I resolved page-28 through the pinned release (uk-rulespec-2026-07-14, corpus 592ac643) and its class E text states only \"amount B is 2 6/7 per cent of the difference between his income for the relevant week and his applicable amount\" — no denominator of 5, no annualization, no 20 per cent — so the module's class E taper rested on a value the cited provision does not state, and the fix deletes that parameter and re-grounds `withdrawal_rate` on the source's own daily rate times the manual's daily conversion (page-40: \"£17.31 x 1/7\"). That is exactly \"a value with no basis in the cited source (the fix removes or re-grounds it)\". I tried the two available refutations and both fail: mechanical is excluded because a parameter rule is deleted and a formula rewritten (parameters/formulas did not stay the same), and amount_mismatch fits worse because the taper is 20 per cent before and after — the 17→28 digit extension of `daily_taper_rate` is a representation device so the engine product is exactly 0.2, not a correction of a wrong rate. The only real weakness is that no computed output changes (companions stay 7/7), but the taxonomy's untraceable_branch is precisely the grounding-level kind, and the repo treated it as a live validation gap (waiver #46, removed by this same commit).",
+    "verifier_quote": "-  - name: kingston_upon_thames_council_tax_reduction_annual_taper_denominator … -              excerpt: \"amount B is 2 6/7 per cent\" … -          5 … -          1 / kingston_upon_thames_council_tax_reduction_annual_taper_denominator … +          kingston_upon_thames_council_tax_reduction_daily_taper_rate * kingston_upon_thames_council_tax_reduction_days_per_week",
+    "verifier_notes": "Diff is 2 insertions / 19 deletions in the module, all inside the taper chain. Pre-fix: `daily_taper_rate` (0.02857142857142857) and `days_per_week` (7) existed but were dead — nothing referenced them; `withdrawal_rate = 1 / annual_taper_denominator` = 0.2. Post-fix: the denominator rule is gone, `withdrawal_rate = daily_taper_rate * days_per_week`, and the daily literal is widened to 28 digits (0.02857142857142857142857142857, a truncation of 1/35 = 2 6/7%) so the engine product is exactly 0.2. The single consumer (line 484/501, `excess_income_for_year * withdrawal_rate`) is untouched, so behavior is numerically unchanged — a reviewer who requires an output-visible delta for \"fidelity\" could push this to unclear/mechanical, but \"mechanical\" as defined here is unavailable because a parameter rule and a formula changed. Source verification: page-28 (class E, para 17(f)(ii)) grounds 2 6/7 per cent of the weekly excess and nothing else; page-40 (para 30A) grounds the manual's weekly→daily \"x 1/7\" convention behind days_per_week = 7. Commit message and PR body corroborate (\"drop the ungrounded annual_taper_denominator (5)\"; \"fabricated `annual_taper_denominator=5` deleted\"). Note the commit is a 4-part stack that also touches waivers, toolchain pins and the release manifest, but those live in other_files; the module file itself changed only as described. Also note the module header locator moved to page-38 in this commit (module-level metadata, not part of the defect).",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Single module in the commit; the module diff is only two hunks (39 lines). Hunk 1 deletes the entire `annual_taper_denominator` parameter rule (value 5, source line 'annualized class E amount B percentage', proof excerpt 'amount B is 2 6/7 per cent' at page-28) and extends the `daily_taper_rate` literal from 0.02857142857142857 to 0.02857142857142857142857142857; hunk 2 rewrites `withdrawal_rate` from `1 / ..._annual_taper_denominator` to `..._daily_taper_rate * ..._days_per_week`. Provision WAS read through the pinned release: page-28 says '(ii) amount B is 2 6/7 per cent of the difference between his income for the relevant week and his applicable amount' within class E ('On any day class E consists of...'), and contains no 5 and no annualization — confirming the deleted parameter was ungrounded. Important caveat for a reviewer: the numeric outcome is unchanged (1/5 = 0.2 and the 28-digit daily literal x 7 = exactly 0.2, which is why all 7 companion tests hold unchanged), so this is a grounding/derivation defect rather than a value defect; if the corpus wants only behavior-changing defects this one is a boundary case, but the maintainers tracked it as a real defect (issue #46 with an active validation waiver) and the PR body calls the deleted parameter 'fabricated'. The module header (singular source_verification with the page-38 locator) is byte-identical to the parent because PR commits 2 and 3 undid the re-emitter's plural corpus_citation_paths/upstream_source_check shape, so none of that contract churn appears in the net diff. Other files in the commit (.axiom/toolchain.toml, both workflow YAMLs, known-validation-gaps.yaml, the release fingerprint JSON) are pin/waiver bookkeeping, not rule content. Corroborating quotes: PR body — 'fabricated `annual_taper_denominator=5` deleted'; PR issue comment (Sol verdict) — 'the withdrawal rate is transparently derived as daily rate x 7 rather than through the erroneous denominator.' | verifier confirmed at 0.79",
+  "family_id": "uk-11f38dc8-a929e7d5cf61",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

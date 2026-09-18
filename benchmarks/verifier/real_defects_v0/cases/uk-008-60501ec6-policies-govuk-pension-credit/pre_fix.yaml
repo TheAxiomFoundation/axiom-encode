@@ -1,0 +1,38 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: uk/statute/ukpga/2002/16/1
+  summary: |-
+    This PolicyEngine-alignment surface returns the annual Pension Credit amount used by PolicyEngine UK and HBAI: the annual Pension Credit entitlement when the benefit unit would claim Pension Credit, and nil otherwise.
+rules:
+  - name: pension_credit_annual_amount
+    kind: derived
+    entity: Family
+    dtype: Money
+    period: Year
+    unit: GBP
+    source: PolicyEngine UK pension_credit final receipt wrapper over State Pension Credit Act 2002 s.1 entitlement
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk/statute/ukpga/2002/16/1
+              excerpt: "A claimant is entitled to state pension credit if"
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk/statute/ukpga/2002/16/1
+              excerpt: "entitled to a guarantee credit"
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk/statute/ukpga/2002/16/1
+              excerpt: "to both, if the claimant satisfies both"
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          if person_or_partner_would_claim_pension_credit: pension_credit_entitlement_for_year else: 0

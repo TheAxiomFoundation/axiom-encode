@@ -1,0 +1,100 @@
+{
+  "id": "us-231-4bca2b9f-us-ri-policies-income-tax-pilot-liability-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "4bca2b9f3fcf4d08a5922238e379a6b85af5cab2",
+  "parent_commit": "a50507200f111854a11705f0a9d521652b400a98",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Time-bound: RI and UT pilot pipelines bounded to 2026 (effective period).",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1017",
+  "module_path": "us-ri/policies/income_tax/pilot_liability_pipeline.yaml",
+  "corpus_citation_path": "us-ri/statute/44-30-2.6",
+  "corpus_citation_paths_all": [
+    "us-ri/statute/44-30-2.6"
+  ],
+  "corpus_release": "us-rulespec-2026-07-22-current-la-status-fix",
+  "corpus_release_content_sha256": "6bfd97b24cb63cb709fa52e9a5e6764c916dec95c5557447e11f47778ee4768f",
+  "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+  "defect_kind": "wrong_period_or_effective_date",
+  "other_kind": null,
+  "confidence": 0.49,
+  "description": "All executable versions are bounded to tax year 2026 so adjacent tax years fail closed rather than reusing stale indexed amounts supplied for 2026.",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        37,
+        37
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        37,
+        39
+      ],
+      [
+        85,
+        85
+      ],
+      [
+        109,
+        109
+      ],
+      [
+        130,
+        130
+      ]
+    ],
+    "rule_names": [
+      "ri_pit_pilot_taxable_income",
+      "ri_pit_pilot_schedule_tax",
+      "ri_pit_pilot_income_tax_liability"
+    ],
+    "rule_path": "rules[ri_pit_pilot_schedule_tax].versions[0].effective_to"
+  },
+  "pre_fix_artifact_sha256": "6f00c01f404b29efb19da07a6e3089747f9c90b384a4c506a54f0940ebbe2eb6",
+  "post_fix_artifact_sha256": "40617592b525a2c8cada0e8ab8e69ef0ec53f2f35958bb2a9d7c95a79f57bddf",
+  "provision_sha256": "bc337f68fe721a162c38b26c8799839445167560d44431878d03e4fc03ac0b9d",
+  "provision_chars": 27431,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-ri/statute/44-30-2.6",
+    "provision_file": "data/corpus/provisions/us-ri/statute/2026-07-16-pit-west-us-ri-chapter-44-30.jsonl",
+    "provision_file_sha256": "ae00a67a1f9dab9aeffd79e941a56f83ad420c439be1cca095fc73ae3014748c",
+    "line_number": 13,
+    "record_id": "33737dd1-01f9-558c-864f-07b20fdefa49",
+    "stored_body_sha256": "bc337f68fe721a162c38b26c8799839445167560d44431878d03e4fc03ac0b9d",
+    "resolved_text_sha256": "bc337f68fe721a162c38b26c8799839445167560d44431878d03e4fc03ac0b9d",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-05-06",
+    "source_as_of": "2026-05-06",
+    "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "527a5be2ca97f19301c2e8964d305548cadefa03",
+    "requested_citation_path": "us-ri/statute/44-30-2.6",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "All three RI versions opened at 2026-01-01 with no end date, so the module claimed a pipeline calibrated to the TY2026 bracket base/floor/rate and standard-deduction/exemption amounts applied to 2027 and every later year, even though the cited section 44-30-2.6(c)(3)(A) requires those dollar amounts to be re-indexed annually (the proof atom itself excerpts \"shall be increased annually\").",
+    "triage_notes": "Read the pinned corpus text for us-ri/statute/44-30-2.6 (source_as_of 2026-05-06): (c)(3) runs \"For the period January 1, 2011, through December 31, 2011, and thereafter\" with annual cost-of-living adjustment of the (A)/(B)/(C) dollar amounts, so the statute itself has no 2026 sunset - the 2026-12-31 bound is a scope bound on a year-calibrated pilot slice, not a statutory end date. That is the main reason confidence is not higher: the defect is an over-broad declared period on a 2026-only artifact (internally inconsistent with the module's own summary, which says \"the active 2026 bracket\" and fixtures hand-computed from the Division's TY2026 advisory) rather than a mis-stated statutory window. Formulas, inputs, outputs, entity, and dtype are untouched; the only other change is the summary sentence quoted above plus the companion .axiom/encoding-manifests/us-ri/.../pilot_liability_pipeline.json. The bracket base/floor/rate and deduction/exemption amounts are caller-supplied inputs, so no numeric literal is baked in - a skeptical reviewer could call this hygiene rather than fidelity. Part of PR #1017, which applied the same bound to MI, WA, VT, and ID modules in sibling commits; the quote is the module summary added by this diff, unwrapped from its YAML block scalar. No follow-up commit reopens the bound (next touches are unrelated migration/e2e waves).",
+    "verifier_verdict": "not_a_defect",
+    "verifier_defect_kind": "none",
+    "verifier_confidence": 0.6,
+    "verifier_justification": "The diff only adds `effective_to: '2026-12-31'` to three versions, and the 2026 sunset has no basis in the cited text: R.I. Gen. Laws 44-30-2.6(c)(3) applies \"For the period January 1, 2011, through December 31, 2011, and thereafter,\" with (E) requiring annual indexing — so the operative formula continues past 2026 and the pre-fix open-ended window did not disagree with the source. The first reader's rationale (\"reusing stale indexed amounts\") does not hold against the module: every year-specific quantity (bracket base, floor, marginal rate, aggregate standard deduction and exemption) is a caller-supplied runtime input, defined nowhere in the repo except this module and its fixtures, so no indexed 2026 literal exists inside the encoding to go stale; the module's own rationale says it \"does not encode numeric schedule literals\" precisely because of the annual-indexing clause. The PR frames the change as hardening, not correction — \"period-boundary gaps without changing the underlying tax formulas\" under the title \"Fail close 2026 state income-tax boundary modules\" — i.e. a fail-closed scoping policy matching the TY2026 fixture/advisory vintage (ADV 2025-22), not an encoded meaning that disagreed with the statute.",
+    "verifier_quote": "The normalized staged body does not preserve the printed table cells, so this candidate does not encode numeric schedule literals.",
+    "verifier_notes": "Decisive diff lines (all three identical): `+        effective_to: '2026-12-31'`; the only other change is the summary sentence the first reader quoted. Source line from the pinned release (corpus 01e00777, expression_date 2026-05-06): \"(3) For the period January 1, 2011, through December 31, 2011, and thereafter, “Rhode Island taxable income” means federal adjusted gross income...\" — no 2026 sunset, and the indexing clause (E) says amounts \"shall be increased annually\", which argues the structural formula persists rather than expires. Note the added comment itself concedes the amounts are \"supplied for 2026\", i.e. the staleness risk lives in caller inputs, not in the encoding. Also worth a reviewer's eye: if the window were being matched to the source, the correct effective_from would be 2011-01-01, not 2026-01-01 — both the pre- and post-fix windows are narrower than the statute, which supports reading 2026-12-31 as a pilot/fixture-vintage convention rather than a source-derived date. Countervailing consideration if the corpus counts declared-scope truthfulness as fidelity: the module summary always claimed a \"2026 ordinary full-year resident wage-earner slice\" while its executable versions were unbounded, so a reviewer who treats over-broad executable coverage of a self-declared single-year pilot as a defect would keep this as wrong_period_or_effective_date (that is the only kind that could fit; amount/boundary/clause/scope/logic are all untouched). No test file changed in this commit, so the PR's \"2027 probes fail closed\" claim is not evidenced here.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Read the pinned corpus text for us-ri/statute/44-30-2.6 (source_as_of 2026-05-06): (c)(3) runs \"For the period January 1, 2011, through December 31, 2011, and thereafter\" with annual cost-of-living adjustment of the (A)/(B)/(C) dollar amounts, so the statute itself has no 2026 sunset - the 2026-12-31 bound is a scope bound on a year-calibrated pilot slice, not a statutory end date. That is the main reason confidence is not higher: the defect is an over-broad declared period on a 2026-only artifact (internally inconsistent with the module's own summary, which says \"the active 2026 bracket\" and fixtures hand-computed from the Division's TY2026 advisory) rather than a mis-stated statutory window. Formulas, inputs, outputs, entity, and dtype are untouched; the only other change is the summary sentence quoted above plus the companion .axiom/encoding-manifests/us-ri/.../pilot_liability_pipeline.json. The bracket base/floor/rate and deduction/exemption amounts are caller-supplied inputs, so no numeric literal is baked in - a skeptical reviewer could call this hygiene rather than fidelity. Part of PR #1017, which applied the same bound to MI, WA, VT, and ID modules in sibling commits; the quote is the module summary added by this diff, unwrapped from its YAML block scalar. No follow-up commit reopens the bound (next touches are unrelated migration/e2e waves). | verifier said not_a_defect at 0.60 (below 0.7); kept as unclear",
+  "family_id": "us-4bca2b9f-8714639b4721",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

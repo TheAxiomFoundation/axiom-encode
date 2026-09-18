@@ -1,0 +1,136 @@
+{
+  "id": "us-372-abc82d7a-statutes-26-3101-b-1",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "abc82d7a76a9a1da5cfc77d228a0eeace1e5cde6",
+  "parent_commit": "5323ecb4055fe6b6029ed953020b15237f835b87",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Bulk refresh with entity corrections (3101(a) and 3101(b)(1) TaxUnit->Person; 3111(a) and 3111(b) Business->Employer), 3121(b) rules removed and deferred, 3121(b)(8) rule deferred, and formula changes in 3121(b)(9), 3121(a)(8), 3121(g), 3121(j), 3402(n).",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/328",
+  "module_path": "statutes/26/3101/b/1.yaml",
+  "corpus_citation_path": "us/statute/26/3101",
+  "corpus_citation_paths_all": [
+    "us/statute/26/3101"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "wrong_entity_or_scope",
+  "other_kind": null,
+  "confidence": 0.78,
+  "description": "refresh generated RuleSpec artifacts for the Chapter 21 FICA wage/tax chain, including `3101`, `3111`, and selected `3121` wage/employment rules",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        21,
+        21
+      ],
+      [
+        24,
+        24
+      ],
+      [
+        27,
+        27
+      ],
+      [
+        39,
+        39
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        21,
+        21
+      ],
+      [
+        24,
+        26
+      ],
+      [
+        29,
+        29
+      ],
+      [
+        41,
+        52
+      ]
+    ],
+    "rule_names": [
+      "hospital_insurance_wage_tax",
+      "hospital_insurance_wage_tax_rate"
+    ],
+    "rule_path": "rules[hospital_insurance_wage_tax].entity"
+  },
+  "pre_fix_artifact_sha256": "6974b3bc67964a07255d7f7d451b60a36b06bb40e29a89c9fd7859efa0c6ceba",
+  "post_fix_artifact_sha256": "64d00415ea67352bdb3776153a15a32b8fa8554435a422dab0cda4f2b5e98863",
+  "provision_sha256": "3fa3fc0b75faa2701c24747d44bf2a351beec597d7ef67823f6b4e78452300a0",
+  "provision_chars": 1694,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/3101",
+    "provision_file": "data/corpus/provisions/us/statute/2026-05-10-tax-sections-r2026-07-15-self-contained-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "f48f152a03f99915c6ac9a847986e238ebeddd29ffb4199f0528c5e2a406eae4",
+    "line_number": 5,
+    "record_id": "a0e0112b-9ca1-57e0-9a5d-7c9062cb1eeb",
+    "stored_body_sha256": "3fa3fc0b75faa2701c24747d44bf2a351beec597d7ef67823f6b4e78452300a0",
+    "resolved_text_sha256": "3fa3fc0b75faa2701c24747d44bf2a351beec597d7ef67823f6b4e78452300a0",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2025-12-03",
+    "source_as_of": "2025-12-03",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "earliest_release_after_toolchain_corpus_ref",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": "9b575a00116da20b0952644f14d8530896f72cd3",
+    "requested_citation_path": "us/statute/26/3101",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3101'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3101'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3101'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3101'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The 1.45 percent hospital insurance tax was carried on a TaxUnit entity although 26 USC 3101(b)(1) imposes it 'on the income of every individual' on wages 'received by him', so the encoding applied a per-individual tax to a pooled household wage base.",
+    "triage_notes": "Same pattern as index 0. Corpus text confirms '(b) Hospital insurance (1) In general ... imposed on the income of every individual a tax equal to 1.45 percent of the wages ... received by him with respect to employment'. Decisive change entity: TaxUnit -> Person. Other hunks are summary rewrite, span->excerpt key rename, added self-import atom for the rate, and a block-scalar reformat of the 0.0145 literal (value unchanged). Note the added atom for the 'wages ... received by him with respect to employment' excerpt is typed kind: condition here while the parallel atom in 3101(a) is typed kind: definition - inconsistent atom typing, not a fidelity issue. Message/PR generic, so confidence held below 0.8.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_entity_or_scope",
+    "verifier_confidence": 0.85,
+    "verifier_justification": "I tried to refute this as provenance-only churn and could not: apart from span -> excerpt, a summary paraphrase, block-scalar reformatting of 0.0145, and two added proof atoms, the one substantive line flips hospital_insurance_wage_tax from entity: TaxUnit to entity: Person, which is the rule's declared population and output surface. The pinned corpus text for us/statute/26/3101 reads \"there is hereby imposed on the income of every individual a tax equal to 1.45 percent of the wages (as defined in section 3121(a)) received by him with respect to employment\", so the individual, not the tax unit, is the source-supported entity. The formula (wages * hospital_insurance_wage_tax_rate), the 0.0145 rate, the 1986-01-01 effective date and the companion test expectations are all unchanged, so entity is the only meaning that moved and wrong_entity_or_scope fits.",
+    "verifier_quote": "-    entity: TaxUnit\n+    entity: Person",
+    "verifier_notes": "Evidence quality: the first reader's quote (\"refresh generated RuleSpec artifacts for the Chapter 21 FICA wage/tax chain...\") is generic PR-body text and does not itself evidence the entity fix; the decisive evidence is the diff line above plus the pinned provision text, so the corpus record should carry that quote instead. Scope correction to the reader's record: only `hospital_insurance_wage_tax` changed entity; `hospital_insurance_wage_tax_rate` is `kind: parameter` and its only changes were `span:` -> `excerpt:` and `formula: '0.0145'` -> a block scalar (mechanical), so listing it in rule_names overstates the fix. Residual doubt worth flagging: 3101(b)(1) is an uncapped linear 1.45% tax, so a TaxUnit-level encoding could produce the same aggregate dollar total as the sum of per-person taxes; the defect is the population/output surface (and everything downstream that needs a per-individual Medicare figure, e.g. the (b)(2) additional tax thresholds), not a changed household total. I did not read the engine's entity-aggregation semantics, so I do not endorse the reader's specific mechanism claim that the pre-fix rule \"applied a per-individual tax to a pooled household wage base\" — the module's own input is `us:statutes/26/3101/b/1#input.wages`, whose level follows the rule entity; the scope defect holds without that claim. Companion tests (statutes/26/3101/b/1.test.yaml) changed only in case names and are entity-agnostic single-scalar cases, so they neither confirm nor refute; sibling module statutes/26/3101/a.yaml took the same TaxUnit->Person correction in this commit.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Same pattern as index 0. Corpus text confirms '(b) Hospital insurance (1) In general ... imposed on the income of every individual a tax equal to 1.45 percent of the wages ... received by him with respect to employment'. Decisive change entity: TaxUnit -> Person. Other hunks are summary rewrite, span->excerpt key rename, added self-import atom for the rate, and a block-scalar reformat of the 0.0145 literal (value unchanged). Note the added atom for the 'wages ... received by him with respect to employment' excerpt is typed kind: condition here while the parallel atom in 3101(a) is typed kind: definition - inconsistent atom typing, not a fidelity issue. Message/PR generic, so confidence held below 0.8. | verifier confirmed at 0.85",
+  "family_id": "us-abc82d7a-63ba3f3ad07c",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

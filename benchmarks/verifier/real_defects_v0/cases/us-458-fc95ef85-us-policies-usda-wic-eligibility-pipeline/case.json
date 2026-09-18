@@ -1,0 +1,237 @@
+{
+  "id": "us-458-fc95ef85-us-policies-usda-wic-eligibility-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "fc95ef853f0e677b9a73bc312fa4735fafa7cb91",
+  "parent_commit": "9383dace8ad71e199bb131e4940a824f9369f554",
+  "commit_date": "2026-07-25",
+  "commit_subject": "Fix WIC State eligibility boundaries",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1010",
+  "module_path": "us/policies/usda/wic/eligibility_pipeline.yaml",
+  "corpus_citation_path": "us/regulation/7/246/7/c",
+  "corpus_citation_paths_all": [
+    "us/regulation/7/246/7/c",
+    "us/regulation/7/246/7/d",
+    "us/regulation/7/246/7/e"
+  ],
+  "corpus_release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+  "corpus_release_content_sha256": "cb275c76c4f07f8ad37470a32296bb1763e5db853d152697524ab07021b6d544",
+  "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.8,
+  "description": "WIC computes `1.85 × FPG` as every applicant's income limit, but 7 CFR 246.7(d)(1) makes the *State agency's* guideline operative (floor 100% FPG, ceiling the reduced-price-meal guideline); the 185% figure is a federal maximum.",
+  "description_source": "pr_review",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        14,
+        18
+      ],
+      [
+        20,
+        33
+      ],
+      [
+        41,
+        47
+      ],
+      [
+        53,
+        55
+      ],
+      [
+        60,
+        77
+      ],
+      [
+        80,
+        80
+      ],
+      [
+        82,
+        83
+      ],
+      [
+        88,
+        88
+      ],
+      [
+        91,
+        97
+      ],
+      [
+        101,
+        101
+      ],
+      [
+        131,
+        131
+      ],
+      [
+        160,
+        161
+      ],
+      [
+        166,
+        166
+      ],
+      [
+        169,
+        169
+      ],
+      [
+        171,
+        171
+      ],
+      [
+        211,
+        211
+      ],
+      [
+        218,
+        219
+      ],
+      [
+        224,
+        224
+      ],
+      [
+        264,
+        264
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        14,
+        17
+      ],
+      [
+        19,
+        28
+      ],
+      [
+        41,
+        45
+      ],
+      [
+        49,
+        49
+      ],
+      [
+        51,
+        51
+      ],
+      [
+        54,
+        54
+      ],
+      [
+        56,
+        56
+      ],
+      [
+        61,
+        61
+      ],
+      [
+        64,
+        64
+      ],
+      [
+        68,
+        69
+      ],
+      [
+        99,
+        99
+      ],
+      [
+        128,
+        135
+      ],
+      [
+        140,
+        168
+      ],
+      [
+        171,
+        173
+      ],
+      [
+        207,
+        212
+      ],
+      [
+        220,
+        220
+      ],
+      [
+        227,
+        228
+      ],
+      [
+        233,
+        233
+      ],
+      [
+        273,
+        288
+      ]
+    ],
+    "rule_names": [
+      "wic_income_limit_multiplier",
+      "wic_income_limit",
+      "wic_income_eligible",
+      "wic_numeric_inputs_valid",
+      "wic_nutritional_risk_eligibility_requirement_met",
+      "wic_eligible"
+    ],
+    "rule_path": "rules[wic_income_eligible].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "ac003eacddef86c35a8c387d49645887d099e43421176b10d499d7c465c04451",
+  "post_fix_artifact_sha256": "c01232db85068eb796fc3310196594ef56fc53076067394d7a421708d56bce40",
+  "provision_sha256": "c2e5acb5c584fb27f5e93574b3a471aad9bb0eb1fd878e3329c701850730a018",
+  "provision_chars": 3543,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/regulation/7/246/7/c",
+    "provision_file": "data/corpus/provisions/us/regulation/2026-07-13-recovery-r2026-07-17-dedup.jsonl",
+    "provision_file_sha256": "9133fa7c05ffc60be99ca8c9363e78cebb13256f853936e13324559b2573085f",
+    "line_number": 324,
+    "record_id": "4a7c9b16-c10d-5205-a27e-dd33595fd0b4",
+    "stored_body_sha256": "c2e5acb5c584fb27f5e93574b3a471aad9bb0eb1fd878e3329c701850730a018",
+    "resolved_text_sha256": "c2e5acb5c584fb27f5e93574b3a471aad9bb0eb1fd878e3329c701850730a018",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "5dfd89d131564e4ee0e1e763571dbb5d7fc7f5e7",
+    "requested_citation_path": "us/regulation/7/246/7/c",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module made `1.85 * wic_federal_poverty_guideline` the operative income limit for every applicant, grounding it on the 7 CFR 246.7(d)(2)(iii) sentence that merely caps eligibility at 185 percent, whereas 246.7(d)(1) delegates the operative guideline to the State or local agency (anywhere from 100 percent FPG up to the reduced-price-meal level), so an applicant above a State's lower guideline was wrongly reported income-eligible; the module also omitted the mandatory (d)(2)(ix) instream-migrant income-satisfaction route and the (e)(1)(v) presumptive pregnant-woman nutritional-risk window.",
+    "triage_notes": "Single module in the commit (plus its companion test file us/policies/usda/wic/eligibility_pipeline.test.yaml, not in this chunk). This is a repair commit on PR #1010 (merged 2026-07-26); the commit body is empty (a single newline), so the quote comes from the maintainer's 'Blind review: REQUEST-CHANGES' comment, which the bundle carries under issue_comments rather than reviews (quote_source recorded as pr_review). Three distinct fidelity corrections ride in one diff: (1) headline - the 1.85 parameter and derived wic_income_limit rule are deleted and the direct screen becomes `wic_family_income <= wic_state_or_local_income_guideline` against a positive caller-attested operative guideline; (2) the paragraph (d)(2)(ix) instream-migrant route is moved out of deferred_outputs into an import with a real sha256 and OR'd into wic_income_eligible (unrepresented_clause); (3) a new wic_nutritional_risk_eligibility_requirement_met rule adds the (e)(1)(v) presumptive pregnant-woman route gated on three fail-closed attestations (unrepresented_clause). A fourth change, the new wic_numeric_inputs_valid domain contract (`wic_family_income >= 0 and wic_state_or_local_income_guideline > 0`), closes a fail-open numeric leaf - runtime robustness rather than a clear source-fidelity defect on its own. Provisions were read through the pinned corpus release us-rulespec-2026-07-24-snap-cms-pit-union (corpus commit 0fd35bfbda98): (d)(1) confirms the State-agency delegation with the 100% FPG floor and reduced-price-meal ceiling; the pre-fix proof-atom excerpt 'gross income in excess of 185 percent of the Federal income guidelines' sits in (d)(2)(iii) as a uniformity/ceiling sentence, not an operative-limit rule; (d)(2)(ix) says instream migrants 'shall be declared to satisfy the State agency's income standard'; (e)(1)(v) supplies the 60-day presumptive window matching the new proof excerpt. Kind call: wrong_entity_or_scope (Federal maximum standing in for the State agency's guideline) and amount_mismatch (the 1.85 threshold) are both defensible; I chose untraceable_branch because the fix removes the parameter and the derived limit rule outright and re-grounds the test on the operative guideline, which matches 'formulas grounded on the wrong provision'. Despite 'boundaries' in the subject, no comparison strictness changed - the direct screen stayed `<=` - so boundary_direction does not fit.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "untraceable_branch",
+    "verifier_confidence": 0.85,
+    "verifier_justification": "The refutation attempt fails: the diff changes encoded meaning exactly as the review quote describes. Pre-fix, `wic_income_eligible` tested `wic_family_income <= wic_income_limit` where `wic_income_limit = wic_income_limit_multiplier * wic_federal_poverty_guideline` with the multiplier parameter `1.85` grounded on the proof excerpt \"gross income in excess of 185 percent of the Federal income guidelines\"; the fix deletes both the parameter and the derived limit rule and re-grounds the screen on a caller-supplied `wic_state_or_local_income_guideline`. Reading 7 CFR 246.7(d) through the pinned release (us-rulespec-2026-07-24-snap-cms-pit-union) confirms the mis-grounding: (d)(1) makes the State agency's prescribed guidelines operative (floor 100% of the HHS poverty guidelines, ceiling the reduced-price school meal guidelines), while the 185-percent sentence sits in (d)(2)(iii) as an assurance that the health-care-guideline option does not let households \"in excess of 185 percent\" qualify — a ceiling, not the operative threshold. That is a formula grounded on the wrong provision whose fix removes and re-grounds it, i.e. untraceable_branch; amount_mismatch fits worse because no corrected number replaces 1.85 (the parameter is deleted and the threshold delegated), and wrong_entity_or_scope fits worse because entity, period, and population are unchanged.",
+    "verifier_quote": "-          wic_income_limit_multiplier * wic_federal_poverty_guideline\n-          or wic_family_income <= wic_income_limit",
+    "verifier_notes": "Not mechanical (formulas, a parameter, a rule, and an input name/description all change) and not an unclaimed-scope enhancement: the pre-fix summary's disclaimer (\"a State agency may adopt a lower compliant income guideline, which is outside this Federal-parity pipeline\") is prose, not a scope restriction on the emitted `wic_eligible` judgment, and the pre-fix rule's own `source:` field claimed \"7 CFR 246.7(d)(1), (d)(2)(iii)\" while using only the (d)(2)(iii) ceiling excerpt as its proof atom — so the encoding disagrees with the provision it cites. Caveat for the reviewer: this commit bundles at least two further distinct fidelity defects at the same rule_path/module, both unrepresented_clause — the mandatory (d)(2)(ix) instream-migrant income-satisfaction route (previously listed under deferred_outputs, now imported into `wic_income_eligible`) and the (e)(1)(v) presumptive pregnant-woman nutritional-risk window (new `wic_nutritional_risk_eligibility_requirement_met`). It also adds a fail-closed numeric domain contract (`wic_numeric_inputs_valid`), which is closer to new hardening than a source disagreement. If the corpus wants one kind per case, untraceable_branch is the headline and is the one the cited pr_review quote supports; if the corpus can carry multiple defects per commit, the (d)(2)(ix) and (e)(1)(v) additions deserve separate unrepresented_clause rows.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Single module in the commit (plus its companion test file us/policies/usda/wic/eligibility_pipeline.test.yaml, not in this chunk). This is a repair commit on PR #1010 (merged 2026-07-26); the commit body is empty (a single newline), so the quote comes from the maintainer's 'Blind review: REQUEST-CHANGES' comment, which the bundle carries under issue_comments rather than reviews (quote_source recorded as pr_review). Three distinct fidelity corrections ride in one diff: (1) headline - the 1.85 parameter and derived wic_income_limit rule are deleted and the direct screen becomes `wic_family_income <= wic_state_or_local_income_guideline` against a positive caller-attested operative guideline; (2) the paragraph (d)(2)(ix) instream-migrant route is moved out of deferred_outputs into an import with a real sha256 and OR'd into wic_income_eligible (unrepresented_clause); (3) a new wic_nutritional_risk_eligibility_requirement_met rule adds the (e)(1)(v) presumptive pregnant-woman route gated on three fail-closed attestations (unrepresented_clause). A fourth change, the new wic_numeric_inputs_valid domain contract (`wic_family_income >= 0 and wic_state_or_local_income_guideline > 0`), closes a fail-open numeric leaf - runtime robustness rather than a clear source-fidelity defect on its own. Provisions were read through the pinned corpus release us-rulespec-2026-07-24-snap-cms-pit-union (corpus commit 0fd35bfbda98): (d)(1) confirms the State-agency delegation with the 100% FPG floor and reduced-price-meal ceiling; the pre-fix proof-atom excerpt 'gross income in excess of 185 percent of the Federal income guidelines' sits in (d)(2)(iii) as a uniformity/ceiling sentence, not an operative-limit rule; (d)(2)(ix) says instream migrants 'shall be declared to satisfy the State agency's income standard'; (e)(1)(v) supplies the 60-day presumptive window matching the new proof excerpt. Kind call: wrong_entity_or_scope (Federal maximum standing in for the State agency's guideline) and amount_mismatch (the 1.85 threshold) are both defensible; I chose untraceable_branch because the fix removes the parameter and the derived limit rule outright and re-grounds the test on the operative guideline, which matches 'formulas grounded on the wrong provision'. Despite 'boundaries' in the subject, no comparison strictness changed - the direct screen stayed `<=` - so boundary_direction does not fit. | verifier confirmed at 0.85",
+  "family_id": "us-fc95ef85-2af2875c0767",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

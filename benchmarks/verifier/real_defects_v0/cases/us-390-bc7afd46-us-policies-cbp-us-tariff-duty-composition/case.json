@@ -1,0 +1,309 @@
+{
+  "id": "us-390-bc7afd46-us-policies-cbp-us-tariff-duty-composition",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "bc7afd469589a462bb6bc02582b967168e9c84ea",
+  "parent_commit": "f7d5729f61a8ef0d8e23e15be2e0aa62b24d4be6",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) fl301 r3 review blocker: entry component rate \"omitted the heading 9903.05.91 humanitarian-donation exception\"; adds missing exception headings to the zero branch (intra-PR #1196 repair round).",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1196",
+  "module_path": "us/policies/cbp/us-tariff-duty/composition.yaml",
+  "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
+  "corpus_citation_paths_all": [
+    "us/statute/hts/general-note-3/page-1",
+    "us/statute/hts/general-note-3/page-4",
+    "us/statute/hts/7202",
+    "us/statute/hts/7202.11.10.00",
+    "us/statute/hts/7601.10.30.00",
+    "us/statute/hts/9506.62.40",
+    "us/statute/hts/9506.62.40.40",
+    "us/statute/hts/9903.01.01",
+    "us/statute/hts/9903.01.02",
+    "us/statute/hts/9903.01.03",
+    "us/statute/hts/9903.01.04",
+    "us/statute/hts/9903.01.05",
+    "us/statute/hts/9903.01.10",
+    "us/statute/hts/9903.01.11",
+    "us/statute/hts/9903.01.12",
+    "us/statute/hts/9903.01.13",
+    "us/statute/hts/9903.01.14",
+    "us/statute/hts/9903.01.15",
+    "us/statute/hts/9903.01.25",
+    "us/statute/hts/9903.01.26",
+    "us/statute/hts/9903.01.27",
+    "us/statute/hts/9903.01.33",
+    "us/statute/hts/9903.05.01",
+    "us/statute/hts/9903.85.67",
+    "us/statute/hts/9903.90.09",
+    "us/statute/hts/chapter-99/page-175",
+    "us/statute/hts/chapter-99/page-176",
+    "us/statute/hts/chapter-99/page-177",
+    "us/statute/hts/chapter-99/page-182",
+    "us/statute/hts/chapter-99/page-219",
+    "us/statute/hts/chapter-99/page-221",
+    "us/statute/hts/chapter-99/page-226",
+    "us/statute/hts/chapter-99/page-230",
+    "us/statute/hts/chapter-99/page-508",
+    "us/statute/hts/chapter-99/page-509",
+    "us/statute/hts/chapter-99/page-542",
+    "us/statute/hts/chapter-99/page-545",
+    "us/statute/hts/chapter-99/page-553",
+    "us/statute/hts/chapter-99/page-555",
+    "us/statute/hts/chapter-99/page-558",
+    "us/statute/hts/chapter-99/page-566",
+    "us/statute/hts/chapter-99/page-640",
+    "us/statute/hts/chapter-99/page-251",
+    "us/statute/hts/9903.05.20",
+    "us/statute/hts/9903.05.21",
+    "us/statute/hts/9903.05.22",
+    "us/statute/hts/9903.05.23",
+    "us/statute/hts/9903.05.24",
+    "us/statute/hts/9903.05.25",
+    "us/statute/hts/9903.05.26",
+    "us/statute/hts/9903.05.27",
+    "us/statute/hts/9903.05.28",
+    "us/statute/hts/9903.05.29",
+    "us/statute/hts/9903.05.30",
+    "us/statute/hts/9903.05.31",
+    "us/statute/hts/9903.05.32",
+    "us/statute/hts/9903.05.33",
+    "us/statute/hts/9903.05.34",
+    "us/statute/hts/9903.05.35",
+    "us/statute/hts/9903.05.36",
+    "us/statute/hts/9903.05.37",
+    "us/statute/hts/9903.05.38",
+    "us/statute/hts/9903.05.39",
+    "us/statute/hts/9903.05.40",
+    "us/statute/hts/9903.05.41",
+    "us/statute/hts/9903.05.42",
+    "us/statute/hts/9903.05.43",
+    "us/statute/hts/9903.05.44",
+    "us/statute/hts/9903.05.45",
+    "us/statute/hts/9903.05.46",
+    "us/statute/hts/9903.05.47",
+    "us/statute/hts/9903.05.49",
+    "us/statute/hts/9903.05.50",
+    "us/statute/hts/9903.05.51",
+    "us/statute/hts/9903.05.52",
+    "us/statute/hts/9903.05.53",
+    "us/statute/hts/9903.05.54",
+    "us/statute/hts/9903.05.55",
+    "us/statute/hts/9903.05.56",
+    "us/statute/hts/9903.05.57",
+    "us/statute/hts/9903.05.58",
+    "us/statute/hts/9903.05.59",
+    "us/statute/hts/9903.05.60",
+    "us/statute/hts/9903.05.61",
+    "us/statute/hts/9903.05.62",
+    "us/statute/hts/9903.05.63",
+    "us/statute/hts/9903.05.64",
+    "us/statute/hts/9903.05.65",
+    "us/statute/hts/9903.05.66",
+    "us/statute/hts/9903.05.67",
+    "us/statute/hts/9903.05.68",
+    "us/statute/hts/9903.05.69",
+    "us/statute/hts/9903.05.71",
+    "us/statute/hts/9903.05.72",
+    "us/statute/hts/9903.05.74",
+    "us/statute/hts/9903.05.76",
+    "us/statute/hts/9903.05.77",
+    "us/statute/hts/9903.05.78",
+    "us/statute/hts/9903.05.79",
+    "us/statute/hts/9903.05.80",
+    "us/statute/hts/9903.05.81",
+    "us/statute/hts/9903.05.82",
+    "us/statute/hts/9903.05.83",
+    "us/statute/hts/9903.05.84",
+    "us/statute/hts/9903.05.48",
+    "us/statute/hts/9903.05.70",
+    "us/statute/hts/9903.05.73",
+    "us/statute/hts/9903.05.75",
+    "us/statute/hts/9903.05.85",
+    "us/statute/hts/9903.05.91",
+    "us/statute/hts/9903.05.92",
+    "us/statute/hts/9903.05.93",
+    "us/statute/hts/9903.05.94",
+    "us/rulemaking/federal-register/2026-02-25/2026-03824",
+    "us/rulemaking/federal-register/2026-02-25/2026-03829",
+    "us/rulemaking/federal-register/2026-02-25/2026-03832",
+    "us/rulemaking/federal-register/2026-06-24/2026-12669",
+    "us/rulemaking/federal-register/2026-07-20/2026-14542",
+    "us/rulemaking/federal-register/2026-07-28/2026-15181"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.93,
+  "description": "Sol r2 blocker: forced_labor_section_301_entry_component_rate omitted the heading 9903.05.91 humanitarian-donation exception.",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        322,
+        322
+      ],
+      [
+        324,
+        327
+      ],
+      [
+        343,
+        344
+      ],
+      [
+        1966,
+        1966
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        115,
+        116
+      ],
+      [
+        245,
+        246
+      ],
+      [
+        326,
+        326
+      ],
+      [
+        328,
+        335
+      ],
+      [
+        351,
+        353
+      ],
+      [
+        1975,
+        1975
+      ],
+      [
+        1984,
+        1993
+      ],
+      [
+        2014,
+        2015
+      ]
+    ],
+    "rule_names": [
+      "forced_labor_section_301_entry_component_rate"
+    ],
+    "rule_path": "rules[forced_labor_section_301_entry_component_rate].versions[1].formula"
+  },
+  "pre_fix_artifact_sha256": "8adcbacbdc5899cdff75dca9aa14ff3bb2b74ad3a98a9b69deb1abcbd7c32f07",
+  "post_fix_artifact_sha256": "9d6ccd9329ce36befd79bef4f88fbbc4e3ceea15e96bbb88f8aec4109797cde5",
+  "provision_sha256": "00d95211f2040a84be41d52b92256f93047713f97f45318e5945139cb1d8cb36",
+  "provision_chars": 4835,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/hts/general-note-3/page-1",
+    "provision_file": "data/corpus/provisions/us/statute/2026-08-01-usitc-hts-2026-rev3-notes.jsonl",
+    "provision_file_sha256": "818d993ea9bbb613b1c78ec03e1394b4d2b2468c259c3b1ff89ca3a004cf129c",
+    "line_number": 2,
+    "record_id": "6623bf55-dd9b-572a-a1c9-62e4af7c2829",
+    "stored_body_sha256": "00d95211f2040a84be41d52b92256f93047713f97f45318e5945139cb1d8cb36",
+    "resolved_text_sha256": "00d95211f2040a84be41d52b92256f93047713f97f45318e5945139cb1d8cb36",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-02-12",
+    "source_as_of": "2026-08-01",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "05ce3d3dd21b0ced76f9af40c2ecc02c1c57d9c6",
+    "requested_citation_path": "us/statute/hts/general-note-3/page-1",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix entry-level rate applied the full forced-labor section 301 overlay rate to entries of humanitarian-donation articles (HTS 9903.05.91) and informational-material articles (HTS 9903.05.92), although both headings provide only \"The duty provided in the applicable subheading\" and therefore exempt such entries from the additional duty.",
+    "triage_notes": "Single-module commit (index 0 is the only module file; companion test us/policies/cbp/us-tariff-duty/composition.test.yaml plus the encoding manifest and provisions reverse index are the other changed files). The module is format: rulespec/v1 with module.kind: composition, i.e. an assembled pipeline module, but it does define derived rules with formulas, so the change is a genuine formula-meaning change rather than a compose-spec/config edit. Decisive hunk adds `or entry_is_humanitarian_donation_article or entry_is_informational_material_article` to the effective_from 2026-07-24 version of forced_labor_section_301_entry_component_rate; both facts already existed in the module pre-fix (used by entry_is_fentanyl_canada_excepted / entry_is_fentanyl_mexico_excepted at lines 1274 and 1303 of the parent file), so no new inputs or outputs were introduced. Provisions were read through the pinned corpus release us-rulespec-2026-08-03-ecps-pit-tariff-union: 9903.05.91 = \"Articles that are donations by persons subject to the jurisdiction of the United States, such as food, clothing and medicine, intended to be used to relieve human suffering\" and 9903.05.92 = \"Articles that are informational materials, ...\", each with \"Rates of duty (1-General): The duty provided in the applicable subheading\" - confirming they are exceptions to the overlay, so the zero branch is correct. Note the resolver reported fix_time_corpus_match = provision_file_absent_at_corpus_ref and fell back to a later release (fallback_index 16); the excerpt text matches the proof atoms verbatim, so this does not change the reading. The rest of the diff is provenance/prose: two added source_verification citation paths in each of the two lists, two new verbatim exception proof atoms, an updated `source:` string, and reworded module notes/summary - mechanical on their own, but they accompany the substantive formula fix. PR #1196 has no review text in the bundle (reviews, review_comments, issue_comments all empty); the only quotable evidence is the commit message, which names the defect exactly.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.93,
+    "verifier_justification": "The diff changes encoded meaning inside `rules[forced_labor_section_301_entry_component_rate].versions[1].formula`, adding two disjuncts to the zero branch so that humanitarian-donation and informational-material entries no longer receive the forced-labor overlay rate; effective dates, version windows, parameter values, entity, and rule count (49 rule declarations both pre and post) are unchanged. The pre-fix rule already declared itself the \"Legally complete forced labor section 301 component\" and already carried the proof atom quoting \"Except as provided in headings 9903.05.85–9903.06.21\", a range that contains 9903.05.91 and 9903.05.92, so this is a missing source-stated exception rather than new coverage the module never claimed. Reading both headings through the pinned corpus release (us-rulespec-2026-08-03, provision file sha 7406b42f…) confirms each provides only \"Rates of duty (1-General): The duty provided in the applicable subheading\", i.e. no additional duty, and their text matches the added excerpts verbatim. The two consumed facts (`entry_is_humanitarian_donation_article`, `entry_is_informational_material_article`) already existed in the module as free variables of the fentanyl exception rules at pre-fix lines 1274/1303, so no input or output surface was expanded — only a wrong result was corrected.",
+    "verifier_quote": "+             or entry_is_humanitarian_donation_article\n+             or entry_is_informational_material_article",
+    "verifier_notes": "Refutation attempts that failed: (1) \"enhancement, not defect\" — rejected, because the pre-fix `source:` string and module notes both asserted the rule was the *legally complete* entry-level rate for the family, so omission contradicts the module's own claim; (2) \"new outputs/scope\" — rejected, rule-declaration count is 49 in both revisions, the ledger is unchanged (+0/-0 per commit body), and both facts were already consumed elsewhere in the module; (3) alternative kinds — amount_mismatch fails (the 0.10/0.125 tier parameters are untouched), boundary_direction and polarity_or_logic fail (the or-chain's form was correct, it was simply short two disjuncts, nothing inverted), untraceable_branch fails (nothing removed or re-grounded), wrong_period_or_effective_date fails (effective_from 2026-07-24 unchanged), wrong_entity_or_scope fails (entity CustomsEntry, period Day unchanged). One unrelated observation for the reviewer: the pre-existing proof atom cited to `us/statute/hts/chapter-99/page-553` resolves in the pinned release to reciprocal-tariff rows (9903.02.02–9903.02.05), not the forced-labor U.S. note 52 text it quotes — a pagination/citation-path drift that predates this commit and is independent of this fix. The panel-facing `forced_labor_section_301_component_rate` was deliberately left at the non-exempt projection, consistent with the module notes.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Single-module commit (index 0 is the only module file; companion test us/policies/cbp/us-tariff-duty/composition.test.yaml plus the encoding manifest and provisions reverse index are the other changed files). The module is format: rulespec/v1 with module.kind: composition, i.e. an assembled pipeline module, but it does define derived rules with formulas, so the change is a genuine formula-meaning change rather than a compose-spec/config edit. Decisive hunk adds `or entry_is_humanitarian_donation_article or entry_is_informational_material_article` to the effective_from 2026-07-24 version of forced_labor_section_301_entry_component_rate; both facts already existed in the module pre-fix (used by entry_is_fentanyl_canada_excepted / entry_is_fentanyl_mexico_excepted at lines 1274 and 1303 of the parent file), so no new inputs or outputs were introduced. Provisions were read through the pinned corpus release us-rulespec-2026-08-03-ecps-pit-tariff-union: 9903.05.91 = \"Articles that are donations by persons subject to the jurisdiction of the United States, such as food, clothing and medicine, intended to be used to relieve human suffering\" and 9903.05.92 = \"Articles that are informational materials, ...\", each with \"Rates of duty (1-General): The duty provided in the applicable subheading\" - confirming they are exceptions to the overlay, so the zero branch is correct. Note the resolver reported fix_time_corpus_match = provision_file_absent_at_corpus_ref and fell back to a later release (fallback_index 16); the excerpt text matches the proof atoms verbatim, so this does not change the reading. The rest of the diff is provenance/prose: two added source_verification citation paths in each of the two lists, two new verbatim exception proof atoms, an updated `source:` string, and reworded module notes/summary - mechanical on their own, but they accompany the substantive formula fix. PR #1196 has no review text in the bundle (reviews, review_comments, issue_comments all empty); the only quotable evidence is the commit message, which names the defect exactly. | verifier confirmed at 0.93",
+  "family_id": "us-bc7afd46-07aecd29d7aa",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

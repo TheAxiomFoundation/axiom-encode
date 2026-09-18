@@ -1,0 +1,52 @@
+(a) A tax is imposed for each taxable year upon the taxable income earned or received in that year by every individual, estate, and trust, subject to income taxation under the laws of the United States, in an amount determined by the following tables, and adjusted as required under this section:
+
+(1) Married individuals filing joint returns and surviving spouses:
+
+If taxable income is: The tax is: Not over $64,600.00 3.35% of taxable income Over $64,600.00 but $2,164.00 plus 6.6% of not over $156,150.00 the amount of taxable income over $64,600.00 Over $156,150.00 but $8,206.00 plus 7.6% not over $237,950.00 of the amount of taxable income over $156,150.00 Over $237,950.00 $14,423.00 plus 8.75% of the amount of taxable income over $237,950.00
+
+(2) Heads of households:
+
+If taxable income is: The tax is: Not over $51,850.00 3.35% of taxable income Over $51,850.00 but $1,737.00 plus 6.6% not over $133,850.00 of the amount of taxable income over $51,850.00 Over $133,850.00 but $7,149.00 plus 7.60% not over $216,700.00 of the amount of taxable income over $133,850.00 Over $216,700.00 $13,446.00 plus 8.75% of the amount of taxable income over $216,700.00
+
+(3) Unmarried individuals (other than surviving spouse or head of household):
+
+If taxable income is: The tax is: Not over $38,700.00 3.35% of taxable income Over $38,700.00 but $1,296.00 plus 6.6% of not over $93,700.00 the amount of taxable income over $38,700.00 Over $93,700.00 but $4,926.00 plus 7.6% not over $195,450.00 of the amount of taxable income over $93,700.00 Over $195,450.00 $12,659.00 plus 8.75% of the amount of taxable income over $195,450.00
+
+(4) Married individuals filing separate returns:
+
+If taxable income is: The tax is: Not over $32,300.00 3.35% of taxable income Over $32,300.00 but $1,082.00 plus 6.6% of not over $78,075.00 the amount of taxable income over $32,300.00 Over $78,075.00 but $4,103.00 plus 7.6% not over $118,975.00 of the amount of taxable income over $78,075.00 Over $118,975.00 $7,212.00 plus 8.75% of the amount of taxable income over $118,975.00
+
+(5) Estates and trusts:
+
+If taxable income is: The tax is: $2,600.00 or less 3.35% of taxable income Over $2,600.00 but $87.00 plus 6.6% of not over $6,100.00 the amount of taxable income over $2,600.00 Over $6,100.00 but $318.00 plus 7.6% not over $9,350.00 of the amount of taxable income over $6,100.00 Over $9,350.00 $565.00 plus 8.75% of the amount of taxable income over $9,350.00
+
+(6) If the federal adjusted gross income of the taxpayer exceeds $150,000.00, then the tax calculated under this subsection shall be the greater of the tax calculated under subdivisions (1)-(5) of this subsection or three percent of the taxpayer’s federal adjusted gross income.
+
+(b) As used in this section:
+
+(1) “Married individuals,” “surviving spouse,” “head of household,” “unmarried individual,” “estate,” and “trust” have the same meaning as under the Internal Revenue Code.
+
+(2) The amounts of taxable income shown in the tables in this section shall be adjusted annually for inflation by the Commissioner of Taxes using the Consumer Price Index adjustment percentage, in the manner prescribed for inflation adjustment of federal income tax tables for the taxable year by the Commissioner of Internal Revenue, beginning with taxable year 2003; provided, however, notwithstanding 26 U.S.C. § 1(f)(3), that as used in this subdivision, “consumer price index” means the last Consumer Price Index for All Urban Consumers published by the U.S. Department of Labor.
+
+(c) The amount of tax determined under subsection (a) of this section shall be:
+
+(1) increased by 24 percent of the taxpayer’s federal tax liability for the taxable year for the following:
+
+(A) additional taxes on qualified retirement plans, including individual retirement accounts and medical savings accounts and other tax-favored accounts;
+
+(B) recapture of the federal investment tax credit attributable to the Vermont portion of the investment; and
+
+(C) tax on qualified lump-sum distributions of pension income not included in federal taxable income; and
+
+(2) decreased by 24 percent of the reduction in the taxpayer’s federal tax liability due to farm income averaging.
+
+(d)(1) A taxpayer shall be entitled to a credit against the tax imposed under this section of 24 percent of each of the credits allowed against the taxpayer’s federal income tax for the taxable year as follows: the credit for people who are elderly or permanently totally disabled and the investment tax credit attributable to the Vermont-property portion of the investment.
+
+(2) Any unused solar energy investment tax credit under this section may be carried forward for not more than five years following the first year in which the credit is claimed.
+
+(3) Individuals shall receive a nonrefundable charitable contribution credit against the tax imposed under this section for the taxable year. The credit shall be five percent of the first $20,000.00 in charitable contributions made during the taxable year that are allowable under 26 U.S.C. § 170. This credit shall be available irrespective of a taxpayer’s election not to itemize at the federal level.
+
+(e) The tax determined under subsections (a) through (d) of this section shall be reduced by a percentage equal to the portion of adjusted gross income that is not Vermont income; provided, however, that if a taxpayer’s Vermont income exceeds the taxpayer’s adjusted gross income, no reduction shall be made and provided, further, that if a taxpayer has zero or negative Vermont income and the taxpayer’s Vermont income computed without regard to the reductions in subsection 5823(a) of this chapter does not equal or exceed the taxpayer’s adjusted gross income, no tax shall be due under this section. (Added 1966, No. 61 (Sp. Sess.), § 1, eff. Jan. 1, 1966; amended 1967, No. 121, § 4, eff. Jan. 1, 1968; 1979, No. 70, § 1, eff. Jan. 1, 1968, affecting taxable years beginning on or after Jan. 1, 1968; 1979, No. 84 (Adj. Sess.), § 1, eff. Jan. 29, 1980 for taxable years beginning on and after Jan. 1, 1980; 1981, No. 170 (Adj. Sess.) § 15, eff. April 19, 1982, affecting taxable years beginning on and after January 1, 1982; 1983, No. 144 (Adj. Sess.), § 4, eff. Jan. 1, 1985; 1985, No. 213 (Adj. Sess.), § 2, eff. June 2, 1986 for taxable years beginning on and after January 1, 1987; 1987, No. 82, § 2, eff. June 9, 1987, affecting taxable years beginning on and after Jan. 1, 1987 (except for change in tax rate); 1987, No. 259 (Adj. Sess.), § 1, eff. June 16 1988, affecting taxable years beginning on and after Jan. 1, 1988, § 2, eff. Jan. 1, 1989, affecting taxable years beginning on and after Jan. 1, 1989; 1989, No. 119, § 26, eff. June 22, 1989, applying to taxes payable for taxable years beginning on and after January 1, 1989; 1991, No. 32, § 2, eff. May 18, 1991, affecting taxes payable for taxable years beginning January 1, 1991, through December 31, 1993; 1993, No. 14, § 1, eff. April 27, 1993, applicable to income taxes payable for taxable years beginning on and after January 1, 1993; 1999, No. 49, § 35, eff. June 2, 1999; 2001, No. 67, § 4, eff. June 16, 2001; 2001, No. 140 (Adj. Sess.), § 5, eff. June 21, 2002; 2003, No. 66, § 305; 2005, No. 75, § 15; 2007, No. 92 (Adj. Sess.), § 27; 2009, No. 45, §§ 9, 9b, eff. May 27, 2009; 2009, No. 54, §§ 97, 99, eff. June 1, 2009; 2009, No. 1 (Sp. Sess.), § H.48a, eff. June 2, 2009; 2009, No. 159 (Adj. Sess.), §§ 9, 10, eff. June 4, 2010; 2013, No. 96 (Adj. Sess.), § 196; 2015, No. 57, § 65, eff. Jan. 1, 2015; 2018, No. 11 (Sp. Sess.), § H.2, eff. Jan. 1, 2018; 2018, No. 11 (Sp. Sess.), § H.3, eff. Jan. 1, 2018; 2019, No. 51, § 4, eff. Jan. 1, 2019; 2021, No. 138 (Adj. Sess.), § 2, eff. January 1, 2022; 2023, No. 85 (Adj. Sess.), § 469, eff. July 1, 2024.)
+
+[2026 enacted overlay — Act No. 164, Sec. 56; operative; effective 2026-01-01]
+Sec. 56. 32 V.S.A. § 5822 is amended to read: § 5822. TAX ON INCOME OF INDIVIDUALS, TRUSTS, AND ESTATES * * * (e) The tax determined under subsections (a) through (d) of this section shall be reduced by a percentage equal to the portion of adjusted gross income that is not Vermont income; provided, however, that if a taxpayer’s Vermont income exceeds the taxpayer’s adjusted gross income, no reduction shall be made and provided, further, that if a taxpayer has zero or negative Vermont income and the taxpayer’s Vermont income computed without regard to the reductions in subsection 5823(a) of this chapter does not equal or exceed the taxpayer’s adjusted gross income, no tax shall be due under this section. For the purposes of this subsection, adjusted gross income means federal adjusted gross income modified by the additions and subtractions provided for in subdivisions 5811(21)(A) and (B) of this chapter for an individual, and federal adjusted gross income modified by the additions and subtractions provided for in subdivisions 5811(28)(A) and (B) of this chapter for an estate or a trust.

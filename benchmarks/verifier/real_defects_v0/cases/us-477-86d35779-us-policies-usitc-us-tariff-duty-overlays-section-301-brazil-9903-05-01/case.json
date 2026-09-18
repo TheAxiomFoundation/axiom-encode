@@ -1,0 +1,178 @@
+{
+  "id": "us-477-86d35779-us-policies-usitc-us-tariff-duty-overlays-section-301-brazil-9903-05-01",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "86d35779d9eea3ec3f1c9ca211c4a78226878093",
+  "parent_commit": "b58a5c650ba76fb2313b53d006dd8a708d3fd2de",
+  "commit_date": "2026-08-01",
+  "commit_subject": "Repair overlay effective dates and retire heading 9903.01.20 module",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1192",
+  "module_path": "us/policies/usitc/us-tariff-duty/overlays/section-301/brazil-9903-05-01.yaml",
+  "corpus_citation_path": "us/statute/hts/9903.05.01",
+  "corpus_citation_paths_all": [
+    "us/statute/hts/9903.05.01"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "wrong_period_or_effective_date",
+  "other_kind": null,
+  "confidence": 0.93,
+  "description": "Brazil 301 heading 9903.05.01 effective 2026-07-22 per FR 2026-14542\n  DATES (was 07-23).",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        23,
+        23
+      ],
+      [
+        47,
+        47
+      ],
+      [
+        71,
+        71
+      ],
+      [
+        94,
+        94
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        23,
+        23
+      ],
+      [
+        47,
+        47
+      ],
+      [
+        71,
+        71
+      ],
+      [
+        94,
+        94
+      ]
+    ],
+    "rule_names": [
+      "brazil_section_301_additional_duty_rate",
+      "heading_applies",
+      "general_duty_rate_after_brazil_section_301_overlay",
+      "special_duty_rate_after_brazil_section_301_overlay"
+    ],
+    "rule_path": "rules[brazil_section_301_additional_duty_rate].versions[0].effective_from"
+  },
+  "pre_fix_artifact_sha256": "8c93ad23fdefa2c88a45f86b26d4e8e71d732b76d03e9cae9ca197a2f9809a23",
+  "post_fix_artifact_sha256": "f566cc8475c4fbddb0a56149f659dca9f321e20d96b673508df6b145243d2ba0",
+  "provision_sha256": "38eb56448e4b41f323722f28e064a2c07ac28f52f4ca73b681fee9ae36b0e1f6",
+  "provision_chars": 450,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/hts/9903.05.01",
+    "provision_file": "data/corpus/provisions/us/statute/2026-08-03-rulespec-hts-current-with-legacy-aluminum.jsonl",
+    "provision_file_sha256": "7406b42f2f6a35bd43ed67d7fe4d0f7323e12c3e49c67b8d6699f9978d23b770",
+    "line_number": 1284,
+    "record_id": "baa8c377-c674-5b70-b31c-6112b5dbc879",
+    "stored_body_sha256": "38eb56448e4b41f323722f28e064a2c07ac28f52f4ca73b681fee9ae36b0e1f6",
+    "resolved_text_sha256": "38eb56448e4b41f323722f28e064a2c07ac28f52f4ca73b681fee9ae36b0e1f6",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-31",
+    "source_as_of": "2026-08-01",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "2ccb67efa41f60b5a80cb736c0272e68d5591389",
+    "requested_citation_path": "us/statute/hts/9903.05.01",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.01'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.01'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.01'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.01'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.01'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.01'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.01'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.01'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.01'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.01'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.01'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.01'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.01'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.01'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.01'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.01'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "All four rules for the Brazil 301 heading 9903.05.01 (+25%) were gated from 2026-07-23, a day after the USTR notice's own DATES clause makes the additional duty applicable to entries on or after 12:01 eastern time on July 22, 2026, so entries on 07-22 escaped the duty.",
+    "triage_notes": "Four identical effective_from edits (rate parameter, heading predicate, general-rate and special-rate derived rules); formulas and the 9903.05.02-9903.05.09 exception are unchanged. Source verified: resolve_provision.py on us/rulemaking/federal-register/2026-07-20/2026-14542 (pinned release us-rulespec-2026-08-03-ecps-pit-tariff-union) returns 'DATES: July 22, 2026: As set out in Annex I to this notice, the additional duty is applicable with respect to products that are entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 eastern time on July 22, 2026.' The PR body's 'Judgment calls' section notes the composition grid still opens the Brazil window on 07-23 because the grid has no 07-22 date, so the composition-level window was not aligned by this commit (composition rework landed in follow-up 3c991acc0). Companion test unchanged.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_period_or_effective_date",
+    "verifier_confidence": 0.95,
+    "verifier_justification": "The diff changes nothing but the version window: all four rules' `effective_from` moves from '2026-07-23' to '2026-07-22', with formulas, the 0.25 rate, inputs, outputs and scope byte-identical, so it is neither mechanical (dates are explicitly excluded from that bucket) nor a new-coverage enhancement. The source settles it: FR 2026-14542, resolved through the pinned release (us-rulespec-2026-08-03-ecps-pit-tariff-union, expression_date 2026-07-20), reads \"DATES: July 22, 2026: As set out in Annex I to this notice, the additional duty is applicable with respect to products that are entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 eastern time on July 22, 2026\", and Annex I inserts heading 9903.05.01 effective on that same instant — so the pre-fix 07-23 gate was a full day late and genuinely disagreed with the source, not a defensible policy choice. No competing kind fits: no rate, comparison strictness, clause, boolean, or entity/scope element changed, only the effective date, which is the definition of wrong_period_or_effective_date.",
+    "verifier_quote": "-      - effective_from: '2026-07-23'\n+      - effective_from: '2026-07-22'",
+    "verifier_notes": "Independent in-repo corroboration: at this same commit the composition's `brazil_section_301_component_rate` carries a proof atom whose excerpt is the FR DATES clause (\"...on or after 12:01 eastern time on July 22, 2026\") while its own window still ran `effective_to: '2026-07-22'` / `effective_from: '2026-07-23'` — a self-contradicting encoding, and the merged PR body records it as a judgment call: \"Brazil 301 window opens 2026-07-23 in the composition grid vs FR 2026-14542 DATES 2026-07-22 (grid has no 07-22 date; not exercised).\" Two caveats for the reviewer, neither of which defeats the classification. (1) The repair is module-only: composition.yaml is not in this commit, so at 86d35779d9 the composed program still gated Brazil 301 from 07-23; the composition was only moved to `effective_from: '2026-07-22'` in the later commit 65997b4e4. So the reader's phrasing \"entries on 07-22 escaped the duty\" is exactly right about the module but was still true at program level after this commit. (2) The module's own cited source (us/statute/hts/9903.05.01) is timeless HTS text with no date in it; the July 22 basis lives in FR 2026-14542, which the module's proof atoms never cite. The date is therefore correct but ungrounded within the module — a provenance gap worth a separate note, not a reason to reclassify. The companion test brazil-9903-05-01.test.yaml was not touched, so the corrected boundary remains unexercised at module level.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Four identical effective_from edits (rate parameter, heading predicate, general-rate and special-rate derived rules); formulas and the 9903.05.02-9903.05.09 exception are unchanged. Source verified: resolve_provision.py on us/rulemaking/federal-register/2026-07-20/2026-14542 (pinned release us-rulespec-2026-08-03-ecps-pit-tariff-union) returns 'DATES: July 22, 2026: As set out in Annex I to this notice, the additional duty is applicable with respect to products that are entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 eastern time on July 22, 2026.' The PR body's 'Judgment calls' section notes the composition grid still opens the Brazil window on 07-23 because the grid has no 07-22 date, so the composition-level window was not aligned by this commit (composition rework landed in follow-up 3c991acc0). Companion test unchanged. | verifier confirmed at 0.95",
+  "family_id": "us-86d35779-bbce65c0da72",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

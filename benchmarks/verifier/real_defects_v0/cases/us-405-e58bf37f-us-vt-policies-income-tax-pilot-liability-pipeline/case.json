@@ -1,0 +1,266 @@
+{
+  "id": "us-405-e58bf37f-us-vt-policies-income-tax-pilot-liability-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "e58bf37fec2a755a309aa843d43eb2f59998a895",
+  "parent_commit": "3a20344258202ea37945d6a857f889bec59fb266",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Unsure (promote): verified diff narrows VT pipeline to a supplied normal-tax boundary and independently encodes 32 V.S.A. 5822(a)(6) three-percent minimum instead of accepting bracket parameters from the caller; removes oracle-coverage-pending entries.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/977",
+  "module_path": "us-vt/policies/income_tax/pilot_liability_pipeline.yaml",
+  "corpus_citation_path": "us-vt/statute/32-5822",
+  "corpus_citation_paths_all": [
+    "us-vt/statute/32-5822"
+  ],
+  "corpus_release": "us-rulespec-2026-07-22-current",
+  "corpus_release_content_sha256": "7b1c6c0ec237dc3767f770fbb30178d6857bbe43fd4d952f57ebfc8409874bcc",
+  "corpus_commit": "c5af541326e024e04cb533bbf5709ae04e6305f6",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.45,
+  "description": "The RuleSpec accepts completed-return TaxUnit-level Vermont normal income tax as the narrow upstream boundary required by the absent official 2026 indexed tables, then independently encodes 32 V.S.A. section 5822(a)(6): strict federal AGI above $150,000, a 3% minimum, and the greater of normal tax or minimum tax.",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        6,
+        9
+      ],
+      [
+        15,
+        15
+      ],
+      [
+        17,
+        17
+      ],
+      [
+        19,
+        31
+      ],
+      [
+        33,
+        82
+      ],
+      [
+        84,
+        84
+      ],
+      [
+        90,
+        90
+      ],
+      [
+        97,
+        98
+      ],
+      [
+        101,
+        102
+      ],
+      [
+        104,
+        104
+      ],
+      [
+        106,
+        106
+      ],
+      [
+        110,
+        110
+      ],
+      [
+        118,
+        159
+      ],
+      [
+        164,
+        164
+      ],
+      [
+        168,
+        168
+      ],
+      [
+        176,
+        176
+      ],
+      [
+        185,
+        189
+      ],
+      [
+        193,
+        195
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        6,
+        6
+      ],
+      [
+        14,
+        23
+      ],
+      [
+        25,
+        31
+      ],
+      [
+        33,
+        43
+      ],
+      [
+        49,
+        49
+      ],
+      [
+        56,
+        57
+      ],
+      [
+        60,
+        60
+      ],
+      [
+        62,
+        62
+      ],
+      [
+        64,
+        64
+      ],
+      [
+        68,
+        68
+      ],
+      [
+        76,
+        76
+      ],
+      [
+        81,
+        81
+      ],
+      [
+        85,
+        87
+      ],
+      [
+        95,
+        95
+      ],
+      [
+        107,
+        107
+      ]
+    ],
+    "rule_names": [
+      "vt_pit_pilot_income_tax_liability",
+      "vt_pit_pilot_federal_agi_minimum_tax",
+      "vt_pit_pilot_normal_income_tax",
+      "vt_pit_pilot_individual_schedule_tax",
+      "vt_pit_pilot_schedule_tax",
+      "vt_pit_pilot_individual_taxable_income",
+      "vt_pit_pilot_taxable_income",
+      "vt_pit_pilot_taxpayer_of_tax_unit"
+    ],
+    "rule_path": "rules[vt_pit_pilot_federal_agi_minimum_tax].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "c94fca8cb10b19ded82dde2538e7b31d1b5b18bc6cb68b96df8aa084008a08d8",
+  "post_fix_artifact_sha256": "be8d87e3ce5b4a053fdde551202b9d1116085a1d4e099bbd7932f019e44643d1",
+  "provision_sha256": "57a339ae953625c375913f39c0d1fb8b7c235694c93cbfa9c492bf3a5093092a",
+  "provision_chars": 8979,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-vt/statute/32-5822",
+    "provision_file": "data/corpus/provisions/us-vt/statute/2026-07-16-pit-central-us-vt-title-32-chapter-151.jsonl",
+    "provision_file_sha256": "aae919cdf9dda9e5791155453c8fc7d7491bfc88d4c39e695f9a3e0f0ec88877",
+    "line_number": 16,
+    "record_id": "01302462-2e48-5b5e-9f1f-14f073baafcc",
+    "stored_body_sha256": "57a339ae953625c375913f39c0d1fb8b7c235694c93cbfa9c492bf3a5093092a",
+    "resolved_text_sha256": "57a339ae953625c375913f39c0d1fb8b7c235694c93cbfa9c492bf3a5093092a",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-16",
+    "source_as_of": "2026-07-16",
+    "corpus_commit": "c5af541326e024e04cb533bbf5709ae04e6305f6",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 12,
+    "toolchain_corpus_ref": "abeab6a9f4ec432eb8fb7bb131f561cb3bcf6181",
+    "requested_citation_path": "us-vt/statute/32-5822",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us-vt/statute/32-5822'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us-vt/statute/32-5822'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us-vt/statute/32-5822'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us-vt/statute/32-5822'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us-vt/statute/32-5822'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us-vt/statute/32-5822'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us-vt/statute/32-5822'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us-vt/statute/32-5822'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us-vt/statute/32-5822'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us-vt/statute/32-5822'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us-vt/statute/32-5822'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us-vt/statute/32-5822'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "unclear",
+    "pre_fix_wrong_because": "The pre-fix module never encoded 32 V.S.A. 5822(a)(6)'s fixed $150,000 threshold and three-percent rate — constants the statute states outright and that subsection (b)(2) does not index — but took them from the caller (vt_pit_pilot_supplied_minimum_tax_threshold / _rate) alongside a whole caller-supplied bracket schedule that it applied at Person grain and summed to the tax unit, whereas section 5822(a) applies one filing-status table to the return's taxable income.",
+    "triage_notes": "Provision was read through the pinned corpus release us-rulespec-2026-07-22-current (expression date 2026-07-16): 5822(a)(1)-(5) are four filing-status tables applied to the taxpayer's taxable income; (a)(6) is verbatim 'If the federal adjusted gross income of the taxpayer exceeds $150,000.00, then the tax calculated under this subsection shall be the greater of the tax calculated under subdivisions (1)-(5) of this subsection or three percent of the taxpayer's federal adjusted gross income'; (b)(2) indexes only 'the amounts of taxable income shown in the tables', so the $150,000 and 3% are fixed and had no business being caller-supplied. Why unclear rather than fidelity: the commit body is empty and the subject ('Promote Vermont 2026 PIT over certified Populace') is a promotion, not a defect report; the pre-fix module openly declared its supplied-parameter boundary in upstream_source_check.rationale, and the (a)(6) branch is logically equivalent pre/post given identical supplied parameters, so no validated output changed — this may be a scope/grounding restructure rather than a corrected meaning. Alternative kind a reviewer should weigh: wrong_entity_or_scope — the deleted vt_pit_pilot_individual_schedule_tax applied a cumulative-base-plus-marginal bracket at Person entity and vt_pit_pilot_schedule_tax summed it over taxpayers, which double-counts the cumulative base on any multi-taxpayer return, and the new summary states 'The module works entirely at TaxUnit grain' and 'No person or taxpayer aggregation is required'; the pre-fix proof atoms for that rule quoted only the unmarried-individual table amounts ($1,296.00 / $4,926.00 / $12,659.00) while the formula used none of them, i.e. atoms untraceable to the formula. Follow-ups in the same PR #977 series: b1044d9ab 'Address Vermont PIT validation review' converted the new 150000 / 0.03 literals into source-backed private parameter rules and added deferred_outputs for subsections (b) and (e); 07f5517d7 later bounded the WA and VT pilots to tax year 2026 (effective_to). Note the PR body's module/test SHA256s and ratchet counts describe the final PR head (d685e3f4), not this first commit — the merged file here hashes be8d87e3. Non-module files in the commit (encoding manifest, provisions_to_rules index, oracle-coverage-pending.yaml) are bookkeeping; the companion test file was rewritten to the TaxUnit-grain fixtures.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "untraceable_branch",
+    "verifier_confidence": 0.6,
+    "verifier_justification": "I tried to refute the reading and could not dislodge its core: the pinned corpus text of 32 V.S.A. 5822(a)(6) states \"$150,000.00\" and \"three percent\" outright, and (b)(2) indexes only \"The amounts of taxable income shown in the tables in this section,\" so neither constant is Commissioner-indexed and neither had any source basis for being taken from the caller — yet the pre-fix formula multiplied AGI by the free input `vt_pit_pilot_supplied_minimum_tax_rate` while carrying a proof atom quoting \"three percent of the taxpayer's federal adjusted gross income\" on that same formula, and the module's own boundary rationale justified supplied inputs only \"because sections 5811 and 5822 assign annual inflation adjustment to the Commissioner,\" which does not cover the threshold or rate. The fix re-grounds both values inside the module (and the same PR's follow-up b1044d9ab turns them into source-backed named parameters with proof atoms), which is the untraceable_branch pattern — a branch condition and value with no basis in the cited source being re-grounded. My best refutations fail: the strictness is unchanged (`>` before and after, and the post test `exactly_150000_does_not_activate_minimum` matches \"exceeds\"), so this is not boundary_direction, and no number was wrong pre-fix, so it is not amount_mismatch. The residual doubt, which keeps me at 0.6 rather than higher, is that the commit message and PR frame the change as a Populace scope promotion rather than a correction, and every pre-fix fixture already supplied 150000/0.03, so nothing computed differently.",
+    "verifier_quote": "-            max(vt_pit_pilot_schedule_tax, vt_pit_pilot_supplied_minimum_tax_rate * vt_pit_pilot_supplied_federal_adjusted_gross_income)\n+          if vt_pit_pilot_federal_adjusted_gross_income > 150000:\n+            0.03 * vt_pit_pilot_federal_adjusted_gross_income",
+    "verifier_notes": "Verified against the pinned release us-rulespec-2026-07-22-current (corpus commit c5af5413, provision line 16, body sha 57a339ae...), same_body at fix time. Competing kind a reviewer should weigh: wrong_entity_or_scope. The same diff deletes `vt_pit_pilot_individual_taxable_income` / `vt_pit_pilot_individual_schedule_tax` (entity: Person) plus the `sum_where(vt_pit_pilot_taxpayer_of_tax_unit, ...)` aggregation, and 5822(a) applies one filing-status table once to the return's taxable income, so per-person bracket application summed to the tax unit would double-count the cumulative base on a two-earner joint return. I did not make that the kind because (i) the pre-fix fixtures dodge it (the `married_60000` / `married_300000` cases put the entire joint taxable income on one included taxpayer, so no case exercises two taxpayers), and (ii) the fix does not re-ground the schedule at TaxUnit grain, it deletes it and moves the supplied boundary upstream to `vt_pit_pilot_supplied_normal_income_tax`, with the stated reason that the certified corpus lacks official 2026 indexed tables. That deletion, taken alone, is a boundary re-scope rather than a correction, which is the main argument for not_a_defect and the reason my confidence is moderate. Corroborating in-repo evidence for the defect reading: the follow-up commit b1044d9ab (same PR, \"Address Vermont PIT validation review\") adds `vt_pit_pilot_federal_agi_minimum_threshold: '150000.0'` and `vt_pit_pilot_federal_agi_minimum_rate: '0.03'` as kind: parameter rules with proof atoms quoting the statute, i.e. the project treats a statutory constant as something that must be encoded and proven inside the module. Caution on the PR body: its \"module SHA256: 3394d120...\" and \"The threshold and rate are now source-backed named parameters\" describe the later PR head (d685e3f4ad), not this commit — the file at e58bf37fec hashes to be8d87e3ce5b4a053fdde551202b9d1116085a1d4e099bbd7932f019e44643d1 and still carries bare literals, so PR-body text should not be read as describing this commit's state. Bookkeeping in the commit (oracle-coverage-pending ceiling 1601 -> 1598, manifest hashes, provisions_to_rules index) is downstream of the rule renames and does not carry the classification.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Provision was read through the pinned corpus release us-rulespec-2026-07-22-current (expression date 2026-07-16): 5822(a)(1)-(5) are four filing-status tables applied to the taxpayer's taxable income; (a)(6) is verbatim 'If the federal adjusted gross income of the taxpayer exceeds $150,000.00, then the tax calculated under this subsection shall be the greater of the tax calculated under subdivisions (1)-(5) of this subsection or three percent of the taxpayer's federal adjusted gross income'; (b)(2) indexes only 'the amounts of taxable income shown in the tables', so the $150,000 and 3% are fixed and had no business being caller-supplied. Why unclear rather than fidelity: the commit body is empty and the subject ('Promote Vermont 2026 PIT over certified Populace') is a promotion, not a defect report; the pre-fix module openly declared its supplied-parameter boundary in upstream_source_check.rationale, and the (a)(6) branch is logically equivalent pre/post given identical supplied parameters, so no validated output changed — this may be a scope/grounding restructure rather than a corrected meaning. Alternative kind a reviewer should weigh: wrong_entity_or_scope — the deleted vt_pit_pilot_individual_schedule_tax applied a cumulative-base-plus-marginal bracket at Person entity and vt_pit_pilot_schedule_tax summed it over taxpayers, which double-counts the cumulative base on any multi-taxpayer return, and the new summary states 'The module works entirely at TaxUnit grain' and 'No person or taxpayer aggregation is required'; the pre-fix proof atoms for that rule quoted only the unmarried-individual table amounts ($1,296.00 / $4,926.00 / $12,659.00) while the formula used none of them, i.e. atoms untraceable to the formula. Follow-ups in the same PR #977 series: b1044d9ab 'Address Vermont PIT validation review' converted the new 150000 / 0.03 literals into source-backed private parameter rules and added deferred_outputs for subsections (b) and (e); 07f5517d7 later bounded the WA and VT pilots to tax year 2026 (effective_to). Note the PR body's module/test SHA256s and ratchet counts describe the final PR head (d685e3f4), not this first commit — the merged file here hashes be8d87e3. Non-module files in the commit (encoding manifest, provisions_to_rules index, oracle-coverage-pending.yaml) are bookkeeping; the companion test file was rewritten to the TaxUnit-grain fixtures. | verifier confirmed at 0.60",
+  "family_id": "us-e58bf37f-51bd5942ea54",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

@@ -1,0 +1,379 @@
+{
+  "id": "us-441-16dfb94d-us-nj-policies-income-tax-2026-resident-ordinary-core",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "16dfb94dedc75b39bd6f30daafc37043d6d1c078",
+  "parent_commit": "3f4799340642cab7e23c0a44b6e745eb5e236e52",
+  "commit_date": "2026-07-24",
+  "commit_subject": "Repair New Jersey 2026 resident income tax core",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1036",
+  "module_path": "us-nj/policies/income_tax/2026_resident_ordinary_core.yaml",
+  "corpus_citation_path": "us-nj/statute/54a:1-2",
+  "corpus_citation_paths_all": [
+    "us-nj/statute/54a:1-2",
+    "us-nj/statute/54a:2-1",
+    "us-nj/statute/54a:2-4",
+    "us-nj/statute/54a:3-1",
+    "us-nj/statute/54a:3-1.1",
+    "us-nj/statute/54a:3-2",
+    "us-nj/statute/54a:3-3",
+    "us-nj/statute/54a:3-6",
+    "us-nj/statute/54a:3-10",
+    "us-nj/statute/54a:3-12",
+    "us-nj/statute/54a:3-13",
+    "us-nj/statute/54a:3-14",
+    "us-nj/statute/54a:3a-16",
+    "us-nj/statute/54a:3a-17",
+    "us-nj/statute/54a:3a-18",
+    "us-nj/statute/54a:3a-20",
+    "us-nj/statute/54a:4-1",
+    "us-nj/statute/54a:4-7",
+    "us-nj/statute/54a:4-17",
+    "us-nj/statute/54a:4-17.1",
+    "us-nj/statute/54a:5-1",
+    "us-nj/statute/54a:5-2",
+    "us-nj/statute/54a:6-11",
+    "us-nj/statute/54a:6-14",
+    "us-nj/statute/54a:6-14.1",
+    "us-nj/statute/54a:6-32",
+    "us-nj/statute/54a:6-33",
+    "us-nj/statute/54a:11-3",
+    "us-nj/statute/54a:11-4",
+    "us-nj/statute/54a:12-5"
+  ],
+  "corpus_release": "us-rulespec-2026-07-22-current-la-status-fix",
+  "corpus_release_content_sha256": "6bfd97b24cb63cb709fa52e9a5e6764c916dec95c5557447e11f47778ee4768f",
+  "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.8,
+  "description": "Independent review required repairs for gambling/lottery losses and thresholds, valid MFS credit/property paths, caller-completed legal-result inputs, the shared-responsibility boundary, blanket-oracle claims, material threshold coverage, service/housing overlap, direct credit assertions, and malformed YAML descriptions.",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        116,
+        120
+      ],
+      [
+        132,
+        132
+      ],
+      [
+        134,
+        137
+      ],
+      [
+        547,
+        547
+      ],
+      [
+        552,
+        552
+      ],
+      [
+        558,
+        558
+      ],
+      [
+        569,
+        588
+      ],
+      [
+        603,
+        604
+      ],
+      [
+        610,
+        612
+      ],
+      [
+        615,
+        617
+      ],
+      [
+        652,
+        670
+      ],
+      [
+        755,
+        757
+      ],
+      [
+        766,
+        766
+      ],
+      [
+        768,
+        769
+      ],
+      [
+        772,
+        772
+      ],
+      [
+        848,
+        848
+      ],
+      [
+        926,
+        926
+      ],
+      [
+        972,
+        972
+      ],
+      [
+        1346,
+        1346
+      ],
+      [
+        1433,
+        1433
+      ],
+      [
+        1526,
+        1526
+      ],
+      [
+        1604,
+        1604
+      ],
+      [
+        1612,
+        1616
+      ],
+      [
+        1619,
+        1619
+      ],
+      [
+        1627,
+        1628
+      ],
+      [
+        1636,
+        1637
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        7,
+        7
+      ],
+      [
+        29,
+        29
+      ],
+      [
+        31,
+        31
+      ],
+      [
+        34,
+        35
+      ],
+      [
+        41,
+        41
+      ],
+      [
+        110,
+        111
+      ],
+      [
+        124,
+        128
+      ],
+      [
+        140,
+        141
+      ],
+      [
+        143,
+        147
+      ],
+      [
+        159,
+        180
+      ],
+      [
+        215,
+        231
+      ],
+      [
+        397,
+        410
+      ],
+      [
+        423,
+        425
+      ],
+      [
+        429,
+        443
+      ],
+      [
+        628,
+        628
+      ],
+      [
+        633,
+        633
+      ],
+      [
+        635,
+        635
+      ],
+      [
+        640,
+        640
+      ],
+      [
+        665,
+        754
+      ],
+      [
+        760,
+        792
+      ],
+      [
+        795,
+        906
+      ],
+      [
+        935,
+        940
+      ],
+      [
+        947,
+        949
+      ],
+      [
+        1103,
+        1129
+      ],
+      [
+        1147,
+        1147
+      ],
+      [
+        1222,
+        1227
+      ],
+      [
+        1231,
+        1247
+      ],
+      [
+        1666,
+        1673
+      ],
+      [
+        1740,
+        1766
+      ],
+      [
+        1787,
+        1787
+      ],
+      [
+        1876,
+        1878
+      ],
+      [
+        1883,
+        1883
+      ],
+      [
+        1961,
+        1962
+      ],
+      [
+        1970,
+        1975
+      ],
+      [
+        1978,
+        1978
+      ],
+      [
+        1986,
+        1991
+      ],
+      [
+        1999,
+        2003
+      ],
+      [
+        2006,
+        2008
+      ],
+      [
+        2024,
+        2027
+      ]
+    ],
+    "rule_names": [
+      "nj_pit_2026_profile_candidate_gross_income",
+      "nj_pit_2026_new_jersey_lottery_prize_exclusion_limit",
+      "nj_pit_2026_no_deferred_income_branch_applies",
+      "nj_pit_2026_profile_candidate_allowable_medical_expenses",
+      "nj_pit_2026_profile_candidate_medical_expense_deduction",
+      "nj_pit_2026_profile_candidate_property_tax_benefit_base",
+      "nj_pit_2026_mfs_property_benefit_share",
+      "nj_pit_2026_supported_profile_property_tax_credit",
+      "nj_pit_2026_child_and_dependent_care_filing_status_eligible",
+      "nj_pit_2026_supported_profile_child_and_dependent_care_credit",
+      "nj_pit_2026_supported_profile_child_tax_credit",
+      "nj_pit_2026_supported_profile_applies",
+      "nj_pit_2026_input_domain_is_valid"
+    ],
+    "rule_path": "rules[nj_pit_2026_profile_candidate_gross_income].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "63d452f21dac93731278a5e0a4ead0fcee8f5843b115d20b8c715192155cf437",
+  "post_fix_artifact_sha256": "ebd4120231e2f0eed7838e230cbc472e3347e60efeef707fdaa68ab5972d99eb",
+  "provision_sha256": "4f80d254ac62a466aa78e5a04e0dc7cfe1b4f7ff85610e1ee8dc80f975872614",
+  "provision_chars": 4824,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-nj/statute/54a:1-2",
+    "provision_file": "data/corpus/provisions/us-nj/statute/2026-07-16-pit-central-us-nj-title-54a.jsonl",
+    "provision_file_sha256": "9380644d3d7e5055241baff7188cfd8ff34d184019b3aac78ee4d9d9cb243570",
+    "line_number": 4,
+    "record_id": "a0c5c5bc-1629-546e-98c7-e0fdf411d07c",
+    "stored_body_sha256": "4f80d254ac62a466aa78e5a04e0dc7cfe1b4f7ff85610e1ee8dc80f975872614",
+    "resolved_text_sha256": "4f80d254ac62a466aa78e5a04e0dc7cfe1b4f7ff85610e1ee8dc80f975872614",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-16",
+    "source_as_of": "2026-07-16",
+    "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "ddc9b0f95cb0cd7ed24d42bd62fec4dbf0e1b846",
+    "requested_citation_path": "us-nj/statute/54a:1-2",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "Inside the profile it claimed to support, the module added raw `nj_pit_2026_gambling_winnings` straight into New Jersey gross income with no representation of N.J.S.54A:6-11 (which excludes New Jersey Lottery winnings except from a single prize exceeding $10,000) and no within-category offset of same-year wagering losses that 54A:5-2 permits, so a resident with, say, a $5,000 New Jersey Lottery prize was taxed on an amount the statute excludes from gross income.",
+    "triage_notes": "Read the provisions through the pinned corpus: 54A:6-11 is verbatim \"Gross income shall not include lottery winnings from the New Jersey Lottery, except that New Jersey Lottery winnings from a prize in an amount exceeding $10,000 shall be included in gross income\"; 54A:5-1(g) is bare \"Gambling winnings\" and 54A:5-2 allows within-category loss offsets; 54A:3-3(c) lists the three disallowances (household/dependent care, excluded MSA distributions, self-employed health insurance) the fix now encodes; 54A:3A-17(c)/(d) give the title-interest proportion and the MFS tenants-by-entirety one-half share; 54A:4-17(c) reads \"Married couples shall file a joint return in order to claim the credit\" with the section 21(e)(3)/(4) exception the fix adds. Pre-fix citation list did not even contain 54a:6-11, 54a:11-3, or 54a:11-4. This is a multi-defect repair round and one kind had to be chosen: unrepresented_clause covers the largest group (missing lottery exclusion and loss netting, missing 54A:3-3(c) disallowances, missing MFS half-share and title-interest proportion, missing CDCC married-living-apart exception, missing 54A:4-17.1 joint-return bar). Two other findings arguably fall elsewhere: the new `nj_pit_2026_service_remuneration_excludes_employer_housing_value` guard fixes a double-count (employer-furnished housing was both inside total service remuneration and added again as its own gross-income term), and the new 54A:11-3/11-4 typed hold plus `nj_pit_2026_total_return_tax_liability` deferred output is a wrong_entity_or_scope-style correction (the net output was presented as a return-level candidate without the separate State shared responsibility tax). Note the remedy for gambling/alimony/exempt-interest/qualified-fund facts is removal plus a typed hold rather than encoding the clause, so the post-fix module is narrower; the pre-fix defect is still real because those facts were inside the claimed supported profile and produced a wrong number. The commit body is empty, so the quote is from the PR body. The five-way split of `nj_pit_2026_input_domain_is_valid` into filing/income/deferred-income/deduction/property sub-rules is structural, not itself a defect. Follow-up commit 15f982991 \"Complete New Jersey credit boundary coverage\" in the same PR also touches this file; the PR records the final reviewed head as 15f982991ad36e24a6472d1a03c9ce0a640d5d4c. PR has no review or comment records in the bundle (reviews/review_comments/issue_comments all empty), so the findings list in the PR body is the only reviewer evidence.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.8,
+    "verifier_justification": "The refutation attempts fail: the pre-fix formula really did add the input `nj_pit_2026_gambling_winnings` (declared as \"Gross gambling winnings in the supported profile\") straight into `nj_pit_2026_profile_candidate_gross_income`, its only exception proof atom was 54A:6-14 (interest on obligations), and 54A:6-11 appeared in the pre-fix header only under `upstream_source_check.checked_paths`, never in `corpus_citation_paths` or any rule — so the exclusion was demonstrably unrepresented, and the pre-fix `supported_profile_applies` gate contained no gambling or lottery condition. Read through the pinned release, 54A:6-11 says \"Gross income shall not include lottery winnings from the New Jersey Lottery, except that New Jersey Lottery winnings from a prize in an amount exceeding $10,000 shall be included in gross income\", and 54A:5-2 permits same-category offsets, while 54A:5-1(g) makes \"Gambling winnings\" a category of its own — so gross receipts with no exclusion and no same-year wagering-loss offset overstated gross income against the source. The one real counter-argument, that the pre-fix caller flag `nj_pit_2026_has_specialty_income_exclusion_or_deduction` (\"any unencoded Title 54A chapter 3 or 6 specialty exclusion or deduction\") might already have held lottery cases, does not survive: it is a caller-completed legal conclusion the module's own header disclaims, it is limited to chapters 3 and 6 so it cannot reach the chapter-5 loss netting, and no wagering-loss input existed at all. The kind holds because the term removed is grounded in 54A:5-1(g) (so not untraceable) and the repair adds the missing exception's machinery — the `nj_pit_2026_new_jersey_lottery_prize_exclusion_limit` parameter at 10000 with the 54A:6-11 excerpt, a per-prize judgment input, and a gross-receipts/losses split.",
+    "verifier_quote": "-          + nj_pit_2026_gambling_winnings",
+    "verifier_notes": "Decisive evidence spans three places in the diff: the removal `-          + nj_pit_2026_gambling_winnings` from rules[nj_pit_2026_profile_candidate_gross_income].versions[0].formula; the new parameter `+  - name: nj_pit_2026_new_jersey_lottery_prize_exclusion_limit` with `+      - {effective_from: '2026-01-01', effective_to: '2026-12-31', formula: '10000'}` and excerpt \"New Jersey Lottery winnings from a prize in an amount exceeding $10,000 shall be included in gross income\"; and the new gate line `+          and not nj_pit_2026_has_gambling_or_new_jersey_lottery_activity` in nj_pit_2026_no_deferred_income_branch_applies. Two caveats for a reviewer. (1) The remedy is a typed hold (deferral) plus a threshold parameter rather than encoding the exclusion arithmetic, so a reviewer who reads \"the fix adds it\" strictly could prefer wrong_entity_or_scope (the supported population was re-scoped); I judge unrepresented_clause better because the pre-fix output disagreed with 54A:6-11/54A:5-2 for taxpayers the module claimed to support, and the fix does add representation of the $10,000 boundary. (2) This commit is a bundle: the same formula also lost `- nj_pit_2026_exempt_us_or_nj_obligation_interest`, `- nj_pit_2026_exempt_qualified_investment_fund_dividends`, and `+ nj_pit_2026_alimony_received` (removal of caller-completed legal classifications), and the commit separately repairs MFS property/credit halving (new nj_pit_2026_mfs_property_benefit_share = 0.5 citing \"shall each be entitled to one-half of the deduction\"), medical-expense disallowances (new nj_pit_2026_profile_candidate_allowable_medical_expenses), and the 54A:11-3 shared-responsibility-tax boundary. If the corpus wants one defect per module change, this file supports several distinct fidelity entries; the gambling/lottery one is the best evidenced. Statutes read through the pinned release us-rulespec-2026-07-22-current-la-status-fix (corpus commit 01e00777cb), fix_time_corpus_match=same_body. Incidental tooling note: two sequential `git show` redirects chained with && into the scratchpad produced truncated/mixed files on the first attempt; re-running each show separately gave the correct 1654-line pre-image.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Read the provisions through the pinned corpus: 54A:6-11 is verbatim \"Gross income shall not include lottery winnings from the New Jersey Lottery, except that New Jersey Lottery winnings from a prize in an amount exceeding $10,000 shall be included in gross income\"; 54A:5-1(g) is bare \"Gambling winnings\" and 54A:5-2 allows within-category loss offsets; 54A:3-3(c) lists the three disallowances (household/dependent care, excluded MSA distributions, self-employed health insurance) the fix now encodes; 54A:3A-17(c)/(d) give the title-interest proportion and the MFS tenants-by-entirety one-half share; 54A:4-17(c) reads \"Married couples shall file a joint return in order to claim the credit\" with the section 21(e)(3)/(4) exception the fix adds. Pre-fix citation list did not even contain 54a:6-11, 54a:11-3, or 54a:11-4. This is a multi-defect repair round and one kind had to be chosen: unrepresented_clause covers the largest group (missing lottery exclusion and loss netting, missing 54A:3-3(c) disallowances, missing MFS half-share and title-interest proportion, missing CDCC married-living-apart exception, missing 54A:4-17.1 joint-return bar). Two other findings arguably fall elsewhere: the new `nj_pit_2026_service_remuneration_excludes_employer_housing_value` guard fixes a double-count (employer-furnished housing was both inside total service remuneration and added again as its own gross-income term), and the new 54A:11-3/11-4 typed hold plus `nj_pit_2026_total_return_tax_liability` deferred output is a wrong_entity_or_scope-style correction (the net output was presented as a return-level candidate without the separate State shared responsibility tax). Note the remedy for gambling/alimony/exempt-interest/qualified-fund facts is removal plus a typed hold rather than encoding the clause, so the post-fix module is narrower; the pre-fix defect is still real because those facts were inside the claimed supported profile and produced a wrong number. The commit body is empty, so the quote is from the PR body. The five-way split of `nj_pit_2026_input_domain_is_valid` into filing/income/deferred-income/deduction/property sub-rules is structural, not itself a defect. Follow-up commit 15f982991 \"Complete New Jersey credit boundary coverage\" in the same PR also touches this file; the PR records the final reviewed head as 15f982991ad36e24a6472d1a03c9ce0a640d5d4c. PR has no review or comment records in the bundle (reviews/review_comments/issue_comments all empty), so the findings list in the PR body is the only reviewer evidence. | verifier confirmed at 0.80",
+  "family_id": "us-16dfb94d-fdfd863e935d",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

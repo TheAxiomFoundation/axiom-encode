@@ -1,0 +1,151 @@
+{
+  "id": "us-247-6e0b21e1-us-nd-policies-income-tax-resident-core-liability-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "6e0b21e114b0cd589909cbed952e1a13d69b6c5a",
+  "parent_commit": "11ba9aba90ba22adf7e4fb8ff748eded353413b0",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) PR #1112: \"remove estimated schedules and misleading tax/liability candidates from the annual resident core\"; retires duplicate pilot surface — scope correction.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1112",
+  "module_path": "us-nd/policies/income_tax/resident_core_liability_pipeline.yaml",
+  "corpus_citation_path": "us-nd/statute/57/57-38-30.3",
+  "corpus_citation_paths_all": [
+    "us-nd/statute/57/57-38-30.3"
+  ],
+  "corpus_release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+  "corpus_release_content_sha256": "cb275c76c4f07f8ad37470a32296bb1763e5db853d152697524ab07021b6d544",
+  "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.49,
+  "description": "remove estimated schedules and misleading tax/liability candidates from the annual resident core",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        17,
+        19
+      ],
+      [
+        36,
+        37
+      ],
+      [
+        44,
+        47
+      ],
+      [
+        56,
+        56
+      ],
+      [
+        63,
+        63
+      ],
+      [
+        478,
+        753
+      ],
+      [
+        809,
+        865
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        17,
+        20
+      ],
+      [
+        37,
+        38
+      ],
+      [
+        45,
+        49
+      ],
+      [
+        51,
+        59
+      ],
+      [
+        67,
+        68
+      ],
+      [
+        75,
+        76
+      ]
+    ],
+    "rule_names": [
+      "nd_pit_2026_supported_profile_tax_before_credits",
+      "nd_pit_2026_supported_profile_candidate_tax_after_nonrefundable_credits",
+      "nd_pit_2026_supported_profile_candidate_net_income_tax_liability",
+      "nd_pit_2026_profile_candidate_tax_before_credits",
+      "nd_pit_2026_profile_candidate_single_tax",
+      "nd_pit_2026_profile_candidate_joint_tax",
+      "nd_pit_2026_profile_candidate_separate_tax",
+      "nd_pit_2026_profile_candidate_head_tax",
+      "nd_pit_2026_middle_rate",
+      "nd_pit_2026_top_rate",
+      "nd_pit_2026_single_zero_ceiling",
+      "nd_pit_2026_single_top_threshold",
+      "nd_pit_2026_single_top_base",
+      "nd_pit_2026_joint_zero_ceiling",
+      "nd_pit_2026_joint_top_threshold",
+      "nd_pit_2026_joint_top_base",
+      "nd_pit_2026_separate_zero_ceiling",
+      "nd_pit_2026_separate_top_threshold",
+      "nd_pit_2026_separate_top_base",
+      "nd_pit_2026_head_zero_ceiling",
+      "nd_pit_2026_head_top_threshold",
+      "nd_pit_2026_head_top_base"
+    ],
+    "rule_path": "rules[nd_pit_2026_supported_profile_tax_before_credits].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "2a947958866c79b9d004bb65ac72670d393d1b08e8a4dc707cbf88657e8cfcde",
+  "post_fix_artifact_sha256": "1070ee4cd88d4bca31feaed6447c4d665e86e6f1333fede05a336d62966d69bb",
+  "provision_sha256": "d06df87b3287ee94d7b8b3512cf4cdd576c88e90ffb42f1c63647eaa01b26345",
+  "provision_chars": 21030,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-nd/statute/57/57-38-30.3",
+    "provision_file": "data/corpus/provisions/us-nd/statute/2026-07-16-pit-central-us-nd-title-57-38.jsonl",
+    "provision_file_sha256": "843de7fa6d2341125b8ae6b9d4075ea7196ac411d537b2d55435d3795c5dde3a",
+    "line_number": 88,
+    "record_id": "14d9ae29-797a-5a30-97b5-eaf4974f7c54",
+    "stored_body_sha256": "d06df87b3287ee94d7b8b3512cf4cdd576c88e90ffb42f1c63647eaa01b26345",
+    "resolved_text_sha256": "d06df87b3287ee94d7b8b3512cf4cdd576c88e90ffb42f1c63647eaa01b26345",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-16",
+    "source_as_of": "2026-07-16",
+    "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "5dfd89d131564e4ee0e1e763571dbb5d7fc7f5e7",
+    "requested_citation_path": "us-nd/statute/57/57-38-30.3",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The annual-return core computed annual tax before credits, tax after nonrefundable credits, and net income tax liability from a private copy of the Form ND-1ES estimated-tax schedules (proof-grounded on 57-38-30.3 excerpts such as 'The tax for individuals is equal to North Dakota taxable income multiplied by the rates' and 'A tax is hereby imposed for each taxable year'), which is not the prescribed annual computation the source requires, and it published a public annual tax-before-credits output that was hard-gated to zero instead of being declared deferred.",
+    "triage_notes": "Whole diff is deletions plus header/summary/deferred_outputs edits; the additions, reductions, and taxable-income formulas (57-38-30.3(2)) are untouched, so this is not a rewrite of the income chain. Removed: 14 ND-1ES parameters, the four per-status candidate tax formulas, nd_pit_2026_profile_candidate_tax_before_credits, and three supported-profile rules including the public nd_pit_2026_supported_profile_tax_before_credits. Note that nd_pit_2026_supported_profile_applies was hard-coded 'false' pre-fix, so all three public outputs already evaluated to 0 for every taxpayer; the observable change is therefore from 'public annual tax outputs return zero' to declared structured deferrals, and the module summary edit says exactly that. deferred_outputs additionally gains nd_pit_2026_complete_tax_before_credits with reason 'Section 57-38-30.3(10) requires use of the Commissioner's prescribed annual Tax Table ... The separate Form ND-1ES schedules are estimated-tax parameters and cannot substitute for that annual table', and the two existing deferrals' source_values are repointed off the deleted candidates onto nd_pit_2026_supported_profile_applies and nd_pit_2026_supported_profile_taxable_income. Runner-up kind: wrong_entity_or_scope (estimated-tax material and tax/liability outputs owned by an annual-return module; the screen flag calls the commit a scope correction). Caveat a reviewer should weigh: the pinned corpus text of 57-38-30.3(1)(a)-(d) already embeds the 2026 indexed schedules and says the tax equals ND taxable income times the applicable schedule, while (10) only says the Commissioner 'may prescribe tax tables', so the maintainers' 'cannot substitute' rationale is partly a conservatism/deferral judgment rather than a flat contradiction with the statute text; the untraceable-branch reading rests on the candidates claiming annual-return tax and liability (credits under subsection 7 excluded) from estimated-tax worksheet parameters. Companion test file lost 485 lines (fixtures for the removed rules) and a new 304-line fixture file was added for index 0; oracle-coverage-pending.yaml drops ND entries accordingly. Provision read via resolve_provision.py against the pinned release (succeeded).",
+    "verifier_verdict": "unclear",
+    "verifier_defect_kind": "wrong_entity_or_scope",
+    "verifier_confidence": 0.62,
+    "verifier_justification": "The \"untraceable_branch\" reading is refuted on both of its premises: the removed rate parameters are verbatim in the cited provision (the resolved 57-38-30.3 text contains \"$49,575 | $250,400 | $0.00 + 1.95%\", \"$3,916.09 + 2.50%\", \"$4,118.40 + 2.50%\" in subsection 1(a)-(d) under \"multiplied by the rates in the applicable rate schedule in subdivisions a through d\"), and the receiving module keeps the identical corpus_citation_path and excerpts, so nothing was re-grounded to a different provision. The core also never published schedule-based annual tax: the gate rule nd_pit_2026_supported_profile_applies had formula 'false', so the removed public output was unconditionally 0 and the whole ND-1ES candidate chain was unreachable, exactly as the pre-fix summary already said (\"Public annual tax outputs return zero\"). What the diff actually does is de-duplicate ownership (pilot_liability_pipeline.yaml was renamed into 2026_nd1es_estimated_schedule.yaml per git show --stat) and retire three always-zero public annual tax/liability outputs into structured deferred_outputs, changing no number, boundary, date, or logic branch. That leaves a genuine but unsettled question - withdrawing a public annual-tax surface fixed at 0 (which subsection 1 contradicts above the zero bracket) is an output-surface/scope correction at most, and competes with reading the change as convention plus dedup hygiene.",
+    "verifier_quote": "-        formula: \"if nd_pit_2026_supported_profile_applies: nd_pit_2026_profile_candidate_tax_before_credits else: 0\"",
+    "verifier_notes": "Evidence trail for the reviewer. (1) Pre-file gate: rules[nd_pit_2026_supported_profile_applies].versions[0].formula is 'false' (pre blob 11ba9aba90, lines 208-224), so all three removed public rules (supported_profile_tax_before_credits, supported_profile_candidate_tax_after_nonrefundable_credits, supported_profile_candidate_net_income_tax_liability) returned 0 for every input; the ND-1ES candidate chain fed nothing reachable. (2) Provision resolution (release us-rulespec-2026-07-24-snap-cms-pit-union, corpus commit 0fd35bfbda, provision file .../2026-07-16-pit-central-us-nd-title-57-38.jsonl line 88, body sha256 d06df87b32...) shows the cited statute itself carries the 2026 indexed filing-status schedules, so the deleted parameters were source-traceable, not inventions. (3) The new module (module index 0, a rename of the retired pilot) re-hosts the same values under the same corpus_citation_path us-nd/statute/57/57-38-30.3 with the same excerpt strings - grounding unchanged, only ownership moved. (4) The fix's own new deferral reason states \"Section 57-38-30.3(10) requires use of the Commissioner's prescribed annual Tax Table\", but the provision reads \"The tax commissioner may prescribe tax tables, to be used in computing the tax according to subsection 1, if the amounts of the tax tables are based on the tax rates set forth in subsection 1\" - permissive, and derived from the subsection-1 rates the module already encoded. So the post-fix rationale overstates the source rather than correcting a source disagreement. (5) If the case is kept, the only defensible kind is wrong_entity_or_scope (output surface: an annual-return core publishing annual tax/liability outputs pinned at zero, plus estimated-schedule ownership), never untraceable_branch or amount_mismatch. A reviewer who requires an observable meaning error against the source should prune this case; a reviewer who counts withdrawal of an unsupported public output surface as fidelity should keep it as wrong_entity_or_scope.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Whole diff is deletions plus header/summary/deferred_outputs edits; the additions, reductions, and taxable-income formulas (57-38-30.3(2)) are untouched, so this is not a rewrite of the income chain. Removed: 14 ND-1ES parameters, the four per-status candidate tax formulas, nd_pit_2026_profile_candidate_tax_before_credits, and three supported-profile rules including the public nd_pit_2026_supported_profile_tax_before_credits. Note that nd_pit_2026_supported_profile_applies was hard-coded 'false' pre-fix, so all three public outputs already evaluated to 0 for every taxpayer; the observable change is therefore from 'public annual tax outputs return zero' to declared structured deferrals, and the module summary edit says exactly that. deferred_outputs additionally gains nd_pit_2026_complete_tax_before_credits with reason 'Section 57-38-30.3(10) requires use of the Commissioner's prescribed annual Tax Table ... The separate Form ND-1ES schedules are estimated-tax parameters and cannot substitute for that annual table', and the two existing deferrals' source_values are repointed off the deleted candidates onto nd_pit_2026_supported_profile_applies and nd_pit_2026_supported_profile_taxable_income. Runner-up kind: wrong_entity_or_scope (estimated-tax material and tax/liability outputs owned by an annual-return module; the screen flag calls the commit a scope correction). Caveat a reviewer should weigh: the pinned corpus text of 57-38-30.3(1)(a)-(d) already embeds the 2026 indexed schedules and says the tax equals ND taxable income times the applicable schedule, while (10) only says the Commissioner 'may prescribe tax tables', so the maintainers' 'cannot substitute' rationale is partly a conservatism/deferral judgment rather than a flat contradiction with the statute text; the untraceable-branch reading rests on the candidates claiming annual-return tax and liability (credits under subsection 7 excluded) from estimated-tax worksheet parameters. Companion test file lost 485 lines (fixtures for the removed rules) and a new 304-line fixture file was added for index 0; oracle-coverage-pending.yaml drops ND entries accordingly. Provision read via resolve_provision.py against the pinned release (succeeded). | verifier unclear at 0.62",
+  "family_id": "us-6e0b21e1-6906153cecfc",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

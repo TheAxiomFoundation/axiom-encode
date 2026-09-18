@@ -1,0 +1,57 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_paths:
+      - uk/regulation/ssi/2020/351/20
+      - uk/regulation/uksi/2013/376/schedule/4/paragraph/7
+  summary: |-
+    This PolicyEngine-alignment surface returns the annual Scottish Child Payment amount used by PolicyEngine UK and HBAI: the weekly Scottish Child Payment amount, annualized for a child who is eligible and whose household would claim, and nil otherwise.
+imports:
+  - uk:regulations/ssi/2020/351/20#scottish_child_payment_weekly_amount
+rules:
+  - name: scottish_child_payment_weeks_in_year
+    kind: parameter
+    entity: Person
+    dtype: Count
+    period: Year
+    source: Social Security (Claims and Payments) Regulations 1987 weekly-benefit annualization rule
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk/regulation/uksi/2013/376/schedule/4/paragraph/7
+              excerpt: "weekly payments are multiplied by 52"
+    versions:
+      - effective_from: '2026-04-06'
+        formula: |-
+          52
+
+  - name: scottish_child_payment_annual_amount
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    source: PolicyEngine UK scottish_child_payment final receipt wrapper over Scottish Child Payment Regulations 2020 reg. 20
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:regulations/ssi/2020/351/20#scottish_child_payment_weekly_amount
+              output: scottish_child_payment_weekly_amount
+              hash: sha256:c8b6a8b27d46fe107df35015dd113e2e74b4a07cf100172eb402eec524f6ea5b
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk/regulation/ssi/2020/351/20
+              excerpt: "The value of a Scottish child payment in respect of a child is GBP 28.20 per week."
+    versions:
+      - effective_from: '2026-04-06'
+        formula: |-
+          if is_scottish_child_payment_eligible and would_claim_scottish_child_payment: scottish_child_payment_weekly_amount * scottish_child_payment_weeks_in_year else: 0

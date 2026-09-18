@@ -1,0 +1,100 @@
+{
+  "id": "us-259-8e9d6b20-us-ny-policies-otda-snap-fy-2026-benefit-calculation",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "8e9d6b209c278073e574af02be876dd9cd13dce1",
+  "parent_commit": "ead0b4e68e084346d0d374e6cd9abe1a7c4ae83c",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Corrects NY SNAP composition's exposed benefit surface: statutory chain carried cents and diverged from FNS QC on 33 of 847 reviews by one dollar; moves issued benefit onto the 273.10 whole-dollar chain, binds claimed-homeless deduction to zero to remove a double homeless path, and removes duplicate inline bridges.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/836",
+  "module_path": "us-ny/policies/otda/snap/fy-2026-benefit-calculation.yaml",
+  "corpus_citation_path": "us/guidance/usda/fns/snap-fy2026-cola/page-1",
+  "corpus_citation_paths_all": [
+    "us/guidance/usda/fns/snap-fy2026-cola/page-1"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.55,
+  "description": "The New York SNAP composition's public benefit surface rode the pure-statutory 2014(e)/2017(a) chain, which carries cents — the 2014(e)(2) earned-income deduction is unrounded and the composed excess-shelter cost subtracts the half-income share unrounded — where FNS's QC Minimodel and New York's own eligibility systems compute in whole dollars under the 7 CFR 273.10(e)(1)(ii)(A) election, encoded in the 273.10 chain since #826.",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [],
+    "post_fix_lines": [
+      [
+        287,
+        389
+      ]
+    ],
+    "rule_names": [
+      "snap_benefit",
+      "snap_total_allowable_shelter_expenses",
+      "snap_claimed_homeless_shelter_deduction"
+    ],
+    "rule_path": "rules[snap_benefit].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "db8680b69dee90d95b8b2320b6d8e5810823e33404aa82833a5c49d61ae82961",
+  "post_fix_artifact_sha256": "b067e9f1d52fccc86e6a1075857a5cbda9809bcb253cd456c120ac1c859de619",
+  "provision_sha256": "806907224a37eecb7fb5fa3f8279fcd7bd29de7bd3fc9c3111953d2cb6701566",
+  "provision_chars": 1025,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/guidance/usda/fns/snap-fy2026-cola/page-1",
+    "provision_file": "data/corpus/provisions/us/guidance/2026-05-01-snap-fy2026-cola-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "83eb59832a53d979e0927327f49f99ccd95551335818af505077047033e1ebf3",
+    "line_number": 2,
+    "record_id": "2416046b-5e45-5c74-9d7f-f3084034ed5f",
+    "stored_body_sha256": "806907224a37eecb7fb5fa3f8279fcd7bd29de7bd3fc9c3111953d2cb6701566",
+    "resolved_text_sha256": "806907224a37eecb7fb5fa3f8279fcd7bd29de7bd3fc9c3111953d2cb6701566",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2025-10-01",
+    "source_as_of": "2025-08-14",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "earliest_release_after_toolchain_corpus_ref",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": "7661f3c9a3655e93fc9b2420048d70d231e7d44b",
+    "requested_citation_path": "us/guidance/usda/fns/snap-fy2026-cola/page-1",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/guidance/usda/fns/snap-fy2026-cola/page-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/guidance/usda/fns/snap-fy2026-cola/page-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/guidance/usda/fns/snap-fy2026-cola/page-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/guidance/usda/fns/snap-fy2026-cola/page-1'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The composition exposed New York's SNAP benefit off the pure-statutory 2014(e)/2017(a) allotment, which carries cents and omits NY's initial-month proration and the 387.12(f)(3)(vi) homeless shelter-expense substitution, instead of the 7 CFR 273.10(e)(1)-(2) whole-dollar issuance computation that FNS and New York actually apply, so the issued amount was wrong by one dollar on 33 of 847 FY2024 NY QC reviews.",
+    "triage_notes": "Module diff is purely additive (three new derived rules appended; no existing rule, version, parameter or effective date changed), but this is still a meaning change to an already-claimed output rather than a new surface: programs/us-ny/snap/fy-2026.yaml already listed snap_benefit in `outputs`, and this commit deletes that spec's inline `conditional_value` snap_benefit bridge (`when_true: snap_monthly_allotment`) and its `sum_terms` snap_total_allowable_shelter_expenses bridge (household_shelter_costs_incurred + snap_utility_allowance_for_shelter_costs) in favor of the composition's rules. The spec's own removal comment records the behavioral deltas verbatim: the new binding 'unlike the removed bridge, carries the homeless shelter-expense substitution' and the composition 'exposes the issued benefit with New York's initial-month proration, which the removed conditional_value bridge lacked'. Evidence read: companion test us-ny/policies/otda/snap/fy-2026-benefit-calculation.test.yaml adds a case asserting snap_benefit 217 while us:statutes/7/2017/a#snap_regular_month_allotment is 216 on identical facts (inline test comment: 'statutory chain floors 216.85; the issued 273.10 whole-dollar benefit is 217'), plus an EID-cents case (180) and a homeless case (allowable shelter 198.99, claimed_homeless 0, benefit 119). I verified in us/regulations/7-cfr/273/10.yaml at this commit that the 273.10 chain really does round (floor on the earned-income deduction, floor(x + 0.5) on excess shelter cost, floor on the allotment) and that snap_monthly_allotment lives there, and in us-ny/regulations/18-nycrr/387/12/f/3/vi.yaml that snap_allowable_shelter_costs substitutes the standard homeless shelter allowance. KIND IS THE UNCERTAIN PART, hence confidence 0.55: classification 'fidelity' is solid, but the label could reasonably be (a) wrong_entity_or_scope, chosen here because the taxonomy lists 'output surface' explicitly and both the commit subject and PR body describe a 'public benefit surface' riding the wrong chain; (b) amount_mismatch, since the observable harm is a cents-vs-whole-dollar rounding divergence of exactly $1 on 33/847 reviews; or (c) unrepresented_clause, since the 273.10(e)(1)(ii)(A) rounding election, the 387.12(f)(3)(vi) homeless substitution and the 18 NYCRR 387.10 initial-month proration were all absent from the exposed benefit. untraceable_branch fits poorly: the statutory chain is correctly grounded in 2017(a), it is just not the issuance computation. Step 4 not run: the module's only corpus_citation_path is us/guidance/usda/fns/snap-fy2026-cola/page-1 (the FY2026 COLA guidance, boilerplate composition-source atoms), which cannot settle the rounding question; the operative 273.10 rounding excerpts were read from the imported module's own proof atoms instead. Note the proof atoms on all three new rules cite that composition source rather than the operative provisions — the PR body still claims 'Proof atoms cite the operative sources', but a later commit in the same squashed PR reverted them to the composition source to satisfy the proof validator, so the PR body is stale on that point. The commit is a squashed 7-commit PR with two review rounds (gpt-5.6-sol REQUEST-CHANGES then APPROVE; a Claude clean-room review); the reviews array in the bundle is empty, so the review content is only available as narrative in the PR body. Rest of the commit is mechanical: reverse-index regeneration and .axiom/encoding-manifests refreshes. Follow-up flagged by the authors: axiom-oracles#269 must drop its run-time pins of snap_total_allowable_shelter_expenses and snap_claimed_homeless_shelter_deduction, which now collide with these rules.",
+    "verifier_verdict": "reclassify",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.62,
+    "verifier_justification": "The first reader's mechanism — that the exposed benefit \"rode the pure-statutory 2014(e)/2017(a) allotment ... instead of the 7 CFR 273.10(e)(1)-(2) whole-dollar issuance computation\" — is refuted by the repository: at the parent commit the only `snap_benefit` in NY scope is the program-spec bridge `when_true: snap_monthly_allotment`, and `snap_monthly_allotment` is defined solely in `us/regulations/7-cfr/273/10.yaml` (source `7 CFR 273.10(e)(2)(ii)`), while the statutory 2017(a) chain's output is named `snap_regular_month_allotment` and was never the exposed surface. What the module addition actually corrects are two NY clauses the prior chain omitted: the issued benefit now takes New York's initial-month certification-period proration (`snap_initial_month_allotment_after_minimum_issuance`), which the commit itself says \"the removed conditional_value bridge lacked,\" and the 273.10 shelter input is rebound to `snap_allowable_shelter_costs` (18 NYCRR 387.12(f)(3)(vi)), carrying the homeless shelter-expense substitution and NY's SUA/LUA/IUA that the removed bridge's `snap_utility_allowance_for_shelter_costs` term (federal state-option placeholders, all `formula: '0'` in 7 CFR 273.9) contributed as zero. That is a required condition/deduction missing from the encoding and added by the fix, so it is a fidelity defect of kind unrepresented_clause, not a wrong entity/scope or wrong output surface.",
+    "verifier_quote": "+          if snap_eligible:\n+              if household_initial_month:\n+                  snap_initial_month_allotment_after_minimum_issuance\n+              else:\n+                  snap_monthly_allotment\n+          else:\n+              0",
+    "verifier_notes": "Evidence trail, all read at parent ead0b4e6 in /Users/maxghenis/TheAxiomFoundation/rulespec-us: (1) `git grep \"name: snap_benefit\"` over us/, us-ny/, programs/us-ny/ returns exactly one hit, programs/us-ny/snap/fy-2026.yaml:134 — the removed `pattern: conditional_value` bridge whose `when_true: snap_monthly_allotment`; (2) `git grep \"name: snap_monthly_allotment\"` over the whole tree returns exactly one hit, us/regulations/7-cfr/273/10.yaml:447, `source: 7 CFR 273.10(e)(2)(ii)`; so the pre-fix issued surface was already on the whole-dollar 273.10 chain and the \"carries cents / statutory chain\" framing in the PR body does not describe the composed output. (3) The cents story is true only of the parallel statutory chain (`snap_allotment_before_minimum`/`snap_regular_month_allotment` in us/statutes/7/2017/a.yaml) and of the module's own `ny_snap_excess_shelter_cost`/`snap_excess_shelter_deduction`, which 273.10 never consumes (it uses its own `snap_excess_shelter_deduction_for_net_income`). (4) The removed shelter bridge summed `snap_utility_allowance_for_shelter_costs`, which in us/regulations/7-cfr/273/9.yaml is the sum of three `*_state_option` rules each with `formula: '0'`, while NY's real allowance rules are named `snap_standard_utility_allowance` etc. in us-ny/regulations/18-nycrr/387/12/f/3/v/a.yaml — so the old 273.10 shelter input silently dropped NY's utility allowances as well as the vi homeless substitution. (5) The module diff is purely additive (three appended rules, nothing existing altered) and the companion test diff is 411 insertions / 1 deletion with no changed expected value, so no previously encoded module meaning was overwritten; the corrected surface is the program's, carried by these new bindings. A reviewer who wants to keep this case should record the kind as unrepresented_clause (missing 18 NYCRR 387.10 proration and 387.12(f)(3)(vi) shelter substitution), and should treat the PR body's 33/847 one-dollar narrative as unverified against the pre-state code. If a reviewer instead weights the shelter-input rebinding as the dominant delta, untraceable_branch (formula grounded on the wrong provision — 273.9's zero state-option placeholders — re-grounded on 387.12(f)(3)(vi)) is the second-best kind; wrong_entity_or_scope is the one kind the code does not support.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Module diff is purely additive (three new derived rules appended; no existing rule, version, parameter or effective date changed), but this is still a meaning change to an already-claimed output rather than a new surface: programs/us-ny/snap/fy-2026.yaml already listed snap_benefit in `outputs`, and this commit deletes that spec's inline `conditional_value` snap_benefit bridge (`when_true: snap_monthly_allotment`) and its `sum_terms` snap_total_allowable_shelter_expenses bridge (household_shelter_costs_incurred + snap_utility_allowance_for_shelter_costs) in favor of the composition's rules. The spec's own removal comment records the behavioral deltas verbatim: the new binding 'unlike the removed bridge, carries the homeless shelter-expense substitution' and the composition 'exposes the issued benefit with New York's initial-month proration, which the removed conditional_value bridge lacked'. Evidence read: companion test us-ny/policies/otda/snap/fy-2026-benefit-calculation.test.yaml adds a case asserting snap_benefit 217 while us:statutes/7/2017/a#snap_regular_month_allotment is 216 on identical facts (inline test comment: 'statutory chain floors 216.85; the issued 273.10 whole-dollar benefit is 217'), plus an EID-cents case (180) and a homeless case (allowable shelter 198.99, claimed_homeless 0, benefit 119). I verified in us/regulations/7-cfr/273/10.yaml at this commit that the 273.10 chain really does round (floor on the earned-income deduction, floor(x + 0.5) on excess shelter cost, floor on the allotment) and that snap_monthly_allotment lives there, and in us-ny/regulations/18-nycrr/387/12/f/3/vi.yaml that snap_allowable_shelter_costs substitutes the standard homeless shelter allowance. KIND IS THE UNCERTAIN PART, hence confidence 0.55: classification 'fidelity' is solid, but the label could reasonably be (a) wrong_entity_or_scope, chosen here because the taxonomy lists 'output surface' explicitly and both the commit subject and PR body describe a 'public benefit surface' riding the wrong chain; (b) amount_mismatch, since the observable harm is a cents-vs-whole-dollar rounding divergence of exactly $1 on 33/847 reviews; or (c) unrepresented_clause, since the 273.10(e)(1)(ii)(A) rounding election, the 387.12(f)(3)(vi) homeless substitution and the 18 NYCRR 387.10 initial-month proration were all absent from the exposed benefit. untraceable_branch fits poorly: the statutory chain is correctly grounded in 2017(a), it is just not the issuance computation. Step 4 not run: the module's only corpus_citation_path is us/guidance/usda/fns/snap-fy2026-cola/page-1 (the FY2026 COLA guidance, boilerplate composition-source atoms), which cannot settle the rounding question; the operative 273.10 rounding excerpts were read from the imported module's own proof atoms instead. Note the proof atoms on all three new rules cite that composition source rather than the operative provisions — the PR body still claims 'Proof atoms cite the operative sources', but a later commit in the same squashed PR reverted them to the composition source to satisfy the proof validator, so the PR body is stale on that point. The commit is a squashed 7-commit PR with two review rounds (gpt-5.6-sol REQUEST-CHANGES then APPROVE; a Claude clean-room review); the reviews array in the bundle is empty, so the review content is only available as narrative in the PR body. Rest of the commit is mechanical: reverse-index regeneration and .axiom/encoding-manifests refreshes. Follow-up flagged by the authors: axiom-oracles#269 must drop its run-time pins of snap_total_allowable_shelter_expenses and snap_claimed_homeless_shelter_deduction, which now collide with these rules. | verifier reclassified wrong_entity_or_scope -> unrepresented_clause at 0.62; verifier kind used",
+  "family_id": "us-8e9d6b20-110951d615d2",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}
