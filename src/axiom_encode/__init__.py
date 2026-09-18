@@ -1,8 +1,16 @@
-__version__ = "0.2.2006"
+__version__ = "0.2.2007"
 # Axiom Encode - AI-assisted RuleSpec encoding
 # Self-contained encoding infrastructure -- no external plugin dependencies.
 
 
+from .attempt_evidence import (
+    AttemptArtifact,
+    AttemptEvidence,
+    AttemptRef,
+    RepairTriple,
+    iter_attempt_evidence,
+    iter_repair_triples,
+)
 from .constants import (
     DEFAULT_CLI_MODEL,
     DEFAULT_MODEL,
@@ -49,6 +57,7 @@ from .harness import (
     save_calibration_snapshot,
     validate_rulespec_proofs,
 )
+from .harness.validation_issues import ValidationIssue
 
 __all__ = [
     "__version__",
@@ -66,6 +75,14 @@ __all__ = [
     "ReviewResult",
     "ReviewResults",
     "create_run",
+    # Attempt evidence: read-only (run_id, attempt, artifact, issues, parent)
+    "AttemptArtifact",
+    "AttemptEvidence",
+    "AttemptRef",
+    "RepairTriple",
+    "ValidationIssue",
+    "iter_attempt_evidence",
+    "iter_repair_triples",
     "ValidatorPipeline",
     "ValidationResult",
     "PipelineResult",
