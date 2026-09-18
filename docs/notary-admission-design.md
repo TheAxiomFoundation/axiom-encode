@@ -96,7 +96,7 @@ field, missing field, wrong type, or duplicate key is a parse refusal.
 | Ed25519 signature | `signature_base64`: standard base64 with padding (RFC 4648 §4) |
 | `signer_spki_sha256` | SHA-256 of the DER-encoded SubjectPublicKeyInfo, hex as above |
 | `run_id`, `run_attempt`, `check_run_id`, `approve_check_run_id`, `artifact_id` | JSON strings, canonical decimal, no leading zeros, never numbers |
-| `temperature`, `seed` (generation-event `sampling`) | canonical-decimal JSON strings, never numbers: optional `-`, an integer part with no leading zeros (`0` alone permitted), an optional fraction with at least one digit and no trailing zeros, no exponent, no `+`, no bare `.`; `seed` is integer-form, or `null` when the runtime exposes no seed |
+| `temperature`, `seed` (generation-event `sampling`) | canonical-decimal JSON strings, never numbers: optional `-` (which requires a nonzero magnitude, so `"-0"` is refused), an integer part with no leading zeros (`0` alone permitted), an optional fraction with at least one digit and no trailing zeros, no exponent, no `+`, no bare `.`; `seed` is integer-form, or `null` when the runtime exposes no seed |
 | `chain_predecessor_kind` | exactly one of `"genesis"`, `"receipt"`, `"transition"` |
 | `tier` (profile only) | exactly one of `"public"`, `"restricted"`, `"ci-attested"` — never a report or receipt field; consumers read tiers from the profile the receipt binds |
 | `ref` | the fully qualified Git ref string (`refs/...`) |
@@ -1064,7 +1064,9 @@ transition plays the pending receipt's role for its own subject (§7): it
 is the merge-authorizing artifact for exactly its enumerated delta.
 Ordinary admission resumes from the finalized transition's recorded
 state. A transition whose delta newly protects any path is not admissible
-before the v34 `initialized_entries` revision (§11).
+before the v34 `initialized_entries` revision (§11): the signer classifies
+the subject manifest under both policies and refuses `policy-invalid` if
+any path is protected under the subject policy and not the base.
 
 ## 7. Two-phase publication and the canonical chain
 
