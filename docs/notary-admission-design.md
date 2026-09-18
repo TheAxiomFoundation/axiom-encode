@@ -324,7 +324,7 @@ closed code enum is: `"subject-unresolvable"`,
 templates for the added codes: `state-identical` → "base and subject
 states are identical"; `trust-surface-change` → "ordinary candidate
 changes a trust surface"; `policy-invalid` → "required policy, profile, or key registry absent
-or invalid at the base" (registry invalidity refuses under this code);
+or invalid at the base, or a path-policy expansion unsupported before v34" (registry invalidity refuses under this code);
 a non-representable offending path reports `path: null` with the
 template unchanged — the I-JSON path contract never carries non-UTF-8
 bytes; `subject-unresolvable` → "subject commit or tree cannot be
