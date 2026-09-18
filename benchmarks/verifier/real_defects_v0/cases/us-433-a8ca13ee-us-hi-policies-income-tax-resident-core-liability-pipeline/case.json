@@ -1,0 +1,459 @@
+{
+  "id": "us-433-a8ca13ee-us-hi-policies-income-tax-resident-core-liability-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "a8ca13eee74fe76be29ecd5ab621f2b0cde93068",
+  "parent_commit": "e97d5848f5378eb7b8c6827dfc58fe5fa453a12f",
+  "commit_date": "2026-07-23",
+  "commit_subject": "Repair Hawaii resident liability contract",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1035",
+  "module_path": "us-hi/policies/income_tax/resident_core_liability_pipeline.yaml",
+  "corpus_citation_path": "us-hi/statute/235-2.3",
+  "corpus_citation_paths_all": [
+    "us-hi/statute/235-2.3",
+    "us-hi/statute/235-2.4",
+    "us-hi/statute/235-4",
+    "us-hi/statute/235-7",
+    "us-hi/statute/235-54",
+    "us-hi/statute/235-51",
+    "us-hi/statute/235-53",
+    "us-hi/statute/235-55",
+    "us-hi/statute/235-55.6",
+    "us-hi/statute/235-55.7",
+    "us-hi/statute/235-55.75",
+    "us-hi/statute/235-55.85",
+    "us-hi/statute/235-91.5",
+    "us-hi/form/individual-income-tax/2025/n-11-instructions/capital-gains-tax-worksheet"
+  ],
+  "corpus_release": "us-rulespec-2026-07-22-current-la-status-fix",
+  "corpus_release_content_sha256": "6bfd97b24cb63cb709fa52e9a5e6764c916dec95c5557447e11f47778ee4768f",
+  "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.75,
+  "description": "HRS §235-53 requires the Director-prescribed tax table for nonitemizers up to a Director-determined ceiling that is not less than $20,000.",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        56,
+        57
+      ],
+      [
+        67,
+        69
+      ],
+      [
+        74,
+        74
+      ],
+      [
+        98,
+        101
+      ],
+      [
+        840,
+        842
+      ],
+      [
+        844,
+        845
+      ],
+      [
+        847,
+        847
+      ],
+      [
+        924,
+        924
+      ],
+      [
+        1127,
+        1127
+      ],
+      [
+        1129,
+        1130
+      ],
+      [
+        1132,
+        1132
+      ],
+      [
+        1650,
+        1653
+      ],
+      [
+        1656,
+        1656
+      ],
+      [
+        1684,
+        1686
+      ],
+      [
+        1715,
+        1715
+      ],
+      [
+        1818,
+        1818
+      ],
+      [
+        1821,
+        1821
+      ],
+      [
+        1938,
+        1938
+      ],
+      [
+        1989,
+        1989
+      ],
+      [
+        2088,
+        2094
+      ],
+      [
+        2096,
+        2096
+      ],
+      [
+        2098,
+        2100
+      ],
+      [
+        2102,
+        2102
+      ],
+      [
+        2104,
+        2105
+      ],
+      [
+        2111,
+        2111
+      ],
+      [
+        2115,
+        2116
+      ],
+      [
+        2120,
+        2121
+      ],
+      [
+        2125,
+        2125
+      ],
+      [
+        2131,
+        2131
+      ],
+      [
+        2135,
+        2135
+      ],
+      [
+        2171,
+        2171
+      ],
+      [
+        2175,
+        2175
+      ],
+      [
+        2186,
+        2186
+      ],
+      [
+        2190,
+        2190
+      ],
+      [
+        2201,
+        2201
+      ],
+      [
+        2205,
+        2205
+      ],
+      [
+        2212,
+        2212
+      ],
+      [
+        2216,
+        2216
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        13,
+        13
+      ],
+      [
+        31,
+        31
+      ],
+      [
+        58,
+        60
+      ],
+      [
+        70,
+        72
+      ],
+      [
+        77,
+        78
+      ],
+      [
+        98,
+        101
+      ],
+      [
+        642,
+        658
+      ],
+      [
+        837,
+        854
+      ],
+      [
+        873,
+        873
+      ],
+      [
+        881,
+        882
+      ],
+      [
+        884,
+        886
+      ],
+      [
+        891,
+        895
+      ],
+      [
+        923,
+        923
+      ],
+      [
+        937,
+        952
+      ],
+      [
+        996,
+        999
+      ],
+      [
+        1191,
+        1191
+      ],
+      [
+        1217,
+        1238
+      ],
+      [
+        1639,
+        1659
+      ],
+      [
+        1752,
+        1752
+      ],
+      [
+        1755,
+        1755
+      ],
+      [
+        1758,
+        1759
+      ],
+      [
+        1787,
+        1793
+      ],
+      [
+        1822,
+        1823
+      ],
+      [
+        1829,
+        1870
+      ],
+      [
+        1963,
+        1965
+      ],
+      [
+        1971,
+        1973
+      ],
+      [
+        1976,
+        1978
+      ],
+      [
+        2077,
+        2098
+      ],
+      [
+        2117,
+        2117
+      ],
+      [
+        2129,
+        2129
+      ],
+      [
+        2169,
+        2174
+      ],
+      [
+        2273,
+        2273
+      ],
+      [
+        2275,
+        2275
+      ],
+      [
+        2277,
+        2278
+      ],
+      [
+        2280,
+        2280
+      ],
+      [
+        2282,
+        2282
+      ],
+      [
+        2288,
+        2303
+      ],
+      [
+        2307,
+        2308
+      ],
+      [
+        2312,
+        2313
+      ],
+      [
+        2317,
+        2317
+      ],
+      [
+        2323,
+        2328
+      ],
+      [
+        2332,
+        2337
+      ],
+      [
+        2373,
+        2373
+      ],
+      [
+        2377,
+        2382
+      ],
+      [
+        2393,
+        2393
+      ],
+      [
+        2397,
+        2397
+      ],
+      [
+        2408,
+        2408
+      ],
+      [
+        2412,
+        2422
+      ],
+      [
+        2429,
+        2434
+      ],
+      [
+        2438,
+        2438
+      ]
+    ],
+    "rule_names": [
+      "hi_pit_2026_tax_table_source_hold_applies",
+      "hi_pit_2026_statutory_minimum_tax_table_ceiling",
+      "hi_pit_2026_supported_profile_applies",
+      "hi_pit_2026_cdcc_creditable_expenses",
+      "hi_pit_2026_refundable_low_income_renter_credit",
+      "hi_pit_2026_refundable_child_and_dependent_care_credit",
+      "hi_pit_2026_capital_gains_worksheet_line_10",
+      "hi_pit_2026_food_credit_qualified_exemption_count",
+      "hi_pit_2026_renter_credit_qualified_exemption_count",
+      "hi_pit_2026_cdcc_qualifying_individual_count",
+      "hi_pit_2026_supported_profile_net_income_tax_liability",
+      "hi_pit_2026_supported_profile_tax_after_nonrefundable_credits",
+      "hi_pit_2026_input_domain_is_valid",
+      "hi_pit_2026_filing_status_is_valid",
+      "hi_pit_2026_maximum_age_65_exemption_count",
+      "hi_pit_2026_supported_profile_refundable_excess_before_payments",
+      "hi_pit_2026_refundable_earned_income_tax_credit"
+    ],
+    "rule_path": "rules[hi_pit_2026_supported_profile_applies].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "5b5f533e4d7a2ef3131068634d9bcadba773904605ab971ecfaf3a8c6708a59b",
+  "post_fix_artifact_sha256": "2c8cc0a48a64a299256e21012d75ea19e2ec972b6e031b8985789924ab2e01a9",
+  "provision_sha256": "6c6f8287b01947ab63b24191954aaa5a0d95fca6da2062f9a7863671eeb2da1b",
+  "provision_chars": 9910,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-hi/statute/235-2.3",
+    "provision_file": "data/corpus/provisions/us-hi/statute/2026-07-16-pit-east-us-hi-volume-04-chapter-235.jsonl",
+    "provision_file_sha256": "dde47cd1e6e5d988afda0544499740eca3b609235777629ba2d5b477af01a47b",
+    "line_number": 5,
+    "record_id": "8e5277e3-a56c-572c-8936-f61937da94ef",
+    "stored_body_sha256": "6c6f8287b01947ab63b24191954aaa5a0d95fca6da2062f9a7863671eeb2da1b",
+    "resolved_text_sha256": "6c6f8287b01947ab63b24191954aaa5a0d95fca6da2062f9a7863671eeb2da1b",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-05-09",
+    "source_as_of": "2026-05-09",
+    "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "ddc9b0f95cb0cd7ed24d42bd62fec4dbf0e1b846",
+    "requested_citation_path": "us-hi/statute/235-2.3",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module never represented HRS 235-53, so it published section 235-51 schedule tax for every nonitemizer, including those whose taxable income does not exceed the Director's ceiling (statutorily at least $20,000), for whom the statute imposes the Director-prescribed table tax \"in lieu of the tax imposed by section 235-51\".",
+    "triage_notes": "Read the provisions through the pinned corpus: us-hi/statute/235-53 (confirms \"In lieu of the tax imposed by section 235-51\" for nonitemizers whose taxable income \"does not exceed the ceiling amount\", ceiling \"not less than $20,000\"), us-hi/statute/235-55.7 (confirms (d) \"If a rental unit is occupied by two or more individuals, and more than one individual is able to qualify as a claimant, the claim for credit shall be based upon a pro rata share of the rent paid\"), and us-hi/statute/235-55.6 (confirms (c) the dollar limit \"shall be reduced by the aggregate amount excludable from gross income under section 129\", and (d)(1)(A)/(B) earned-income limit keyed to being married at the close of the year). This is a MULTI-DEFECT single-module commit; I picked the 235-53 hold as decisive because the PR body devotes its whole \"Source boundary\" section to it and the diff adds the citation path, the $20,000 ceiling parameter, the hold judgment, the waiver entry, and the profile gate. Other independent fidelity corrections in the same diff, any of which a reviewer could split out: (1) hi_pit_2026_cdcc_creditable_expenses changed from max(0, min(expenses, cap) - assistance_exclusion) to min(expenses, max(0, cap - assistance_exclusion), earned-income limit) — the pre-fix form reduced the expenses rather than the 235-55.6(c) dollar limit and understated the credit whenever expenses were below the cap (amount_mismatch); (2) the same rule's earned-income limit now applies the two-earner minimum only when joint AND not a surviving spouse, since a surviving spouse is not married at the close of the year under 235-55.6(d)(1) (wrong_entity_or_scope); (3) hi_pit_2026_refundable_low_income_renter_credit now divides cash rent by the qualified-claimant count before the $1,000 test, encoding 235-55.7(d), which was absent (unrepresented_clause); (4) hi_pit_2026_capital_gains_worksheet_line_10 dropped the Hawaii long/short-term gain adjustments and the Form N-158 line 4e subtraction, which had been caller-completed amounts with no in-module grounding, replacing them with boolean holds (untraceable_branch / completed-result inputs); (5) hi_pit_2026_supported_profile_net_income_tax_liability dropped the max(0, ...) floor so refundable credits can drive liability negative — note the pre-fix module did publish a separate refundable-excess output (now made private), so the floor was arguably a presentation choice rather than lost information; (6) new domain bound age_65_exemption_count <= 2 from 235-54(a). Changes that are NOT defects: married-filing-separately moved from a hold to a supported filing status (added scope, plus the matching filing-status exclusivity logic), the decomposition of composite caller judgments into granular raw facts (CDCC conditions, EITC status/dependents match, renter occupancy/property-tax conditions, food/renter exemption presence-failure counts), and the new public hi_pit_2026_supported_profile_tax_after_nonrefundable_credits stage. Follow-ups in the same PR: 26ebd1a18 \"Tighten Hawaii tax-table and MFS holds\" later REMOVED the `taxable_income <= ceiling` condition from hi_pit_2026_tax_table_source_hold_applies (because only the statutory minimum of the Director's ceiling is known, so all nonitemizers must fail closed) and moved the hold out of supported_profile_applies into the public tax/liability stages, and also re-held MFS food/renter claims; 249e8e6f6 \"Prevent Hawaii food credit child overlap\" followed. So this commit's 235-53 fix was correct in kind but too narrow, and was widened one commit later. Commit message body is empty; the PR body is the whole-PR body, which is why confidence is 0.75 rather than higher.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.78,
+    "verifier_justification": "I tried to refute the label and could not: the pre-fix file at e97d5848 contains no mention of \"235-53\" or any tax table (verified by grep over the full 2261-line pre file), yet its supported profile already required `not hi_pit_2026_elects_itemized_deductions`, so every publicly published taxpayer was a nonitemizer and the public `hi_pit_2026_supported_profile_tax_before_credits` returned the §235-51 schedule/alt-tax `hi_pit_2026_income_tax_liability` for all of them. The pinned corpus text of HRS 235-53(a)(1) reads \"In lieu of the tax imposed by section 235-51, there is hereby imposed ... (A) Who does not itemize ... and (B) Whose taxable income for such taxable year does not exceed the ceiling amount, a tax determined under tables ... prescribed by the director\", with (a)(2) fixing the ceiling at \"the amount (not less than $20,000) determined by the director\" — a mandatory substitution, not an election, so the pre-fix published amount disagrees with the source for that population. The fix adds the missing clause (new §235-53 citation path, `hi_pit_2026_statutory_minimum_tax_table_ceiling` = 20000, the `hi_pit_2026_tax_table_source_hold_applies` condition, and the gate in `supported_profile_applies`), which is exactly unrepresented_clause; \"mechanical\" and \"not_a_defect\" both fail because formulas, inputs, outputs and the profile gate all changed and the module previously claimed this population rather than disclaiming it.",
+    "verifier_quote": "+          and not hi_pit_2026_tax_table_source_hold_applies",
+    "verifier_notes": "Cross-checks a reviewer should know. (1) Boundary strictness of the new hold is right, not a second defect: the statute says \"does not exceed the ceiling amount\" and the added rule uses `hi_pit_2026_taxable_income <= hi_pit_2026_statutory_minimum_tax_table_ceiling`. But the ceiling parameter is pinned at the statutory *minimum* ($20,000) while §235-53(a)(2) lets the director set any amount \"not less than $20,000\"; taxpayers between $20,000 and the director's actual ceiling are therefore still published under §235-51, so the fix only partially represents the clause — a residual, not a reason to downgrade the label. (2) This is a multi-defect repair commit, so the corpus entry is not one-defect-per-module-change. Other independent fidelity fixes in the same diff, each a different kind: capital-gain worksheet line 10 drops the Hawaii long/short-term adjustments and the `- hi_pit_2026_form_n_158_line_4e` subtraction (re-grounding, untraceable_branch); `hi_pit_2026_supported_profile_net_income_tax_liability` loses its `max(0, ...)` floor so the signed liability can go negative (boundary/polarity); CDCC creditable expenses re-nest min/max so the assistance exclusion no longer reduces the already-capped expense (polarity_or_logic); the renter credit gains the statutory \"pro rata share of the rent paid\" divisor (another unrepresented_clause); MFS is added to the supported scope by deleting `and not hi_pit_2026_is_married_filing_separately` (wrong_entity_or_scope); and a new age-65 exemption cap of 2 bounds the input domain (amount/domain). If the corpus wants a single canonical kind per entry, the §235-53 hold is a defensible pick (it is the PR body's headline \"Source boundary\" and matches the supplied rule_path), but the entry should be flagged as bundled. (3) Provenance caveat: commit a8ca13eee7 is an intra-PR repair inside PR #1035 \"Add Hawaii 2026 resident tax bounded core\" (merged 2026-07-24), so the defective state existed only on the unmerged branch and was caught by the review-fix cycle — never in merged rulespec-us content. If the corpus is meant to hold defects that reached main, this case is branch-internal. (4) Weakest alternative kind considered: untraceable_branch (\"formulas grounded on the wrong provision\"), on the theory that nonitemizer tax was grounded on §235-51 instead of §235-53. I rejected it because the §235-51 branch is genuinely grounded and is left intact for its correct population; nothing is removed or re-grounded, a condition is added. wrong_entity_or_scope is the second-best alternative (the published population was too broad), but scope narrowing is the remedy here, not the defect.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Read the provisions through the pinned corpus: us-hi/statute/235-53 (confirms \"In lieu of the tax imposed by section 235-51\" for nonitemizers whose taxable income \"does not exceed the ceiling amount\", ceiling \"not less than $20,000\"), us-hi/statute/235-55.7 (confirms (d) \"If a rental unit is occupied by two or more individuals, and more than one individual is able to qualify as a claimant, the claim for credit shall be based upon a pro rata share of the rent paid\"), and us-hi/statute/235-55.6 (confirms (c) the dollar limit \"shall be reduced by the aggregate amount excludable from gross income under section 129\", and (d)(1)(A)/(B) earned-income limit keyed to being married at the close of the year). This is a MULTI-DEFECT single-module commit; I picked the 235-53 hold as decisive because the PR body devotes its whole \"Source boundary\" section to it and the diff adds the citation path, the $20,000 ceiling parameter, the hold judgment, the waiver entry, and the profile gate. Other independent fidelity corrections in the same diff, any of which a reviewer could split out: (1) hi_pit_2026_cdcc_creditable_expenses changed from max(0, min(expenses, cap) - assistance_exclusion) to min(expenses, max(0, cap - assistance_exclusion), earned-income limit) — the pre-fix form reduced the expenses rather than the 235-55.6(c) dollar limit and understated the credit whenever expenses were below the cap (amount_mismatch); (2) the same rule's earned-income limit now applies the two-earner minimum only when joint AND not a surviving spouse, since a surviving spouse is not married at the close of the year under 235-55.6(d)(1) (wrong_entity_or_scope); (3) hi_pit_2026_refundable_low_income_renter_credit now divides cash rent by the qualified-claimant count before the $1,000 test, encoding 235-55.7(d), which was absent (unrepresented_clause); (4) hi_pit_2026_capital_gains_worksheet_line_10 dropped the Hawaii long/short-term gain adjustments and the Form N-158 line 4e subtraction, which had been caller-completed amounts with no in-module grounding, replacing them with boolean holds (untraceable_branch / completed-result inputs); (5) hi_pit_2026_supported_profile_net_income_tax_liability dropped the max(0, ...) floor so refundable credits can drive liability negative — note the pre-fix module did publish a separate refundable-excess output (now made private), so the floor was arguably a presentation choice rather than lost information; (6) new domain bound age_65_exemption_count <= 2 from 235-54(a). Changes that are NOT defects: married-filing-separately moved from a hold to a supported filing status (added scope, plus the matching filing-status exclusivity logic), the decomposition of composite caller judgments into granular raw facts (CDCC conditions, EITC status/dependents match, renter occupancy/property-tax conditions, food/renter exemption presence-failure counts), and the new public hi_pit_2026_supported_profile_tax_after_nonrefundable_credits stage. Follow-ups in the same PR: 26ebd1a18 \"Tighten Hawaii tax-table and MFS holds\" later REMOVED the `taxable_income <= ceiling` condition from hi_pit_2026_tax_table_source_hold_applies (because only the statutory minimum of the Director's ceiling is known, so all nonitemizers must fail closed) and moved the hold out of supported_profile_applies into the public tax/liability stages, and also re-held MFS food/renter claims; 249e8e6f6 \"Prevent Hawaii food credit child overlap\" followed. So this commit's 235-53 fix was correct in kind but too narrow, and was widened one commit later. Commit message body is empty; the PR body is the whole-PR body, which is why confidence is 0.75 rather than higher. | verifier confirmed at 0.78",
+  "family_id": "us-a8ca13ee-e0787c3a68ff",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

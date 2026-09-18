@@ -1,0 +1,238 @@
+{
+  "id": "us-237-5474dca0-us-ga-statutes-48-48-7-27",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "5474dca0ea1d0e751c02a2180ecd54edf170389e",
+  "parent_commit": "c6db535b079ba51d62cb43b2dffe02d27e3b086f",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Unsure: campaign wrap-up, but diff time-bounds GA 48-7-26 dependent exemption to 2026-12-31, defers contingent 2027+ increases, and adds effective-period proof atoms to 48-7-26/48-7-29.10.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/907",
+  "module_path": "us-ga/statutes/48/48-7-27.yaml",
+  "corpus_citation_path": "us-ga/statute/48/48-7-27",
+  "corpus_citation_paths_all": [
+    "us-ga/statute/48/48-7-27",
+    "us-ga/statute/session-laws/2023/sb56/document-1",
+    "us-ga/statute/session-laws/2026/hb463/document-1"
+  ],
+  "corpus_release": "us-rulespec-2026-07-22-current",
+  "corpus_release_content_sha256": "7b1c6c0ec237dc3767f770fbb30178d6857bbe43fd4d952f57ebfc8409874bcc",
+  "corpus_commit": "c5af541326e024e04cb533bbf5709ae04e6305f6",
+  "defect_kind": "wrong_period_or_effective_date",
+  "other_kind": null,
+  "confidence": 0.75,
+  "description": "independent Georgia review found and drove fixes for contingent 2027 deductions, transition proofs/tests, DOR worksheet support, and retirement-exclusion amounts and eligibility branches",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        11,
+        11
+      ],
+      [
+        36,
+        36
+      ],
+      [
+        72,
+        72
+      ],
+      [
+        108,
+        108
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        11,
+        11
+      ],
+      [
+        31,
+        36
+      ],
+      [
+        42,
+        42
+      ],
+      [
+        51,
+        55
+      ],
+      [
+        61,
+        70
+      ],
+      [
+        76,
+        85
+      ],
+      [
+        96,
+        96
+      ],
+      [
+        104,
+        104
+      ],
+      [
+        113,
+        117
+      ],
+      [
+        123,
+        132
+      ],
+      [
+        138,
+        147
+      ],
+      [
+        158,
+        158
+      ],
+      [
+        166,
+        166
+      ],
+      [
+        175,
+        179
+      ],
+      [
+        185,
+        194
+      ],
+      [
+        200,
+        209
+      ],
+      [
+        220,
+        220
+      ],
+      [
+        241,
+        241
+      ],
+      [
+        265,
+        265
+      ],
+      [
+        308,
+        330
+      ],
+      [
+        333,
+        333
+      ],
+      [
+        348,
+        415
+      ]
+    ],
+    "rule_names": [
+      "single_or_head_of_household_standard_deduction",
+      "married_separate_standard_deduction",
+      "married_joint_standard_deduction",
+      "retirement_income_exclusion_amount",
+      "retirement_income_exclusion_amount_for_age_62_to_64_or_disabled",
+      "retirement_income_exclusion_amount_for_taxpayer"
+    ],
+    "rule_path": "rules[retirement_income_exclusion_amount].versions[0].effective_to"
+  },
+  "pre_fix_artifact_sha256": "905e146941b464a37a593cda381363aba884a5a5937f828ea0a9e5be590a94ed",
+  "post_fix_artifact_sha256": "f9e733b5499754ed829bc6c7610eee597d0ae55ba7dbb1fbdec257859737038e",
+  "provision_sha256": "05e12fb5ef59536c1934fbaff556ad750e915849c748e521b531ff4e89c7a4cd",
+  "provision_chars": 67427,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-ga/statute/48/48-7-27",
+    "provision_file": "data/corpus/provisions/us-ga/statute/2026-07-21-ga-ocga-title-48-release86-us-ga-title-48.jsonl",
+    "provision_file_sha256": "8a56a7bda977c94135ef111f208f36c9984791f3c6a3a265dc4724b36486d4e0",
+    "line_number": 671,
+    "record_id": "2a0abcbf-011b-5d49-a61f-8500b11568b2",
+    "stored_body_sha256": "05e12fb5ef59536c1934fbaff556ad750e915849c748e521b531ff4e89c7a4cd",
+    "resolved_text_sha256": "05e12fb5ef59536c1934fbaff556ad750e915849c748e521b531ff4e89c7a4cd",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2022-11-01",
+    "source_as_of": "2022-11-01",
+    "corpus_commit": "c5af541326e024e04cb533bbf5709ae04e6305f6",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 12,
+    "toolchain_corpus_ref": "f66b3628a97c96bb0ab71809434ecaf84b6ad091",
+    "requested_citation_path": "us-ga/statute/48/48-7-27",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-27'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-27'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-27'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-27'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-27'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-27'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-27'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-27'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-27'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-27'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-27'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-27'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The three 2026 standard-deduction versions ($15,000/$15,000/$30,000) ran open-ended past 2026 despite HB 463's $375.00/$750.00 contingent annual increases from January 1, 2027, and the retirement-income exclusion table was encoded timelessly from 1989 at $65,000, so it neither carried HB 463's new 2027 division (xiv) amount of $70,000 nor distinguished the $35,000 amount the statute sets for taxpayers qualifying under divisions (i) or (ii).",
+    "triage_notes": "Multi-defect module; I picked the retirement-exclusion window as the decisive path because it both closes the timeless 1989-onward version and adds the corrected 2027 table (band 12: 65000 -> 70000). The parallel and equally supported defect is the three standard-deduction rules gaining effective_to 2026-12-31 plus new deferred_outputs entries for the contingent 2027 increases (same pattern as index 0). A third, distinct defect corrected here is an unrepresented_clause: pre-fix the single indexed retirement_income_exclusion_amount applied to every eligible taxpayer, while O.C.G.A. 48-7-27(a)(5)(A)(xiii) (read via the pinned corpus) sets '$35,000.00 for each taxpayer meeting the eligibility requirement set forth in division (i) or (ii) ... or an amount of $65,000.00 for each taxpayer meeting the eligibility requirement set forth in division (iii)'; the fix adds retirement_income_exclusion_amount_for_age_62_to_64_or_disabled (35000) and the derived retirement_income_exclusion_amount_for_taxpayer branch. HB 463 text confirmed for the 2027 division (xiv) $35,000/$70,000 split and the $375.00/$750.00 deduction escalators. The commit body is empty, so the quote is from the PR body; it names both the contingent-2027 deductions and the retirement-exclusion amounts/eligibility branches. Also present in the diff but mechanical: source-string normalizations (e.g. 48-7-27(a) -> O.C.G.A. 48-7-27(a)(1)(B)) and added effective-period excerpts.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_period_or_effective_date",
+    "verifier_confidence": 0.8,
+    "verifier_justification": "I tried to refute this as mechanical or as mere new coverage and could not: the diff changes real version windows, not just proof atoms — three standard-deduction rules gain `effective_to: '2026-12-31'` on their previously open-ended 2026 versions, and `retirement_income_exclusion_amount` gains `effective_to: '2026-12-31'` on the 1989 version plus a new `effective_from: '2027-01-01'` version. The pinned corpus confirms the pre-fix encoding disagreed with the source for 2027+: HB 463 rewrites (a)(5)(A)(xiii) to end \"on or before December 31, 2026\" and adds \"(xiv) For taxable years beginning on or after January 1, 2027 ... $70,000.00 for each taxpayer meeting the eligibility requirement set forth in division (iii)\", while the standard deduction \"shall be increased by $375.00/$750.00 annually beginning on January 1, 2027\" subject to the paragraph (1.1) delay tests — so an open-ended $15,000/$30,000/$65,000 asserted amounts the source does not support past 2026. The module already listed `us-ga/statute/session-laws/2026/hb463/document-1` in its corpus_citation_paths and already encoded HB 463's 2026 amounts, so this is a correction of claimed scope, not new coverage. I considered amount_mismatch (the 65000→70000 cell) but that value lands in a newly added window rather than correcting a value inside an existing one, and the three standard-deduction rules change no number at all — the unifying, pinned mechanism is the effective period.",
+    "verifier_quote": "     versions:\n       - effective_from: '1989-01-01'\n+        effective_to: '2026-12-31'\n         values:\n...\n           12: 65000\n+      - effective_from: '2027-01-01'\n+        values:\n...\n+          12: 70000",
+    "verifier_notes": "Source verification (corpus release us-rulespec-2026-07-22-current, corpus commit c5af541326e0): codified 48-7-27(a)(5)(A)(xiii) in the pinned text stops at \"For taxable years beginning on or after January 1, 2012 ... $35,000.00 ... division (i) or (ii) ... or an amount of $65,000.00 ... division (iii)\" with no end date, and HB 463 SECTION 2-3 supplies both the December 31, 2026 cutoff and division (xiv). Verbatim HB 463: \"such deduction shall be increased by $375.00 annually beginning on January 1, 2027, until such deduction reaches $18,000.00, provided that such increases in such deduction shall be subject to delays as provided in paragraph (1.1)\".\n\nA SECOND, coexisting fidelity defect is in the same diff and a reviewer may want it split out as its own case: pre-fix, `retirement_income_exclusion_band` was purely year-based (band 12 = current period → 65000), so a 62-to-64-year-old or permanently disabled taxpayer received $65,000 where the codified statute grants $35,000 under divisions (i)/(ii). The fix adds `retirement_income_exclusion_amount_for_age_62_to_64_or_disabled` (35000) and the derived `retirement_income_exclusion_amount_for_taxpayer` branching on `taxpayer_is_65_years_of_age_or_older_during_any_part_of_taxable_year`. That strand is unrepresented_clause (or wrong_entity_or_scope), not wrong_period; I kept the period kind because it covers four of the rules touched and matches the pinned rule_path rules[retirement_income_exclusion_amount].versions[0].effective_to.\n\nAlso in the diff but non-decisive/provenance-only: `source: 48-7-27(a)` → `O.C.G.A. § 48-7-27(a)(1)(B)` and `48-7-27(a)(1)(C)` → `O.C.G.A. § 48-7-27(a)(1)(B)`. Note the joint-return rule is HB 463's division (i) and the single/HOH/separate rules its division (ii); both are now labeled just (a)(1)(B), which is slightly less precise than before for the joint rule, but citation-string-only and mechanical.\n\nCommands run were read-only (git show, cat, sed, resolve_provision.py). Confidence held at 0.8 rather than higher only because the commit is a 4-module campaign wrap-up whose message is generic; the module-1 diff itself is unambiguous.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Multi-defect module; I picked the retirement-exclusion window as the decisive path because it both closes the timeless 1989-onward version and adds the corrected 2027 table (band 12: 65000 -> 70000). The parallel and equally supported defect is the three standard-deduction rules gaining effective_to 2026-12-31 plus new deferred_outputs entries for the contingent 2027 increases (same pattern as index 0). A third, distinct defect corrected here is an unrepresented_clause: pre-fix the single indexed retirement_income_exclusion_amount applied to every eligible taxpayer, while O.C.G.A. 48-7-27(a)(5)(A)(xiii) (read via the pinned corpus) sets '$35,000.00 for each taxpayer meeting the eligibility requirement set forth in division (i) or (ii) ... or an amount of $65,000.00 for each taxpayer meeting the eligibility requirement set forth in division (iii)'; the fix adds retirement_income_exclusion_amount_for_age_62_to_64_or_disabled (35000) and the derived retirement_income_exclusion_amount_for_taxpayer branch. HB 463 text confirmed for the 2027 division (xiv) $35,000/$70,000 split and the $375.00/$750.00 deduction escalators. The commit body is empty, so the quote is from the PR body; it names both the contingent-2027 deductions and the retirement-exclusion amounts/eligibility branches. Also present in the diff but mechanical: source-string normalizations (e.g. 48-7-27(a) -> O.C.G.A. 48-7-27(a)(1)(B)) and added effective-period excerpts. | verifier confirmed at 0.80",
+  "family_id": "us-5474dca0-e6760c23ef59",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

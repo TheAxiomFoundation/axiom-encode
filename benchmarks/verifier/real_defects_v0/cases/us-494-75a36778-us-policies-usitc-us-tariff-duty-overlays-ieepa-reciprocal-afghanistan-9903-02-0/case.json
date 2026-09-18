@@ -1,0 +1,163 @@
+{
+  "id": "us-494-75a36778-us-policies-usitc-us-tariff-duty-overlays-ieepa-reciprocal-afghanistan-9903-02-0",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "75a3677870cc38e35dffbe9099f363a82bde53aa",
+  "parent_commit": "91d3b50b9c75b266a1c54596477171fd40cf44d3",
+  "commit_date": "2026-08-02",
+  "commit_subject": "Sol r1 fixes: afghanistan 02.78 exception, five floor modules completed, terminated predecessors, FALSE-origin witnesses",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1197",
+  "module_path": "us/policies/usitc/us-tariff-duty/overlays/ieepa/reciprocal-afghanistan-9903-02-02.yaml",
+  "corpus_citation_path": "us/statute/hts/9903.02.02",
+  "corpus_citation_paths_all": [
+    "us/statute/hts/9903.02.02"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.92,
+  "description": "includes 9903.02.78 per the rev12 heading text; verbatim atom added",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        68,
+        68
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        68,
+        68
+      ],
+      [
+        88,
+        88
+      ]
+    ],
+    "rule_names": [
+      "reciprocal_afghanistan_heading_product_exception_applies"
+    ],
+    "rule_path": "rules[reciprocal_afghanistan_heading_product_exception_applies].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "070a4b4169b60c91b71a17ee6f9b9361ea86ea5b2fd88f0fff0745c10e5c2f8e",
+  "post_fix_artifact_sha256": "b04f29b95fc17061268284c5f5f2ab49eceeedf08b92c364f4ec86e4dfff840a",
+  "provision_sha256": "3bd6aa7d4492a5d31f1bdbf1e4921d80890b0cf964a35d08b06ff10b70b2cf30",
+  "provision_chars": 831,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/hts/9903.02.02",
+    "provision_file": "data/corpus/provisions/us/statute/2026-08-03-rulespec-hts-current-with-legacy-aluminum.jsonl",
+    "provision_file_sha256": "7406b42f2f6a35bd43ed67d7fe4d0f7323e12c3e49c67b8d6699f9978d23b770",
+    "line_number": 1162,
+    "record_id": "10bdff35-e2d0-5920-b9ea-9d519fa3ea5e",
+    "stored_body_sha256": "3bd6aa7d4492a5d31f1bdbf1e4921d80890b0cf964a35d08b06ff10b70b2cf30",
+    "resolved_text_sha256": "3bd6aa7d4492a5d31f1bdbf1e4921d80890b0cf964a35d08b06ff10b70b2cf30",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-31",
+    "source_as_of": "2026-08-01",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "05ce3d3dd21b0ced76f9af40c2ecc02c1c57d9c6",
+    "requested_citation_path": "us/statute/hts/9903.02.02",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.02'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.02'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.02'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.02'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.02'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.02'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.02'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.02'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.02'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.02'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.02'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.02'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.02'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.02'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.02'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.02'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "HTS 9903.02.02 excepts products described in headings 9903.01.30-9903.01.33 and 9903.02.78, but the encoded heading-product exception listed only the 9903.01.30-.33 set, so an article described in 9903.02.78 would wrongly have taken the +15% reciprocal duty.",
+    "triage_notes": "Provision read through the pinned corpus release: the source text is verbatim 'except for products described in headings 9903.01.30-9903.01.33 and 9903.02.78, and except as provided for in headings 9903.01.34 and 9903.02.01'. The fix adds the disjunct article_described_in_heading_9903_02_78 to the formula and correspondingly widens the proof-atom excerpt and the module summary (provenance carried along with the substantive fix). The companion test adds a true-witness case binding the new input. This is the F1 finding of the family-B r1 cross-review; PR #1197 returned zero reviews/review comments in the bundle, so the commit message is the evidence.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.94,
+    "verifier_justification": "I tried to refute this as excerpt/summary-only provenance or as added coverage the module never claimed, and both attempts fail: the diff changes the executable formula of `reciprocal_afghanistan_heading_product_exception_applies`, adding the disjunct `or article_described_in_heading_9903_02_78`, and that judgment feeds `reciprocal_afghanistan_additional_duty_applies` via `and not ...`, so the pre-fix module levied the +15% on an article described in 9903.02.78. The pinned corpus text of us/statute/hts/9903.02.02 (release us-rulespec-2026-08-03, provision sha 3bd6aa7d…) reads \"except for products described in headings 9903.01.30-9903.01.33 and 9903.02.78\", and the pre-fix formula covered only .30, .31, and the .32/.33 imports, so the omission was a disagreement with the cited source, not a scope enhancement. The rule already claimed to encode the whole heading-product exception set, so this is a missing exception being added back, which is exactly unrepresented_clause rather than amount, boundary, or polarity. The concurrent summary and proof-atom excerpt edits are provenance riding along with the meaning change, not the substance of it.",
+    "verifier_quote": "+          or article_described_in_heading_9903_02_78",
+    "verifier_notes": "Decisive evidence is diff line 27 of scratchpad/diffs/us/75a3677870/001.diff plus the resolved provision text. Adversarial angle worth recording but not enough to reclassify: 9903.02.78 may have entered the HTS text after the module's single version window opens (effective_from '2025-08-07'), and the fix adds the exception to that one version without a version split, so if .02.78 postdates 2025-08-07 the module now applies the exception slightly retroactively. That is a separate, unfixed period question about the repaired module, not a better description of the defect this commit corrected; the resolver only exposes the current expression (expression_date 2026-07-31), so I could not date the heading's insertion read-only. Also note commit message F1 states the fix \"includes 9903.02.78 per the rev12 heading text; verbatim atom added and a true-witness test case binds the new input\" — i.e. a companion test case accompanies the formula change, consistent with a meaning change rather than bookkeeping. Other modules in this commit (floor stubs, terminated predecessors) are separate candidates and were not assessed here.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Provision read through the pinned corpus release: the source text is verbatim 'except for products described in headings 9903.01.30-9903.01.33 and 9903.02.78, and except as provided for in headings 9903.01.34 and 9903.02.01'. The fix adds the disjunct article_described_in_heading_9903_02_78 to the formula and correspondingly widens the proof-atom excerpt and the module summary (provenance carried along with the substantive fix). The companion test adds a true-witness case binding the new input. This is the F1 finding of the family-B r1 cross-review; PR #1197 returned zero reviews/review comments in the bundle, so the commit message is the evidence. | verifier confirmed at 0.94",
+  "family_id": "us-75a36778-71cd7d8bf97d",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

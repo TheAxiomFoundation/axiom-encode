@@ -1,0 +1,276 @@
+{
+  "id": "us-449-7f2603e8-us-policies-income-tax-qualified-business-income-deduction-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "7f2603e881d61f4d9ee974e83614911802aff016",
+  "parent_commit": "d5ecdecda8f89bdb75754ad3ba474895aa000a80",
+  "commit_date": "2026-07-24",
+  "commit_subject": "fix: import 2026 QBID threshold parameters",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1004",
+  "module_path": "us/policies/income_tax/qualified_business_income_deduction_pipeline.yaml",
+  "corpus_citation_path": "us/statute/26/199A",
+  "corpus_citation_paths_all": [
+    "us/statute/26/199A",
+    "us/guidance/irs/rev-proc-2025-32/page-21",
+    "us/guidance/irs/rev-proc-2025-32/page-22"
+  ],
+  "corpus_release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+  "corpus_release_content_sha256": "cb275c76c4f07f8ad37470a32296bb1763e5db853d152697524ab07021b6d544",
+  "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.4,
+  "description": "Review history: 4 blind rounds; 8/9 original findings resolved by correct encoding or proven fail-closed guards, the 9th (threshold provenance) by the #1009 import at this head.",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        29,
+        36
+      ],
+      [
+        41,
+        46
+      ],
+      [
+        66,
+        71
+      ],
+      [
+        73,
+        74
+      ],
+      [
+        110,
+        110
+      ],
+      [
+        114,
+        114
+      ],
+      [
+        116,
+        116
+      ],
+      [
+        121,
+        121
+      ],
+      [
+        134,
+        149
+      ],
+      [
+        151,
+        152
+      ],
+      [
+        155,
+        155
+      ],
+      [
+        160,
+        163
+      ],
+      [
+        165,
+        181
+      ],
+      [
+        183,
+        186
+      ],
+      [
+        188,
+        188
+      ],
+      [
+        191,
+        191
+      ],
+      [
+        195,
+        195
+      ],
+      [
+        208,
+        211
+      ],
+      [
+        213,
+        213
+      ],
+      [
+        222,
+        226
+      ],
+      [
+        309,
+        310
+      ],
+      [
+        466,
+        466
+      ],
+      [
+        479,
+        489
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        29,
+        34
+      ],
+      [
+        39,
+        44
+      ],
+      [
+        64,
+        66
+      ],
+      [
+        68,
+        70
+      ],
+      [
+        83,
+        91
+      ],
+      [
+        111,
+        128
+      ],
+      [
+        133,
+        133
+      ],
+      [
+        137,
+        143
+      ],
+      [
+        145,
+        145
+      ],
+      [
+        150,
+        150
+      ],
+      [
+        163,
+        167
+      ],
+      [
+        169,
+        171
+      ],
+      [
+        173,
+        173
+      ],
+      [
+        175,
+        175
+      ],
+      [
+        180,
+        184
+      ],
+      [
+        186,
+        190
+      ],
+      [
+        192,
+        196
+      ],
+      [
+        198,
+        198
+      ],
+      [
+        201,
+        201
+      ],
+      [
+        205,
+        211
+      ],
+      [
+        224,
+        240
+      ],
+      [
+        242,
+        242
+      ],
+      [
+        251,
+        255
+      ],
+      [
+        338,
+        338
+      ],
+      [
+        494,
+        494
+      ]
+    ],
+    "rule_names": [
+      "pipeline_qualified_business_income_threshold_amount",
+      "pipeline_qbi_phasein_range_end",
+      "pipeline_qbi_phasein_range",
+      "pipeline_filing_status_is_enumerated",
+      "federal_qualified_business_income_deduction"
+    ],
+    "rule_path": "rules[pipeline_qualified_business_income_threshold_amount].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "1f41ad574f0031b50eade41d1c884d57ec416206facc46ab6db4dab76a520aff",
+  "post_fix_artifact_sha256": "74284b2f748f98e7b22d46a9ce15f301983318654466616891188cdb598b03dc",
+  "provision_sha256": "0af6c1cceb7351a690302b8773d7c90d8ed3711df8c3748f3b07603e3c96c53d",
+  "provision_chars": 29125,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/199A",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+    "provision_file_sha256": "03ddda0b2bcd59345ec4efa1daaf1c77b423a5166852fd80bb4cf00c0bd8e461",
+    "line_number": 39,
+    "record_id": "09e89e17-8e86-5caa-b36d-2de501af862d",
+    "stored_body_sha256": "0af6c1cceb7351a690302b8773d7c90d8ed3711df8c3748f3b07603e3c96c53d",
+    "resolved_text_sha256": "0af6c1cceb7351a690302b8773d7c90d8ed3711df8c3748f3b07603e3c96c53d",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "5dfd89d131564e4ee0e1e763571dbb5d7fc7f5e7",
+    "requested_citation_path": "us/statute/26/199A",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "unclear",
+    "pre_fix_wrong_because": "unclear: the pre-fix threshold rule carried a `parameter_table` proof atom citing the Rev. Proc. 2025-32 section 4.26 table (excerpt only the column headers, \"Filing Status Threshold amount\"), but its formula was an unconstrained caller-supplied input `qualified_business_income_threshold_amount_2026` rather than the source's published $403,500 / $201,775 / $201,750 amounts, so the module asserted a source grounding for a value it did not actually encode.",
+    "triage_notes": "Read the full diff, the pre-fix and post-fix module, the imported Rev. Proc. module, and the companion test diff; also resolved us/guidance/irs/rev-proc-2025-32/page-22 through the pinned corpus (table reads exactly \"Married Individuals Filing Joint Returns $403,500 $553,500 Married Individuals Filing Separate Returns $201,775 $276,775 All Other Returns $201,750 $276,750\"), and the nine imported parameters in us/policies/irs/rev-proc-2025-32/qualified-business-income.yaml are 403500/553500, 201775/276775, 201750/276750 and widths 150000/75000/75000. NO NUMBER CHANGED anywhere in this commit: the pre-fix width map sent filing status 2 to the $75,000 'other' width and the imported separate width is also $75,000; the pre-fix ceiling test `threshold + range` equals the imported range end for every category; the companion fixtures had been feeding the exact official amounts, so every expected output is unchanged. That is why I did not call this fidelity. Against that: the pre-fix module explicitly disclaimed encoding the threshold at all -- its summary said \"The runtime amount and category are a temporary upstream-resolved boundary; once PR #1009 is available, its encoded threshold should replace both\" -- and it failed closed (final output 0) whenever the attested category did not match filing status, so for any compliant caller the pre-fix and post-fix meanings coincide. Under the task's rule that a change adding precision or grounding the module never claimed is at most 'unclear', this lands as unclear rather than fidelity. It is NOT 'mechanical' because two inputs were deleted, four rule formulas were rewritten, and two rules were replaced -- it is more than proof-atom/excerpt bookkeeping, even though its character is provenance. If a reviewer wants the fidelity reading, the kind is untraceable_branch (a value with no basis in the cited source, re-grounded by the fix). One genuine hazard handled inside the same commit: moving the per-status selection into `match filing_status` made the engine lower the last arm as a fallback, so status 9 would silently take the all-other parameters; the new `pipeline_filing_status_is_enumerated` judgment guards the final against that, and a new companion case at filing_status 9 proves the 0 result (the pre-fix category-mismatch case that proved fail-closed behavior was replaced by it). The commit message body is empty; the only narrative evidence is the PR #1004 body, which describes the whole composition PR rather than this commit alone, and there are no PR reviews or review comments in the bundle. The PR body's own words for the QBID piece are \"imports the nine per-category 2026 parameters from the merged Rev. Proc. module (#1009) and selects at the pipeline's declared filing-status boundary\" and it labels the resolved review finding \"threshold provenance\", which supports the provenance reading over a meaning-correction reading. Bundle had exactly the one expected module index [0]; the accompanying .test.yaml is listed separately as a test file.",
+    "verifier_verdict": "not_a_defect",
+    "verifier_defect_kind": "none",
+    "verifier_confidence": 0.62,
+    "verifier_justification": "Nothing the pre-fix module encoded contradicted Rev. Proc. 2025-32 §4.26: the local widths it deleted ('150000' joint, '75000' otherwise) are exactly the published widths ($553,500-$403,500; $276,775-$201,775; $276,750-$201,750 per the resolved page-22 text), and the rewritten ceiling `threshold + range` → `pipeline_qbi_phasein_range_end` is algebraically identical, so not one numeric expectation in the companion suite changed (the only test edits delete the two retired inputs and swap the guard fixture from an attestation mismatch to filing_status 9). The module also did not claim to encode the amounts: its summary declared the caller-supplied threshold a temporary boundary pending the #1009 Rev. Proc. module, which \"cannot be imported while this branch must validate independently,\" and status 9 already failed closed pre-fix through the category/status validity rule, so the new enumerated-status guard fixed no fail-open either. What landed is the scheduled dependency import — the PR itself calls the resolved finding \"threshold provenance\" — i.e. grounding a value that was previously delegated, not re-grounding a branch that the source contradicted; per the rubric, provenance corrections are not fidelity. The one residual argument for a defect, the header-only `parameter_table` atom sitting on a formula that was an input, is a proof-atom/excerpt overclaim, which the rubric classes as mechanical provenance rather than untraceable_branch.",
+    "verifier_quote": "-    status. The runtime amount and category are a temporary upstream-resolved\n-    boundary; once PR #1009 is available, its encoded threshold should replace\n-    both. No dollar amount is hard-coded into that temporary validity rule.",
+    "verifier_notes": "Verified against the pinned release (us-rulespec-2026-07-24-snap-cms-pit-union, provision us/guidance/irs/rev-proc-2025-32/page-22): \"Married Individuals Filing Joint Returns $403,500 $553,500 Married Individuals Filing Separate Returns $201,775 $276,775 All Other Returns $201,750 $276,750\". The imported parameters in us/policies/irs/rev-proc-2025-32/qualified-business-income.yaml at 7f2603e881 are 403500/201775/201750, 553500/276775/276750, and widths 150000/75000/75000 — the separate width (75000) equals the pre-fix `pipeline_qbi_phasein_range_other` value that status 2 already mapped to, and status 4 (surviving spouse) maps to all-other both before and after, so the filing-status mapping is unchanged. Behavioral delta for any compliant caller: none; the only real change is that a caller can no longer supply an off-table threshold with a matching category attestation. If a reviewer wants to keep this case despite the above, the honest framing is hardening an explicitly temporary, documented input boundary into source-encoded parameters (provenance hardening), not untraceable_branch: no branch, condition, or value in the pre-fix text lacked a source basis, and the fix corrected no number, boundary strictness, clause, date, scope, or boolean logic. Not mechanical either, by the letter — formulas, inputs, and a guard rule did change — which is why \"not_a_defect\" rather than \"mechanical\" is the right refutation.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Read the full diff, the pre-fix and post-fix module, the imported Rev. Proc. module, and the companion test diff; also resolved us/guidance/irs/rev-proc-2025-32/page-22 through the pinned corpus (table reads exactly \"Married Individuals Filing Joint Returns $403,500 $553,500 Married Individuals Filing Separate Returns $201,775 $276,775 All Other Returns $201,750 $276,750\"), and the nine imported parameters in us/policies/irs/rev-proc-2025-32/qualified-business-income.yaml are 403500/553500, 201775/276775, 201750/276750 and widths 150000/75000/75000. NO NUMBER CHANGED anywhere in this commit: the pre-fix width map sent filing status 2 to the $75,000 'other' width and the imported separate width is also $75,000; the pre-fix ceiling test `threshold + range` equals the imported range end for every category; the companion fixtures had been feeding the exact official amounts, so every expected output is unchanged. That is why I did not call this fidelity. Against that: the pre-fix module explicitly disclaimed encoding the threshold at all -- its summary said \"The runtime amount and category are a temporary upstream-resolved boundary; once PR #1009 is available, its encoded threshold should replace both\" -- and it failed closed (final output 0) whenever the attested category did not match filing status, so for any compliant caller the pre-fix and post-fix meanings coincide. Under the task's rule that a change adding precision or grounding the module never claimed is at most 'unclear', this lands as unclear rather than fidelity. It is NOT 'mechanical' because two inputs were deleted, four rule formulas were rewritten, and two rules were replaced -- it is more than proof-atom/excerpt bookkeeping, even though its character is provenance. If a reviewer wants the fidelity reading, the kind is untraceable_branch (a value with no basis in the cited source, re-grounded by the fix). One genuine hazard handled inside the same commit: moving the per-status selection into `match filing_status` made the engine lower the last arm as a fallback, so status 9 would silently take the all-other parameters; the new `pipeline_filing_status_is_enumerated` judgment guards the final against that, and a new companion case at filing_status 9 proves the 0 result (the pre-fix category-mismatch case that proved fail-closed behavior was replaced by it). The commit message body is empty; the only narrative evidence is the PR #1004 body, which describes the whole composition PR rather than this commit alone, and there are no PR reviews or review comments in the bundle. The PR body's own words for the QBID piece are \"imports the nine per-category 2026 parameters from the merged Rev. Proc. module (#1009) and selects at the pipeline's declared filing-status boundary\" and it labels the resolved review finding \"threshold provenance\", which supports the provenance reading over a meaning-correction reading. Bundle had exactly the one expected module index [0]; the accompanying .test.yaml is listed separately as a test file. | verifier said not_a_defect at 0.62 (below 0.7); kept as unclear",
+  "family_id": "us-7f2603e8-3d4f56be7d4a",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

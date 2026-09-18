@@ -1,0 +1,207 @@
+{
+  "id": "uk-009-60501ec6-policies-govuk-scottish-child-payment",
+  "jurisdiction": "uk",
+  "repo": "TheAxiomFoundation/rulespec-uk",
+  "commit": "60501ec6fd17753059cc604f61be7c12096ecff0",
+  "parent_commit": "00faa4332f510bbabbbef5456e057ce83a74da3a",
+  "commit_date": "2026-06-10",
+  "commit_subject": "ground policy surfaces in ingested sources",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-uk/pull/44",
+  "module_path": "policies/govuk/scottish-child-payment.yaml",
+  "corpus_citation_path": "uk/guidance/mygovscot/scottish-child-payment",
+  "corpus_citation_paths_all": [
+    "uk/guidance/mygovscot/scottish-child-payment",
+    "uk/guidance/mygovscot/scottish-child-payment/who-should-apply",
+    "uk/regulation/uksi/2013/376/schedule/4/paragraph/7"
+  ],
+  "corpus_release": "uk-rulespec-2026-07-12",
+  "corpus_release_content_sha256": "ec59e4017cd0c9b935ffed9092506fcc15313f58fe1ed18c1af909c8d0cd47e1",
+  "corpus_commit": "3cc9219ac4ce8d6f0bb30ad08960209f699a7ac5",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.62,
+  "description": "the seven remaining surfaces re-encoded against ingested source slices",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        7,
+        7
+      ],
+      [
+        10,
+        10
+      ],
+      [
+        16,
+        16
+      ],
+      [
+        18,
+        19
+      ],
+      [
+        24,
+        24
+      ],
+      [
+        27,
+        27
+      ],
+      [
+        29,
+        29
+      ],
+      [
+        33,
+        33
+      ],
+      [
+        37,
+        37
+      ],
+      [
+        39,
+        39
+      ],
+      [
+        50,
+        50
+      ],
+      [
+        52,
+        53
+      ],
+      [
+        55,
+        55
+      ],
+      [
+        57,
+        57
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        7,
+        8
+      ],
+      [
+        11,
+        15
+      ],
+      [
+        17,
+        17
+      ],
+      [
+        23,
+        23
+      ],
+      [
+        28,
+        28
+      ],
+      [
+        31,
+        31
+      ],
+      [
+        33,
+        33
+      ],
+      [
+        37,
+        67
+      ],
+      [
+        71,
+        71
+      ],
+      [
+        73,
+        73
+      ],
+      [
+        77,
+        81
+      ],
+      [
+        88,
+        102
+      ],
+      [
+        104,
+        104
+      ],
+      [
+        106,
+        107
+      ],
+      [
+        109,
+        109
+      ],
+      [
+        111,
+        111
+      ]
+    ],
+    "rule_names": [
+      "entitled_to_scottish_child_payment_for_child",
+      "scottish_child_payment_weekly_amount_for_child",
+      "scottish_child_payment_annual_amount"
+    ],
+    "rule_path": "rules[entitled_to_scottish_child_payment_for_child].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "ed7d4bd824e084cc936f1cd4de0eacb3c53b989f20940ae86200d53b0c19fbeb",
+  "post_fix_artifact_sha256": "f495d58ba31d91c821bf6685973551a8e087cdcd508f5dc81177c02039560fc7",
+  "provision_sha256": "927cc53f7aa3bf2986814517670e5975f7b86035df4960da096b391dcdfac745",
+  "provision_chars": 261,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "uk/guidance/mygovscot/scottish-child-payment",
+    "provision_file": "data/corpus/provisions/uk/guidance/2026-07-10-uk-rulespec-source-promotion.jsonl",
+    "provision_file_sha256": "91208a858cdfd837af1d01cbcc4bbe7c57e6e37b681b70b02d0489ee3dfebc2b",
+    "line_number": 15,
+    "record_id": "9b96b428-fe0b-572c-807f-80a0c5f45787",
+    "stored_body_sha256": "927cc53f7aa3bf2986814517670e5975f7b86035df4960da096b391dcdfac745",
+    "resolved_text_sha256": "927cc53f7aa3bf2986814517670e5975f7b86035df4960da096b391dcdfac745",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-06-10",
+    "source_as_of": "2026-06-10",
+    "corpus_commit": "3cc9219ac4ce8d6f0bb30ad08960209f699a7ac5",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "earliest_release_after_toolchain_corpus_ref",
+    "fallback_index": 1,
+    "toolchain_corpus_ref": "de9b2eb9bcd03356cc8d5855216f2c83e7a085ab",
+    "requested_citation_path": "uk/guidance/mygovscot/scottish-child-payment",
+    "release_errors_before_success": [
+      {
+        "release": "uk-legislation-pilot",
+        "error": "No active corpus source found for 'uk/guidance/mygovscot/scottish-child-payment'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module gated the payment on two PolicyEngine inputs - an opaque `is_scottish_child_payment_eligible` flag and a `would_claim_scottish_child_payment` takeup gate - rather than on the conditions the source states (applicant lives in Scotland, child under the maximum age, applicant or partner on a qualifying benefit), and the takeup gate has no basis in the Scottish Child Payment Regulations 2020 at all.",
+    "triage_notes": "Same commit-wide pattern as indices 0, 1, 4 and 6: a PolicyEngine wrapper replaced by explicit source conditions. Kind chosen as untraceable_branch because the decisive removal is the `would_claim_scottish_child_payment` takeup branch (and the opaque eligibility flag); a reviewer could instead read the newly added Scotland / child-age / qualifying-benefit conditions as unrepresented_clause. The maximum child age is now imported from SSI 2020/351 reg 18 rather than left to the opaque flag, and the boundary is `child_age < scottish_child_payment_maximum_child_age` matching the guidance's \"under 16 years of age\". Commit/PR text names this module only generically (\"Scottish child payment\"), hence the mid confidence. The mygov.scot slices were read: they state \"every child you look after who's under 16 years of age\" and \"you or your partner are getting one of the qualifying benefits\".",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "untraceable_branch",
+    "verifier_confidence": 0.78,
+    "verifier_justification": "The pre-fix `scottish_child_payment_annual_amount` formula gated payment on `is_scottish_child_payment_eligible and would_claim_scottish_child_payment`, two opaque PolicyEngine inputs, while the module declared `proof_validation.required: true` and cited only `uk/regulation/ssi/2020/351/20` and the UC Regs Sch 4 para 7 annualisation rule; I read reg 20 through the pinned release and it covers only the value (£28.20 per week) and form of the payment, so neither conjunct is traceable to any cited source. The fix replaces that gate with `person_lives_in_scotland and child_age < scottish_child_payment_maximum_child_age and applicant_or_partner_receives_qualifying_benefit`, which is verbatim what the newly cited mygov.scot slice states (\"as long as you live in Scotland... you or your partner are getting one of the qualifying benefits\"), so encoded meaning changed (a household eligible but modelled as non-claiming now gets a non-zero amount) — not formatting, metadata or provenance. The \"PolicyEngine-alignment surface\" framing in the old summary does not exempt it, because the module asserted source verification and a proof atom binding that formula to reg 20; Nikhil's own PR comment calls this pattern debt that \"would reintroduce exactly that debt\". Kind fits untraceable_branch rather than unrepresented_clause or wrong_entity_or_scope: the entity/period of the surviving surface are unchanged, and the decisive move is deleting a branch with no basis in the cited provision and re-grounding the rest.",
+    "verifier_quote": "-          if is_scottish_child_payment_eligible and would_claim_scottish_child_payment: scottish_child_payment_weekly_amount * scottish_child_payment_weeks_in_year else: 0",
+    "verifier_notes": "Caveat on the first reader's wording: the claim/application condition is not entirely baseless in the SCP Regulations — reg 18(a) (resolved through the pinned release) makes eligibility depend on \"the individual has made an application\". So \"no basis in the Scottish Child Payment Regulations 2020 at all\" is overstated; the correct statement is that the pre-fix module cited neither reg 18 nor any application provision (only reg 20, value and form), and a PolicyEngine `would_claim_*` takeup imputation is not the reg 18(a) application condition. The untraceable_branch kind survives on the cited-source test and on \"formulas grounded on the wrong provision\".\n\nResidual issues a reviewer may want flagged separately (not part of this classification): (1) `scottish_child_payment_weeks_in_year` is still grounded on UC Regs 2013 Sch 4 para 7, a renter relevant-payments monthly-conversion rule with nothing to do with SCP annualisation — uncorrected by this commit, and the excerpt was swapped from the apt \"weekly payments are multiplied by 52\" to the weaker \"calculated as a monthly amount\" (both verbatim in the provision, so this sub-change is provenance-only/mechanical and arguably a regression); (2) every version's `effective_from` moved from '2026-04-06' to '0001-01-01', making a 2026-rate encoding timeless — a potential wrong_period_or_effective_date regression introduced by the fix; (3) the post-fix module imports reg 18 only for the maximum child age and still omits reg 18(a) (application) and 18(c) (only one individual per child), while the guidance it now cites says \"Only one person can get Scottish Child Payment for a child\" — a remaining unrepresented_clause gap.\n\nNew rules `entitled_to_scottish_child_payment_for_child` and `scottish_child_payment_weekly_amount_for_child` are added scope, but the pre-existing annual surface's formula itself changed meaning, so this is not the \"merely adds new outputs\" carve-out. Provenance note: authored by Claude, not the supervised encoder (\"Ah I see I should have got the encoder to do this rather than claude... will refile\"), though the PR was merged as-is.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Same commit-wide pattern as indices 0, 1, 4 and 6: a PolicyEngine wrapper replaced by explicit source conditions. Kind chosen as untraceable_branch because the decisive removal is the `would_claim_scottish_child_payment` takeup branch (and the opaque eligibility flag); a reviewer could instead read the newly added Scotland / child-age / qualifying-benefit conditions as unrepresented_clause. The maximum child age is now imported from SSI 2020/351 reg 18 rather than left to the opaque flag, and the boundary is `child_age < scottish_child_payment_maximum_child_age` matching the guidance's \"under 16 years of age\". Commit/PR text names this module only generically (\"Scottish child payment\"), hence the mid confidence. The mygov.scot slices were read: they state \"every child you look after who's under 16 years of age\" and \"you or your partner are getting one of the qualifying benefits\". | verifier confirmed at 0.78",
+  "family_id": "uk-60501ec6-a8e11462f598",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

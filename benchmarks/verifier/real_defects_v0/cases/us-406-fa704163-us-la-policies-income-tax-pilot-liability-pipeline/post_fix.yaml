@@ -1,0 +1,54 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us-la/statute/47:32
+  summary: |-
+    Composed Louisiana individual income-tax pipeline for tax year 2026. It
+    accepts one TaxUnit-level completed-return Louisiana taxable-income
+    boundary and applies the three per cent rate imported from the encoded
+    La. Rev. Stat. 47:32 module. This matches PolicyEngine's la_taxable_income
+    feeding la_income_tax_before_non_refundable_credits. The completed-return
+    boundary already reflects the upstream adjusted-gross-income, federal-tax
+    deduction, and standard-or-itemized-deduction construction, so this module
+    makes no independent claim about that chain. Nonrefundable credits and all
+    other credits are outside this before-credit target. Both the imported
+    rate and this calculation are bounded to 2026 so adjacent years fail
+    closed.
+imports:
+  - us-la:statutes/47:32#individual_income_tax_rate
+rules:
+  - name: la_pit_pilot_income_tax_liability
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: La. Rev. Stat. 47:32(A), three per cent of Louisiana taxable income before nonrefundable credits
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us-la:statutes/47:32#individual_income_tax_rate
+              output: individual_income_tax_rate
+              hash: sha256:76e2500fdf9953c4315b5a8e0060e747ceac9ffb74c8cd99c02fa40e77ebdaea
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-la/statute/47:32
+              excerpt: "taxable income of an individual shall be computed at the rate of three percent on net income"
+    versions:
+      - effective_from: '2026-01-01'
+        effective_to: '2026-12-31'
+        formula: |-
+          max(0, la_pit_pilot_louisiana_taxable_income * individual_income_tax_rate)
+inputs:
+  - name: la_pit_pilot_louisiana_taxable_income
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    description: Completed-return Louisiana taxable income supplied by the caller as the sole upstream oracle boundary.

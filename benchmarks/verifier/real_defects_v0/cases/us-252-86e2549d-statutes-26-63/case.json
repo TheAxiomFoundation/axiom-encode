@@ -1,0 +1,195 @@
+{
+  "id": "us-252-86e2549d-statutes-26-63",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "86e2549dc760f652ab5419fa52d4cb6eeba1f87b",
+  "parent_commit": "b3801ee4eb82f8fc2c753d809c8b36d9ae6c42c2",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Subject says Encode, but it re-encodes existing 63, 63(c), 63(c)(5) and rev-proc standard-deduction modules: taxable_income restructured into 63(a)/(b) branches, standard_deduction effective_from 2026 to 2018, inputs and rule sets replaced; unsure.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/25",
+  "module_path": "statutes/26/63.yaml",
+  "corpus_citation_path": "us/statute/26/63",
+  "corpus_citation_paths_all": [
+    "us/statute/26/63"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.49,
+  "description": "Encode upstream IRC 63 dependencies",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        3,
+        7
+      ],
+      [
+        10,
+        11
+      ],
+      [
+        13,
+        13
+      ],
+      [
+        19,
+        19
+      ],
+      [
+        23,
+        30
+      ],
+      [
+        36,
+        36
+      ],
+      [
+        40,
+        47
+      ],
+      [
+        53,
+        53
+      ],
+      [
+        57,
+        60
+      ],
+      [
+        67,
+        67
+      ],
+      [
+        71,
+        76
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        2,
+        4
+      ],
+      [
+        6,
+        7
+      ],
+      [
+        10,
+        19
+      ],
+      [
+        21,
+        21
+      ],
+      [
+        27,
+        47
+      ],
+      [
+        51,
+        59
+      ],
+      [
+        65,
+        90
+      ],
+      [
+        94,
+        147
+      ],
+      [
+        153,
+        161
+      ],
+      [
+        165,
+        167
+      ],
+      [
+        174,
+        192
+      ],
+      [
+        196,
+        196
+      ]
+    ],
+    "rule_names": [
+      "taxable_income",
+      "taxable_income_deductions",
+      "taxable_income_deductions_if_itemizing",
+      "taxable_income_deductions_if_not_itemizing",
+      "deductions_referred_to_in_subsection_b",
+      "taxable_income_for_individual_who_does_not_itemize",
+      "taxable_income_general_rule",
+      "itemized_deductions",
+      "itemized_deduction_allowed_for_taxable_year"
+    ],
+    "rule_path": "rules[taxable_income].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "c31d309d20a0c878267af1af9e3026155035da499ba361bbf4b95b2017c33abe",
+  "post_fix_artifact_sha256": "80199dfb3ac927110478a75c6d6c4a6ce9b515d0849ead84e0bb7f0eccd02d41",
+  "provision_sha256": "7fa5f5d72de7ef69a3543175d7f57f83aaee5defb237144d85afef68564f153b",
+  "provision_chars": 8017,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/63",
+    "provision_file": "data/corpus/provisions/us/statute/2026-05-10-tax-sections-r2026-07-15-self-contained-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "f48f152a03f99915c6ac9a847986e238ebeddd29ffb4199f0528c5e2a406eae4",
+    "line_number": 3,
+    "record_id": "7acfd1b0-b61a-5a75-ab49-380a365a45a2",
+    "stored_body_sha256": "7fa5f5d72de7ef69a3543175d7f57f83aaee5defb237144d85afef68564f153b",
+    "resolved_text_sha256": "7fa5f5d72de7ef69a3543175d7f57f83aaee5defb237144d85afef68564f153b",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2025-12-03",
+    "source_as_of": "2025-12-03",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us/statute/26/63",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/63'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/63'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/63'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/63'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix computed taxable income for both paths as max(0, adjusted_gross_income - exemptions - a hand-assembled deduction list) containing terms the cited text does not enumerate (wagering_losses_deduction, tip_income_deduction, overtime_income_deduction, additional_senior_deduction, auto_loan_interest_deduction, charitable_deduction_for_non_itemizers), rather than 63(a)'s 'gross income minus the deductions allowed by this chapter (other than the standard deduction)' and 63(b)'s closed list (1) standard deduction, (2) section 151, (3) 199A, (4) 170(p), (5) 224, (6) 225, (7) the 163(a)/163(h)(4)(A) portion.",
+    "triage_notes": "Provision READ via resolve_provision (us/statute/26/63, rulespec-commit 86e2549dc7): 63(a) and 63(b)(1)-(7) confirmed verbatim as quoted above. Kind is arguable between untraceable_branch (ungrounded terms and an AGI-minus-exemptions structure removed / re-grounded) and unrepresented_clause (the fix newly names section 151, 170(p), 224, 225 and imports 163's qualified_passenger_vehicle_loan_interest_deduction); I chose untraceable_branch because the pre-fix informal names were rough stand-ins for most of those items, while wagering_losses_deduction, additional_senior_deduction and the branch structure had no basis in the cited text. The fix also newly encodes 63(d) itemized_deductions and 63(e)(1) election, which the pre-fix cited in `source:` but never encoded. IMPORTANT regression introduced by this same commit: it deleted the max(0, ...) floor on taxable_income, and follow-up commit 9203ca050 'Repair taxable income nonnegative floor' restored it as max(0, ...) on both branches — so this module's post-fix state is not final and a judge scoring 'is the post-fix correct' would see a later repair.",
+    "verifier_verdict": "unclear",
+    "verifier_defect_kind": "untraceable_branch",
+    "verifier_confidence": 0.62,
+    "verifier_justification": "The first reader's specific untraceability claim does not survive the statute text: 63(b) itself enumerates \"(3) any deduction provided in section 199A, (4) the deduction provided in section 170(p), (5) the deduction provided in section 224, (6) the deduction provided in section 225 and ... (7) so much of the deduction allowed by section 163(a) as is attributable to the exception under section 163(h)(4)(A)\", which are exactly the pre-fix terms qualified_business_income_deduction, charitable_deduction_for_non_itemizers, tip_income_deduction, overtime_income_deduction and auto_loan_interest_deduction under non-statutory names, so the old non-itemizer branch tracked 63(b)'s closed list rather than contradicting it. What the commit actually does is a wholesale encoder re-run of the same citation (manifest goes backend codex -> openai, axiom_encode_version 0.2.64 -> 0.2.68, proof_validation now required, run_id afddc7ad \"apply-6\"), replacing every rule name, input vocabulary and test with statute-literal restatements and abstract placeholder inputs (deductions_allowed_by_this_chapter_other_than_standard_deduction, deductions_allowable_under_this_chapter), while the commit body is empty and the PR describes encoding 63(c), not repairing 63. Encoded meaning did change (branch condition, loss of the max(0,...) floor, exemptions folded into the 63(b) list), so this is not mechanical, but the change is a structural re-encode plus new 63(d)/63(e) coverage the module never claimed, and one of its meaning changes was treated by the project as a regression four hours later. On a generic message plus an ambiguous wholesale rewrite, unclear is the calibrated call.",
+    "verifier_quote": "- encode 26 USC 63(c) standard deduction through the encoder apply flow",
+    "verifier_notes": "Decisive diff lines (module 4, statutes/26/63.yaml): removed \"-          if tax_unit_itemizes:\" / \"-              taxable_income_deductions_if_itemizing\" and the floor \"-          max(\\n-              0,\\n-              adjusted_gross_income\\n-              - exemptions\\n-              - taxable_income_deductions\\n-          )\"; added \"+          if individual_who_does_not_elect_to_itemize_deductions_for_taxable_year: taxable_income_for_individual_who_does_not_itemize else: taxable_income_general_rule\".\n\nStrongest refutation evidence, in order:\n1. Statute text (pinned release us-rulespec-2026-07-13, corpus commit 612d20ca43, provision sha 7fa5f5d7...) shows 63(b)(3)-(7) enumerate 199A, 170(p), 224, 225 and 163(a)/163(h)(4)(A) — i.e. QBI, non-itemizer charitable, tips, overtime and auto-loan interest. The reader's list of \"terms the cited text does not enumerate\" is wrong for five of its six items. Only additional_senior_deduction (arguably reachable through 63(b)(2)'s reference to section 151) and wagering_losses_deduction (in the itemizer branch, where 63(a)'s catch-all \"the deductions allowed by this chapter\" enumerates nothing) lack a direct hook, and the itemizer branch's AGI algebra is arithmetically equivalent to 63(a)'s gross-income framing.\n2. Provenance: .axiom/encoding-manifests/statutes/26/63.json changes \"backend\": \"codex\" -> \"openai\", version 0.2.64 -> 0.2.68, null run_id -> \"afddc7ad\", generated_output_root /tmp/axiom-encode-26-63-apply-6. statutes/26/63.test.yaml is rewritten end to end with a new input namespace. This is regeneration of the whole module, not a targeted correction; 63.yaml's only prior commit is 7e5da2d76 \"Encode taxable income\".\n3. Churn evidence against calling the floor removal a correction: the next commit touching this file, 9203ca050 \"Repair taxable income nonnegative floor\" (2026-05-12 15:39, same day, ~4.5h later), restores it as \"if individual_who_does_not_elect_to_itemize_deductions_for_taxable_year: max(0, taxable_income_for_individual_who_does_not_itemize) else: max(0, taxable_income_general_rule)\". The project treated this commit's removal as a regression, so that meaning change cannot be scored as the fidelity fix. Note the tension for a reviewer: section 63 states no zero floor, so the \"repair\" is itself the untraceable term.\n4. Message evidence is empty: subject \"Encode upstream IRC 63 dependencies\", body is a single newline, PR #25 title \"Encode 26 USC 63(c) standard deduction\" with bullets about 63(c)(6) disqualifiers, tests and manifest provenance. No defect claim anywhere, no reviews or review comments on the PR.\n\nIf a reviewer keeps this case, the only kind with any legs is untraceable_branch on the two non-enumerated terms in a closed list (additional_senior_deduction inside the 63(b) branch, wagering_losses_deduction in the itemizer branch), not on the reader's cited six-term list, and not on the max(0,...) removal. My recommendation is to drop it from a real-defects corpus: it is an encoder re-run that added 63(d)/63(e) coverage the module never claimed and swapped computable terms for statute-literal placeholder inputs, which is precisely the \"new coverage / precision\" case the instructions say is not a defect.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Provision READ via resolve_provision (us/statute/26/63, rulespec-commit 86e2549dc7): 63(a) and 63(b)(1)-(7) confirmed verbatim as quoted above. Kind is arguable between untraceable_branch (ungrounded terms and an AGI-minus-exemptions structure removed / re-grounded) and unrepresented_clause (the fix newly names section 151, 170(p), 224, 225 and imports 163's qualified_passenger_vehicle_loan_interest_deduction); I chose untraceable_branch because the pre-fix informal names were rough stand-ins for most of those items, while wagering_losses_deduction, additional_senior_deduction and the branch structure had no basis in the cited text. The fix also newly encodes 63(d) itemized_deductions and 63(e)(1) election, which the pre-fix cited in `source:` but never encoded. IMPORTANT regression introduced by this same commit: it deleted the max(0, ...) floor on taxable_income, and follow-up commit 9203ca050 'Repair taxable income nonnegative floor' restored it as max(0, ...) on both branches — so this module's post-fix state is not final and a judge scoring 'is the post-fix correct' would see a later repair. | verifier unclear at 0.62",
+  "family_id": "us-86e2549d-f69b4ad8bf11",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

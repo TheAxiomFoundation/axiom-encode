@@ -1,0 +1,120 @@
+{
+  "id": "us-016-187161db-statutes-26-3231-e-2",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "187161db90ae3c7dadc9253d042b30bf172ec9f0",
+  "parent_commit": "74c4fe37ecd3fe894d9e9dd4527e4bd310fcf6aa",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Re-encode of 3231(e)(2) removes three deferred outputs and encodes the hospital-insurance carve-out clauses and tier 2 base; formulas changed (closes gaps in a merged module).",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/328",
+  "module_path": "statutes/26/3231/e/2.yaml",
+  "corpus_citation_path": "us/statute/26/3231",
+  "corpus_citation_paths_all": [
+    "us/statute/26/3231"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.49,
+  "description": "the purpose-specific hospital-insurance carve-out cannot be computed faithfully here",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        7,
+        33
+      ],
+      [
+        35,
+        120
+      ],
+      [
+        122,
+        186
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        7,
+        8
+      ],
+      [
+        10,
+        32
+      ],
+      [
+        34,
+        152
+      ]
+    ],
+    "rule_names": [
+      "clause_i_compensation_excess_excluded_for_section_3201_a_or_3221_a_hospital_insurance_rate_portion",
+      "clause_i_compensation_excess_excluded_for_section_3211_a_hospital_insurance_rate_portion"
+    ],
+    "rule_path": "rules[clause_i_compensation_excess_excluded_for_section_3201_a_or_3221_a_hospital_insurance_rate_portion].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "d70dd5ab9421227cfa2863f346cdbcf76347a0ec48c0f2d379aa52b26d38f4cd",
+  "post_fix_artifact_sha256": "56826a07074ef0cbdad60c3f7c51f3786bf6bf4a6255817c6336cd12a1cada37",
+  "provision_sha256": "2701fa1c5ee040be44fafad931ac1f5f47a9d5861786f50af4c0588ffe15916c",
+  "provision_chars": 17687,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/3231",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "1b0b185ca3335eb06c4fe10af488a8984bdd2cedd4087badf78583c267af7b7b",
+    "line_number": 76,
+    "record_id": "28d501c1-4bf1-554e-a1b2-847b4d0cbc32",
+    "stored_body_sha256": "2701fa1c5ee040be44fafad931ac1f5f47a9d5861786f50af4c0588ffe15916c",
+    "resolved_text_sha256": "2701fa1c5ee040be44fafad931ac1f5f47a9d5861786f50af4c0588ffe15916c",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "earliest_release_after_toolchain_corpus_ref",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": "9b575a00116da20b0952644f14d8530896f72cd3",
+    "requested_citation_path": "us/statute/26/3231",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3231'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3231'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3231'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3231'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module encoded no rule for 26 USC 3231(e)(2)(A)(iii) -- the source's express carve-out that \"Clause (i) shall not apply to\" the hospital-insurance portions of the section 3201(a)/3221(a) and 3211(a) rates -- so the encoded module omitted a carve-out the cited text states, declaring it only as an unencoded deferred output.",
+    "triage_notes": "Provision was read through the pinned corpus release (us/statute/26/3231, resolve_provision.py exit 0). Source text confirms (A)(iii): \"Clause (i) shall not apply to- (I) so much of the rate applicable under section 3201(a) or 3221(a) as does not exceed the rate of tax in effect under section 3101(b), and (II) so much of the rate applicable under section 3211(a) as does not exceed the rate of tax in effect under section 1401(b).\" The two added rules encode the exclusion amount for those rate portions as constant 0, which is a faithful reading of \"clause (i) shall not apply\" (nothing is excluded) and sidesteps the rate-comparison blocker the old deferral cited. CAVEATS a reviewer should weigh, which is why confidence is mid-band: (1) the gap was NOT silent -- the pre-fix module explicitly declared it in `deferred_outputs` with `blocked_by` targets, so this is closing a documented deferral rather than correcting a wrong encoded meaning; (2) this is a wholesale re-encode (manifest shows a different backend, root, run_id, and encoder version), not a targeted repair, so the delta is a difference between two independent generations and no maintainer or reviewer text names a defect; (3) the two new rules are standalone constants and are not wired into `compensation_excess_excluded_before_hospital_insurance_carveout`, so the module's primary exclusion output is functionally unchanged; (4) the third deferred output, `applicable_base_for_tier_2_taxes_and_average_monthly_compensation` under (B)(ii), was REMOVED with no replacement rule -- contrary to the screen-flag description, I verified the post-fix file (152 lines, 7 rules) contains no tier 2 applicable-base rule, so that gap is now undeclared, which is arguably a regression introduced by the same commit. Non-fidelity noise in the same diff: the `successor_employer_compensation_base_continuity_applies` formula only reorders two AND conjuncts (semantically identical); proof atoms were reduced (3 atoms -> 1 on that rule) and several excerpts/`kind` values changed (condition -> formula), which is provenance/mechanical; `source:` strings were reformatted; the module summary was rewritten; and the companion test file was fully regenerated (new case names, 2026 -> 2024 periods, new input values) with assertions added for the two new outputs. Commit body is empty and PR #328's body never mentions 3231(e)(2); the only text describing this gap is the removed `deferred_outputs[].reason` prose inside the module diff, which I quoted verbatim (it is a YAML string field, not a `#` comment -- quote_source 'module_comment' is the closest available value).",
+    "verifier_verdict": "not_a_defect",
+    "verifier_defect_kind": "none",
+    "verifier_confidence": 0.58,
+    "verifier_justification": "The pre-fix module did not encode a meaning that contradicts 3231(e)(2)(A)(iii); it declared the carve-out absent through the schema's own fail-closed mechanism — a `deferred_outputs` entry with a stated reason and `blocked_by` dependencies — and named its terminal rule `compensation_excess_excluded_before_hospital_insurance_carveout`, explicitly scoping itself to \"before\" the carve-out, so this is coverage the module never claimed rather than a wrong encoding. The first reader's quote is taken from that pre-fix deferral reason, which is evidence the gap was declared, not that the encoding disagreed with the source. The commit is a wholesale regeneration, not a repair: the manifest moves backend `openai` → `codex` and encoder `0.2.286` → `0.2.529`, the subject is \"Re-encode railroad contribution bases\" with an empty body, and the PR describes only \"refresh generated RuleSpec artifacts\" / \"apply signed encoder output/repairs only\". The added rules are the constant `0` and never compare the 3201(a)/3221(a) rate to the 3101(b) rate, so they do not resolve the blocker the deferral cited, and the same commit deletes the third deferred output (tier 2 applicable base under (B)(ii)) without adding any rule for it — post-fix the module has seven rules and none covers tier 2, contradicting the screen-flag claim that it \"encodes ... tier 2 base\".",
+    "verifier_quote": "-  deferred_outputs:\n-  - output: us:statutes/26/3231/e/2#compensation_excess_excluded_for_section_3201_a_or_3221_a_rate_portion",
+    "verifier_notes": "Source text confirmed through the pinned release (us-rulespec-2026-07-13, provision sha256 2701fa1c...): \"(iii) Hospital insurance taxes Clause (i) shall not apply to— (I) so much of the rate applicable under section 3201(a) or 3221(a) as does not exceed the rate of tax in effect under section 3101(b), and (II) so much of the rate applicable under section 3211(a) as does not exceed the rate of tax in effect under section 1401(b).\" The clause is real and was not encoded pre-fix, so the literal \"source states it, encoding lacks it, fix adds it\" pattern does hold — the decision hinges on a corpus convention question the reviewer should settle: does a machine-readable `deferred_outputs` declaration count as an unrepresented clause (fidelity gap) or as scope the module never claimed? I take the latter, because the declaration is fail-closed and no downstream module consumes these outputs (checked with `git grep -l \"3231/e/2#\"` scoped to statutes/26/3201, /3211, /3221, /3241 at both 74c4fe37ec and 187161db90 — zero hits at either commit), so no computed value anywhere changed. Three further points against using this as a clean defect example: (1) the new rules hardcode `0` and contain no rate comparison, so the stated blocker (needing the 3201(a)/3221(a) and 3101(b) rates) is sidestepped rather than resolved; (2) the tier 2 (B)(ii) deferred output is removed with no replacement rule, which is a coverage regression in the same commit and equal-and-opposite to the \"gap closed\" framing; (3) the bulk of the 332-line diff is regeneration noise — block-scalar reformatting, indentation change, proof-atom consolidation (the successor-employer rule drops two of three atoms), excerpt-string rewrites, `source:` field restyling, and a wholesale rewrite of the companion test file with new case names, periods moved 2026 → 2024, and new input values. If the reviewer's convention does count declared deferrals as fidelity gaps, reclassify to unrepresented_clause, but flag the constant-`0` formulas and the dropped tier 2 deferral as making this a weak/noisy corpus member either way.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Provision was read through the pinned corpus release (us/statute/26/3231, resolve_provision.py exit 0). Source text confirms (A)(iii): \"Clause (i) shall not apply to- (I) so much of the rate applicable under section 3201(a) or 3221(a) as does not exceed the rate of tax in effect under section 3101(b), and (II) so much of the rate applicable under section 3211(a) as does not exceed the rate of tax in effect under section 1401(b).\" The two added rules encode the exclusion amount for those rate portions as constant 0, which is a faithful reading of \"clause (i) shall not apply\" (nothing is excluded) and sidesteps the rate-comparison blocker the old deferral cited. CAVEATS a reviewer should weigh, which is why confidence is mid-band: (1) the gap was NOT silent -- the pre-fix module explicitly declared it in `deferred_outputs` with `blocked_by` targets, so this is closing a documented deferral rather than correcting a wrong encoded meaning; (2) this is a wholesale re-encode (manifest shows a different backend, root, run_id, and encoder version), not a targeted repair, so the delta is a difference between two independent generations and no maintainer or reviewer text names a defect; (3) the two new rules are standalone constants and are not wired into `compensation_excess_excluded_before_hospital_insurance_carveout`, so the module's primary exclusion output is functionally unchanged; (4) the third deferred output, `applicable_base_for_tier_2_taxes_and_average_monthly_compensation` under (B)(ii), was REMOVED with no replacement rule -- contrary to the screen-flag description, I verified the post-fix file (152 lines, 7 rules) contains no tier 2 applicable-base rule, so that gap is now undeclared, which is arguably a regression introduced by the same commit. Non-fidelity noise in the same diff: the `successor_employer_compensation_base_continuity_applies` formula only reorders two AND conjuncts (semantically identical); proof atoms were reduced (3 atoms -> 1 on that rule) and several excerpts/`kind` values changed (condition -> formula), which is provenance/mechanical; `source:` strings were reformatted; the module summary was rewritten; and the companion test file was fully regenerated (new case names, 2026 -> 2024 periods, new input values) with assertions added for the two new outputs. Commit body is empty and PR #328's body never mentions 3231(e)(2); the only text describing this gap is the removed `deferred_outputs[].reason` prose inside the module diff, which I quoted verbatim (it is a YAML string field, not a `#` comment -- quote_source 'module_comment' is the closest available value). | verifier said not_a_defect at 0.58 (below 0.7); kept as unclear",
+  "family_id": "us-187161db-ecd29d972fd0",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

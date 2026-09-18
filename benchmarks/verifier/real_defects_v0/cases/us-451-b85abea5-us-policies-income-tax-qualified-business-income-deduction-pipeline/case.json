@@ -1,0 +1,100 @@
+{
+  "id": "us-451-b85abea5-us-policies-income-tax-qualified-business-income-deduction-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "b85abea55880749f2b210e7fcd095c3437b4a71f",
+  "parent_commit": "dc7a521fafaa051e3016c8e9756bc52744173ae7",
+  "commit_date": "2026-07-24",
+  "commit_subject": "fix: exclude corporations from final QBID",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1004",
+  "module_path": "us/policies/income_tax/qualified_business_income_deduction_pipeline.yaml",
+  "corpus_citation_path": "us/statute/26/199A",
+  "corpus_citation_paths_all": [
+    "us/statute/26/199A",
+    "us/guidance/irs/rev-proc-2025-32/page-21",
+    "us/guidance/irs/rev-proc-2025-32/page-22"
+  ],
+  "corpus_release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+  "corpus_release_content_sha256": "cb275c76c4f07f8ad37470a32296bb1763e5db853d152697524ab07021b6d544",
+  "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+  "defect_kind": "wrong_entity_or_scope",
+  "other_kind": null,
+  "confidence": 0.8,
+  "description": "exclude corporations from final QBID",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        308,
+        312
+      ],
+      [
+        314,
+        314
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        112,
+        116
+      ],
+      [
+        313,
+        314
+      ],
+      [
+        316,
+        322
+      ]
+    ],
+    "rule_names": [
+      "federal_qualified_business_income_deduction"
+    ],
+    "rule_path": "rules[federal_qualified_business_income_deduction].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "ebbd923e5b02b3bb893cfb951bfd5ca4faff2f4677211e0fe64dde2994b215db",
+  "post_fix_artifact_sha256": "1702baa4809afd55cfc54a67f417d2b46ae0ee6afe4259d0cb9e16db3192650d",
+  "provision_sha256": "0af6c1cceb7351a690302b8773d7c90d8ed3711df8c3748f3b07603e3c96c53d",
+  "provision_chars": 29125,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/199A",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+    "provision_file_sha256": "03ddda0b2bcd59345ec4efa1daaf1c77b423a5166852fd80bb4cf00c0bd8e461",
+    "line_number": 39,
+    "record_id": "09e89e17-8e86-5caa-b36d-2de501af862d",
+    "stored_body_sha256": "0af6c1cceb7351a690302b8773d7c90d8ed3711df8c3748f3b07603e3c96c53d",
+    "resolved_text_sha256": "0af6c1cceb7351a690302b8773d7c90d8ed3711df8c3748f3b07603e3c96c53d",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "5dfd89d131564e4ee0e1e763571dbb5d7fc7f5e7",
+    "requested_citation_path": "us/statute/26/199A",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The final rule took max(pipeline_qbi_deduction_before_minimum_active_qbi, minimum_active_qbi_deduction_amount) whenever the taxpayer was an applicable taxpayer under 199A(i), so a corporation with at least $1,000 of active QBI still received the $400 floor even though 199A(a) allows the deduction only \"In the case of a taxpayer other than a corporation\" (the corporation guard existed only on the intermediate pre-minimum rule).",
+    "triage_notes": "Provision read through the pinned corpus release: 199A(a) reads \"In the case of a taxpayer other than a corporation, except as provided in subsection (i), there shall be allowed as a deduction...\", and 199A(i)(1) only re-sizes \"the deduction allowed under subsection (a)\" to the greater of that amount or $400 for an applicable taxpayer (aggregate active QBI >= $1,000) -- so a corporation, which gets no subsection (a) deduction at all, cannot receive the floor. Pre-fix file line 266 shows the corporation guard present on pipeline_qbi_deduction_before_minimum_active_qbi but absent from the final rule, and the companion test added in this same commit (qbid-corporation-cannot-receive-active-minimum, taxpayer_is_corporation: true, aggregate active QBI 1000) asserts final = '0' with before_minimum = '0', which is exactly the value that would have been $400 pre-fix. taxpayer_is_corporation was already a declared Boolean input pre-fix (no input/scope additions). Kind ambiguity worth a reviewer's eye: this is equally describable as unrepresented_clause (the 199A(a) \"other than a corporation\" carve-out missing from the final rule); I chose wrong_entity_or_scope because the commit subject and PR body frame it as an entity exclusion on the module's output surface (\"corporation guard on the final (§199A(a))\"). One quirk: the new condition proof atom with excerpt \"In the case of a taxpayer other than a corporation\" was inserted into the atoms block of pipeline_trade_or_business_phasein_reduction (post lines 112-117), not into federal_qualified_business_income_deduction whose formula actually gained the guard; a later commit 598e55889 \"fix: attach corporation proof to final QBID\" moved it, so that follow-up is provenance-only (mechanical). No unrelated formula, parameter, version, or effective-date changes in this diff; PROGRESS.md was the only other file. PR #1004 has no reviews or review comments; its body covers the whole composition campaign, not just this commit.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_entity_or_scope",
+    "verifier_confidence": 0.85,
+    "verifier_justification": "The diff changes the final output rule's formula, wrapping it in `if taxpayer_is_corporation: 0`, so this is an encoded-meaning change, not bookkeeping. The pre-fix path was genuinely reachable and wrong: the imported gate `applicable_taxpayer_for_minimum_active_qbi_deduction` is defined in us/statutes/26/199A.yaml purely as `aggregate_qualified_business_income_from_active_qualified_trades_or_businesses >= active_qbi_minimum_threshold` with no corporation test, so a corporation with $1,000 of active QBI took `max(0, $400) = $400` even though the pinned corpus text of 199A(a) reads \"In the case of a taxpayer other than a corporation ... there shall be allowed as a deduction\", and 199A(i)(1) only re-sizes \"the deduction allowed under subsection (a)\". The module already declared the input `taxpayer_is_corporation` (\"whether the taxpayer is a corporation and therefore outside section 199A(a)\") and already guarded the intermediate `pipeline_qbi_deduction_before_minimum_active_qbi`, so the final rule contradicted the module's own claimed scope rather than adding coverage it never claimed. The added companion fixture `qbid-corporation-cannot-receive-active-minimum` pins the $400 → $0 behavior change, and the defect is an entity-class scope error (the deduction reaching corporations), which fits wrong_entity_or_scope.",
+    "verifier_quote": "+          if taxpayer_is_corporation:\n+              0\n           else:\n-              pipeline_qbi_deduction_before_minimum_active_qbi\n+              if applicable_taxpayer_for_minimum_active_qbi_deduction:",
+    "verifier_notes": "Refutation attempts that failed: (1) \"the guard was already upstream\" — false at the final rule; the corporation guard sat only on pipeline_qbi_deduction_before_minimum_active_qbi, and the 199A(i) floor branch bypassed it entirely. (2) \"the imported applicable-taxpayer gate already excludes corporations\" — false; us/statutes/26/199A.yaml line ~589 defines it solely as active QBI >= threshold. (3) \"new coverage, not a defect\" — false; `taxpayer_is_corporation` is an existing declared input and the rule's own `source:` says \"26 USC 199A(a), (i)\". (4) \"mechanical\" — false; the versions[0].formula body changed. Residual textual ambiguity, the only real counterargument: 199A(a) says \"except as provided in subsection (i)\", which a hostile reader could stretch to let (i) override the corporation exclusion; the natural reading is that (i) modifies only the lesser-of amount, since (i)(1) speaks of \"the deduction allowed under subsection (a)\" and no such deduction is allowed to a corporation. Alternate kind worth a reviewer's eye: unrepresented_clause also fits mechanically (the fix adds a source-stated carve-out), but the carve-out is an entity-class limitation, so wrong_entity_or_scope is the more specific label. Separate minor issue in the same commit, not affecting this verdict: the new proof atom with excerpt \"In the case of a taxpayer other than a corporation\" was inserted into the atoms list of `pipeline_trade_or_business_phasein_reduction` (diff hunk at pre-line 100-111), not into `federal_qualified_business_income_deduction`, whose atoms are unchanged in the post file — a misplaced provenance atom for the very guard being added.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Provision read through the pinned corpus release: 199A(a) reads \"In the case of a taxpayer other than a corporation, except as provided in subsection (i), there shall be allowed as a deduction...\", and 199A(i)(1) only re-sizes \"the deduction allowed under subsection (a)\" to the greater of that amount or $400 for an applicable taxpayer (aggregate active QBI >= $1,000) -- so a corporation, which gets no subsection (a) deduction at all, cannot receive the floor. Pre-fix file line 266 shows the corporation guard present on pipeline_qbi_deduction_before_minimum_active_qbi but absent from the final rule, and the companion test added in this same commit (qbid-corporation-cannot-receive-active-minimum, taxpayer_is_corporation: true, aggregate active QBI 1000) asserts final = '0' with before_minimum = '0', which is exactly the value that would have been $400 pre-fix. taxpayer_is_corporation was already a declared Boolean input pre-fix (no input/scope additions). Kind ambiguity worth a reviewer's eye: this is equally describable as unrepresented_clause (the 199A(a) \"other than a corporation\" carve-out missing from the final rule); I chose wrong_entity_or_scope because the commit subject and PR body frame it as an entity exclusion on the module's output surface (\"corporation guard on the final (§199A(a))\"). One quirk: the new condition proof atom with excerpt \"In the case of a taxpayer other than a corporation\" was inserted into the atoms block of pipeline_trade_or_business_phasein_reduction (post lines 112-117), not into federal_qualified_business_income_deduction whose formula actually gained the guard; a later commit 598e55889 \"fix: attach corporation proof to final QBID\" moved it, so that follow-up is provenance-only (mechanical). No unrelated formula, parameter, version, or effective-date changes in this diff; PROGRESS.md was the only other file. PR #1004 has no reviews or review comments; its body covers the whole composition campaign, not just this commit. | verifier confirmed at 0.85",
+  "family_id": "us-b85abea5-45b729a7813c",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

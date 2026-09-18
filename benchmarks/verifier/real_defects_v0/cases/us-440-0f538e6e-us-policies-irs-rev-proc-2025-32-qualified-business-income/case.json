@@ -1,0 +1,90 @@
+{
+  "id": "us-440-0f538e6e-us-policies-irs-rev-proc-2025-32-qualified-business-income",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "0f538e6e6b8d27f105bf0fc9cd9b2c07025b8390",
+  "parent_commit": "0fc05b6a6ac1f2c18bd9813701fbfe70d62d6ff7",
+  "commit_date": "2026-07-24",
+  "commit_subject": "fix: defer QBI selected-amount surfaces pending upstream filing-status classification",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1009",
+  "module_path": "us/policies/irs/rev-proc-2025-32/qualified-business-income.yaml",
+  "corpus_citation_path": "us/guidance/irs/rev-proc-2025-32/page-21",
+  "corpus_citation_paths_all": [
+    "us/guidance/irs/rev-proc-2025-32/page-21",
+    "us/guidance/irs/rev-proc-2025-32/page-22",
+    "us/statute/26/199A"
+  ],
+  "corpus_release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+  "corpus_release_content_sha256": "cb275c76c4f07f8ad37470a32296bb1763e5db853d152697524ab07021b6d544",
+  "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.49,
+  "description": "return-category selection is a derived legal classification; the pinned authoring contract forbids module-local filing-status inputs and the engine's match lowering fails open on unenumerated statuses",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        313,
+        432
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        45,
+        67
+      ]
+    ],
+    "rule_names": [
+      "qualified_business_income_threshold_amount",
+      "qualified_business_income_phase_in_range_end_amount",
+      "qualified_business_income_phase_in_width"
+    ],
+    "rule_path": "rules[qualified_business_income_threshold_amount].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "b400bba8371ea7db11a1ec8519e86b1294782ca46b25fe525bb8cf4ee0c97fcb",
+  "post_fix_artifact_sha256": "082fe85d884e91c736732f7eb793a4ffeb80ef8c4e34eacdc81509997deaa957",
+  "provision_sha256": "44b15992e5251df97f25235fcfe662bcbddbee245d6e797fb0cfc40e5856f036",
+  "provision_chars": 1520,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/guidance/irs/rev-proc-2025-32/page-21",
+    "provision_file": "data/corpus/provisions/us/guidance/2026-05-02-irs-rev-proc-2025-32-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "5c8d241ad0bf3e64787958b17c5a2124f9aa5d4fe8cd73c09fd202a84a70d184",
+    "line_number": 22,
+    "record_id": "a21b8b8b-985b-5352-ad9c-95e942f437e7",
+    "stored_body_sha256": "44b15992e5251df97f25235fcfe662bcbddbee245d6e797fb0cfc40e5856f036",
+    "resolved_text_sha256": "44b15992e5251df97f25235fcfe662bcbddbee245d6e797fb0cfc40e5856f036",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-01-01",
+    "source_as_of": "2025-10-17",
+    "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "710a326366bd233c40d64ca89b62a07082f13ce3",
+    "requested_citation_path": "us/guidance/irs/rev-proc-2025-32/page-21",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The three selector rules resolved the source's three named return categories through a synthesized closed enumeration of numeric filing-status codes (1 => joint, 2 => separate, 0/3/4 => all other) read from a module-local `filing_status` input fact that Rev. Proc. 2025-32 §4.26 never defines, so the branch set had no basis in the cited text and, because match lowering fails open on unenumerated statuses, a taxpayer outside codes 0–4 would not receive the source's residual \"All Other Returns\" amounts.",
+    "triage_notes": "Single-module commit (module index 0 only); the companion test us/policies/irs/rev-proc-2025-32/qualified-business-income.test.yaml was rewritten in the same commit, dropping the five filing-status-keyed cases (which used `#input.filing_status: 0..4`, confirming the forbidden module-local input) for three input-free parameter/width-consistency cases. Nothing else changed: all nine `kind: parameter` rules keep identical formulas (403500 / 553500 / 201775 / 276775 / 201750 / 276750 / 150000 / 75000 / 75000), effective windows 2026-01-01..2026-12-31, proof atoms, and module-level source_verification values; the only additions are a summary paragraph and a module-level deferred_outputs block naming the three deferred output IDs. Provision read via resolve_provision.py on us/guidance/irs/rev-proc-2025-32/page-22: the source is a three-row table keyed by words (\"Married Individuals Filing Joint Returns\", \"Married Individuals Filing Separate Returns\", \"All Other Returns\") with no numeric status codebook and with \"All Other Returns\" as an open residual category, which supports the fail-open reading. Reviewer doubt to weigh: the parent 0fc05b6a6a is an intermediate commit on PR #1009's own branch, so the defect was caught by blind review before merge rather than shipped on main, and an alternative reading is that this is a scope/output-surface retraction (wrong_entity_or_scope, or merely deferring an output the module should never have claimed) rather than a correction of a meaning that contradicts the source — hence confidence held below 0.8. PR #1009 body states the same rationale; no PR reviews or review comments were captured in the bundle.",
+    "verifier_verdict": "not_a_defect",
+    "verifier_defect_kind": "none",
+    "verifier_confidence": 0.62,
+    "verifier_justification": "The removed selectors agreed with the cited source in every respect: Rev. Proc. 2025-32 §4.26 (resolved text confirms \"Married Individuals Filing Joint Returns $403,500 $553,500 Married Individuals Filing Separate Returns $201,775 $276,775 All Other Returns $201,750 $276,750\") names exactly three return categories, the match mapped 1=>joint, 2=>separate, 0/3/4=>all_other, and the deleted companion cases asserted the published amounts for all five statuses; no parameter value, effective window, boundary, or boolean changed in the diff. The first reader's decisive consequence — that fail-open lowering would deny an unenumerated status the residual \"All Other Returns\" amount — is refuted by the engine pinned at the fix date (axiom-rules-engine cee6937daa src/formula.rs:1663-1675: \"The last case's value // becomes the else branch (rather than a default 0)\" and \"last case is the fallthrough; pattern value unused\"), whose parser had no `_` arm at all; the final arm was `4 => ..._all_other`, so any unenumerated status resolved to precisely the source's residual amount. What actually drove the removal is an authoring-contract rule in axiom-encode (`find_tax_filing_status_local_input_issues`: \"Filing status is a derived legal classification, not a factual input\") plus an architectural decision to move selection to the consumer's declared filing-status boundary — a scope/plumbing choice, not an encoded meaning that disagrees with §4.26.",
+    "verifier_quote": "The three selected outputs are explicitly deferred in-module until a canonical upstream classification exists; consumers import the nine parameters and select at their own declared filing-status boundary.",
+    "verifier_notes": "Evidence trail: bundle /private/tmp/claude-501/-Users-maxghenis-TheAxiomFoundation-axiom-encode--claude-worktrees-zealous-heyrovsky-31a96b/86103d8f-b97f-4559-a96c-7e79bdbe616d/scratchpad/inputs/us/0f538e6e6b.json; diff .../diffs/us/0f538e6e6b/000.diff. (1) Commit 0f538e6e6b is an in-PR revision of PR #1009, the module's own first encoding (parent chain: eefd88ee2 \"feat: encode 2026 qualified business income thresholds\" -> 0f538e6e6 \"fix: defer...\"), merged the same day — it repairs an unshipped draft, not a live encoding defect, which is a second reason to be wary of counting it in a real-defect corpus. (2) The diff deletes only three `kind: derived` selector rules and adds a `deferred_outputs` block; all nine parameters, their proof atoms, effective_from/effective_to '2026-01-01'/'2026-12-31', and the module summary's amounts are untouched. (3) The test diff replaces filing-status-driven cases with input-free parameter and width-consistency cases — it removes coverage rather than correcting a wrong expectation; every removed expectation (403500/553500/150000 joint, 201775/276775/75000 separate, 201750/276750/75000 for 0, 3, 4) matches the resolved source table. (4) Engine mechanics verified in code, not from the commit message: at engine commit cee6937daa (2026-07-24), `parse_match` builds `Expr::Match { subject, cases }` with no default/`_` arm supported, and `lower_to_scalar` makes the last arm the else branch. So the \"fails open\" behavior the commit cites resolved to the all_other amount, i.e. the source's residual, for any status outside 0-4. (Today's HEAD adds a `NonExhaustiveMatch` diagnostic and `_` arms, but that postdates the fix and is a lint, not a fidelity issue.) (5) If a reviewer wants to keep this case, the only defensible fidelity angle is that classifying numeric codes 0/3/4 as \"All Other Returns\" is a legal determination §4.26 never makes (it comes from 26 USC 1/2), which would be untraceable_branch \"grounded on the wrong provision\" — but the module summary states that inference openly (\"Qualifying surviving spouse status is an all-other return for this table because it is not a joint return\") and the resulting values are correct, so nothing encoded disagrees with the source. On that reading the case is unclear at most, never confirmed. I did not find any PR review comment text (reviews, review_comments, issue_comments are all empty in the bundle), so the \"blind review\" the message cites is not in the record and cannot be quoted.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Single-module commit (module index 0 only); the companion test us/policies/irs/rev-proc-2025-32/qualified-business-income.test.yaml was rewritten in the same commit, dropping the five filing-status-keyed cases (which used `#input.filing_status: 0..4`, confirming the forbidden module-local input) for three input-free parameter/width-consistency cases. Nothing else changed: all nine `kind: parameter` rules keep identical formulas (403500 / 553500 / 201775 / 276775 / 201750 / 276750 / 150000 / 75000 / 75000), effective windows 2026-01-01..2026-12-31, proof atoms, and module-level source_verification values; the only additions are a summary paragraph and a module-level deferred_outputs block naming the three deferred output IDs. Provision read via resolve_provision.py on us/guidance/irs/rev-proc-2025-32/page-22: the source is a three-row table keyed by words (\"Married Individuals Filing Joint Returns\", \"Married Individuals Filing Separate Returns\", \"All Other Returns\") with no numeric status codebook and with \"All Other Returns\" as an open residual category, which supports the fail-open reading. Reviewer doubt to weigh: the parent 0fc05b6a6a is an intermediate commit on PR #1009's own branch, so the defect was caught by blind review before merge rather than shipped on main, and an alternative reading is that this is a scope/output-surface retraction (wrong_entity_or_scope, or merely deferring an output the module should never have claimed) rather than a correction of a meaning that contradicts the source — hence confidence held below 0.8. PR #1009 body states the same rationale; no PR reviews or review comments were captured in the bundle. | verifier said not_a_defect at 0.62 (below 0.7); kept as unclear",
+  "family_id": "us-0f538e6e-f70a478da3e3",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

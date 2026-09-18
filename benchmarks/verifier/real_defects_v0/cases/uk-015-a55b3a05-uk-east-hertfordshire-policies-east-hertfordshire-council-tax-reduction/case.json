@@ -1,0 +1,111 @@
+{
+  "id": "uk-015-a55b3a05-uk-east-hertfordshire-policies-east-hertfordshire-council-tax-reduction",
+  "jurisdiction": "uk",
+  "repo": "TheAxiomFoundation/rulespec-uk",
+  "commit": "a55b3a05856131685037bb9e2ba607ed997d4406",
+  "parent_commit": "0df113a8e35f20a96930ce4a2f34bc4bb6ec9623",
+  "commit_date": "2026-09-05",
+  "commit_subject": "Address sol round-1: preserve classes and link deductions",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-uk/pull/305",
+  "module_path": "uk-east-hertfordshire/policies/east-hertfordshire/council-tax-reduction.yaml",
+  "corpus_citation_path": "uk-east-hertfordshire/manual/council-tax-reduction-scheme-2026-2027/page-71",
+  "corpus_citation_paths_all": [
+    "uk-east-hertfordshire/manual/council-tax-reduction-scheme-2026-2027/page-71"
+  ],
+  "corpus_release": "uk-rulespec-2026-09-05",
+  "corpus_release_content_sha256": "94f59eb25e85fe23487a978f79510a4285f3e5c9a4114ef23801fa26d610b336",
+  "corpus_commit": "019e8600f6a62814d686502fa161303194355b41",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.8,
+  "description": "Address sol round-1: preserve classes and link deductions",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        19,
+        20
+      ],
+      [
+        125,
+        125
+      ],
+      [
+        150,
+        151
+      ],
+      [
+        169,
+        170
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        19,
+        20
+      ],
+      [
+        125,
+        125
+      ],
+      [
+        150,
+        151
+      ],
+      [
+        169,
+        169
+      ]
+    ],
+    "rule_names": [
+      "east_hertfordshire_council_tax_reduction_award_conditions_met",
+      "east_hertfordshire_council_tax_reduction_maximum_weekly"
+    ],
+    "rule_path": "rules[east_hertfordshire_council_tax_reduction_award_conditions_met].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "e4961aff2b92c2f8ef8185f70a02ec1c4507c6d3547a835fd00912078e402b40",
+  "post_fix_artifact_sha256": "3b9dcbbb4b964f18a66b162c4bd15b0d38f62631a36ae36b5e6fcdabf2e5ee42",
+  "provision_sha256": "cfb078691bb88c340b1cd97463dda7377e93839852d6309f38fa64861a04e356",
+  "provision_chars": 3392,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "uk-east-hertfordshire/manual/council-tax-reduction-scheme-2026-2027/page-71",
+    "provision_file": "data/corpus/provisions/uk-east-hertfordshire/manual/2026-08-14-east-hertfordshire-council-tax-reduction-2026-2027.jsonl",
+    "provision_file_sha256": "60cd0071c5961fee22b048f3d19aa937c188588076abf5e323a7128d2f9a2445",
+    "line_number": 72,
+    "record_id": "f2daf212-8065-58da-90a9-458bb8cbe809",
+    "stored_body_sha256": "cfb078691bb88c340b1cd97463dda7377e93839852d6309f38fa64861a04e356",
+    "resolved_text_sha256": "cfb078691bb88c340b1cd97463dda7377e93839852d6309f38fa64861a04e356",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-04-01",
+    "source_as_of": "2026-08-14",
+    "corpus_commit": "019e8600f6a62814d686502fa161303194355b41",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "toolchain_release_pin",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "uk-east-hertfordshire/manual/council-tax-reduction-scheme-2026-2027/page-71",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix award condition encoded only the Class E 'amount A exceeds amount B' test and left out both class income tests the scheme states — Class D's 'the person's income is less than their applicable amount' route and Class E's 'income is more than their applicable amount' qualifier — and the maximum-reduction formula subtracted an ungrounded aggregate input instead of applying the module's own printed paragraph 58.1-58.2 deduction table at the selected band.",
+    "triage_notes": "Two distinct fidelity fixes in one module, both named in the subject. (1) 'preserve classes': pre-fix `award_conditions_met` was `... and maximum_weekly > taper_deduction_weekly`; post-fix it is `... and (income + tariff < applicable_amount or (income + tariff > applicable_amount and maximum_weekly > taper_deduction_weekly))`, with two new proof atoms quoting page-8 \"person’s income4 is less than their applicable amount5\" (Class D) and page-9 \"person’s income10 is more than their applicable amount11;\" (Class E). I read both provisions through the pinned corpus release (resolve_provision.py, pages 8 and 9): page 8 lists Class D condition (h) income less than applicable amount with no taper test; page 9 lists Class E conditions (i) income more than applicable amount and (k) amount A exceeds amount B. Behavioral delta is real but narrow: a household whose income exactly equals its applicable amount previously passed (excess = 0, taper = 0, so maximum > 0 held) and now correctly falls in neither class — the new companion case `east_hertfordshire_ctr_income_equal_applicable` asserts weekly_amount 0. That equal-income effect could alternatively be read as boundary_direction, but the root cause and the fix are the missing class clauses, so unrepresented_clause. (2) 'link deductions': `maximum_weekly` changed from `- ..._non_dependant_deductions_weekly` (an opaque Household input) to `- ..._non_dependant_deduction_weekly[..._non_dependant_deduction_band]`, i.e. the already-encoded printed table (values {0:0, 1:5.20, 2:10.60, 3:13.30, 4:15.95}, grounded on page-71 paragraphs 58.1-58.2, which I also read and which prescribes exactly those amounts) was dead before this commit; the new case `east_hertfordshire_ctr_maximum_after_selected_deduction` checks 100 * 0.915 - 15.95 = 75.55 at band 4. Taken alone that second fix reads as untraceable_branch (a subtrahend with no grounding in the cited source, re-grounded by the fix); I picked the class fix as decisive because it is named first and the source reading settles it. Collateral non-defect changes: the removed `..._non_dependant_deductions_weekly` input, the band input's entity moved Person -> Household (needed for the Household-level indexed lookup), and the deferred_outputs entry restated from `non_dependant_exemption_classifier` to `resolved_non_dependant_deduction_band`. No formulas outside these two rules changed; parameter values, effective dates (all '2026-04-01') and units are untouched. The bundle's PR record for #305 has empty reviews/review_comments/issue_comments, so the sol round-1 review text itself was not available — the subject line is the only quotable statement of the defect. Sibling commit 1641f4c \"Ground Worthing taper and preserve strict classes\" applies the same class-preservation pattern to another authority, and no later commit touches this module file.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.8,
+    "verifier_justification": "I tried to refute this as a traceability-only refactor and could not: the pinned corpus confirms the scheme prints two working-age income tests the pre-fix encoding simply did not contain — Class D h \"the person's income4 is less than their applicable amount5\" (page-8) and Class E i \"the person's income10 is more than their applicable amount11\" (page-9) — while the pre-fix award condition carried only Class E k's \"amount A exceeds amount B\" comparison. The fix adds both as a disjunction with matching new proof atoms, and the change is behavioral, not cosmetic: the companion suite's new `east_hertfordshire_ctr_income_equal_applicable` case (income 100, applicable 100, liability 100, band 0) now expects weekly_amount 0, where the pre-fix formula (taper = 0, maximum = 91.5 > 0) would have awarded 91.5. A source-stated condition was missing and the fix supplies it, so fidelity / unrepresented_clause holds on the rule_path given (award_conditions_met.versions[0].formula).",
+    "verifier_quote": "(east_hertfordshire_council_tax_reduction_assessed_income_weekly + east_hertfordshire_council_tax_reduction_tariff_income_weekly < east_hertfordshire_council_tax_reduction_applicable_amount_weekly or (east_hertfordshire_council_tax_reduction_assessed_income_weekly + east_hertfordshire_council_tax_reduction_tariff_income_weekly > east_hertfordshire_council_tax_reduction_applicable_amount_weekly and east_hertfordshire_council_tax_reduction_maximum_weekly > east_hertfordshire_council_tax_reduction_taper_deduction_weekly))",
+    "verifier_notes": "Caveats a reviewer should carry forward. (1) The second half of the first reader's reading — that maximum_weekly \"subtracted an ungrounded aggregate input\" — is the weak half and should not be what the kind rests on. Paragraph 57.1(b) on page-71 expressly says the maximum is computed \"less any deductions in respect of non-dependants which fall to be made under section 58\", so the pre-fix input `east_hertfordshire_council_tax_reduction_non_dependant_deductions_weekly` was a grounded delegation, not an invented value; what was actually wrong is that the module declared the printed 58.1-58.2 table with proof atoms and never referenced it (dead parameter, dead Person-entity band input). Linking it is a wiring/coverage fix, and arguably narrows coverage: 58.1 gives a deduction per non-dependant, while the post-fix single Household-entity band lookup can express only one selected band (58.3's one-deduction-per-couple rule does not merge two unrelated non-dependants). On its own that half would be \"unclear\". (2) The class-test half is nearly behavior-preserving away from the boundary: when income <= applicable, excess income is floored at 0 so taper = 0 and the old test reduces to maximum_weekly > 0. The demonstrable outcome flips are income exactly equal to the applicable amount (pre awarded, post denies, matching the source's literal strict \"less than\"/\"more than\" pair) and Class D households with maximum_weekly <= 0 (pre denied, post grants). So this is a genuine but corner-case meaning change, which is why I sit at 0.8 rather than higher. (3) The fix is partial and the module still under-represents the source: Class D h's alternative route \"or the applicant or partner is in receipt of income support, jobseekers' allowance (income based) or employment and support allowance (income related)\" is still unencoded, and the rule's `source:` field still reads \"East Hertfordshire Council Tax Reduction Scheme 2026/27 Class E\" although the formula now encodes Class D as well. (4) Not mechanical under any reading: formulas, an input's entity (Person -> Household), the input list, and a deferred_outputs target all changed. (5) Corpus resolution used release uk-rulespec-2026-09-05, corpus commit 019e8600f6, provision file sha256 60cd0071c5961fee22b048f3d19aa937c188588076abf5e323a7128d2f9a2445. (6) Scratchpad hygiene note: generic filenames pre.yaml/post.yaml in the shared scratchpad were overwritten mid-session by a concurrent worker's Middlesbrough content; I re-extracted under a unique name (eherts_post_a55b.yaml). Other verifier workers on this corpus may hit the same collision.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Two distinct fidelity fixes in one module, both named in the subject. (1) 'preserve classes': pre-fix `award_conditions_met` was `... and maximum_weekly > taper_deduction_weekly`; post-fix it is `... and (income + tariff < applicable_amount or (income + tariff > applicable_amount and maximum_weekly > taper_deduction_weekly))`, with two new proof atoms quoting page-8 \"person’s income4 is less than their applicable amount5\" (Class D) and page-9 \"person’s income10 is more than their applicable amount11;\" (Class E). I read both provisions through the pinned corpus release (resolve_provision.py, pages 8 and 9): page 8 lists Class D condition (h) income less than applicable amount with no taper test; page 9 lists Class E conditions (i) income more than applicable amount and (k) amount A exceeds amount B. Behavioral delta is real but narrow: a household whose income exactly equals its applicable amount previously passed (excess = 0, taper = 0, so maximum > 0 held) and now correctly falls in neither class — the new companion case `east_hertfordshire_ctr_income_equal_applicable` asserts weekly_amount 0. That equal-income effect could alternatively be read as boundary_direction, but the root cause and the fix are the missing class clauses, so unrepresented_clause. (2) 'link deductions': `maximum_weekly` changed from `- ..._non_dependant_deductions_weekly` (an opaque Household input) to `- ..._non_dependant_deduction_weekly[..._non_dependant_deduction_band]`, i.e. the already-encoded printed table (values {0:0, 1:5.20, 2:10.60, 3:13.30, 4:15.95}, grounded on page-71 paragraphs 58.1-58.2, which I also read and which prescribes exactly those amounts) was dead before this commit; the new case `east_hertfordshire_ctr_maximum_after_selected_deduction` checks 100 * 0.915 - 15.95 = 75.55 at band 4. Taken alone that second fix reads as untraceable_branch (a subtrahend with no grounding in the cited source, re-grounded by the fix); I picked the class fix as decisive because it is named first and the source reading settles it. Collateral non-defect changes: the removed `..._non_dependant_deductions_weekly` input, the band input's entity moved Person -> Household (needed for the Household-level indexed lookup), and the deferred_outputs entry restated from `non_dependant_exemption_classifier` to `resolved_non_dependant_deduction_band`. No formulas outside these two rules changed; parameter values, effective dates (all '2026-04-01') and units are untouched. The bundle's PR record for #305 has empty reviews/review_comments/issue_comments, so the sol round-1 review text itself was not available — the subject line is the only quotable statement of the defect. Sibling commit 1641f4c \"Ground Worthing taper and preserve strict classes\" applies the same class-preservation pattern to another authority, and no later commit touches this module file. | verifier confirmed at 0.80",
+  "family_id": "uk-a55b3a05-3d099b36e799",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

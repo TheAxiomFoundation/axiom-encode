@@ -1,0 +1,161 @@
+{
+  "id": "us-402-ca94764e-regulations-18-nycrr-387-12-f-3-v-c",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "ca94764e80ed451c16928ac56b31a70fe51cf4d4",
+  "parent_commit": "be16a8bd2929905505b61d5f355c7cba238e8351",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Regeneration corrects NY telephone allowance eligibility to require the household incurred basic service cost for one telephone (previously granted whenever heating/cooling and utilities allowances did not apply) and replaces the paraphrased summary with regulation text.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/395",
+  "module_path": "regulations/18-nycrr/387/12/f/3/v/c.yaml",
+  "corpus_citation_path": "us-ny/regulation/18-nycrr/387/12/f/3/v/c",
+  "corpus_citation_paths_all": [
+    "us-ny/regulation/18-nycrr/387/12/f/3/v/c"
+  ],
+  "corpus_release": "us-rulespec-ny-snap-2026-07-17",
+  "corpus_release_content_sha256": "6bc4a29b437a1bd4b0fb96e707c095b241c229f17278d140a60a8e973ada1c9f",
+  "corpus_commit": "df57dc57cf0152c5747696c078929a12ed2d2239",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.78,
+  "description": "(c) The standard allowance for telephone consists of the cost for basic service for one telephone.",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        4,
+        7
+      ],
+      [
+        11,
+        11
+      ],
+      [
+        16,
+        17
+      ],
+      [
+        19,
+        26
+      ],
+      [
+        35,
+        35
+      ],
+      [
+        37,
+        44
+      ],
+      [
+        55,
+        57
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        4,
+        4
+      ],
+      [
+        8,
+        8
+      ],
+      [
+        13,
+        16
+      ],
+      [
+        18,
+        22
+      ],
+      [
+        31,
+        32
+      ],
+      [
+        44,
+        44
+      ]
+    ],
+    "rule_names": [
+      "snap_telephone_standard_allowance_eligible",
+      "snap_individual_utility_allowance",
+      "telephone_standard_allowance_amount"
+    ],
+    "rule_path": "rules[snap_telephone_standard_allowance_eligible].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "b2184cfe56da9b0014be67d5ec4dbec37b28f5040173a9bdcaf708da636bd21e",
+  "post_fix_artifact_sha256": "a49a1244a8a5b32d27b59089210af0d9239e7c04defe13795a2e241bd5f7f99b",
+  "provision_sha256": "c7a2e121002055a0e7021266e75b115391eb307b58959627173b8deb53a4ba2b",
+  "provision_chars": 477,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-ny/regulation/18-nycrr/387/12/f/3/v/c",
+    "provision_file": "data/corpus/provisions/us-ny/regulation/2026-07-17-ny-snap-regulations.jsonl",
+    "provision_file_sha256": "6891da448305f63d6faa164acf7dbb9e13aa10e8ef7f3c05ee4c7c825dcd5ba2",
+    "line_number": 1158,
+    "record_id": "a14d03c7-3aee-5e21-958d-dab9019817af",
+    "stored_body_sha256": "c7a2e121002055a0e7021266e75b115391eb307b58959627173b8deb53a4ba2b",
+    "resolved_text_sha256": "c7a2e121002055a0e7021266e75b115391eb307b58959627173b8deb53a4ba2b",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-02-25",
+    "source_as_of": "2026-02-25",
+    "corpus_commit": "df57dc57cf0152c5747696c078929a12ed2d2239",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 7,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us-ny/regulation/18-nycrr/387/12/f/3/v/c",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us-ny/regulation/18-nycrr/387/12/f/3/v/c'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us-ny/regulation/18-nycrr/387/12/f/3/v/c'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us-ny/regulation/18-nycrr/387/12/f/3/v/c'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us-ny/regulation/18-nycrr/387/12/f/3/v/c'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us-ny/regulation/18-nycrr/387/12/f/3/v/c'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us-ny/regulation/18-nycrr/387/12/f/3/v/c'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us-ny/regulation/18-nycrr/387/12/f/3/v/c'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module granted the $32 telephone standard allowance to every household that merely failed to qualify for the heating/cooling or utilities allowances, omitting the source's requirement that the allowance consists of the cost for basic service for one telephone — i.e. that the household actually incurred or anticipated such a cost.",
+    "triage_notes": "Provision WAS read through the pinned corpus release (resolve_provision.py, us-ny/regulation/18-nycrr/387/12/f/3/v/c): text confirms 'The standard allowance for telephone consists of the cost for basic service for one telephone', so the added conjunct is source-grounded, not new unclaimed scope. Decisive diff: eligibility formula changed from 'not snap_heating_cooling_standard_allowance_eligible and not snap_utilities_standard_allowance_eligible' to the same two negations ANDed with the new input household_incurred_or_anticipated_basic_service_cost_for_one_telephone; snap_individual_utility_allowance was rewritten to a nested if-chain that also gates on that input, so a household without telephone cost now yields 0 instead of 32. Companion test regulations/18-nycrr/387/12/f/3/v/c.test.yaml adds case 'no_telephone_basic_service_cost_prevents_telephone_allowance' expecting snap_individual_utility_allowance: 0, and policies/otda/snap/fy-2026-benefit-calculation.test.yaml pins the new input to false in its shared base case — behavioral change confirmed, not cosmetic. The commit ALSO made non-fidelity changes in the same module: (a) the module summary was replaced with verbatim regulation text (provenance/mechanical); (b) the parameter was renamed ny_snap_telephone_utility_allowance_amount -> telephone_standard_allowance_amount with the same 32 value, effective_from 2025-10-01 and dtype/unit unchanged (rename only); (c) the rule snap_telephone_allowance_eligible was renamed to snap_telephone_standard_allowance_eligible; (d) the source_relation rule 'sets_snap_telephone_utility_allowance' (a 'sets' relation onto us:regulations/7-cfr/273/9#snap_individual_utility_allowance_state_option with a delegation basis) was DROPPED entirely and not replaced — that removes a cross-reference/delegation assertion rather than a computed value, so I did not treat it as the defect, but a reviewer may want to check whether losing that relation was intended. Evidence quality caveat: the commit body is empty and the subject is generic ('Regenerate NY SNAP telephone allowance'); the attached PR (#395) is the unrelated US monorepo-consolidation PR that absorbed this history via git subtree, so its body/reviews say nothing about this change. The only text that names the defect is the post-fix module summary quoting the regulation, hence confidence held below 0.8. The encoding manifest (.axiom/encoding-manifests/.../c.json) records a supervised encoder run (openai-gpt-5.5 backend, run dir axiom-encode-ny-telephone-11) but carries no prose rationale.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.8,
+    "verifier_justification": "The pre-fix formula for `snap_telephone_allowance_eligible` was `not snap_heating_cooling_standard_allowance_eligible and not snap_utilities_standard_allowance_eligible`, so any household failing the other two standards received the $32 telephone allowance; the fix adds a required conjunct `household_incurred_or_anticipated_basic_service_cost_for_one_telephone` and threads the same gate through `snap_individual_utility_allowance`, which is an encoded-meaning change, not bookkeeping. The pinned corpus release (us-rulespec-ny-snap-2026-07-17, record a14d03c7) confirms the source's first sentence — \"The standard allowance for telephone consists of the cost for basic service for one telephone.\" — which the pre-fix encoding represented nowhere, and the companion test adds `no_telephone_basic_service_cost_prevents_telephone_allowance` asserting not_holds / 0 where the old module returned 32. I tried to refute this as amount/date/entity (all unchanged: $32, effective_from 2025-10-01, Household/SnapUnit), as polarity (no operator inverted — a conjunct was added), and as mechanical (renames and the summary-to-regulation-text swap are present but ride alongside a real formula change), and none of those hold; the only surviving counter-reading is that the first sentence is definitional rather than an eligibility gate, which the sibling provisions (a)/(b) incurrence tests make unlikely.",
+    "verifier_quote": "+          household_incurred_or_anticipated_basic_service_cost_for_one_telephone\n+          and not snap_heating_cooling_standard_allowance_eligible",
+    "verifier_notes": "Commit message is bare (\"Regenerate NY SNAP telephone allowance\", empty body) — the \"(screen-flagged)\" sentence in the task brief is screening output, not maintainer text, so the evidence here is the diff, the companion test, and the resolved source text, not a quoted admission. Two other changes ride in the same regeneration and a reviewer should look at them separately: (1) the commit deletes the `source_relation` rule `sets_snap_telephone_utility_allowance`, which had target `us:regulations/7-cfr/273/9#snap_individual_utility_allowance_state_option` with a delegation basis — that is a coverage/linkage removal, not part of the reviewed defect, and it is the one plausible candidate for a competing kind (untraceable_branch or wrong_entity_or_scope) if a reviewer thinks the relation, not the eligibility gate, is the decisive edit; (2) renames (`ny_snap_telephone_utility_allowance_amount` → `telephone_standard_allowance_amount`, `snap_telephone_allowance_eligible` → `snap_telephone_standard_allowance_eligible`) and the summary replacement are mechanical noise that should not be read as additional defects. Residual risk on the kind: the added gate is grounded in a definitional sentence (\"consists of the cost for basic service for one telephone\") rather than an explicit \"is available only to households which incur…\" clause, so a strict reader could call the new input an interpretive addition; I weigh that as minority because (a) and (b) in the same subdivision both gate on incurred cost and the added input name mirrors (a)'s `household_incurred_or_anticipated_heating_or_cooling_costs_separate_from_rent_or_mortgage`. Source text verified verbatim via resolve_provision (corpus commit df57dc57cf, provision line 1158, body sha c7a2e121…).",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Provision WAS read through the pinned corpus release (resolve_provision.py, us-ny/regulation/18-nycrr/387/12/f/3/v/c): text confirms 'The standard allowance for telephone consists of the cost for basic service for one telephone', so the added conjunct is source-grounded, not new unclaimed scope. Decisive diff: eligibility formula changed from 'not snap_heating_cooling_standard_allowance_eligible and not snap_utilities_standard_allowance_eligible' to the same two negations ANDed with the new input household_incurred_or_anticipated_basic_service_cost_for_one_telephone; snap_individual_utility_allowance was rewritten to a nested if-chain that also gates on that input, so a household without telephone cost now yields 0 instead of 32. Companion test regulations/18-nycrr/387/12/f/3/v/c.test.yaml adds case 'no_telephone_basic_service_cost_prevents_telephone_allowance' expecting snap_individual_utility_allowance: 0, and policies/otda/snap/fy-2026-benefit-calculation.test.yaml pins the new input to false in its shared base case — behavioral change confirmed, not cosmetic. The commit ALSO made non-fidelity changes in the same module: (a) the module summary was replaced with verbatim regulation text (provenance/mechanical); (b) the parameter was renamed ny_snap_telephone_utility_allowance_amount -> telephone_standard_allowance_amount with the same 32 value, effective_from 2025-10-01 and dtype/unit unchanged (rename only); (c) the rule snap_telephone_allowance_eligible was renamed to snap_telephone_standard_allowance_eligible; (d) the source_relation rule 'sets_snap_telephone_utility_allowance' (a 'sets' relation onto us:regulations/7-cfr/273/9#snap_individual_utility_allowance_state_option with a delegation basis) was DROPPED entirely and not replaced — that removes a cross-reference/delegation assertion rather than a computed value, so I did not treat it as the defect, but a reviewer may want to check whether losing that relation was intended. Evidence quality caveat: the commit body is empty and the subject is generic ('Regenerate NY SNAP telephone allowance'); the attached PR (#395) is the unrelated US monorepo-consolidation PR that absorbed this history via git subtree, so its body/reviews say nothing about this change. The only text that names the defect is the post-fix module summary quoting the regulation, hence confidence held below 0.8. The encoding manifest (.axiom/encoding-manifests/.../c.json) records a supervised encoder run (openai-gpt-5.5 backend, run dir axiom-encode-ny-telephone-11) but carries no prose rationale. | verifier confirmed at 0.80",
+  "family_id": "us-ca94764e-c9c157ba6a12",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

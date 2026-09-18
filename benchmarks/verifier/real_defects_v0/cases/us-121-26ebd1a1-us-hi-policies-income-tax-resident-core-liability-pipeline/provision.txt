@@ -1,0 +1,59 @@
+(a) For all taxable years beginning after December 31, 2024, as used in this chapter, except as provided in this section and sections 235-2.35, 235-2.4, 235-2.45, "Internal Revenue Code" means subtitle A, chapter 1, of the federal Internal Revenue Code of 1986, as amended as of December 31, 2024, as it applies to the determination of gross income, adjusted gross income, ordinary income and loss, taxable income, except those provisions of the Internal Revenue Code which, pursuant to this chapter, do not apply or are otherwise limited in application.
+Sections 9672(1) (relating to tax treatment of targeted EIDL advances) and 9673(1) (relating to tax treatment of restaurant revitalization grants) of Public Law 117-2 shall be operative for purposes of this chapter. No amount received under section 9601 (relating to 2021 recovery rebates to individuals) of Public Law 117-2 shall be included in gross income for purposes of this chapter.
+Sections 276(b)(1) (relating to subsequent paycheck protection program loans), 277 (relating to emergency financial aid grants), 278(b)(1) (relating to emergency EIDL grants and targeted EIDL advances), 278(c)(1) (relating to subsidy for certain loan payments), and 278(d)(1) (relating to grants for shuttered venue operators) of Division N of Public Law 116-260 shall be operative for purposes of this chapter. Sections 213 (relating to modification of limitations on charitable contributions) and 214 (relating to temporary special rules for health and dependent care flexible spending arrangements) of Division EE of Public Law 116-260 shall be operative for purposes of this chapter. Sections 301, 302, and 304 (relating to disaster tax relief) of Division EE of Public Law 116-260 shall be operative for purposes of this chapter. No amount received under section 272 (relating to additional 2020 recovery rebates for individuals) of Division N of Public Law 116-260 shall be included in gross income for purposes of this chapter.
+Sections 1106(i) (relating to exclusion of loan forgiveness from gross income), 2202(b) (relating to loans from retirement plans), and 2205 (relating to charitable contributions) of Public Law 116-136 shall be operative for purposes of this chapter. No amount received under section 2201 (relating to recovery rebates) of Public Law 116-136 shall be included in gross income for purposes of this chapter.
+Section 2202(a) (relating to tax-favored withdrawals from retirement plans) of Public Law 116-136 shall be operative for purposes of this chapter and shall apply to taxable years beginning after December 31, 2019.
+Prior law shall continue to be used to determine:
+(1) The basis of property, if a taxpayer first determined the basis of property in a taxable year to which prior law applies; and
+(2) Gross income, adjusted gross income, ordinary income and loss, and taxable income for a taxable year to which prior law applies.
+(b) The following Internal Revenue Code subchapters, parts of subchapters, sections, subsections, and parts of subsections shall not be operative for the purposes of this chapter, unless otherwise provided:
+(1) Subchapter A (sections 1 to 59A) (with respect to determination of tax liability), except section 1(h)(2) (relating to net capital gain reduced by the amount taken into account as investment income), except sections 2(a), 2(b), and 2(c) (with respect to the definition of "surviving spouse" and "head of household"), except section 41 (with respect to the credit for increasing research activities), except section 42 (with respect to low-income housing credit), except sections 47 and 48, as amended, as of December 31, 1984 (with respect to certain depreciable tangible personal property), and except section 48(d)(3), as amended, as of February 17, 2009 (with respect to the treatment of United States Department of Treasury grants made under section 1603 of the American Recovery and Reinvestment Tax Act of 2009). For treatment, see sections 235-110.91, 235-110.7, and 235-110.8;
+(2) Section 78 (with respect to dividends received from certain foreign corporations by domestic corporations choosing foreign tax credit);
+(3) Section 86 (with respect to social security and tier 1 railroad retirement benefits);
+(4) Section 91 (with respect to certain foreign branch losses transferred to specified 10-percent owned foreign corporations);
+(5) Section 103 (with respect to interest on state and local bonds). For treatment, see section 235-7(b);
+(6) Section 114 (with respect to extraterritorial income). For treatment, any transaction as specified in the transitional rule for 2005 and 2006 as specified in the American Jobs Creation Act of 2004 section 101(d) and any transaction that has occurred pursuant to a binding contract as specified in the American Jobs Creation Act of 2004 section 101(f) are inoperative;
+(7) Section 120 (with respect to amounts received under qualified group legal services plans). For treatment, see section 235-7(a)(9) to (11);
+(8) Section 122 (with respect to certain reduced uniformed services retirement pay). For treatment, see section 235-7(a)(3);
+(9) Section 135 (with respect to income from United States savings bonds used to pay higher education tuition and fees). For treatment, see section 235-7(a)(1);
+(10) Section 139C (with respect to COBRA premium assistance);
+(11) Subchapter B (sections 141 to 150) (with respect to tax exemption requirements for state and local bonds);
+(12) Section 151 (with respect to allowance of deductions for personal exemptions). For treatment, see section 235-54;
+(13) Section 179B (with respect to expensing of capital costs incurred in complying with Environmental Protection Agency sulphur regulations);
+(14) Section 181 (with respect to special rules for certain film and television productions);
+(15) Section 196 (with respect to deduction for certain unused investment credits);
+(16) Section 199 (with respect to the U.S. production activities deduction);
+(17) Section 199A (with respect to qualified business income);
+(18) Section 222 (with respect to qualified tuition and related expenses);
+(19) Sections 241 to 247 (with respect to special deductions for corporations). For treatment, see section 235-7(c);
+(20) Section 250 (with respect to foreign-derived intangible income and global intangible low-taxed income);
+(21) Section 267A (with respect to certain related party amounts paid or accrued in hybrid transactions or with hybrid entities);
+(22) Section 280C (with respect to certain expenses for which credits are allowable). For treatment, see section 235-110.91;
+(23) Section 291 (with respect to special rules relating to corporate preference items);
+(24) Section 367 (with respect to foreign corporations);
+(25) Section 501(c)(12), (15), (16) (with respect to exempt organizations); except that section 501(c)(12) shall be operative for companies that provide potable water to residential communities that lack any access to public utility water services;
+(26) Section 515 (with respect to taxes of foreign countries and possessions of the United States);
+(27) Subchapter G (sections 531 to 565) (with respect to corporations used to avoid income tax on shareholders);
+(28) Subchapter H (sections 581 to 597) (with respect to banking institutions), except section 584 (with respect to common trust funds). For treatment, see chapter 241;
+(29) Section 642(a) and (b) (with respect to special rules for credits and deductions applicable to trusts). For treatment, see sections 235-54(b) and 235-55;
+(30) Section 646 (with respect to tax treatment of electing Alaska Native settlement trusts);
+(31) Section 668 (with respect to interest charge on accumulation distributions from foreign trusts);
+(32) Subchapter L (sections 801 to 848) (with respect to insurance companies). For treatment, see sections 431:7-202 and 431:7-204;
+(33) Section 853 (with respect to foreign tax credit allowed to shareholders). For treatment, see section 235-55;
+(34) Section 853A (with respect to credits from tax credit bonds allowed to shareholders);
+(35) Subchapter N (sections 861 to 999) (with respect to tax based on income from sources within or without the United States), except sections 985 to 989 (with respect to foreign currency transactions). For treatment, see sections 235-4, 235-5, and 235-7(b), and 235-55;
+(36) Section 1042(g) (with respect to sales of stock in agricultural refiners and processors to eligible farm cooperatives);
+(37) Section 1055 (with respect to redeemable ground rents);
+(38) Section 1057 (with respect to election to treat transfer to foreign trust, etc., as taxable exchange);
+(39) Sections 1291 to 1298 (with respect to treatment of passive foreign investment companies);
+(40) Subchapter Q (sections 1311 to 1351) (with respect to readjustment of tax between years and special limitations), except for section 1341 (with respect to computation of tax where taxpayer restores substantial amount held under claim of right);
+(41) Subchapter R (sections 1352 to 1359) (with respect to election to determine corporate tax on certain international shipping activities using per ton rate);
+(42) Subchapter U (sections 1391 to 1397F) (with respect to designation and treatment of empowerment zones, enterprise communities, and rural development investment areas). For treatment, see chapter 209E;
+(43) Subchapter W (sections 1400 to 1400C) (with respect to District of Columbia enterprise zone);
+(44) Section 1400O (with respect to education tax benefits);
+(45) Section 1400P (with respect to housing tax benefits);
+(46) Section 1400R (with respect to employment relief);
+(47) Section 1400T (with respect to special rules for mortgage revenue bonds);
+(48) Section 1400U-1 (with respect to allocation of recovery zone bonds);
+(49) Section 1400U-2 (with respect to recovery zone economic development bonds); and
+(50) Section 1400U-3 (with respect to recovery zone facility bonds).

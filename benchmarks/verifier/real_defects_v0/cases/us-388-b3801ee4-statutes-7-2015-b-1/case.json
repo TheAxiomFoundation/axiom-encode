@@ -1,0 +1,359 @@
+{
+  "id": "us-388-b3801ee4-statutes-7-2015-b-1",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "b3801ee4eb82f8fc2c753d809c8b36d9ae6c42c2",
+  "parent_commit": "2175d5239a22bce42aa7a3b2f5a7c4af4c6940ea",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Wholesale regeneration with semantic corrections to existing modules: 24(d) phase-in threshold 2500 to 3000 and SS-excess gated on 3+ children, 1411 effective_from 2026 to 2013 and estate/trust base, CDCC/22/32/6401/2017(a)/273.10 formulas rewritten.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/25",
+  "module_path": "statutes/7/2015/b/1.yaml",
+  "corpus_citation_path": "us/statute/7/2015",
+  "corpus_citation_paths_all": [
+    "us/statute/7/2015"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.35,
+  "description": "During the period of such ineligibility, no household shall receive increased benefits under this chapter as the result of a member of such household having been disqualified under this subsection.",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        10,
+        10
+      ],
+      [
+        26,
+        26
+      ],
+      [
+        42,
+        42
+      ],
+      [
+        44,
+        46
+      ],
+      [
+        54,
+        55
+      ],
+      [
+        61,
+        61
+      ],
+      [
+        63,
+        68
+      ],
+      [
+        73,
+        73
+      ],
+      [
+        79,
+        83
+      ],
+      [
+        85,
+        85
+      ],
+      [
+        90,
+        90
+      ],
+      [
+        101,
+        102
+      ],
+      [
+        104,
+        104
+      ],
+      [
+        109,
+        109
+      ],
+      [
+        120,
+        124
+      ],
+      [
+        126,
+        126
+      ],
+      [
+        131,
+        131
+      ],
+      [
+        143,
+        144
+      ],
+      [
+        146,
+        147
+      ],
+      [
+        149,
+        150
+      ],
+      [
+        153,
+        153
+      ],
+      [
+        156,
+        156
+      ],
+      [
+        158,
+        158
+      ],
+      [
+        163,
+        163
+      ],
+      [
+        167,
+        167
+      ],
+      [
+        173,
+        179
+      ],
+      [
+        181,
+        181
+      ],
+      [
+        197,
+        199
+      ],
+      [
+        201,
+        201
+      ],
+      [
+        206,
+        206
+      ],
+      [
+        217,
+        218
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        10,
+        10
+      ],
+      [
+        26,
+        26
+      ],
+      [
+        42,
+        42
+      ],
+      [
+        44,
+        45
+      ],
+      [
+        53,
+        66
+      ],
+      [
+        72,
+        72
+      ],
+      [
+        74,
+        77
+      ],
+      [
+        82,
+        82
+      ],
+      [
+        88,
+        136
+      ],
+      [
+        138,
+        155
+      ],
+      [
+        160,
+        160
+      ],
+      [
+        171,
+        176
+      ],
+      [
+        178,
+        178
+      ],
+      [
+        183,
+        183
+      ],
+      [
+        191,
+        194
+      ],
+      [
+        198,
+        199
+      ],
+      [
+        201,
+        201
+      ],
+      [
+        206,
+        206
+      ],
+      [
+        214,
+        217
+      ],
+      [
+        222,
+        223
+      ],
+      [
+        226,
+        227
+      ],
+      [
+        230,
+        230
+      ],
+      [
+        233,
+        233
+      ],
+      [
+        235,
+        235
+      ],
+      [
+        240,
+        240
+      ],
+      [
+        244,
+        244
+      ],
+      [
+        250,
+        265
+      ],
+      [
+        267,
+        267
+      ],
+      [
+        283,
+        285
+      ],
+      [
+        287,
+        287
+      ],
+      [
+        292,
+        292
+      ],
+      [
+        303,
+        303
+      ]
+    ],
+    "rule_names": [
+      "household_barred_from_increased_benefits_due_to_member_disqualification",
+      "permanently_ineligible",
+      "ineligible_for_one_year",
+      "ineligible_for_two_years",
+      "intentional_program_violation_determination"
+    ],
+    "rule_path": "rules[household_barred_from_increased_benefits_due_to_member_disqualification].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "57f7a9d6360797a8d6400f2c74bf1e8d898a8caab66ed9fe7b189ba21f9d93b1",
+  "post_fix_artifact_sha256": "8db02ebfc0b3000e401e5d2ddc639220507183904c6d3ead028f9a390c312473",
+  "provision_sha256": "0367aadc0da0040d18379f92662c3e13593f3bfd919982c713a6729fc6e82541",
+  "provision_chars": 62672,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/7/2015",
+    "provision_file": "data/corpus/provisions/us/statute/2026-05-10-snap-sections.jsonl",
+    "provision_file_sha256": "b07364b31e32416d4a0fdc978c2f0f4b9a258eb355f06d064c7b461e11da42e0",
+    "line_number": 3,
+    "record_id": "f5fc1ae5-f6d5-5770-b454-041a57f23e1a",
+    "stored_body_sha256": "0367aadc0da0040d18379f92662c3e13593f3bfd919982c713a6729fc6e82541",
+    "resolved_text_sha256": "0367aadc0da0040d18379f92662c3e13593f3bfd919982c713a6729fc6e82541",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2025-12-03",
+    "source_as_of": "2025-12-03",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us/statute/7/2015",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/7/2015'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/7/2015'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/7/2015'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/7/2015'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "unclear",
+    "pre_fix_wrong_because": "unclear: the household-benefit bar previously fired on `household_has_member_disqualified_under_this_subsection and household_would_receive_increased_benefits_as_result_of_member_disqualification`, which never applied the statute's 'During the period of such ineligibility' limitation, and the permanent-disqualification branch tested opaque 'third occasion' booleans rather than an occasion count, so a fourth or later determination would not have triggered it.",
+    "triage_notes": "Mostly a rename and representation change, which is why I did not call it fidelity: first/second/two_year/permanent rule names were renamed, occasion booleans (`first_occasion_of_any_such_determination`, `second_...`, `third_...`) were replaced with an occasion-number input compared against new Count parameters, and the intentional-violation test was refactored to factor out `found_by_state_or_federal_court_or_administrative_agency`. The only arguable meaning changes are the two in pre_fix_wrong_because plus the == vs >= treatment of repeat controlled-substance and firearms findings. A regression to note: the pre-fix output `nonpermanent_ineligibility_period_years` (which returned 1 or 2) was deleted, and the 1-year/2-year period parameters it consumed are now declared but unused, so the module no longer emits a disqualification length. The summary excerpt also changed from '(b)(1) Any person...' to '(1) Any person...', an excerpt-only provenance change. Effective dates unchanged at 2008-10-01. Keep for reviewer pruning.",
+    "verifier_verdict": "reclassify",
+    "verifier_defect_kind": "boundary_direction",
+    "verifier_confidence": 0.55,
+    "verifier_justification": "The first reader's anchor does not survive: the last-sentence household bar was already a rule before the change (source \"7 U.S.C. 2015(b)(1), last sentence\"), and the fix does not add the \"During the period of such ineligibility\" limitation as computable content — it renames two opaque undefined inputs into one (`household_has_member_disqualified_under_this_subsection_during_period_of_ineligibility`) and *drops* the \"would receive increased benefits\" conjunct, so nothing is added that the source states was missing. The one meaning change that does disagree with the source is the occasion tiering: pre-fix the permanent branch tested the exact-occasion boolean `third_occasion_of_any_such_determination`, so a person on a fourth determination (first/second/third all false) got `permanent_ineligibility_applies` false and `person_becomes_ineligible_for_further_snap_participation` false — fully eligible — while 7 U.S.C. 2015(b)(1)(iii)(I) plus (b)(3) (\"Such periods of ineligibility ... shall remain in effect\") make them permanently ineligible. The fix replaces that with an inclusive at-least bound on a count (`>= third_determination_occasion_number`, and likewise `>= controlled_substance_second_finding_occasion_number`) while deliberately keeping exact `==` for the one- and two-year tiers, which is a bound-strictness correction, not a missing clause.",
+    "verifier_quote": "-            and third_occasion_of_any_such_determination\n+              and determination_occasion_number >= third_determination_occasion_number",
+    "verifier_notes": "Refutation of the original kind: the quoted statutory sentence (\"During the period of such ineligibility, no household shall receive increased benefits...\") is unchanged in the module summary across the diff, and the post-fix formula for that rule is a single opaque input whose name merely recites the clause. Per the rubric's provenance carve-out, a rename that puts statutory words into a variable name is not evidence the clause is now represented; and the diff removes a conjunct rather than adding coverage, which is the opposite shape from unrepresented_clause. Alternative kind worth considering: polarity_or_logic, since pre-fix a fourth determination made every branch false (fail-open to fully eligible); I preferred boundary_direction because the fix's decisive edit is the `==` vs `>=` split across tiers (== for 1st/2nd determination and 1st controlled-substance finding, >= for 3rd+ determination, 2nd+ controlled substance, 1st+ firearms). Caveats for pruning: the commit is a wholesale regeneration (\"Regenerate validated US RuleSpec encodings\", empty body) and PR #25 is titled \"Encode 26 USC 63(c) standard deduction\" with no mention of SNAP disqualification, so all evidence is internal to the diff; every numeric parameter (1, 2, 500) and every effective_from ('2008-10-01') is unchanged; and the diff also deletes the derived output `nonpermanent_ineligibility_period_years` (the 1/2/0-year selector), a coverage loss that is not a fidelity correction. Both pre and post are built entirely from undefined opaque inputs, so the fourth-occasion failure depends on reading `third_occasion_of_any_such_determination` literally — that reading is what the new occasion-count inputs and the rewritten test fixtures assume, but it is why I hold confidence at 0.55 rather than higher.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Mostly a rename and representation change, which is why I did not call it fidelity: first/second/two_year/permanent rule names were renamed, occasion booleans (`first_occasion_of_any_such_determination`, `second_...`, `third_...`) were replaced with an occasion-number input compared against new Count parameters, and the intentional-violation test was refactored to factor out `found_by_state_or_federal_court_or_administrative_agency`. The only arguable meaning changes are the two in pre_fix_wrong_because plus the == vs >= treatment of repeat controlled-substance and firearms findings. A regression to note: the pre-fix output `nonpermanent_ineligibility_period_years` (which returned 1 or 2) was deleted, and the 1-year/2-year period parameters it consumed are now declared but unused, so the module no longer emits a disqualification length. The summary excerpt also changed from '(b)(1) Any person...' to '(1) Any person...', an excerpt-only provenance change. Effective dates unchanged at 2008-10-01. Keep for reviewer pruning. | verifier proposed boundary_direction at 0.55 (below 0.6); triage kind kept",
+  "family_id": "us-b3801ee4-efd4a588acce",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

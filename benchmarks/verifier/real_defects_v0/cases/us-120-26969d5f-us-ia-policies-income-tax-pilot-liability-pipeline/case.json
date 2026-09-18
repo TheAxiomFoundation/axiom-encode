@@ -1,0 +1,249 @@
+{
+  "id": "us-120-26969d5f-us-ia-policies-income-tax-pilot-liability-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "26969d5f9159d0f8771fcbe81322ed96b5ee7b8c",
+  "parent_commit": "923562e6434a33e4116327f22c867866a3fd413e",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Unsure (promote pattern): rewrites existing IA pilot_liability_pipeline.yaml selector (90 lines); not inspected line by line.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/964",
+  "module_path": "us-ia/policies/income_tax/pilot_liability_pipeline.yaml",
+  "corpus_citation_path": "us-ia/statute/422.5",
+  "corpus_citation_paths_all": [
+    "us-ia/statute/422.5"
+  ],
+  "corpus_release": "us-rulespec-2026-07-22-current",
+  "corpus_release_content_sha256": "7b1c6c0ec237dc3767f770fbb30178d6857bbe43fd4d952f57ebfc8409874bcc",
+  "corpus_commit": "c5af541326e024e04cb533bbf5709ae04e6305f6",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.45,
+  "description": "Replaces the prior Iowa ordinary-wage pilot with a completed-return 2026 regular versus alternate-tax selector.",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        6,
+        8
+      ],
+      [
+        10,
+        10
+      ],
+      [
+        13,
+        13
+      ],
+      [
+        15,
+        26
+      ],
+      [
+        28,
+        35
+      ],
+      [
+        43,
+        43
+      ],
+      [
+        50,
+        51
+      ],
+      [
+        55,
+        55
+      ],
+      [
+        62,
+        62
+      ],
+      [
+        70,
+        70
+      ],
+      [
+        74,
+        75
+      ],
+      [
+        82,
+        82
+      ],
+      [
+        90,
+        90
+      ],
+      [
+        94,
+        94
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        6,
+        6
+      ],
+      [
+        8,
+        8
+      ],
+      [
+        12,
+        19
+      ],
+      [
+        21,
+        38
+      ],
+      [
+        46,
+        46
+      ],
+      [
+        53,
+        54
+      ],
+      [
+        57,
+        57
+      ],
+      [
+        59,
+        59
+      ],
+      [
+        66,
+        66
+      ],
+      [
+        74,
+        74
+      ],
+      [
+        77,
+        77
+      ],
+      [
+        79,
+        79
+      ],
+      [
+        86,
+        86
+      ],
+      [
+        94,
+        104
+      ],
+      [
+        107,
+        107
+      ],
+      [
+        109,
+        112
+      ]
+    ],
+    "rule_names": [
+      "ia_pit_pilot_income_tax_liability",
+      "ia_pit_pilot_schedule_tax",
+      "ia_pit_pilot_taxable_income"
+    ],
+    "rule_path": "rules[ia_pit_pilot_income_tax_liability].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "fa735cf66731c2f658eec29666c963ed6062d540cc16fa1f95770897ebde7dc6",
+  "post_fix_artifact_sha256": "57863bdda46df4472ea87d5c3cd1212d00da3b4ac6fc2d1c6b993f55fb375707",
+  "provision_sha256": "eecb91997c14dc4d20d640d8637ff4fe7849e5b109a9ccd86cf34e60dbcf4ed3",
+  "provision_chars": 13444,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-ia/statute/422.5",
+    "provision_file": "data/corpus/provisions/us-ia/statute/2026-07-16-pit-east-us-ia-title-x-chapter-422.jsonl",
+    "provision_file_sha256": "32d3152d6ab432dc2d3e2b2d66d94c3977b6e0470841be3414e3fbce78a3bf5d",
+    "line_number": 7,
+    "record_id": "d95c0ccf-d706-55de-bd59-5ddb710d6baa",
+    "stored_body_sha256": "eecb91997c14dc4d20d640d8637ff4fe7849e5b109a9ccd86cf34e60dbcf4ed3",
+    "resolved_text_sha256": "eecb91997c14dc4d20d640d8637ff4fe7849e5b109a9ccd86cf34e60dbcf4ed3",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-05-09",
+    "source_as_of": "2026-05-09",
+    "corpus_commit": "c5af541326e024e04cb533bbf5709ae04e6305f6",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 12,
+    "toolchain_corpus_ref": "a6ef35176a5d094c3f3c49e96c9a1b3d06207996",
+    "requested_citation_path": "us-ia/statute/422.5",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us-ia/statute/422.5'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us-ia/statute/422.5'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us-ia/statute/422.5'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us-ia/statute/422.5'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us-ia/statute/422.5'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us-ia/statute/422.5'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us-ia/statute/422.5'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us-ia/statute/422.5'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us-ia/statute/422.5'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us-ia/statute/422.5'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us-ia/statute/422.5'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us-ia/statute/422.5'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "unclear",
+    "pre_fix_wrong_because": "unclear: the pre-fix liability rule, sourced to \"Iowa Code section 422.5, tax imposed on taxable income\", returned only the regular tax (max(0, ia_pit_pilot_schedule_tax)) and contained no trace of the 422.5(2)(b)/(3)(b) rule that the regular tax \"shall be the lesser of the alternate state individual income tax rate of four and three-tenths percent times the portion of the net income in excess of thirteen thousand five hundred dollars\" (thirty-two thousand at 65+) \"or the regular tax liability computed without regard to this sentence\" — but the module had self-declared a narrower slice, so the omission may have been declared scope rather than a defect.",
+    "triage_notes": "Provision WAS read through the pinned corpus (resolve_provision.py, corpus release us-rulespec-2026-07-22-current, expression_date 2026-05-09, fix_time_corpus_match=same_body). 422.5(2)(b) and 422.5(3)(b) both state the alternate-tax lesser-of at 4.3% above $13,500 / $32,000, and the fix's three new proof atoms quote exactly those sentences, so the added clause is genuinely source-stated and was genuinely absent pre-fix. Reasons I did not call this 'fidelity': (1) the commit body is empty and the subject is just \"Promote Iowa 2026 PIT selector\"; no maintainer or reviewer text anywhere in the PR says the prior encoding was wrong — the PR, its three issue comments (all mainline-merge refresh notes from PavelMakarchuk), and the empty reviews/review_comments lists only describe a promotion and its parity numbers. (2) The pre-fix module scoped itself to the \"ordinary resident childless wage-earner slice\", and 422.5(2)(b)/(3)(b) apply only to married-filing-jointly, head-of-household, and surviving-spouse filers, so most of the pre-fix declared population is outside the alternate tax; the PR's own parity run reports \"Alternate-tax selections: 1, weight 30.328622509627227\" out of 976 positive-weight Iowa tax units, i.e. the missing clause almost never binds. (3) This is a wholesale 90-line rewrite, not a targeted fix: the input boundary moved from ia_pit_pilot_adjusted_gross_income minus a supplied subtraction to a supplied completed-return ia_pit_pilot_state_taxable_income, the bracket-base/floor/marginal-rate mechanic was replaced by taxable_income * supplied_regular_tax_rate, and six new supplied inputs were introduced. Two secondary issues a reviewer may prefer over unrepresented_clause: (a) wrong_period_or_effective_date — all three versions were open-ended effective_from '2026-01-01' with no effective_to and now carry effective_to '2026-12-31' (PR: \"Explicit 2025 and 2027 probes fail closed\"), though the pre-fix rates were all caller-supplied so the timeless window stated no wrong rate; (b) untraceable_branch — the pre-fix ia_pit_pilot_taxable_income formula (AGI minus a supplied subtraction) was grounded on a 422.7 excerpt defining net income as federal taxable income under IRC 63, which does not state that subtraction, and the 422.7 citation is dropped entirely by this commit (the .axiom/index/provisions_to_rules.json change removes 9 lines of 422.7 edges). Other files in the commit are the companion test (rewritten from 6 bracket-arithmetic fixtures to 7 selector fixtures including nonelderly_alternate_tax_is_less) and the encoding manifest, whose diff is pure hash/path/signature bookkeeping with no stated reason. Module is rulespec/v1 with a rules list so it is a rule module, but note manifest \"manual_exception\": \"composition\" — it is an assembled composition pipeline rather than encoder-generated atomic rules.",
+    "verifier_verdict": "not_a_defect",
+    "verifier_defect_kind": "none",
+    "verifier_confidence": 0.6,
+    "verifier_justification": "The pre-fix module explicitly declared itself a narrow pilot (\"the 2026 ordinary resident childless wage-earner oracle slice\", every tax-law amount a caller-supplied input), and the commit/PR frame this change as promotion, not correction (\"Promote Iowa 2026 PIT selector\"; \"Replaces the prior Iowa ordinary-wage pilot with a completed-return 2026 regular versus alternate-tax selector\"); no commit, PR, or review text asserts the old encoding gave a wrong answer. The 422.5(2)(b)/(3)(b) lesser-of clause cannot change any answer inside that declared slice: with the alternate rate 4.3% applied to net income above 13,500/32,000 versus the 3.8% regular rate on taxable income, the alternate tax is lower only when the net-income-to-taxable-income gap is far below the 2026 standard deduction the pre-fix fixtures used (16,100 single / 32,200 married) — for those filers the break-even taxable income is negative, which is why the promoted module's full-populace run selects the alternate branch for just 1 of 976 units. The change also replaces the entire input contract (AGI + subtraction + bracket base/floor/marginal rate → completed-return state taxable income, modified income, two rates, two floors, two eligibility booleans), retires all six fixtures without altering a single pre-existing expected value, and adds 2026 effective_to bounds and a deferred_outputs block — the signature of moving the composition boundary to a broader target, not of adding a clause the old module got wrong. Post-fix the module still leaves 422.5(2)(a)/(3)(a) nonimposition and alternate-tax eligibility itself to supplied caller inputs, confirming that the supplied-boundary convention is unchanged and only the scope moved.",
+    "verifier_quote": "-    Composed Iowa individual income-tax liability pipeline for the 2026\n-    ordinary resident childless wage-earner oracle slice. It computes taxable",
+    "verifier_notes": "Refutation evidence for the reviewer, all read this session:\n\n1. Scope disclaimer in the pre-fix file (git show 923562e6:us-ia/policies/income_tax/pilot_liability_pipeline.yaml): summary limits the module to the \"ordinary resident childless wage-earner oracle slice\" and its rationale says \"Values that vary by filing status, bracket, annual indexing, or the choice between standard and itemized deductions remain declared caller inputs\". Post-fix summary targets \"the 2026 before-credit target\" at completed-return TaxUnit boundaries — a different, broader claim.\n\n2. Source text (pinned release us-rulespec-2026-07-22-current, corpus c5af541, provision us-ia/statute/422.5, expression date 2026-05-09): 422.5(2)(b) is mandatory for MFJ/HoH/surviving spouse over $13,500 (\"In lieu of the computation in subsection 1 ... the regular tax imposed under this subchapter shall be the lesser of the alternate state individual income tax rate of four and three-tenths percent times the portion of the net income in excess of thirteen thousand five hundred dollars or the regular tax liability computed without regard to this sentence\"), with the 65+/$32,000 variant at 3(b). So the clause is real and mandatory — the reason this is not a defect is scope, not the statute being permissive.\n\n3. Binding check (arithmetic, run this session): alternate is lower iff 0.043*(TI + D - floor) < 0.038*TI, i.e. TI < (580.5 - 0.043*D)/0.005 for the 13,500 floor, where D is the net-income-minus-taxable-income gap. D = 32,200 → threshold -160,820; D = 24,150 → -91,590; D = 16,100 → -22,360. Those are exactly the deduction amounts the pre-fix fixtures used (16,100 single, 32,200 married), so no standard-deduction wage earner in the declared slice could ever have been mis-taxed by the omission. Only an atypical small-D profile (the new fixture uses D = 5,000) triggers the branch, matching the PR's \"Alternate-tax selections: 1\" out of 976 positive-weight units.\n\n4. Rewrite signature: the fixture file was entirely replaced (git show 26969d5f91 -- ...test.yaml); not one pre-existing case's expected liability changed. A targeted fidelity fix would normally keep cases and move an expectation, or add a case that fails against the old formula. Checking the old married_60000 case by hand: alternate 0.043*(60000-13500) = 1,999.50 vs regular 1,056.40 — regular still governs.\n\n5. File history (git log -- pilot_liability_pipeline.yaml): 6c30d0501 \"feat: add twelve state income tax liability pilots\" → 6f84cbc18 \"fix: address state tax review findings\" (Iowa delta was two trailing blank lines only) → 26969d5f91 \"Promote Iowa 2026 PIT selector\" → e0dccaf04 \"Encode Iowa alternate-tax floors privately\". The promote-then-parameterize arc is a pilot-to-production pattern across states, not a defect repair. oracle-coverage-pending.yaml entries for the three Iowa rules are byte-identical pre and post.\n\nResidual risk that keeps this below 0.75: the pre-fix liability rule's own source line was the unqualified \"Iowa Code section 422.5, tax imposed on taxable income\" with the generic excerpt \"A tax is imposed upon every resident and nonresident of the state\", so a strict reviewer can argue the rule claimed the whole section and therefore owed the mandatory lesser-of clause regardless of the module summary's slice language. If the reviewer weights the rule-level citation over the module-level scope disclaimer, unrepresented_clause at low confidence is the fallback; it should not be graded \"confirmed\" either way, because the same commit also re-grounds every citation, swaps the entire input surface, and adds 2026 effective_to bounds, so no single diff line isolates a clause repair. A secondary candidate a reviewer might raise — the taxable-income rule moving off 422.7 (\"The term 'net income' means the taxable income as properly computed for federal income tax purposes\") onto 422.5(1)(a) — is provenance plus boundary change, not a demonstrated meaning error.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Provision WAS read through the pinned corpus (resolve_provision.py, corpus release us-rulespec-2026-07-22-current, expression_date 2026-05-09, fix_time_corpus_match=same_body). 422.5(2)(b) and 422.5(3)(b) both state the alternate-tax lesser-of at 4.3% above $13,500 / $32,000, and the fix's three new proof atoms quote exactly those sentences, so the added clause is genuinely source-stated and was genuinely absent pre-fix. Reasons I did not call this 'fidelity': (1) the commit body is empty and the subject is just \"Promote Iowa 2026 PIT selector\"; no maintainer or reviewer text anywhere in the PR says the prior encoding was wrong — the PR, its three issue comments (all mainline-merge refresh notes from PavelMakarchuk), and the empty reviews/review_comments lists only describe a promotion and its parity numbers. (2) The pre-fix module scoped itself to the \"ordinary resident childless wage-earner slice\", and 422.5(2)(b)/(3)(b) apply only to married-filing-jointly, head-of-household, and surviving-spouse filers, so most of the pre-fix declared population is outside the alternate tax; the PR's own parity run reports \"Alternate-tax selections: 1, weight 30.328622509627227\" out of 976 positive-weight Iowa tax units, i.e. the missing clause almost never binds. (3) This is a wholesale 90-line rewrite, not a targeted fix: the input boundary moved from ia_pit_pilot_adjusted_gross_income minus a supplied subtraction to a supplied completed-return ia_pit_pilot_state_taxable_income, the bracket-base/floor/marginal-rate mechanic was replaced by taxable_income * supplied_regular_tax_rate, and six new supplied inputs were introduced. Two secondary issues a reviewer may prefer over unrepresented_clause: (a) wrong_period_or_effective_date — all three versions were open-ended effective_from '2026-01-01' with no effective_to and now carry effective_to '2026-12-31' (PR: \"Explicit 2025 and 2027 probes fail closed\"), though the pre-fix rates were all caller-supplied so the timeless window stated no wrong rate; (b) untraceable_branch — the pre-fix ia_pit_pilot_taxable_income formula (AGI minus a supplied subtraction) was grounded on a 422.7 excerpt defining net income as federal taxable income under IRC 63, which does not state that subtraction, and the 422.7 citation is dropped entirely by this commit (the .axiom/index/provisions_to_rules.json change removes 9 lines of 422.7 edges). Other files in the commit are the companion test (rewritten from 6 bracket-arithmetic fixtures to 7 selector fixtures including nonelderly_alternate_tax_is_less) and the encoding manifest, whose diff is pure hash/path/signature bookkeeping with no stated reason. Module is rulespec/v1 with a rules list so it is a rule module, but note manifest \"manual_exception\": \"composition\" — it is an assembled composition pipeline rather than encoder-generated atomic rules. | verifier said not_a_defect at 0.60 (below 0.7); kept as unclear",
+  "family_id": "us-26969d5f-37e4be2e76ca",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

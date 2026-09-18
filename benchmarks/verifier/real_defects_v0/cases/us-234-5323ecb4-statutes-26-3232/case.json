@@ -1,0 +1,160 @@
+{
+  "id": "us-234-5323ecb4-statutes-26-3232",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "5323ecb4055fe6b6029ed953020b15237f835b87",
+  "parent_commit": "0a89bda45d7bafb6f48d16d0a3c5766f9792e4bb",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Re-encode of merged 3232 rescopes both jurisdiction formulas to '_on_such_employee' conditions (entity/scope change).",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/328",
+  "module_path": "statutes/26/3232.yaml",
+  "corpus_citation_path": "us/statute/26/3232",
+  "corpus_citation_paths_all": [
+    "us/statute/26/3232"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "wrong_entity_or_scope",
+  "other_kind": null,
+  "confidence": 0.3,
+  "description": "Re-encode railroad jurisdiction rule",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        23,
+        23
+      ],
+      [
+        33,
+        33
+      ],
+      [
+        37,
+        38
+      ],
+      [
+        59,
+        59
+      ],
+      [
+        64,
+        64
+      ],
+      [
+        68,
+        70
+      ],
+      [
+        90,
+        90
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        23,
+        23
+      ],
+      [
+        33,
+        33
+      ],
+      [
+        37,
+        38
+      ],
+      [
+        59,
+        59
+      ],
+      [
+        64,
+        64
+      ],
+      [
+        68,
+        70
+      ],
+      [
+        90,
+        90
+      ]
+    ],
+    "rule_names": [
+      "district_court_jurisdiction_to_compel_employer",
+      "district_court_jurisdiction_to_compel_employee_or_other_person"
+    ],
+    "rule_path": "rules[district_court_jurisdiction_to_compel_employer].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "2215100584b850ab784b92d11c84b3f73dc9e2cb7e8954b2a3067fdf299efb33",
+  "post_fix_artifact_sha256": "37ae7e8468545add1aad9848e47af78c0fc3c918b6bb4ba524ae76afff809114",
+  "provision_sha256": "00eabbdbcca5f72ab42d648e7aea84262c70a70dd71f9bc0f467b2c9d606ca42",
+  "provision_chars": 743,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/3232",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "1b0b185ca3335eb06c4fe10af488a8984bdd2cedd4087badf78583c267af7b7b",
+    "line_number": 77,
+    "record_id": "bebeb5cd-08f4-5252-83c0-f89f7c224715",
+    "stored_body_sha256": "00eabbdbcca5f72ab42d648e7aea84262c70a70dd71f9bc0f467b2c9d606ca42",
+    "resolved_text_sha256": "00eabbdbcca5f72ab42d648e7aea84262c70a70dd71f9bc0f467b2c9d606ca42",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "earliest_release_after_toolchain_corpus_ref",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": "9b575a00116da20b0952644f14d8530896f72cd3",
+    "requested_citation_path": "us/statute/26/3232",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3232'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3232'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3232'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3232'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "unclear",
+    "pre_fix_wrong_because": "unclear: the pre-fix module already matched 26 USC 3232 (whose obligations clause reads \"obligations imposed on such employee, employer, or other person\"), so no pre-fix scope error is visible; the re-encode narrows the identifiers rather than correcting them.",
+    "triage_notes": "RECOMMEND PRUNING - the scope change runs in the wrong direction. Provision was read through the pinned corpus release (us-rulespec-2026-07-13, resolver reported fix_time_corpus_match=provision_file_absent_at_corpus_ref, fell back to the earliest release after the toolchain corpus ref): \"...to compel an employee or other person residing within the jurisdiction of the court or an employer subject to service of process within its jurisdiction to comply with any obligations imposed on such employee, employer, or other person under the provisions of this chapter.\" Pre-fix inputs `attorney_general_application_on_behalf_of_secretary_to_compel_compliance`, `employee_or_other_person_resides_within_court_jurisdiction`, `employer_subject_to_service_of_process_within_court_jurisdiction`, and `chapter_obligation_imposed_on_employer` track that text correctly. Post-fix they become `..._to_compel_compliance_on_such_employee`, `employee_or_other_person_resides_on_such_employee_within_court_jurisdiction`, `employer_subject_to_service_of_process_on_such_employee_within_court_jurisdiction`, and `chapter_obligation_imposed_on_employer_on_such_employee` - the last of which contradicts the statute (obligations imposed on such EMPLOYER, not on such employee) and the first two of which are semantically incoherent. The rescoping appears to be an artifact of the new proof-atom excerpts, which truncate the statutory list mid-enumeration at \"...to comply with any obligations imposed on such employee\", dropping \"employer, or other person\". Nothing else substantive changed: rule names, entity (Person / Employer / Person), dtype Judgment, period Year, effective_from '1990-01-01', conjunct count and order, and the third rule's formula are all identical; the module declares no `inputs:` block, so the identifier string is the only carrier of each input's meaning, which is why the rename is not purely cosmetic. Evidence that this is a plain regeneration rather than a targeted fix: the commit body is empty, the encoding manifest (.axiom/encoding-manifests/statutes/26/3232.json) records `tool: axiom-encode encode --apply`, `backend: openai`, `model: gpt-5.5`, run_id ed8007f2, with no defect note; and the merged PR #328 (\"Refresh generated payroll and tax rules\") never mentions 3232 - it only covers it under \"Chapter 22 railroad payroll validation sweep passed for generated statutes/26/3201-3241 files\" and states \"apply signed encoder output/repairs only\". PR had zero reviews and zero review comments. The `_on_such_employee` names were never reverted; they survive on origin/main today (file later moved to us/statutes/26/3232.yaml by 86ec136fd). Also note this is a procedural jurisdiction provision with dtype Judgment and no numeric content, so it is low-value for a fidelity benchmark regardless. Classified unclear rather than mechanical only because free-input identifiers did change meaning; classified unclear rather than fidelity because the pre-fix text was faithful and the post-fix text is arguably less so.",
+    "verifier_verdict": "mechanical",
+    "verifier_defect_kind": "none",
+    "verifier_confidence": 0.62,
+    "verifier_justification": "Nothing about entity, population, or output surface moved: the person rule stays `entity: Person`, the employer rule stays `entity: Employer`, rule names, output ids, `effective_from: '1990-01-01'`, and the three-operand conjunction structure are byte-identical across the fix, so `wrong_entity_or_scope` has no referent. The pinned provision (us-rulespec-2026-07-13, resolved sha 00eabbdb…) reads \"to comply with any obligations imposed on such employee, employer, or other person under the provisions of this chapter\", which the pre-fix operands (`employer_subject_to_service_of_process_within_court_jurisdiction`, `chapter_obligation_imposed_on_employer`) already tracked, so there is no pre-fix meaning error to correct. What actually changed is a reworded summary, re-cut proof-atom excerpt strings, and a rename that splices the excerpt fragment \"on such employee\" into module-local free-input identifiers — identifiers that `git grep \"3232#input\"` finds only in the module's own companion test, renamed in lockstep. The manifest shows a fresh whole-file regeneration (run_id 59b137ca → ed8007f2, encoder 0.2.333 → 0.2.530), i.e. re-encode churn, not a targeted fidelity repair.",
+    "verifier_quote": "-          and employer_subject_to_service_of_process_within_court_jurisdiction\n+          and employer_subject_to_service_of_process_on_such_employee_within_court_jurisdiction",
+    "verifier_notes": "Refutation of the screen's kind is strong; the residual uncertainty is only which non-fidelity bucket applies. Every changed element falls in an explicitly mechanical category (summary, proof-atom excerpts, renames, manifest hashes/signature), and scope is unchanged — but the renames sit inside `versions[0].formula` text and do alter the module's declared input surface, so a reviewer who treats \"formulas unchanged\" literally should fall back to not_a_defect rather than upgrading to fidelity: the pre-fix text was correct against the source and the re-encode is, if anything, a regression. The new identifiers are semantic nonsense (`employer_subject_to_service_of_process_on_such_employee_...`, `chapter_obligation_imposed_on_employer_on_such_employee`) produced by the excerpt fragment leaking into name generation; a caller binding `us:statutes/26/3232#input.chapter_obligation_imposed_on_employer` would silently lose its binding, which is an interface break worth filing separately but is not a source-fidelity defect. Note also the PR (#328, \"Refresh generated payroll and tax rules\") never lists 3232 among its fix bullets, and the commit body is empty — the only reason text is the generic subject \"Re-encode railroad jurisdiction rule\". One genuine behavior change lives in the companion test, not the module: case `person_not_residing_within_court_jurisdiction_not_within_compulsion_jurisdiction` flips `civil_action_in_aid_of_enforcement_of_chapter_rights_or_obligations` false → true with the expected `conferred_federal_court_jurisdiction_not_exclusive` moving not_holds → holds, which is consistent with the unchanged formula (added coverage, not a corrected expectation). Prune this case from the real-defect corpus.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "RECOMMEND PRUNING - the scope change runs in the wrong direction. Provision was read through the pinned corpus release (us-rulespec-2026-07-13, resolver reported fix_time_corpus_match=provision_file_absent_at_corpus_ref, fell back to the earliest release after the toolchain corpus ref): \"...to compel an employee or other person residing within the jurisdiction of the court or an employer subject to service of process within its jurisdiction to comply with any obligations imposed on such employee, employer, or other person under the provisions of this chapter.\" Pre-fix inputs `attorney_general_application_on_behalf_of_secretary_to_compel_compliance`, `employee_or_other_person_resides_within_court_jurisdiction`, `employer_subject_to_service_of_process_within_court_jurisdiction`, and `chapter_obligation_imposed_on_employer` track that text correctly. Post-fix they become `..._to_compel_compliance_on_such_employee`, `employee_or_other_person_resides_on_such_employee_within_court_jurisdiction`, `employer_subject_to_service_of_process_on_such_employee_within_court_jurisdiction`, and `chapter_obligation_imposed_on_employer_on_such_employee` - the last of which contradicts the statute (obligations imposed on such EMPLOYER, not on such employee) and the first two of which are semantically incoherent. The rescoping appears to be an artifact of the new proof-atom excerpts, which truncate the statutory list mid-enumeration at \"...to comply with any obligations imposed on such employee\", dropping \"employer, or other person\". Nothing else substantive changed: rule names, entity (Person / Employer / Person), dtype Judgment, period Year, effective_from '1990-01-01', conjunct count and order, and the third rule's formula are all identical; the module declares no `inputs:` block, so the identifier string is the only carrier of each input's meaning, which is why the rename is not purely cosmetic. Evidence that this is a plain regeneration rather than a targeted fix: the commit body is empty, the encoding manifest (.axiom/encoding-manifests/statutes/26/3232.json) records `tool: axiom-encode encode --apply`, `backend: openai`, `model: gpt-5.5`, run_id ed8007f2, with no defect note; and the merged PR #328 (\"Refresh generated payroll and tax rules\") never mentions 3232 - it only covers it under \"Chapter 22 railroad payroll validation sweep passed for generated statutes/26/3201-3241 files\" and states \"apply signed encoder output/repairs only\". PR had zero reviews and zero review comments. The `_on_such_employee` names were never reverted; they survive on origin/main today (file later moved to us/statutes/26/3232.yaml by 86ec136fd). Also note this is a procedural jurisdiction provision with dtype Judgment and no numeric content, so it is low-value for a fidelity benchmark regardless. Classified unclear rather than mechanical only because free-input identifiers did change meaning; classified unclear rather than fidelity because the pre-fix text was faithful and the post-fix text is arguably less so. | verifier said mechanical at 0.62 (below 0.7); kept as unclear",
+  "family_id": "us-5323ecb4-25490fa4c8b6",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

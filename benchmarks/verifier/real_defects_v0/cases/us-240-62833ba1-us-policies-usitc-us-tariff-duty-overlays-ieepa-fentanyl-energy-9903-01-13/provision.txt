@@ -1,0 +1,5 @@
+Crude oil, natural gas, lease condensates, natural gas liquids, refined petroleum products, uranium, coal, biofuels, geothermal heat, the kinetic movement of flowing water, and critical minerals, as defined by 30 U.S.C. 1606(a)(3)
+Rates of duty (1-General): The duty provided in the applicable subheading + 10%
+Rates of duty (1-Special): The duty provided in the applicable subheading + 10%
+Rates of duty (2): No change
+Footnote [stat,units]: See chapter 99 statistical note 1.

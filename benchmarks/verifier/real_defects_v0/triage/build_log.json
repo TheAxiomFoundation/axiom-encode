@@ -1,0 +1,236 @@
+{
+  "dropped": [
+    {
+      "jurisdiction": "uk",
+      "commit": "2ad8f8025a",
+      "module_path": "uk-coventry/policies/coventry/council-tax-reduction.yaml",
+      "reason": "module_added_in_fix_commit",
+      "detail": null
+    },
+    {
+      "jurisdiction": "uk",
+      "commit": "829ab1a255",
+      "module_path": "policies/govuk/child-benefit.yaml",
+      "reason": "module_deleted_in_fix_commit",
+      "detail": null
+    },
+    {
+      "jurisdiction": "uk",
+      "commit": "829ab1a255",
+      "module_path": "policies/govuk/esa-income.yaml",
+      "reason": "module_deleted_in_fix_commit",
+      "detail": null
+    },
+    {
+      "jurisdiction": "uk",
+      "commit": "829ab1a255",
+      "module_path": "policies/govuk/housing-benefit.yaml",
+      "reason": "module_deleted_in_fix_commit",
+      "detail": null
+    },
+    {
+      "jurisdiction": "uk",
+      "commit": "829ab1a255",
+      "module_path": "policies/govuk/severe-disablement-allowance.yaml",
+      "reason": "module_deleted_in_fix_commit",
+      "detail": null
+    },
+    {
+      "jurisdiction": "uk",
+      "commit": "829ab1a255",
+      "module_path": "policies/govuk/universal-credit.yaml",
+      "reason": "module_deleted_in_fix_commit",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "010774a5de",
+      "module_path": "regulations/10-ccr-2506-1/4.407.31.yaml",
+      "reason": "no_corpus_citation_path",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "095d680d47",
+      "module_path": "statutes/26/163/h/4/B.yaml",
+      "reason": "defect_kind_missing",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "095d680d47",
+      "module_path": "statutes/26/163/h/4/B/ii/I.yaml",
+      "reason": "defect_kind_missing",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "095d680d47",
+      "module_path": "statutes/26/163/h/4/D.yaml",
+      "reason": "module_added_in_fix_commit",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "095d680d47",
+      "module_path": "statutes/26/163/h/4/E.yaml",
+      "reason": "module_added_in_fix_commit",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "0d0ab42ada",
+      "module_path": "us-or/policies/income_tax/2026_or_estimate_schedule.yaml",
+      "reason": "defect_kind_missing",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "0d0ab42ada",
+      "module_path": "us-or/policies/income_tax/pilot_liability_pipeline.yaml",
+      "reason": "module_deleted_in_fix_commit",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "1f9e440d5a",
+      "module_path": "us-al/policies/income_tax/2026_section_40_18_5_schedule_before_credits.yaml",
+      "reason": "module_added_in_fix_commit",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "34ad146770",
+      "module_path": "statutes/26/63/c/5.yaml",
+      "reason": "no_corpus_citation_path",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "4d10a73d4a",
+      "module_path": "us-ky/policies/income_tax/2026_krs_141_020_schedule_before_credits.yaml",
+      "reason": "module_added_in_fix_commit",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "54ef0d6fe3",
+      "module_path": "us-ne/policies/income_tax/2026_1040n_es_estimated_schedule.yaml",
+      "reason": "module_added_in_fix_commit",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "6e0b21e114",
+      "module_path": "us-nd/policies/income_tax/2026_nd1es_estimated_schedule.yaml",
+      "reason": "module_added_in_fix_commit",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "6ff6a4a8b3",
+      "module_path": "us-ga/policies/income_tax/2026_annual_tax_before_nonrefundable_credits.yaml",
+      "reason": "module_added_in_fix_commit",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "6ff6a4a8b3",
+      "module_path": "us-ga/policies/income_tax/2026_resident_household_core.yaml",
+      "reason": "module_deleted_in_fix_commit",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "6ff6a4a8b3",
+      "module_path": "us-ga/policies/income_tax/pilot_liability_pipeline.yaml",
+      "reason": "module_deleted_in_fix_commit",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "ca02796d40",
+      "module_path": "regulations/10-ccr-2506-1/4.408.yaml",
+      "reason": "no_corpus_citation_path",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "e1296d6c1c",
+      "module_path": "us-wi/policies/income_tax/2026_form1es_estimated_schedule.yaml",
+      "reason": "module_added_in_fix_commit",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "429c02408a",
+      "module_path": "statutes/26/1401.yaml",
+      "reason": "no_corpus_citation_path",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "8bdbf0251e",
+      "module_path": "us-mo/policies/dss/snap/1105-000-00/1105-015-00/1105-015-04/1105-015-04-05/block-1.yaml",
+      "reason": "module_added_in_fix_commit",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "5ea2b6c1a8",
+      "module_path": "us-ga/statutes/48/48-7-20.yaml",
+      "reason": "module_added_in_fix_commit",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "30e2327e4b",
+      "module_path": "us/policies/medicaid/magi_household_income_pipeline.yaml",
+      "reason": "module_added_in_fix_commit",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "196492ee5d",
+      "module_path": "us-ct/policies/income_tax/2026_resident_ordinary_tax_before_personal_credit.yaml",
+      "reason": "module_added_in_fix_commit",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "196492ee5d",
+      "module_path": "us-ct/statutes/12-704e.yaml",
+      "reason": "module_deleted_in_fix_commit",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "26565db8a9",
+      "module_path": "us-ms/policies/income_tax/2026_section_27_7_5_schedule.yaml",
+      "reason": "module_added_in_fix_commit",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "26565db8a9",
+      "module_path": "us-ms/policies/income_tax/pilot_liability_pipeline.yaml",
+      "reason": "module_deleted_in_fix_commit",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "86d35779d9",
+      "module_path": "us/policies/usitc/us-tariff-duty/overlays/ieepa/fentanyl-china-9903-01-20.yaml",
+      "reason": "module_deleted_in_fix_commit",
+      "detail": null
+    },
+    {
+      "jurisdiction": "us",
+      "commit": "4d2856a958",
+      "module_path": "us/policies/usitc/us-tariff-duty/overlays/ieepa/reciprocal-japan-9903-02-30.yaml",
+      "reason": "module_deleted_in_fix_commit",
+      "detail": null
+    }
+  ],
+  "built": 520
+}

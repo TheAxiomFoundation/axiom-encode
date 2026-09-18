@@ -1,0 +1,345 @@
+{
+  "id": "us-474-3c991acc-us-policies-cbp-us-tariff-duty-composition",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "3c991acc0a9003d1c07d14a6d5c2c5d0f062bf6b",
+  "parent_commit": "86d35779d9eea3ec3f1c9ca211c4a78226878093",
+  "commit_date": "2026-08-01",
+  "commit_subject": "Rework tariff composition per sol cross-review findings",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1192",
+  "module_path": "us/policies/cbp/us-tariff-duty/composition.yaml",
+  "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
+  "corpus_citation_paths_all": [
+    "us/statute/hts/general-note-3/page-1",
+    "us/statute/hts/general-note-3/page-4",
+    "us/statute/hts/7202.11.10.00",
+    "us/statute/hts/7601.10.30.00",
+    "us/statute/hts/9506.62.40",
+    "us/statute/hts/9506.62.40.40",
+    "us/statute/hts/9903.01.25",
+    "us/statute/hts/9903.01.33",
+    "us/statute/hts/9903.05.01",
+    "us/statute/hts/9903.90.09",
+    "us/statute/hts/chapter-99/page-175",
+    "us/statute/hts/chapter-99/page-176",
+    "us/statute/hts/chapter-99/page-177",
+    "us/statute/hts/chapter-99/page-182",
+    "us/statute/hts/chapter-99/page-219",
+    "us/statute/hts/chapter-99/page-221",
+    "us/statute/hts/chapter-99/page-226",
+    "us/statute/hts/chapter-99/page-230",
+    "us/statute/hts/chapter-99/page-508",
+    "us/statute/hts/chapter-99/page-509",
+    "us/statute/hts/chapter-99/page-542",
+    "us/statute/hts/chapter-99/page-545",
+    "us/statute/hts/chapter-99/page-553",
+    "us/statute/hts/chapter-99/page-555",
+    "us/statute/hts/chapter-99/page-558",
+    "us/statute/hts/chapter-99/page-566",
+    "us/statute/hts/chapter-99/page-640",
+    "us/rulemaking/federal-register/2026-02-25/2026-03824",
+    "us/rulemaking/federal-register/2026-02-25/2026-03829",
+    "us/rulemaking/federal-register/2026-02-25/2026-03832",
+    "us/rulemaking/federal-register/2026-06-24/2026-12669",
+    "us/rulemaking/federal-register/2026-07-20/2026-14542",
+    "us/rulemaking/federal-register/2026-07-28/2026-15181"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.75,
+  "description": "Russia pays heading 9903.90.09 70% in lieu of column-2 on line B",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        64,
+        67
+      ],
+      [
+        72,
+        73
+      ],
+      [
+        79,
+        79
+      ],
+      [
+        89,
+        89
+      ],
+      [
+        288,
+        288
+      ],
+      [
+        305,
+        305
+      ],
+      [
+        325,
+        325
+      ],
+      [
+        378,
+        378
+      ],
+      [
+        386,
+        386
+      ],
+      [
+        465,
+        465
+      ],
+      [
+        471,
+        471
+      ],
+      [
+        530,
+        530
+      ],
+      [
+        533,
+        533
+      ],
+      [
+        535,
+        535
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        15,
+        17
+      ],
+      [
+        20,
+        20
+      ],
+      [
+        24,
+        28
+      ],
+      [
+        35,
+        35
+      ],
+      [
+        59,
+        61
+      ],
+      [
+        64,
+        64
+      ],
+      [
+        68,
+        72
+      ],
+      [
+        79,
+        79
+      ],
+      [
+        84,
+        93
+      ],
+      [
+        98,
+        109
+      ],
+      [
+        115,
+        117
+      ],
+      [
+        274,
+        292
+      ],
+      [
+        339,
+        384
+      ],
+      [
+        390,
+        390
+      ],
+      [
+        399,
+        413
+      ],
+      [
+        422,
+        424
+      ],
+      [
+        444,
+        444
+      ],
+      [
+        488,
+        502
+      ],
+      [
+        508,
+        512
+      ],
+      [
+        517,
+        517
+      ],
+      [
+        525,
+        525
+      ],
+      [
+        604,
+        604
+      ],
+      [
+        610,
+        610
+      ],
+      [
+        667,
+        681
+      ],
+      [
+        684,
+        684
+      ],
+      [
+        687,
+        687
+      ],
+      [
+        689,
+        691
+      ]
+    ],
+    "rule_names": [
+      "mfn_ad_valorem_rate",
+      "origin_is_russia",
+      "russia_heading_9903_90_09_rate_of_duty",
+      "line_b_special_rate_applies",
+      "ieepa_component_rate",
+      "section_232_aluminum_component_rate",
+      "brazil_section_301_component_rate"
+    ],
+    "rule_path": "rules[mfn_ad_valorem_rate].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "bdeceec8c01bd31d981001e8e0b87e55e779079211be4ef090736073831768fa",
+  "post_fix_artifact_sha256": "15a49c0eb134208e6689ae0ba281535e5c544c96f6cb858cd088740fa89132cd",
+  "provision_sha256": "00d95211f2040a84be41d52b92256f93047713f97f45318e5945139cb1d8cb36",
+  "provision_chars": 4835,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/hts/general-note-3/page-1",
+    "provision_file": "data/corpus/provisions/us/statute/2026-08-01-usitc-hts-2026-rev3-notes.jsonl",
+    "provision_file_sha256": "818d993ea9bbb613b1c78ec03e1394b4d2b2468c259c3b1ff89ca3a004cf129c",
+    "line_number": 2,
+    "record_id": "6623bf55-dd9b-572a-a1c9-62e4af7c2829",
+    "stored_body_sha256": "00d95211f2040a84be41d52b92256f93047713f97f45318e5945139cb1d8cb36",
+    "resolved_text_sha256": "00d95211f2040a84be41d52b92256f93047713f97f45318e5945139cb1d8cb36",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-02-12",
+    "source_as_of": "2026-08-01",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "2ccb67efa41f60b5a80cb736c0272e68d5591389",
+    "requested_citation_path": "us/statute/hts/general-note-3/page-1",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix composition derived the line B (HTS 7601.10.30.00) base rate from General Note 3 columns alone, so it omitted heading 9903.90.09's clause charging Russian-Federation products 70% in lieu of column 2 (it applied the 18.5% column 2 rate) and omitted the Special subcolumn entirely for line B (Korea got the 2.6% General rate instead of Free), and it likewise omitted the overlay exception clauses the cited chapter 99 notes state (9903.85.02 aluminum carve-out from Brazil IEEPA 9903.01.77; the 9903.05.03 annex and 9903.05.07 metals exclusions from Brazil 301 heading 9903.05.01).",
+    "triage_notes": "Multi-defect module: this single composition file carries at least five distinct fidelity corrections, so the one reported kind is the dominant one. (a) unrepresented_clause x4 - new rules origin_is_russia + russia_heading_9903_90_09_rate_of_duty + line_b_special_rate_applies wired into mfn_ad_valorem_rate, plus 'origin_is_brazil and not entry_is_line_b' in ieepa_component_rate versions[0] and 'if entry_is_line_a or entry_is_line_b: 0' in brazil_section_301_component_rate versions[1]. (b) wrong_period_or_effective_date x2 - section_232_aluminum_component_rate boundary moved 2026-07-22/23 -> 2026-07-20/21, and brazil_section_301_component_rate window opened 2026-07-23 -> 2026-07-22. (c) untraceable_branch/amount_mismatch x1 - the China fentanyl term 'fentanyl_china_additional_duty_rate + ' (heading 9903.01.20) was removed from ieepa_component_rate versions[0] because U.S. note 2(s) confines that heading to entries 2025-02-04..2025-03-03, before every grid date; note the module file for 9903.01.20 was already deleted in the immediately preceding commit 86d35779d, so the import removal here is bookkeeping but the formula term removal is a live rate change (China entries were over-charged). (d) mechanical parts in the same diff: page-177 excerpt fixed to 'As provided for in heading 9903.01.32...', new proof atoms grounding the 2026-02-24 IEEPA cutoff in EO 14388 / EO 14389 (FR 2026-03832) with no formula or date change there, plus rationale/summary prose and citation-path list expansion. Provisions read through the pinned-release resolver: HTS 7601.10.30.00 confirms 'Rates of duty (1-Special): Free (A,AU,BH,CL,CO,D,E,IL,JO,KR,MA, OM,P,PA,PE,S,SG)', 'Rates of duty (2): 18.5%' and 'Footnote [other]: See 9903.90.09.'; HTS 9903.90.09 confirms 'Articles the product of the Russian Federation, as provided for in U.S. note 30(c)... Rates of duty (2): 70%'; FR 2026-14542 confirms 'DATES: July 22, 2026'. The chapter-99 page-508/page-509 excerpts quoted in the new proof atoms did not resolve verbatim in the release the resolver picked (us-rulespec-2026-08-03, page offsets shifted; page-508 there is chapter 99 note text that does contain the 7601.10.30 subheading list), so those excerpt strings were not independently verified - the heading text itself settles the substance. The section 232 boundary fix is corroborated by the rev12-consolidation overlay module carrying effective_from '2026-07-21' at both the parent and this commit, so the pre-fix composition mis-timed entries on 07-21 and 07-22. File is module.kind: composition (hand-assembled, signed with manual_exception 'composition'), not encoder-generated, but it is a rulespec/v1 module with real formulas and proof atoms, so it is treated as a rule module. PR body (#1192) still records the older judgment calls ('Brazil 301 window opens 2026-07-23 in the composition grid vs FR 2026-14542 DATES 2026-07-22', '19/19 cases') that this commit supersedes (18 cases per the commit message); companion test file and the encoding manifest changed alongside.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.86,
+    "verifier_justification": "I tried to refute this three ways and each attempt failed. (1) \"New coverage, not a defect\": refuted — pre-fix the formula already returned a value for line B Russian and Korean entries (`origin_is_column_2_country` lists `\"RU\"`, so RU got the 18.5% column-2 rate and KR got the 2.6% General rate), and the pre-fix summary already claimed \"column and special-subcolumn selection under HTS General Note 3\", which line A implemented and line B did not; the pinned release shows HTS 7601.10.30.00 reading `Rates of duty (1-Special): Free (...KR...)` plus `Footnote [other]: See 9903.90.09.`, and 9903.90.09 reading `Articles the product of the Russian Federation, as provided for in U.S. note 30(c)... Rates of duty (2): 70%`, so the pre-fix output disagreed with the source for cases the module covered. (2) \"amount_mismatch fits better\": no existing numeric parameter was corrected (18.5% remains right for Cuba); the fix adds a source clause (\"in lieu of\" column 2) as a new branch plus a new named parameter, and adds the omitted Special subcolumn branch — the signature of unrepresented_clause. (3) \"not_a_rule_module\": the file is `format: rulespec/v1` with `rules:` carrying formulas, versions, dtypes, proof atoms and a companion test file, not a compose spec/registry/ledger, so it carries encoded meaning. The decisive edits sit exactly at the cited rule_path `rules[mfn_ad_valorem_rate].versions[0].formula`.",
+    "verifier_quote": "+            (if origin_is_russia: russia_heading_9903_90_09_rate_of_duty\n+             elif line_b_special_rate_applies: unwrought_aluminum_coil_special_rate_of_duty",
+    "verifier_notes": "Reviewer caveats. (a) This commit bundles at least three defect kinds; the reader's anchor rule is the clause-addition one, but a kind-splitting reviewer could file separate cases for wrong_period_or_effective_date (`section_232_aluminum_component_rate` boundary `effective_to: '2026-07-22'` -> `'2026-07-20'` / `effective_from: '2026-07-23'` -> `'2026-07-21'`; `brazil_section_301_component_rate` window opening moved to 2026-07-22 per FR 2026-14542 DATES) and untraceable_branch (the 9903.01.20 import and its `fentanyl_china_additional_duty_rate +` term removed because U.S. note 2(s) confines that heading to entries 2025-02-04..2025-03-03, before every date the composition covers). The page-177 excerpt edit (\"As provided in\" -> \"As provided for in\") is provenance-only/mechanical. (b) Provenance nuance, not affecting the verdict: the new proof atom citing `chapter-99/page-509` with excerpt `\"7601.10.30\"` does not match what the resolver returns for page-509 (that page shows 8541/8542 subheadings); `7601.10.30` appears in the page-508 text, and the page-508 atom's note-30(c) excerpt is not in the page-508 body either. The resolver reported `fix_time_corpus_match: provision_file_absent_at_corpus_ref` and fell back 16 releases to `us-rulespec-2026-08-03-ecps-pit-tariff-union`, so chapter-99 page numbering likely shifted between revisions; worth a separate provenance check rather than treating it as a counterargument to the fidelity finding. (c) Scope note: this module is hand-authored/assembled (`module.kind: composition`, signed with manual_exception \"composition\") rather than encoder-applied, so if the corpus is meant to measure encoder-produced defects, this case measures hand-wired composition logic.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Multi-defect module: this single composition file carries at least five distinct fidelity corrections, so the one reported kind is the dominant one. (a) unrepresented_clause x4 - new rules origin_is_russia + russia_heading_9903_90_09_rate_of_duty + line_b_special_rate_applies wired into mfn_ad_valorem_rate, plus 'origin_is_brazil and not entry_is_line_b' in ieepa_component_rate versions[0] and 'if entry_is_line_a or entry_is_line_b: 0' in brazil_section_301_component_rate versions[1]. (b) wrong_period_or_effective_date x2 - section_232_aluminum_component_rate boundary moved 2026-07-22/23 -> 2026-07-20/21, and brazil_section_301_component_rate window opened 2026-07-23 -> 2026-07-22. (c) untraceable_branch/amount_mismatch x1 - the China fentanyl term 'fentanyl_china_additional_duty_rate + ' (heading 9903.01.20) was removed from ieepa_component_rate versions[0] because U.S. note 2(s) confines that heading to entries 2025-02-04..2025-03-03, before every grid date; note the module file for 9903.01.20 was already deleted in the immediately preceding commit 86d35779d, so the import removal here is bookkeeping but the formula term removal is a live rate change (China entries were over-charged). (d) mechanical parts in the same diff: page-177 excerpt fixed to 'As provided for in heading 9903.01.32...', new proof atoms grounding the 2026-02-24 IEEPA cutoff in EO 14388 / EO 14389 (FR 2026-03832) with no formula or date change there, plus rationale/summary prose and citation-path list expansion. Provisions read through the pinned-release resolver: HTS 7601.10.30.00 confirms 'Rates of duty (1-Special): Free (A,AU,BH,CL,CO,D,E,IL,JO,KR,MA, OM,P,PA,PE,S,SG)', 'Rates of duty (2): 18.5%' and 'Footnote [other]: See 9903.90.09.'; HTS 9903.90.09 confirms 'Articles the product of the Russian Federation, as provided for in U.S. note 30(c)... Rates of duty (2): 70%'; FR 2026-14542 confirms 'DATES: July 22, 2026'. The chapter-99 page-508/page-509 excerpts quoted in the new proof atoms did not resolve verbatim in the release the resolver picked (us-rulespec-2026-08-03, page offsets shifted; page-508 there is chapter 99 note text that does contain the 7601.10.30 subheading list), so those excerpt strings were not independently verified - the heading text itself settles the substance. The section 232 boundary fix is corroborated by the rev12-consolidation overlay module carrying effective_from '2026-07-21' at both the parent and this commit, so the pre-fix composition mis-timed entries on 07-21 and 07-22. File is module.kind: composition (hand-assembled, signed with manual_exception 'composition'), not encoder-generated, but it is a rulespec/v1 module with real formulas and proof atoms, so it is treated as a rule module. PR body (#1192) still records the older judgment calls ('Brazil 301 window opens 2026-07-23 in the composition grid vs FR 2026-14542 DATES 2026-07-22', '19/19 cases') that this commit supersedes (18 cases per the commit message); companion test file and the encoding manifest changed alongside. | verifier confirmed at 0.86",
+  "family_id": "us-3c991acc-49e302b83332",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

@@ -1,0 +1,136 @@
+{
+  "id": "us-264-9ee163e3-us-co-policies-income-tax-pilot-liability-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "9ee163e304eaa69a78f47add4411893f0c30fbce",
+  "parent_commit": "28e87bcfe25838ff6d26728fde083764db28b103",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Unsure (promote): verified diff reworks CO pipeline formula from AGI-minus-supplied-deductions to a supplied taxable-income boundary, adds effective_from proof atoms, removes known-validation-gaps entry (scope/entity rework).",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/986",
+  "module_path": "us-co/policies/income_tax/pilot_liability_pipeline.yaml",
+  "corpus_citation_path": "us-co/statute/39/39-22-104",
+  "corpus_citation_paths_all": [
+    "us-co/statute/39/39-22-104",
+    "us-co/statute/39/39-22-627"
+  ],
+  "corpus_release": "us-rulespec-2026-07-22-current-la-status-fix",
+  "corpus_release_content_sha256": "6bfd97b24cb63cb709fa52e9a5e6764c916dec95c5557447e11f47778ee4768f",
+  "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.35,
+  "description": "retain one explicit completed-return Colorado taxable-income boundary",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        15,
+        35
+      ],
+      [
+        45,
+        45
+      ],
+      [
+        53,
+        53
+      ],
+      [
+        57,
+        57
+      ],
+      [
+        64,
+        64
+      ],
+      [
+        78,
+        78
+      ],
+      [
+        82,
+        82
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        15,
+        37
+      ],
+      [
+        47,
+        47
+      ],
+      [
+        55,
+        60
+      ],
+      [
+        64,
+        64
+      ],
+      [
+        71,
+        71
+      ],
+      [
+        85,
+        90
+      ],
+      [
+        94,
+        101
+      ]
+    ],
+    "rule_names": [
+      "co_pit_pilot_taxable_income",
+      "co_pit_pilot_income_tax_liability"
+    ],
+    "rule_path": "rules[co_pit_pilot_taxable_income].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "3d1af043b44c6d6dfba556ced4a2c889d07e18b960248b6ca87a21669781a869",
+  "post_fix_artifact_sha256": "e1006c84cb535bf92cd4ec1e8bbd0273bfecdde2de1d2d453b05da7707e3a28d",
+  "provision_sha256": "5575bf6874a5c2e8cba2d1a73e3a17b6d18140a7eff10de6242dd984ea314c88",
+  "provision_chars": 63493,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-co/statute/39/39-22-104",
+    "provision_file": "data/corpus/provisions/us-co/statute/2026-07-19-rulespec-us-co-title-39-consolidated.jsonl",
+    "provision_file_sha256": "875765f755cbcce71b206e9ac1051cc126c0f90cbacd40e26e6b9e5d12fa084f",
+    "line_number": 6,
+    "record_id": "ebd37c82-1e32-516f-9246-f6839705726c",
+    "stored_body_sha256": "5575bf6874a5c2e8cba2d1a73e3a17b6d18140a7eff10de6242dd984ea314c88",
+    "resolved_text_sha256": "5575bf6874a5c2e8cba2d1a73e3a17b6d18140a7eff10de6242dd984ea314c88",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2025-08-31",
+    "source_as_of": "2026-07-12",
+    "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "58d890cea6ff52604f722c6a0978d191ae18419f",
+    "requested_citation_path": "us-co/statute/39/39-22-104",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "unclear",
+    "pre_fix_wrong_because": "unclear: the pre-fix rule derived Colorado taxable income itself as max(0, AGI - supplied federal deductions + supplied additions - supplied subtractions), an IRC section 63 derivation that the cited Colorado provision only incorporates by reference and that its single proof excerpt (the subsection (2) modification clause) does not state, so the module asserted an upstream chain it had not encoded - but that arithmetic does not actually contradict C.R.S. 39-22-104(2), so no disagreement with the source text is demonstrated.",
+    "triage_notes": "Provision read through the pinned corpus release (us-co/statute/39/39-22-104): (1.7)(c) imposes 4.40 percent on federal taxable income as determined under IRC 63 for taxable years commencing on or after January 1, 2022, and (2) modifies that federal taxable income by subsections (3) and (4). Both pre- and post-fix encodings are consistent with that text; rate, entity (TaxUnit), period, effective_from '2022-01-01', output names, and the max(0, ...) floor are unchanged, and the operand reorder in co_pit_pilot_income_tax_liability is meaning-neutral. Decisive evidence against a value correction: the six canonical fixtures keep identical expected outputs pre and post (13900/611.6, 43900/1931.6, 133900/5891.6, 27800/1223.2, 87800/3863.2, 267800/11783.2); only the input surface moved, from four supplied components to one supplied completed-return co_taxable_income, plus 13 new boundary fixtures. Neither the commit message ('Promote Colorado PIT base tax', empty body) nor the PR text says the old encoding disagreed with the source; the PR frames it as promotion and deliberate scope narrowing ('This is deliberately the section 104 base-tax surface'), and the three issue comments are review-cycle bookkeeping only (reviews and review_comments are empty). Alternative kind if a reviewer keeps it: wrong_entity_or_scope, since the pre-fix rationale claimed the pipeline computed 39-22-104 'liability before credits' when it actually produced the pre-39-22-627 base tax, and the post-fix summary narrows that claimed output surface; I chose untraceable_branch because the decisive formula change removes the ungrounded AGI-minus-deductions derivation. A pre-fix gap the fix does not close in-module: joint_300000 still expects 267800 with no subsection (3) deduction-limitation addback - the fix pushes that to the caller rather than encoding it. The commit also touches three non-module files (manifest re-signing, pending-validation-fingerprints, known-validation-gaps) whose removed entries are for us-co/statutes/39/39-22-627.yaml, a different module this commit does not change. This module is a hand-assembled composition (manifest 'manual_exception': 'composition', backend 'manual'), not encoder-generated; like the Alabama pilot it had no inputs: block before this commit, so the added inputs: declaration tightens an otherwise implicit contract. git log shows no later commit touching this file.",
+    "verifier_verdict": "not_a_defect",
+    "verifier_defect_kind": "none",
+    "verifier_confidence": 0.68,
+    "verifier_justification": "The pre-fix formula `max(0, AGI - supplied_federal_deductions + supplied_additions - supplied_subtractions)` does not disagree with the cited text: C.R.S. 39-22-104(1.7)(c) itself imposes the rate \"on the federal taxable income, as determined pursuant to section 63 of the internal revenue code\", and subsection (2) then modifies it by the (3) additions and (4) subtractions — so the AGI-minus-deductions step was grounded in the cited provision's own incorporation clause, not an untraceable branch. The fix moves the caller/oracle boundary from four supplied aggregates to one supplied completed-return Colorado taxable income; all six retained canonical fixtures keep byte-identical expected outputs (13900/611.6, 43900/1931.6, 133900/5891.6, 27800/1223.2, 87800/3863.2, 267800/11783.2), so no encoded result changed. Everything else is provenance and prose: widened proof excerpts, new effective_period atoms for an unchanged 2022-01-01 window, a commutative reorder of the rate multiplication, a rewritten rationale/summary, and a waiver/fingerprint removal for a different file (us-co/statutes/39/39-22-627.yaml). The commit and PR frame it as a deliberate scope promotion (\"Promote Colorado PIT base tax\"), not a correction, and there is no review text calling the old formula wrong against the source.",
+    "verifier_quote": "This is deliberately the section 104 base-tax surface. Section 627 and credits remain outside the promoted output.",
+    "verifier_notes": "Refutation of \"untraceable_branch\": the cited provision text (pinned corpus release us-rulespec-2026-07-22-current-la-status-fix, provision us-co/statute/39/39-22-104, body sha256 5575bf68...) reads \"(c) ... a tax of four and forty one-hundredths percent is imposed on the federal taxable income, as determined pursuant to section 63 of the internal revenue code, of every individual, estate, and trust.\" — so an IRC-63 derivation is expressly within the cited source, which defeats \"a branch with no basis in the cited source\". Decisive module-diff lines for the rework itself: \"-          max(0, co_pit_pilot_adjusted_gross_income - co_pit_pilot_supplied_federal_deductions + co_pit_pilot_supplied_additions - co_pit_pilot_supplied_subtractions)\" / \"+          max(0, co_pit_pilot_state_taxable_income)\", plus a new `inputs:` block declaring co_pit_pilot_state_taxable_income. Unchanged across the fix: entity TaxUnit, period Year, dtype Money, effective_from '2022-01-01', imported rate and its import hash sha256:4d1715dc..., both output rule names, and the max(0, ...) floor (so no boundary_direction change). Not \"mechanical\" either, since the formula and the input surface genuinely changed — it is a narrowing of the module's claimed upstream coverage with identical arithmetic at the boundary, i.e. an interface/oracle-boundary change rather than a fidelity correction. If a reviewer wants to keep it, the only live argument is that the pre-fix module asserted an upstream federal chain it had not encoded (its single proof atom excerpt covered only the subsection (2) modification clause); that is a proof-coverage/provenance weakness, not an encoded meaning that disagrees with the source, and I would still not promote it to fidelity.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Provision read through the pinned corpus release (us-co/statute/39/39-22-104): (1.7)(c) imposes 4.40 percent on federal taxable income as determined under IRC 63 for taxable years commencing on or after January 1, 2022, and (2) modifies that federal taxable income by subsections (3) and (4). Both pre- and post-fix encodings are consistent with that text; rate, entity (TaxUnit), period, effective_from '2022-01-01', output names, and the max(0, ...) floor are unchanged, and the operand reorder in co_pit_pilot_income_tax_liability is meaning-neutral. Decisive evidence against a value correction: the six canonical fixtures keep identical expected outputs pre and post (13900/611.6, 43900/1931.6, 133900/5891.6, 27800/1223.2, 87800/3863.2, 267800/11783.2); only the input surface moved, from four supplied components to one supplied completed-return co_taxable_income, plus 13 new boundary fixtures. Neither the commit message ('Promote Colorado PIT base tax', empty body) nor the PR text says the old encoding disagreed with the source; the PR frames it as promotion and deliberate scope narrowing ('This is deliberately the section 104 base-tax surface'), and the three issue comments are review-cycle bookkeeping only (reviews and review_comments are empty). Alternative kind if a reviewer keeps it: wrong_entity_or_scope, since the pre-fix rationale claimed the pipeline computed 39-22-104 'liability before credits' when it actually produced the pre-39-22-627 base tax, and the post-fix summary narrows that claimed output surface; I chose untraceable_branch because the decisive formula change removes the ungrounded AGI-minus-deductions derivation. A pre-fix gap the fix does not close in-module: joint_300000 still expects 267800 with no subsection (3) deduction-limitation addback - the fix pushes that to the caller rather than encoding it. The commit also touches three non-module files (manifest re-signing, pending-validation-fingerprints, known-validation-gaps) whose removed entries are for us-co/statutes/39/39-22-627.yaml, a different module this commit does not change. This module is a hand-assembled composition (manifest 'manual_exception': 'composition', backend 'manual'), not encoder-generated; like the Alabama pilot it had no inputs: block before this commit, so the added inputs: declaration tightens an otherwise implicit contract. git log shows no later commit touching this file. | verifier said not_a_defect at 0.68 (below 0.7); kept as unclear",
+  "family_id": "us-9ee163e3-2fd0dd1df78b",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

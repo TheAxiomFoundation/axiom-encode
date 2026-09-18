@@ -1,0 +1,19 @@
+A. The household benefit level for the initial month of application shall be based on the day of the
+month it applies for benefits. Benefits for the initial month shall be prorated from the date of
+application to the end of the month. Applicant households consisting of residents of a public
+institution who apply jointly for SSI and SNAP prior to release from an institution will have their
+eligibility determined for the month in which the applicant household was released from the
+institution. The benefit level for the initial month of certification shall be based on the date of the
+month the household is released from the institution and the household shall receive benefits
+from the date of the household's release through the end of the month. Eligible households are
+entitled to a full month allotment for all months except an initial month of application.
+B. The only exception to the proration policy shall be migrant and seasonal farm worker households
+who are in the job stream and the break in participation does not exceed thirty (30) days. These
+households are entitled to a full month allotment.
+C. The state automated system will utilize the exact number of days in the calendar month to
+determine the proration of benefits. The following formula shall be used to determine the amount
+of prorated benefits:
+1. Number of days in month plus one;
+2. Subtract the date of application;
+3. Multiply by the full month's benefits the household is eligible to receive;
+4. Divide by the number of days in the application month.

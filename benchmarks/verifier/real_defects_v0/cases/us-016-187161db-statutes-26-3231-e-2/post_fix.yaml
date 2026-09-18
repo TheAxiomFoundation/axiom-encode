@@ -1,0 +1,152 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3231
+  summary: |-
+    The term "compensation" does not include that part of remuneration paid during any calendar year after remuneration equal to the applicable base has been paid. Remuneration not otherwise treated as compensation shall not be taken into account under clause (i). Clause (i) shall not apply to specified hospital insurance tax rate portions, and section 3121(a)(1) successor-employer rules apply with substitutions.
+rules:
+  - name: successor_employer_compensation_base_continuity_applies
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    source: 26 USC 3231(e)(2)(C)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/3231
+              excerpt: "the second sentence of section 3121(a)(1) (relating to successor employers) shall apply"
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          (
+            successor_employer_acquired_substantially_all_trade_or_business_property_from_predecessor_during_calendar_year
+            or successor_employer_acquired_substantially_all_property_used_in_separate_unit_of_predecessor_trade_or_business_during_calendar_year
+          )
+          and individual_rendered_services_to_predecessor_immediately_before_acquisition
+          and individual_rendered_services_to_successor_immediately_after_acquisition
+
+  - name: predecessor_compensation_counted_for_successor_applicable_base
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 3231(e)(2)(C)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/3231
+              excerpt: "the term \"compensation\" shall be substituted for \"remuneration\""
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          if successor_employer_compensation_base_continuity_applies: predecessor_compensation_paid_or_considered_paid_to_individual_before_acquisition_during_calendar_year else: 0
+
+  - name: compensation_counted_toward_applicable_base_before_payment
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 3231(e)(2)(A)(i), (A)(ii), (C)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/3231
+              excerpt: "after remuneration equal to the applicable base has been paid during such calendar year"
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          compensation_without_clause_i_paid_to_individual_by_employer_during_calendar_year_before_payment + predecessor_compensation_counted_for_successor_applicable_base
+
+  - name: remaining_applicable_base_before_payment
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 3231(e)(2)(A)(i), (B)(i)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/3231
+              excerpt: "the term \"applicable base\" means for any calendar year the contribution and benefit base determined under section 230"
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          max(0, contribution_and_benefit_base_determined_under_section_230_of_social_security_act_for_calendar_year - compensation_counted_toward_applicable_base_before_payment)
+
+  - name: compensation_excess_excluded_before_hospital_insurance_carveout
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 3231(e)(2)(A)(i), (A)(ii)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us/statute/26/3231
+              excerpt: "The term \"compensation\" does not include that part of remuneration paid during any calendar year"
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          if remuneration_without_clause_i_treated_as_compensation_under_this_subsection: max(0, remuneration_paid_during_calendar_year_to_individual_by_employer_for_services_as_employee - remaining_applicable_base_before_payment) else: 0
+
+  - name: clause_i_compensation_excess_excluded_for_section_3201_a_or_3221_a_hospital_insurance_rate_portion
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 3231(e)(2)(A)(iii)(I)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: exception
+            source:
+              corpus_citation_path: us/statute/26/3231
+              excerpt: "Clause (i) shall not apply to... so much of the rate applicable under section 3201(a) or 3221(a)"
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          0
+
+  - name: clause_i_compensation_excess_excluded_for_section_3211_a_hospital_insurance_rate_portion
+    kind: derived
+    entity: Payment
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 26 USC 3231(e)(2)(A)(iii)(II)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: exception
+            source:
+              corpus_citation_path: us/statute/26/3231
+              excerpt: "Clause (i) shall not apply to... so much of the rate applicable under section 3211(a)"
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          0

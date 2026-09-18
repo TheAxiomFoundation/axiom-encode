@@ -1,0 +1,137 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_paths:
+      - uk/guidance/mygovscot/carer-support-payment/who-can-apply
+      - uk/guidance/mygovscot/carer-support-payment/if-you-work
+      - uk/regulation/uksi/2013/376/schedule/4/paragraph/7
+  summary: |-
+    Carer support payment as described by mygov.scot guidance: a weekly amount
+    for a person aged 16 or over living in Scotland who provides unpaid care
+    for 35 hours or more a week to someone receiving a qualifying disability
+    benefit, with take-home pay of no more than the weekly earnings limit. The
+    Scottish carer supplement is paid automatically alongside it. The minimum
+    care hours and weekly rates are those set by the Carer's Assistance
+    (Carer Support Payment) (Scotland) Regulations 2023.
+imports:
+  - uk:regulations/ssi/2023/302/5#carer_support_payment_minimum_weekly_care_hours
+  - uk:regulations/ssi/2023/302/16#carer_support_payment_weekly_rate
+  - uk:regulations/ssi/2023/302/16#scottish_carer_supplement_weekly_rate
+rules:
+  - name: carer_support_payment_weekly_earnings_limit
+    kind: parameter
+    dtype: Money
+    unit: GBP
+    source: mygov.scot, Carer Support Payment, "If you work"
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk/guidance/mygovscot/carer-support-payment/if-you-work
+              excerpt: "take home pay' cannot be more than £204 a week"
+    versions:
+      - effective_from: '2026-04-06'
+        formula: |-
+          204
+
+  - name: carer_support_payment_weeks_in_year
+    kind: parameter
+    dtype: Count
+    source: Universal Credit Regulations 2013, Schedule 4 paragraph 7 (weekly amounts converted over 52 weeks)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk/regulation/uksi/2013/376/schedule/4/paragraph/7
+              excerpt: "calculated as a monthly amount"
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          52
+
+  - name: entitled_to_carer_support_payment
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Week
+    source: mygov.scot, Carer Support Payment, "Who can apply"
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk/guidance/mygovscot/carer-support-payment/who-can-apply
+              excerpt: "provide unpaid care for 35 hours or more a week"
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk/guidance/mygovscot/carer-support-payment/who-can-apply
+              excerpt: "be aged 16 or over"
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          person_is_aged_16_or_over and person_lives_in_scotland and weekly_care_hours >= carer_support_payment_minimum_weekly_care_hours and cared_for_person_receives_qualifying_disability_benefit and weekly_earnings_after_tax_national_insurance_and_expenses <= carer_support_payment_weekly_earnings_limit and not person_is_in_full_time_education
+
+  - name: carer_support_payment_weekly_amount
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Week
+    unit: GBP
+    source: mygov.scot, Carer Support Payment
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk/guidance/mygovscot/carer-support-payment/who-can-apply
+              excerpt: "Up to £86.45 a week"
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk/guidance/mygovscot/carer-support-payment/who-can-apply
+              excerpt: "It has replaced Carer's Allowance Supplement"
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:regulations/ssi/2023/302/16#carer_support_payment_weekly_rate
+              output: carer_support_payment_weekly_rate
+              hash: sha256:733f3df1793f0dcb37e21f7e150a0ae103ddf6eab2746afdaebfdb39b36638a9
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:regulations/ssi/2023/302/16#scottish_carer_supplement_weekly_rate
+              output: scottish_carer_supplement_weekly_rate
+              hash: sha256:733f3df1793f0dcb37e21f7e150a0ae103ddf6eab2746afdaebfdb39b36638a9
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          if entitled_to_carer_support_payment: carer_support_payment_weekly_rate + scottish_carer_supplement_weekly_rate else: 0
+
+  - name: carer_support_payment_annual_amount
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    source: mygov.scot, Carer Support Payment (weekly amount annualised over the year)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk/guidance/mygovscot/carer-support-payment/who-can-apply
+              excerpt: "Up to £86.45 a week"
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          carer_support_payment_weekly_amount * carer_support_payment_weeks_in_year

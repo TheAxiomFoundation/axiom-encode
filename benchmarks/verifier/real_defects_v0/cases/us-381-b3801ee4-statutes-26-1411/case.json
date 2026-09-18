@@ -1,0 +1,307 @@
+{
+  "id": "us-381-b3801ee4-statutes-26-1411",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "b3801ee4eb82f8fc2c753d809c8b36d9ae6c42c2",
+  "parent_commit": "2175d5239a22bce42aa7a3b2f5a7c4af4c6940ea",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Wholesale regeneration with semantic corrections to existing modules: 24(d) phase-in threshold 2500 to 3000 and SS-excess gated on 3+ children, 1411 effective_from 2026 to 2013 and estate/trust base, CDCC/22/32/6401/2017(a)/273.10 formulas rewritten.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/25",
+  "module_path": "statutes/26/1411.yaml",
+  "corpus_citation_path": "us/statute/26/1411",
+  "corpus_citation_paths_all": [
+    "us/statute/26/1411"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.6,
+  "description": "(2) Application to estates and trusts In the case of an estate or trust, there is hereby imposed (in addition to any other tax imposed by this subtitle) for each taxable year a tax of 3.8 percent of the lesser of— (A) the undistributed net investment income for such taxable year, or (B) the excess (if any) of— (i) the adjusted gross income (as defined in section 67(e)) for such taxable year, over (ii) the dollar amount at which the highest tax bracket in section 1(e) begins for such taxable year.",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        3,
+        8
+      ],
+      [
+        11,
+        14
+      ],
+      [
+        19,
+        19
+      ],
+      [
+        21,
+        22
+      ],
+      [
+        29,
+        30
+      ],
+      [
+        39,
+        48
+      ],
+      [
+        57,
+        57
+      ],
+      [
+        73,
+        73
+      ],
+      [
+        78,
+        78
+      ],
+      [
+        87,
+        87
+      ],
+      [
+        89,
+        89
+      ],
+      [
+        98,
+        98
+      ],
+      [
+        105,
+        105
+      ],
+      [
+        107,
+        107
+      ],
+      [
+        119,
+        119
+      ],
+      [
+        135,
+        137
+      ],
+      [
+        145,
+        146
+      ],
+      [
+        153,
+        153
+      ],
+      [
+        155,
+        155
+      ],
+      [
+        157,
+        160
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        2,
+        3
+      ],
+      [
+        5,
+        6
+      ],
+      [
+        9,
+        18
+      ],
+      [
+        23,
+        30
+      ],
+      [
+        32,
+        35
+      ],
+      [
+        41,
+        64
+      ],
+      [
+        66,
+        69
+      ],
+      [
+        77,
+        87
+      ],
+      [
+        89,
+        92
+      ],
+      [
+        100,
+        110
+      ],
+      [
+        112,
+        112
+      ],
+      [
+        120,
+        120
+      ],
+      [
+        128,
+        140
+      ],
+      [
+        142,
+        142
+      ],
+      [
+        147,
+        147
+      ],
+      [
+        150,
+        150
+      ],
+      [
+        157,
+        168
+      ],
+      [
+        170,
+        170
+      ],
+      [
+        179,
+        181
+      ],
+      [
+        188,
+        195
+      ],
+      [
+        197,
+        197
+      ],
+      [
+        201,
+        201
+      ],
+      [
+        209,
+        219
+      ],
+      [
+        221,
+        221
+      ],
+      [
+        229,
+        229
+      ],
+      [
+        237,
+        243
+      ],
+      [
+        245,
+        249
+      ],
+      [
+        256,
+        262
+      ],
+      [
+        264,
+        312
+      ],
+      [
+        319,
+        330
+      ],
+      [
+        332,
+        332
+      ],
+      [
+        334,
+        337
+      ]
+    ],
+    "rule_names": [
+      "net_investment_income_tax",
+      "niit_estate_or_trust_tax_base",
+      "niit_estate_or_trust_excess_adjusted_gross_income",
+      "niit_individual_tax_base",
+      "net_investment_income_gross_items"
+    ],
+    "rule_path": "rules[net_investment_income_tax].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "e724dbb591cfef120f193dc544e9a04fdcd7750b6261830f69dbfc2dac0ec16e",
+  "post_fix_artifact_sha256": "1c46559b0e3669c0a76f910521610b05c64c9f8da4bf42ec306aebc0d3b84046",
+  "provision_sha256": "b5f89c82af97b3775233e8b1bbfec666f50ab4c24a32111e62ffc321195e41a0",
+  "provision_chars": 4214,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/1411",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "1b0b185ca3335eb06c4fe10af488a8984bdd2cedd4087badf78583c267af7b7b",
+    "line_number": 59,
+    "record_id": "54a520b4-88f4-5203-a5e3-c9881e05d385",
+    "stored_body_sha256": "b5f89c82af97b3775233e8b1bbfec666f50ab4c24a32111e62ffc321195e41a0",
+    "resolved_text_sha256": "b5f89c82af97b3775233e8b1bbfec666f50ab4c24a32111e62ffc321195e41a0",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us/statute/26/1411",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/1411'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/1411'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/1411'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/1411'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module encoded only 1411(a)(1) and 1411(e)(1): its single output `net_investment_income_tax` applied the individual base (net investment income vs. MAGI over the filing-status threshold) to every taxpayer that was not a nonresident alien, so it omitted 1411(a)(2)'s separate estate/trust base (undistributed NII vs. AGI under section 67(e) over the top section 1(e) bracket) and 1411(e)(2)'s nonapplication to trusts whose unexpired interests are devoted to section 170(c)(2)(B) purposes.",
+    "triage_notes": "Provision read through the pinned corpus (resolve_provision.py, us/statute/26/1411, expression_date 2026-07-13): the corpus text carries (a)(2) and (e)(2) verbatim, confirming both were missing pre-fix. Co-occurring second defect in the same module: every rule's effective_from moved 2026-01-01 -> 2013-01-01, which is a wrong_period_or_effective_date correction (section 1411 has applied since taxable years beginning after 2012 and its $250,000/$200,000 thresholds are not indexed, so a 2026 start date was indefensible) — but the 2013 date is not stated anywhere in the provision text, so I made the in-source clause omission the primary kind. Also added in this diff: 1411(c)(3) working-capital income and the 1411(c)(4) active partnership/S-corporation disposition exception in net_investment_income_gross_items, and the 1411(d) MAGI input renamed to `amount_excluded_from_gross_income_under_section_911_a_1` with 911(d)(6) now supplied by the new module at index 9. Caveat a reviewer should weigh: the pre-fix summary said the section 'imposes the 3.8 percent Net Investment Income Tax on individuals', so one could argue estate/trust coverage is scope the module never claimed; the module's corpus_citation_path was nevertheless the whole section and its output rule had no entity gate.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.85,
+    "verifier_justification": "I tried to refute this as \"new scope the module never claimed\" (the pre-fix summary said the section \"imposes the 3.8 percent Net Investment Income Tax on individuals\"), but that fails: the module's corpus_citation_path is the whole section us/statute/26/1411, the terminal output is generically named net_investment_income_tax, and its else-branch applied the individual base (niit_rate * niit_tax_base, filing-status threshold) to every TaxUnit that was not a nonresident alien — so an estate, trust, or charitable trust got an affirmatively wrong tax, not merely no coverage. The pinned release (us-rulespec-2026-07-13, body sha256 b5f89c82...) confirms both missing clauses verbatim: 1411(a)(2)'s estate/trust base (undistributed NII vs. AGI under section 67(e) over the top section 1(e) bracket) and 1411(e)(2)'s nonapplication to a trust whose unexpired interests are devoted to section 170(c)(2)(B) purposes — the latter especially damning because the pre rule cited \"26 USC 1411(a)(1), 1411(e)(1)\", encoding only one of subsection (e)'s two items. The fix adds two new rules sourced to 26 USC 1411(a)(2) and (a)(2)(B), rewrites the terminal formula to branch on the charitable-trust carve-out and entity type, and adds a companion test estate_or_trust_tax_and_charitable_trust_nonapplication, so the change is semantic, not regeneration noise. wrong_entity_or_scope is the closest competing kind, but the entity gating is the mechanism for adding the missing statutory clauses, so unrepresented_clause fits better.",
+    "verifier_quote": "-          if is_nonresident_alien:\n-              0\n-          else:\n-              niit_rate * niit_tax_base\n+          if is_nonresident_alien: 0 else:\n+              if trust_all_unexpired_interests_devoted_to_section_170_c_2_B_purposes: 0 else:\n+                  if is_individual: niit_rate * niit_individual_tax_base else:\n+                      if is_estate_or_trust: niit_rate * niit_estate_or_trust_tax_base else: 0",
+    "verifier_notes": "Verified against the pinned release: resolve_provision for us/statute/26/1411 at rulespec commit b3801ee4eb returned corpus_release us-rulespec-2026-07-13, provision sha256 b5f89c82af97b3775233e8b1bbfec666f50ab4c24a32111e62ffc321195e41a0, containing both \"(2) Application to estates and trusts\" and \"(2) a trust all of the unexpired interests in which are devoted to one or more of the purposes described in section 170(c)(2)(B)\". Note selection_basis was \"no_toolchain_corpus_pin\" (fallback_index 4), so the release is the resolver's fallback, not a commit-time pin.\n\nCaveats and adjacent findings a reviewer should weigh:\n1. The commit message is generic (\"Regenerate validated US RuleSpec encodings\", empty body) and the PR (#25) is titled for 26 USC 63(c) and never mentions 1411 — so ALL evidence here is the diff plus the source text, not review prose. There is no maintainer statement calling the old encoding wrong.\n2. This same module diff contains at least two OTHER independent fidelity changes that should not be double-counted into this case: (a) every version's effective_from moves '2026-01-01' -> '2013-01-01' (wrong_period_or_effective_date); (b) net_investment_income_gross_items gains \"+ investment_of_working_capital_income\" (1411(c)(3)) and swaps taxable_net_gain_from_dispositions -> taxable_net_gain_from_dispositions_after_active_partnership_s_corporation_exception (1411(c)(4)) — itself a second unrepresented_clause. The candidate's rule_names list spans net_investment_income_gross_items, so if the corpus wants one defect per case, this case should be pinned to the estate/trust + 170(c)(2)(B) change on rules[net_investment_income_tax].\n3. The estate/trust branch is input-driven: undistributed_net_investment_income, adjusted_gross_income_under_section_67_e, highest_section_1_e_bracket_begin_amount, is_individual, is_estate_or_trust, and trust_all_unexpired_interests_devoted_to_section_170_c_2_B_purposes are all new module inputs (visible in the .test.yaml diff), not derived from encodings of section 67(e) or 1(e). That is a fidelity-neutral modeling choice, not an additional defect.\n4. Companion-test corroboration: statutes/26/1411.test.yaml adds \"estate_or_trust_tax_and_charitable_trust_nonapplication\" with is_estate_or_trust: true and trust_all_unexpired_interests_devoted_to_section_170_c_2_B_purposes: true expecting net_investment_income_tax: 0 — direct evidence the new branch is exercised, which is why I rate this above the 0.6 the first reader gave.\n5. Residual doubt keeping confidence below 0.9: the pre-fix module summary self-described as covering individuals, so a strict reader could call the estate/trust half \"coverage never claimed\". I reject that because the untethered else-branch produced a wrong number for non-individual tax units and because (e)(2) sits inside a subsection the module already claimed, but a reviewer applying the \"never claimed\" rule literally could downgrade this to unclear.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Provision read through the pinned corpus (resolve_provision.py, us/statute/26/1411, expression_date 2026-07-13): the corpus text carries (a)(2) and (e)(2) verbatim, confirming both were missing pre-fix. Co-occurring second defect in the same module: every rule's effective_from moved 2026-01-01 -> 2013-01-01, which is a wrong_period_or_effective_date correction (section 1411 has applied since taxable years beginning after 2012 and its $250,000/$200,000 thresholds are not indexed, so a 2026 start date was indefensible) — but the 2013 date is not stated anywhere in the provision text, so I made the in-source clause omission the primary kind. Also added in this diff: 1411(c)(3) working-capital income and the 1411(c)(4) active partnership/S-corporation disposition exception in net_investment_income_gross_items, and the 1411(d) MAGI input renamed to `amount_excluded_from_gross_income_under_section_911_a_1` with 911(d)(6) now supplied by the new module at index 9. Caveat a reviewer should weigh: the pre-fix summary said the section 'imposes the 3.8 percent Net Investment Income Tax on individuals', so one could argue estate/trust coverage is scope the module never claimed; the module's corpus_citation_path was nevertheless the whole section and its output rule had no entity gate. | verifier confirmed at 0.85",
+  "family_id": "us-b3801ee4-a3c265992ec5",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

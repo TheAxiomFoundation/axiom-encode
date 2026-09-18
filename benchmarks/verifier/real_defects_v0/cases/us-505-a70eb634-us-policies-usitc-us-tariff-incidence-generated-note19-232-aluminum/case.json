@@ -1,0 +1,87 @@
+{
+  "id": "us-505-a70eb634-us-policies-usitc-us-tariff-incidence-generated-note19-232-aluminum",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "a70eb6341476245874dbd700c8661531a4388c5c",
+  "parent_commit": "98e7d74f24988e6e8155073d9648e43185870608",
+  "commit_date": "2026-08-15",
+  "commit_subject": "b1.6: repair section 232 primary heading memberships",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1298",
+  "module_path": "us/policies/usitc/us-tariff-incidence/generated/note19-232-aluminum.yaml",
+  "corpus_citation_path": "us/statute/hts/chapter-99/page-253",
+  "corpus_citation_paths_all": [
+    "us/statute/hts/chapter-99/page-253",
+    "us/statute/hts/chapter-99/page-255"
+  ],
+  "corpus_release": "us-rulespec-2026-08-08-obbb-alien-snap",
+  "corpus_release_content_sha256": "0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc",
+  "corpus_commit": "e79781bddeaba4d3697c5375c7371b2a038f0f74",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.85,
+  "description": "b1.6: repair section 232 primary heading memberships",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [],
+    "post_fix_lines": [
+      [
+        7,
+        7
+      ],
+      [
+        12,
+        97
+      ]
+    ],
+    "rule_names": [
+      "s232_aluminum_primary_heading_membership",
+      "s232_aluminum_primary_membership"
+    ],
+    "rule_path": "rules[s232_aluminum_primary_heading_membership].versions[0].values"
+  },
+  "pre_fix_artifact_sha256": "98e67cccece03efe373af847329ded1abbca6e6659cbe81d0f91ba018d5f2ca3",
+  "post_fix_artifact_sha256": "937bd0cb5ca030d247b09e00f75b9b8915570e3534fccbe33286ad55e1933366",
+  "provision_sha256": "336d5161c5684091fc124885daf3d5bcc052289dbb86f14d1fe36cbd0636cae8",
+  "provision_chars": 4941,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/hts/chapter-99/page-253",
+    "provision_file": "data/corpus/provisions/us/statute/2026-08-01-usitc-hts-2026-rev3-notes.jsonl",
+    "provision_file_sha256": "818d993ea9bbb613b1c78ec03e1394b4d2b2468c259c3b1ff89ca3a004cf129c",
+    "line_number": 263,
+    "record_id": "781b8932-6d60-5307-9b55-de2db9d16268",
+    "stored_body_sha256": "336d5161c5684091fc124885daf3d5bcc052289dbb86f14d1fe36cbd0636cae8",
+    "resolved_text_sha256": "336d5161c5684091fc124885daf3d5bcc052289dbb86f14d1fe36cbd0636cae8",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-02-12",
+    "source_as_of": "2026-08-01",
+    "corpus_commit": "e79781bddeaba4d3697c5375c7371b2a038f0f74",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "60de5efae2a1b1dd58b7c92fa9b73a86bd78f30a",
+    "requested_citation_path": "us/statute/hts/chapter-99/page-253",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The module encoded only the note 19(j) derivative-aluminum lists and contained no primary-aluminum membership table at all, so every article note 19(b) places in the Section 232 primary action list (headings 7601 and 7604-7609 and subheading 7616.99.51) was encoded as outside the action.",
+    "triage_notes": "Same root-cause pattern as index 0 (one tokenizer fix in tools/generate_incidence_tables.py covers both modules), but the aluminum loss was total: pre-fix rule names were only s232_aluminum_derivative_membership and s232_aluminum_derivative_membership_hts10. Provision read and confirmed: Rev-15 notes page-253 (pinned corpus commit 60de5efa) states \"(b) The rates of duty set forth in heading 9903.85.01 and subheadings 9903.85.05 and 9903.85.06, inclusive, apply to all imported products of aluminum classifiable in the provisions enumerated in this subdivision: (i) unwrought aluminum provided for in heading 7601: (ii) bars, rods and profiles provided for in heading 7604; wire provided for in heading 7605; (iii) plates, sheets and strip provided for in heading 7606; foil provided for in heading 7607; (iv) tubes, pipes and tube or pipe fittings provided for in heading 7608 and 7609; (v) castings and forgings of aluminum provided for in subheading 7616.99.51.\" The post-fix values (7601, 7604, 7605, 7606, 7607, 7608, 7609 at 4-digit; 76169951 at 8-digit) reproduce that list exactly. Why even the 8-digit row was missing pre-fix: the old regex ended with a (?![\\d.]) lookahead and 7616.99.51 is followed by the sentence-ending period, so the only dotted atom in the 19(b) segment was rejected too; the new lookahead (?!\\d|\\.\\d) accepts it. The diff also adds us/statute/hts/chapter-99/page-253 to module.source_verification.corpus_citation_paths, provenance bookkeeping riding along with the substantive fix. Diff is pure addition; the existing derivative tables are untouched; companion test file gained 20 lines. Same alternative-kind caveat as index 0 (wrong_entity_or_scope vs unrepresented_clause), and same caveat that this is a generator-produced module rather than encoder output.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.9,
+    "verifier_justification": "I tried to refute this as \"new coverage the module never claimed\" and failed: at the parent commit the generator's own grammar already declared `Production(\"232-aluminum\", \"s232_aluminum_primary_membership\", \"19(b)\", ...)` for this file, yet the emitted module contained only note 19(j) derivative tables and cited only page-255, so the entire note 19(b) primary-aluminum list the source enumerates was missing from a module that claimed it. The pinned Rev-15 corpus text at us/statute/hts/chapter-99/page-253 reads \"(b) The rates of duty set forth in heading 9903.85.01 ... apply to all imported products of aluminum classifiable in the provisions enumerated in this subdivision: (i) unwrought aluminum provided for in heading 7601 ... (v) castings and forgings of aluminum provided for in subheading 7616.99.51\", exactly the seven headings plus 76169951 the fix adds with companion tests. This is not mechanical (new parameter rules with values, new proof atoms, new tests) and no other kind fits better: nothing numeric was wrong, no bound or boolean flipped, and no existing rule pointed at the wrong population — a clause the source states was simply absent and the fix adds it, which the taxonomy routes to unrepresented_clause.",
+    "verifier_quote": "+    versions:\n+      - effective_from: '2026-08-03'\n+        values:\n+          7601: 1\n+          7604: 1\n+          7605: 1\n+          7606: 1\n+          7607: 1\n+          7608: 1\n+          7609: 1",
+    "verifier_notes": "Root cause verified, not inferred: the pre-fix tokenizer `HTS = re.compile(r\"(?<![\\d.])(\\d{4}\\.\\d{2}\\.\\d{2}(?:\\d{2})?)(?![\\d.])\")` matched neither the bare 4-digit headings (7601, 7604-7609) nor the one dotted 8-digit code, because note 19(b) prints it sentence-final as \"subheading 7616.99.51.\" and the trailing period trips the `(?![\\d.])` lookahead — I ran both regexes over the corpus segment and the old one returns [] while the new PRINTED_WIDTH_HTS returns ['7616.99.51']. Two caveats for the reviewer. (1) The first reader's phrasing \"encoded as outside the action\" is slightly stronger than the artifact supports: the primary table was absent entirely rather than encoding an explicit 0, and the only consumer (tools/b16_entry_flags.py, mapping \"s232_aluminum_primary\" to both new tables) arrives in this same commit — the substantive omission stands, the false-negative framing is an extrapolation. (2) This is an intra-PR repair: commit a70eb63414 (2026-08-15) lands inside PR #1298, merged 2026-08-16, so the defective encoding never reached main; if the corpus is meant to hold post-merge defects, that is a selection question, not a classification one. The steel module (index 0) in the same commit carries the parallel defect at 4- and 6-digit widths in note 16(c)(iii) — 26 heading and 2 six-digit rows — so the two module files are one defect with one cause. Build report language for the same change: \"the tokenizer and independent differential scanner now preserve the 4-, 6-, and 8-digit widths printed in notes 16(c)(iii) and 19(b)\".",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Same root-cause pattern as index 0 (one tokenizer fix in tools/generate_incidence_tables.py covers both modules), but the aluminum loss was total: pre-fix rule names were only s232_aluminum_derivative_membership and s232_aluminum_derivative_membership_hts10. Provision read and confirmed: Rev-15 notes page-253 (pinned corpus commit 60de5efa) states \"(b) The rates of duty set forth in heading 9903.85.01 and subheadings 9903.85.05 and 9903.85.06, inclusive, apply to all imported products of aluminum classifiable in the provisions enumerated in this subdivision: (i) unwrought aluminum provided for in heading 7601: (ii) bars, rods and profiles provided for in heading 7604; wire provided for in heading 7605; (iii) plates, sheets and strip provided for in heading 7606; foil provided for in heading 7607; (iv) tubes, pipes and tube or pipe fittings provided for in heading 7608 and 7609; (v) castings and forgings of aluminum provided for in subheading 7616.99.51.\" The post-fix values (7601, 7604, 7605, 7606, 7607, 7608, 7609 at 4-digit; 76169951 at 8-digit) reproduce that list exactly. Why even the 8-digit row was missing pre-fix: the old regex ended with a (?![\\d.]) lookahead and 7616.99.51 is followed by the sentence-ending period, so the only dotted atom in the 19(b) segment was rejected too; the new lookahead (?!\\d|\\.\\d) accepts it. The diff also adds us/statute/hts/chapter-99/page-253 to module.source_verification.corpus_citation_paths, provenance bookkeeping riding along with the substantive fix. Diff is pure addition; the existing derivative tables are untouched; companion test file gained 20 lines. Same alternative-kind caveat as index 0 (wrong_entity_or_scope vs unrepresented_clause), and same caveat that this is a generator-produced module rather than encoder output. | verifier confirmed at 0.90",
+  "family_id": "us-a70eb634-fffc7a65db9e",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}
