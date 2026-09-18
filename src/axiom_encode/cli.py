@@ -24,6 +24,7 @@ import math
 import os
 import re
 import shutil
+import sqlite3
 import stat
 import subprocess
 import sys
@@ -36,7 +37,7 @@ from calendar import monthrange
 from collections import Counter, defaultdict, deque
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import asdict, is_dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation, localcontext
 from pathlib import Path
 from typing import Any, Callable, NamedTuple, Protocol
@@ -153,6 +154,8 @@ from .harness.dependency_stubs import (
     validate_rulespec_context_file,
 )
 from .harness.encoding_db import (
+    ARTIFACT_TYPE_RULESPEC,
+    ARTIFACT_TYPE_RULESPEC_TESTS,
     TOKEN_USAGE_FIELDS,
     EncodingDB,
     EncodingRun,
@@ -243,6 +246,12 @@ from .harness.proof_validator import (
     validate_rulespec_proofs,
 )
 from .harness.source_completeness import _rulespec_target_base
+from .harness.validation_issues import (
+    ValidationIssue,
+    issue_summary_counts,
+    issues_to_dicts,
+    structure_attempt_issues,
+)
 from .harness.validator_pipeline import (
     _SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS,
     _US_TAX_JOINT_ONLY_ANY_OTHER_CASE_TEXT_PATTERN,
@@ -2538,6 +2547,55 @@ def main():
         help="Print the machine-readable pipeline stage DAG (renderer input)",
     )
 
+    attempt_evidence_backfill_parser = subparsers.add_parser(
+        "attempt-evidence-backfill",
+        help=(
+            "Migrate an encodings.db in place and backfill attempt evidence: "
+            "parent run links, final-attempt artifact versions, and judge "
+            "events from run-log JSONL (idempotent; reports counts before "
+            "and after)"
+        ),
+    )
+    attempt_evidence_backfill_parser.add_argument("--db", type=Path, default=DEFAULT_DB)
+    attempt_evidence_backfill_parser.add_argument(
+        "--log-dir",
+        type=Path,
+        action="append",
+        default=[],
+        help=(
+            "Run-log directory to ingest judge events from (repeatable). "
+            "Defaults to AXIOM_ENCODE_RUN_LOG_DIR and ./.axiom/run-logs"
+        ),
+    )
+    attempt_evidence_backfill_parser.add_argument(
+        "--no-link-parents", dest="link_parents", action="store_false", default=True
+    )
+    attempt_evidence_backfill_parser.add_argument(
+        "--no-artifacts", dest="artifacts", action="store_false", default=True
+    )
+    attempt_evidence_backfill_parser.add_argument(
+        "--no-judge-events", dest="judge_events", action="store_false", default=True
+    )
+    attempt_evidence_backfill_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Run the schema migration and count candidates without writing rows",
+    )
+    attempt_evidence_backfill_parser.add_argument("--limit", type=int, default=None)
+
+    attempt_evidence_parser = subparsers.add_parser(
+        "attempt-evidence",
+        help=(
+            "Print (run_id, attempt, artifact, issues, parent) records as JSON "
+            "lines from an encodings.db (opened read-only)"
+        ),
+    )
+    attempt_evidence_parser.add_argument("--db", type=Path, default=DEFAULT_DB)
+    attempt_evidence_parser.add_argument("--run-id", default=None)
+    attempt_evidence_parser.add_argument("--citation", default=None)
+    attempt_evidence_parser.add_argument("--limit", type=int, default=None)
+    attempt_evidence_parser.add_argument("--failed-only", action="store_true")
+
     program_scope_parser = subparsers.add_parser(
         "program-scope-sync",
         help="Deterministically update one axiom-compose ProgramSpec scope",
@@ -2888,6 +2946,16 @@ def main():
         help=(
             "Write the final validator-rejected RuleSpec, companion tests, and "
             "issue metadata to one fresh absolute directory"
+        ),
+    )
+    encode_parser.add_argument(
+        "--parent-run-id",
+        dest="parent_run_id",
+        default=None,
+        help=(
+            "Run id this encode regenerates. Defaults to "
+            "AXIOM_ENCODE_PARENT_RUN_ID, then to the most recent finished run "
+            "of the same citation in --db"
         ),
     )
     encode_parser.add_argument(
@@ -3644,6 +3712,10 @@ def main():
         cmd_run_log_staleness(args)
     elif args.command == "run-log-spec":
         cmd_run_log_spec(args)
+    elif args.command == "attempt-evidence-backfill":
+        cmd_attempt_evidence_backfill(args)
+    elif args.command == "attempt-evidence":
+        cmd_attempt_evidence(args)
     else:
         parser.print_help()
         sys.exit(1)
@@ -9775,6 +9847,37 @@ def cmd_run_log_spec(args):
     from .run_log import pipeline_spec_dict
 
     print(json.dumps(pipeline_spec_dict(), indent=2, sort_keys=True))
+
+
+def cmd_attempt_evidence_backfill(args):
+    """Migrate an encodings.db and backfill attempt evidence; print the report."""
+    from .attempt_evidence_backfill import backfill_attempt_evidence
+
+    report = backfill_attempt_evidence(
+        Path(args.db),
+        log_dirs=list(getattr(args, "log_dir", None) or []),
+        link_parents=bool(getattr(args, "link_parents", True)),
+        artifacts=bool(getattr(args, "artifacts", True)),
+        judge_events=bool(getattr(args, "judge_events", True)),
+        dry_run=bool(getattr(args, "dry_run", False)),
+        limit=getattr(args, "limit", None),
+    )
+    print(json.dumps(report, indent=2, sort_keys=True))
+
+
+def cmd_attempt_evidence(args):
+    """Print attempt evidence records as JSON lines (read-only)."""
+    from .attempt_evidence import dump_attempt_evidence
+
+    sys.stdout.write(
+        dump_attempt_evidence(
+            Path(args.db),
+            run_id=getattr(args, "run_id", None),
+            citation=getattr(args, "citation", None),
+            limit=getattr(args, "limit", None),
+            failed_only=bool(getattr(args, "failed_only", False)),
+        )
+    )
 
 
 def cmd_run_log_export(args):
@@ -29814,6 +29917,9 @@ def _run_encode_attempts_with_retries(
     _validate_tests_only_repair_contract(args, initial_retry_candidate)
     failed_attempts: tuple[_FailedEncodeAttempt, ...] = ()
     current_model = config.initial_model
+    # The invocation start anchors parent-run sequencing: a prior run of the
+    # same citation is a parent only if it finished before this moment.
+    invocation_started_at = datetime.now()
 
     while True:
         execution = _run_encode_attempt(
@@ -29825,6 +29931,7 @@ def _run_encode_attempts_with_retries(
             defer_logging=config.enabled,
             apply_signing_broker=apply_signing_broker,
             resolved_policy_checkout_path=resolved_policy_checkout_path,
+            started_at=invocation_started_at,
         )
         next_model = None
         if _encode_attempt_was_validator_rejected(
@@ -29950,6 +30057,11 @@ def _run_encode_attempts_with_retries(
                 prior_attempts=failed_attempts,
                 final_attempt_success=final_attempt_success,
                 final_attempt_error=final_attempt_error,
+                final_validation_issues=execution.validation_issues,
+                parent_run_id=_explicit_parent_run_id(
+                    getattr(args, "parent_run_id", None)
+                ),
+                started_at=invocation_started_at,
             )
             print(f"  run_id={logged_run.id}")
         repair_manifest = _record_encode_outcome(
@@ -29957,6 +30069,7 @@ def _run_encode_attempts_with_retries(
             result=execution.result,
             run=logged_run,
             outcome=outcome,
+            validation_issues=execution.validation_issues,
         )
         _emit_run_log_events_safe(
             execution.result,
@@ -30008,6 +30121,7 @@ def _run_encode_attempt(
     defer_logging: bool = True,
     apply_signing_broker: SigningBroker | None = None,
     resolved_policy_checkout_path: Path | None = None,
+    started_at: datetime | None = None,
 ) -> _EncodeAttemptExecution:
     """Run one generation through the existing standalone and apply gates."""
     if getattr(args, "apply", False) is True and not apply_signing_broker:
@@ -30299,14 +30413,14 @@ def _run_encode_attempt(
                 prior_attempts=prior_attempts,
                 final_attempt_success=final_attempt_success,
                 final_attempt_error=final_attempt_error,
+                final_validation_issues=full_validation_issues,
+                parent_run_id=_explicit_parent_run_id(
+                    getattr(args, "parent_run_id", None)
+                ),
+                started_at=started_at,
             )
             print(f"  run_id={logged_run.id}")
         return logged_run
-
-    if not defer_logging:
-        # Preserve the legacy --no-escalation durability boundary: generation
-        # is recorded before the apply validator starts or can raise.
-        _ensure_logged_run()
 
     outcome = _initial_encode_outcome(result, apply_requested=apply_requested)
     apply_passed = False
@@ -30324,6 +30438,13 @@ def _run_encode_attempt(
             compile_issues,
             ci_issues,
         )
+
+    if not defer_logging:
+        # Preserve the legacy --no-escalation durability boundary: generation
+        # is recorded before the apply validator starts or can raise. The
+        # standalone issue list above is pure bookkeeping over the finished
+        # eval result, so the run row carries it from this first write.
+        _ensure_logged_run()
     if apply_requested:
         if not _can_attempt_apply(result):
             detail = str(getattr(result, "error", None) or "generation failed")
@@ -60010,8 +60131,22 @@ def _log_eval_result(
     prior_attempts: Sequence[_FailedEncodeAttempt] = (),
     final_attempt_success: bool | None = None,
     final_attempt_error: str | None = None,
+    final_validation_issues: Sequence[str] = (),
+    parent_run_id: str | None = None,
+    link_parent: bool = True,
+    started_at: datetime | None = None,
 ) -> EncodingRun:
-    """Persist an eval-backed encode run in the local run history DB."""
+    """Persist an eval-backed encode run in the local run history DB.
+
+    Every attempt is recorded with the evidence that makes it a labeled case:
+    the validator's structured issues (``iterations_json`` errors), the
+    artifact text it produced (``artifact_versions`` + ``run_artifacts``), and
+    the run it regenerates (``parent_run_id``). ``final_validation_issues``
+    are the final attempt's full issue strings (overlay issues included);
+    prior attempts carry theirs on ``_FailedEncodeAttempt``. ``started_at`` is
+    the moment the encode invocation began (before its first generation
+    attempt); it anchors the parent-run sequencing and the session start.
+    """
     rulespec_content = _read_optional_text(getattr(result, "output_file", ""))
     source_text = _read_eval_source_text(getattr(result, "context_manifest_file", ""))
     iterations: list[Iteration] = []
@@ -60024,6 +60159,14 @@ def _log_eval_result(
                     IterationError(
                         error_type="validation",
                         message=failed_attempt.error,
+                        issues=structure_attempt_issues(
+                            failed_attempt.result,
+                            extra_issues=(
+                                failed_attempt.full_validation_issues
+                                or failed_attempt.validation_issues
+                            ),
+                            error=failed_attempt.error,
+                        ),
                     )
                 ],
                 success=False,
@@ -60042,6 +60185,11 @@ def _log_eval_result(
             IterationError(
                 error_type="validation",
                 message=final_error,
+                issues=structure_attempt_issues(
+                    result,
+                    extra_issues=final_validation_issues,
+                    error=final_error,
+                ),
             )
         )
     iterations.append(
@@ -60076,8 +60224,27 @@ def _log_eval_result(
     )
     run.session_id = f"encode-{run.id}"
     db = EncodingDB(db_path)
+    _link_parent_run(
+        db,
+        run,
+        explicit=parent_run_id,
+        link_parent=link_parent,
+        started_at=started_at,
+    )
     db.log_run(run)
-    repair_manifest = _write_eval_repair_manifest(result, run) if log_issue else None
+    attempt_evidence = _record_attempt_artifacts(
+        db,
+        run,
+        result=result,
+        prior_attempts=prior_attempts,
+        rulespec_content=rulespec_content,
+    )
+    final_issues = [issue for error in final_errors for issue in error.issues]
+    repair_manifest = (
+        _write_eval_repair_manifest(result, run, issues=final_issues)
+        if log_issue
+        else None
+    )
     _log_eval_session(
         db,
         result,
@@ -60086,8 +60253,204 @@ def _log_eval_result(
         log_issue=log_issue,
         end_session=end_session,
         attempt_results=attempt_results,
+        attempt_evidence=attempt_evidence,
+        issues=final_issues,
+        started_at=started_at,
     )
     return run
+
+
+PARENT_RUN_ID_ENV = "AXIOM_ENCODE_PARENT_RUN_ID"
+
+
+def _explicit_parent_run_id(value: object) -> str | None:
+    """An operator-supplied parent run id (flag, then environment), if any."""
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    env = os.environ.get(PARENT_RUN_ID_ENV, "").strip()
+    return env or None
+
+
+def _link_parent_run(
+    db: EncodingDB,
+    run: EncodingRun,
+    *,
+    explicit: str | None = None,
+    link_parent: bool = True,
+    started_at: datetime | None = None,
+) -> None:
+    """Set ``parent_run_id``/``iteration`` when this run regenerates a citation.
+
+    An explicit id (``--parent-run-id`` or ``AXIOM_ENCODE_PARENT_RUN_ID``)
+    wins. Otherwise the parent is the most recent run of the same citation in
+    this database that had already finished when this invocation began
+    (``started_at``, captured before the first generation attempt), so
+    concurrent sibling runs of one fan-out never chain to each other even
+    when one finishes while the other is still in its validation gates.
+    Without a recorded start the row time minus the recorded generation
+    duration is used, and a run with no recorded duration is left unlinked.
+    Linking is best-effort: a lookup failure leaves the run unlinked.
+    """
+    if not link_parent:
+        return
+    try:
+        explicit_id = _explicit_parent_run_id(explicit)
+        if explicit_id:
+            if explicit_id == run.id:
+                return
+            parent = db.get_run(explicit_id)
+            run.parent_run_id = explicit_id
+            run.iteration = int(parent.iteration or 1) + 1 if parent else 2
+            return
+        if started_at is None:
+            duration_ms = int(run.total_duration_ms or 0)
+            if duration_ms <= 0:
+                # Without a generation duration the start time is unknowable,
+                # so sequencing against earlier runs cannot be established.
+                return
+            started_at = run.timestamp - timedelta(milliseconds=duration_ms)
+        parent = db.find_parent_run(
+            citation=run.citation,
+            started_at=started_at,
+            agent_type=run.agent_type,
+            agent_model=run.agent_model,
+            exclude_run_id=run.id,
+        )
+        if parent is not None:
+            run.parent_run_id = parent.id
+            run.iteration = int(parent.iteration or 1) + 1
+    except (sqlite3.Error, ValueError, TypeError):
+        return
+
+
+def _plain_metric(value: object) -> bool | int | float | None:
+    if isinstance(value, (bool, int, float)):
+        return value
+    return None
+
+
+def _attempt_gate_summary(attempt_result: Any) -> dict[str, bool | int | float | None]:
+    """The validator's per-gate verdicts for one attempt's artifact version."""
+    metrics = getattr(attempt_result, "metrics", None)
+    if metrics is None:
+        return {}
+    summary: dict[str, bool | int | float | None] = {}
+    for name in (
+        "compile_pass",
+        "ci_pass",
+        "generalist_review_pass",
+        "generalist_review_score",
+        "policyengine_pass",
+        "policyengine_score",
+        "grounded_numeric_count",
+        "ungrounded_numeric_count",
+        "missing_source_numeric_occurrence_count",
+    ):
+        value = _plain_metric(getattr(metrics, name, None))
+        if value is not None:
+            summary[name] = value
+    return summary
+
+
+def _record_attempt_artifacts(
+    db: EncodingDB,
+    run: EncodingRun,
+    *,
+    result: Any,
+    prior_attempts: Sequence[_FailedEncodeAttempt],
+    rulespec_content: str,
+) -> list[dict[str, Any]]:
+    """Store every attempt's artifact text and return per-attempt evidence.
+
+    Prior attempts come from the retained retry candidates (the output file
+    itself is cleared before each retry); the final attempt is read from the
+    output file and its companion test. An attempt whose text was not
+    retained still gets an evidence entry, with ``artifact_unavailable`` set.
+    Artifact persistence is telemetry: a storage failure is reported in the
+    entry and never fails the encode.
+    """
+    attempt_results: list[Any] = [attempt.result for attempt in prior_attempts]
+    attempt_results.append(result)
+    evidence: list[dict[str, Any]] = []
+    for iteration, attempt_result in zip(run.iterations, attempt_results):
+        index = iteration.attempt - 1
+        rulespec_text: str | None
+        tests_text: str | None
+        if index < len(prior_attempts):
+            candidate = prior_attempts[index].candidate
+            rulespec_text = getattr(candidate, "rulespec", None)
+            tests_text = getattr(candidate, "tests", None)
+        else:
+            rulespec_text = rulespec_content or None
+            output_file = getattr(result, "output_file", None)
+            tests_text = (
+                _read_optional_text(_rulespec_test_path(Path(str(output_file))))
+                if output_file
+                else ""
+            ) or None
+        issues = [issue for error in iteration.errors for issue in error.issues]
+        issue_dicts, truncated = issues_to_dicts(issues)
+        truncated += sum(error.issues_truncated for error in iteration.errors)
+        entry: dict[str, Any] = {
+            "attempt": iteration.attempt,
+            "success": bool(iteration.success),
+            "model": iteration.model,
+            "error": next(
+                (error.message for error in iteration.errors if error.message), None
+            ),
+            "issue_count": len(issues),
+            "issue_counts": issue_summary_counts(issues),
+            "issues": issue_dicts,
+            "artifacts": [],
+        }
+        if truncated:
+            entry["issues_truncated"] = truncated
+        metadata = {
+            "run_id": run.id,
+            "citation": run.citation,
+            "attempt": iteration.attempt,
+            "success": bool(iteration.success),
+            "model": iteration.model,
+            "backend": getattr(attempt_result, "backend", None)
+            if isinstance(getattr(attempt_result, "backend", None), str)
+            else None,
+            "output_file": str(getattr(result, "output_file", "") or ""),
+            "error": entry["error"],
+            "issue_count": len(issues),
+            "issue_counts": entry["issue_counts"],
+            "gates": _attempt_gate_summary(attempt_result),
+            "axiom_encode_version": __version__,
+        }
+        if not isinstance(rulespec_text, str) or not rulespec_text:
+            entry["artifact_unavailable"] = "attempt text was not retained"
+            evidence.append(entry)
+            continue
+        try:
+            for role, text in (
+                (ARTIFACT_TYPE_RULESPEC, rulespec_text),
+                (ARTIFACT_TYPE_RULESPEC_TESTS, tests_text),
+            ):
+                if not isinstance(text, str) or not text:
+                    continue
+                version = db.record_run_artifact(
+                    run.id,
+                    attempt=iteration.attempt,
+                    role=role,
+                    content=text,
+                    metadata=metadata,
+                    effective_from=run.timestamp.isoformat(),
+                )
+                entry["artifacts"].append(
+                    {
+                        "role": role,
+                        "artifact_version_id": version.id,
+                        "content_hash": version.content_hash,
+                    }
+                )
+        except (sqlite3.Error, OSError, ValueError, TypeError) as exc:
+            entry["artifact_unavailable"] = f"artifact storage failed: {exc}"
+        evidence.append(entry)
+    return evidence
 
 
 def _log_eval_session(
@@ -60099,8 +60462,16 @@ def _log_eval_session(
     log_issue: bool = True,
     end_session: bool = True,
     attempt_results: Sequence[Any] = (),
+    attempt_evidence: Sequence[dict[str, Any]] = (),
+    issues: Sequence[ValidationIssue] = (),
+    started_at: datetime | None = None,
 ) -> None:
-    """Persist a minimal SDK-style session for eval-backed encode runs."""
+    """Persist a minimal SDK-style session for eval-backed encode runs.
+
+    ``attempt_evidence`` (one entry per attempt: verdict, structured issues,
+    artifact version ids) rides on the ``encode_result`` event metadata, and
+    ``issues`` (the final failure's structured issues) on ``encode_issue``.
+    """
     attempts = list(attempt_results) or [result]
 
     def _sum_attempt_field(field: str) -> int:
@@ -60114,6 +60485,7 @@ def _log_eval_session(
         session_id=run.session_id,
         run_id=run.id,
         axiom_encode_version=__version__,
+        started_at=started_at,
     )
     aggregate_usage = _aggregate_attempt_usage(attempts)
     db.update_session_tokens(
@@ -60162,12 +60534,21 @@ def _log_eval_session(
         ),
         "repair_manifest": str(repair_manifest) if repair_manifest else None,
     }
+    result_metadata: dict[str, Any] = {
+        "run_id": run.id,
+        "success": result_summary["success"],
+    }
+    parent_run_id = getattr(run, "parent_run_id", None)
+    if isinstance(parent_run_id, str) and parent_run_id:
+        result_metadata["parent_run_id"] = parent_run_id
+    if attempt_evidence:
+        result_metadata["attempts"] = list(attempt_evidence)
     db.log_event(
         session.id,
         "encode_result",
         content=json.dumps(result_summary, indent=2, sort_keys=True),
         tool_name="axiom-encode",
-        metadata={"run_id": run.id, "success": result_summary["success"]},
+        metadata=result_metadata,
     )
     error = getattr(result, "error", None)
     if log_issue and isinstance(error, str) and error:
@@ -60179,6 +60560,7 @@ def _log_eval_session(
             metadata={
                 "run_id": run.id,
                 "repair_manifest": str(repair_manifest) if repair_manifest else None,
+                **_encode_issue_metadata(issues),
             },
         )
     if end_session:
@@ -60244,8 +60626,15 @@ def _record_encode_outcome(
     result,
     run: EncodingRun,
     outcome: dict,
+    validation_issues: Sequence[str] = (),
 ) -> Path | None:
-    """Persist final encode workflow status and close the encode session."""
+    """Persist final encode workflow status and close the encode session.
+
+    On a final failure the ``encode_issue`` event and the repair manifest
+    carry the validator's structured issue list (``validation_issues`` are the
+    final attempt's full issue strings, overlay issues included), so the
+    labeled case survives the temporary output directory.
+    """
     db = EncodingDB(db_path)
     run.outcome = dict(outcome)
     db.update_run_outcome(run.id, run.outcome)
@@ -60269,9 +60658,15 @@ def _record_encode_outcome(
 
     repair_manifest = None
     if run.outcome.get("final_success") is not True:
-        if run.outcome.get("standalone_validation_success") is not True:
-            repair_manifest = _write_eval_repair_manifest(result, run)
         issue = _encode_outcome_issue(result, run.outcome)
+        issues = structure_attempt_issues(
+            result,
+            extra_issues=validation_issues,
+            error=issue or None,
+        )
+        _sync_final_iteration_verdict(db, run, result=result, issues=issues)
+        if run.outcome.get("standalone_validation_success") is not True:
+            repair_manifest = _write_eval_repair_manifest(result, run, issues=issues)
         if issue:
             db.log_event(
                 run.session_id,
@@ -60284,10 +60679,66 @@ def _record_encode_outcome(
                     "repair_manifest": str(repair_manifest)
                     if repair_manifest
                     else None,
+                    "attempt": max(len(run.iterations), 1),
+                    **_encode_issue_metadata(issues),
                 },
             )
     db.end_session(run.session_id)
     return repair_manifest
+
+
+def _sync_final_iteration_verdict(
+    db: EncodingDB,
+    run: EncodingRun,
+    *,
+    result: Any,
+    issues: Sequence[ValidationIssue],
+) -> None:
+    """Carry a post-write failure into the run row and its artifact metadata.
+
+    On the no-escalation path the run row is written at the durability
+    boundary before the apply validator runs, so an overlay failure would
+    otherwise be visible only on the ``encode_issue`` event. When the
+    reconciled iteration verdict is a failure and the stored final iteration
+    does not already say so (or carries no structured issues), the row and
+    the final attempt's artifact metadata are updated in place. Best-effort:
+    a storage failure leaves the event as the record.
+    """
+    if not run.iterations:
+        return
+    verdict_success, verdict_error = _encode_iteration_verdict(result, run.outcome)
+    if verdict_success:
+        return
+    last = run.iterations[-1]
+    has_issues = any(error.issues for error in last.errors)
+    if last.success is False and has_issues:
+        return
+    message = verdict_error or next(
+        (error.message for error in last.errors if error.message), ""
+    )
+    last.success = False
+    last.errors = [
+        IterationError(
+            error_type="validation",
+            message=message,
+            issues=list(issues),
+        )
+    ]
+    try:
+        db.log_run(run)
+        db.update_run_artifact_metadata(
+            run.id,
+            attempt=last.attempt,
+            patch={
+                "success": False,
+                "error": message,
+                "issue_count": len(issues),
+                "issue_counts": issue_summary_counts(list(issues)),
+                "status": run.outcome.get("status"),
+            },
+        )
+    except (sqlite3.Error, OSError, ValueError, TypeError):
+        return
 
 
 def _encode_iteration_verdict(
@@ -60318,7 +60769,25 @@ def _encode_outcome_issue(result, outcome: dict) -> str:
     return ""
 
 
-def _write_eval_repair_manifest(result, run: EncodingRun) -> Path | None:
+def _encode_issue_metadata(issues: Sequence[ValidationIssue]) -> dict[str, Any]:
+    """Inline, bounded structured issues for event metadata and manifests."""
+    issue_dicts, truncated = issues_to_dicts(list(issues))
+    metadata: dict[str, Any] = {
+        "issues": issue_dicts,
+        "issue_count": len(issues),
+        "issue_counts": issue_summary_counts(list(issues)),
+    }
+    if truncated:
+        metadata["issues_truncated"] = truncated
+    return metadata
+
+
+def _write_eval_repair_manifest(
+    result,
+    run: EncodingRun,
+    *,
+    issues: Sequence[ValidationIssue] = (),
+) -> Path | None:
     """Write a small action manifest for failed eval-backed encode runs."""
     if bool(getattr(result, "success", False)):
         return None
@@ -60339,6 +60808,7 @@ def _write_eval_repair_manifest(result, run: EncodingRun) -> Path | None:
             "model": getattr(result, "model", ""),
             "mode": str(getattr(result, "mode", "")),
             "error": getattr(result, "error", None),
+            **_encode_issue_metadata(issues),
             "files": {
                 "output": str(getattr(result, "output_file", "") or ""),
                 "trace": str(getattr(result, "trace_file", "") or ""),

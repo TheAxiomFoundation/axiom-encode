@@ -38,6 +38,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
+from pathlib import Path
 from typing import Any, Optional
 
 from axiom_encode.run_log import (
@@ -320,14 +321,24 @@ class JudgeEvent:
         return self.to_run_log_event().to_dict()
 
     def emit(
-        self, writer: RunLogWriter, *, duration_ms: Optional[int] = None
+        self,
+        writer: RunLogWriter,
+        *,
+        duration_ms: Optional[int] = None,
+        db_path: Optional[Path] = None,
     ) -> Optional[RunLogEvent]:
         """Append this judge event to a run log via the canonical writer.
 
         Returns the written :class:`~axiom_encode.run_log.RunLogEvent`, or ``None``
         if the writer is disabled or captured an IO error (logging never raises).
+
+        The written event is also mirrored into the ``judge_events`` table of
+        the local encodings database (``db_path``, else ``AXIOM_ENCODE_DB``,
+        else the default database when it exists) so verdicts stay queryable
+        by run id after the JSONL file is gone. The mirror is best-effort and
+        never raises.
         """
-        return writer.emit(
+        written = writer.emit(
             JUDGE_STAGE,
             self.status,
             reason_code=self.reason_code,
@@ -336,6 +347,24 @@ class JudgeEvent:
             attrs=self.run_log_attrs(),
             findings=self.run_log_findings(),
         )
+        if written is not None:
+            from axiom_encode.attempt_evidence_backfill import mirror_judge_event
+
+            mirror_judge_event(
+                written,
+                db_path=db_path,
+                subject_ref=self.subject_ref,
+                judge_findings=[
+                    {
+                        "clause_ref": f.clause_ref,
+                        "rule_path": f.rule_path,
+                        "kind": f.kind,
+                        "explanation": f.explanation,
+                    }
+                    for f in self.findings
+                ],
+            )
+        return written
 
 
 def error_event(

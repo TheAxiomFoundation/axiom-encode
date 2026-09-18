@@ -75,6 +75,32 @@ As of 2026-04-10:
   - [supabase_sync.py](../src/axiom_encode/supabase_sync.py)
   - [005_encoding_run_outcomes.sql](../migrations/005_encoding_run_outcomes.sql)
 
+## 2026-09-18: Every encode attempt persists its artifact, structured issues, and parent run
+- Hypothesis:
+  - A failed generation should become a labeled case without any manual capture. Measured on the 2026-08-30 `encodings.db` snapshot (3,866 runs), `iterations_json` held one attempt per run whose only error was a one-liner (`Generated RuleSpec failed CI validation`), `encode_issue` events pointed at `*.repair.json` manifests under `/tmp` that no longer existed, `artifact_versions` and `run_artifacts` had zero rows, `parent_run_id` was null on every run, and judge events lived only in per-run JSONL files. The verifier track needs the triple (bad version, validator issues, good version) per attempt, so the encoder must write it at the moment it has it.
+- Effect:
+  - `iterations_json` errors carry `issues`: the validator's issue list structured as `{gate, kind, message, category?, locator?, line?, value?, clause?}` (`axiom_encode.harness.validation_issues`, `axiom-encode/validation-issue/v1`), bounded to 500 issues and 256 KiB per attempt. `encode_issue` events and repair manifests carry the same list next to the manifest path; `encode_result` events carry a per-attempt `attempts` list.
+  - `artifact_versions` and `run_artifacts` are filled on every attempt: prior attempts from the retained retry candidate (RuleSpec and companion tests), the final attempt from the output file, each with its SHA-256, `attempt-<n>` label, and validator outcome metadata (gate verdicts, issue counts, error, model).
+  - `parent_run_id` and `iteration` are set on regenerations of the same citation: `--parent-run-id` or `AXIOM_ENCODE_PARENT_RUN_ID` wins; otherwise the most recent finished run of the same citation in the same database, provided it ended before this invocation began (the start is captured before the first generation attempt and stored as the session start), so concurrent siblings never chain even when one finishes during the other's validation gates. The backfill has no recorded start for historical rows and uses row time minus recorded generation duration; rows with no recorded duration are never auto-linked.
+  - New `judge_events` table mirrors `axiom_encode.run_log.v1` judge events keyed by `event_id` (verdict, confidence, model, token spend, findings, full event JSON); `JudgeEvent.emit` mirrors each event it writes, and `axiom-encode attempt-evidence-backfill` ingests judge events from run-log JSONL directories.
+  - `axiom_encode.attempt_evidence` (exported) is a read-only view yielding `(run_id, attempt, artifact, issues, parent)` records and `iter_repair_triples` labeled cases; `axiom-encode attempt-evidence` prints them as JSON lines.
+  - Schema migration is idempotent and additive; `axiom-encode attempt-evidence-backfill` migrates in place and fills what history allows.
+- Evidence:
+  - Backfill on a copy of the 2026-08-30 snapshot (read-only original, SHA-256 prefix `87cc6010cd15ddc0`): before `artifact_versions=0`, `run_artifacts=0`, `runs_with_parent=0`, `judge_events=0`; after `artifact_versions=3669`, `run_artifacts=3669` (one final-attempt RuleSpec per run that stored `rulespec_content`), `runs_with_parent=1794` (42 runs skipped for unknown start, 1,747 of 1,794 links on the same model), `judge_events=0` (no judge-stage run logs existed on this machine). A second backfill inserted and linked nothing.
+  - Read-only view over the migrated copy: 3,873 attempt records (3,669 with artifacts, 1,801 with a parent) and 211 cross-run repair triples (a failed attempt followed by a passing regeneration) in about 3 s. None of the historical triples carry structured issues (`require_issues=True` yields zero): their repair manifests were never retained, which is the gap this change closes going forward.
+  - Not recoverable from history: structured issue lists of past attempts, and the text of retried attempts recorded before artifact persistence (only the final attempt's text survives).
+- Primary evidence paths:
+  - [validation_issues.py](../src/axiom_encode/harness/validation_issues.py)
+  - [encoding_db.py](../src/axiom_encode/harness/encoding_db.py)
+  - [attempt_evidence.py](../src/axiom_encode/attempt_evidence.py)
+  - [attempt_evidence_backfill.py](../src/axiom_encode/attempt_evidence_backfill.py)
+  - [cli.py](../src/axiom_encode/cli.py)
+  - [judges/run_log.py](../src/axiom_encode/judges/run_log.py)
+  - [test_attempt_evidence.py](../tests/test_attempt_evidence.py)
+  - [test_validation_issues.py](../tests/test_validation_issues.py)
+  - [test_encoding_db.py](../tests/test_encoding_db.py)
+  - [test_cli.py](../tests/test_cli.py)
+
 ## Backfill: 2026-03-29 to 2026-04-10
 
 ### 2026-03-29: UK oracle bridge became a first-class harness path

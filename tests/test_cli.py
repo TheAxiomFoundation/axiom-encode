@@ -18,7 +18,7 @@ import sys
 import tempfile
 import tomllib
 import traceback
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -127,6 +127,7 @@ from axiom_encode.cli import (
     _quoted_review_finding_excerpts,
     _read_only_guard_encoder_execution_identity,
     _reanchor_legacy_exact_dependent_proof_excerpts,
+    _record_encode_outcome,
     _record_successful_apply_validation,
     _recover_apply_transaction,
     _relative_generated_output_path,
@@ -320,6 +321,8 @@ from axiom_encode.corpus_resolver import (
 )
 from axiom_encode.harness.dependency_stubs import UnsafeRulespecContextPath
 from axiom_encode.harness.encoding_db import (
+    ARTIFACT_TYPE_RULESPEC,
+    ARTIFACT_TYPE_RULESPEC_TESTS,
     EncodingDB,
     EncodingRun,
     Iteration,
@@ -332,6 +335,7 @@ from axiom_encode.harness.evals import (
     CorpusAmendmentDocument,
     CorpusSourceUnit,
     EvalArtifactMetrics,
+    ValidationRetryCandidate,
     _bind_eval_result_payload,
     _build_eval_suite_manifest_identity,
     _eval_result_from_payload,
@@ -13604,6 +13608,595 @@ class TestCmdEncode:
         assert persisted.estimated_cost_usd == pytest.approx(0.02)
         # Neither attempt reported a provider-billed cost, so it stays unknown.
         assert persisted.actual_cost_usd is None
+
+    def _attempt_issue_texts(self) -> tuple[str, ...]:
+        """The validator issue strings one rejected attempt carries."""
+        return (
+            "Ungrounded generated numeric literal: 600000 does not appear as "
+            "a substantive numeric value in the source text.",
+            "Test case `x` execution failed: boom",
+        )
+
+    def _make_result_with_output(self, tmp_path, name, *, success=True):
+        """An eval result whose output file and companion tests really exist."""
+        result = self._make_eval_result(success)
+        output_file = tmp_path / f"{name}.yaml"
+        output_file.write_text(f"format: rulespec/v1\n# {name}\nrules: []\n")
+        output_file.with_name(f"{name}.test.yaml").write_text(f"# {name}-cases\n[]\n")
+        result.output_file = str(output_file)
+        return result
+
+    def _artifacts_by_attempt(self, db, run_id):
+        """``{attempt: {role: (RunArtifact, ArtifactVersion)}}`` for one run."""
+        grouped: dict[int, dict[str, tuple[object, object]]] = {}
+        for link, version in db.get_run_artifacts(run_id):
+            grouped.setdefault(link.attempt, {})[link.role] = (link, version)
+        return grouped
+
+    def _session_event(self, db, session_id, event_type):
+        return next(
+            event
+            for event in db.get_session_events(session_id)
+            if event.event_type == event_type
+        )
+
+    def test_attempt_evidence_persists_structured_issues_and_artifact_versions(
+        self, tmp_path
+    ):
+        from axiom_encode.cli import _FailedEncodeAttempt, _log_eval_result
+
+        issue_texts = self._attempt_issue_texts()
+        initial = self._make_eval_result(False)
+        final = self._make_result_with_output(tmp_path, "out")
+        candidate = ValidationRetryCandidate(
+            rulespec="format: rulespec/v1\n# bad\n",
+            tests="[]\n",
+        )
+        db_path = tmp_path / "encodings.db"
+
+        run = _log_eval_result(
+            final,
+            db_path=db_path,
+            prior_attempts=[
+                _FailedEncodeAttempt(
+                    result=initial,
+                    error="Generated RuleSpec failed CI validation",
+                    candidate=candidate,
+                    full_validation_issues=issue_texts,
+                )
+            ],
+        )
+
+        db = EncodingDB(db_path)
+        persisted = db.get_run(run.id)
+        assert [iteration.success for iteration in persisted.iterations] == [
+            False,
+            True,
+        ]
+        errors = persisted.iterations[0].errors
+        assert [error.message for error in errors] == [
+            "Generated RuleSpec failed CI validation"
+        ]
+        issues = errors[0].issues
+        assert [issue.message for issue in issues] == list(issue_texts)
+        assert [issue.kind for issue in issues] == [
+            "ungrounded_literal",
+            "fixture_execution",
+        ]
+        assert issues[0].value == "600000"
+        assert issues[1].locator == "test:x"
+        # This attempt recorded no per-gate metrics, so its full issue strings
+        # fall through to the extra gate rather than being labeled a gate they
+        # were never attributed to.
+        assert [issue.gate for issue in issues] == ["overlay", "overlay"]
+
+        by_attempt = self._artifacts_by_attempt(db, run.id)
+        assert sorted(by_attempt) == [1, 2]
+        assert set(by_attempt[1]) == {
+            ARTIFACT_TYPE_RULESPEC,
+            ARTIFACT_TYPE_RULESPEC_TESTS,
+        }
+        bad_link, bad_version = by_attempt[1][ARTIFACT_TYPE_RULESPEC]
+        assert bad_link.run_id == run.id
+        assert bad_link.attempt == 1
+        assert bad_link.role == ARTIFACT_TYPE_RULESPEC
+        assert bad_version.content == candidate.rulespec
+        assert (
+            bad_version.content_hash
+            == hashlib.sha256(candidate.rulespec.encode("utf-8")).hexdigest()
+        )
+        assert bad_version.version_label == "attempt-1"
+        assert bad_version.metadata["attempt"] == 1
+        assert bad_version.metadata["success"] is False
+        assert bad_version.metadata["issue_count"] == 2
+        assert bad_version.metadata["run_id"] == run.id
+        bad_tests = by_attempt[1][ARTIFACT_TYPE_RULESPEC_TESTS][1]
+        assert bad_tests.content == candidate.tests
+        assert bad_tests.version_label == "attempt-1"
+
+        good_link, good_version = by_attempt[2][ARTIFACT_TYPE_RULESPEC]
+        assert good_link.attempt == 2
+        assert good_version.content == Path(final.output_file).read_text()
+        assert good_version.version_label == "attempt-2"
+        assert good_version.metadata["success"] is True
+        assert good_version.metadata["issue_count"] == 0
+        good_tests = by_attempt[2][ARTIFACT_TYPE_RULESPEC_TESTS][1]
+        assert good_tests.content == (
+            Path(final.output_file).with_name("out.test.yaml").read_text()
+        )
+
+        result_event = self._session_event(db, run.session_id, "encode_result")
+        attempts = result_event.metadata["attempts"]
+        assert len(attempts) == 2
+        assert attempts[0]["attempt"] == 1
+        assert attempts[0]["success"] is False
+        assert attempts[0]["issue_count"] == 2
+        assert [issue["message"] for issue in attempts[0]["issues"]] == list(
+            issue_texts
+        )
+        assert attempts[0]["issue_counts"] == {
+            "overlay:ungrounded_literal": 1,
+            "overlay:fixture_execution": 1,
+        }
+        assert attempts[1]["success"] is True
+        recorded_ids = {version.id for _, version in db.get_run_artifacts(run.id)}
+        referenced = [
+            artifact["artifact_version_id"]
+            for entry in attempts
+            for artifact in entry["artifacts"]
+        ]
+        assert len(referenced) == 4
+        for artifact_id in referenced:
+            assert artifact_id in recorded_ids
+            assert db.get_artifact_version(artifact_id) is not None
+
+    def test_attempt_without_retained_candidate_reports_artifact_unavailable(
+        self, tmp_path
+    ):
+        from axiom_encode.cli import _FailedEncodeAttempt, _log_eval_result
+
+        issue_texts = self._attempt_issue_texts()
+        initial = self._make_eval_result(False)
+        final = self._make_result_with_output(tmp_path, "out")
+        db_path = tmp_path / "encodings.db"
+
+        run = _log_eval_result(
+            final,
+            db_path=db_path,
+            prior_attempts=[
+                _FailedEncodeAttempt(
+                    result=initial,
+                    error="Generated RuleSpec failed CI validation",
+                    candidate=None,
+                    full_validation_issues=issue_texts,
+                )
+            ],
+        )
+
+        db = EncodingDB(db_path)
+        by_attempt = self._artifacts_by_attempt(db, run.id)
+        assert sorted(by_attempt) == [2]
+
+        attempts = self._session_event(db, run.session_id, "encode_result").metadata[
+            "attempts"
+        ]
+        assert attempts[0]["artifact_unavailable"] == "attempt text was not retained"
+        assert attempts[0]["artifacts"] == []
+        # The issues still survive even though the rejected text did not.
+        assert attempts[0]["issue_count"] == 2
+        assert "artifact_unavailable" not in attempts[1]
+        assert attempts[1]["artifacts"]
+
+    def test_attempt_issues_are_labeled_by_the_failing_metrics_gate(self, tmp_path):
+        from axiom_encode.cli import _FailedEncodeAttempt, _log_eval_result
+
+        issue_texts = self._attempt_issue_texts()
+        initial = self._make_eval_result(False)
+        initial.metrics = SimpleNamespace(
+            compile_pass=True,
+            ci_pass=False,
+            ci_issues=list(issue_texts),
+            compile_issues=[],
+        )
+        final = self._make_result_with_output(tmp_path, "out")
+        candidate = ValidationRetryCandidate(
+            rulespec="format: rulespec/v1\n# bad\n",
+            tests="[]\n",
+        )
+        db_path = tmp_path / "encodings.db"
+
+        run = _log_eval_result(
+            final,
+            db_path=db_path,
+            prior_attempts=[
+                _FailedEncodeAttempt(
+                    result=initial,
+                    error="Generated RuleSpec failed CI validation",
+                    candidate=candidate,
+                    full_validation_issues=issue_texts,
+                )
+            ],
+        )
+
+        db = EncodingDB(db_path)
+        issues = db.get_run(run.id).iterations[0].errors[0].issues
+        # The compile gate passed, so only the CI gate's issues are recorded,
+        # under that gate rather than the fallback label.
+        assert [issue.gate for issue in issues] == ["ci", "ci"]
+        assert [issue.kind for issue in issues] == [
+            "ungrounded_literal",
+            "fixture_execution",
+        ]
+
+        by_attempt = self._artifacts_by_attempt(db, run.id)
+        metadata = by_attempt[1][ARTIFACT_TYPE_RULESPEC][1].metadata
+        assert metadata["gates"] == {"compile_pass": True, "ci_pass": False}
+        assert metadata["issue_counts"] == {
+            "ci:ungrounded_literal": 1,
+            "ci:fixture_execution": 1,
+        }
+
+    def _age_logged_run(self, db_path, run):
+        """Move a logged run and its session an hour into the past."""
+        shifted = (datetime.now() - timedelta(hours=1)).isoformat()
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "UPDATE encoding_runs SET timestamp = ? WHERE id = ?",
+                (shifted, run.id),
+            )
+            conn.execute(
+                "UPDATE sessions SET ended_at = ? WHERE id = ?",
+                (shifted, run.session_id),
+            )
+
+    def test_parent_run_id_links_sequential_runs_of_one_citation(
+        self, tmp_path, monkeypatch
+    ):
+        from axiom_encode.cli import _log_eval_result
+
+        monkeypatch.delenv("AXIOM_ENCODE_PARENT_RUN_ID", raising=False)
+        db_path = tmp_path / "encodings.db"
+
+        first = _log_eval_result(
+            self._make_result_with_output(tmp_path, "first"),
+            db_path=db_path,
+            log_issue=False,
+        )
+        EncodingDB(db_path).end_session(first.session_id)
+        self._age_logged_run(db_path, first)
+
+        second = _log_eval_result(
+            self._make_result_with_output(tmp_path, "second"),
+            db_path=db_path,
+            log_issue=False,
+        )
+
+        assert first.parent_run_id is None
+        assert first.iteration == 1
+        assert second.parent_run_id == first.id
+        assert second.iteration == 2
+        persisted = EncodingDB(db_path).get_run(second.id)
+        assert persisted.parent_run_id == first.id
+        assert persisted.iteration == 2
+        result_metadata = self._session_event(
+            EncodingDB(db_path), second.session_id, "encode_result"
+        ).metadata
+        assert result_metadata["parent_run_id"] == first.id
+
+    def test_parent_run_id_explicit_value_env_and_opt_out(self, tmp_path, monkeypatch):
+        from axiom_encode.cli import _log_eval_result
+
+        monkeypatch.delenv("AXIOM_ENCODE_PARENT_RUN_ID", raising=False)
+        db_path = tmp_path / "encodings.db"
+
+        explicit = _log_eval_result(
+            self._make_result_with_output(tmp_path, "explicit"),
+            db_path=db_path,
+            log_issue=False,
+            parent_run_id="abc12345",
+        )
+        # An operator-supplied id wins even when the database has never seen
+        # it, so an out-of-process regeneration can still declare its parent.
+        assert explicit.parent_run_id == "abc12345"
+        assert explicit.iteration == 2
+
+        # Age it so the auto rule would link the next run of this citation,
+        # which is what the opt-out and the environment override must beat.
+        self._age_logged_run(db_path, explicit)
+        opted_out = _log_eval_result(
+            self._make_result_with_output(tmp_path, "unlinked"),
+            db_path=db_path,
+            log_issue=False,
+            link_parent=False,
+        )
+        assert opted_out.parent_run_id is None
+        assert opted_out.iteration == 1
+
+        self._age_logged_run(db_path, opted_out)
+        monkeypatch.setenv("AXIOM_ENCODE_PARENT_RUN_ID", "env12345")
+        from_env = _log_eval_result(
+            self._make_result_with_output(tmp_path, "from-env"),
+            db_path=db_path,
+            log_issue=False,
+        )
+        assert from_env.parent_run_id == "env12345"
+        assert from_env.iteration == 2
+
+    def test_parent_run_link_skipped_when_attempt_duration_is_unknown(
+        self, tmp_path, monkeypatch
+    ):
+        from axiom_encode.cli import _log_eval_result
+
+        monkeypatch.delenv("AXIOM_ENCODE_PARENT_RUN_ID", raising=False)
+        db_path = tmp_path / "encodings.db"
+
+        first = _log_eval_result(
+            self._make_result_with_output(tmp_path, "first"),
+            db_path=db_path,
+            log_issue=False,
+        )
+        EncodingDB(db_path).end_session(first.session_id)
+        self._age_logged_run(db_path, first)
+
+        undated = self._make_result_with_output(tmp_path, "undated")
+        undated.duration_ms = 0
+        second = _log_eval_result(undated, db_path=db_path, log_issue=False)
+
+        assert second.total_duration_ms == 0
+        assert second.parent_run_id is None
+        assert second.iteration == 1
+        assert (
+            "parent_run_id"
+            not in self._session_event(
+                EncodingDB(db_path), second.session_id, "encode_result"
+            ).metadata
+        )
+
+    def test_failed_attempt_repair_manifest_and_issue_event_carry_issues(
+        self, tmp_path
+    ):
+        from axiom_encode.cli import _log_eval_result
+
+        result = self._make_result_with_output(tmp_path, "out", success=False)
+        db_path = tmp_path / "encodings.db"
+
+        run = _log_eval_result(result, db_path=db_path)
+
+        manifest_path = tmp_path / "out.repair.json"
+        manifest = json.loads(manifest_path.read_text())
+        assert manifest["issue_count"] == 1
+        assert manifest["issue_counts"] == {"attempt:failed": 1}
+        assert [issue["message"] for issue in manifest["issues"]] == ["failed"]
+        assert manifest["issues"][0]["gate"] == "attempt"
+
+        issue_event = self._session_event(
+            EncodingDB(db_path), run.session_id, "encode_issue"
+        )
+        assert issue_event.metadata["issues"] == manifest["issues"]
+        assert issue_event.metadata["issue_count"] == 1
+        assert issue_event.metadata["issue_counts"] == manifest["issue_counts"]
+        assert issue_event.metadata["repair_manifest"] == str(manifest_path)
+
+    def test_record_encode_outcome_logs_structured_overlay_issues(self, tmp_path):
+        from axiom_encode.cli import _log_eval_result
+
+        result = self._make_result_with_output(tmp_path, "out")
+        db_path = tmp_path / "encodings.db"
+        run = _log_eval_result(
+            result,
+            db_path=db_path,
+            end_session=False,
+            log_issue=False,
+        )
+        outcome = {
+            "standalone_validation_success": True,
+            "apply_requested": True,
+            "overlay_validation_success": False,
+            "apply_success": False,
+            "final_success": False,
+            "status": "apply_blocked_validation",
+            "primary_error": None,
+            "apply_error": "dependent failed",
+            "applied_files": [],
+        }
+
+        repair_manifest = _record_encode_outcome(
+            db_path=db_path,
+            result=result,
+            run=run,
+            outcome=outcome,
+            validation_issues=(
+                "dependent failed",
+                "Proof atom missing path: rule `x` proof atom 0 must declare `path`.",
+            ),
+        )
+
+        # Standalone validation passed, so this failure is not a repair case.
+        assert repair_manifest is None
+        issue_event = self._session_event(
+            EncodingDB(db_path), run.session_id, "encode_issue"
+        )
+        metadata = issue_event.metadata
+        assert metadata["status"] == "apply_blocked_validation"
+        assert metadata["attempt"] == 1
+        issues = metadata["issues"]
+        assert {issue["gate"] for issue in issues} == {"overlay"}
+        assert [issue["kind"] for issue in issues] == [
+            "dependent_failed",
+            "proof_atoms",
+        ]
+        assert [issue.get("locator") for issue in issues] == [None, "rule:x"]
+        assert metadata["issue_count"] == 2
+        assert metadata["issue_counts"] == {
+            "overlay:dependent_failed": 1,
+            "overlay:proof_atoms": 1,
+        }
+        assert all(key.startswith("overlay:") for key in metadata["issue_counts"])
+
+    def test_encode_failure_persists_structured_issues_end_to_end(self, tmp_path):
+        args = self._make_args(tmp_path, citation="26 USC 1", model=None)
+        result = self._make_eval_result(False)
+        result.citation = "26 USC 1"
+        result.output_file = str(tmp_path / "out.yaml")
+        result.trace_file = str(tmp_path / "trace.json")
+        result.context_manifest_file = str(tmp_path / "context.json")
+
+        _, exit_code = self._run_encode(args, result)
+
+        assert exit_code == 1
+        db = EncodingDB(args.db)
+        run = db.get_recent_runs(limit=1)[0]
+        errors = run.iterations[-1].errors
+        assert [error.message for error in errors] == ["failed"]
+        assert [issue.message for issue in errors[0].issues] == ["failed"]
+        assert [issue.gate for issue in errors[0].issues] == ["attempt"]
+
+        events = db.get_session_events(run.session_id)
+        assert [event.event_type for event in events] == [
+            "encode_request",
+            "encode_result",
+            "encode_outcome",
+            "encode_issue",
+        ]
+        issue_metadata = events[-1].metadata
+        assert [issue["message"] for issue in issue_metadata["issues"]] == ["failed"]
+        assert issue_metadata["issue_counts"] == {"attempt:failed": 1}
+        assert json.loads((tmp_path / "out.repair.json").read_text())["issues"]
+
+    def test_encode_apply_blocked_overlay_records_structured_issues(self, tmp_path):
+        args = self._make_args(tmp_path, backend="codex")
+        args.apply = True
+        result = self._make_eval_result(True)
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch(
+                "axiom_encode.cli._validate_generated_encoding_in_policy_overlay",
+                return_value=(
+                    False,
+                    [
+                        "dependent failed",
+                        "Proof atom missing path: rule `x` proof atom 0 must declare `path`.",
+                    ],
+                    {},
+                ),
+            ),
+            patch("axiom_encode.cli._apply_generated_encoding_result"),
+            patch.dict(
+                os.environ,
+                {APPLIED_ENCODING_SIGNING_PUBLIC_KEY_ENV: TEST_APPLY_PUBLIC_KEY_B64},
+                clear=True,
+            ),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 1
+        db = EncodingDB(args.db)
+        run = db.get_recent_runs(limit=1)[0]
+        events = db.get_session_events(run.session_id)
+        assert [event.event_type for event in events] == [
+            "encode_request",
+            "encode_result",
+            "encode_outcome",
+            "encode_issue",
+        ]
+        issue_metadata = events[-1].metadata
+        issues = issue_metadata["issues"]
+        assert {issue["gate"] for issue in issues} == {"overlay"}
+        assert {issue["kind"] for issue in issues} == {
+            "dependent_failed",
+            "proof_atoms",
+        }
+        assert any(issue.get("locator") == "rule:x" for issue in issues)
+        assert issue_metadata["issue_counts"] == {
+            "overlay:dependent_failed": 1,
+            "overlay:proof_atoms": 1,
+        }
+        assert issue_metadata["attempt"] == 1
+
+    def test_parser_accepts_parent_run_id_and_attempt_evidence_commands(self, tmp_path):
+        db_path = tmp_path / "encodings.db"
+        log_dir = tmp_path / "run-logs"
+
+        with (
+            patch(
+                "sys.argv",
+                [
+                    "axiom_encode",
+                    "encode",
+                    "26 USC 1",
+                    "--corpus-path",
+                    str(tmp_path / "axiom-corpus"),
+                    "--axiom-rules-engine-path",
+                    str(tmp_path / "axiom-rules-engine"),
+                    "--policy-repo-path",
+                    str(tmp_path / "rulespec-us"),
+                    "--parent-run-id",
+                    "abc",
+                ],
+            ),
+            patch("axiom_encode.cli.cmd_encode") as mock_encode,
+        ):
+            main()
+        assert mock_encode.call_args.args[0].parent_run_id == "abc"
+
+        with (
+            patch(
+                "sys.argv",
+                [
+                    "axiom_encode",
+                    "attempt-evidence-backfill",
+                    "--db",
+                    str(db_path),
+                    "--log-dir",
+                    str(log_dir),
+                    "--no-link-parents",
+                    "--no-artifacts",
+                    "--no-judge-events",
+                    "--dry-run",
+                    "--limit",
+                    "5",
+                ],
+            ),
+            patch("axiom_encode.cli.cmd_attempt_evidence_backfill") as mock_backfill,
+        ):
+            main()
+        backfill_args = mock_backfill.call_args.args[0]
+        assert backfill_args.db == db_path
+        assert backfill_args.log_dir == [log_dir]
+        assert backfill_args.link_parents is False
+        assert backfill_args.artifacts is False
+        assert backfill_args.judge_events is False
+        assert backfill_args.dry_run is True
+        assert backfill_args.limit == 5
+
+        with (
+            patch(
+                "sys.argv",
+                [
+                    "axiom_encode",
+                    "attempt-evidence",
+                    "--db",
+                    str(db_path),
+                    "--run-id",
+                    "run-1",
+                    "--citation",
+                    "26 USC 1",
+                    "--limit",
+                    "3",
+                    "--failed-only",
+                ],
+            ),
+            patch("axiom_encode.cli.cmd_attempt_evidence") as mock_evidence,
+        ):
+            main()
+        evidence_args = mock_evidence.call_args.args[0]
+        assert evidence_args.db == db_path
+        assert evidence_args.run_id == "run-1"
+        assert evidence_args.citation == "26 USC 1"
+        assert evidence_args.limit == 3
+        assert evidence_args.failed_only is True
 
     def test_attempt_cost_sum_requires_recorded_usage_and_finite_cost(self):
         from axiom_encode.cli import _sum_attempt_cost
