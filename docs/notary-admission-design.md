@@ -1,13 +1,14 @@
-# Notary admission: design v32
+# Notary admission: design v33
 
-Status: draft for sign-off. Implements the #1192 charter with the #1506
+Status: signed off. Implements the #1192 charter with the #1506
 diff-coverage delta, under the build decision recorded on both issues
-(dual-verdict, 2026-08-17). Version 32 folds design-review rounds 1–31
-(one hundred thirty-nine blocking findings; the record lives on #1507). Nothing
-admission-capable merges until the §9 preconditions are satisfied and this
-document is approved by the charter's gate: an independent cross-family
-review of this concrete design plus Max's named sign-off, with every §11
-decision closed.
+(dual-verdict, 2026-08-17). Version 32 folded design-review rounds 1–31
+(one hundred thirty-nine blocking findings; the record lives on #1507) and
+passed round 32, the independent cross-family review leg of the charter's
+gate. Version 33 records Max's named §11 sign-off of 2026-09-18, which
+closes every §11 decision (custodian names are an input to the §8 ceremony
+record), and adds the four per-draw producer-declared fields to §2.2.
+Nothing admission-capable merges until the §9 preconditions are satisfied.
 
 ## 1. Claim and threat model
 
@@ -192,6 +193,39 @@ metadata**: a producer-chosen digest of whatever diff rendering the
 runtime archived. It is never verified, carries no algorithm contract, and
 no refusal depends on it — endpoint blob digests and modes are the sole
 ground truth.
+
+**Per-draw producer-declared fields (v33, §11 sign-off).** The v1 body also
+carries four fields that describe how the draw was produced. All four are
+producer-declared, non-authorizing metadata: authentication establishes the
+declarant and the exact declared values, and nothing else. None enters the
+notary receipt candidate, the receipt, or the finalization marker; none
+affects lineage eligibility, coverage, replay, gates, or merge
+authorization. A draw that never merges carries the identical domain body
+inside the non-authorizing research evidence envelope.
+
+- `draw_set_id` — non-empty JSON string linking the K sibling draws of one
+  campaign, merged or not. Informational.
+- `sampling` — closed object of sampler parameters. Its required keys are
+  `temperature` and `seed`; any further parameter the runtime exposes is
+  enumerated in the generation-event schema revision so the body stays
+  closed-world. Informational.
+- `independence` — required sibling of `sampling`: the closed object
+  `{sibling_draws_visible, incumbent_encoding_visible}`, each exactly one of
+  `"yes"`, `"no"`, `"unknown"`. It records what the encoder was shown beyond
+  the statute and the prompt. The notary does not establish statistical
+  independence; it establishes who declared these values and what they were.
+- `source_capture` — closed object `{id, content_sha256, oracles,
+  reference_data}`. `oracles` and `reference_data` are arrays sorted and
+  strictly unique by `name`, each entry `{name, version, content_sha256 |
+  null}`. A non-null digest binds the referenced bytes; a null digest records
+  a producer-declared version and supports no replay claim. If an oracle or
+  dataset affects admission, its immutable identity is pinned in the
+  base-committed profile or dependency inventory and moves only through the
+  §6.4 transition path; this field never substitutes for that pin.
+
+Planned population, the draw-set commitment (registration → draws → seal),
+and independent ordering evidence are research-store records, not fields of
+this body; see §11 and §12.
 
 ### 2.3 Correction event — `axiom/lineage-correction/v1`
 
@@ -1670,31 +1704,51 @@ artifact_id mismatch refused; multi-fault ineligible record carrying
 one deterministic sorted reasons array in the pass variant (positive
 control).
 
-## 11. Decisions for sign-off
+## 11. Decisions (signed off 2026-09-18)
 
-- ProgramSpec scope: atomic RuleSpec only in the pilot (recommended), or
-  extend the path policy to composition outputs.
-- Licensed or unavailable oracles: fail closed, or visibly reduced-tier
-  receipt.
-- Approval wording — resolved in §5's stronger form:
-  `authorization.approval_signature_sha256` binds durable
-  digest-bound reviewer evidence, or records "the protected signing
-  policy authorized this receipt" (honest for plain environment
-  approval; the stronger form needs an explicit approval artifact).
-- Custody model for the producer, actor, correction-review,
-  receipt-approver, and administrative keys (the notary key is fixed
-  by §5/§8) — the two review-side roles hold distinct keys under §5's
-  total rule, so each needs its own custodian answer; reviewer custody
-  is the open question deferred from the rulespec-nz custody ruling.
-- Charter alignment on modes: whether covered executable-mode
-  transitions become admissible post-pilot (charter requirement 4
-  amendment) or the wall stays permanent.
-- Newly protected paths: when a transition expands the path policy, the
-  newly covered paths' current entries are inventoried in the transition
-  body and carry "transition-initialized" provenance (administrative,
-  visible, distinct from v5-attested and unattested-baseline) — the
-  recommended semantics; alternative: require such paths to enter empty
-  and be populated by covered changes.
+Max's named sign-off, recorded here so the decisions live with the design.
+The per-draw field placement was adjudicated on #1507 (packet of 2026-09-02;
+Nathan Storey's four requirements posted 2026-09-04).
+
+- **ProgramSpec scope:** atomic RuleSpec only in the pilot. Composition
+  outputs stay outside the path policy (§12); rulespec-us already runs the
+  generated guard with the `programs` root excluded.
+- **Licensed or unavailable oracles:** a visibly reduced-tier receipt. Oracle
+  availability never fails admission closed; a vendor outage does not block a
+  correct encoding, and the reduced tier is the same honesty rule the corpus
+  declarations use. This does not relax §3: diff-coverage remains the
+  fail-closed predicate.
+- **Approval wording:** §5's stronger form. `authorization.approval_signature_sha256`
+  binds a durable, digest-bound reviewer approval artifact. Recording only that
+  "the protected signing policy authorized this receipt" is the self-signed
+  acceptance the charter forbids and is not admissible.
+- **Custody model:** producer and actor keys live on the supervised runtime
+  host. The correction-review and receipt-approver keys are two distinct
+  hardware keys with one custodian each, under §5's total rule. Administrative
+  keys are held by Max. Custodian names are recorded in the §8 ceremony record
+  before the ceremony runs. This also answers the rulespec-nz custody question
+  deferred in July.
+- **Charter alignment on modes:** the executable-mode wall stays permanent
+  through the pilot. Charter requirement 4 is not amended.
+- **Newly protected paths:** when a transition expands the path policy, the
+  newly covered paths' current entries are inventoried in the transition body
+  and carry "transition-initialized" provenance (administrative, visible,
+  distinct from v5-attested and unattested-baseline).
+- **Per-draw fields:** `draw_set_id`, `sampling`, `independence`, and
+  `source_capture` join `axiom/lineage-generation/v1` now (§2.2), because a
+  closed-world schema makes a later addition a v2. Planned population
+  (`axiom/draw-set-registration/v1` with `planned_n`), the draw-set commitment
+  (a post-emission `axiom/draw-set-seal/v1` naming the registration digest and
+  carrying the ordered leaf-digest list and `draw_set_merkle_root_sha256`; the
+  root cannot exist before the draws), and independent ordering evidence
+  (transparency-log inclusion or an OpenTimestamps proof) belong to the
+  research-store specification. They never enter the notary receipt candidate,
+  receipt, or finalization marker; any later notary carriage requires every
+  preimage for trusted offline recomputation in the signed bundle, and the
+  signer never queries mutable research-store state.
+- **Vocabulary:** a receipt is a proof a third party issues about a record
+  (#1576), so "notary receipt" keeps its name. The encoder's self-signed apply
+  manifests are producer statements and are not called receipts.
 
 ## 12. Out of scope for milestone one
 
@@ -1702,5 +1756,7 @@ Witnessed lineage chains (dual RFC 3161 — sequenced behind the notary as
 chartered); historical backfill; rename modeling (tree-entry
 decomposition makes it unnecessary); gitlink/submodule support (refused
 tree-wide in the pilot); fleet-wide shared-workflow conversion; v5
-retirement; the other eight lanes; ProgramSpec admission unless §11
-decides otherwise.
+retirement; the other eight lanes; ProgramSpec admission (§11 keeps it
+out of the pilot); the research-store registration, seal, and ordering
+evidence records named in §11, which are specified in the research store,
+not here.
