@@ -1,0 +1,124 @@
+{
+  "id": "us-119-249e8e6f-us-hi-policies-income-tax-resident-core-liability-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "249e8e6f6b3fd246d5c932cc5c5cadfc9dc2616c",
+  "parent_commit": "26ebd1a18ccd9dbbe67597fa83d1234dead1b891",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Prevents Hawaii food credit child overlap: logic/double-counting correction.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1035",
+  "module_path": "us-hi/policies/income_tax/resident_core_liability_pipeline.yaml",
+  "corpus_citation_path": "us-hi/statute/235-2.3",
+  "corpus_citation_paths_all": [
+    "us-hi/statute/235-2.3",
+    "us-hi/statute/235-2.4",
+    "us-hi/statute/235-4",
+    "us-hi/statute/235-7",
+    "us-hi/statute/235-54",
+    "us-hi/statute/235-51",
+    "us-hi/statute/235-53",
+    "us-hi/statute/235-55",
+    "us-hi/statute/235-55.6",
+    "us-hi/statute/235-55.7",
+    "us-hi/statute/235-55.75",
+    "us-hi/statute/235-55.85",
+    "us-hi/statute/235-91.5",
+    "us-hi/form/individual-income-tax/2025/n-11-instructions/capital-gains-tax-worksheet"
+  ],
+  "corpus_release": "us-rulespec-2026-07-22-current-la-status-fix",
+  "corpus_release_content_sha256": "6bfd97b24cb63cb709fa52e9a5e6764c916dec95c5557447e11f47778ee4768f",
+  "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+  "defect_kind": "wrong_entity_or_scope",
+  "other_kind": null,
+  "confidence": 0.62,
+  "description": "Findings covering signed final liability, the §235-53 tax-table range, CDCC assistance and spouse rules, completed-result inputs, renter proration, MFS support, domain bounds, threshold coverage, MFS credit counterfactuals, special-support children, and overlapping DHS/SSA child counts were fixed and revalidated",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        882,
+        883
+      ],
+      [
+        1873,
+        1874
+      ],
+      [
+        2500,
+        2500
+      ],
+      [
+        2504,
+        2509
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        882,
+        882
+      ],
+      [
+        1872,
+        1872
+      ],
+      [
+        2498,
+        2498
+      ],
+      [
+        2502,
+        2502
+      ]
+    ],
+    "rule_names": [
+      "hi_pit_2026_food_credit_qualified_exemption_count",
+      "hi_pit_2026_input_domain_is_valid"
+    ],
+    "rule_path": "rules[hi_pit_2026_food_credit_qualified_exemption_count].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "c5adb2e733cda8c0fb752003e405b66d39ac13176aa93c3dfc9c8becd46eb676",
+  "post_fix_artifact_sha256": "1985629937f45947bdc5e708d7ace715949a09680d0618fc7d6f6d807c28bc5e",
+  "provision_sha256": "6c6f8287b01947ab63b24191954aaa5a0d95fca6da2062f9a7863671eeb2da1b",
+  "provision_chars": 9910,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-hi/statute/235-2.3",
+    "provision_file": "data/corpus/provisions/us-hi/statute/2026-07-16-pit-east-us-hi-volume-04-chapter-235.jsonl",
+    "provision_file_sha256": "dde47cd1e6e5d988afda0544499740eca3b609235777629ba2d5b477af01a47b",
+    "line_number": 5,
+    "record_id": "8e5277e3-a56c-572c-8936-f61937da94ef",
+    "stored_body_sha256": "6c6f8287b01947ab63b24191954aaa5a0d95fca6da2062f9a7863671eeb2da1b",
+    "resolved_text_sha256": "6c6f8287b01947ab63b24191954aaa5a0d95fca6da2062f9a7863671eeb2da1b",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-05-09",
+    "source_as_of": "2026-05-09",
+    "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "ddc9b0f95cb0cd7ed24d42bd62fec4dbf0e1b846",
+    "requested_citation_path": "us-hi/statute/235-2.3",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix formula added the DHS-support minor count and the Social Security survivor minor count as separate addends, so a minor child receiving both kinds of support entered the food-credit qualified-exemption set twice, whereas HRS §235-55.85(c) lets \"a minor child receiving support from the department of human services of the State, social security survivor's benefits, and the like\" be considered one dependent and one qualified exemption.",
+    "triage_notes": "Provision was read through the pinned corpus release (us-hi/statute/235-55.85 resolved successfully); subsection (c) states the special-minor allowance once, disjunctively over the support categories, so the union — not the sum — is the correct member set. Module diff has three hunks and all serve the one fix: (a) hi_pit_2026_input_domain_is_valid's domain guard drops the two old >= 0 bounds for the single new input's bound, (b) hi_pit_2026_food_credit_qualified_exemption_count's formula replaces the two addends with hi_pit_2026_food_credit_unique_special_minor_count (the decisive change), (c) the inputs block replaces the two Integer inputs with one, described in the diff as \"Distinct minor children not already in federal exemptions who receive Hawaii Department of Human Services support, Social Security survivor benefits, or both; each child is counted once across the union.\" No numeric parameter, rate, table cell, effective date, or proof-atom excerpt changed, so this is not amount_mismatch or a provenance-only edit, though the downstream credit amount was inflated for overlapping children. Kind is the uncertain part, hence confidence 0.62: I chose wrong_entity_or_scope because the defect is the household member set counted as qualified exemptions (a member counted twice); defensible alternatives are 'other' (double counting of overlapping categories) or polarity_or_logic (source categories joined disjunctively were mis-combined additively). Commit body is empty; the commit subject \"Prevent Hawaii food credit child overlap\" also names the defect. Companion test diff is otherwise a mechanical input rename plus two new/renamed cases: food_two_distinct_special_support_minors_each_count_once and the new food_one_minor_with_both_dhs_and_ssa_support_counts_once, which pins the corrected behavior. The bundle's corpus_citation_paths_seen for this file listed only us-hi/statute/235-51, but the governing citation for the changed rule's proof atoms is us-hi/statute/235-55.85. Only module index 0 exists in this commit (plus its .test.yaml and the encoding manifest), matching the expected chunk of one.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_entity_or_scope",
+    "verifier_confidence": 0.72,
+    "verifier_justification": "I tried to refute this and could not: the diff changes an executable formula, not metadata — `hi_pit_2026_food_credit_qualified_exemption_count` went from adding two separately-supplied, mutually overlapping category counts to adding a single deduplicated union count, and the replacement input's own description states \"each child is counted once across the union\". The pinned corpus text of HRS §235-55.85(c) reads \"a minor child receiving support from the department of human services of the State, social security survivor's benefits, and the like, may be considered a dependent and a qualified exemption of the parent or guardian\" — singular, so one child receiving both DHS support and survivor benefits may yield at most one qualified exemption, while the pre-fix encoding (whose two input descriptions each independently matched such a child) yielded two. That is encoded meaning disagreeing with the source, so fidelity holds, and the failure is in which household members enter the qualified-exemption set (the same person counted twice), which is the \"household member set\" branch of wrong_entity_or_scope. No numeric literal, comparison, date, or boolean branch changed, so amount_mismatch, boundary_direction, wrong_period_or_effective_date, and polarity_or_logic all fit worse.",
+    "verifier_quote": "-          + hi_pit_2026_food_credit_minor_child_dhs_support_count\n-          + hi_pit_2026_food_credit_minor_child_social_security_survivor_count\n+          + hi_pit_2026_food_credit_unique_special_minor_count",
+    "verifier_notes": "Bundle: /private/tmp/claude-501/-Users-maxghenis-TheAxiomFoundation-axiom-encode--claude-worktrees-zealous-heyrovsky-31a96b/86103d8f-b97f-4559-a96c-7e79bdbe616d/scratchpad/diffs/us/249e8e6f6b/000.diff (3 hunks: domain-validity guard, the qualified-exemption formula, the inputs block).\n\nKind is a near-tie, and a reviewer may prefer a different label. The population in scope is identical before and after (minor children with DHS/SSA/\"and the like\" support, not already federal exemptions); what was wrong is the aggregation — a multiset sum over two overlapping categories instead of a union cardinality. If the taxonomy allowed it, \"other: overlapping-population double count\" would name it more precisely; polarity_or_logic (\"mis-combined and/or\") is arguable since the statute's category list is disjunctive at the child level, but the changed lines contain no boolean and no branch fires wrongly, so I did not reclassify.\n\nTwo caveats on the evidence chain, neither of which changes the verdict:\n1. The first reader's quote is from the PR #1035 body's review-cycle paragraph, which summarizes the whole PR, not this commit. The commit-specific evidence is stronger: subject \"Prevent Hawaii food credit child overlap\" plus the formula change itself. The commit body is empty.\n2. The companion test diff (230 lines) is a pure input rename — every changed case sets the new input to 0, and no new case exercises a child in both support categories. So the fix is not test-demonstrated; the defect is established by the input descriptions plus the statute's singular \"a dependent and a qualified exemption\".\n\nAlso checked and ruled out: no cap or min() was added alongside the union input, the proof atoms for this rule are unchanged (same §235-55.85 excerpts), effective window stays 2026-01-01/2026-12-31, and the parallel renter-credit exemption count was untouched. The only non-module files in the commit are the encoding manifest and the companion test.\n\nThis commit is a repair round inside PR #1035 (the PR that first added the Hawaii module), not a post-merge fix to shipped content — the defective formula existed only on the branch.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Provision was read through the pinned corpus release (us-hi/statute/235-55.85 resolved successfully); subsection (c) states the special-minor allowance once, disjunctively over the support categories, so the union — not the sum — is the correct member set. Module diff has three hunks and all serve the one fix: (a) hi_pit_2026_input_domain_is_valid's domain guard drops the two old >= 0 bounds for the single new input's bound, (b) hi_pit_2026_food_credit_qualified_exemption_count's formula replaces the two addends with hi_pit_2026_food_credit_unique_special_minor_count (the decisive change), (c) the inputs block replaces the two Integer inputs with one, described in the diff as \"Distinct minor children not already in federal exemptions who receive Hawaii Department of Human Services support, Social Security survivor benefits, or both; each child is counted once across the union.\" No numeric parameter, rate, table cell, effective date, or proof-atom excerpt changed, so this is not amount_mismatch or a provenance-only edit, though the downstream credit amount was inflated for overlapping children. Kind is the uncertain part, hence confidence 0.62: I chose wrong_entity_or_scope because the defect is the household member set counted as qualified exemptions (a member counted twice); defensible alternatives are 'other' (double counting of overlapping categories) or polarity_or_logic (source categories joined disjunctively were mis-combined additively). Commit body is empty; the commit subject \"Prevent Hawaii food credit child overlap\" also names the defect. Companion test diff is otherwise a mechanical input rename plus two new/renamed cases: food_two_distinct_special_support_minors_each_count_once and the new food_one_minor_with_both_dhs_and_ssa_support_counts_once, which pins the corrected behavior. The bundle's corpus_citation_paths_seen for this file listed only us-hi/statute/235-51, but the governing citation for the changed rule's proof atoms is us-hi/statute/235-55.85. Only module index 0 exists in this commit (plus its .test.yaml and the encoding manifest), matching the expected chunk of one. | verifier confirmed at 0.72",
+  "family_id": "us-249e8e6f-dc0cf5eca463",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

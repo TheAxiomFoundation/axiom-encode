@@ -1,0 +1,335 @@
+{
+  "id": "us-453-c47477aa-us-ks-policies-income-tax-2026-full-year-resident-core",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "c47477aa936450c02f314392a32fa90bb9513417",
+  "parent_commit": "50aef7f4f55159195ec18e9ab0e525078805b6ad",
+  "commit_date": "2026-07-24",
+  "commit_subject": "Correct Kansas 2026 resident income tax core",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1083",
+  "module_path": "us-ks/policies/income_tax/2026_full_year_resident_core.yaml",
+  "corpus_citation_path": "us-ks/statute/2026/79-32-109/block-1",
+  "corpus_citation_paths_all": [
+    "us-ks/statute/2026/79-32-109/block-1",
+    "us-ks/statute/2026/79-32-110/block-1",
+    "us-ks/statute/2026/79-32-110c/block-1",
+    "us-ks/guidance/revenue/notice-25-06/document-1",
+    "us-ks/statute/2026/79-32-116/block-1",
+    "us-ks/statute/2026/79-32-117/block-1",
+    "us-ks/statute/2026/79-32-119/block-1",
+    "us-ks/statute/2026/79-32-120/block-1",
+    "us-ks/statute/2026/79-32-121/block-1",
+    "us-ks/statute/2026/79-32-121b/block-1",
+    "us-ks/statute/2026/79-32-205/block-1",
+    "us-ks/statute/2026/79-32-288/block-1",
+    "us-ks/statute/session-2026/hb-2029/page-60",
+    "us-ks/statute/session-2026/hb-2029/page-61",
+    "us-ks/statute/session-2026/hb-2029/page-62",
+    "us-ks/statute/session-2026/sb-82/page-1"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.45,
+  "description": "Signed 2026 House Bill 2029 reconciles the parallel 79-32,110 and 79-32,121 amendments, preserves the individual rate schedule and contingent-rate reference, combines the head-of-household and permanently disabled-veteran exemption amendments, and repeals 79-32,110b and 79-32,121b. This module follows that reconciled text.",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        45,
+        55
+      ],
+      [
+        84,
+        87
+      ],
+      [
+        153,
+        153
+      ],
+      [
+        156,
+        157
+      ],
+      [
+        185,
+        185
+      ],
+      [
+        190,
+        190
+      ],
+      [
+        247,
+        247
+      ],
+      [
+        269,
+        269
+      ],
+      [
+        292,
+        292
+      ],
+      [
+        310,
+        310
+      ],
+      [
+        392,
+        392
+      ],
+      [
+        400,
+        400
+      ],
+      [
+        410,
+        410
+      ],
+      [
+        418,
+        418
+      ],
+      [
+        428,
+        428
+      ],
+      [
+        436,
+        436
+      ],
+      [
+        521,
+        521
+      ],
+      [
+        589,
+        589
+      ],
+      [
+        597,
+        597
+      ],
+      [
+        602,
+        602
+      ],
+      [
+        650,
+        650
+      ],
+      [
+        799,
+        799
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        19,
+        21
+      ],
+      [
+        36,
+        38
+      ],
+      [
+        51,
+        63
+      ],
+      [
+        92,
+        96
+      ],
+      [
+        164,
+        164
+      ],
+      [
+        192,
+        192
+      ],
+      [
+        197,
+        197
+      ],
+      [
+        254,
+        254
+      ],
+      [
+        276,
+        276
+      ],
+      [
+        299,
+        299
+      ],
+      [
+        317,
+        317
+      ],
+      [
+        399,
+        399
+      ],
+      [
+        407,
+        407
+      ],
+      [
+        417,
+        417
+      ],
+      [
+        425,
+        425
+      ],
+      [
+        435,
+        435
+      ],
+      [
+        443,
+        443
+      ],
+      [
+        595,
+        595
+      ],
+      [
+        603,
+        603
+      ],
+      [
+        608,
+        608
+      ],
+      [
+        656,
+        656
+      ],
+      [
+        805,
+        805
+      ]
+    ],
+    "rule_names": [
+      "ks_pit_2026_itemized_deduction",
+      "ks_pit_2026_input_domain_is_valid"
+    ],
+    "rule_path": "rules[ks_pit_2026_itemized_deduction].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "6f688d0045bd4b34af87fc121aff0f8b5713da1024d734b30499bfe7fb9e4424",
+  "post_fix_artifact_sha256": "9011d47bc610c4b0dff6919ba016c2ceb725980d00a88e65dd3aeb49fab59a44",
+  "provision_sha256": "1ae73b1f7e9f72ec4c4d14aff43ba830e93897153bcac059c2869cf48e3bc312",
+  "provision_chars": 5571,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-ks/statute/2026/79-32-109/block-1",
+    "provision_file": "data/corpus/provisions/us-ks/statute/2026-07-24-ks-resident-income-tax-core.jsonl",
+    "provision_file_sha256": "fe0f9123d2a265d74bd62c845cd8f61310c7c7d53e590d2806ca524fb7a69a86",
+    "line_number": 2,
+    "record_id": "6981a728-09cf-5fb9-94ef-5bc72fad7db3",
+    "stored_body_sha256": "1ae73b1f7e9f72ec4c4d14aff43ba830e93897153bcac059c2869cf48e3bc312",
+    "resolved_text_sha256": "1ae73b1f7e9f72ec4c4d14aff43ba830e93897153bcac059c2869cf48e3bc312",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-24",
+    "source_as_of": "2026-07-24",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "b157a201285a90f185903ba8db6aa52497c201b4",
+    "requested_citation_path": "us-ks/statute/2026/79-32-109/block-1",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us-ks/statute/2026/79-32-109/block-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us-ks/statute/2026/79-32-109/block-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us-ks/statute/2026/79-32-109/block-1'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us-ks/statute/2026/79-32-109/block-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us-ks/statute/2026/79-32-109/block-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us-ks/statute/2026/79-32-109/block-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us-ks/statute/2026/79-32-109/block-1'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us-ks/statute/2026/79-32-109/block-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us-ks/statute/2026/79-32-109/block-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us-ks/statute/2026/79-32-109/block-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us-ks/statute/2026/79-32-109/block-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us-ks/statute/2026/79-32-109/block-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us-ks/statute/2026/79-32-109/block-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us-ks/statute/2026/79-32-109/block-1'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us-ks/statute/2026/79-32-109/block-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us-ks/statute/2026/79-32-109/block-1'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "unclear",
+    "pre_fix_wrong_because": "unclear: the pre-fix itemized deduction reduced the four K.S.A. 79-32,120(a)(5) components (charitable, medical, qualified residence interest, real and personal property taxes) by state and local income taxes deducted in federal itemized deductions — an amount those four enumerated components never contain, so the (b) reduction had no base to apply to and the deduction was understated — but 79-32,120(b) states that reduction on its face, so the removal could equally be a dropped clause rather than a correction.",
+    "triage_notes": "Two distinct things happen in this one-module commit. (1) Provenance/prose: three hb-2029 pages are added to module.source_verification.corpus_citation_paths and to upstream_source_check.checked_paths; ten proof-atom corpus_citation_path strings move from us-ks/statute/2026/79-32-110, 79-32-121, 79-32-121b to us-ks/statute/session-2026/hb-2029/page-60|61|62; four rule `source:` prose lines change from 'Shared/Intersection of K.S.A. 79-32,121 and 79-32,121b' to 'Reconciled ... in 2026 H.B. 2029'; and the rationale plus the complete_taxable_income deferred reason are rewritten. I read HB 2029 pages 61-62 through the pinned corpus release (us-rulespec-2026-08-03-ecps-pit-tariff-union, corpus commit d9d6fba0): the bill carries exactly the amounts already encoded (5.2% / 5.58%, $46,000 joint and $23,000 other brackets, $18,320 / $9,160 / $2,320 exemptions), and `git diff` shows no `effective_from`, `effective_to`, or `formula:` header line changed anywhere in the file. So that half is excerpt/citation-string provenance = mechanical on the rubric, and the held-output set is identical. (2) The only encoded-meaning change: `- ks_pit_2026_state_local_income_tax_in_itemized_deductions` is removed from rules[ks_pit_2026_itemized_deduction].versions[0].formula and the two corresponding clauses (`>= 0` and the cap inequality) are removed from rules[ks_pit_2026_input_domain_is_valid].versions[0].formula; after the commit the identifier appears nowhere in the file (it was never a declared rule, only a referenced raw input), and the companion test drops it from all four cases and updates deductions 19480 -> 20980, taxable income 40520 -> 39020, and tax 2173.616 -> 2089.916. I read K.S.A. 79-32,120/block-1 through the resolver: (a)(5) defines the Kansas itemized deduction as exactly four components at 100% (no income-tax component), while (b) says 'The total amount of deductions from federal adjusted gross income shall be reduced by the total amount of income taxes imposed by or paid to this state or any other taxing jurisdiction to the extent that the same are deducted in determining the federal itemized deductions and by the amount of all depreciation deductions ...'. That cuts both ways, which is why I did not mark this fidelity: the fix is defensible (reducing an enumerated four-category base by an item the base never includes is a phantom reduction that overstates tax), but a literal reading of (b) is exactly what the pre-fix encoded, and the post-fix module keeps the other half of the same sentence (the depreciation reduction) and keeps the proof atom whose excerpt is 'total amount of deductions from federal adjusted gross income shall be reduced', so it now applies half of (b) with no recorded rationale. Evidence gap: the commit body is empty, the commit subject is the generic 'Correct Kansas 2026 resident income tax core', and nothing in the diff, the PR body, or any review mentions the itemized-deduction change — the added rationale I quoted describes only the HB 2029 re-grounding. The bundled PR (#1083, 'Encode Kansas 2026 resident income tax core') is the encoding PR this mid-branch correction commit lives in, not a separate fix PR; `gh api commits/<sha>/pulls` confirms #1083 is the only PR, and it has zero reviews, review comments, issue comments, and commit comments. The change stuck: the last commit touching the file (a9fad7642) still has no SALT-in-itemized term; the separate `ks_pit_2026_income_taxes_deducted_in_federal_agi` addback in the Kansas AGI formula is a different, above-the-line 79-32,117 modification and is untouched. Leftover inconsistency a reviewer may want: module.summary still says the module 'computes ... the exemption amount on which both official amendment versions agree', which the rewritten rationale contradicts. HB 2029 pages 60-62 do not amend 79-32,120, so the re-grounding is not what motivated the itemized change. If a reviewer decides the removal is source-correct, this is untraceable_branch (formula term with no supporting base under the cited provision); if they decide (b) applies literally, the commit is a regression and the entry should be dropped rather than relabeled.",
+    "verifier_verdict": "not_a_defect",
+    "verifier_defect_kind": "none",
+    "verifier_confidence": 0.66,
+    "verifier_justification": "The removed term is not an untraceable branch: K.S.A. 79-32,120(b), read through the pinned release (us-rulespec-2026-08-03-ecps-pit-tariff-union), states verbatim \"The total amount of deductions from federal adjusted gross income shall be reduced by the total amount of income taxes imposed by or paid to this state or any other taxing jurisdiction to the extent that the same are deducted in determining the federal itemized deductions and by the amount of all depreciation deductions claimed...\" — so the pre-fix subtraction tracked the cited provision word for word, and the fix drops the first half of that single sentence while keeping the depreciation half and keeping the rule's `source: K.S.A. 79-32,120(a)(5)-(b), current allowed components and reductions` label plus the surviving proof atom excerpt \"total amount of deductions from federal adjusted gross income shall be reduced\". Nothing in the commit (message is the bare subject \"Correct Kansas 2026 resident income tax core\", empty body), PR #1083, or the newly added sources justifies the removal: HB 2029 pages 60-62 amend only 79-32,110 (Sec. 23), 79-32,121 (Sec. 24) and 82a-955 (Sec. 25), never 79-32,120, so the quoted HB 2029 rationale the first reader relied on is about a different section entirely. The rest of the diff is provenance (citation paths re-grounded from 79-32,110/121/121b to hb-2029 pages, `source:` strings, rationale prose), which the rubric calls mechanical. With the source text stating the reduction and no evidence offered that it was wrong, the pre-fix content was not wrong against the source; the removal is an interpretive/modeling choice (and an internally inconsistent one), not a demonstrated fidelity correction.",
+    "verifier_quote": "-            - ks_pit_2026_state_local_income_tax_in_itemized_deductions",
+    "verifier_notes": "Refutation of the kind is the stronger half and should stand regardless: the branch is traceable, so untraceable_branch does not fit. Facts for the reviewer: (1) the change is a real meaning change, not cosmetic — the input `ks_pit_2026_state_local_income_tax_in_itemized_deductions` disappears from the module's entire input surface (formula, the `>= 0` domain check, and the `SALT + depreciation <= sum of the four components` guard), and the companion test moves supported_deductions_and_exemptions 19480 -> 20980 and net liability 2173.616 -> 2089.916. (2) History: the term was present from the original encoding 8ba6de05e, removed here, and is still absent on main (no later revert re-adding it). (3) The best argument FOR the fix is interpretive — the (a)(5) base is only charitable / medical / qualified residence interest / real and personal property taxes, none of which contains state income taxes, so applying (b)'s income-tax reduction to that base is arguably a double disallowance. But that same argument applies equally to the depreciation half of the identical sentence (79-32,221/227/232/... depreciation is likewise not among the four components), and the fix kept that half, which is why I read the removal as unprincipled rather than source-grounded. (4) No K-40 / Schedule A instruction source could have grounded the removal: the module itself holds branches because \"the tax-year-2026 Form K-40 and credit ordering instructions are not yet available.\" (5) If a reviewer disagrees with not_a_defect, the fallback is unclear, not confirmed-untraceable_branch; a reviewer might also flag the post-fix module as a new defect (unrepresented_clause: half of 79-32,120(b) is now unimplemented while still cited).",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Two distinct things happen in this one-module commit. (1) Provenance/prose: three hb-2029 pages are added to module.source_verification.corpus_citation_paths and to upstream_source_check.checked_paths; ten proof-atom corpus_citation_path strings move from us-ks/statute/2026/79-32-110, 79-32-121, 79-32-121b to us-ks/statute/session-2026/hb-2029/page-60|61|62; four rule `source:` prose lines change from 'Shared/Intersection of K.S.A. 79-32,121 and 79-32,121b' to 'Reconciled ... in 2026 H.B. 2029'; and the rationale plus the complete_taxable_income deferred reason are rewritten. I read HB 2029 pages 61-62 through the pinned corpus release (us-rulespec-2026-08-03-ecps-pit-tariff-union, corpus commit d9d6fba0): the bill carries exactly the amounts already encoded (5.2% / 5.58%, $46,000 joint and $23,000 other brackets, $18,320 / $9,160 / $2,320 exemptions), and `git diff` shows no `effective_from`, `effective_to`, or `formula:` header line changed anywhere in the file. So that half is excerpt/citation-string provenance = mechanical on the rubric, and the held-output set is identical. (2) The only encoded-meaning change: `- ks_pit_2026_state_local_income_tax_in_itemized_deductions` is removed from rules[ks_pit_2026_itemized_deduction].versions[0].formula and the two corresponding clauses (`>= 0` and the cap inequality) are removed from rules[ks_pit_2026_input_domain_is_valid].versions[0].formula; after the commit the identifier appears nowhere in the file (it was never a declared rule, only a referenced raw input), and the companion test drops it from all four cases and updates deductions 19480 -> 20980, taxable income 40520 -> 39020, and tax 2173.616 -> 2089.916. I read K.S.A. 79-32,120/block-1 through the resolver: (a)(5) defines the Kansas itemized deduction as exactly four components at 100% (no income-tax component), while (b) says 'The total amount of deductions from federal adjusted gross income shall be reduced by the total amount of income taxes imposed by or paid to this state or any other taxing jurisdiction to the extent that the same are deducted in determining the federal itemized deductions and by the amount of all depreciation deductions ...'. That cuts both ways, which is why I did not mark this fidelity: the fix is defensible (reducing an enumerated four-category base by an item the base never includes is a phantom reduction that overstates tax), but a literal reading of (b) is exactly what the pre-fix encoded, and the post-fix module keeps the other half of the same sentence (the depreciation reduction) and keeps the proof atom whose excerpt is 'total amount of deductions from federal adjusted gross income shall be reduced', so it now applies half of (b) with no recorded rationale. Evidence gap: the commit body is empty, the commit subject is the generic 'Correct Kansas 2026 resident income tax core', and nothing in the diff, the PR body, or any review mentions the itemized-deduction change — the added rationale I quoted describes only the HB 2029 re-grounding. The bundled PR (#1083, 'Encode Kansas 2026 resident income tax core') is the encoding PR this mid-branch correction commit lives in, not a separate fix PR; `gh api commits/<sha>/pulls` confirms #1083 is the only PR, and it has zero reviews, review comments, issue comments, and commit comments. The change stuck: the last commit touching the file (a9fad7642) still has no SALT-in-itemized term; the separate `ks_pit_2026_income_taxes_deducted_in_federal_agi` addback in the Kansas AGI formula is a different, above-the-line 79-32,117 modification and is untouched. Leftover inconsistency a reviewer may want: module.summary still says the module 'computes ... the exemption amount on which both official amendment versions agree', which the rewritten rationale contradicts. HB 2029 pages 60-62 do not amend 79-32,120, so the re-grounding is not what motivated the itemized change. If a reviewer decides the removal is source-correct, this is untraceable_branch (formula term with no supporting base under the cited provision); if they decide (b) applies literally, the commit is a regression and the entry should be dropped rather than relabeled. | verifier said not_a_defect at 0.66 (below 0.7); kept as unclear",
+  "family_id": "us-c47477aa-12964c43eecb",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

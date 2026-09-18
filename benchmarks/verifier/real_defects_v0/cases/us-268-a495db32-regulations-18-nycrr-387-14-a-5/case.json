@@ -1,0 +1,362 @@
+{
+  "id": "us-268-a495db32-regulations-18-nycrr-387-14-a-5",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "a495db3292dfbd7c5a94b48123baf92cc37063c8",
+  "parent_commit": "29d50449425f678970b3edd692f06ae959ed87a3",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) PR body includes 'Repair New York SNAP benefit composition'; changes snap_eligible formula in the existing otda composition, removes/replaces 18 NYCRR 387.14(a)(1) proration rules, and re-encodes 387.14(a)(5) categorical rules with changed imports.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/395",
+  "module_path": "regulations/18-nycrr/387/14/a/5.yaml",
+  "corpus_citation_path": "us-ny/regulation/18-nycrr/387/14/a/5",
+  "corpus_citation_paths_all": [
+    "us-ny/regulation/18-nycrr/387/14/a/5"
+  ],
+  "corpus_release": "us-rulespec-ny-snap-2026-07-17",
+  "corpus_release_content_sha256": "6bc4a29b437a1bd4b0fb96e707c095b241c229f17278d140a60a8e973ada1c9f",
+  "corpus_commit": "df57dc57cf0152c5747696c078929a12ed2d2239",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.75,
+  "description": "Apply encoder refresh for 18 NYCRR 387.14(a)(5)",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        3,
+        12
+      ],
+      [
+        17,
+        20
+      ],
+      [
+        22,
+        27
+      ],
+      [
+        30,
+        37
+      ],
+      [
+        41,
+        41
+      ],
+      [
+        44,
+        44
+      ],
+      [
+        48,
+        48
+      ],
+      [
+        51,
+        51
+      ],
+      [
+        58,
+        58
+      ],
+      [
+        61,
+        61
+      ],
+      [
+        68,
+        68
+      ],
+      [
+        71,
+        72
+      ],
+      [
+        75,
+        75
+      ],
+      [
+        77,
+        77
+      ],
+      [
+        81,
+        83
+      ],
+      [
+        88,
+        88
+      ],
+      [
+        92,
+        94
+      ],
+      [
+        99,
+        99
+      ],
+      [
+        103,
+        105
+      ],
+      [
+        110,
+        110
+      ],
+      [
+        113,
+        114
+      ],
+      [
+        119,
+        119
+      ],
+      [
+        123,
+        125
+      ],
+      [
+        131,
+        131
+      ],
+      [
+        136,
+        140
+      ],
+      [
+        142,
+        142
+      ],
+      [
+        148,
+        148
+      ],
+      [
+        151,
+        152
+      ],
+      [
+        157,
+        157
+      ],
+      [
+        160,
+        160
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        3,
+        4
+      ],
+      [
+        7,
+        8
+      ],
+      [
+        11,
+        12
+      ],
+      [
+        14,
+        35
+      ],
+      [
+        38,
+        40
+      ],
+      [
+        44,
+        52
+      ],
+      [
+        55,
+        57
+      ],
+      [
+        61,
+        86
+      ],
+      [
+        89,
+        155
+      ],
+      [
+        162,
+        182
+      ],
+      [
+        185,
+        187
+      ],
+      [
+        194,
+        214
+      ],
+      [
+        217,
+        220
+      ],
+      [
+        223,
+        223
+      ],
+      [
+        225,
+        246
+      ],
+      [
+        250,
+        252
+      ],
+      [
+        257,
+        282
+      ],
+      [
+        286,
+        289
+      ],
+      [
+        294,
+        313
+      ],
+      [
+        317,
+        320
+      ],
+      [
+        325,
+        344
+      ],
+      [
+        347,
+        351
+      ],
+      [
+        356,
+        399
+      ],
+      [
+        403,
+        408
+      ],
+      [
+        414,
+        426
+      ],
+      [
+        431,
+        435
+      ],
+      [
+        437,
+        441
+      ],
+      [
+        447,
+        455
+      ],
+      [
+        458,
+        461
+      ],
+      [
+        466,
+        474
+      ],
+      [
+        477,
+        479
+      ]
+    ],
+    "rule_names": [
+      "ny_snap_categorically_eligible",
+      "ny_snap_public_assistance_categorically_eligible",
+      "ny_snap_all_members_public_assistance_categorical_path_satisfied",
+      "member_has_family_assistance_nonemergency_safety_net_or_ssi_categorical_status",
+      "family_assistance_or_safety_net_minimum_payable_grant_amount",
+      "ny_snap_standard_gross_income_categorically_eligible",
+      "ny_snap_residual_130_percent_categorical_path_satisfied",
+      "ny_snap_categorical_eligibility_130_percent_fpl_ratio",
+      "ny_snap_categorical_gross_income_limit_130_percent_fpl",
+      "snap_income_eligible",
+      "snap_income_limit_exemption_for_categorically_eligible_household",
+      "ny_snap_categorical_disqualification_applies"
+    ],
+    "rule_path": "rules[ny_snap_categorically_eligible].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "3c09c5cc681372e668027bcc64b9cab75f3d6d59347562c47a335463d145edec",
+  "post_fix_artifact_sha256": "a65a90278be408d64c0495c706ad01bad2d65671857406426d90c9833dc9eded",
+  "provision_sha256": "546a6615c0187870b7e932fce9cadedf60ca48f32af956323221c830640d9096",
+  "provision_chars": 4960,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-ny/regulation/18-nycrr/387/14/a/5",
+    "provision_file": "data/corpus/provisions/us-ny/regulation/2026-07-17-ny-snap-regulations.jsonl",
+    "provision_file_sha256": "6891da448305f63d6faa164acf7dbb9e13aa10e8ef7f3c05ee4c7c825dcd5ba2",
+    "line_number": 1193,
+    "record_id": "0f790884-9215-5866-b2d0-5f014a399e59",
+    "stored_body_sha256": "546a6615c0187870b7e932fce9cadedf60ca48f32af956323221c830640d9096",
+    "resolved_text_sha256": "546a6615c0187870b7e932fce9cadedf60ca48f32af956323221c830640d9096",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-17",
+    "source_as_of": "2021-09-15",
+    "corpus_commit": "df57dc57cf0152c5747696c078929a12ed2d2239",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 7,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us-ny/regulation/18-nycrr/387/14/a/5",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us-ny/regulation/18-nycrr/387/14/a/5'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us-ny/regulation/18-nycrr/387/14/a/5'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us-ny/regulation/18-nycrr/387/14/a/5'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us-ny/regulation/18-nycrr/387/14/a/5'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us-ny/regulation/18-nycrr/387/14/a/5'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us-ny/regulation/18-nycrr/387/14/a/5'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us-ny/regulation/18-nycrr/387/14/a/5'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix encoding reduced clause (a) to a single opaque \"all members receive family assistance/safety net/SSI\" input, so it omitted the source's expressly included recipients (authorized but not yet paid, suspended or being recouped, and determined eligible but unpaid because the grant is less than $10), and it omitted clause (iii)'s bar on counting individuals ineligible to participate in SNAP as part of an otherwise categorically eligible household.",
+    "triage_notes": "I read the provision through the pinned corpus (same release as index 1). Confirmed missing-clause additions: (a)(1)-(3) now encoded member-level via member_has_family_assistance_nonemergency_safety_net_or_ssi_categorical_status plus a new $10 parameter (excerpt 'grant is less than $10'); clause (iii) now encoded as 'and not household_member_ineligible_to_participate_in_snap'. Two further grounding fixes in the same module that a reviewer may weigh instead: (1) the 130 percent arm previously used the federal parameter snap_gross_income_limit_130_percent_fpl_48_states_dc, whereas the reg states 130 percent of the Federal poverty limit — the fix adds ny_snap_categorical_eligibility_130_percent_fpl_ratio = 1.30 times the 100 percent FPL standard, and adds the 'households not meeting one or more of clauses (a) through (d)' residual restriction (that restriction is logically inert inside the OR, so it changes structure more than result); (2) snap_income_eligible, previously defined here as 'ny_snap_categorically_eligible or snap_standard_income_eligible' under the authority of (a)(5)(i), is renamed/narrowed to snap_income_limit_exemption_for_categorically_eligible_household = ny_snap_categorically_eligible, with the disjunction moved to the composition (index 0) — arguably a wrong_entity_or_scope fix, since (a)(5)(i) states only the exemption. The income concept behind clauses (b)-(e) also moves from snap_gross_monthly_income to snap_total_gross_income imported from us:regulations/7-cfr/273/10. Imports were narrowed to hash-pinned symbol targets and proof atoms added throughout; those parts are mechanical. The added module summary (verbatim in the diff) describes the coverage: 'Clause (a) covers households in which all members are recipients of family assistance, nonemergency safety net assistance and/or SSI benefits, including authorized-but-unpaid, suspended or recouped, and under-$10 grant cases.' Commit message is generic, so confidence is held below 0.8.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.86,
+    "verifier_justification": "The pinned corpus text of 18 NYCRR 387.14(a)(5) states that clause (a)'s \"[c]ategorically eligible recipients include\" (1) all-member households \"authorized to receive ... but who have not yet received payment\", (2) \"individuals whose ... benefits are suspended or being recouped\", and (3) \"individuals determined eligible ... but who are not paid such benefits because the grant is less than $10\", and clause (iii) states that \"Individuals ineligible to participate in SNAP cannot be included in any household which is otherwise categorically eligible for SNAP.\" The pre-fix module reduced clause (a) to one undefined leaf input (`formula: household_all_members_receive_family_assistance_nonemergency_safety_net_or_ssi`), so a household whose members were authorized-but-unpaid, suspended/recouped, or under the $10 grant floor evaluated false against a source that says such households \"must be considered categorically eligible\", and clause (iii) had no representation at all; the fix adds a Person-level status rule with all three limbs plus a `$10` parameter, and adds `and not household_member_ineligible_to_participate_in_snap` to `ny_snap_categorically_eligible`. This is a meaning change (formulas, a new parameter, new inputs), not proof-atom or metadata bookkeeping, so \"mechanical\" is refuted; and the pre-fix rules cited exactly these provisions in their own `source:` fields (`18 NYCRR 387.14(a)(5)(i)(a)` and `18 NYCRR 387.14(a)(5)`), so \"new coverage the module never claimed\" is refuted too. The companion test diff adds `under_ten_dollar_grant_member_has_public_assistance_categorical_status` with `member_family_assistance_or_nonemergency_safety_net_grant_amount: 9`, pinning the added clause as the intended behavioral change.",
+    "verifier_quote": "+          member_receives_family_assistance_nonemergency_safety_net_or_ssi_benefits\n+          or member_authorized_to_receive_family_assistance_nonemergency_safety_net_or_ssi_benefits_but_not_yet_paid\n+          or member_family_assistance_nonemergency_safety_net_or_ssi_benefits_suspended_or_being_recouped",
+    "verifier_notes": "Kind is right but the commit bundles several distinct fidelity changes; a reviewer picking a single rule_path should anchor on `member_has_family_assistance_nonemergency_safety_net_or_ssi_categorical_status` / `ny_snap_categorically_eligible` rather than the listed `rules[ny_snap_categorically_eligible].versions[0].formula` alone. Other same-kind additions in the same diff: clause (e)'s residual restriction (\"households not meeting one or more of the definitions set forth in clauses ( a ) through ( d ) above\") was absent pre-fix and is added as `and not <each of the four other paths>`; and clause (ii)'s three disqualifications were inlined rather than added (they were already present as `ny_snap_categorical_disqualification_applies`). Two secondary changes are of a different kind and should not be mined as separate defects without more work: (1) the 130 percent limit was re-grounded from the imported federal `snap_gross_income_limit_130_percent_fpl_48_states_dc` to a locally derived `snap_net_income_limit_100_percent_fpl_48_states_dc * 1.30`, and the income input moved from `snap_gross_monthly_income` to `snap_total_gross_income` (import re-grounding, likely numerically equivalent); (2) the module dropped its `snap_income_eligible` output (`ny_snap_categorically_eligible or snap_standard_income_eligible`) in favor of `snap_income_limit_exemption_for_categorically_eligible_household` — an output-surface narrowing that reads as wrong_entity_or_scope if anyone wants to score it separately, since (a)(5)(i) only exempts categorically eligible households from the income limits and does not define program-wide income eligibility. Caveat on the fix itself (not a reason to downgrade the verdict): the post-fix encoding of clause (iii) as `and not household_member_ineligible_to_participate_in_snap` denies categorical eligibility to the whole household, whereas the source says ineligible individuals \"cannot be included in\" an otherwise categorically eligible household, i.e. they are excluded from the household composition. Corpus provenance: release us-rulespec-ny-snap-2026-07-17, provision record 0f790884-9215-5866-b2d0-5f014a399e59, text sha256 546a6615c0187870b7e932fce9cadedf60ca48f32af956323221c830640d9096; `selection_basis: no_toolchain_corpus_pin`, so the release was chosen by fallback rather than matched to the commit's toolchain pin. The PR attached to this bundle (#395) is the monorepo consolidation, not the authoring PR, so it carries no review text about this module; the only message-level evidence is the generic body line \"Apply encoder refresh for 18 NYCRR 387.14(a)(5)\" — the diff and source text carry the verdict, not the message.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "I read the provision through the pinned corpus (same release as index 1). Confirmed missing-clause additions: (a)(1)-(3) now encoded member-level via member_has_family_assistance_nonemergency_safety_net_or_ssi_categorical_status plus a new $10 parameter (excerpt 'grant is less than $10'); clause (iii) now encoded as 'and not household_member_ineligible_to_participate_in_snap'. Two further grounding fixes in the same module that a reviewer may weigh instead: (1) the 130 percent arm previously used the federal parameter snap_gross_income_limit_130_percent_fpl_48_states_dc, whereas the reg states 130 percent of the Federal poverty limit — the fix adds ny_snap_categorical_eligibility_130_percent_fpl_ratio = 1.30 times the 100 percent FPL standard, and adds the 'households not meeting one or more of clauses (a) through (d)' residual restriction (that restriction is logically inert inside the OR, so it changes structure more than result); (2) snap_income_eligible, previously defined here as 'ny_snap_categorically_eligible or snap_standard_income_eligible' under the authority of (a)(5)(i), is renamed/narrowed to snap_income_limit_exemption_for_categorically_eligible_household = ny_snap_categorically_eligible, with the disjunction moved to the composition (index 0) — arguably a wrong_entity_or_scope fix, since (a)(5)(i) states only the exemption. The income concept behind clauses (b)-(e) also moves from snap_gross_monthly_income to snap_total_gross_income imported from us:regulations/7-cfr/273/10. Imports were narrowed to hash-pinned symbol targets and proof atoms added throughout; those parts are mechanical. The added module summary (verbatim in the diff) describes the coverage: 'Clause (a) covers households in which all members are recipients of family assistance, nonemergency safety net assistance and/or SSI benefits, including authorized-but-unpaid, suspended or recouped, and under-$10 grant cases.' Commit message is generic, so confidence is held below 0.8. | verifier confirmed at 0.86",
+  "family_id": "us-a495db32-5e65b81397a7",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

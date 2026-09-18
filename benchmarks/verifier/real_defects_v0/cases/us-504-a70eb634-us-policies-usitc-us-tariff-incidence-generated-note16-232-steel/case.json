@@ -1,0 +1,85 @@
+{
+  "id": "us-504-a70eb634-us-policies-usitc-us-tariff-incidence-generated-note16-232-steel",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "a70eb6341476245874dbd700c8661531a4388c5c",
+  "parent_commit": "98e7d74f24988e6e8155073d9648e43185870608",
+  "commit_date": "2026-08-15",
+  "commit_subject": "b1.6: repair section 232 primary heading memberships",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1298",
+  "module_path": "us/policies/usitc/us-tariff-incidence/generated/note16-232-steel.yaml",
+  "corpus_citation_path": "us/statute/hts/chapter-99/page-236",
+  "corpus_citation_paths_all": [
+    "us/statute/hts/chapter-99/page-236",
+    "us/statute/hts/chapter-99/page-237",
+    "us/statute/hts/chapter-99/page-240",
+    "us/statute/hts/chapter-99/page-241"
+  ],
+  "corpus_release": "us-rulespec-2026-08-08-obbb-alien-snap",
+  "corpus_release_content_sha256": "0d69a0cdbe024fc2276f3c261c00402bb0a47488ac5f482cc20bd3404980adbc",
+  "corpus_commit": "e79781bddeaba4d3697c5375c7371b2a038f0f74",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.85,
+  "description": "b1.6: repair section 232 primary heading memberships",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [],
+    "post_fix_lines": [
+      [
+        14,
+        259
+      ]
+    ],
+    "rule_names": [
+      "s232_steel_primary_heading_membership",
+      "s232_steel_primary_subheading6_membership"
+    ],
+    "rule_path": "rules[s232_steel_primary_heading_membership].versions[0].values"
+  },
+  "pre_fix_artifact_sha256": "b5f54da66798714de0589c835817a2d4761bf604e8873e614b129a8b10ef39c2",
+  "post_fix_artifact_sha256": "8ec8adf882321fe51240606a1d3a85322e4a9b7ecf06ef3c3e8bee19ffec21f4",
+  "provision_sha256": "0ae8246eaab0196b4766d9dc104901864a1a194d173180922971330aa75cb4cd",
+  "provision_chars": 6469,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/hts/chapter-99/page-236",
+    "provision_file": "data/corpus/provisions/us/statute/2026-08-01-usitc-hts-2026-rev3-notes.jsonl",
+    "provision_file_sha256": "818d993ea9bbb613b1c78ec03e1394b4d2b2468c259c3b1ff89ca3a004cf129c",
+    "line_number": 246,
+    "record_id": "fdaaacb7-f2e2-54c4-8e1c-e755ba960f63",
+    "stored_body_sha256": "0ae8246eaab0196b4766d9dc104901864a1a194d173180922971330aa75cb4cd",
+    "resolved_text_sha256": "0ae8246eaab0196b4766d9dc104901864a1a194d173180922971330aa75cb4cd",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-02-12",
+    "source_as_of": "2026-08-01",
+    "corpus_commit": "e79781bddeaba4d3697c5375c7371b2a038f0f74",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "60de5efae2a1b1dd58b7c92fa9b73a86bd78f30a",
+    "requested_citation_path": "us/statute/hts/chapter-99/page-236",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The Section 232 primary-steel membership encoding covered only the eleven dotted 8-digit entries in note 16(c)(iii)'s \"Articles of steel\" list and omitted the 26 bare 4-digit headings (7206-7229, 7304-7306) and the two 6-digit subheadings (7302.10, 7302.90) that the same list enumerates, so nearly all primary steel was encoded as a non-member of the Section 232 action list.",
+    "triage_notes": "Provision read and confirmed. Rev-15 notes page-236 (axiom-corpus commit 60de5efa, data/corpus/provisions/us/statute/2026-08-04-usitc-hts-2026-rev15-notes.jsonl, the file the generator pins via RELPATH) prints the note 16(c) list \"(iii) Articles of steel: 7209 7208 7207 7206 7213 7212 7211 7210 7216.21.00 7216.10.00 7215 7214 7216.33.00 7216.32.00 7216.31.00 7216.22.00 7217 7216.99.00 7216.50.00 7216.40.00 7221 7220 7219 7218 7225 7224 7223 7222 7229 7228 7227 7226 7302.90 7302.40.00 7302.10 7301.10.00 7306 7305 7304\". Pre-fix rules[s232_steel_primary_membership].versions[0].values held exactly the 11 dotted 8-digit members of that list and nothing else; post-fix that rule is unchanged and the two new tables carry the missing 4- and 6-digit widths, so the union now equals the printed list. Note the resolver caveat: resolve_provision.py resolves the toolchain pin to release us-rulespec-2026-08-08-obbb-alien-snap, which contains only the Rev-3 notes file, so its page-236 is unrelated Rev-3 content; the Rev-3 prose form of the same note (pages 228/231/235) independently corroborates that the primary list is stated at heading level (7206-7229, 7304-7306) with 7302.10/7302.90 at 6-digit, and I read the Rev-15 file directly from the pinned corpus commit for the decisive check. Root cause is in the same commit's tools/generate_incidence_tables.py diff: the old HTS regex matched only dotted 8/10-digit atoms; the new PRINTED_WIDTH_HTS regex plus per-production widths=(4, 6, 8) preserves printed width. B16-BUILD-REPORT.md in the same commit states verbatim: \"Round-2 section 232 primary-scope repair: the tokenizer and independent differential scanner now preserve the 4-, 6-, and 8-digit widths printed in notes 16(c)(iii) and 19(b).\" (the build report is not an allowed quote_source value, so the commit subject is quoted in the field instead). The module diff is pure addition; nothing else in the module changed (module citation paths already listed page-236). The companion test file gained 20 lines of present/absent cases for the new tables. Alternative kind a reviewer may prefer: wrong_entity_or_scope, since what was wrong is the covered population of HTS lines; I chose unrepresented_clause per the instruction that adding coverage the source requires is unrepresented_clause. Caveat for corpus use: this module is generator-produced (tools/generate_incidence_tables.py), not encoder-produced, so the defect is a parser-width bug rather than an LLM encoding error.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.85,
+    "verifier_justification": "The cited source, note 16(c)(iii) \"Articles of steel:\", enumerates 39 provisions at three printed widths (26 bare 4-digit headings 7206-7215/7217-7229/7304-7306, two 6-digit subheadings 7302.10 and 7302.90, and 11 dotted 8-digit lines), and the pre-fix module encoded only the 11 dotted lines — no 7206-7229, 7302.10/.90, or 7304-7306 key appears anywhere in the parent revision of the file. The fix adds those 28 source-enumerated memberships, and the generator diff shows the cause was a tokenizer that only matched dotted 8/10-digit forms (`HTS` regex; the fix adds `PRINTED_WIDTH_HTS` and `widths=(4, 6, 8)` on the 16(c)(iii) production), so the encoded meaning — which goods are on the Section 232 primary-steel action list — disagreed with the cited text. I tried to refute this as \"new output surface the module never claimed\" since the fix adds two new rules rather than editing the existing table, but the module already split tables by printed width pre-fix (`s232_steel_derivative_legacy_membership_hts10`), the existing rule's `source:` and every proof atom claim subdivision 16(c)(iii) in full, and the author frames it as a \"repair\". Kind fits: the fix adds source-stated content that was absent from the encoding.",
+    "verifier_quote": "+  - name: s232_steel_primary_heading_membership\n+    kind: parameter\n...\n+    versions:\n+      - effective_from: '2026-08-03'\n+        values:\n+          7206: 1\n+          7207: 1\n+          7208: 1",
+    "verifier_notes": "Source verification: the Rev-15 notes ingest the generator pins (data/corpus/provisions/us/statute/2026-08-04-usitc-hts-2026-rev15-notes.jsonl, line 246, citation_path us/statute/hts/chapter-99/page-236) reads verbatim \"(iii) Articles of steel: 7209 7208 7207 7206 7213 7212 7211 7210 7216.21.00 7216.10.00 7215 7214 7216.33.00 7216.32.00 7216.31.00 7216.22.00 7217 7216.99.00 7216.50.00 7216.40.00 7221 7220 7219 7218 7225 7224 7223 7222 7229 7228 7227 7226 7302.90 7302.40.00 7302.10 7301.10.00 7306 7305 7304\" — exactly the 26 + 2 entries the fix adds plus the 11 retained. Caveat for the reviewer: resolve_provision.py --citation us/statute/hts/chapter-99/page-236 --rulespec-commit a70eb63414 resolves to the Rev-3 notes file (2026-08-01-usitc-hts-2026-rev3-notes.jsonl), whose page-236 is note 16(r)-(t) and does not contain 16(c)(iii); the resolver's release pin does not match the Rev-15 ingest the generator pins, so the resolver output alone would have been misleading here. Alternative kind worth a second look: wrong_entity_or_scope, since what was wrong is the covered population of HTS provisions (nearly all primary steel encoded as non-member) rather than a condition or exception; I kept unrepresented_clause because the omitted material is enumerated content of the cited clause that the fix adds back, which the rubric routes to unrepresented_clause. Corroborating (not quoted as module-diff text): B16-BUILD-REPORT.md in the same commit adds \"Round-2 section 232 primary-scope repair: the tokenizer and independent differential scanner now preserve the 4-, 6-, and 8-digit widths printed in notes 16(c)(iii) and 19(b)\" and states it adds 26 steel-heading, two steel-six-digit, and seven aluminum-heading rows while retaining 11 steel 8-digit rows. Module 1 (note19-232-aluminum.yaml) is the same defect in note 19(b) and should classify identically. Companion tests were added for both new tables (hts_line 7206 -> 1; 730210 -> 1).",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Provision read and confirmed. Rev-15 notes page-236 (axiom-corpus commit 60de5efa, data/corpus/provisions/us/statute/2026-08-04-usitc-hts-2026-rev15-notes.jsonl, the file the generator pins via RELPATH) prints the note 16(c) list \"(iii) Articles of steel: 7209 7208 7207 7206 7213 7212 7211 7210 7216.21.00 7216.10.00 7215 7214 7216.33.00 7216.32.00 7216.31.00 7216.22.00 7217 7216.99.00 7216.50.00 7216.40.00 7221 7220 7219 7218 7225 7224 7223 7222 7229 7228 7227 7226 7302.90 7302.40.00 7302.10 7301.10.00 7306 7305 7304\". Pre-fix rules[s232_steel_primary_membership].versions[0].values held exactly the 11 dotted 8-digit members of that list and nothing else; post-fix that rule is unchanged and the two new tables carry the missing 4- and 6-digit widths, so the union now equals the printed list. Note the resolver caveat: resolve_provision.py resolves the toolchain pin to release us-rulespec-2026-08-08-obbb-alien-snap, which contains only the Rev-3 notes file, so its page-236 is unrelated Rev-3 content; the Rev-3 prose form of the same note (pages 228/231/235) independently corroborates that the primary list is stated at heading level (7206-7229, 7304-7306) with 7302.10/7302.90 at 6-digit, and I read the Rev-15 file directly from the pinned corpus commit for the decisive check. Root cause is in the same commit's tools/generate_incidence_tables.py diff: the old HTS regex matched only dotted 8/10-digit atoms; the new PRINTED_WIDTH_HTS regex plus per-production widths=(4, 6, 8) preserves printed width. B16-BUILD-REPORT.md in the same commit states verbatim: \"Round-2 section 232 primary-scope repair: the tokenizer and independent differential scanner now preserve the 4-, 6-, and 8-digit widths printed in notes 16(c)(iii) and 19(b).\" (the build report is not an allowed quote_source value, so the commit subject is quoted in the field instead). The module diff is pure addition; nothing else in the module changed (module citation paths already listed page-236). The companion test file gained 20 lines of present/absent cases for the new tables. Alternative kind a reviewer may prefer: wrong_entity_or_scope, since what was wrong is the covered population of HTS lines; I chose unrepresented_clause per the instruction that adding coverage the source requires is unrepresented_clause. Caveat for corpus use: this module is generator-produced (tools/generate_incidence_tables.py), not encoder-produced, so the defect is a parser-width bug rather than an LLM encoding error. | verifier confirmed at 0.85",
+  "family_id": "us-a70eb634-7467b9323138",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

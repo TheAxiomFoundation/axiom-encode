@@ -1,0 +1,299 @@
+{
+  "id": "us-370-aada0343-us-nv-policies-income-tax-2026-resident-zero-liability",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "aada0343673fee5620e6bc39339ef2b684c74d83",
+  "parent_commit": "825294c6f85c0af9de97ede98387941296e3b5b8",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Holds incomplete Nevada credit liability stages in an existing module: scope/retire correction.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1059",
+  "module_path": "us-nv/policies/income_tax/2026_resident_zero_liability.yaml",
+  "corpus_citation_path": "us-nv/statute/constitution/article-10/section-1/subsection-9/block-1",
+  "corpus_citation_paths_all": [
+    "us-nv/statute/constitution/article-10/section-1/subsection-9/block-1",
+    "us-nv/statute/constitution/article-10/section-1/source-note/block-1"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.7,
+  "description": "This authority proves zero natural-person personal income tax before credits. It does not prove that Nevada has no independently refundable credit or otherwise establish a complete signed net-liability surface.",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        6,
+        6
+      ],
+      [
+        8,
+        8
+      ],
+      [
+        12,
+        16
+      ],
+      [
+        18,
+        25
+      ],
+      [
+        116,
+        116
+      ],
+      [
+        118,
+        118
+      ],
+      [
+        120,
+        120
+      ],
+      [
+        131,
+        131
+      ],
+      [
+        133,
+        133
+      ],
+      [
+        136,
+        136
+      ],
+      [
+        138,
+        139
+      ],
+      [
+        144,
+        144
+      ],
+      [
+        150,
+        150
+      ],
+      [
+        158,
+        158
+      ],
+      [
+        177,
+        177
+      ],
+      [
+        196,
+        196
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        6,
+        8
+      ],
+      [
+        10,
+        10
+      ],
+      [
+        13,
+        13
+      ],
+      [
+        15,
+        30
+      ],
+      [
+        32,
+        45
+      ],
+      [
+        50,
+        68
+      ],
+      [
+        87,
+        114
+      ],
+      [
+        183,
+        183
+      ],
+      [
+        185,
+        186
+      ],
+      [
+        188,
+        189
+      ],
+      [
+        200,
+        200
+      ],
+      [
+        202,
+        202
+      ],
+      [
+        205,
+        205
+      ],
+      [
+        207,
+        207
+      ],
+      [
+        212,
+        212
+      ],
+      [
+        218,
+        219
+      ],
+      [
+        227,
+        227
+      ],
+      [
+        240,
+        258
+      ],
+      [
+        265,
+        265
+      ],
+      [
+        278,
+        296
+      ],
+      [
+        303,
+        303
+      ]
+    ],
+    "rule_names": [
+      "nv_pit_2026_credit_stage_applies",
+      "nv_pit_2026_resident_personal_income_tax_after_nonrefundable_credits",
+      "nv_pit_2026_resident_refundable_personal_income_tax_credits",
+      "nv_pit_2026_resident_net_personal_income_tax_liability_before_payments",
+      "nv_pit_2026_nonrefundable_credit_source_hold_applies",
+      "nv_pit_2026_refundable_credit_source_hold_applies",
+      "nv_pit_2026_net_liability_source_hold_applies",
+      "nv_pit_2026_constitutional_prohibition_current_for_tax_year"
+    ],
+    "rule_path": "rules[nv_pit_2026_credit_stage_applies].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "8b118b83852298ea970983526d3709df89a07df1828ae16da15c2c6162fdc813",
+  "post_fix_artifact_sha256": "f49b0fbb9a2fdf0964911e8435ff024641c39abfdb97af3d332dc16c2cc1aa96",
+  "provision_sha256": "d7e380e3d6b872a8c3245931d6de085a98428e19a6e47f6e6b65ce740a39f3a7",
+  "provision_chars": 318,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-nv/statute/constitution/article-10/section-1/subsection-9/block-1",
+    "provision_file": "data/corpus/provisions/us-nv/statute/2026-07-24-nv-individual-income-tax-zero-liability.jsonl",
+    "provision_file_sha256": "a4fe91aa28164cf3e13523326b05098bb07adf49593a74283dbd102ec107a7d8",
+    "line_number": 2,
+    "record_id": "c7d1c6a5-6cfe-5c8e-b872-73ac5e6cec62",
+    "stored_body_sha256": "d7e380e3d6b872a8c3245931d6de085a98428e19a6e47f6e6b65ce740a39f3a7",
+    "resolved_text_sha256": "d7e380e3d6b872a8c3245931d6de085a98428e19a6e47f6e6b65ce740a39f3a7",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-24",
+    "source_as_of": "2026-07-24",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "1bd389ac6f5a78f98ad9e39209b1223ccf3a3836",
+    "requested_citation_path": "us-nv/statute/constitution/article-10/section-1/subsection-9/block-1",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us-nv/statute/constitution/article-10/section-1/subsection-9/block-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us-nv/statute/constitution/article-10/section-1/subsection-9/block-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us-nv/statute/constitution/article-10/section-1/subsection-9/block-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us-nv/statute/constitution/article-10/section-1/subsection-9/block-1'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us-nv/statute/constitution/article-10/section-1/subsection-9/block-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us-nv/statute/constitution/article-10/section-1/subsection-9/block-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us-nv/statute/constitution/article-10/section-1/subsection-9/block-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us-nv/statute/constitution/article-10/section-1/subsection-9/block-1'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us-nv/statute/constitution/article-10/section-1/subsection-9/block-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us-nv/statute/constitution/article-10/section-1/subsection-9/block-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us-nv/statute/constitution/article-10/section-1/subsection-9/block-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us-nv/statute/constitution/article-10/section-1/subsection-9/block-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us-nv/statute/constitution/article-10/section-1/subsection-9/block-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us-nv/statute/constitution/article-10/section-1/subsection-9/block-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us-nv/statute/constitution/article-10/section-1/subsection-9/block-1'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us-nv/statute/constitution/article-10/section-1/subsection-9/block-1'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module asserted, on the authority of Nev. Const. art. 10, section 1(9) and the excerpt \"No income tax shall be levied upon the wages or personal income of natural persons.\", that no credit stage applies and that after-nonrefundable-credit tax, refundable credits, and net liability before payments are all zero, but that provision only bars a tax on natural persons' wages and personal income and says nothing about whether Nevada has independently refundable credits or how credits order into a signed net liability, so those branches and values had no basis in the cited source.",
+    "triage_notes": "Single-module commit; only the module file, its companion test, the encoding manifest, the reverse index, and toolchain.toml changed. Provision was read through the pinned corpus (release us-rulespec-2026-08-03-ecps-pit-tariff-union, resolver reports fix_time_corpus_match: same_body): 26-word text confirms subsection 9 covers only the wage/personal-income prohibition plus the business-income carve-out, with no credit or net-liability content. The commit is an in-PR self-correction: its parent 825294c6 (\"Complete Nevada 2026 resident zero liability\") introduced the module claiming a \"Complete Nevada full-year-resident natural-person personal-income-tax pipeline\", and both commits landed in merged PR #1059, whose body describes only the corrected end state (\"retain typed source holds for nonrefundable credits, refundable credits, and signed net liability before payments\"; \"downstream credit and net-liability stages remain explicitly held and fail closed\"). The commit message body is empty; the quote used is from the module's own rewritten upstream_source_check rationale in the diff (YAML block scalar, so line wrapping was joined with single spaces). Note the three Money outputs keep formula: 0 — what changed is their status (source strings become \"Fail-closed sentinel pending ...\", plus the new deferred_outputs block and Judgment holds); the only formula/rule existence change is the deletion of nv_pit_2026_credit_stage_applies (was false) and the three added hold rules (formula: true, effective_from 2026-01-01 to 2026-12-31). The companion test drops the `nv_pit_2026_credit_stage_applies: false` expectation and rewrites its header comment from \"deductions, exemptions, surtaxes, and credits cannot change the legal zero\" to exclude credits, confirming that the withdrawn claim was substantive. Alternative kind considered: wrong_entity_or_scope (the module retracted output surface it never had authority for); untraceable_branch was chosen because the decisive edit removes/re-grounds branches and values whose only cited basis was a provision that does not support them. The parallel rules nv_pit_2026_deduction_and_exemption_stage_applies and nv_pit_2026_surtax_stage_applies remain false on the same excerpt and were left untouched, which is a residual inconsistency a reviewer may want to note but is outside this commit.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "untraceable_branch",
+    "verifier_confidence": 0.7,
+    "verifier_justification": "I tried to refute this as mechanical/provenance and as a mere conservatism policy choice, and both fail on one edit: the rule `nv_pit_2026_credit_stage_applies` (dtype Boolean, `formula: false`) is deleted outright from the module and from both companion test expectations, so the module's output surface and asserted meaning change, not just labels. Its sole proof atom cited excerpt \"No income tax shall be levied upon the wages or personal income of natural persons.\", and the pinned corpus text of Nev. Const. art. 10 § 1(9) (resolved at aada034367: corpus release us-rulespec-2026-08-03-ecps-pit-tariff-union, body sha 865d525f…) says only that and that business income or revenue may still be taxed — it says nothing about credits, credit ordering, or refundable credits, so `credit_stage_applies = false` was a value with no basis in the cited source and the fix removes it. The fix's own module rationale states the standard explicitly (\"This authority proves zero natural-person personal income tax before credits. It does not prove that Nevada has no independently refundable credit…\"), which is the untraceable_branch test rather than an amount, boundary, period, or polarity error. I weighed reclassifying to wrong_entity_or_scope (the screen label says \"scope/retire\" and the summary retracts \"Complete … pipeline\"), but entity, population, period, and the retained outputs' formulas are untouched — the only meaning that changed is the removal of an ungrounded assertion, so untraceable_branch fits better.",
+    "verifier_quote": "-  - name: nv_pit_2026_credit_stage_applies",
+    "verifier_notes": "Corroborating verbatim lines: in the companion test diff, \"-    us-nv:policies/income_tax/2026_resident_zero_liability#nv_pit_2026_credit_stage_applies: false\" (removed at two cases), and in the test header comment \"+# Credit and net-liability amounts below are fail-closed sentinels guarded by\" / \"+# explicit typed source holds, not substantive zero-liability assertions.\"\n\nCaveat a reviewer should see (why I set confidence at 0.7, not higher): all three downstream Money outputs (`..._after_nonrefundable_credits`, `..._refundable_personal_income_tax_credits`, `..._net_personal_income_tax_liability_before_payments`) keep `formula: 0`, the same entity/dtype/unit, the same effective_from '2026-01-01' with no effective_to, and byte-identical proof atoms; only their `source:` label strings change (e.g. \"-    source: Nev. Const. art. 10, § 1(9), no natural-person personal income-tax system\" → \"+    source: Fail-closed sentinel pending complete refundable-credit authority\"). Taken alone, that part of the diff is provenance/labelling, i.e. mechanical. The fidelity content rests on (a) the deletion of `nv_pit_2026_credit_stage_applies` (verified fully absent at aada034367 via `git grep` over us-nv and .axiom) and (b) the new module-level `deferred_outputs:` block plus three added `dtype: Judgment` rules (`nv_pit_2026_nonrefundable_credit_source_hold_applies`, `..._refundable_credit_source_hold_applies`, `..._net_liability_source_hold_applies`, each `formula: true`, windowed 2026-01-01..2026-12-31), which the tests now assert as `holds`. I did not read engine code for how `deferred_outputs` or a `Judgment` hold is enforced at runtime, so I do not claim the zeros stop being served — I rely only on the removed rule and the changed test surface.\n\nAlso added, unrelated to the credit question: `nv_pit_2026_constitutional_prohibition_current_for_tax_year` (Boolean true, grounded on the newly pinned source-note block with amendment-history excerpts), and the header change `corpus_citation_path` → `corpus_citation_paths` with `status: complete_current_authority` → `official_parameter_source`. That pairing is period-grounding evidence for tax year 2026, additive coverage rather than a second defect; the pre-fix module already carried effective_from '2026-01-01', so I did not treat it as wrong_period_or_effective_date.\n\nPR #1059 has no reviews or review comments in the bundle, and the commit body is empty, so all fidelity evidence came from the diff itself plus the resolved provision text.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Single-module commit; only the module file, its companion test, the encoding manifest, the reverse index, and toolchain.toml changed. Provision was read through the pinned corpus (release us-rulespec-2026-08-03-ecps-pit-tariff-union, resolver reports fix_time_corpus_match: same_body): 26-word text confirms subsection 9 covers only the wage/personal-income prohibition plus the business-income carve-out, with no credit or net-liability content. The commit is an in-PR self-correction: its parent 825294c6 (\"Complete Nevada 2026 resident zero liability\") introduced the module claiming a \"Complete Nevada full-year-resident natural-person personal-income-tax pipeline\", and both commits landed in merged PR #1059, whose body describes only the corrected end state (\"retain typed source holds for nonrefundable credits, refundable credits, and signed net liability before payments\"; \"downstream credit and net-liability stages remain explicitly held and fail closed\"). The commit message body is empty; the quote used is from the module's own rewritten upstream_source_check rationale in the diff (YAML block scalar, so line wrapping was joined with single spaces). Note the three Money outputs keep formula: 0 — what changed is their status (source strings become \"Fail-closed sentinel pending ...\", plus the new deferred_outputs block and Judgment holds); the only formula/rule existence change is the deletion of nv_pit_2026_credit_stage_applies (was false) and the three added hold rules (formula: true, effective_from 2026-01-01 to 2026-12-31). The companion test drops the `nv_pit_2026_credit_stage_applies: false` expectation and rewrites its header comment from \"deductions, exemptions, surtaxes, and credits cannot change the legal zero\" to exclude credits, confirming that the withdrawn claim was substantive. Alternative kind considered: wrong_entity_or_scope (the module retracted output surface it never had authority for); untraceable_branch was chosen because the decisive edit removes/re-grounds branches and values whose only cited basis was a provision that does not support them. The parallel rules nv_pit_2026_deduction_and_exemption_stage_applies and nv_pit_2026_surtax_stage_applies remain false on the same excerpt and were left untouched, which is a residual inconsistency a reviewer may want to note but is outside this commit. | verifier confirmed at 0.70",
+  "family_id": "us-aada0343-86f5b003b315",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

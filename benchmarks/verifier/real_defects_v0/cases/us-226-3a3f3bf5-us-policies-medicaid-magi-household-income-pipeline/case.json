@@ -1,0 +1,96 @@
+{
+  "id": "us-226-3a3f3bf5-us-policies-medicaid-magi-household-income-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "3a3f3bf5257ffbe0fb4613dfc1b1a660f46ec1f3",
+  "parent_commit": "c3b9a2ea6039f05f27e2c4550d3cdbfbb2ee9372",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Fail-closed guard on Medicaid family size / FPL mismatches added to magi_household_income_pipeline; landed inside PR #1007 which introduced the module, so possibly a pre-merge repair.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1007",
+  "module_path": "us/policies/medicaid/magi_household_income_pipeline.yaml",
+  "corpus_citation_path": "us/regulation/42/435/603/b",
+  "corpus_citation_paths_all": [
+    "us/regulation/42/435/603/b",
+    "us/regulation/42/435/603/c",
+    "us/regulation/42/435/603/d",
+    "us/regulation/42/435/603/e",
+    "us/regulation/42/435/603/f",
+    "us/regulation/42/435/603/h",
+    "us/regulation/42/435/603/i",
+    "us/regulation/42/435/603/j",
+    "us/regulation/42/435/603/k",
+    "us/regulation/42/435/110",
+    "us/regulation/42/435/119",
+    "us/statute/26/36B"
+  ],
+  "corpus_release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+  "corpus_release_content_sha256": "cb275c76c4f07f8ad37470a32296bb1763e5db853d152697524ab07021b6d544",
+  "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+  "defect_kind": "polarity_or_logic",
+  "other_kind": null,
+  "confidence": 0.49,
+  "description": "Fail closed on Medicaid family size FPL mismatches",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [],
+    "post_fix_lines": [
+      [
+        963,
+        967
+      ],
+      [
+        2080,
+        2090
+      ]
+    ],
+    "rule_names": [
+      "medicaid_scalar_contract_valid"
+    ],
+    "rule_path": "rules[medicaid_scalar_contract_valid].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "5f66051d9ee128fa002602f7e3bf2a2b168bc06b30ef5bc6503636b8469fbc0d",
+  "post_fix_artifact_sha256": "eb1376a7e3ea4c7407e48089b3a924b177f3f2af2b9d1e2942a0ec6d73488894",
+  "provision_sha256": "9e87d180eb19913507fcf0290b2e6c60fd265ccb27f447d1192c72468775a83e",
+  "provision_chars": 850,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/regulation/42/435/603/b",
+    "provision_file": "data/corpus/provisions/us/regulation/2026-07-13-recovery-r2026-07-17-dedup.jsonl",
+    "provision_file_sha256": "9133fa7c05ffc60be99ca8c9363e78cebb13256f853936e13324559b2573085f",
+    "line_number": 48,
+    "record_id": "94662d19-4f24-5af1-a98c-aed766ff2a28",
+    "stored_body_sha256": "9e87d180eb19913507fcf0290b2e6c60fd265ccb27f447d1192c72468775a83e",
+    "resolved_text_sha256": "9e87d180eb19913507fcf0290b2e6c60fd265ccb27f447d1192c72468775a83e",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "5dfd89d131564e4ee0e1e763571dbb5d7fc7f5e7",
+    "requested_citation_path": "us/regulation/42/435/603/b",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The scalar contract accepted any positive annual FPL amount on the caller's self-asserted correspondence attestation, so an FPL guideline belonging to a different family size could drive the %FPL comparison and still yield an affirmative eligibility result, contradicting 42 CFR 435.603(d)(4)'s 'Federal poverty level for the applicable family size'.",
+    "triage_notes": "Single-module commit; the only module change is +5 conjuncts in rules[medicaid_scalar_contract_valid].versions[0].formula and +2 new inputs (authoritative_fpl_lookup_family_size, authoritative_fpl_lookup_annual_guideline_amount). No other rule, version, effective date, parameter, or output changed. Provision was read through the pinned corpus release (us/regulation/42/435/603/d resolved, 1828 chars) and does contain 'Federal poverty level for the applicable family size', so the source does tie the FPL denominator to the applicable family size. Evidence that the pre-fix behavior was fail-open and not merely missing precision: the new companion case 'family_size_fpl_amount_mismatch_with_true_attestation_fails_closed' (applicable_family_size 1, supplied FPL 21640, authoritative lookup 1/15960, attestation true) asserts internal_eligible_under_highest_applicable_magi_income_standard: holds while the gated eligible_under_highest_applicable_magi_income_standard: not_holds -- i.e. before the guard the module emitted an affirmative result off the family-2 denominator; its yaml comment states 'The true attestation cannot override the structural lookup mismatch.' Kind judgment: 'fail-open vs fail-closed' is enumerated under polarity_or_logic and the commit subject names exactly that; an alternative reading is unrepresented_clause (the source's family-size correspondence requirement was not enforced), which is why confidence is 0.75 rather than higher. Counter-consideration for the reviewer: the fix also widens the input surface with two inputs the module never previously claimed, so part of this is validation hardening rather than a corrected formula value; the pre-existing attestation input shows the module did already claim the correspondence, which is what tips it to fidelity. Context: this commit landed inside PR #1007, the PR that introduced the module, so it is a pre-merge repair -- the defect never shipped on main. The PR's blind review (issue comment) listed six blocking findings including 'runtime validity is diagnostic only, so structurally invalid inputs still emit affirmative results', which is the same fail-open family but does not name the FPL/family-size mismatch specifically; there are no PR reviews or review comments in the bundle. Sibling repair commits in the same series: c3b9a2ea6 'Make Medicaid relation orientation executable' (parent) and 30e2327e4 'fix: repair Medicaid MAGI household pipeline'.",
+    "verifier_verdict": "not_a_defect",
+    "verifier_defect_kind": "none",
+    "verifier_confidence": 0.62,
+    "verifier_justification": "The diff changes no policy formula: it appends two conjuncts and two new caller-supplied inputs to the `medicaid_scalar_contract_valid` input contract, while the %FPL denominator, the (d)(4) 5-point disregard, membership, and standards logic are untouched, and the fail-closed gating (`medicaid_magi_household_runtime_inputs_valid` → `eligible_under_highest_applicable_magi_income_standard`) already existed in parent c3b9a2ea60. The correspondence requirement the reader calls unrepresented was already encoded pre-fix as the conjunct `applicable_family_size_fpl_year_region_and_budget_correspondence_attested` (\"Required attestation that family size and annual FPL correspond to each other…\"), on a formula proof atom already citing us/regulation/42/435/603/d with the excerpt \"Federal poverty level for the applicable family size\". The pinned provision text of (d)(4) says only \"subtract an amount equivalent to 5 percentage points of the Federal poverty level for the applicable family size\" — it states no lookup-key verification duty, and the added `authoritative_fpl_lookup_*` values are themselves inputs, so a self-consistent but wrong pair (declared size 1, FPL 21,640, lookup 1 / 21,640) still passes post-fix. That is added input-integrity precision the module never claimed, not an encoded meaning that disagreed with the source, so neither polarity_or_logic nor unrepresented_clause holds.",
+    "verifier_quote": "+          and authoritative_fpl_lookup_family_size == applicable_family_size",
+    "verifier_notes": "Refutation evidence a reviewer can re-check quickly: (1) `git -C /Users/maxghenis/TheAxiomFoundation/rulespec-us show c3b9a2ea6039f05f27e2c4550d3cdbfbb2ee9372:us/policies/medicaid/magi_household_income_pipeline.yaml | sed -n '926,965p'` shows the pre-fix rule already contains both the (d) proof atom excerpt \"Federal poverty level for the applicable family size\" and the attestation conjunct, so the source clause was represented before the change. (2) The added inputs are declared under `inputs:`, e.g. the diff's own description line \"Family-size key returned by the authoritative HHS poverty-guideline lookup for the determination year and region; it must equal the applicable family size.\" — the module still never reads an HHS table, so the guard only catches contradiction between two caller declarations. (3) Same-commit test `family_size_fpl_amount_mismatch_with_true_attestation_fails_closed` frames the target as a caller whose attestation is untrue (\"The true attestation cannot override the structural lookup mismatch\"), i.e. a trust-boundary hardening; the honest-mismatch path was already covered pre-fix by the `unattested_family_size_fpl_scalars` case. (4) The commit landed inside PR #1007 which introduced the module, after MaxGhenis's blind review whose campaign-wide lesson was architectural — \"State elections under 435.603 … get explicit election inputs that fail closed — no assumed defaults\" — a repo design standard, not a provision of 42 CFR 435.603. Residual doubt (why 0.62, not higher): the reviewer's blocking finding \"runtime validity is diagnostic only, so structurally invalid inputs still emit affirmative results\" is genuinely a fail-open complaint, and one could argue applying a non-corresponding guideline to the (d)(4) comparison contradicts the provision's \"for the applicable family size\" wording; if the corpus counts review-driven fail-closed hardening of an already-attested precondition as fidelity, this would be polarity_or_logic, and \"unclear\" would be the fallback rather than confirmed.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Single-module commit; the only module change is +5 conjuncts in rules[medicaid_scalar_contract_valid].versions[0].formula and +2 new inputs (authoritative_fpl_lookup_family_size, authoritative_fpl_lookup_annual_guideline_amount). No other rule, version, effective date, parameter, or output changed. Provision was read through the pinned corpus release (us/regulation/42/435/603/d resolved, 1828 chars) and does contain 'Federal poverty level for the applicable family size', so the source does tie the FPL denominator to the applicable family size. Evidence that the pre-fix behavior was fail-open and not merely missing precision: the new companion case 'family_size_fpl_amount_mismatch_with_true_attestation_fails_closed' (applicable_family_size 1, supplied FPL 21640, authoritative lookup 1/15960, attestation true) asserts internal_eligible_under_highest_applicable_magi_income_standard: holds while the gated eligible_under_highest_applicable_magi_income_standard: not_holds -- i.e. before the guard the module emitted an affirmative result off the family-2 denominator; its yaml comment states 'The true attestation cannot override the structural lookup mismatch.' Kind judgment: 'fail-open vs fail-closed' is enumerated under polarity_or_logic and the commit subject names exactly that; an alternative reading is unrepresented_clause (the source's family-size correspondence requirement was not enforced), which is why confidence is 0.75 rather than higher. Counter-consideration for the reviewer: the fix also widens the input surface with two inputs the module never previously claimed, so part of this is validation hardening rather than a corrected formula value; the pre-existing attestation input shows the module did already claim the correspondence, which is what tips it to fidelity. Context: this commit landed inside PR #1007, the PR that introduced the module, so it is a pre-merge repair -- the defect never shipped on main. The PR's blind review (issue comment) listed six blocking findings including 'runtime validity is diagnostic only, so structurally invalid inputs still emit affirmative results', which is the same fail-open family but does not name the FPL/family-size mismatch specifically; there are no PR reviews or review comments in the bundle. Sibling repair commits in the same series: c3b9a2ea6 'Make Medicaid relation orientation executable' (parent) and 30e2327e4 'fix: repair Medicaid MAGI household pipeline'. | verifier said not_a_defect at 0.62 (below 0.7); kept as unclear",
+  "family_id": "us-3a3f3bf5-d5836ad516bc",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

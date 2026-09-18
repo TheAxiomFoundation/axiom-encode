@@ -1,0 +1,117 @@
+{
+  "id": "us-011-095d680d-statutes-26-63-f",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "095d680d471e75d35256db564f5dd547ca248a1e",
+  "parent_commit": "7d6981ae34844c047d9fee10a181438a9b5d6de1",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Bulk mixed refresh whose squash body includes \"Repair RuleSpec validation coverage\" and \"Repair validation tail for refreshed RuleSpecs\"; module diffs carry semantic changes (151 adds a deferred_output making exemption_phaseout_applicable_percentage non-executable because 68(b) no longer defines the applicable amount; 24 rewrites phaseout threshold selection and qualifying-child predicates; 1402/a drops 1401 import proof atoms) alongside text->excerpt format renames and new subsection modules; later stage should read the diff.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/46",
+  "module_path": "statutes/26/63/f.yaml",
+  "corpus_citation_path": "us/statute/26/63",
+  "corpus_citation_paths_all": [
+    "us/statute/26/63"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.35,
+  "description": "Repairs generated test/input drift in 26 USC child tax credit and related tax modules so current child-module input slots and cross-module proof hashes resolve cleanly.",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        208,
+        208
+      ],
+      [
+        284,
+        284
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        208,
+        208
+      ],
+      [
+        284,
+        284
+      ],
+      [
+        316,
+        368
+      ]
+    ],
+    "rule_names": [
+      "additional_standard_deduction_amount_under_subsection_f",
+      "spouse_aged_additional_amount_entitlement",
+      "spouse_blind_additional_amount_entitlement"
+    ],
+    "rule_path": "rules[additional_standard_deduction_amount_under_subsection_f].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "b1a07c4c373c8211bd087a334cc43a880dd442a9d37e4bd58289ab04e4be76d3",
+  "post_fix_artifact_sha256": "f4af216ba9d20c25fa4cfdb0f69531fa296ec569828f3edb3314d5fa2915621e",
+  "provision_sha256": "7fa5f5d72de7ef69a3543175d7f57f83aaee5defb237144d85afef68564f153b",
+  "provision_chars": 8017,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/63",
+    "provision_file": "data/corpus/provisions/us/statute/2026-05-10-tax-sections-r2026-07-15-self-contained-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "f48f152a03f99915c6ac9a847986e238ebeddd29ffb4199f0528c5e2a406eae4",
+    "line_number": 3,
+    "record_id": "7acfd1b0-b61a-5a75-ab49-380a365a45a2",
+    "stored_body_sha256": "7fa5f5d72de7ef69a3543175d7f57f83aaee5defb237144d85afef68564f153b",
+    "resolved_text_sha256": "7fa5f5d72de7ef69a3543175d7f57f83aaee5defb237144d85afef68564f153b",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2025-12-03",
+    "source_as_of": "2025-12-03",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us/statute/26/63",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/63'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/63'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/63'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/63'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "unclear",
+    "pre_fix_wrong_because": "The module encoded the four aged/blind entitlement booleans and the $600/$750 parameters but produced no aggregate additional-amount output, so the sum that 63(c)(3) requires ('the sum of each additional amount to which the taxpayer is entitled under subsection (f)') was missing and 63(c)'s import of it dangled.",
+    "triage_notes": "Two import-hash refreshes for us:statutes/26/151#exemption_individual_eligible plus one wholly new rule, additional_standard_deduction_amount_under_subsection_f, which counts the four entitlements and multiplies by additional_amount_for_each_aged_or_blind_entitlement. Verified against the parent commit: that output did not exist pre-fix while statutes/26/63/c.yaml already imported it (index 52 only refreshed its hash), so this is most plausibly repair of a dangling import rather than correction of a wrong meaning - hence unclear, not fidelity. Note the new aggregate consumes additional_amount_for_each_aged_or_blind_entitlement as an external input (already listed in the module's pre-existing deferred_outputs as blocked by 7703 and 2(a)), so it still does not implement the (f)(3) $750-for-$600 substitution even though both the $600 and $750 parameters are encoded in the module.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.72,
+    "verifier_justification": "I tried to refute the \"unclear\" call and instead found the gap is real and cross-module verifiable: at the parent (7d6981ae34) `statutes/26/63/c.yaml` already declared `imports: us:statutes/26/63/f#additional_standard_deduction_amount_under_subsection_f` and its rule `additional_standard_deduction` (source IRC 63(c)(3), excerpt \"the additional standard deduction is the sum of each additional amount to which the taxpayer is entitled under subsection (f).\") consisted of nothing but that symbol — yet no rule of that name existed anywhere in `26/63/f.yaml` (rule list at the parent ends at `spouse_blind_additional_amount_entitlement`). So the encoded 63(f) carried the four aged/blind entitlement booleans and the $600/$750 parameters but produced no money output at all, and 63(c)(3)'s sum was unrepresented. This commit adds that money rule (entitlement count × per-entitlement amount), grounded on verbatim 63(f)(1)-(3) text (\"The taxpayer shall be entitled to an additional amount of $600\"; \"substituting “$750” for “$600”\"), with the companion test asserting 1200 for a taxpayer entitled on two counts — an added output that the source and the sibling module both required, i.e. unrepresented_clause rather than mere new scope. The only other changes to this module are two `us:statutes/26/151#exemption_individual_eligible` import-hash updates, which are mechanical.",
+    "verifier_quote": "+- name: additional_standard_deduction_amount_under_subsection_f\n+      ) * additional_amount_for_each_aged_or_blind_entitlement",
+    "verifier_notes": "History shows this is a regression restored, not first-time coverage: at 86e2549dc (2026-05-12) f.yaml had both `applicable_aged_or_blind_additional_amount` (formula `if filing_status == 0 or filing_status == 3: unmarried_not_surviving_spouse_additional_amount else: aged_or_blind_additional_amount`) and `additional_standard_deduction_amount_under_subsection_f`; the 2026-05-17 re-encode (3fe1c7bc3 \"Encode 26 USC 63(f) with versioned provenance\") dropped both while 63/c.yaml kept importing the aggregate, leaving 63(c)'s additional standard deduction unresolvable for six days. Caveat a reviewer should weigh: the restored rule is only partly executable from the statute — it multiplies by `additional_amount_for_each_aged_or_blind_entitlement`, which is defined by no rule in the module and is declared in the pre-existing (unchanged) `module.deferred_outputs` as blocked by 7703 married status and 2(a) surviving spouse; the tests supply it as an input (`us:statutes/26/63/f#input.additional_amount_for_each_aged_or_blind_entitlement: 600`). So the fix restores the 63(c)(3) sum structure and the entitlement-to-money mapping but still defers the $600-vs-$750 selection. If the corpus wants to exclude \"generated-artifact drift repairs\", note the trigger here was validation/import resolution (PR body: \"so current child-module input slots and cross-module proof hashes resolve cleanly\") rather than a discovered misreading — but the pre-state genuinely failed to encode a clause the source states, so I score it fidelity. Also note the aggregation is faithful only because 63(f)(1) and (2) use the same per-entitlement amount and (3) substitutes uniformly; count × amount would be wrong if the amounts ever diverged.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Two import-hash refreshes for us:statutes/26/151#exemption_individual_eligible plus one wholly new rule, additional_standard_deduction_amount_under_subsection_f, which counts the four entitlements and multiplies by additional_amount_for_each_aged_or_blind_entitlement. Verified against the parent commit: that output did not exist pre-fix while statutes/26/63/c.yaml already imported it (index 52 only refreshed its hash), so this is most plausibly repair of a dangling import rather than correction of a wrong meaning - hence unclear, not fidelity. Note the new aggregate consumes additional_amount_for_each_aged_or_blind_entitlement as an external input (already listed in the module's pre-existing deferred_outputs as blocked by 7703 and 2(a)), so it still does not implement the (f)(3) $750-for-$600 substitution even though both the $600 and $750 parameters are encoded in the module. | verifier confirmed at 0.72; promoted from unclear",
+  "family_id": "us-095d680d-b63bc7eb8b83",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

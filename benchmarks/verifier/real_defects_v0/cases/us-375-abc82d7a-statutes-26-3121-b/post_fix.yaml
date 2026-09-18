@@ -1,0 +1,101 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/statute/26/3121
+  summary: |-
+    26 USC 3121(b) defines “employment” as any service of whatever nature performed by an employee for the employing person within the United States, on or in connection with an American vessel or aircraft under stated United States contract or port-touching conditions, outside the United States by a United States citizen or resident as an employee for an American employer, or designated/recognized employment under a Social Security Act section 233 agreement; it then lists exclusions in paragraphs (1) through (22).
+  deferred_outputs:
+    - output: us:statutes/26/3121/b#service_excluded_from_employment
+      reason: >-
+        A complete executable exclusion aggregator must include paragraph (8)(B), which excludes service in the employ of a church or qualified church-controlled organization with an election under subsection (w), other than service in an unrelated trade or business within the meaning of section 513(a). The copied child file for 26 USC 3121(b)(8) defers that branch because no executable RuleSpec context provides the section 513(a) unrelated-trade-or-business definition. Omitting that branch would make the aggregate exclusion underinclusive.
+      blocked_by:
+        - us:statutes/26/3121/b/8#church_election_service_excluded_from_employment
+    - output: us:statutes/26/3121/b#employment
+      reason: >-
+        The final definition of “employment” equals the opening inclusion rule subject to all exclusions in paragraphs (1) through (22). Because the complete aggregate exclusion is deferred for the unresolved paragraph (8)(B) church-election branch, the final employment output is also deferred.
+      blocked_by:
+        - us:statutes/26/3121/b#service_excluded_from_employment
+rules:
+  - name: employment_inclusion_without_exceptions
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    source: 26 USC 3121(b)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: definition
+            source:
+              corpus_citation_path: us/statute/26/3121
+              excerpt: the term “employment” means any service, of whatever nature, performed ... by an employee for the person employing him
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/statute/26/3121
+              excerpt: within the United States
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/statute/26/3121
+              excerpt: on or in connection with an American vessel or American aircraft under a contract of service which is entered into within the United States
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/statute/26/3121
+              excerpt: outside the United States by a citizen or resident of the United States as an employee for an American employer
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: us/statute/26/3121
+              excerpt: designated as employment or recognized as equivalent to employment under an agreement entered into under section 233 of the Social Security Act
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          (
+            service_performed_by_employee_for_person_employing_employee
+            and (
+              service_performed_within_united_states
+              or (
+                service_performed_on_or_in_connection_with_american_vessel_or_aircraft
+                and (
+                  contract_of_service_entered_into_within_united_states
+                  or vessel_or_aircraft_touches_at_port_in_united_states_during_contract_performance_while_employee_employed_on_vessel_or_aircraft
+                )
+                and employee_employed_on_and_in_connection_with_vessel_or_aircraft_when_outside_united_states
+              )
+              or (
+                service_performed_outside_united_states_by_citizen_or_resident_of_united_states
+                and employee_for_american_employer
+              )
+            )
+          )
+          or service_designated_as_employment_or_recognized_as_equivalent_under_social_security_act_section_233_agreement
+
+  - name: indian_tribal_council_member_service_excluded_from_employment
+    kind: derived
+    entity: Payment
+    dtype: Judgment
+    period: Year
+    source: 26 USC 3121(b)(22)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: exception
+            source:
+              corpus_citation_path: us/statute/26/3121
+              excerpt: service performed by members of Indian tribal councils as tribal council members in the employ of an Indian tribal government
+          - path: versions[0].formula
+            kind: exception
+            source:
+              corpus_citation_path: us/statute/26/3121
+              excerpt: except that this paragraph shall not apply in the case of service included under an agreement under section 218A of the Social Security Act
+    versions:
+      - effective_from: '1990-01-01'
+        formula: |-
+          service_performed_by_member_of_indian_tribal_council_as_tribal_council_member_in_employ_of_indian_tribal_government
+          and not service_included_under_agreement_under_section_218A_of_social_security_act

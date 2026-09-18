@@ -1,0 +1,172 @@
+{
+  "id": "us-470-bfadb955-us-ca-policies-cdss-snap-modified-categorical-eligibility",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "bfadb955942721ce4bb31ea784a9d4beaede3f90",
+  "parent_commit": "2a0771d0259a005d11b6dc12fa0e38833505c6c7",
+  "commit_date": "2026-07-29",
+  "commit_subject": "fix: bind MCE gates to canonical member projection",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1176",
+  "module_path": "us-ca/policies/cdss/snap/modified-categorical-eligibility.yaml",
+  "corpus_citation_path": "us-ca/statute/wic/18901.5",
+  "corpus_citation_paths_all": [
+    "us-ca/statute/wic/18901.5",
+    "us-ca/statute/wic/18901.3",
+    "us-ca/guidance/cdss/acl-2014-14-56/page-1",
+    "us-ca/guidance/cdss/acl-2014-14-56/page-3",
+    "us-ca/guidance/cdss/acl-2014-14-56e/page-2",
+    "us-ca/guidance/cdss/acl-2015-15-42/page-2",
+    "us-ca/guidance/cdss/acin-2025-i-46-25/page-7",
+    "us/regulation/7/273/2"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "wrong_entity_or_scope",
+  "other_kind": null,
+  "confidence": 0.6,
+  "description": "fix: bind MCE gates to canonical member projection",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        149,
+        149
+      ],
+      [
+        404,
+        404
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        47,
+        67
+      ],
+      [
+        170,
+        170
+      ],
+      [
+        425,
+        425
+      ]
+    ],
+    "rule_names": [
+      "calfresh_mce_canonical_member_of_household",
+      "calfresh_mce_household_exclusion_applies",
+      "calfresh_mce_status_conferred"
+    ],
+    "rule_path": "rules[calfresh_mce_status_conferred].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "ac91b1fa093a052069b164c413cc48635ea5ba12c42051caba7560ad6b891d08",
+  "post_fix_artifact_sha256": "e3f0cba2db961677b93da24ff6246dfed52da6ca60b9f91e308e8015e3170adc",
+  "provision_sha256": "6d449e85065884251b743c955a88d78adec29e444e3762d1f9608580efddc615",
+  "provision_chars": 1154,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-ca/statute/wic/18901.5",
+    "provision_file": "data/corpus/provisions/us-ca/statute/2026-07-28-ca-cdss-calfresh-bbce-authority-us-ca-sections-wic-18901.3-wic-18901.5.jsonl",
+    "provision_file_sha256": "b4ab85f9d45b56003fb6433d2799c5b4c33b473886b58519c54bd52380d28060",
+    "line_number": 2,
+    "record_id": "c816033e-92fb-5590-81c9-c72b72ed13d5",
+    "stored_body_sha256": "6d449e85065884251b743c955a88d78adec29e444e3762d1f9608580efddc615",
+    "resolved_text_sha256": "6d449e85065884251b743c955a88d78adec29e444e3762d1f9608580efddc615",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-28",
+    "source_as_of": "2026-07-28",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "8af592162231e9de748ba6b98792b426ad4fe8b7",
+    "requested_citation_path": "us-ca/statute/wic/18901.5",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us-ca/statute/wic/18901.5'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us-ca/statute/wic/18901.5'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us-ca/statute/wic/18901.5'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us-ca/statute/wic/18901.5'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us-ca/statute/wic/18901.5'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us-ca/statute/wic/18901.5'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us-ca/statute/wic/18901.5'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us-ca/statute/wic/18901.5'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us-ca/statute/wic/18901.5'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us-ca/statute/wic/18901.5'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us-ca/statute/wic/18901.5'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us-ca/statute/wic/18901.5'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us-ca/statute/wic/18901.5'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us-ca/statute/wic/18901.5'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us-ca/statute/wic/18901.5'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us-ca/statute/wic/18901.5'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "Both MCE membership aggregations ranged over a bare `member_of_household` name that did not resolve to the imported federal state-plan relation and compiled as an unqualified implicit relation, so the 7 CFR 273.2(j)(2)(vii) household bars and the (ix) member exclusions/eligible-member test were not evaluated over the household's actual canonical member set.",
+    "triage_notes": "Read the diff, both pre- and post-fix module text, the federal `us/policies/usda/snap/state-plan-composition.yaml` relation definition (data_relation member_of_household, arguments Person, Household — consistent with the new projection's current_slot: 1 / related_slot: 0 for a Household-entity aggregation), and the cited provision via resolve_provision (us/regulation/7/273/2 resolved fine; the new proof atom's excerpt 'No person shall be included as a member in any household which is otherwise categorically eligible if that person is:' is byte-verbatim in paragraph (j)(2)(ix), and (vii)(D) reads 'Any member of that household is ineligible...', so both gates must range over the real household member set). The commit body is empty; the PR body describes the whole encoding, not this defect. The decisive prose evidence is the PROGRESS.md hunk in this same commit (not one of the allowed quote_source values, so the commit subject is quoted instead): 'The first full program compile exposed that a bare imported relation name with a local predicate remained an unqualified implicit relation. Replaced that alias with a private, tautological derived relation whose executable source is the fully qualified federal state-plan relation; both MCE aggregations now range over this complete canonical projection.' Repair chain context: c0487985b originally encoded a CA-local `calfresh_mce_member_of_household` data_relation; 2a0771d02 ('fix: close CalFresh MCE membership fail-open') deleted it and substituted the bare federal name; this commit completes the binding. REVIEWER CAVEAT: this is a borderline item. The intended meaning was already correct in words — the defect is a cross-module relation-resolution/binding failure whose consequence is a wrong member set (the household-bar aggregation silently fails open and the eligible-member test fails closed on an unpopulated relation). A judge comparing only module text to the statute could not detect it without knowing RuleSpec's relation-resolution rules, so if the corpus is restricted to source-text-detectable defects, prune this one; it is not mechanical under the stated definition, because formulas changed and the member set the gates evaluate over changed. The commit touched nothing else in the module (no parameter, version, effective-date, or scope changes beyond the two count_where arguments) and only PROGRESS.md besides.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_entity_or_scope",
+    "verifier_confidence": 0.74,
+    "verifier_justification": "I tried to refute this as mechanical plumbing and could not: the diff rewrites two executable formulas' aggregation domain and adds an executable `derived_relation` rule, so nothing in the mechanical carve-out (hashes, pins, metadata, excerpts) applies. The same commit's PROGRESS.md states the pre-fix state verbatim — \"The first full program compile exposed that a bare imported relation name with a local predicate remained an unqualified implicit relation\" — so before the fix the `count_where` in `calfresh_mce_household_exclusion_applies` and in `calfresh_mce_status_conferred` did not range over the canonical federal `member_of_household` projection, and the engine's `infer_slots` shows the bare name lowers into an auto-emitted relation with `slot_entities: Vec::new(), derivation: None`. The corpus text of 7 CFR 273.2(j)(2)(vii)(A)/(D) (\"Any member of that household is disqualified…\") and (ix) (\"No person shall be included as a member in any household which is otherwise categorically eligible if that person is:\") are member-scoped tests, so aggregating them over an unbound relation instead of the household's actual member set is a member-set/scope divergence, not a polarity flip (the mis-binding fails open on the exclusion gate and fails closed on the eligible-member gate). wrong_entity_or_scope, which the taxonomy defines to cover \"household member set,\" is the right kind.",
+    "verifier_quote": "-            member_of_household,\n+            calfresh_mce_canonical_member_of_household,",
+    "verifier_notes": "Supporting evidence, verbatim from the same commit's PROGRESS.md hunk (not the module diff, so not used as the decisive quote): \"The first full program compile exposed that a bare imported relation name with a local predicate remained an unqualified implicit relation. Replaced that alias with a private, tautological derived relation whose executable source is the fully qualified federal state-plan relation; both MCE aggregations now range over this complete canonical projection.\" The added rule binds `source_relation: us:policies/usda/snap/state-plan-composition#relation.member_of_household` with `current_slot: 1 / related_slot: 0`, which matches the engine's fixed `infer_slots` convention (axiom-rules-engine src/formula.rs: \"Preserve the established runtime convention: current entity in slot 1, related entity in slot 0\"), so the slot orientation is unchanged and the only semantic change is which relation is aggregated. `us/policies/usda/snap/state-plan-composition.yaml` declares `member_of_household` as a `kind: data_relation` over [Person, Household]; the engine docs note that repo-backed execution requests \"reject bare output, input, and relation names\" and key relation rows by durable id (`…#relation.member_of_household`), which is why the unqualified alias could not receive the canonical rows.\n\nTwo caveats a reviewer should weigh:\n1. Provenance: bfadb95594 is an intra-PR repair commit inside PR #1176, the PR that first encodes this module (file history: c0487985b → a350ed6ba → 4ce32e959 → e4d561a24 → 2a0771d02 → bfadb95594, all pre-merge). The defective state never existed on main outside the PR branch. If the corpus is meant to capture defects in shipped encodings, this is a WIP repair round rather than a regression fix.\n2. Near-duplicate with its parent: 2a0771d0 (\"fix: close CalFresh MCE membership fail-open\") changed the exact same two `count_where` lines, deleting a CA-local `calfresh_mce_member_of_household` data_relation that could diverge from the federal household. Parent and child are two passes at the same underlying member-set scope problem; scoring both as independent fidelity defects double-counts one issue, and the \"fail-open/polarity\" framing belongs to the parent, not to this commit.\n3. Character of the bug: this is a DSL name-binding failure whose fidelity consequence is the aggregation domain. A stricter \"encoded meaning vs. source text\" reading could file it as a compile/binding defect rather than a misreading of the provision; under the supplied taxonomy (which lists \"household member set\" under wrong_entity_or_scope) it still lands as fidelity, but that is the main axis on which this could be argued down to unclear.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Read the diff, both pre- and post-fix module text, the federal `us/policies/usda/snap/state-plan-composition.yaml` relation definition (data_relation member_of_household, arguments Person, Household — consistent with the new projection's current_slot: 1 / related_slot: 0 for a Household-entity aggregation), and the cited provision via resolve_provision (us/regulation/7/273/2 resolved fine; the new proof atom's excerpt 'No person shall be included as a member in any household which is otherwise categorically eligible if that person is:' is byte-verbatim in paragraph (j)(2)(ix), and (vii)(D) reads 'Any member of that household is ineligible...', so both gates must range over the real household member set). The commit body is empty; the PR body describes the whole encoding, not this defect. The decisive prose evidence is the PROGRESS.md hunk in this same commit (not one of the allowed quote_source values, so the commit subject is quoted instead): 'The first full program compile exposed that a bare imported relation name with a local predicate remained an unqualified implicit relation. Replaced that alias with a private, tautological derived relation whose executable source is the fully qualified federal state-plan relation; both MCE aggregations now range over this complete canonical projection.' Repair chain context: c0487985b originally encoded a CA-local `calfresh_mce_member_of_household` data_relation; 2a0771d02 ('fix: close CalFresh MCE membership fail-open') deleted it and substituted the bare federal name; this commit completes the binding. REVIEWER CAVEAT: this is a borderline item. The intended meaning was already correct in words — the defect is a cross-module relation-resolution/binding failure whose consequence is a wrong member set (the household-bar aggregation silently fails open and the eligible-member test fails closed on an unpopulated relation). A judge comparing only module text to the statute could not detect it without knowing RuleSpec's relation-resolution rules, so if the corpus is restricted to source-text-detectable defects, prune this one; it is not mechanical under the stated definition, because formulas changed and the member set the gates evaluate over changed. The commit touched nothing else in the module (no parameter, version, effective-date, or scope changes beyond the two count_where arguments) and only PROGRESS.md besides. | verifier confirmed at 0.74",
+  "family_id": "us-bfadb955-9c1237d8fd6b",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

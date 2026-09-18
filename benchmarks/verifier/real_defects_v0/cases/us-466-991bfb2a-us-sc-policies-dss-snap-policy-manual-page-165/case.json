@@ -1,0 +1,112 @@
+{
+  "id": "us-466-991bfb2a-us-sc-policies-dss-snap-policy-manual-page-165",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "991bfb2ace1de204c8413eae858838b057fbe33b",
+  "parent_commit": "bec5142d32a84bc6a8bb51ed5d96682f6b00cbf7",
+  "commit_date": "2026-07-27",
+  "commit_subject": "fix: require shared-residence utility agreement",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1139",
+  "module_path": "us-sc/policies/dss/snap-policy-manual/page-165.yaml",
+  "corpus_citation_path": "us-sc/manual/dss/snap-policy-manual/page-165",
+  "corpus_citation_paths_all": [
+    "us-sc/manual/dss/snap-policy-manual/page-165"
+  ],
+  "corpus_release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+  "corpus_release_content_sha256": "cb275c76c4f07f8ad37470a32296bb1763e5db853d152697524ab07021b6d544",
+  "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.88,
+  "description": "shared-residence agreement now gates MUA/BUA/actual/telephone outcomes (adversarial case returns $0)",
+  "description_source": "pr_review",
+  "locator": {
+    "pre_fix_lines": [],
+    "post_fix_lines": [
+      [
+        93,
+        98
+      ],
+      [
+        104,
+        104
+      ],
+      [
+        121,
+        126
+      ],
+      [
+        131,
+        131
+      ],
+      [
+        146,
+        146
+      ],
+      [
+        159,
+        164
+      ],
+      [
+        171,
+        171
+      ],
+      [
+        255,
+        255
+      ]
+    ],
+    "rule_names": [
+      "multiple_utility_allowance_entitlement",
+      "basic_utility_allowance_entitlement",
+      "actual_utility_costs_allowed",
+      "same_residence_utility_allowance_agreement_requirement_satisfied"
+    ],
+    "rule_path": "rules[multiple_utility_allowance_entitlement].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "15aefb4d09c0bb173285a3c7f1f7f42ca411315d1d5170b5a7ff35d291d2c759",
+  "post_fix_artifact_sha256": "9146cdfbf1bb21723f93fde96984037005c87b5d440906e54ea17db7569050ef",
+  "provision_sha256": "cd1ac04bf8956dd17aac5420ac0e99fb1fb89ebffd8e12e59afddb296c06d8be",
+  "provision_chars": 1699,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-sc/manual/dss/snap-policy-manual/page-165",
+    "provision_file": "data/corpus/provisions/us-sc/manual/2026-05-27-sc-snap-manual.jsonl",
+    "provision_file_sha256": "c21539d472ea105695da5e007b24839b5f4e8cea9f4e6066a933e6d3817a8e13",
+    "line_number": 166,
+    "record_id": "6661957c-9fd7-5334-8850-b85fcd9e1c3e",
+    "stored_body_sha256": "cd1ac04bf8956dd17aac5420ac0e99fb1fb89ebffd8e12e59afddb296c06d8be",
+    "resolved_text_sha256": "cd1ac04bf8956dd17aac5420ac0e99fb1fb89ebffd8e12e59afddb296c06d8be",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-01-01",
+    "source_as_of": "2025-12-30",
+    "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "bf97b17baebfdf12601f7c23697524bf5adcdaed",
+    "requested_citation_path": "us-sc/manual/dss/snap-policy-manual/page-165",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The p.165 requirement that multiple households living in the same residence agree on the allowance type existed only as a rule no other formula referenced, so MUA, BUA, actual-cost and telephone-standard entitlement all held regardless of whether that agreement existed.",
+    "triage_notes": "Verified the pre-fix file (parent bec5142d3) already defined `same_residence_utility_allowance_agreement_requirement_satisfied` at line 220 with no other rule referencing it — the round-1 finding called it the 'orphaned shared-residence condition'. The fix adds `and same_residence_utility_allowance_agreement_requirement_satisfied` to `basic_utility_allowance_entitlement`, `multiple_utility_allowance_entitlement`, and `actual_utility_costs_allowed` (plus matching import proof atoms); the telephone standard is gated transitively via `actual_utility_cost_deduction_allowed` -> `actual_utility_costs_allowed`, with no direct edit to `household_entitled_to_telephone_only_standard`. Source read through resolve_provision.py (release us-rulespec-2026-07-24-snap-cms-pit-union, fix_time_corpus_match: same_body): p.165 states verbatim 'Multiple households living in the same residence must agree on the type of utility allowance, either MUA, BUA or actual.' and 'Actual utility costs are only allowed for households not entitled to the MUA or BUA.' — both added here as proof-atom excerpts. Those two excerpt additions are provenance-only (mechanical in isolation), but the module's formula changes are the fidelity correction, so the module classifies fidelity. Could arguably be read as polarity_or_logic since the fix adds a conjunct, but the root cause is a source clause absent from the encoded meaning, so unrepresented_clause. Quote is a maintainer PR comment (issue_comment on PR #1139) recording the repair round; commit body is empty.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.88,
+    "verifier_justification": "I tried to refute this three ways and it survived all three. The pinned corpus text for us-sc/manual/dss/snap-policy-manual/page-165 states verbatim \"Multiple households living in the same residence must agree on the type of utility allowance, either MUA, BUA or actual\", yet at the parent commit `same_residence_utility_allowance_agreement_requirement_satisfied` was referenced nowhere outside its own companion test (`git grep` at bec5142d32 finds it only at page-165.yaml:220 and in page-165.test.yaml), so MUA, BUA, actual-cost and the downstream telephone-only standard all held regardless of that requirement. The fix changes encoded meaning, not provenance: it adds the conjunct to three formulas (`basic_utility_allowance_entitlement`, `multiple_utility_allowance_entitlement`, `actual_utility_costs_allowed`) plus matching import proof atoms, and the new companion cases show the behavioral flip to $0. The \"new coverage the module never claimed\" escape fails because the pre-fix module summary already asserted \"Shared-residence households must agree on the allowance type\", so the module claimed the clause and simply left it unbound — a source-stated condition missing from the encoding, i.e. unrepresented_clause rather than polarity_or_logic (no conjunct was inverted) or untraceable_branch (nothing was removed or re-grounded).",
+    "verifier_quote": "+          and same_residence_utility_allowance_agreement_requirement_satisfied",
+    "verifier_notes": "Evidence trail: diff /private/tmp/claude-501/-Users-maxghenis-TheAxiomFoundation-axiom-encode--claude-worktrees-zealous-heyrovsky-31a96b/86103d8f-b97f-4559-a96c-7e79bdbe616d/scratchpad/diffs/us/991bfb2ace/001.diff; module at /Users/maxghenis/TheAxiomFoundation/rulespec-us us-sc/policies/dss/snap-policy-manual/page-165.yaml (pre bec5142d32, post 991bfb2ace). Three formulas gained the conjunct; the telephone outcome is gated transitively (household_entitled_to_telephone_only_standard -> actual_utility_cost_deduction_allowed -> actual_utility_costs_allowed), so the PR-comment phrase \"MUA/BUA/actual/telephone\" is accurate rather than loose. Behavior change is proven by three added cases in page-159.test.yaml (shared_residence_disagreement_blocks_{mua,bua,actual_and_telephone}_assignment) asserting snap_utility_allowance_for_shelter_costs: 0. Two excerpt strings were also added in the same diff; those alone would be mechanical/provenance, but they ride along with real formula changes, so the module is fidelity. One residual caveat for the reviewer: the source states the \"must agree\" requirement without stating the consequence of disagreement, so the fix's fail-closed ($0 allowance) reading of that consequence is the encoder's interpretation. That affects only whether the new encoding is optimal, not whether the pre-fix state was wrong — a mandatory source condition with zero effect on any output is under-representation either way. Same commit also touches page-159.yaml (module index 0, the $27-vs-$33 telephone precedence finding), which is a separate defect and should be judged on its own.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Verified the pre-fix file (parent bec5142d3) already defined `same_residence_utility_allowance_agreement_requirement_satisfied` at line 220 with no other rule referencing it — the round-1 finding called it the 'orphaned shared-residence condition'. The fix adds `and same_residence_utility_allowance_agreement_requirement_satisfied` to `basic_utility_allowance_entitlement`, `multiple_utility_allowance_entitlement`, and `actual_utility_costs_allowed` (plus matching import proof atoms); the telephone standard is gated transitively via `actual_utility_cost_deduction_allowed` -> `actual_utility_costs_allowed`, with no direct edit to `household_entitled_to_telephone_only_standard`. Source read through resolve_provision.py (release us-rulespec-2026-07-24-snap-cms-pit-union, fix_time_corpus_match: same_body): p.165 states verbatim 'Multiple households living in the same residence must agree on the type of utility allowance, either MUA, BUA or actual.' and 'Actual utility costs are only allowed for households not entitled to the MUA or BUA.' — both added here as proof-atom excerpts. Those two excerpt additions are provenance-only (mechanical in isolation), but the module's formula changes are the fidelity correction, so the module classifies fidelity. Could arguably be read as polarity_or_logic since the fix adds a conjunct, but the root cause is a source clause absent from the encoded meaning, so unrepresented_clause. Quote is a maintainer PR comment (issue_comment on PR #1139) recording the repair round; commit body is empty. | verifier confirmed at 0.88",
+  "family_id": "us-991bfb2a-2dff2288bf52",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

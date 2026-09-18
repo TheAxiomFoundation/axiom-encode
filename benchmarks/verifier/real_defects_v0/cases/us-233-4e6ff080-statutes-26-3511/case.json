@@ -1,0 +1,184 @@
+{
+  "id": "us-233-4e6ff080-statutes-26-3511",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "4e6ff08087de3ec311067882518d71b6b83c6651",
+  "parent_commit": "58040de130127230dafe31020de755814ab9ebcc",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Refresh of 3511 retargets deferred outputs and changes the customer-credit formulas from specified_credit_applies_to_customer_not_cpeo to credit_is_specified_in_subsection_d (branch/logic change).",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/330",
+  "module_path": "statutes/26/3511.yaml",
+  "corpus_citation_path": "us/statute/26/3511",
+  "corpus_citation_paths_all": [
+    "us/statute/26/3511"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.4,
+  "description": "regenerate 26 USC 3511 with axiom-encode 0.2.532 and gpt-5.5",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        7,
+        14
+      ],
+      [
+        16,
+        29
+      ],
+      [
+        31,
+        54
+      ],
+      [
+        56,
+        86
+      ],
+      [
+        88,
+        88
+      ],
+      [
+        90,
+        90
+      ],
+      [
+        92,
+        92
+      ],
+      [
+        94,
+        150
+      ],
+      [
+        152,
+        152
+      ],
+      [
+        154,
+        154
+      ],
+      [
+        156,
+        300
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        7,
+        8
+      ],
+      [
+        10,
+        15
+      ],
+      [
+        17,
+        40
+      ],
+      [
+        42,
+        74
+      ],
+      [
+        76,
+        99
+      ],
+      [
+        101,
+        132
+      ],
+      [
+        134,
+        163
+      ],
+      [
+        165,
+        183
+      ],
+      [
+        185,
+        208
+      ],
+      [
+        210,
+        239
+      ],
+      [
+        241,
+        259
+      ]
+    ],
+    "rule_names": [
+      "customer_takes_cpeo_paid_wages_and_employment_taxes_into_account_for_specified_credit",
+      "cpeo_information_furnishing_required_for_customer_credit"
+    ],
+    "rule_path": "rules[customer_takes_cpeo_paid_wages_and_employment_taxes_into_account_for_specified_credit].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "376859451d8bbfe50b0ce1c6fe333e1a0460a770d2d33bc812c4ac11da5fa8bf",
+  "post_fix_artifact_sha256": "c297dc3715c5436be27be35d7cb23c11c346ecab003e8fd7cbcf8dc9f81331e9",
+  "provision_sha256": "63f748ca7b799824ed43b227f0c36a85897e5e0467113637442b2c43bb0d4af6",
+  "provision_chars": 5691,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/3511",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "1b0b185ca3335eb06c4fe10af488a8984bdd2cedd4087badf78583c267af7b7b",
+    "line_number": 107,
+    "record_id": "42ce0e38-40cf-5256-849e-135c984c48ff",
+    "stored_body_sha256": "63f748ca7b799824ed43b227f0c36a85897e5e0467113637442b2c43bb0d4af6",
+    "resolved_text_sha256": "63f748ca7b799824ed43b227f0c36a85897e5e0467113637442b2c43bb0d4af6",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us/statute/26/3511",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3511'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3511'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3511'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3511'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "unclear",
+    "pre_fix_wrong_because": "unclear: the pre-fix encoding chained the 26 USC 3511(d)(1)(B) and (d)(1)(C) rules off the sibling clause (A) output specified_credit_applies_to_customer_not_cpeo, which silently imposed the extra conjunct work_site_employee_performs_services_for_customer_of_organization on them, whereas the statute's (d)(1) chapeau ('For purposes of any credit specified in paragraph (2)—') puts (A), (B) and (C) in parallel so (B) and (C) are conditioned only on the credit being specified in paragraph (2) plus their own clause conditions.",
+    "triage_notes": "Provision WAS read through the pinned corpus release (resolve_provision.py, us/statute/26/3511 at this commit): (d)(1) reads 'For purposes of any credit specified in paragraph (2)— (A) ... (B) ... (C) ...', with (A), (B), (C) parallel under a shared chapeau, which supports the post-fix grounding. I parsed both the parent (58040de1) and post-fix YAML and diffed them structurally: rule names, kind, entity, dtype, period, source, version counts and effective_from values are all identical; only the two formulas listed above changed. Everything else in the 545-line diff is non-semantic: whole-file YAML restyle (block sequences indented, formulas converted to |- block scalars, proof-atom excerpts reflowed/quoted), module summary reworded, an empty top-level 'imports:' key dropped, and the import proof atoms on the two changed rules (and on cpeo_information_furnishing_required_for_customer_credit) removed to match the new formulas. Reasons for 'unclear' rather than 'fidelity': (1) the commit subject is 'Refresh generated section 3511 payroll rules' and the PR body only says the change regenerates the artifact with axiom-encode 0.2.532 and gpt-5.5 and keeps the change 'scoped to generated RuleSpec artifacts only' — no defect is named and there are zero reviews, review comments, or issue comments on PR #330; (2) the rewritten companion test 'credit_treatment_and_information_furnishing_apply_to_customer' sets work_site_employee_performs_services_for_customer_of_organization: true, so it produces the same result under both the pre-fix and post-fix formulas and therefore provides no evidence that the old meaning was wrong; (3) for clause (B) the difference is arguably immaterial, since (B)(i) already scopes to 'the work site employee', so the practical divergence is confined to (C). Kind choice: untraceable_branch fits best because the fix re-grounds the two formulas from the wrong provision (sibling clause (d)(1)(A)) onto the chapeau (d)(1)/(d)(2); polarity_or_logic (an extra conjunct mis-combined into the AND) is a reasonable alternative reading. Separate caution for the reviewer: the deferred_outputs retargeting is arguably a disclosure regression rather than a fix — the post-fix module drops the honest deferrals for the section 3231(e)(2)(C) successor surface and the all-specified-credits surface without adding any rule that covers them, and replaces them with deferrals for the purely administrative subsections (g) and (h). The module also still carries effective_from '1990-01-01' for every version even though 26 USC 3511 was enacted by the ABLE Act of 2014 (effective for wages paid after 2015); that pre-existing date is unchanged by this commit and is not part of this defect.",
+    "verifier_verdict": "unclear",
+    "verifier_defect_kind": "untraceable_branch",
+    "verifier_confidence": 0.62,
+    "verifier_justification": "The diff does make exactly one meaning change — clauses (d)(1)(B) and (d)(1)(C) stop importing the sibling clause (A) output `specified_credit_applies_to_customer_not_cpeo` and are regrounded on the chapeau term `credit_is_specified_in_subsection_d` — so the change is real and, if it is a defect, `untraceable_branch` is the right kind (a condition and import dependency drawn from a sibling clause rather than from (B)/(C)'s own text). But I could not establish that the pre-fix encoding was wrong against the source: the conjunct it silently added, `work_site_employee_performs_services_for_customer_of_organization`, is arguably entailed rather than contra-textual, since (B)(i) and (C) use definite anaphora (\"the work site employee\", \"such credit\", \"the customer\") back to (A) and \"work site employee\" is customer-relative by definition, making the old conjunct redundant rather than a false narrowing. The provenance points away from a targeted correction: the manifest shows a plain re-encode of the same provision with the same model (gpt-5.5) on a newer encoder (0.2.303 → 0.2.532, fresh run_id, no repair findings), the commit body is empty, the PR body says only \"regenerate 26 USC 3511\", there are zero reviews or comments, and the rewritten companion test still sets `work_site_employee_performs_services_for_customer_of_organization: true` in the credit case, so it never exercises the changed behavior. Generic message plus an ambiguous (redundant-vs-ungrounded) formula change is exactly the \"default to unclear\" case; my attempt to refute failed to overturn the label, but it did shift the residual risk toward not_a_defect rather than confirmed.",
+    "verifier_quote": "-    formula: 'specified_credit_applies_to_customer_not_cpeo\n-\n-      and information_is_necessary_for_customer_to_claim_specified_credit'",
+    "verifier_notes": "Decisive counterpart added line (same diff, line 544-545): \"+          credit_is_specified_in_subsection_d\" / \"+          and information_is_necessary_for_customer_to_claim_specified_credit\". The (B) rule changes the same way at diff lines 495 and 378, and both rules also drop their `kind: import` proof atom targeting `us:statutes/26/3511#specified_credit_applies_to_customer_not_cpeo`.\n\nSource read through the pinned release (us-rulespec-2026-07-13, provision sha256 63f748ca...): \"(d) Treatment of credits (1) In general For purposes of any credit specified in paragraph (2)— (A) ... (B) ... (C) ...\", i.e. (A), (B), (C) are parallel under one chapeau, which supports the candidate reading structurally. What it does not settle is whether the extra conjunct made the old encoding produce a wrong answer, because (B)(i) already says \"paid by the certified professional employer organization with respect to the work site employee\" and (B)(ii) \"for which the certified professional employer organization receives payment from the customer\". 26 USC 7705 could not be resolved through the script (ambiguous active corpus citation across releases), so I could not pin the §7705(e)(1) definition of \"work site employee\" that the entailment argument rests on — a reviewer with that text could settle this case either way.\n\nBehavioral test if a reviewer wants to decide it: under the pre-fix module, credit_is_specified=true + wages-paid=true + receives-payment=true with work_site_employee_performs_services unset returns not_holds for (B); under post-fix it holds. Whether that divergence is a fidelity correction or a harmless de-redundancy is the whole question.\n\nEverything else in the 545-line diff is non-semantic churn consistent with a wholesale regeneration: whole-file YAML restyling (flow → block, quoted → |- scalars), summary rewrite, and excerpt normalization (e.g. \"a customer whose service contract\" → \"A customer whose service contract\", and (B)'s elided excerpt split into two verbatim ones) — all mechanical/provenance.\n\nOne separate item worth its own look, not covered by the candidate: deferred_outputs was retargeted. The pre version deferred `b#successor_employer_status_for_section_3231_e_2_C` and `d#customer_credit_treatment_for_all_specified_credits`; the post version drops both and instead defers `g#secretary_reporting_recordkeeping_rules` and `h#secretary_regulations`. No rule was added to cover the two dropped deferrals — (d)'s enumerated credit list is still an opaque input `credit_is_specified_in_subsection_d` in both versions — so the post version quietly stops declaring a known coverage gap. That is module-level metadata (mechanical by the stated rules), but it is a weakened provenance claim, not an improvement.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Provision WAS read through the pinned corpus release (resolve_provision.py, us/statute/26/3511 at this commit): (d)(1) reads 'For purposes of any credit specified in paragraph (2)— (A) ... (B) ... (C) ...', with (A), (B), (C) parallel under a shared chapeau, which supports the post-fix grounding. I parsed both the parent (58040de1) and post-fix YAML and diffed them structurally: rule names, kind, entity, dtype, period, source, version counts and effective_from values are all identical; only the two formulas listed above changed. Everything else in the 545-line diff is non-semantic: whole-file YAML restyle (block sequences indented, formulas converted to |- block scalars, proof-atom excerpts reflowed/quoted), module summary reworded, an empty top-level 'imports:' key dropped, and the import proof atoms on the two changed rules (and on cpeo_information_furnishing_required_for_customer_credit) removed to match the new formulas. Reasons for 'unclear' rather than 'fidelity': (1) the commit subject is 'Refresh generated section 3511 payroll rules' and the PR body only says the change regenerates the artifact with axiom-encode 0.2.532 and gpt-5.5 and keeps the change 'scoped to generated RuleSpec artifacts only' — no defect is named and there are zero reviews, review comments, or issue comments on PR #330; (2) the rewritten companion test 'credit_treatment_and_information_furnishing_apply_to_customer' sets work_site_employee_performs_services_for_customer_of_organization: true, so it produces the same result under both the pre-fix and post-fix formulas and therefore provides no evidence that the old meaning was wrong; (3) for clause (B) the difference is arguably immaterial, since (B)(i) already scopes to 'the work site employee', so the practical divergence is confined to (C). Kind choice: untraceable_branch fits best because the fix re-grounds the two formulas from the wrong provision (sibling clause (d)(1)(A)) onto the chapeau (d)(1)/(d)(2); polarity_or_logic (an extra conjunct mis-combined into the AND) is a reasonable alternative reading. Separate caution for the reviewer: the deferred_outputs retargeting is arguably a disclosure regression rather than a fix — the post-fix module drops the honest deferrals for the section 3231(e)(2)(C) successor surface and the all-specified-credits surface without adding any rule that covers them, and replaces them with deferrals for the purely administrative subsections (g) and (h). The module also still carries effective_from '1990-01-01' for every version even though 26 USC 3511 was enacted by the ABLE Act of 2014 (effective for wages paid after 2015); that pre-existing date is unchanged by this commit and is not part of this defect. | verifier unclear at 0.62",
+  "family_id": "us-4e6ff080-f3941745810f",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}
