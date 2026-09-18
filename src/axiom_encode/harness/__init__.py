@@ -12,13 +12,17 @@ from .backends import (
     PredictionScores,
 )
 from .encoding_db import (
+    ArtifactVersion,
     ComplexityFactors,
     EncodingDB,
     EncodingRun,
     Iteration,
     IterationError,
+    JudgeEventRow,
+    ParentRunRef,
     ReviewResult,
     ReviewResults,
+    RunArtifact,
     create_run,
 )
 from .evals import (
@@ -45,6 +49,11 @@ from .proof_validator import (
     find_rulespec_proof_issues,
     validate_rulespec_proofs,
 )
+from .validation_issues import (
+    ValidationIssue,
+    structure_attempt_issues,
+    structure_issue,
+)
 from .validator_pipeline import (
     PipelineResult,
     ValidationResult,
@@ -61,6 +70,14 @@ __all__ = [
     "ReviewResult",
     "ReviewResults",
     "create_run",
+    # Attempt evidence (artifact versions, judge events, structured issues)
+    "ArtifactVersion",
+    "RunArtifact",
+    "JudgeEventRow",
+    "ParentRunRef",
+    "ValidationIssue",
+    "structure_issue",
+    "structure_attempt_issues",
     # Validator Pipeline
     "ValidatorPipeline",
     "ValidationResult",

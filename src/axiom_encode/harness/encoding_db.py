@@ -5,8 +5,64 @@ Key insight: We learn from the JOURNEY (errors, fixes, iterations),
 not from comparing predictions to actuals.
 
 Now also tracks full session transcripts for replay and analysis.
+
+Schema
+======
+The local SQLite database (``encodings.db``) is created and migrated by
+:meth:`EncodingDB._init_db`. Every statement there is idempotent and additive
+(``CREATE TABLE IF NOT EXISTS``, ``ALTER TABLE ... ADD COLUMN`` guarded by the
+duplicate-column error), so opening an old database upgrades it in place and
+never drops rows. The one in-place update is the long-standing cost
+normalisation on ``sessions`` (a $0 estimate with no recorded usage becomes
+NULL), which is idempotent.
+
+``encoding_runs``
+    One row per ``axiom-encode encode`` invocation (``id`` is the run id).
+    ``iterations_json`` holds one entry per generation attempt:
+    ``{attempt, duration_ms, success, errors, model?, <token counters>?}``.
+    Each ``errors`` entry is ``{error_type, message, variable, fix_applied,
+    issues?, issues_truncated?}`` where ``issues`` is the validator's
+    structured issue list for that attempt (see
+    :mod:`axiom_encode.harness.validation_issues`). ``parent_run_id`` links a
+    regeneration of the same citation to the run it followed and
+    ``iteration`` is the parent's iteration plus one. ``outcome_json`` is the
+    final encode/apply outcome. The token and cost columns are the run's
+    aggregate ledger.
+``sessions`` / ``session_events``
+    The per-run session transcript (``sessions.id`` is ``encode-<run id>``
+    for encode runs). ``encode_result`` events carry ``metadata_json.attempts``
+    (one entry per attempt with its structured issues and artifact version
+    ids); ``encode_issue`` events carry ``metadata_json.issues`` (the final
+    failure's structured issues) next to the legacy ``repair_manifest`` path.
+``artifact_versions``
+    Every generated artifact version the encoder validated, one row per
+    attempt and file role: ``artifact_type`` is ``rulespec`` or
+    ``rulespec_tests``; ``content`` is the full text; ``content_hash`` is its
+    SHA-256; ``version_label`` is ``attempt-<n>``; ``metadata_json`` records
+    the validator outcome for that version (gate pass flags, issue count,
+    error, model). ``effective_from`` is the attempt timestamp.
+``run_artifacts``
+    Links a run to its artifact versions with ``attempt`` and ``role``, so
+    ``(run, attempt)`` resolves to the exact RuleSpec and test text that the
+    attempt's issues describe.
+``judge_events``
+    Durable mirror of ``axiom_encode.run_log.v1`` ``judge`` stage events,
+    keyed by the canonical ``event_id``: verdict, confidence, model, token
+    spend, the canonical findings (``findings_json``), the judge's own
+    findings with ``clause_ref`` and ``rule_path`` kept separate
+    (``judge_findings_json``; entries carry ``derived: true`` when unfolded
+    from a canonical event rather than supplied by the emitting judge),
+    ``subject_ref`` (the citation the judge ruled on, supplied at emission),
+    and the full event JSON, plus ``source`` (``live`` for events mirrored at
+    emission, ``backfill:<path>`` for events ingested from a run-log file).
+``calibration_snapshots``
+    Per-metric calibration history (see :mod:`axiom_encode.harness.metrics`).
+
+:mod:`axiom_encode.attempt_evidence` is the read-only view over these tables
+that yields ``(run_id, attempt, artifact, issues, parent)`` records.
 """
 
+import hashlib
 import json
 import os
 import sqlite3
@@ -14,7 +70,13 @@ import uuid
 from dataclasses import dataclass, field, fields
 from datetime import datetime
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
+
+from .validation_issues import (
+    ValidationIssue,
+    issues_from_dicts,
+    issues_to_dicts,
+)
 
 # Per-run token/cost ledger columns, shared with the Supabase sync so the
 # local schema, the payload, and the fallback ladder cannot drift apart.
@@ -181,12 +243,281 @@ class ComplexityFactors:
 
 @dataclass
 class IterationError:
-    """An error encountered during encoding."""
+    """An error encountered during encoding.
+
+    ``message`` is the attempt's one-line verdict; ``issues`` is the
+    validator's structured issue list for the artifact version that attempt
+    produced (empty for runs recorded before issues were persisted).
+    ``issues_truncated`` counts issues dropped to stay within the per-attempt
+    storage bound.
+    """
 
     error_type: str  # "parse", "test", "import", "style", "other"
     message: str
     variable: Optional[str] = None  # Which variable failed, if applicable
     fix_applied: Optional[str] = None  # What fix was attempted
+    issues: list[ValidationIssue] = field(default_factory=list)
+    issues_truncated: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "error_type": self.error_type,
+            "message": self.message,
+            "variable": self.variable,
+            "fix_applied": self.fix_applied,
+        }
+        if self.issues:
+            issue_dicts, dropped = issues_to_dicts(self.issues)
+            payload["issues"] = issue_dicts
+            truncated = self.issues_truncated + dropped
+            if truncated:
+                payload["issues_truncated"] = truncated
+        elif self.issues_truncated:
+            payload["issues_truncated"] = self.issues_truncated
+        return payload
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "IterationError":
+        truncated = data.get("issues_truncated")
+        return cls(
+            error_type=data["error_type"],
+            message=data["message"],
+            variable=data.get("variable"),
+            fix_applied=data.get("fix_applied"),
+            issues=issues_from_dicts(data.get("issues")),
+            issues_truncated=int(truncated)
+            if isinstance(truncated, int) and not isinstance(truncated, bool)
+            else 0,
+        )
+
+
+ARTIFACT_TYPE_RULESPEC = "rulespec"
+ARTIFACT_TYPE_RULESPEC_TESTS = "rulespec_tests"
+
+
+def content_sha256(content: str) -> str:
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+@dataclass
+class ArtifactVersion:
+    """One generated artifact version the encoder validated."""
+
+    id: str = field(default_factory=lambda: uuid.uuid4().hex[:16])
+    artifact_type: str = ARTIFACT_TYPE_RULESPEC
+    content_hash: str = ""
+    version_label: Optional[str] = None
+    content: Optional[str] = None
+    effective_from: str = field(default_factory=lambda: datetime.now().isoformat())
+    effective_to: Optional[str] = None
+    metadata: dict = field(default_factory=dict)
+
+
+@dataclass
+class RunArtifact:
+    """A run's link to one artifact version, labeled by attempt and role."""
+
+    run_id: str
+    artifact_version_id: str
+    attempt: Optional[int] = None
+    role: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class ParentRunRef:
+    """The prior run a regeneration links to (identity only, no payloads)."""
+
+    id: str
+    citation: str = ""
+    iteration: int = 1
+    agent_type: str = ""
+    agent_model: str = ""
+    timestamp: Optional[str] = None
+    ended_at: Optional[str] = None
+
+
+ARTIFACT_VERSION_COLUMNS = (
+    "id",
+    "artifact_type",
+    "content_hash",
+    "version_label",
+    "content",
+    "effective_from",
+    "effective_to",
+    "metadata_json",
+)
+
+JUDGE_EVENT_COLUMNS = (
+    "id",
+    "run_id",
+    "seq",
+    "ts",
+    "judge_stage",
+    "verdict",
+    "status",
+    "reason_code",
+    "reason",
+    "confidence",
+    "advisory",
+    "escalated",
+    "judge_model",
+    "generator_model",
+    "input_tokens",
+    "output_tokens",
+    "judge_error_json",
+    "judge_prompt_sha256",
+    "subject_ref",
+    "duration_ms",
+    "findings_json",
+    "attrs_json",
+    "event_json",
+    "source",
+    "ingested_at",
+    "judge_findings_json",
+)
+
+
+@dataclass
+class JudgeEventRow:
+    """One persisted judge verdict (a mirror of a run-log ``judge`` event)."""
+
+    id: str
+    run_id: str
+    seq: Optional[int] = None
+    ts: Optional[str] = None
+    judge_stage: Optional[str] = None
+    verdict: Optional[str] = None
+    status: Optional[str] = None
+    reason_code: Optional[str] = None
+    reason: Optional[str] = None
+    confidence: Optional[float] = None
+    advisory: Optional[bool] = None
+    escalated: Optional[bool] = None
+    judge_model: Optional[str] = None
+    generator_model: Optional[str] = None
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    judge_error: Optional[dict] = None
+    judge_prompt_sha256: Optional[str] = None
+    subject_ref: Optional[str] = None
+    duration_ms: Optional[int] = None
+    findings: list[dict] = field(default_factory=list)
+    attrs: dict = field(default_factory=dict)
+    event: dict = field(default_factory=dict)
+    source: str = "live"
+    ingested_at: Optional[str] = None
+    #: The judge's findings with ``clause_ref`` and ``rule_path`` separate.
+    judge_findings: list[dict] = field(default_factory=list)
+
+
+def unfold_canonical_findings(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Recover ``clause_ref``/``rule_path`` from canonical judge findings.
+
+    :meth:`axiom_encode.judges.run_log.Finding.to_run_log_finding` folds the
+    clause into a ``[clause] `` message prefix and puts the rule path (or,
+    failing that, the clause) into ``locator``. This reverses that fold for
+    events read back from a run log; each entry is marked ``derived``.
+    """
+    unfolded: list[dict[str, Any]] = []
+    for finding in findings:
+        if not isinstance(finding, dict):
+            continue
+        message = str(finding.get("message") or "")
+        clause_ref = ""
+        explanation = message
+        if message.startswith("["):
+            close = message.find("]")
+            if close > 0:
+                clause_ref = message[1:close]
+                explanation = message[close + 1 :].lstrip()
+        locator = finding.get("locator")
+        rule_path = ""
+        if isinstance(locator, str) and locator and locator != clause_ref:
+            rule_path = locator
+        unfolded.append(
+            {
+                "clause_ref": clause_ref,
+                "rule_path": rule_path,
+                "kind": str(finding.get("code") or ""),
+                "explanation": explanation,
+                "derived": True,
+            }
+        )
+    return unfolded
+
+
+def judge_event_row_from_event(
+    event: dict[str, Any],
+    *,
+    source: str = "live",
+    subject_ref: Optional[str] = None,
+    judge_findings: Optional[list[dict[str, Any]]] = None,
+) -> JudgeEventRow:
+    """Project a canonical run-log ``judge`` event dict onto a table row.
+
+    ``subject_ref`` and ``judge_findings`` are supplied by the emitting judge
+    (the canonical event does not carry them separately); when absent the
+    findings are unfolded from the canonical shape.
+    """
+    attrs = event.get("attrs") or {}
+    if not isinstance(attrs, dict):
+        attrs = {}
+    tokens = attrs.get("tokens") or {}
+    if not isinstance(tokens, dict):
+        tokens = {}
+    judge_error = attrs.get("judge_error")
+    findings = event.get("findings") or []
+    event_id = str(event.get("event_id") or "")
+    run_id = str(event.get("run_id") or "")
+    if not event_id:
+        digest_source = json.dumps(event, sort_keys=True, default=str)
+        event_id = hashlib.sha256(digest_source.encode("utf-8")).hexdigest()[:16]
+    confidence = attrs.get("confidence")
+
+    def _opt_int(value: object) -> Optional[int]:
+        if isinstance(value, bool) or not isinstance(value, int):
+            return None
+        return value
+
+    def _opt_bool(value: object) -> Optional[bool]:
+        return value if isinstance(value, bool) else None
+
+    resolved_subject = subject_ref if subject_ref else attrs.get("subject_ref")
+    canonical_findings = [item for item in findings if isinstance(item, dict)]
+    resolved_judge_findings = (
+        [dict(item) for item in judge_findings if isinstance(item, dict)]
+        if judge_findings is not None
+        else unfold_canonical_findings(canonical_findings)
+    )
+    return JudgeEventRow(
+        id=event_id,
+        run_id=run_id,
+        seq=_opt_int(event.get("seq")),
+        ts=str(event["ts"]) if event.get("ts") is not None else None,
+        judge_stage=attrs.get("judge_stage"),
+        verdict=attrs.get("verdict"),
+        status=event.get("status"),
+        reason_code=event.get("reason_code"),
+        reason=event.get("reason"),
+        confidence=float(confidence)
+        if isinstance(confidence, (int, float)) and not isinstance(confidence, bool)
+        else None,
+        advisory=_opt_bool(attrs.get("advisory")),
+        escalated=_opt_bool(attrs.get("escalated")),
+        judge_model=attrs.get("judge_model"),
+        generator_model=attrs.get("generator_model"),
+        input_tokens=_opt_int(tokens.get("input")),
+        output_tokens=_opt_int(tokens.get("output")),
+        judge_error=judge_error if isinstance(judge_error, dict) else None,
+        judge_prompt_sha256=attrs.get("judge_prompt_sha256"),
+        subject_ref=resolved_subject if isinstance(resolved_subject, str) else None,
+        duration_ms=_opt_int(event.get("duration_ms")),
+        findings=canonical_findings,
+        attrs=attrs,
+        event=event,
+        source=source,
+        judge_findings=resolved_judge_findings,
+    )
 
 
 @dataclass
@@ -440,6 +771,97 @@ class EncodingDB:
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_timestamp ON encoding_runs(timestamp)
         """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_run_parent
+            ON encoding_runs(parent_run_id)
+        """)
+
+        # =====================================================================
+        # Attempt evidence: artifact versions per attempt, run links, judge
+        # verdicts. Additive; databases that predate these tables (or carry
+        # the 2025 SCD2 shape of artifact_versions/run_artifacts) upgrade in
+        # place without touching existing rows.
+        # =====================================================================
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS artifact_versions (
+                id TEXT PRIMARY KEY,
+                artifact_type TEXT NOT NULL,
+                content_hash TEXT NOT NULL,
+                version_label TEXT,
+                content TEXT,
+                effective_from TEXT NOT NULL,
+                effective_to TEXT,
+                metadata_json TEXT
+            )
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_artifact_type
+            ON artifact_versions(artifact_type)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_artifact_hash
+            ON artifact_versions(content_hash)
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS run_artifacts (
+                run_id TEXT NOT NULL,
+                artifact_version_id TEXT NOT NULL,
+                attempt INTEGER,
+                role TEXT,
+                PRIMARY KEY (run_id, artifact_version_id),
+                FOREIGN KEY (run_id) REFERENCES encoding_runs(id),
+                FOREIGN KEY (artifact_version_id) REFERENCES artifact_versions(id)
+            )
+        """)
+        for col, col_type in (("attempt", "INTEGER"), ("role", "TEXT")):
+            try:
+                cursor.execute(f"ALTER TABLE run_artifacts ADD COLUMN {col} {col_type}")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_run_artifacts_run
+            ON run_artifacts(run_id, attempt)
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS judge_events (
+                id TEXT PRIMARY KEY,
+                run_id TEXT NOT NULL,
+                seq INTEGER,
+                ts TEXT,
+                judge_stage TEXT,
+                verdict TEXT,
+                status TEXT,
+                reason_code TEXT,
+                reason TEXT,
+                confidence REAL,
+                advisory INTEGER,
+                escalated INTEGER,
+                judge_model TEXT,
+                generator_model TEXT,
+                input_tokens INTEGER,
+                output_tokens INTEGER,
+                judge_error_json TEXT,
+                judge_prompt_sha256 TEXT,
+                subject_ref TEXT,
+                duration_ms INTEGER,
+                findings_json TEXT,
+                attrs_json TEXT,
+                event_json TEXT,
+                source TEXT,
+                ingested_at TEXT,
+                judge_findings_json TEXT
+            )
+        """)
+        try:
+            cursor.execute(
+                "ALTER TABLE judge_events ADD COLUMN judge_findings_json TEXT"
+            )
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_judge_events_run
+            ON judge_events(run_id, seq)
+        """)
 
         # Calibration snapshots table (per-metric rows for trend analysis)
         cursor.execute("""
@@ -570,15 +992,7 @@ class EncodingDB:
                     "attempt": it.attempt,
                     "duration_ms": it.duration_ms,
                     "success": it.success,
-                    "errors": [
-                        {
-                            "error_type": e.error_type,
-                            "message": e.message,
-                            "variable": e.variable,
-                            "fix_applied": e.fix_applied,
-                        }
-                        for e in it.errors
-                    ],
+                    "errors": [e.to_dict() for e in it.errors],
                     **{
                         name: getattr(it, name)
                         for name in ITERATION_USAGE_FIELDS
@@ -673,6 +1087,324 @@ class EncodingDB:
 
         conn.commit()
         conn.close()
+
+    # =========================================================================
+    # Parent links (regenerations of the same citation)
+    # =========================================================================
+
+    def find_parent_run(
+        self,
+        *,
+        citation: str,
+        started_at: datetime,
+        agent_type: Optional[str] = None,
+        agent_model: Optional[str] = None,
+        exclude_run_id: Optional[str] = None,
+    ) -> Optional["ParentRunRef"]:
+        """Return the run this citation's new run regenerates, if any.
+
+        A prior run of the same citation qualifies only when it had finished
+        (its session ended, or failing that its row was written) before the
+        new run's generation started, so concurrent sibling runs from a
+        fan-out never link to each other. Among qualifying runs the most
+        recent one on the same backend and model wins, then the most recent
+        one on any model.
+        """
+        if not citation:
+            return None
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT r.id, r.citation, r.iteration, r.agent_type, r.agent_model,
+                   r.timestamp, s.ended_at
+            FROM encoding_runs r
+            LEFT JOIN sessions s ON s.id = r.session_id
+            WHERE r.citation = ?
+              AND r.id != ?
+              AND COALESCE(s.ended_at, r.timestamp) <= ?
+            ORDER BY
+              (COALESCE(r.agent_type, '') = ? AND COALESCE(r.agent_model, '') = ?)
+                DESC,
+              r.timestamp DESC
+            LIMIT 1
+            """,
+            (
+                citation,
+                exclude_run_id or "",
+                started_at.isoformat(),
+                agent_type or "",
+                agent_model or "",
+            ),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        if not row:
+            return None
+        return ParentRunRef(
+            id=row[0],
+            citation=row[1] or "",
+            iteration=int(row[2] or 1),
+            agent_type=row[3] or "",
+            agent_model=row[4] or "",
+            timestamp=row[5],
+            ended_at=row[6],
+        )
+
+    def update_run_parent(
+        self, run_id: str, parent_run_id: Optional[str], iteration: int
+    ) -> None:
+        """Set the parent link and iteration number of an existing run."""
+        conn = sqlite3.connect(self.db_path)
+        conn.execute(
+            "UPDATE encoding_runs SET parent_run_id = ?, iteration = ? WHERE id = ?",
+            (parent_run_id, iteration, run_id),
+        )
+        conn.commit()
+        conn.close()
+
+    # =========================================================================
+    # Artifact versions
+    # =========================================================================
+
+    def record_run_artifact(
+        self,
+        run_id: str,
+        *,
+        attempt: int,
+        role: str,
+        content: str,
+        metadata: Optional[dict] = None,
+        version_label: Optional[str] = None,
+        effective_from: Optional[str] = None,
+    ) -> ArtifactVersion:
+        """Store one attempt's artifact text and link it to the run.
+
+        Idempotent per ``(run_id, attempt, role, content)``: recording the same
+        text again returns the existing version. Different text for the same
+        attempt and role (a post-validation auto-repair, for example) becomes
+        a new version linked to the same attempt.
+        """
+        digest = content_sha256(content)
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            f"""
+            SELECT {", ".join("v." + column for column in ARTIFACT_VERSION_COLUMNS)}
+            FROM run_artifacts ra
+            JOIN artifact_versions v ON v.id = ra.artifact_version_id
+            WHERE ra.run_id = ? AND ra.attempt = ? AND ra.role = ?
+              AND v.content_hash = ?
+            LIMIT 1
+            """,
+            (run_id, attempt, role, digest),
+        )
+        existing = cursor.fetchone()
+        if existing:
+            conn.close()
+            return _artifact_version_from_row(existing)
+        version = ArtifactVersion(
+            artifact_type=role,
+            content_hash=digest,
+            version_label=version_label or f"attempt-{attempt}",
+            content=content,
+            effective_from=effective_from or datetime.now().isoformat(),
+            metadata=dict(metadata or {}),
+        )
+        cursor.execute(
+            f"""
+            INSERT INTO artifact_versions ({", ".join(ARTIFACT_VERSION_COLUMNS)})
+            VALUES ({", ".join("?" for _ in ARTIFACT_VERSION_COLUMNS)})
+            """,
+            (
+                version.id,
+                version.artifact_type,
+                version.content_hash,
+                version.version_label,
+                version.content,
+                version.effective_from,
+                version.effective_to,
+                json.dumps(version.metadata, sort_keys=True, default=str),
+            ),
+        )
+        cursor.execute(
+            """
+            INSERT OR REPLACE INTO run_artifacts
+            (run_id, artifact_version_id, attempt, role)
+            VALUES (?, ?, ?, ?)
+            """,
+            (run_id, version.id, attempt, role),
+        )
+        conn.commit()
+        conn.close()
+        return version
+
+    def update_run_artifact_metadata(
+        self, run_id: str, *, attempt: int, patch: dict[str, Any]
+    ) -> int:
+        """Merge ``patch`` into the metadata of every version of one attempt.
+
+        Used when the final verdict arrives after the row was written (the
+        apply validator runs after the durability boundary). Returns the
+        number of versions updated.
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT v.id, v.metadata_json
+            FROM run_artifacts ra
+            JOIN artifact_versions v ON v.id = ra.artifact_version_id
+            WHERE ra.run_id = ? AND ra.attempt = ?
+            """,
+            (run_id, attempt),
+        )
+        rows = cursor.fetchall()
+        for version_id, metadata_json in rows:
+            try:
+                metadata = json.loads(metadata_json) if metadata_json else {}
+            except (TypeError, ValueError):
+                metadata = {}
+            if not isinstance(metadata, dict):
+                metadata = {}
+            metadata.update(patch)
+            cursor.execute(
+                "UPDATE artifact_versions SET metadata_json = ? WHERE id = ?",
+                (json.dumps(metadata, sort_keys=True, default=str), version_id),
+            )
+        conn.commit()
+        conn.close()
+        return len(rows)
+
+    def get_artifact_version(self, artifact_id: str) -> Optional[ArtifactVersion]:
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            f"SELECT {', '.join(ARTIFACT_VERSION_COLUMNS)} FROM artifact_versions "
+            "WHERE id = ?",
+            (artifact_id,),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        return _artifact_version_from_row(row) if row else None
+
+    def get_run_artifacts(
+        self, run_id: str
+    ) -> list[tuple[RunArtifact, ArtifactVersion]]:
+        """Every artifact version linked to a run, ordered by attempt and role."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            f"""
+            SELECT ra.run_id, ra.artifact_version_id, ra.attempt, ra.role,
+                   {", ".join("v." + column for column in ARTIFACT_VERSION_COLUMNS)}
+            FROM run_artifacts ra
+            JOIN artifact_versions v ON v.id = ra.artifact_version_id
+            WHERE ra.run_id = ?
+            ORDER BY ra.attempt, ra.role, v.effective_from, ra.rowid
+            """,
+            (run_id,),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return [
+            (
+                RunArtifact(
+                    run_id=row[0],
+                    artifact_version_id=row[1],
+                    attempt=row[2],
+                    role=row[3],
+                ),
+                _artifact_version_from_row(row[4:]),
+            )
+            for row in rows
+        ]
+
+    # =========================================================================
+    # Judge events
+    # =========================================================================
+
+    def log_judge_event(
+        self,
+        event: dict[str, Any],
+        *,
+        source: str = "live",
+        subject_ref: Optional[str] = None,
+        judge_findings: Optional[list[dict[str, Any]]] = None,
+    ) -> Optional[JudgeEventRow]:
+        """Mirror one canonical run-log ``judge`` event into ``judge_events``.
+
+        Keyed by the event's ``event_id``, so re-ingesting a run log is a
+        no-op. Returns the stored row, or ``None`` when the event already
+        existed or is not a judge-stage event. ``subject_ref`` and
+        ``judge_findings`` come from the emitting judge (see
+        :func:`judge_event_row_from_event`).
+        """
+        if not isinstance(event, dict) or event.get("stage") != "judge":
+            return None
+        row = judge_event_row_from_event(
+            event,
+            source=source,
+            subject_ref=subject_ref,
+            judge_findings=judge_findings,
+        )
+        if not row.run_id:
+            return None
+        row.ingested_at = datetime.now().isoformat()
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            f"""
+            INSERT OR IGNORE INTO judge_events ({", ".join(JUDGE_EVENT_COLUMNS)})
+            VALUES ({", ".join("?" for _ in JUDGE_EVENT_COLUMNS)})
+            """,
+            (
+                row.id,
+                row.run_id,
+                row.seq,
+                row.ts,
+                row.judge_stage,
+                row.verdict,
+                row.status,
+                row.reason_code,
+                row.reason,
+                row.confidence,
+                None if row.advisory is None else int(row.advisory),
+                None if row.escalated is None else int(row.escalated),
+                row.judge_model,
+                row.generator_model,
+                row.input_tokens,
+                row.output_tokens,
+                json.dumps(row.judge_error, sort_keys=True)
+                if row.judge_error is not None
+                else None,
+                row.judge_prompt_sha256,
+                row.subject_ref,
+                row.duration_ms,
+                json.dumps(row.findings, sort_keys=True, default=str),
+                json.dumps(row.attrs, sort_keys=True, default=str),
+                json.dumps(row.event, sort_keys=True, default=str),
+                row.source,
+                row.ingested_at,
+                json.dumps(row.judge_findings, sort_keys=True, default=str),
+            ),
+        )
+        inserted = cursor.rowcount == 1
+        conn.commit()
+        conn.close()
+        return row if inserted else None
+
+    def get_judge_events(self, run_id: str) -> list[JudgeEventRow]:
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            f"SELECT {', '.join(JUDGE_EVENT_COLUMNS)} FROM judge_events "
+            "WHERE run_id = ? ORDER BY seq, ts",
+            (run_id,),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return [_judge_event_row_from_db(row) for row in rows]
 
     def get_run(self, run_id: str) -> Optional[EncodingRun]:
         """Get a specific run by ID."""
@@ -799,146 +1531,7 @@ class EncodingDB:
 
     def _row_to_run(self, row) -> EncodingRun:
         """Convert a current-schema database row to EncodingRun."""
-        if len(row) != len(RUN_COLUMNS):
-            raise ValueError(
-                f"Expected {len(RUN_COLUMNS)} encoding run columns, got {len(row)}"
-            )
-
-        values = dict(zip(RUN_COLUMNS, row))
-        id = values["id"]
-        timestamp = values["timestamp"]
-        citation = values["citation"]
-        file_path = values["file_path"]
-        source_text = values["source_text"]
-        complexity_json = values["complexity_json"]
-        iterations_json = values["iterations_json"]
-        total_duration_ms = values["total_duration_ms"]
-        agent_type = values["agent_type"]
-        agent_model = values["agent_model"]
-        rulespec_content = values["rulespec_content"]
-        session_id = values["session_id"]
-        iteration = values["iteration"]
-        parent_run_id = values["parent_run_id"]
-        review_results_json = values["review_results_json"]
-        lessons = values["lessons"]
-        axiom_encode_version = values["axiom_encode_version"]
-        outcome_json = values["outcome_json"]
-        tokens = TokenUsage(
-            input_tokens=int(values["input_tokens"] or 0),
-            output_tokens=int(values["output_tokens"] or 0),
-            cache_read_tokens=int(values["cache_read_tokens"] or 0),
-            cache_creation_tokens=int(values["cache_creation_tokens"] or 0),
-            reasoning_output_tokens=int(values["reasoning_output_tokens"] or 0),
-        )
-        estimated_cost_usd = (
-            float(values["estimated_cost_usd"])
-            if values["estimated_cost_usd"] is not None
-            else None
-        )
-        actual_cost_usd = (
-            float(values["actual_cost_usd"])
-            if values["actual_cost_usd"] is not None
-            else None
-        )
-        generation_attempt_count = int(values["generation_attempt_count"] or 0)
-
-        # Parse complexity
-        c = json.loads(complexity_json) if complexity_json else {}
-        complexity = ComplexityFactors(
-            cross_references=c.get("cross_references", []),
-            has_nested_structure=c.get("has_nested_structure", False),
-            has_numeric_thresholds=c.get("has_numeric_thresholds", False),
-            has_phase_in_out=c.get("has_phase_in_out", False),
-            estimated_variables=c.get("estimated_variables", 1),
-            estimated_parameters=c.get("estimated_parameters", 0),
-        )
-
-        # Parse iterations
-        iterations = []
-        if iterations_json:
-            for it_data in json.loads(iterations_json):
-                errors = [
-                    IterationError(
-                        error_type=e["error_type"],
-                        message=e["message"],
-                        variable=e.get("variable"),
-                        fix_applied=e.get("fix_applied"),
-                    )
-                    for e in it_data.get("errors", [])
-                ]
-                iterations.append(
-                    Iteration(
-                        attempt=it_data["attempt"],
-                        duration_ms=it_data["duration_ms"],
-                        errors=errors,
-                        success=it_data.get("success", False),
-                        model=it_data.get("model"),
-                        input_tokens=it_data.get("input_tokens"),
-                        output_tokens=it_data.get("output_tokens"),
-                        cache_read_tokens=it_data.get("cache_read_tokens"),
-                        cache_creation_tokens=it_data.get("cache_creation_tokens"),
-                        reasoning_output_tokens=it_data.get("reasoning_output_tokens"),
-                        estimated_cost_usd=it_data.get("estimated_cost_usd"),
-                    )
-                )
-
-        # Parse review_results.
-        review_results = None
-        if review_results_json:
-            rr = json.loads(review_results_json)
-            allowed_fields = {
-                "reviews",
-                "policyengine_match",
-                "oracle_context",
-                "lessons",
-            }
-            if not isinstance(rr, dict) or set(rr) - allowed_fields:
-                raise ValueError(
-                    "encoding run review_results_json uses an unsupported schema"
-                )
-            review_results = ReviewResults(
-                reviews=[
-                    ReviewResult(
-                        reviewer=r.get("reviewer", ""),
-                        passed=r.get("passed", False),
-                        items_checked=r.get("items_checked", 0),
-                        items_passed=r.get("items_passed", 0),
-                        critical_issues=r.get("critical_issues", []),
-                        important_issues=r.get("important_issues", []),
-                        minor_issues=r.get("minor_issues", []),
-                        lessons=r.get("lessons", ""),
-                    )
-                    for r in rr.get("reviews", [])
-                ],
-                policyengine_match=rr.get("policyengine_match"),
-                oracle_context=rr.get("oracle_context", {}),
-                lessons=rr.get("lessons", ""),
-            )
-
-        return EncodingRun(
-            id=id,
-            timestamp=datetime.fromisoformat(timestamp),
-            citation=citation,
-            file_path=file_path,
-            source_text=source_text,
-            complexity=complexity,
-            review_results=review_results,
-            lessons=lessons or "",
-            iteration=iteration or 1,
-            parent_run_id=parent_run_id,
-            iterations=iterations,
-            total_duration_ms=total_duration_ms or 0,
-            agent_type=agent_type or "encoder",
-            agent_model=agent_model or "",
-            axiom_encode_version=axiom_encode_version or "",
-            outcome=json.loads(outcome_json) if outcome_json else {},
-            rulespec_content=rulespec_content or "",
-            tokens=tokens,
-            estimated_cost_usd=estimated_cost_usd,
-            actual_cost_usd=actual_cost_usd,
-            generation_attempt_count=generation_attempt_count,
-            session_id=session_id,
-        )
+        return run_from_row(row)
 
     # =========================================================================
     # Session Logging Methods
@@ -951,14 +1544,22 @@ class EncodingDB:
         session_id: Optional[str] = None,
         run_id: Optional[str] = None,
         axiom_encode_version: str = "",
+        started_at: Optional[datetime] = None,
     ) -> Session:
-        """Start a new session and return it."""
+        """Start a new session and return it.
+
+        ``started_at`` records when the work actually began (an encode
+        invocation passes the moment before its first generation attempt);
+        it defaults to now for sessions created at their start.
+        """
         session = Session(
             run_id=run_id,
             model=model,
             cwd=cwd or os.getcwd(),
             axiom_encode_version=axiom_encode_version,
         )
+        if started_at is not None:
+            session.started_at = started_at
         # Allow custom session_id for SDK orchestrator
         if session_id:
             session.id = session_id
@@ -1289,3 +1890,220 @@ class EncodingDB:
 
         conn.commit()
         conn.close()
+
+
+def _artifact_version_from_row(row) -> ArtifactVersion:
+    values = dict(zip(ARTIFACT_VERSION_COLUMNS, row))
+    metadata_json = values["metadata_json"]
+    try:
+        metadata = json.loads(metadata_json) if metadata_json else {}
+    except (TypeError, ValueError):
+        metadata = {}
+    return ArtifactVersion(
+        id=values["id"],
+        artifact_type=values["artifact_type"] or "",
+        content_hash=values["content_hash"] or "",
+        version_label=values["version_label"],
+        content=values["content"],
+        effective_from=values["effective_from"] or "",
+        effective_to=values["effective_to"],
+        metadata=metadata if isinstance(metadata, dict) else {},
+    )
+
+
+def _judge_event_row_from_db(row) -> JudgeEventRow:
+    values = dict(zip(JUDGE_EVENT_COLUMNS, row))
+
+    def _load(text: object, default):
+        if not text:
+            return default
+        try:
+            return json.loads(text)
+        except (TypeError, ValueError):
+            return default
+
+    return JudgeEventRow(
+        id=values["id"],
+        run_id=values["run_id"],
+        seq=values["seq"],
+        ts=values["ts"],
+        judge_stage=values["judge_stage"],
+        verdict=values["verdict"],
+        status=values["status"],
+        reason_code=values["reason_code"],
+        reason=values["reason"],
+        confidence=values["confidence"],
+        advisory=None if values["advisory"] is None else bool(values["advisory"]),
+        escalated=None if values["escalated"] is None else bool(values["escalated"]),
+        judge_model=values["judge_model"],
+        generator_model=values["generator_model"],
+        input_tokens=values["input_tokens"],
+        output_tokens=values["output_tokens"],
+        judge_error=_load(values["judge_error_json"], None),
+        judge_prompt_sha256=values["judge_prompt_sha256"],
+        subject_ref=values["subject_ref"],
+        duration_ms=values["duration_ms"],
+        findings=_load(values["findings_json"], []),
+        attrs=_load(values["attrs_json"], {}),
+        event=_load(values["event_json"], {}),
+        source=values["source"] or "live",
+        ingested_at=values["ingested_at"],
+        judge_findings=_load(values["judge_findings_json"], []),
+    )
+
+
+def run_from_row(row, *, strict: bool = True) -> EncodingRun:
+    """Convert a ``RUN_COLUMNS``-ordered database row to an EncodingRun.
+
+    With ``strict`` (the default, used by the live encoder) a
+    ``review_results_json`` payload in an unsupported schema raises. Readers
+    that only need the run's attempts and outcome (the attempt-evidence view,
+    the backfill) pass ``strict=False`` and get ``review_results=None`` for
+    such legacy rows instead of losing the run.
+    """
+    if len(row) != len(RUN_COLUMNS):
+        raise ValueError(
+            f"Expected {len(RUN_COLUMNS)} encoding run columns, got {len(row)}"
+        )
+
+    values = dict(zip(RUN_COLUMNS, row))
+    id = values["id"]
+    timestamp = values["timestamp"]
+    citation = values["citation"]
+    file_path = values["file_path"]
+    source_text = values["source_text"]
+    complexity_json = values["complexity_json"]
+    iterations_json = values["iterations_json"]
+    total_duration_ms = values["total_duration_ms"]
+    agent_type = values["agent_type"]
+    agent_model = values["agent_model"]
+    rulespec_content = values["rulespec_content"]
+    session_id = values["session_id"]
+    iteration = values["iteration"]
+    parent_run_id = values["parent_run_id"]
+    review_results_json = values["review_results_json"]
+    lessons = values["lessons"]
+    axiom_encode_version = values["axiom_encode_version"]
+    outcome_json = values["outcome_json"]
+    tokens = TokenUsage(
+        input_tokens=int(values["input_tokens"] or 0),
+        output_tokens=int(values["output_tokens"] or 0),
+        cache_read_tokens=int(values["cache_read_tokens"] or 0),
+        cache_creation_tokens=int(values["cache_creation_tokens"] or 0),
+        reasoning_output_tokens=int(values["reasoning_output_tokens"] or 0),
+    )
+    estimated_cost_usd = (
+        float(values["estimated_cost_usd"])
+        if values["estimated_cost_usd"] is not None
+        else None
+    )
+    actual_cost_usd = (
+        float(values["actual_cost_usd"])
+        if values["actual_cost_usd"] is not None
+        else None
+    )
+    generation_attempt_count = int(values["generation_attempt_count"] or 0)
+
+    # Parse complexity
+    c = json.loads(complexity_json) if complexity_json else {}
+    complexity = ComplexityFactors(
+        cross_references=c.get("cross_references", []),
+        has_nested_structure=c.get("has_nested_structure", False),
+        has_numeric_thresholds=c.get("has_numeric_thresholds", False),
+        has_phase_in_out=c.get("has_phase_in_out", False),
+        estimated_variables=c.get("estimated_variables", 1),
+        estimated_parameters=c.get("estimated_parameters", 0),
+    )
+
+    # Parse iterations. Legacy rows may hold a non-list payload or non-object
+    # entries; those carry no attempt record and are skipped rather than
+    # making the whole run unreadable.
+    iterations = []
+    parsed_iterations = json.loads(iterations_json) if iterations_json else []
+    if not isinstance(parsed_iterations, list):
+        parsed_iterations = []
+    for it_data in parsed_iterations:
+        if not isinstance(it_data, dict):
+            continue
+        errors = [
+            IterationError.from_dict(e)
+            for e in it_data.get("errors") or []
+            if isinstance(e, dict)
+        ]
+        iterations.append(
+            Iteration(
+                attempt=it_data["attempt"],
+                duration_ms=it_data["duration_ms"],
+                errors=errors,
+                success=it_data.get("success", False),
+                model=it_data.get("model"),
+                input_tokens=it_data.get("input_tokens"),
+                output_tokens=it_data.get("output_tokens"),
+                cache_read_tokens=it_data.get("cache_read_tokens"),
+                cache_creation_tokens=it_data.get("cache_creation_tokens"),
+                reasoning_output_tokens=it_data.get("reasoning_output_tokens"),
+                estimated_cost_usd=it_data.get("estimated_cost_usd"),
+            )
+        )
+
+    # Parse review_results.
+    review_results = None
+    rr = None
+    if review_results_json:
+        rr = json.loads(review_results_json)
+        allowed_fields = {
+            "reviews",
+            "policyengine_match",
+            "oracle_context",
+            "lessons",
+        }
+        if not isinstance(rr, dict) or set(rr) - allowed_fields:
+            if strict:
+                raise ValueError(
+                    "encoding run review_results_json uses an unsupported schema"
+                )
+            rr = None
+    if rr is not None:
+        review_results = ReviewResults(
+            reviews=[
+                ReviewResult(
+                    reviewer=r.get("reviewer", ""),
+                    passed=r.get("passed", False),
+                    items_checked=r.get("items_checked", 0),
+                    items_passed=r.get("items_passed", 0),
+                    critical_issues=r.get("critical_issues", []),
+                    important_issues=r.get("important_issues", []),
+                    minor_issues=r.get("minor_issues", []),
+                    lessons=r.get("lessons", ""),
+                )
+                for r in rr.get("reviews", [])
+            ],
+            policyengine_match=rr.get("policyengine_match"),
+            oracle_context=rr.get("oracle_context", {}),
+            lessons=rr.get("lessons", ""),
+        )
+
+    return EncodingRun(
+        id=id,
+        timestamp=datetime.fromisoformat(timestamp),
+        citation=citation,
+        file_path=file_path,
+        source_text=source_text,
+        complexity=complexity,
+        review_results=review_results,
+        lessons=lessons or "",
+        iteration=iteration or 1,
+        parent_run_id=parent_run_id,
+        iterations=iterations,
+        total_duration_ms=total_duration_ms or 0,
+        agent_type=agent_type or "encoder",
+        agent_model=agent_model or "",
+        axiom_encode_version=axiom_encode_version or "",
+        outcome=json.loads(outcome_json) if outcome_json else {},
+        rulespec_content=rulespec_content or "",
+        tokens=tokens,
+        estimated_cost_usd=estimated_cost_usd,
+        actual_cost_usd=actual_cost_usd,
+        generation_attempt_count=generation_attempt_count,
+        session_id=session_id,
+    )
