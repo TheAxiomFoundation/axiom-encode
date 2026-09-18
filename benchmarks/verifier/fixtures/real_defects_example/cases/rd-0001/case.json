@@ -1,0 +1,21 @@
+{
+  "case_id": "rd-0001",
+  "citation": "us-de/statute/30/1102",
+  "defect_kind": "boundary_direction",
+  "locator": {
+    "path": "rules[1].versions[0].formula",
+    "rule_name": "tax_table_method_applies",
+    "detail": "'<' where the provision says does not exceed",
+    "token": "tax_table_income"
+  },
+  "generator_model": "gpt-5.5",
+  "fix_reference": "repair round example; findings file rd-0001.findings.yaml",
+  "provision": "provision.txt",
+  "pre_fix": "pre_fix.yaml",
+  "post_fix": "post_fix.yaml",
+  "hashes": {
+    "provision": "484d95f65179a6383de51b5062c1fe464332ef8b4ededdf9b412b1e27e71e43c",
+    "pre_fix": "38ce085516be6c01e2239bf6086ef5c78fd4bda1b7d2173af14acb68bedb3fd8",
+    "post_fix": "6e869e2d5429bb69363b717abfa814f8294ca2afc79f7dda556de16e92cb1dec"
+  }
+}

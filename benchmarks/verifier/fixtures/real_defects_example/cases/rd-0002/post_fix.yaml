@@ -1,0 +1,20 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us/regulation/2/25/200
+  summary: The lead applicant's UEI is used for a consortium application.
+rules:
+- name: lead_applicant_uei_used_for_consortium_application
+  kind: derived
+  entity: FederalFinancialAssistanceApplication
+  dtype: Judgment
+  period: Year
+  source: 2 CFR 25.200(c)
+  versions:
+  - effective_from: '2026-01-01'
+    formula: |-
+      consortium_is_eligible_to_receive_funding_under_federal_agency_program
+      and federal_agency_policy_is_to_make_award_to_lead_entity_for_consortium
+      and application_uses_uei_of_lead_applicant
