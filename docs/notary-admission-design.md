@@ -93,13 +93,14 @@ field, missing field, wrong type, or duplicate key is a parse refusal.
 | Ed25519 signature | `signature_base64`: standard base64 with padding (RFC 4648 §4) |
 | `signer_spki_sha256` | SHA-256 of the DER-encoded SubjectPublicKeyInfo, hex as above |
 | `run_id`, `run_attempt`, `check_run_id`, `approve_check_run_id`, `artifact_id` | JSON strings, canonical decimal, no leading zeros, never numbers |
+| `temperature`, `seed` (generation-event `sampling`) | canonical-decimal JSON strings, never numbers; `seed` is `null` when the runtime exposes no seed |
 | `chain_predecessor_kind` | exactly one of `"genesis"`, `"receipt"`, `"transition"` |
 | `tier` (profile only) | exactly one of `"public"`, `"restricted"`, `"ci-attested"` — never a report or receipt field; consumers read tiers from the profile the receipt binds |
 | `ref` | the fully qualified Git ref string (`refs/...`) |
 | `workflow_sha_git_oid` | the commit the workflow file was loaded from: **context-derived at candidate time** (`github.workflow_sha` in the `recompute` job), then **authenticated by equality** to `approve`'s OIDC `workflow_sha` claim at signing — one run, one workflow, so the equality is exact; reusable workflows are prohibited; never the run's `head_sha` |
 | Entry modes | six-character octal strings: `"100644"` and `"100755"` (the pilot admits no symlinks anywhere — charter requirement 4 rejects symlink deltas, and refusing the mode tree-wide is the total form) |
 | Paths | UTF-8 strings; sorting is bytewise over the UTF-8 encoding |
-| Semantic arrays | **one comparator everywhere**: elements order bytewise over the UTF-8 encoding of the element's sort key, which each array names — `gates` by `gate_id`, `required_gates` by `gate_id`, `acceptable_outcomes` and `reasons` by their string value, `eligible_records`/`unused_eligible_records` by digest, `ineligible_records` by `store_name`, `coverage_assignment` by `path`, transition `delta` by `path`, dependency `actions` by `ref_spec`, `containers` by `image`, inventories by `path`; set-valued arrays are strictly unique on their key (JCS canonicalizes objects, not arrays — this row is what makes array bytes deterministic) |
+| Semantic arrays | **one comparator everywhere**: elements order bytewise over the UTF-8 encoding of the element's sort key, which each array names — `gates` by `gate_id`, `required_gates` by `gate_id`, `acceptable_outcomes` and `reasons` by their string value, `eligible_records`/`unused_eligible_records` by digest, `ineligible_records` by `store_name`, `coverage_assignment` by `path`, transition `delta` by `path`, dependency `actions` by `ref_spec`, `containers` by `image`, inventories by `path`, generation-event `oracles` and `reference_data` by `name`; set-valued arrays are strictly unique on their key (JCS canonicalizes objects, not arrays — this row is what makes array bytes deterministic) |
 
 **Tree manifests.** A tree manifest is the recursively flattened list of
 **terminal entries** (blobs and symlinks; directories appear only through
@@ -174,8 +175,9 @@ Signed by the producer key (non-authorizing). Fields: `schema`,
 `lane`, `epoch_sha256`; `runtime_identity`, `model`, `cli_version` —
 non-empty JSON strings; `cli_sha256` — a digest; `prompt_sha256s` — a
 sorted, strictly unique digest array; `emitted_at` — an RFC 3339 UTC
-string, informational and unverified; and `transitions`, sorted
-bytewise by path:
+string, informational and unverified; `draw_set_id`, `sampling`,
+`independence`, `source_capture` — the per-draw producer-declared members
+defined below; and `transitions`, sorted bytewise by path:
 
 ```
 {path, before_blob_sha256 | null, before_mode | null,
@@ -188,7 +190,7 @@ blob digest is `null`. A mode-only change is a transition shape the
 schema can carry, but **the pilot refuses protected-path mode changes
 outright** — charter requirement 4 rejects executable-mode deltas at
 preflight, and the pilot honors that wall rather than admitting covered
-mode transitions; relaxing it is the §11 charter-alignment decision. `patch_note_sha256` is **opaque audit
+mode transitions; §11 keeps that wall for the pilot. `patch_note_sha256` is **opaque audit
 metadata**: a producer-chosen digest of whatever diff rendering the
 runtime archived. It is never verified, carries no algorithm contract, and
 no refusal depends on it — endpoint blob digests and modes are the sole
@@ -197,31 +199,42 @@ ground truth.
 **Per-draw producer-declared fields (v33, §11 sign-off).** The v1 body also
 carries four fields that describe how the draw was produced. All four are
 producer-declared, non-authorizing metadata: authentication establishes the
-declarant and the exact declared values, and nothing else. None enters the
-notary receipt candidate, the receipt, or the finalization marker; none
-affects lineage eligibility, coverage, replay, gates, or merge
-authorization. A draw that never merges carries the identical domain body
-inside the non-authorizing research evidence envelope.
+declarant and the exact declared values, and nothing else. None is a field
+of the notary receipt candidate, the receipt, or the finalization marker.
+Well-formedness is enforced by the §2.1 closed-world parse like every other
+member: a body missing or malforming any of them is a malformed newly
+introduced record and ineligible (§2.6, §3.2). It is the declared values
+that never affect lineage eligibility, coverage, replay, gates, or merge
+authorization. The research store reuses this exact body for a draw that
+never merges; its envelope is specified there, not here (§12).
 
-- `draw_set_id` — non-empty JSON string linking the K sibling draws of one
-  campaign, merged or not. Informational.
-- `sampling` — closed object of sampler parameters. Its required keys are
-  `temperature` and `seed`; any further parameter the runtime exposes is
-  enumerated in the generation-event schema revision so the body stays
-  closed-world. Informational.
+- `draw_set_id` — non-empty JSON string, a producer-chosen opaque
+  identifier shared by every sibling draw of one draw set, merged or not.
+  The research store's registration record carries the same identifier;
+  reconciling duplicate registrations is the research store's job. A single
+  draw is a set of one and still carries a `draw_set_id`. Informational.
+- `sampling` — in v1 exactly `{temperature, seed}`: `temperature` a
+  canonical-decimal JSON string (never a number, per the §2.1 invariant);
+  `seed` a canonical-decimal JSON string, or `null` when the runtime exposes
+  no seed. Any further sampler parameter is a v2 of this schema.
+  Informational.
 - `independence` — required sibling of `sampling`: the closed object
   `{sibling_draws_visible, incumbent_encoding_visible}`, each exactly one of
-  `"yes"`, `"no"`, `"unknown"`. It records what the encoder was shown beyond
-  the statute and the prompt. The notary does not establish statistical
+  `"yes"`, `"no"`, `"unknown"`. It records whether the encoder was shown
+  sibling draws or the incumbent encoding beyond the statute and the prompt;
+  it does not identify them. The notary does not establish statistical
   independence; it establishes who declared these values and what they were.
 - `source_capture` — closed object `{id, content_sha256, oracles,
-  reference_data}`. `oracles` and `reference_data` are arrays sorted and
-  strictly unique by `name`, each entry `{name, version, content_sha256 |
-  null}`. A non-null digest binds the referenced bytes; a null digest records
-  a producer-declared version and supports no replay claim. If an oracle or
-  dataset affects admission, its immutable identity is pinned in the
-  base-committed profile or dependency inventory and moves only through the
-  §6.4 transition path; this field never substitutes for that pin.
+  reference_data}`. `id` is a non-empty JSON string naming the captured
+  statute source; `content_sha256` is the digest of the captured statute
+  bytes; `oracles` and `reference_data` are arrays sorted and strictly
+  unique by `name`, either may be empty, each entry `{name, version,
+  content_sha256 | null}` with `name` and `version` non-empty JSON strings.
+  A non-null digest binds the referenced bytes; a null digest records a
+  producer-declared version and supports no replay claim. If an oracle or
+  dataset affects admission, its immutable identity is pinned by a §4 trust
+  surface (the verifier pin whose dependency inventory covers it) and moves
+  only through §6.4; this field never substitutes for that pin.
 
 Planned population, the draw-set commitment (registration → draws → seal),
 and independent ordering evidence are research-store records, not fields of
@@ -643,8 +656,9 @@ do not exist at this level. Over the protected subset:
    exists anywhere in the protected domain, so there is nothing to
    launder toward. (Every rulespec file is a 100644 YAML file; the
    restriction costs the pilot nothing.) Executable support, if ever
-   wanted, is the §11 charter-alignment decision and arrives with the
-   chain-state tombstone machinery a cross-receipt wall needs.
+   wanted post-pilot, is a charter amendment plus the chain-state
+   tombstone machinery a cross-receipt wall needs (§11 keeps the wall
+   for the pilot).
    Protected paths are regular 100644 blobs wherever they exist — symlinks are inadmissible in the
    protected domain, and gitlinks are refused tree-wide by §2.1.
    File/directory replacements decompose into entry deletions and
@@ -670,8 +684,8 @@ The profile is a committed definition at the base, digest-bound into
 report and receipt. It defines the required gate set, each gate's
 acceptable outcomes, and the oracle policy. Against the current apply
 path: non-mutating (no repairs; repairable-but-unrepaired refuses);
-oracles on (licensed/unavailable oracles per the §11 decision — fail
-closed or visibly reduced-tier, never silent); reviewers means
+oracles on (a licensed-out or unavailable oracle yields the visibly
+reduced tier §11 decided, never silence); reviewers means
 deterministic checks plus protected-environment human approval (the
 validator pipeline's LLM reviewers are QA outside the admission path);
 no caller switches (skip flags and caller-disableable guards have no
@@ -1277,7 +1291,8 @@ same treatment under their own scopes — **five distinct keys**: §5's
 total rule forbids the correction-review and receipt-approver roles
 from sharing one "reviewer" key, so the ceremony mints and custodies
 each separately. §10's pairwise cross-scope matrix is part of ceremony
-acceptance.
+acceptance. The ceremony record names the custodian of each of the five
+keys and of `notary_ed25519` and is fixed before the ceremony runs.
 
 ## 9. Preconditions (nothing admission-capable merges before these)
 
@@ -1696,8 +1711,14 @@ audit; administrator bypass of the required lane check tested;
 receipt with unpublished candidate or approval file invalid to
 reconstruction; sorted-but-duplicate entries refused in each set-valued
 array (acceptable_outcomes, eligible_records, unused_eligible_records,
-ineligible_records, reasons); protected-path mode change refused
-(charter wall, pilot); publisher token request from a revoked or rerun
+ineligible_records, reasons, prompt_sha256s, oracles, reference_data);
+protected-path mode change refused (charter wall, pilot);
+`oracle-unavailable` declared for a gate whose profile entry does not
+list it refused (gate-unacceptable); a generation event with a missing
+or empty `draw_set_id`, an unknown key in `sampling`, an `independence`
+value outside its enum, `oracles` or `reference_data` unsorted or
+duplicate by `name`, or a malformed non-null `content_sha256` classified
+as a malformed newly introduced record and ineligible; publisher token request from a revoked or rerun
 workflow identity vended nothing; well-typed but
 invalid path-policy action or profile oracle_policy refused; Actions
 artifact_id mismatch refused; multi-fault ineligible record carrying
@@ -1712,43 +1733,61 @@ Nathan Storey's four requirements posted 2026-09-04).
 
 - **ProgramSpec scope:** atomic RuleSpec only in the pilot. Composition
   outputs stay outside the path policy (§12); rulespec-us already runs the
-  generated guard with the `programs` root excluded.
-- **Licensed or unavailable oracles:** a visibly reduced-tier receipt. Oracle
-  availability never fails admission closed; a vendor outage does not block a
-  correct encoding, and the reduced tier is the same honesty rule the corpus
-  declarations use. This does not relax §3: diff-coverage remains the
-  fail-closed predicate.
+  generated guard with the `programs` root excluded
+  (`guard-programs-root: false`).
+- **Licensed or unavailable oracles:** a visibly reduced-tier receipt. The
+  pilot profile commits `oracle_policy: "reduced-tier"`; a lane may commit
+  `"fail-closed"` only through a §6.4 profile transition. Under
+  `"reduced-tier"`, an oracle-backed gate whose oracle is licensed-out or
+  unavailable declares the outcome `"oracle-unavailable"`, which the profile
+  lists in that gate's `acceptable_outcomes`; the reduction is visible
+  because the receipt binds the gates array and the profile digest, and it
+  stays a declaration under §1. This is no exemption from gate declaration:
+  `gate-missing` still refuses, and diff-coverage (§3) remains the
+  fail-closed predicate. A vendor outage does not block a correct encoding,
+  and the reduced tier is the same honesty rule as the pending-oracle-coverage
+  ledger (`oracle-coverage-pending.yaml` in the rulespec repos).
 - **Approval wording:** §5's stronger form. `authorization.approval_signature_sha256`
   binds a durable, digest-bound reviewer approval artifact. Recording only that
   "the protected signing policy authorized this receipt" is the self-signed
   acceptance the charter forbids and is not admissible.
-- **Custody model:** producer and actor keys live on the supervised runtime
-  host. The correction-review and receipt-approver keys are two distinct
-  hardware keys with one custodian each, under §5's total rule. Administrative
-  keys are held by Max. Custodian names are recorded in the §8 ceremony record
-  before the ceremony runs. This also answers the rulespec-nz custody question
+- **Custody model:** producer and actor keys are custodied on the supervised
+  runtime host and never leave it, so actor tooling signs there. The
+  correction-review and receipt-approver keys are two distinct hardware keys
+  with one custodian each, under §5's total rule. The administrative key is
+  held by Max. Custodian names are recorded in the §8 ceremony record before
+  the ceremony runs. This also answers the rulespec-nz custody question
   deferred in July.
-- **Charter alignment on modes:** the executable-mode wall stays permanent
-  through the pilot. Charter requirement 4 is not amended.
+- **Charter alignment on modes:** the executable-mode wall stays for the
+  pilot; charter requirement 4 is not amended in milestone one. Any
+  post-pilot change requires a new charter amendment plus the §3.3 tombstone
+  machinery; this decision defers nothing.
 - **Newly protected paths:** when a transition expands the path policy, the
   newly covered paths' current entries are inventoried in the transition body
   and carry "transition-initialized" provenance (administrative, visible,
-  distinct from v5-attested and unattested-baseline).
+  distinct from `v5_attested` and `baseline_unattested`). The carrier is not
+  yet specified: §6.4's body has no member for protected entries and §6.3
+  names only two provenance classes. v34 adds the `initialized_entries`
+  member, the §6.3 class, and the §10 cases; until it lands, the first
+  policy-expanding transition is blocked on that revision.
 - **Per-draw fields:** `draw_set_id`, `sampling`, `independence`, and
   `source_capture` join `axiom/lineage-generation/v1` now (§2.2), because a
-  closed-world schema makes a later addition a v2. Planned population
-  (`axiom/draw-set-registration/v1` with `planned_n`), the draw-set commitment
-  (a post-emission `axiom/draw-set-seal/v1` naming the registration digest and
-  carrying the ordered leaf-digest list and `draw_set_merkle_root_sha256`; the
-  root cannot exist before the draws), and independent ordering evidence
-  (transparency-log inclusion or an OpenTimestamps proof) belong to the
-  research-store specification. They never enter the notary receipt candidate,
-  receipt, or finalization marker; any later notary carriage requires every
-  preimage for trusted offline recomputation in the signed bundle, and the
-  signer never queries mutable research-store state.
-- **Vocabulary:** a receipt is a proof a third party issues about a record
-  (#1576), so "notary receipt" keeps its name. The encoder's self-signed apply
-  manifests are producer statements and are not called receipts.
+  closed-world schema makes a later addition a v2. Planned population (a
+  proposed `axiom/draw-set-registration/v1` with `planned_n`), the draw-set
+  commitment (a proposed post-emission `axiom/draw-set-seal/v1` naming the
+  registration digest and carrying the ordered leaf-digest list and
+  `draw_set_merkle_root_sha256`; the root cannot exist before the draws), and
+  independent ordering evidence (transparency-log inclusion or an
+  OpenTimestamps proof) belong to the research-store specification. None is
+  a field of the notary receipt candidate, receipt, or finalization marker;
+  any later notary carriage requires every preimage for trusted offline
+  recomputation in the signed bundle, and the signer never queries mutable
+  research-store state.
+
+Adopted from the vocabulary rule proposed in #1576: a receipt is a proof a
+third party issues about a record, so "notary receipt" keeps its name. The
+encoder's self-signed apply manifests are producer statements and are not
+called receipts.
 
 ## 12. Out of scope for milestone one
 
@@ -1757,6 +1796,6 @@ chartered); historical backfill; rename modeling (tree-entry
 decomposition makes it unnecessary); gitlink/submodule support (refused
 tree-wide in the pilot); fleet-wide shared-workflow conversion; v5
 retirement; the other eight lanes; ProgramSpec admission (§11 keeps it
-out of the pilot); the research-store registration, seal, and ordering
-evidence records named in §11, which are specified in the research store,
-not here.
+out of the pilot); the proposed research-store registration, seal, and
+ordering evidence records named in §11, which are specified in the research
+store, not here.
