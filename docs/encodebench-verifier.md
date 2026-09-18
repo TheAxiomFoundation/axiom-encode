@@ -76,13 +76,22 @@ or `rules[i].period`, the two fields that are the effective date and the
 period; it never touches proof excerpts, source hashes, citations,
 `source_verification`, or any other metadata date. `entity_wrong` edits
 `rules[i].entity`. Detectability guards make each planted defect visible to a
-reader of the window plus the artifact: an amount must occur verbatim in the
-window (after dropping thousands separators) and its replacement must not;
-an effective date only moves when the window states the original year and
-not the shifted one; a period or entity only changes when the window mentions
-the original and not the replacement. Year-like numbers are never treated as
-amounts. Each source artifact is used for at most one pair, and kinds are
-filled by deficit so the rarer sites get first pick.
+reader of the window plus the artifact: an amount must equal a number the
+window states (numeric equality on whole numbers, so `60000` matches
+`$60,000.00` but `200` does not match inside `2008`) and its replacement must
+not; an effective date only moves when the window states the original year as
+a word of its own and not the shifted one; a period or entity only changes
+when the window mentions the original and not the replacement. Year-like
+numbers are never treated as amounts. Conjuncts are only dropped from pure
+conjunctions: a formula with a top-level `or` or an `if`/`else` is left
+alone, because deleting the text between two `and` tokens there would remove
+more than one condition. Each source artifact is used for at most one pair,
+and kinds are filled by deficit so the rarer sites get first pick.
+
+Mutator 1.0.0 matched amounts and years by substring. Two of the 180 pairs it
+built were undetectable for that reason (`200` found only inside `2008`, `11`
+only inside `3211(b)`); 1.0.1 closes the gap, and the first board drops those
+two pairs by a recorded filter rather than re-spending on a rebuild.
 
 The provision window is the referee's own truncation
 (`truncate_provision`, 24,000 characters, head and tail kept). Guards are
@@ -95,15 +104,29 @@ Every judge output is normalised to a verdict (`pass`, `flag`, `error`), a
 verdict score (probability the artifact is defective) and one score per
 defect kind:
 
-- referee: verdict score is the self-reported confidence when it flags and
-  one minus it when it passes (the referee reports confidence as "P(verdict
-  is correct)"); the kind score is 1 when a finding names the mapped referee
-  kind (`amount_changed` to `amount_mismatch`, `boundary_flipped` to
-  `boundary_direction`, `conjunct_dropped` to `unrepresented_clause`,
-  `polarity_swapped` to `untraceable_branch` or `unrepresented_clause`) and
-  0 otherwise. The referee has no question about dates, periods or entities,
-  so for `date_or_period_wrong` and `entity_wrong` the kind score falls back
-  to the verdict score and the board marks those cells with ‡.
+- referee: the verdict is the production verdict, derived exactly as
+  `statutory_fidelity.run` derives it (a raw pass that still lists findings
+  is a flag, because the incumbent's contract says a faithful artifact gets
+  an empty findings list; a test asserts the two agree payload for payload).
+  The verdict score is the self-reported confidence when the verdict is a
+  flag and one minus it when it is a pass. A coerced verdict's confidence is
+  ambiguous, so the row records the raw verdict and the board counts
+  coercions per judge (the `coerced` column) instead of guessing. The kind
+  score is 1 when a finding names the mapped referee kind (`amount_changed`
+  to `amount_mismatch`, `boundary_flipped` to `boundary_direction`,
+  `conjunct_dropped` to `unrepresented_clause`, `polarity_swapped` to
+  `untraceable_branch` or `unrepresented_clause`) and 0 otherwise; a finding
+  kind outside the referee's four is recorded and never credited. The referee
+  has no question about dates, periods or entities, so for
+  `date_or_period_wrong` and `entity_wrong` the kind score falls back to the
+  verdict score and the board marks those cells, and the mean, with ‡.
+- cross-family guard: production refuses to judge an artifact whose
+  generator shares the judge's family. That is a pipeline policy, not a
+  measurement rule. The referee runner builds its client with the repo's
+  declared generator so the guard is satisfied, and every row records the
+  case's true generator and whether it shares the judge's family; the board
+  counts same-family rows per judge. Cases whose generator is unrecorded
+  carry `null` there.
 - Jev: verdict score is the `Choice` probability of `flag`; kind scores are
   the six `Noul` probabilities. Jev returns no clause reference, rule path
   or explanation, so its findings list is empty and its localization column
@@ -126,11 +149,21 @@ there and so no cost.
 **Headline**: per-kind detection AUC on the judge's kind channel, subject to
 a false-alarm ceiling on the judge's native verdict. The default ceiling is
 25 percent (`--false-alarm-ceiling`), stated on every board. A judge whose
-native flag rate on clean controls exceeds it is shown but not ranked (†).
-The ceiling is there because a judge that flags everything has perfect
-recall and no use; the pilot found both incumbents flagging most clean
-originals at the verdict level, which is exactly the fact the headline must
-not hide.
+native flag rate on clean controls exceeds it is shown but not ranked (†);
+a judge with no scored controls, or with a kind that has no AUC at all, is
+unrankable (§) and shown last. The mean AUC that ranks judges is only
+computed when every kind in the suite has an AUC, so a judge is never ranked
+on a five-kind mean against six-kind means; a native-only mean is reported
+beside it in the JSON output. The ceiling is there because a judge that
+flags everything has perfect recall and no use; the pilot found both
+incumbents flagging most clean originals at the verdict level, which is
+exactly the fact the headline must not hide. The ceiling is applied only
+when the suite's controls are gate-verified; on a real-defects suite, whose
+controls are post-fix artifacts not proven clean, the board says so and
+unranks no one for flagging them. Defect kinds outside the synthetic
+taxonomy (`other:<kind>` from a real corpus) get their own columns, scored on
+every judge's verdict channel. Tokens, latency and cost cover every call,
+errors included.
 
 An `error` verdict (API failure, parse failure, cross-family guard) is never
 a pass and never a score: it is counted, excluded from AUC and pairs, and
@@ -172,16 +205,19 @@ uv run python benchmarks/verifier/verifier.py build-synthetic \
 with `build-real --dir benchmarks/verifier/real_defects_v0 --out ...`.
 
 `encodings.db` holds generations for several jurisdictions. To restrict a
-built suite, derive a child suite by citation prefix; pairs are kept or
-dropped whole, and the child records its parent's digest, the filter and
-every dropped pair:
+built suite, derive a child suite by citation prefix and, where a case is
+later found unfair, by pair id with a stated reason; pairs are kept or
+dropped whole, and the child records its parent's digest, the filter, the
+reason and every dropped pair:
 
 ```bash
 uv run python benchmarks/verifier/verifier.py filter-suite \
   --suite _axiom-runs/encodebench-verifier/synthetic_us_v1 \
   --drop-citation-prefix uk/ be/ \
-  --name "EncodeBench verifier synthetic US v1 (US citations only)" \
-  --out _axiom-runs/encodebench-verifier/synthetic_us_v1_us_only
+  --drop-pair amount_changed-cb832034 amount_changed-c1803dd0 \
+  --reason "US set only; two amount pairs fail the 1.0.1 numeric-equality guard" \
+  --name "EncodeBench verifier synthetic US v1 (US only, guard-checked)" \
+  --out _axiom-runs/encodebench-verifier/synthetic_us_v1_final
 ```
 
 A filter must never depend on judge outputs. Rows already judged against the
@@ -217,9 +253,35 @@ uv run python benchmarks/verifier/verifier.py board \
 
 The board refuses two inputs whose suite sha256 differs (the digest binds
 the suite name, source kind, corpus release, mutator version, provision
-window size and the ordered case identities with their content digests), two
-inputs naming the same runner, and any incomplete run without
-`--allow-partial`.
+window size, derivation and the ordered case identities with their content
+digests and generator), two inputs naming the same runner, two inputs whose
+runner identity (family, model, prompt or question-set digest, window) is the
+same under different names, and any incomplete run without `--allow-partial`.
+
+### What a run directory guarantees
+
+- Every row in `cases.jsonl` is bound to the case's provision and artifact
+  digests and to a digest of the runner's identity. Resume reuses a row only
+  when all three match the current suite and runner; rows judged by another
+  judge, under another prompt, or against a rebuilt artifact are ignored and
+  the case is judged again. Filtered child suites keep their parent's content
+  digests, so they re-assemble without re-judging.
+- `results.json` carries a payload digest over every section except its
+  timestamp, recomputes the suite digest from its own case identities, and
+  derives its coverage counters from its rows. A hand edit to the runner
+  name, the price source, the case list or a row is refused at load.
+- Errors never become passes. A runner that raises, an SDK that is missing
+  or unkeyed, a response without a verdict or without every kind's score, a
+  served model other than the pinned one, and an unparseable confidence are
+  all recorded as error rows with their cause, retried on the next run, and
+  keep the run incomplete until they clear.
+- An interrupt (Ctrl-C) cancels the queued cases, writes what finished, and
+  exits 130; re-running the same command resumes. `--fresh` rotates the old
+  `cases.jsonl` and `results.json` to `.bak` files rather than deleting them.
+  `--limit` judges only the first N cases but never downgrades a finished run.
+- Cost is recomputed at assembly from each row's reported tokens and the one
+  price the payload names; a row whose usage the provider did not report is
+  unpriced and counted as such, never charged zero.
 
 ## Adding a judge
 

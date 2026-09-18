@@ -112,6 +112,7 @@ class VerifierCase:
             "artifact_sha256": self.artifact_sha256,
             "locator": self.locator.to_dict() if self.locator else None,
             "control_clean": self.control_clean,
+            "generator_model": self.origin.get("generator_model"),
         }
 
     def to_dict(self) -> dict[str, Any]:
@@ -160,7 +161,17 @@ class CaseSuite:
     generated_at: str = field(default_factory=utc_now_iso)
     notes: list[str] = field(default_factory=list)
 
+    def __post_init__(self) -> None:
+        if not self.cases:
+            raise SuiteError(f"suite {self.name!r} has no cases")
+        _check_pairs(self)
+
     # -- identity -----------------------------------------------------------
+
+    @property
+    def derived_from(self) -> Optional[dict[str, Any]]:
+        value = self.source_identity.get("derived_from")
+        return dict(value) if isinstance(value, dict) else None
 
     def case_identities(self) -> list[dict[str, Any]]:
         return [case.identity(index) for index, case in enumerate(self.cases, 1)]
@@ -182,6 +193,9 @@ class CaseSuite:
             "corpus_release": self.corpus_release,
             "mutator_version": self.mutator_version,
             "provision_chars": self.provision_chars,
+            # A filtered child's provenance (parent digest, filter, dropped
+            # pairs) is digest-bound so it cannot be edited away.
+            "derived_from": self.derived_from,
             "case_identities": self.case_identities(),
         }
 
@@ -193,9 +207,12 @@ class CaseSuite:
         """Compact description carried into every results payload."""
 
         kinds = {kind: 0 for kind in DEFECT_KINDS}
+        controls: dict[str, int] = {}
         for case in self.cases:
             if case.is_defective:
                 kinds[case.defect_kind] = kinds.get(case.defect_kind, 0) + 1
+            else:
+                controls[case.control_clean] = controls.get(case.control_clean, 0) + 1
         return {
             "schema": SUITE_SCHEMA,
             "name": self.name,
@@ -204,9 +221,12 @@ class CaseSuite:
             "corpus_release": self.corpus_release,
             "mutator_version": self.mutator_version,
             "provision_chars": self.provision_chars,
+            "derived_from": self.derived_from,
             "case_count": len(self.cases),
             "pair_count": sum(1 for case in self.cases if case.is_defective),
             "defective_by_kind": kinds,
+            "controls_by_cleanliness": controls,
+            "notes": list(self.notes),
         }
 
     # -- derivation ---------------------------------------------------------
@@ -301,7 +321,9 @@ class CaseSuite:
         return suite_path, manifest_path
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any]) -> "CaseSuite":
+    def from_dict(
+        cls, payload: dict[str, Any], *, require_sha256: bool = True
+    ) -> "CaseSuite":
         if not isinstance(payload, dict):
             raise SuiteError("suite payload must be a JSON object")
         if payload.get("schema") != SUITE_SCHEMA:
@@ -314,6 +336,7 @@ class CaseSuite:
             cases = [VerifierCase.from_dict(item) for item in payload["cases"]]
         except (KeyError, TypeError) as exc:
             raise SuiteError(f"suite cases are malformed: {exc}") from exc
+        # __post_init__ refuses empty suites and unpaired cases.
         suite = cls(
             name=str(payload.get("name", "")),
             source_kind=str(source.get("kind", "")),
@@ -326,12 +349,16 @@ class CaseSuite:
             notes=list(payload.get("notes") or []),
         )
         recorded = payload.get("sha256")
+        if recorded is None and require_sha256:
+            raise SuiteError(
+                "suite carries no sha256; a suite file must be written by "
+                "CaseSuite.write, not assembled by hand"
+            )
         if recorded is not None and recorded != suite.sha256:
             raise SuiteError(
                 "suite sha256 does not match its content; the file was edited "
                 "after it was written"
             )
-        _check_pairs(suite)
         return suite
 
     @classmethod
