@@ -1,0 +1,121 @@
+{
+  "id": "us-445-52224b05-us-policies-aca-ptc-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "52224b051307802bd677967902456ebed739d692",
+  "parent_commit": "46ddf937a074178ffa7ae56969adabfc98f1e480",
+  "commit_date": "2026-07-24",
+  "commit_subject": "fix: fail closed on unrounded ACA percentages",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1002",
+  "module_path": "us/policies/aca/ptc_pipeline.yaml",
+  "corpus_citation_path": "us/statute/26/36B",
+  "corpus_citation_paths_all": [
+    "us/statute/26/36B",
+    "us/statute/26/36B/c/1/A",
+    "us/statute/26/36B/c/1/C",
+    "us/statute/26/36B/c/1/D",
+    "us/statute/26/36B/d/3",
+    "us/guidance/irs/rev-proc-2025-25"
+  ],
+  "corpus_release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+  "corpus_release_content_sha256": "cb275c76c4f07f8ad37470a32296bb1763e5db853d152697524ab07021b6d544",
+  "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+  "defect_kind": "polarity_or_logic",
+  "other_kind": null,
+  "confidence": 0.49,
+  "description": "26 CFR 1.36B-3(g) requires the interpolated percentage rounded to the nearest 0.01 percentage point; that regulation is NOT in the pinned corpus, so instead of emitting an unrounded chain, EVERY public output carrying the operative percentage/contribution/assistance chain is gated on an on-grid validity judgment — off-grid ratios fail closed to zero/not_holds",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        56,
+        58
+      ],
+      [
+        110,
+        113
+      ],
+      [
+        482,
+        482
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        56,
+        61
+      ],
+      [
+        113,
+        121
+      ],
+      [
+        414,
+        431
+      ],
+      [
+        508,
+        508
+      ],
+      [
+        523,
+        534
+      ],
+      [
+        544,
+        550
+      ]
+    ],
+    "rule_names": [
+      "aca_ptc_full_year_runtime_inputs_valid",
+      "aca_ptc_applicable_percentage_rounding_grid_increment",
+      "aca_ptc_annual_premium_tax_credit"
+    ],
+    "rule_path": "rules[aca_ptc_full_year_runtime_inputs_valid].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "38452d9a8462d10119aef5dbd9adf1f4fe723814e7f6bcab1de400733d87ac3e",
+  "post_fix_artifact_sha256": "591892df0e9981c1cdea686a45ec0c58adb2d2f22d985812f05290dc8c7e6bf0",
+  "provision_sha256": "c0ad1a2e2eb0c8a61ea850e50886eb8064fee3c4c1206e03554be15f686bb9e1",
+  "provision_chars": 23755,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/36B",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+    "provision_file_sha256": "03ddda0b2bcd59345ec4efa1daaf1c77b423a5166852fd80bb4cf00c0bd8e461",
+    "line_number": 20,
+    "record_id": "32497825-1819-54e9-af3e-02dd22aec1ca",
+    "stored_body_sha256": "c0ad1a2e2eb0c8a61ea850e50886eb8064fee3c4c1206e03554be15f686bb9e1",
+    "resolved_text_sha256": "c0ad1a2e2eb0c8a61ea850e50886eb8064fee3c4c1206e03554be15f686bb9e1",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "5dfd89d131564e4ee0e1e763571dbb5d7fc7f5e7",
+    "requested_citation_path": "us/statute/26/36B",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix validity judgment held (fail-open) for every household-income/FPL ratio, so for ratios whose 36B(b)(3)(A)(i) linear interpolation lands off the 0.01-percentage-point grid the module exported an annual premium tax credit computed from a raw unrounded applicable percentage, a rate that disagrees with the rounded percentage 26 CFR 1.36B-3(g) requires.",
+    "triage_notes": "Read the whole diff plus pre-fix (46ddf937a) and post-fix module bodies; also resolved us/guidance/irs/rev-proc-2025-25 through the pinned corpus, which confirms the new parameter's proof excerpt verbatim ('the Applicable Percentage Table for purposes of § 36B(b)(3)(A)(i) and § 1.36B-3(g) is') and that the 2026 table endpoints (2.10/3.14/4.19/6.60/8.44/9.96%) are stated to 0.01 percentage point, supporting the 0.0001 grid increment. 26 CFR 1.36B-3(g) itself is NOT in the pinned corpus (the module says the resolver finds no provision for it), so the rounding requirement itself could not be read directly — evidence for it is the commit/PR text plus the rev proc's cross-reference. Kind is genuinely contestable: I chose polarity_or_logic because the commit subject ('fail closed on unrounded ACA percentages') and PR body ('off-grid ratios fail closed to zero/not_holds') name the fail-open→fail-closed change, the taxonomy lists fail-open vs fail-closed under polarity_or_logic, and the decisive diff is an added and-clause in a boolean Judgment formula. The strong alternative is unrepresented_clause: the underlying disagreement with the source is the missing 1.36B-3(g) rounding operation, which the pre-fix module disclosed only as a deferred output ('Required fixtures use table endpoints, constant bands, or an exact midpoint, so this missing operation does not change their rates') while still exporting an operative unrounded chain; note the fix does not add the rounding, it narrows the domain. Alternative quotable line from inside the module diff (quote_source module_comment): 'The pinned corpus resolver finds no provision for 26 CFR 1.36B-3(g), so this module does not claim to compute the general rounded rate.' Scope caveat: the PR body describes head ce08e342a and claims EVERY public output is gated, but at THIS commit only rules[aca_ptc_annual_premium_tax_credit] consumes the validity judgment; the public intermediates were gated in follow-up 2d032aa87 ('fix: gate ACA PTC public arithmetic off grid') and the guard expression was restructured in 3a7b27612 ('fix: express ACA PTC grid guard as judgment logic'), both same-day commits in PR #1002. The commit also touched only prose/deferral metadata otherwise (module summary, deferred_outputs reason plus new source_values, and the rule's `source` string) — no other formula, parameter, effective date, input, output, or entity changed. The PR has no reviews or review comments in the bundle.",
+    "verifier_verdict": "not_a_defect",
+    "verifier_defect_kind": "none",
+    "verifier_confidence": 0.6,
+    "verifier_justification": "Both cited corpus sources are silent on rounding: the pinned 26 USC 36B text states only that the applicable percentage \"shall increase, on a sliding scale in a linear manner, from the initial premium percentage to the final premium percentage\", and Rev. Proc. 2025-25 contains zero occurrences of \"round\"/\"nearest\"/\"hundredth\" — so the pre-fix raw linear interpolation matched the cited source text exactly, and the module had already declared the rounded rate a deferred output. The fix does not encode the source rule it invokes; by its own words the regulation is un-ingested (\"The pinned corpus resolver finds no provision for 26 CFR 1.36B-3(g)\"), the deferral stays in place, and the module instead refuses to answer off-grid, which its own companion documents as moving the exported credit from $5,209.9668 (raw rate, 66 cents from the lawful $5,209.3095) to $0 — further from the lawful amount, not closer. That is a provenance/conservatism policy choice about what the module may claim, not an encoded meaning corrected against a cited source, so neither polarity_or_logic nor any fidelity kind fits cleanly. Separately, the quoted PR-body evidence describes the merged head, not this commit: \"EVERY public output\" only became gated two commits later in 2d032aa87 \"fix: gate ACA PTC public arithmetic off grid\", which had to inline the interpolation to undo the self-referential `hash: sha256:local` import this commit introduced.",
+    "verifier_quote": "+    source: Guard-only 0.01-percentage-point increment required by un-ingested 26 CFR 1.36B-3(g); not a general rounded-rate output",
+    "verifier_notes": "Strongest counterargument to my verdict (a reviewer may prefer \"unclear\"): the pre-fix module did export a PTC amount that disagrees with real-world law, and the framework lists \"fail-open vs fail-closed\" under polarity_or_logic. But the missing thing is the rounding operation of 26 CFR 1.36B-3(g), which is still unrepresented after the fix — the fix quarantines the gap rather than curing it — so if anyone insists on a fidelity label, unrepresented_clause fits the underlying gap better than polarity_or_logic, and neither is satisfied by this diff.\n\nEvidence chain, all read-only: (1) pinned corpus us/statute/26/36B (release us-rulespec-2026-07-24-snap-cms-pit-union, corpus commit 0fd35bfbda) contains no rounding language for 36B(b)(3)(A)(i); us/guidance/irs/rev-proc-2025-25 has 0 hits for round/nearest/hundredth/0.01 and mentions § 1.36B-3 only in its header cross-reference line — which is also the excerpt the new guard parameter's proof atom leans on (\"the Applicable Percentage Table for purposes of § 36B(b)(3)(A)(i) and § 1.36B-3(g) is\"). (2) Pre-fix 46ddf937a0 already deferred us:regulations/26-cfr/1.36B-3/g#rounded_applicable_percentage and already gated aca_ptc_annual_premium_tax_credit on aca_ptc_full_year_runtime_inputs_valid; the only computational change in this commit is one added conjunct plus the 0.0001 grid parameter. (3) The companion case added here, off-grid-210fpl-fails-closed-pending-regulatory-rounding, states the lawful rounded chain ($2,290.6905 contribution, $5,209.3095 credit), the raw-rate credit ($5,209.9668) and the new output ($0).\n\nContext a reviewer should weigh: us/policies/aca/ptc_pipeline.yaml was created two days earlier in the same PR (#1002) at 72058b2b0 and iterated five times (44a871f06, 52224b0513, 8e72ccd28, 2d032aa87, 3a7b27612). This candidate is an intermediate blind-review round on unmerged new code, not a fix to a shipped module, and the next two commits had to rework the very formula it added (inlining the interpolation to break the cycle it created, then re-expressing the guard \"as judgment logic\").",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Read the whole diff plus pre-fix (46ddf937a) and post-fix module bodies; also resolved us/guidance/irs/rev-proc-2025-25 through the pinned corpus, which confirms the new parameter's proof excerpt verbatim ('the Applicable Percentage Table for purposes of § 36B(b)(3)(A)(i) and § 1.36B-3(g) is') and that the 2026 table endpoints (2.10/3.14/4.19/6.60/8.44/9.96%) are stated to 0.01 percentage point, supporting the 0.0001 grid increment. 26 CFR 1.36B-3(g) itself is NOT in the pinned corpus (the module says the resolver finds no provision for it), so the rounding requirement itself could not be read directly — evidence for it is the commit/PR text plus the rev proc's cross-reference. Kind is genuinely contestable: I chose polarity_or_logic because the commit subject ('fail closed on unrounded ACA percentages') and PR body ('off-grid ratios fail closed to zero/not_holds') name the fail-open→fail-closed change, the taxonomy lists fail-open vs fail-closed under polarity_or_logic, and the decisive diff is an added and-clause in a boolean Judgment formula. The strong alternative is unrepresented_clause: the underlying disagreement with the source is the missing 1.36B-3(g) rounding operation, which the pre-fix module disclosed only as a deferred output ('Required fixtures use table endpoints, constant bands, or an exact midpoint, so this missing operation does not change their rates') while still exporting an operative unrounded chain; note the fix does not add the rounding, it narrows the domain. Alternative quotable line from inside the module diff (quote_source module_comment): 'The pinned corpus resolver finds no provision for 26 CFR 1.36B-3(g), so this module does not claim to compute the general rounded rate.' Scope caveat: the PR body describes head ce08e342a and claims EVERY public output is gated, but at THIS commit only rules[aca_ptc_annual_premium_tax_credit] consumes the validity judgment; the public intermediates were gated in follow-up 2d032aa87 ('fix: gate ACA PTC public arithmetic off grid') and the guard expression was restructured in 3a7b27612 ('fix: express ACA PTC grid guard as judgment logic'), both same-day commits in PR #1002. The commit also touched only prose/deferral metadata otherwise (module summary, deferred_outputs reason plus new source_values, and the rule's `source` string) — no other formula, parameter, effective date, input, output, or entity changed. The PR has no reviews or review comments in the bundle. | verifier said not_a_defect at 0.60 (below 0.7); kept as unclear",
+  "family_id": "us-52224b05-edbc0c00c8f1",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

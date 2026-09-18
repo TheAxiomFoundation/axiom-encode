@@ -1,0 +1,204 @@
+{
+  "id": "us-267-a495db32-regulations-18-nycrr-387-14-a-1",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "a495db3292dfbd7c5a94b48123baf92cc37063c8",
+  "parent_commit": "29d50449425f678970b3edd692f06ae959ed87a3",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) PR body includes 'Repair New York SNAP benefit composition'; changes snap_eligible formula in the existing otda composition, removes/replaces 18 NYCRR 387.14(a)(1) proration rules, and re-encodes 387.14(a)(5) categorical rules with changed imports.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/395",
+  "module_path": "regulations/18-nycrr/387/14/a/1.yaml",
+  "corpus_citation_path": "us-ny/regulation/18-nycrr/387/14/a/1",
+  "corpus_citation_paths_all": [
+    "us-ny/regulation/18-nycrr/387/14/a/1"
+  ],
+  "corpus_release": "us-rulespec-ny-snap-2026-07-17",
+  "corpus_release_content_sha256": "6bc4a29b437a1bd4b0fb96e707c095b241c229f17278d140a60a8e973ada1c9f",
+  "corpus_commit": "df57dc57cf0152c5747696c078929a12ed2d2239",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.6,
+  "description": "Apply encoder refresh for 18 NYCRR 387.14(a)(1)",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        3,
+        9
+      ],
+      [
+        12,
+        15
+      ],
+      [
+        17,
+        29
+      ],
+      [
+        34,
+        34
+      ],
+      [
+        36,
+        36
+      ],
+      [
+        38,
+        69
+      ],
+      [
+        71,
+        80
+      ],
+      [
+        84,
+        84
+      ],
+      [
+        86,
+        93
+      ],
+      [
+        95,
+        96
+      ],
+      [
+        98,
+        98
+      ],
+      [
+        100,
+        104
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        3,
+        4
+      ],
+      [
+        7,
+        8
+      ],
+      [
+        10,
+        10
+      ],
+      [
+        15,
+        33
+      ],
+      [
+        35,
+        35
+      ],
+      [
+        37,
+        43
+      ],
+      [
+        45,
+        45
+      ],
+      [
+        51,
+        73
+      ],
+      [
+        75,
+        75
+      ],
+      [
+        77,
+        83
+      ]
+    ],
+    "rule_names": [
+      "snap_allotment",
+      "snap_initial_month_prorated_allotment",
+      "snap_initial_month_proration_exception",
+      "snap_initial_month_proration_start_date",
+      "snap_initial_month_proration_applies",
+      "snap_days_in_application_month",
+      "snap_initial_month_proration_days",
+      "snap_initial_month_proration_factor",
+      "initial_month_of_certification",
+      "initial_month_benefit_level"
+    ],
+    "rule_path": "rules[snap_allotment].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "38fa13b078ffbb0f7ccfab9201ca610a33999bb2ec1192aca989e50065579403",
+  "post_fix_artifact_sha256": "60af1c8b105eef2ea991b32a03640b304d0db7b8e55dab10e237a6507f5f8389",
+  "provision_sha256": "1a205b657a596fbf6fba7c354e09368c9e43d8c5d61d7b8cbc56a18452155245",
+  "provision_chars": 1420,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-ny/regulation/18-nycrr/387/14/a/1",
+    "provision_file": "data/corpus/provisions/us-ny/regulation/2026-07-17-ny-snap-regulations.jsonl",
+    "provision_file_sha256": "6891da448305f63d6faa164acf7dbb9e13aa10e8ef7f3c05ee4c7c825dcd5ba2",
+    "line_number": 1164,
+    "record_id": "0a56696d-9290-5843-95a7-34d64ae6fe32",
+    "stored_body_sha256": "1a205b657a596fbf6fba7c354e09368c9e43d8c5d61d7b8cbc56a18452155245",
+    "resolved_text_sha256": "1a205b657a596fbf6fba7c354e09368c9e43d8c5d61d7b8cbc56a18452155245",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-17",
+    "source_as_of": "2021-09-15",
+    "corpus_commit": "df57dc57cf0152c5747696c078929a12ed2d2239",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 7,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us-ny/regulation/18-nycrr/387/14/a/1",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us-ny/regulation/18-nycrr/387/14/a/1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us-ny/regulation/18-nycrr/387/14/a/1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us-ny/regulation/18-nycrr/387/14/a/1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us-ny/regulation/18-nycrr/387/14/a/1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us-ny/regulation/18-nycrr/387/14/a/1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us-ny/regulation/18-nycrr/387/14/a/1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us-ny/regulation/18-nycrr/387/14/a/1'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "18 NYCRR 387.14(a)(1) only sets the initial-month benefit level and defines \"initial month\", yet the pre-fix module derived the household's entire SNAP allotment from it (if snap_eligible: ... else: snap_regular_month_allotment, else 0), applied a floor() rounding step, and narrowed the farmworker rule to households \"in job stream\" — none of which appears in the cited provision.",
+    "triage_notes": "I read the provision through the pinned corpus (release us-rulespec-ny-snap-2026-07-17, corpus commit df57dc57, source_as_of 2021-09-15); the resolver warned 'no_toolchain_corpus_pin' and fell back to that release. The text covers only proration from the application day (or the SSA pre-release applicant's release day) to the end of the initial month, plus the (i)/(ii) definition of 'initial month' including the more-than-30-days rule for migrant or seasonal farmworker households — it says nothing about general allotments, eligibility gating, or rounding. git grep at the fix commit finds no other definition of snap_allotment, so the rule was removed outright rather than relocated. Secondary candidate kinds a reviewer may prefer: (a) wrong_period_or_effective_date — effective_from moved '2025-10-01' -> '0001-01-01', i.e. the pre-fix encoding wrongly pinned a long-standing regulation to the FY2026 COLA start date; I did not make this primary because index 2 kept '2025-10-01' in the same commit, so the change is inconsistent and reads as a re-encode side effect. (b) unrepresented_clause — the post-fix initial_month_of_certification spells out the (i) 'following any period during which the household was not certified' arm that the pre-fix opaque input initial_application_month left implicit. The re-encode also trades the explicit day-count proration math for opaque proration_factor_* inputs, and drops the imports of us:policies/usda/snap/fy-2026-cola/maximum-allotments, us:regulations/7-cfr/273/10 and us:statutes/7/2017/a. The commit message is generic ('encoder refresh'), hence confidence below 0.8. Companion test file was rewritten to match (four cases covering application-day, pre-release, farmworker >30 days, and not-initial-month).",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "untraceable_branch",
+    "verifier_confidence": 0.78,
+    "verifier_justification": "I tried to refute the classification and could not. The pinned provision text of 18 NYCRR 387.14(a)(1) states only that the initial-month benefit level is based on the application day (or the release day for SSA Pre-release joint SSI applicants), that benefits are prorated from that day to the end of the initial month, and what \"initial month means\" — it says nothing about household eligibility, regular (non-initial) month allotments, rounding, $10 minimum issuance, or a \"job stream\". Yet the pre-fix module, with every rule carrying source: 18 NYCRR 387.14(a)(1), defined the household's entire snap_allotment gated on snap_eligible with a snap_regular_month_allotment fallback, applied floor(), routed through snap_initial_month_allotment_after_minimum_issuance, and narrowed the farmworker clause to migrant_or_seasonal_farmworker_household_in_job_stream, importing us:statutes/7/2017/a, us:regulations/7-cfr/273/10 and the FY2026 maximum-allotments policy to do so. The fix deletes all three imports and every one of those branches, leaving exactly the two propositions the provision states, and relocates the allotment composition to policies/otda/snap/fy-2026-benefit-calculation.yaml (\"Repair New York SNAP benefit composition\") — a textbook re-grounding of formulas built on the wrong provision. Mechanical is excluded (formulas, rule names, effective dates, inputs and outputs all changed, and the companion test moved from asserting snap_allotment: 298 to initial_month_benefit_level: 0), and not_a_defect is excluded because the removed branches were affirmatively sourced to a provision that does not contain them.",
+    "verifier_quote": "-          if snap_eligible:\n-              if snap_initial_month_proration_applies:\n-                  snap_initial_month_allotment_after_minimum_issuance\n-              else: snap_regular_month_allotment\n-          else: 0",
+    "verifier_notes": "Competing kind considered: wrong_entity_or_scope, since the decisive change narrows the module's output surface from the whole household allotment to the initial-month benefit level. I kept untraceable_branch because the kind definition explicitly covers \"formulas grounded on the wrong provision,\" and because two further removals (the floor() rounding step and the \"_in_job_stream\" narrowing of the farmworker clause) are pure untraceable-element removals rather than scope changes. A reviewer who prefers scope framing would not be unreasonable.\n\nTwo caveats that do not change the kind but qualify the fix's quality:\n1. The same diff moves effective_from from '2025-10-01' to '0001-01-01' on both surviving rules. That is a separate, defensible wrong_period_or_effective_date correction (the regulation's corpus source_as_of is 2021-09-15, so the FY2026-COLA-style date was wrong), but it is bundled and unmentioned in the commit message.\n2. The post-fix initial_month_of_certification joins clause (i) and clause (ii) with \"or\": household_certified... and (not_certified_during_prior_period or (is_migrant_or_seasonal_farmworker and applies_following_more_than_30_days)). The source treats (ii) as the stricter special rule for migrant/seasonal farmworker households, so under the new encoding such a household with a 10-day break still satisfies (i) and counts as an initial month. The pre-fix module handled that case correctly via snap_initial_month_proration_exception (break_in_participation_days <= 30), and the fix deletes the test that covered it (\"migrant_seasonal_short_break_receives_regular_month_allotment\"). The fix therefore removes untraceable content while plausibly introducing a new polarity_or_logic gap — worth a separate candidate if the corpus tracks regressions.\n\nProvenance corroboration: the encoding manifest shows the pre-fix file was produced by a run whose citation field was \"18 NYCRR 387.14(a)(1) companion-test coverage repair\" (axiom_encode 0.2.64), while the fix is a clean re-encode of citation \"regulations/18-nycrr/387/14/a/1\" (axiom_encode 0.2.426) — consistent with the pre-fix content having drifted beyond the provision.\n\nAlso note the post-fix composition still consumes snap_initial_month_prorated_allotment, which this module no longer defines; it must now resolve from the imported federal us:regulations/7-cfr/273/10. I could not verify that at commit a495db3292 because federal modules lived in a sibling repo before the monorepo consolidation (PR #395).\n\nRead-only throughout: only git show/diff/ls-tree, sed, cat, and the resolver script.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "I read the provision through the pinned corpus (release us-rulespec-ny-snap-2026-07-17, corpus commit df57dc57, source_as_of 2021-09-15); the resolver warned 'no_toolchain_corpus_pin' and fell back to that release. The text covers only proration from the application day (or the SSA pre-release applicant's release day) to the end of the initial month, plus the (i)/(ii) definition of 'initial month' including the more-than-30-days rule for migrant or seasonal farmworker households — it says nothing about general allotments, eligibility gating, or rounding. git grep at the fix commit finds no other definition of snap_allotment, so the rule was removed outright rather than relocated. Secondary candidate kinds a reviewer may prefer: (a) wrong_period_or_effective_date — effective_from moved '2025-10-01' -> '0001-01-01', i.e. the pre-fix encoding wrongly pinned a long-standing regulation to the FY2026 COLA start date; I did not make this primary because index 2 kept '2025-10-01' in the same commit, so the change is inconsistent and reads as a re-encode side effect. (b) unrepresented_clause — the post-fix initial_month_of_certification spells out the (i) 'following any period during which the household was not certified' arm that the pre-fix opaque input initial_application_month left implicit. The re-encode also trades the explicit day-count proration math for opaque proration_factor_* inputs, and drops the imports of us:policies/usda/snap/fy-2026-cola/maximum-allotments, us:regulations/7-cfr/273/10 and us:statutes/7/2017/a. The commit message is generic ('encoder refresh'), hence confidence below 0.8. Companion test file was rewritten to match (four cases covering application-day, pre-release, farmworker >30 days, and not-initial-month). | verifier confirmed at 0.78",
+  "family_id": "us-a495db32-64a1e3b269d0",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

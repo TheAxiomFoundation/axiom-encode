@@ -1,0 +1,99 @@
+{
+  "id": "us-414-acd3fdc7-regulations-7-cfr-273-9",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "acd3fdc7f58542c1cb870c2523260937c36df182",
+  "parent_commit": "632135478a1b53326464e8bad83e62e641ab5ae6",
+  "commit_date": "2026-06-08",
+  "commit_subject": "Repair SNAP income eligibility backbone",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/392",
+  "module_path": "regulations/7-cfr/273/9.yaml",
+  "corpus_citation_path": "us/regulation/7/273/9",
+  "corpus_citation_paths_all": [
+    "us/regulation/7/273/9"
+  ],
+  "corpus_release": "us-sc-snap-2026-07-15",
+  "corpus_release_content_sha256": "23e17c993eeae58e83347e77be35c92d75623cc0304c0b5c3b951a900b0029fe",
+  "corpus_commit": "3932af44ea0fb6dd5a7432959a4396356ef8e6ae",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.49,
+  "description": "Refactor 7 CFR 273.9 income eligibility to consume the canonical 273.10 gross and net income calculation outputs instead of stale free gross/net input leaves.",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        43,
+        43
+      ],
+      [
+        52,
+        52
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        31,
+        31
+      ],
+      [
+        44,
+        44
+      ],
+      [
+        53,
+        53
+      ]
+    ],
+    "rule_names": [
+      "snap_standard_gross_income_eligible",
+      "snap_standard_net_income_eligible"
+    ],
+    "rule_path": "rules[snap_standard_net_income_eligible].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "db0ac2f2f3e3f2a8f7c96386013e8449c47f00ea9f3f4d8454d49c3e60c06664",
+  "post_fix_artifact_sha256": "8cbec1c7dde89258a0e43adefc9340d504e59d3da6a417ce3c6becb2ce742524",
+  "provision_sha256": "cb76fd18ca36db43f8b865b8511d43a15dbb27f42f5eec5a2f47311df938888e",
+  "provision_chars": 56859,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/regulation/7/273/9",
+    "provision_file": "data/corpus/provisions/us/regulation/2026-07-15-title-7-part-273.jsonl",
+    "provision_file_sha256": "57dd752844884c36999ff701c1057406a026b57be44d144dc484fdfbed56b9c9",
+    "line_number": 14,
+    "record_id": "73222f8c-8664-5ba1-a946-aae509f5dfc9",
+    "stored_body_sha256": "cb76fd18ca36db43f8b865b8511d43a15dbb27f42f5eec5a2f47311df938888e",
+    "resolved_text_sha256": "cb76fd18ca36db43f8b865b8511d43a15dbb27f42f5eec5a2f47311df938888e",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-09",
+    "source_as_of": "2026-07-09",
+    "corpus_commit": "3932af44ea0fb6dd5a7432959a4396356ef8e6ae",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us/regulation/7/273/9",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix eligibility tests compared ungrounded free input leaves (snap_net_income, snap_gross_monthly_income) that no module in the corpus computes, so 273.9(a)(1)-(2) was applied to values with no basis in the regulation's own income definition (273.9(b)-(c) gross income net of exclusions) or its deduction-based net income (273.9(d), computed in 273.10(e)(1)) rather than to the amounts the source prescribes.",
+    "triage_notes": "Read the cited provision through resolve_provision.py for us/regulation/7/273/9: (a) sets the gross and net standards, (b) defines household income as 'all income from whatever source excluding only items specified in paragraph (c)', and (d) supplies the deductions that produce net income. Post-fix the module imports us:regulations/7-cfr/273/10 and uses snap_total_gross_income (7 CFR 273.10(e)(1)(i)(A): earned + unearned - exclusions) and snap_net_monthly_income (7 CFR 273.10(e)(1)(i): max(0, net income before shelter - excess shelter deduction)), both verified in the post-fix 273.10 file. That the pre-fix names were unbound leaves is confirmed by the companion test diff, which previously seeded 'us:regulations/7-cfr/273/9#input.snap_gross_monthly_income' and '#input.snap_net_income' and now seeds the 273.10 calculation inputs instead. Caveat a reviewer should weigh: the module's unchanged deferred_outputs prose says the module 'applies income eligibility standards to resolved gross and net income amounts', so the free leaves could be read as an intentional interface and the change as integration plumbing rather than a meaning correction; I call it fidelity because the leaves were never produced anywhere (the PR calls them 'stale'), leaving the net-income test ungrounded, but confidence is held below 0.8 for that reason. untraceable_branch is chosen for the 'value with no basis in the cited source ... the fix re-grounds it' sense; no listed kind fits a mis-wired variable more exactly. Index 0 is the enabling cycle-breaking edit for this change; the commit also refreshed the signed manifests under .axiom/encoding-manifests/ for both modules. Commit body empty; PR #392 has no reviews or comments.",
+    "verifier_verdict": "unclear",
+    "verifier_defect_kind": "untraceable_branch",
+    "verifier_confidence": 0.6,
+    "verifier_justification": "The diff changes only which symbol supplies each operand (free leaves `snap_gross_monthly_income`/`snap_net_income` become the 273.10 outputs `snap_total_gross_income`/`snap_net_monthly_income`, plus one added import); the comparison direction, the 130%/100% FPL standards, the elderly/disabled carve-out, entity, period, effective_from and the module's declared scope are byte-identical pre and post, and the unchanged `deferred_outputs` block still says the module \"applies income eligibility standards to resolved gross and net income amounts\" with 273.9(b) and (c) composition deferred both before and after the fix. The companion test diff re-seeds inputs but leaves every expected `holds`/`not_holds` output untouched, so no answer the pre-fix encoding produced was wrong against 7 CFR 273.9(a)(1)-(2), and free input leaves are a sanctioned pattern in this corpus (273.10 still takes `snap_total_medical_expenses`, `snap_total_allowable_shelter_expenses`, etc. as leaves). Against that, the first reader's point has real force: net income is a quantity the cited section itself defines via (d) deductions, so binding it to an arbitrary caller-supplied number does leave (a)(2) applied to an amount with no derivation in the corpus, which fits the \"re-grounds it\" half of untraceable_branch. The evidence does not settle which reading governs, so I neither confirm nor clear it.",
+    "verifier_quote": "-        formula: snap_net_income <= snap_net_income_limit_100_percent_fpl_48_states_dc\n+        formula: snap_net_monthly_income <= snap_net_income_limit_100_percent_fpl_48_states_dc",
+    "verifier_notes": "Refutation evidence a reviewer should weigh. (1) The PR's other module half is provably semantics-preserving: 273.10 swapped `us:regulations/7-cfr/273/9#snap_full_excess_shelter_deduction_applies` for `us:statutes/7/2012/j#snap_household_has_elderly_or_disabled_member`, and 273.9's rule for the former is literally `formula: snap_household_has_elderly_or_disabled_member` — identical value, so that half is pure dependency-edge removal (\"removing the 273.10 -> 273.9 dependency edge\", PR body). The 273.9 half is the mirror image of the same graph refactor. (2) The PR body's own words are \"stale free gross/net input leaves\" — superseded plumbing, not a contradiction with the CFR. (3) The fix adds no source coverage: the 273.9(b) and (c) deferral entries are identical in the parent and the commit, so the regulation's income-composition clauses are still unrepresented after the fix; it only points the operands at 273.10(e)(1)'s computation. (4) Verified via `git grep` at parent 6321354: `snap_gross_monthly_income` and `snap_net_income` appear in 273.9 only in the formulas and as `#input.` seeds in 273.9.test.yaml — genuinely unbound leaves, but the engine treats unbound names as module inputs by design, so this is a graph-completeness property, not a mis-encoded rule. (5) Rubric-relevant: the module never claimed to derive income, so under \"a change that merely adds new outputs, precision, or scope the module never claimed is not a defect; classify unclear at most\", the leading alternative verdict is not_a_defect (integration/grounding enhancement), and I put roughly 55/45 on not_a_defect versus fidelity/untraceable_branch. (6) Weak counter-evidence for the defect reading: the commit subject is \"Repair SNAP income eligibility backbone\" and axiom-encode shipped a bespoke `repair-snap-273-9-income-eligibility` command, and the pre-fix test 4 asserted an internally impossible state (gross 1000 with net 1306), which only an ungrounded leaf permits. If the corpus's convention is that a regulation-derived quantity may never be a free leaf, this is fidelity/untraceable_branch; if free leaves plus explicit deferrals are an accepted encoding contract, it is not a defect. I could not settle that convention from the commit, PR, or module text.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Read the cited provision through resolve_provision.py for us/regulation/7/273/9: (a) sets the gross and net standards, (b) defines household income as 'all income from whatever source excluding only items specified in paragraph (c)', and (d) supplies the deductions that produce net income. Post-fix the module imports us:regulations/7-cfr/273/10 and uses snap_total_gross_income (7 CFR 273.10(e)(1)(i)(A): earned + unearned - exclusions) and snap_net_monthly_income (7 CFR 273.10(e)(1)(i): max(0, net income before shelter - excess shelter deduction)), both verified in the post-fix 273.10 file. That the pre-fix names were unbound leaves is confirmed by the companion test diff, which previously seeded 'us:regulations/7-cfr/273/9#input.snap_gross_monthly_income' and '#input.snap_net_income' and now seeds the 273.10 calculation inputs instead. Caveat a reviewer should weigh: the module's unchanged deferred_outputs prose says the module 'applies income eligibility standards to resolved gross and net income amounts', so the free leaves could be read as an intentional interface and the change as integration plumbing rather than a meaning correction; I call it fidelity because the leaves were never produced anywhere (the PR calls them 'stale'), leaving the net-income test ungrounded, but confidence is held below 0.8 for that reason. untraceable_branch is chosen for the 'value with no basis in the cited source ... the fix re-grounds it' sense; no listed kind fits a mis-wired variable more exactly. Index 0 is the enabling cycle-breaking edit for this change; the commit also refreshed the signed manifests under .axiom/encoding-manifests/ for both modules. Commit body empty; PR #392 has no reviews or comments. | verifier unclear at 0.60",
+  "family_id": "us-acd3fdc7-cd9ac82d6aff",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

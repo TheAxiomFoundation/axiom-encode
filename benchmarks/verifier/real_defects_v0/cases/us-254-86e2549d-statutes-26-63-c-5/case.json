@@ -1,0 +1,143 @@
+{
+  "id": "us-254-86e2549d-statutes-26-63-c-5",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "86e2549dc760f652ab5419fa52d4cb6eeba1f87b",
+  "parent_commit": "b3801ee4eb82f8fc2c753d809c8b36d9ae6c42c2",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Subject says Encode, but it re-encodes existing 63, 63(c), 63(c)(5) and rev-proc standard-deduction modules: taxable_income restructured into 63(a)/(b) branches, standard_deduction effective_from 2026 to 2018, inputs and rule sets replaced; unsure.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/25",
+  "module_path": "statutes/26/63/c/5.yaml",
+  "corpus_citation_path": "us/statute/26/63",
+  "corpus_citation_paths_all": [
+    "us/statute/26/63"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "wrong_entity_or_scope",
+  "other_kind": null,
+  "confidence": 0.45,
+  "description": "encode 26 USC 63(c) standard deduction through the encoder apply flow",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        3,
+        8
+      ],
+      [
+        11,
+        12
+      ],
+      [
+        14,
+        14
+      ],
+      [
+        16,
+        16
+      ],
+      [
+        24,
+        30
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        3,
+        4
+      ],
+      [
+        7,
+        8
+      ],
+      [
+        10,
+        65
+      ],
+      [
+        67,
+        67
+      ],
+      [
+        72,
+        89
+      ],
+      [
+        93,
+        93
+      ]
+    ],
+    "rule_names": [
+      "dependent_standard_deduction",
+      "dependent_basic_standard_deduction_statutory_limit",
+      "dependent_basic_standard_deduction_limitation_applies",
+      "dependent_basic_standard_deduction_statutory_floor_amount",
+      "dependent_basic_standard_deduction_statutory_earned_income_addition_amount"
+    ],
+    "rule_path": "rules[dependent_basic_standard_deduction_statutory_limit].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "7181f0f77f97f3dad58f88536d0cef3330082997f44975d7b405dc0858e19bbb",
+  "post_fix_artifact_sha256": "75018a692f42622734dd3e54116e4a07e7f64cddff6a158dca39c856d911e40f",
+  "provision_sha256": "7fa5f5d72de7ef69a3543175d7f57f83aaee5defb237144d85afef68564f153b",
+  "provision_chars": 8017,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/63",
+    "provision_file": "data/corpus/provisions/us/statute/2026-05-10-tax-sections-r2026-07-15-self-contained-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "f48f152a03f99915c6ac9a847986e238ebeddd29ffb4199f0528c5e2a406eae4",
+    "line_number": 3,
+    "record_id": "7acfd1b0-b61a-5a75-ab49-380a365a45a2",
+    "stored_body_sha256": "7fa5f5d72de7ef69a3543175d7f57f83aaee5defb237144d85afef68564f153b",
+    "resolved_text_sha256": "7fa5f5d72de7ef69a3543175d7f57f83aaee5defb237144d85afef68564f153b",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2025-12-03",
+    "source_as_of": "2025-12-03",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us/statute/26/63",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/63'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/63'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/63'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/63'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "unclear",
+    "pre_fix_wrong_because": "unclear: the pre-fix capped the dependent's deduction at single_basic_standard_deduction and declared the rule on entity Person, whereas 63(c)(5) limits 'the basic standard deduction applicable to such individual' (whatever that individual's own filing status is) — but the pre-fix module openly declared that choice in its summary and its indexed $1,350/$450 amounts are defensible under 63(c)(4), so the evidence does not settle that the pre-fix was wrong.",
+    "triage_notes": "Provision READ via resolve_provision: 63(c)(5) reads 'the basic standard deduction applicable to such individual for such individual's taxable year shall not exceed the greater of— (A) $500, or (B) the sum of $250 and such individual's earned income.' Pre-fix summary explicitly said 'subject to the single-filer basic standard deduction' and 'Annual inflation-adjusted dollar amounts are imported from the IRS tax-year authority, not encoded in the statute file', so the single-filer ceiling was a deliberate, documented choice rather than an obvious slip; that plus the fact that the fix replaces indexed $1,350/$450 with unindexed statutory $500/$250 (dropping the 63(c)(4) adjustment this module used to get from the Rev. Proc.) is why I kept this unclear rather than fidelity. Real changes in the diff: entity Person -> TaxUnit, the min() ceiling moved out into 63/c.yaml where it is now taken against the taxpayer's own basic standard deduction, and a new Judgment rule for the 'deduction under section 151 allowable to another taxpayer' condition. Same encoder-rewrite pattern as index 5.",
+    "verifier_verdict": "unclear",
+    "verifier_defect_kind": "wrong_entity_or_scope",
+    "verifier_confidence": 0.62,
+    "verifier_justification": "The only defensible fidelity element in this file is scope: the pre-fix capped the dependent at `single_basic_standard_deduction` regardless of the individual's own filing status, while 63(c)(5) limits \"the basic standard deduction applicable to such individual\", and the post-state's parent (statutes/26/63/c.yaml) now applies `min(basic_standard_deduction_before_dependent_limitation, dependent_basic_standard_deduction_statutory_limit)`, which is filing-status aware — so a HoH dependent with ~$20k earned income moves from $16,100 to $20,450. But I cannot confirm, because the same diff moves the amounts the wrong way: it replaces the imported 2026 indexed values ($1,350 / $450, Rev. Proc. 2025-32 §.14(2)) with the raw statutory 500 / 250 under an `effective_from: '2026-01-01'` version, and the pinned corpus text of 63(c)(4) indexes \"each dollar amount contained in paragraph (2)(B), (2)(C), or (5)\" with (7)(B)(i) suspending paragraph (4) only for (2)(B) and (2)(C) — so paragraph (5) stays indexed and $500 is wrong for 2026. The commit's own new test locks that in (`dependent_with_no_earned_income_uses_floor` → statutory_limit 500 for TY2026) and the still-correct rev-proc `dependent_standard_deduction_floor_amount: 1350` is now orphaned from the 63(c) chain. Given a generic message (\"Encode upstream IRC 63 dependencies\" / \"encode 26 USC 63(c) standard deduction through the encoder apply flow\") and a wholesale re-encode that corrects one scope narrowing while introducing an amount regression, the evidence does not settle this as a fidelity fix.",
+    "verifier_quote": "-              single_basic_standard_deduction, … +          500",
+    "verifier_notes": "Recommend a reviewer prune or heavily caveat this case. Evidence gathered: (1) entity change `-    entity: Person` → `+    entity: TaxUnit` moves AWAY from the statute's \"an individual\" and is structural alignment with the TaxUnit-scoped consumer, so the \"entity\" half of wrong_entity_or_scope is not supported by the source; only the filing-status (\"scope\") half is. (2) The corrective effect of dropping the single-filer ceiling is realized in a different file (statutes/26/63/c.yaml, module index 5), not in this one — this file merely stops computing a ceiling and is renamed from `dependent_standard_deduction` (the deduction) to `dependent_basic_standard_deduction_statutory_limit` (the cap), an output-surface redefinition. (3) The pre-fix summary openly declared the simplification (\"subject to the single-filer basic standard deduction\"), and its $1,350/$450 were correct for 2026. (4) The post-fix introduces a fresh fidelity defect (amount_mismatch / unrepresented 63(c)(4) indexation) in the same hunk — this would be a better corpus case in the reverse direction, i.e. as a defect INTRODUCED at 86e2549dc7, if the corpus ever wants regression examples. Verified against the pinned release us-rulespec-2026-07-13 (corpus commit 612d20ca43), citation us/statute/26/63.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Provision READ via resolve_provision: 63(c)(5) reads 'the basic standard deduction applicable to such individual for such individual's taxable year shall not exceed the greater of— (A) $500, or (B) the sum of $250 and such individual's earned income.' Pre-fix summary explicitly said 'subject to the single-filer basic standard deduction' and 'Annual inflation-adjusted dollar amounts are imported from the IRS tax-year authority, not encoded in the statute file', so the single-filer ceiling was a deliberate, documented choice rather than an obvious slip; that plus the fact that the fix replaces indexed $1,350/$450 with unindexed statutory $500/$250 (dropping the 63(c)(4) adjustment this module used to get from the Rev. Proc.) is why I kept this unclear rather than fidelity. Real changes in the diff: entity Person -> TaxUnit, the min() ceiling moved out into 63/c.yaml where it is now taken against the taxpayer's own basic standard deduction, and a new Judgment rule for the 'deduction under section 151 allowable to another taxpayer' condition. Same encoder-rewrite pattern as index 5. | verifier unclear at 0.62",
+  "family_id": "us-86e2549d-986cd43801b3",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

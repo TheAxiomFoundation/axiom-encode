@@ -1,0 +1,107 @@
+{
+  "id": "us-015-17c4a96d-us-regulations-7-cfr-273-10",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "17c4a96dfbc43c5429b27bace7637e88ba6e4a1a",
+  "parent_commit": "623703a46ea190022513b4360c79d1cebae3fdb6",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Wrong amount: module carried the superseded printed $143 homeless shelter deduction cap and clamped the COLA-adjusted amount down for every homeless unit (oracle found $37 mismatch on all seven CO FY2024 units); rebinds min() to the annually adjusted maximum and removes the stale parameter.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/765",
+  "module_path": "us/regulations/7-cfr/273/10.yaml",
+  "corpus_citation_path": "us/regulation/7/273/10",
+  "corpus_citation_paths_all": [
+    "us/regulation/7/273/10"
+  ],
+  "corpus_release": "us-sc-snap-2026-07-15",
+  "corpus_release_content_sha256": "23e17c993eeae58e83347e77be35c92d75623cc0304c0b5c3b951a900b0029fe",
+  "corpus_commit": "3932af44ea0fb6dd5a7432959a4396356ef8e6ae",
+  "defect_kind": "amount_mismatch",
+  "other_kind": null,
+  "confidence": 0.82,
+  "description": "all seven Colorado FY 2024 QC units claiming the standard homeless shelter deduction mismatched by exactly the gap between the regulation's printed $143 and the FY 2024 indexed maximum ($179.66, recorded as $180 in the whole-dollar QC file)",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        54,
+        54
+      ],
+      [
+        95,
+        112
+      ],
+      [
+        283,
+        283
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        7,
+        18
+      ],
+      [
+        66,
+        66
+      ],
+      [
+        274,
+        279
+      ],
+      [
+        283,
+        283
+      ]
+    ],
+    "rule_names": [
+      "snap_homeless_shelter_deduction_for_net_income",
+      "snap_homeless_shelter_deduction_cap"
+    ],
+    "rule_path": "rules[snap_homeless_shelter_deduction_for_net_income].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "1920fcef44cef1a5d4c1a2df49e3680ff00fdc80ed0f07109e6e047dcc475945",
+  "post_fix_artifact_sha256": "c0fea2e5d8677777fdf6356f65d31e93f7722eb83335e2dc01214e6b46dc3b27",
+  "provision_sha256": "c23a70d7cd1839003de34b92291b09e860e1c7562bbdac92ab3cbfa68f8e8044",
+  "provision_chars": 52226,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/regulation/7/273/10",
+    "provision_file": "data/corpus/provisions/us/regulation/2026-07-15-title-7-part-273.jsonl",
+    "provision_file_sha256": "57dd752844884c36999ff701c1057406a026b57be44d144dc484fdfbed56b9c9",
+    "line_number": 15,
+    "record_id": "a1d18c47-e3ef-5f3b-8481-79d6077ad559",
+    "stored_body_sha256": "c23a70d7cd1839003de34b92291b09e860e1c7562bbdac92ab3cbfa68f8e8044",
+    "resolved_text_sha256": "c23a70d7cd1839003de34b92291b09e860e1c7562bbdac92ab3cbfa68f8e8044",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-09",
+    "source_as_of": "2026-07-09",
+    "corpus_commit": "3932af44ea0fb6dd5a7432959a4396356ef8e6ae",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "earliest_release_after_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "7661f3c9a3655e93fc9b2420048d70d231e7d44b",
+    "requested_citation_path": "us/regulation/7/273/10",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The module capped the homeless shelter deduction at a hard-coded $143 — the superseded FY 2019 base figure printed in the CFR — for a version effective 2025-10-01, so it produced a dollar amount below the controlling annually indexed maximum (198.99 for FY 2026, 179.66 for FY 2024) that 7 USC 2014(e)(6)(D)(ii) and the USDA COLA memoranda set.",
+    "triage_notes": "Single-module commit (plus its companion test and encoding manifest). Diff evidence is exact: the `snap_homeless_shelter_deduction_cap` parameter (formula `143`) is deleted and `min(snap_claimed_homeless_shelter_deduction, snap_homeless_shelter_deduction_cap)` becomes `min(snap_claimed_homeless_shelter_deduction, snap_homeless_shelter_deduction)` binding the already-imported us:policies/usda/snap/fy-2026-cola/deductions output (new proof import atom added). Companion test flips the homeless case from deduction 143 / net 148 / allotment 253 to 198.99 / 92.01 / 270, confirming the pre-fix values were wrong money amounts, not just bookkeeping. The provision WAS read through the pinned corpus release (us/regulation/7/273/10): 273.10(e)(1)(i)(G) literally prints \"Subtract the homeless shelter deduction, if any, up to the maximum of $143\", so the encoding matched the printed CFR text but disagreed with the controlling source chain (statute indexing + COLA memo), which the fix now records in `upstream_source_check`. Kind call: amount_mismatch is primary (a wrong dollar threshold, oracle-measured as an exact $37 gap, per the commit subject and body); wrong_period_or_effective_date is the defensible alternative reading since this is arguably timeless carriage of superseded text under an effective_from of 2025-10-01 — hence confidence is 0.82 rather than higher. The rest of the diff (module summary rewrite, upstream_source_check block) is documentation consistent with the same fix and changes no other formula, version, scope, or date.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "amount_mismatch",
+    "verifier_confidence": 0.86,
+    "verifier_justification": "The diff changes executable meaning, not provenance: it deletes the `snap_homeless_shelter_deduction_cap` parameter whose sole version formula was `143` and rebinds the `min()` in `snap_homeless_shelter_deduction_for_net_income` to the imported FY-2026 COLA value (198.99 in `us/policies/usda/snap/fy-2026-cola/deductions.yaml:61`), and the companion test moves the deduction from 143 to 198.99 and the allotment from 253 to 270. I read 7 USC 2014(e)(6)(D) through the pinned release: clause (i) prints \"$143 a month\" and clause (ii) states \"For fiscal year 2019 and each subsequent fiscal year the amount of the homeless shelter deduction specified in clause (i) shall be adjusted\", so a version effective 2025-10-01 carrying the FY2019 base figure is a numerically wrong threshold against the controlling source, exactly as the oracle's uniform $37 gap on the seven Colorado FY2024 units shows. I tried the competing kinds and they fail: no effective_from/effective_to, version window, or period kind changed (ruling out wrong_period_or_effective_date — the 2025-10-01 window was and remains correct, only the value inside it was stale), and the pre-fix value was verbatim traceable to the rule's own cited provision (e)(1)(i)(G), which is the right provision for this deduction, so it was not an untraceable or misgrounded branch. It is also not mechanical or an enhancement: the module already imported the FY-2026 COLA module for the deduction itself, so the clamp actively pulled a correctly supplied current-year amount down to a superseded number.",
+    "verifier_quote": "-        formula: |-\n-          143\n...\n-          min(snap_claimed_homeless_shelter_deduction, snap_homeless_shelter_deduction_cap)\n+          min(snap_claimed_homeless_shelter_deduction, snap_homeless_shelter_deduction)",
+    "verifier_notes": "Evidence trail for a reviewer: pre-fix parameter block at `git -C /Users/maxghenis/TheAxiomFoundation/rulespec-us show 623703a46e:us/regulations/7-cfr/273/10.yaml` lines ~95-110 (`snap_homeless_shelter_deduction_cap`, `effective_from: '2025-10-01'`, `formula: 143`); import target value confirmed at `17c4a96dfb:us/policies/usda/snap/fy-2026-cola/deductions.yaml:61` (`snap_homeless_shelter_deduction: 198.99`); behavioral proof in the companion test diff (`snap_homeless_shelter_deduction_for_net_income: 143 -> 198.99`, `snap_monthly_allotment: 253 -> 270`).\n\nOne genuine tension worth recording, which is why I did not go above ~0.86: the module's own cited corpus text (7 CFR 273.10(e)(1)(i)(G), resolved through the pinned release) literally reads \"Subtract the homeless shelter deduction, if any, up to the maximum of $143\" with no indexing language on its face, so a strict \"cited source text only\" reading would call the pre-fix encoding faithful. The defect survives that reading because the statute the CFR implements carries the adjustment clause in the same subparagraph, and the fix records this explicitly via the new `upstream_source_check` with `checked_paths: us/statute/7/2014` and the FY2026 COLA memo page. If this corpus later adds a kind for \"encoded a superseded printed base figure where the source indexes annually\", this case is its canonical example; under the current kind list, amount_mismatch is the closest and the only one whose definition is fully satisfied.\n\nThe rest of the commit (summary rewrite, `upstream_source_check` block, new import proof atom with hash) is provenance/metadata and would be mechanical on its own; the classification rests entirely on the removed `143` parameter and the `min()` rebind.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Single-module commit (plus its companion test and encoding manifest). Diff evidence is exact: the `snap_homeless_shelter_deduction_cap` parameter (formula `143`) is deleted and `min(snap_claimed_homeless_shelter_deduction, snap_homeless_shelter_deduction_cap)` becomes `min(snap_claimed_homeless_shelter_deduction, snap_homeless_shelter_deduction)` binding the already-imported us:policies/usda/snap/fy-2026-cola/deductions output (new proof import atom added). Companion test flips the homeless case from deduction 143 / net 148 / allotment 253 to 198.99 / 92.01 / 270, confirming the pre-fix values were wrong money amounts, not just bookkeeping. The provision WAS read through the pinned corpus release (us/regulation/7/273/10): 273.10(e)(1)(i)(G) literally prints \"Subtract the homeless shelter deduction, if any, up to the maximum of $143\", so the encoding matched the printed CFR text but disagreed with the controlling source chain (statute indexing + COLA memo), which the fix now records in `upstream_source_check`. Kind call: amount_mismatch is primary (a wrong dollar threshold, oracle-measured as an exact $37 gap, per the commit subject and body); wrong_period_or_effective_date is the defensible alternative reading since this is arguably timeless carriage of superseded text under an effective_from of 2025-10-01 — hence confidence is 0.82 rather than higher. The rest of the diff (module summary rewrite, upstream_source_check block) is documentation consistent with the same fix and changes no other formula, version, scope, or date. | verifier confirmed at 0.86",
+  "family_id": "us-17c4a96d-040200865798",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

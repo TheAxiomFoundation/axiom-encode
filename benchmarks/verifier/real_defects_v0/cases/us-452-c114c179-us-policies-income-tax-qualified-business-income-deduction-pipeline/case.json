@@ -1,0 +1,119 @@
+{
+  "id": "us-452-c114c179-us-policies-income-tax-qualified-business-income-deduction-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "c114c1791e82f2c131a1b7141d4083484e48c336",
+  "parent_commit": "c6fd30db55c3e7e96404fbae44c49fdf09228d46",
+  "commit_date": "2026-07-24",
+  "commit_subject": "fix: fail closed outside single QBID group",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1004",
+  "module_path": "us/policies/income_tax/qualified_business_income_deduction_pipeline.yaml",
+  "corpus_citation_path": "us/statute/26/199A",
+  "corpus_citation_paths_all": [
+    "us/statute/26/199A",
+    "us/guidance/irs/rev-proc-2025-32/page-21",
+    "us/guidance/irs/rev-proc-2025-32/page-22"
+  ],
+  "corpus_release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+  "corpus_release_content_sha256": "cb275c76c4f07f8ad37470a32296bb1763e5db853d152697524ab07021b6d544",
+  "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+  "defect_kind": "polarity_or_logic",
+  "other_kind": null,
+  "confidence": 0.76,
+  "description": "single-aggregation-group attestation fails closed (multi-business summation is upstream)",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        45,
+        49
+      ],
+      [
+        126,
+        130
+      ],
+      [
+        331,
+        331
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        45,
+        54
+      ],
+      [
+        106,
+        151
+      ],
+      [
+        177,
+        181
+      ],
+      [
+        366,
+        370
+      ],
+      [
+        387,
+        390
+      ],
+      [
+        413,
+        417
+      ]
+    ],
+    "rule_names": [
+      "federal_qualified_business_income_deduction",
+      "pipeline_qbi_phasein_range",
+      "pipeline_qbi_phasein_range_other",
+      "pipeline_qbi_phasein_range_joint"
+    ],
+    "rule_path": "rules[federal_qualified_business_income_deduction].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "09442dd0c276dc6f6db2e4afc25aead1fb98dd2b6f1a4106e57c9c1b8ffd1b0d",
+  "post_fix_artifact_sha256": "cd1b630b3b243cf200c2960ddcab751bf7a7e04c7209910869026808da8b226d",
+  "provision_sha256": "0af6c1cceb7351a690302b8773d7c90d8ed3711df8c3748f3b07603e3c96c53d",
+  "provision_chars": 29125,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/199A",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+    "provision_file_sha256": "03ddda0b2bcd59345ec4efa1daaf1c77b423a5166852fd80bb4cf00c0bd8e461",
+    "line_number": 39,
+    "record_id": "09e89e17-8e86-5caa-b36d-2de501af862d",
+    "stored_body_sha256": "0af6c1cceb7351a690302b8773d7c90d8ed3711df8c3748f3b07603e3c96c53d",
+    "resolved_text_sha256": "0af6c1cceb7351a690302b8773d7c90d8ed3711df8c3748f3b07603e3c96c53d",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "5dfd89d131564e4ee0e1e763571dbb5d7fc7f5e7",
+    "requested_citation_path": "us/statute/26/199A",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix final rule returned the single-scalar trade-or-business result as the taxpayer's section 199A deduction for every non-corporate filer, failing open when the taxpayer carried another qualified trade or business, even though 199A(b)(1)(A) defines the combined amount as the sum of the paragraph-(2) amounts determined separately for each qualified trade or business.",
+    "triage_notes": "Provision was read through the pinned corpus release (us/statute/26/199A): 199A(b)(1)(A) reads 'the sum of the amounts determined under paragraph (2) for each qualified trade or business carried on by the taxpayer', and (b)(2) applies the 50%-of-W-2 / 25%+2.5%-UBIA limit per business, so a scalar single-business computation is not the statutory combined amount when another qualified business exists; the added proof-atom excerpt matches the corpus text verbatim. Decisive change is the guard on the final formula: pre-fix 'if taxpayer_is_corporation: 0' became 'if (taxpayer_is_corporation or not supplied_amounts_are_for_taxpayers_only_qualified_trade_or_business): 0', with a new required Boolean TaxUnit input and a new companion case 'qbid-multiple-business-boundary-fails-closed' proving the scalar leg still yields 20000 while the final yields 0. Kind chosen as polarity_or_logic because the task's kind list places fail-open vs fail-closed there and the commit subject is 'fix: fail closed outside single QBID group'; a defensible alternative is unrepresented_clause, since the unrepresented item is the (b)(1)(A) per-business sum, but the fix guards against that gap rather than implementing the sum (the PR says multi-business summation stays upstream). Second, non-decisive part of the same diff is mechanical/provenance: the pipeline_qbi_phasein_range match arms swap the literals 75000/150000 for two new parameter rules pipeline_qbi_phasein_range_other/_joint holding the identical values with Rev. Proc. 2025-32 page-22 and 199A(b)(3)(B) proof atoms; no value, scope, entity, or effective-date change (both new params are effective_from 2026-01-01 to 2026-12-31, matching the rest of the module). Commit body is empty (just a newline), so the quote comes from the body of merged PR #1004, which covers a larger multi-surface composition; this commit is one incremental commit in that PR, and the PR has no reviews or review comments in the bundle. The module summary added in this diff also states the reason verbatim: 'Because the scalar trade-or-business leg cannot perform the paragraph-(2) sum across nonaggregable businesses, the final output requires an attestation that the supplied amounts form the taxpayer's only qualified-trade-or-business aggregation group and that no other qualified business exists.' PROGRESS.md pre-fix listed 'Implement the remaining QBID one-group contract' as an open Next item, i.e. this was a known, tracked gap rather than an incidental hardening. Only this one module file changed; the other touched files are the companion test and PROGRESS.md.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "polarity_or_logic",
+    "verifier_confidence": 0.76,
+    "verifier_justification": "I tried to refute this as an added-precision guard and could not: pre-fix, `federal_qualified_business_income_deduction` zeroed only for corporations and otherwise returned the single-scalar trade-or-business leg as the taxpayer's whole deduction, while the pinned corpus text of 199A(b)(1)(A) reads \"the sum of the amounts determined under paragraph (2) for each qualified trade or business carried on by the taxpayer\" — so for a multi-business filer the encoding computed an unsound number instead of declining, a fail-open branch, and the commit subject is literally \"fail closed outside single QBID group\". The fix changes encoded meaning, not documentation: it adds a required Boolean input and disjoins `or not supplied_amounts_are_for_taxpayers_only_qualified_trade_or_business` into the zero branch, and the new companion case `qbid-multiple-business-boundary-fails-closed` pins `pipeline_qbi_deduction_before_minimum_active_qbi: '20000'` against `federal_qualified_business_income_deduction: '0'`, proving the branch flip. The taxonomy names \"fail-open vs fail-closed\" and \"default value\" under polarity_or_logic, and entity, period, output surface, and every parameter value are unchanged, so that kind fits better than wrong_entity_or_scope; unrepresented_clause does not fit because the fix deliberately does not add the paragraph-(2) summation (\"multi-business summation is upstream\").",
+    "verifier_quote": "+          if (\n+              taxpayer_is_corporation\n+              or not supplied_amounts_are_for_taxpayers_only_qualified_trade_or_business\n+          ):\n               0",
+    "verifier_notes": "Scope of the meaning change: only rules[federal_qualified_business_income_deduction].versions[0].formula plus its new required input changes behavior. The other rules in the reader's rule_names list (pipeline_qbi_phasein_range, ..._other, ..._joint) are a value-preserving refactor — the literals 75000/150000 in the filing-status match are replaced by two new parameter rules holding exactly 75000 and 150000, so that part is mechanical and should not be counted as a second defect. The strongest competing kind is wrong_entity_or_scope (the pre-fix rule answered for a broader population than its scalar inputs can support); I rejected it because nothing about entity, filing status, period, or output surface changed and the defect and fix are both boolean. A reviewer could also argue not_a_defect on the ground that the pre-fix input descriptions already said \"the represented qualified trade or business\" — but that assumption was unenforced and the final output was described as the \"final tax-unit deduction\", so the module did claim an answer for filers it could not correctly answer for. Grounding check: the added proof atom's excerpt \"the sum of the amounts determined under paragraph (2) for each qualified trade or business carried on by the taxpayer\" matches the pinned corpus text verbatim (release us-rulespec-2026-07-24-snap-cms-pit-union, provision record 09e89e17-8e86-5caa-b36d-2de501af862d), so the guard is source-grounded rather than a bare policy choice. Caveat worth recording: returning 0 on a false attestation is itself not the statutory answer; the real safety comes from the input being required, so omission makes the output unevaluable.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Provision was read through the pinned corpus release (us/statute/26/199A): 199A(b)(1)(A) reads 'the sum of the amounts determined under paragraph (2) for each qualified trade or business carried on by the taxpayer', and (b)(2) applies the 50%-of-W-2 / 25%+2.5%-UBIA limit per business, so a scalar single-business computation is not the statutory combined amount when another qualified business exists; the added proof-atom excerpt matches the corpus text verbatim. Decisive change is the guard on the final formula: pre-fix 'if taxpayer_is_corporation: 0' became 'if (taxpayer_is_corporation or not supplied_amounts_are_for_taxpayers_only_qualified_trade_or_business): 0', with a new required Boolean TaxUnit input and a new companion case 'qbid-multiple-business-boundary-fails-closed' proving the scalar leg still yields 20000 while the final yields 0. Kind chosen as polarity_or_logic because the task's kind list places fail-open vs fail-closed there and the commit subject is 'fix: fail closed outside single QBID group'; a defensible alternative is unrepresented_clause, since the unrepresented item is the (b)(1)(A) per-business sum, but the fix guards against that gap rather than implementing the sum (the PR says multi-business summation stays upstream). Second, non-decisive part of the same diff is mechanical/provenance: the pipeline_qbi_phasein_range match arms swap the literals 75000/150000 for two new parameter rules pipeline_qbi_phasein_range_other/_joint holding the identical values with Rev. Proc. 2025-32 page-22 and 199A(b)(3)(B) proof atoms; no value, scope, entity, or effective-date change (both new params are effective_from 2026-01-01 to 2026-12-31, matching the rest of the module). Commit body is empty (just a newline), so the quote comes from the body of merged PR #1004, which covers a larger multi-surface composition; this commit is one incremental commit in that PR, and the PR has no reviews or review comments in the bundle. The module summary added in this diff also states the reason verbatim: 'Because the scalar trade-or-business leg cannot perform the paragraph-(2) sum across nonaggregable businesses, the final output requires an attestation that the supplied amounts form the taxpayer's only qualified-trade-or-business aggregation group and that no other qualified business exists.' PROGRESS.md pre-fix listed 'Implement the remaining QBID one-group contract' as an open Next item, i.e. this was a known, tracked gap rather than an incidental hardening. Only this one module file changed; the other touched files are the companion test and PROGRESS.md. | verifier confirmed at 0.76",
+  "family_id": "us-c114c179-85c4ff34728e",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

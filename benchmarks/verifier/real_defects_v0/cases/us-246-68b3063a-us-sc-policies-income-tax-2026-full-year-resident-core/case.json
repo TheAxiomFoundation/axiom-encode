@@ -1,0 +1,284 @@
+{
+  "id": "us-246-68b3063a-us-sc-policies-income-tax-2026-full-year-resident-core",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "68b3063a92795ad44dd9ea4fe91916235b155289",
+  "parent_commit": "5168dade6d05b1bd3cc8ec66dde805f5fe22427c",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Reworks the already-encoded South Carolina core: removes the section 12-6-1130(2) itemized tax addback rule and its inputs and replaces the EITC formula (98 deletions alongside additions).",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1042",
+  "module_path": "us-sc/policies/income_tax/2026_full_year_resident_core.yaml",
+  "corpus_citation_path": "us-sc/statute/12-6-30",
+  "corpus_citation_paths_all": [
+    "us-sc/statute/12-6-30",
+    "us-sc/statute/12-6-40",
+    "us-sc/statute/12-6-50",
+    "us-sc/statute/12-6-510",
+    "us-sc/statute/12-6-545",
+    "us-sc/statute/12-6-1110",
+    "us-sc/statute/12-6-1120",
+    "us-sc/statute/12-6-1130",
+    "us-sc/statute/12-6-1140",
+    "us-sc/statute/12-6-1150",
+    "us-sc/statute/12-6-1160",
+    "us-sc/statute/12-6-1170",
+    "us-sc/statute/12-6-1171",
+    "us-sc/statute/12-6-1620",
+    "us-sc/statute/12-6-1630",
+    "us-sc/statute/12-6-3330",
+    "us-sc/statute/12-6-3380",
+    "us-sc/statute/12-6-3381",
+    "us-sc/statute/12-6-3385",
+    "us-sc/statute/12-6-3390",
+    "us-sc/statute/12-6-3400",
+    "us-sc/statute/12-6-3500",
+    "us-sc/statute/12-6-3575",
+    "us-sc/statute/12-6-3632",
+    "us-sc/statute/12-6-3660",
+    "us-sc/statute/12-6-3665",
+    "us-sc/statute/12-6-3670",
+    "us-sc/statute/12-6-3790",
+    "us-sc/statute/12-6-3800",
+    "us-sc/statute/12-6-3810"
+  ],
+  "corpus_release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+  "corpus_release_content_sha256": "914c0daedad1eeee96691d7a245420e434b55c971199661f1df140e6ad99699e",
+  "corpus_commit": "cbf3d2492c8077ba454cd49df9676e8265c9b497",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.8,
+  "description": "reverses the federal standard or itemized deduction that Act 110 no longer adopts, applies directly supported Article 9 items and the filing-status/AGI-based SCIAD",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        56,
+        58
+      ],
+      [
+        71,
+        76
+      ],
+      [
+        199,
+        200
+      ],
+      [
+        202,
+        202
+      ],
+      [
+        204,
+        205
+      ],
+      [
+        308,
+        311
+      ],
+      [
+        546,
+        546
+      ],
+      [
+        552,
+        552
+      ],
+      [
+        559,
+        559
+      ],
+      [
+        565,
+        568
+      ],
+      [
+        570,
+        570
+      ],
+      [
+        591,
+        591
+      ],
+      [
+        598,
+        598
+      ],
+      [
+        616,
+        616
+      ],
+      [
+        781,
+        781
+      ],
+      [
+        848,
+        848
+      ],
+      [
+        974,
+        974
+      ],
+      [
+        1173,
+        1176
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        56,
+        60
+      ],
+      [
+        73,
+        80
+      ],
+      [
+        204,
+        207
+      ],
+      [
+        209,
+        210
+      ],
+      [
+        221,
+        221
+      ],
+      [
+        224,
+        224
+      ],
+      [
+        424,
+        601
+      ],
+      [
+        727,
+        743
+      ],
+      [
+        749,
+        749
+      ],
+      [
+        756,
+        756
+      ],
+      [
+        762,
+        762
+      ],
+      [
+        764,
+        764
+      ],
+      [
+        785,
+        785
+      ],
+      [
+        792,
+        792
+      ],
+      [
+        810,
+        810
+      ],
+      [
+        852,
+        995
+      ],
+      [
+        1115,
+        1117
+      ],
+      [
+        1122,
+        1123
+      ],
+      [
+        1190,
+        1190
+      ],
+      [
+        1313,
+        1315
+      ],
+      [
+        1319,
+        1324
+      ],
+      [
+        1508,
+        1508
+      ],
+      [
+        1524,
+        1526
+      ]
+    ],
+    "rule_names": [
+      "sc_pit_2026_candidate_itemized_tax_addback",
+      "sc_pit_2026_candidate_federal_section_63_deduction_addback",
+      "sc_pit_2026_candidate_additions",
+      "sc_pit_2026_candidate_sciad",
+      "sc_pit_2026_candidate_sciad_base",
+      "sc_pit_2026_candidate_sciad_reduction",
+      "sc_pit_2026_candidate_sciad_phaseout_start",
+      "sc_pit_2026_candidate_sciad_phaseout_denominator",
+      "sc_pit_2026_candidate_deductions_and_exemptions",
+      "sc_pit_2026_candidate_earned_income_credit",
+      "sc_pit_2026_eitc_credit_cap",
+      "sc_pit_2026_input_domain_is_valid",
+      "sc_pit_2026_supported_profile_applies",
+      "sc_pit_2026_regular_workday_count_ceiling"
+    ],
+    "rule_path": "rules[sc_pit_2026_candidate_federal_section_63_deduction_addback].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "87203c9c60f8fd9fc79665f22d2e40a3b0fc5dd9f4756d2ad87648f12ac2637a",
+  "post_fix_artifact_sha256": "676fa06dacb19f6f0ecab8aac05ffc6c9c6c78a3654e8e3dd207911b9693a799",
+  "provision_sha256": "4aefd6d65eb9aff262d77cefd3ea70be4e672ac9ce4f4f881704273344a185a3",
+  "provision_chars": 2298,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-sc/statute/12-6-30",
+    "provision_file": "data/corpus/provisions/us-sc/statute/2026-07-16-pit-central-us-sc-title-12-chapter-6.jsonl",
+    "provision_file_sha256": "77cd95ea30d606938471d262e05409324b76f85ded4b43d6f0ddab53eba6174a",
+    "line_number": 5,
+    "record_id": "513aa541-e006-5749-86ad-50bc92e83caf",
+    "stored_body_sha256": "4aefd6d65eb9aff262d77cefd3ea70be4e672ac9ce4f4f881704273344a185a3",
+    "resolved_text_sha256": "4aefd6d65eb9aff262d77cefd3ea70be4e672ac9ce4f4f881704273344a185a3",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-16",
+    "source_as_of": "2026-07-16",
+    "corpus_commit": "cbf3d2492c8077ba454cd49df9676e8265c9b497",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "b157a201285a90f185903ba8db6aa52497c201b4",
+    "requested_citation_path": "us-sc/statute/12-6-30",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "For tax year 2026 the pre-fix module omitted three clauses Act 110 enacted in the cited sections: it added back only the section 12-6-1130(2) state-and-local-tax sliver (capped at itemized-over-standard excess) instead of reversing the whole federal Section 63 standard or itemized deduction that section 12-6-50(21) says is \"hereby specifically not allowed or adopted\", it granted no South Carolina Income Adjusted Deduction under section 12-6-1140(15), and it computed the section 12-6-3632 earned-income credit as an uncapped 125 percent of the federal EITC despite the statute's \"but not to exceed two hundred dollars\".",
+    "triage_notes": "Single module in the commit; one chunk, fully covered. Provisions were read directly out of the corpus overlay this commit pins (axiom-corpus b157a201, file data/corpus/provisions/us-sc/statute/2026-07-24-sc-act110-us-sc-title-12-chapter-6.jsonl): 12-6-50(21) non-adoption of IRC Section 63(b)-(g); 12-6-1140(15) SCIAD bases 15,000/22,500/30,000, phaseout starts 40,000/60,000/80,000, denominators 55,000/82,500/110,000, reduction rounded to the next lowest ten dollars, no deduction when the fraction reaches one; 12-6-3632 amended by 2026 Act No. 110 SECTION 7 to add \"but not to exceed two hundred dollars\". All three post-fix encodings match that text.\n\nIMPORTANT FOR BENCHMARK USE: resolve_provision.py at this commit returns PRE-Act-110 text for 12-6-50, 12-6-1140 and 12-6-3632 (it selects release us-rulespec-2026-07-24-cms-435-correction-immutable-scopes / provision file 2026-07-16-pit-central-us-sc-title-12-chapter-6.jsonl, not the overlay release us-rulespec-2026-07-24-sc-act110-current added by the pinned corpus commit). A judge shown only the resolver output would see no SCIAD, no Section 63(b) non-adoption and no $200 cap, and could wrongly score the post-fix module as ungrounded. The Act 110 text must be supplied from the overlay file.\n\nProvenance nuance: this commit also repins .axiom/toolchain.toml axiom_corpus_ref 4c174389 -> b157a201. The older corpus DID already carry Act 110's 12-6-510 two-bracket rate schedule (1.99%/5.21%, $30,000 floor) but not the 12-6-50(21), 12-6-1140(15) or 12-6-3632 amendments, so the pre-fix encoding was internally consistent with its own pinned corpus while disagreeing with the actual 2026 statute. That makes it a real fidelity defect, but one a verifier can only catch with the complete source.\n\nKind is contestable: the removal of sc_pit_2026_candidate_itemized_tax_addback and its re-grounding from 12-6-1130(2) to 12-6-50(21) also reads as untraceable_branch (formula grounded on a provision Act 110 displaced for individuals), and the whole change could be framed as wrong_period_or_effective_date (2026-windowed versions encoding pre-amendment text). I chose unrepresented_clause because the bulk of the fix ADDS statutory clauses (SCIAD machinery, the full Section 63 reversal, the EITC cap) that the source states and the pre-fix module lacked. Note 12-6-1130(2) itself is NOT repealed in the Act 110 text; removing its rule is defensible only because the entire federal itemized deduction is now added back, so a separate SALT addback would double count - a reviewer may want to confirm that reading.\n\nAncillary changes in the same diff: (a) sc_pit_2026_input_domain_is_valid's itemized/standard coherence guard rewritten for the new input semantics (federal_standard_deduction == 0 when itemizing, and vice versa) and two workday <= ceiling bounds added; (b) new derived sc_pit_2026_regular_workday_count_ceiling = days_between(period_start, period_end) + 1; (c) a redundant nursing-care condition (private_nursing_care_expenses == 0 or nursing_care_level_is_physician_certified) removed from sc_pit_2026_supported_profile_applies - the credit rule sc_pit_2026_candidate_nursing_care_credit already fail-closes to 0 without certification in the pre-fix file, so this widens the supported profile rather than fixing a defect; (d) EITC formula also gained a defensive max(0, federal_earned_income_credit_allowed); (e) inputs: sc_pit_2026_state_local_income_or_sales_taxes_in_federal_itemized_deductions dropped, sc_pit_2026_federal_adjusted_gross_income added, three descriptions rewritten; (f) several proof-atom excerpt strings lengthened (mechanical provenance).\n\nContext: this is a fix-up commit on PR #1042 branch encode/sc-2026-e2e-resident; the original encoding is 89ab7ae57 and later branch commits are 9988f05f0 (input-contract YAML parsing) and 49f2659d1 (manifest attestation). PR #1042 has no reviews or review comments describing this rework - its body and the single issue comment describe only the final state, so no reviewer text names the defect.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.87,
+    "verifier_justification": "I tried to refute this three ways (new-coverage-not-a-defect, untraceable_branch for the removed 12-6-1130(2) rule, amount_mismatch for the EITC change) and all three fail against the pinned source. Reading the Act 110 overlay at the toolchain corpus ref (us-sc/statute 2026-07-24-sc-act110 records), the source states three things the pre-fix module simply did not encode for TY2026: 12-6-50(21) \"Section 63(b) through (g) ... which are hereby specifically not allowed or adopted\", 12-6-1140(15) \"a South Carolina Income Adjusted Deduction (SCIAD) equal to: (i) fifteen thousand dollars...\", and 12-6-3632's \"but not to exceed two hundred dollars\" (2026 Act No. 110, SECTION 7) — and the fix adds each as a formula/parameter change, not as metadata. This is not merely added scope: the pre-fix module already listed us-sc/statute/12-6-50 in corpus_citation_paths, held none of these branches in deferred_outputs, and exposed a supported-profile taxable income and EITC that were therefore wrong for an ordinary supported filer, so the omissions are fidelity defects and unrepresented_clause is the fitting kind.",
+    "verifier_quote": "-          sc_pit_2026_candidate_net_capital_gain_deduction\n+          sc_pit_2026_candidate_sciad\n+          + sc_pit_2026_candidate_net_capital_gain_deduction",
+    "verifier_notes": "Source verification detail (important for anyone re-running this): resolve_provision.py selected release us-rulespec-2026-07-24-cms-435-correction-immutable-scopes (corpus commit cbf3d249), whose 12-6-50 record stops at item (20) and contains no SCIAD/EITC-cap text — it predates the Act 110 overlay. The toolchain ref the module actually pins is b157a201 (axiom-corpus#503), which adds data/corpus/provisions/us-sc/statute/2026-07-24-sc-act110-us-sc-title-12-chapter-6.jsonl; I read 12-6-50, 12-6-1140 and 12-6-3632 from that overlay via `git -C axiom-corpus show b157a201:...`. Do not conclude from the resolver output alone that the added rules are ungrounded; they are grounded, with the statute's amounts (15000/22500/30000 bases, 40000/60000/80000 phaseout starts, 55000/82500/110000 denominators, next-lowest-ten-dollar rounding, 200 EITC cap) matching verbatim.\nWhy not untraceable_branch: 12-6-1130(2) is byte-identical in the pre-Act-110 and Act 110 records (I compared the bodies), so the deleted sc_pit_2026_candidate_itemized_tax_addback rule was grounded in in-force text; its removal is a consequence of implementing 12-6-50(21) (adding back the whole federal Section 63 deduction subsumes the SALT sliver and would otherwise double count), not an independent re-grounding. Why not amount_mismatch: the pre-fix EITC formula had no cap at all (`formula: sc_pit_2026_eitc_match_rate * sc_pit_2026_federal_earned_income_credit_allowed`), so the fix adds a missing limitation clause rather than correcting a number. Why not wrong_period: every version window stayed 2026-01-01/2026-12-31.\nCuration caveat for the reviewer: this is an intra-PR revision, not a post-merge repair. The module was created at 89ab7ae57 and completed at 68b3063a92, and both landed together in PR #1042 (merged 2026-07-24), so the defective state never reached main. The classification as a fidelity defect stands on the source comparison; whether an intra-PR iteration belongs in a \"real defects\" corpus is a separate curation call.\nSecondary changes in the same commit, none of which change the kind: the supported-profile gate drops the nursing-care physician-certification conjunct (the credit rule at post line 1288 still branches on it, so no fidelity loss), the input domain adds a regular-workday ceiling and reworks the itemized/standard mutual-exclusivity condition, and a new sc_pit_2026_federal_adjusted_gross_income input is required by the SCIAD phaseout. Two proof-atom excerpt strings (12-6-1120 Section 78/86, 12-6-3330 Section 62) were also lengthened — provenance-only, mechanical.\nTooling hazard: the scratchpad directory appears to be shared across the parallel verifier subagents of this run. A file I wrote as scratchpad/pre.yaml was overwritten with another state's module (Delaware) mid-task; I re-read everything under sc68b_-prefixed filenames. Sibling verifiers should use unique basenames.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Single module in the commit; one chunk, fully covered. Provisions were read directly out of the corpus overlay this commit pins (axiom-corpus b157a201, file data/corpus/provisions/us-sc/statute/2026-07-24-sc-act110-us-sc-title-12-chapter-6.jsonl): 12-6-50(21) non-adoption of IRC Section 63(b)-(g); 12-6-1140(15) SCIAD bases 15,000/22,500/30,000, phaseout starts 40,000/60,000/80,000, denominators 55,000/82,500/110,000, reduction rounded to the next lowest ten dollars, no deduction when the fraction reaches one; 12-6-3632 amended by 2026 Act No. 110 SECTION 7 to add \"but not to exceed two hundred dollars\". All three post-fix encodings match that text.\n\nIMPORTANT FOR BENCHMARK USE: resolve_provision.py at this commit returns PRE-Act-110 text for 12-6-50, 12-6-1140 and 12-6-3632 (it selects release us-rulespec-2026-07-24-cms-435-correction-immutable-scopes / provision file 2026-07-16-pit-central-us-sc-title-12-chapter-6.jsonl, not the overlay release us-rulespec-2026-07-24-sc-act110-current added by the pinned corpus commit). A judge shown only the resolver output would see no SCIAD, no Section 63(b) non-adoption and no $200 cap, and could wrongly score the post-fix module as ungrounded. The Act 110 text must be supplied from the overlay file.\n\nProvenance nuance: this commit also repins .axiom/toolchain.toml axiom_corpus_ref 4c174389 -> b157a201. The older corpus DID already carry Act 110's 12-6-510 two-bracket rate schedule (1.99%/5.21%, $30,000 floor) but not the 12-6-50(21), 12-6-1140(15) or 12-6-3632 amendments, so the pre-fix encoding was internally consistent with its own pinned corpus while disagreeing with the actual 2026 statute. That makes it a real fidelity defect, but one a verifier can only catch with the complete source.\n\nKind is contestable: the removal of sc_pit_2026_candidate_itemized_tax_addback and its re-grounding from 12-6-1130(2) to 12-6-50(21) also reads as untraceable_branch (formula grounded on a provision Act 110 displaced for individuals), and the whole change could be framed as wrong_period_or_effective_date (2026-windowed versions encoding pre-amendment text). I chose unrepresented_clause because the bulk of the fix ADDS statutory clauses (SCIAD machinery, the full Section 63 reversal, the EITC cap) that the source states and the pre-fix module lacked. Note 12-6-1130(2) itself is NOT repealed in the Act 110 text; removing its rule is defensible only because the entire federal itemized deduction is now added back, so a separate SALT addback would double count - a reviewer may want to confirm that reading.\n\nAncillary changes in the same diff: (a) sc_pit_2026_input_domain_is_valid's itemized/standard coherence guard rewritten for the new input semantics (federal_standard_deduction == 0 when itemizing, and vice versa) and two workday <= ceiling bounds added; (b) new derived sc_pit_2026_regular_workday_count_ceiling = days_between(period_start, period_end) + 1; (c) a redundant nursing-care condition (private_nursing_care_expenses == 0 or nursing_care_level_is_physician_certified) removed from sc_pit_2026_supported_profile_applies - the credit rule sc_pit_2026_candidate_nursing_care_credit already fail-closes to 0 without certification in the pre-fix file, so this widens the supported profile rather than fixing a defect; (d) EITC formula also gained a defensive max(0, federal_earned_income_credit_allowed); (e) inputs: sc_pit_2026_state_local_income_or_sales_taxes_in_federal_itemized_deductions dropped, sc_pit_2026_federal_adjusted_gross_income added, three descriptions rewritten; (f) several proof-atom excerpt strings lengthened (mechanical provenance).\n\nContext: this is a fix-up commit on PR #1042 branch encode/sc-2026-e2e-resident; the original encoding is 89ab7ae57 and later branch commits are 9988f05f0 (input-contract YAML parsing) and 49f2659d1 (manifest attestation). PR #1042 has no reviews or review comments describing this rework - its body and the single issue comment describe only the final state, so no reviewer text names the defect. | verifier confirmed at 0.87",
+  "family_id": "us-68b3063a-96c9b51895c9",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

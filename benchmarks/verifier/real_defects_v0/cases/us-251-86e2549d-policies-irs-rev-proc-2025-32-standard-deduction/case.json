@@ -1,0 +1,310 @@
+{
+  "id": "us-251-86e2549d-policies-irs-rev-proc-2025-32-standard-deduction",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "86e2549dc760f652ab5419fa52d4cb6eeba1f87b",
+  "parent_commit": "b3801ee4eb82f8fc2c753d809c8b36d9ae6c42c2",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Subject says Encode, but it re-encodes existing 63, 63(c), 63(c)(5) and rev-proc standard-deduction modules: taxable_income restructured into 63(a)/(b) branches, standard_deduction effective_from 2026 to 2018, inputs and rule sets replaced; unsure.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/25",
+  "module_path": "policies/irs/rev-proc-2025-32/standard-deduction.yaml",
+  "corpus_citation_path": "us/guidance/irs/rev-proc-2025-32/page-18",
+  "corpus_citation_paths_all": [
+    "us/guidance/irs/rev-proc-2025-32/page-18"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "wrong_entity_or_scope",
+  "other_kind": null,
+  "confidence": 0.55,
+  "description": "Married Individuals Filing Joint Returns and Surviving Spouses (§ 1(j)(2)(A)) $32,200",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        3,
+        5
+      ],
+      [
+        8,
+        16
+      ],
+      [
+        18,
+        18
+      ],
+      [
+        22,
+        22
+      ],
+      [
+        25,
+        26
+      ],
+      [
+        30,
+        30
+      ],
+      [
+        33,
+        34
+      ],
+      [
+        38,
+        38
+      ],
+      [
+        41,
+        42
+      ],
+      [
+        46,
+        46
+      ],
+      [
+        49,
+        52
+      ],
+      [
+        54,
+        54
+      ],
+      [
+        56,
+        56
+      ],
+      [
+        60,
+        65
+      ],
+      [
+        69,
+        69
+      ],
+      [
+        72,
+        73
+      ],
+      [
+        77,
+        77
+      ],
+      [
+        80,
+        81
+      ],
+      [
+        87,
+        87
+      ],
+      [
+        91,
+        96
+      ],
+      [
+        99,
+        99
+      ],
+      [
+        102,
+        104
+      ],
+      [
+        107,
+        107
+      ],
+      [
+        110,
+        111
+      ],
+      [
+        117,
+        117
+      ],
+      [
+        120,
+        120
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        3,
+        4
+      ],
+      [
+        7,
+        10
+      ],
+      [
+        12,
+        12
+      ],
+      [
+        16,
+        24
+      ],
+      [
+        27,
+        30
+      ],
+      [
+        34,
+        42
+      ],
+      [
+        45,
+        48
+      ],
+      [
+        52,
+        60
+      ],
+      [
+        63,
+        66
+      ],
+      [
+        70,
+        78
+      ],
+      [
+        81,
+        85
+      ],
+      [
+        88,
+        96
+      ],
+      [
+        100,
+        102
+      ],
+      [
+        106,
+        114
+      ],
+      [
+        117,
+        138
+      ],
+      [
+        142,
+        150
+      ],
+      [
+        153,
+        156
+      ],
+      [
+        162,
+        190
+      ],
+      [
+        194,
+        203
+      ],
+      [
+        205,
+        205
+      ],
+      [
+        207,
+        215
+      ],
+      [
+        218,
+        246
+      ],
+      [
+        248,
+        248
+      ],
+      [
+        250,
+        258
+      ],
+      [
+        261,
+        264
+      ],
+      [
+        270,
+        288
+      ],
+      [
+        291,
+        292
+      ]
+    ],
+    "rule_names": [
+      "basic_standard_deduction_amount",
+      "basic_standard_deduction_by_filing_status",
+      "additional_standard_deduction_per_condition_amount",
+      "single_basic_standard_deduction"
+    ],
+    "rule_path": "rules[basic_standard_deduction_by_filing_status].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "cf2a5a0a48751afd64491b5ec9fd6b453e4f6bdbc951fd68b3ecb720014de112",
+  "post_fix_artifact_sha256": "49b675d1050569116ff8313e846ca6ac2639012332461f4273ad36f1e249cea4",
+  "provision_sha256": "d1c89e5b0c0c35d49d16a245a15f126c267fcd8903610e64f4cc65343a31e18f",
+  "provision_chars": 1380,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/guidance/irs/rev-proc-2025-32/page-18",
+    "provision_file": "data/corpus/provisions/us/guidance/2026-05-02-irs-rev-proc-2025-32-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "5c8d241ad0bf3e64787958b17c5a2124f9aa5d4fe8cd73c09fd202a84a70d184",
+    "line_number": 19,
+    "record_id": "229d5117-ab80-57cd-973e-a0cd3f467b93",
+    "stored_body_sha256": "d1c89e5b0c0c35d49d16a245a15f126c267fcd8903610e64f4cc65343a31e18f",
+    "resolved_text_sha256": "d1c89e5b0c0c35d49d16a245a15f126c267fcd8903610e64f4cc65343a31e18f",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-01-01",
+    "source_as_of": "2025-10-17",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us/guidance/irs/rev-proc-2025-32/page-18",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/guidance/irs/rev-proc-2025-32/page-18'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/guidance/irs/rev-proc-2025-32/page-18'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/guidance/irs/rev-proc-2025-32/page-18'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/guidance/irs/rev-proc-2025-32/page-18'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix `basic_standard_deduction_amount` match covered only filing statuses 1, 2, 3 and 0, so surviving-spouse filers (status 4) fell through with no amount even though the Rev. Proc. table it cites explicitly gives them the $32,200 joint figure; the fix adds `4 => joint_or_surviving_spouse_standard_deduction_amount`.",
+    "triage_notes": "Amounts themselves were already correct pre-fix (16100/32200/16100/24150/1650/2050/1350/450 verified against the parent file), so this is not amount_mismatch. The rest of the diff is a full encoder rewrite that adds outputs the module never claimed (dependent_standard_deduction_limit, basic_standard_deduction_after_dependent_limit, additional_standard_deduction_for_aged_or_blind, a top-level standard_deduction) and drops the source_verification.values block and the single_basic_standard_deduction rule; those additions are not defects by the rubric. Caution for reviewers: this commit also REPLACED the grounded filing-status test in additional_standard_deduction_per_condition_amount with a free input `individual_is_unmarried_and_not_surviving_spouse`, and a later commit 5cdc45e55 'Repair standard deduction status component' put the filing-status test back (`if filing_status == 0 or filing_status == 3`), i.e. a regression introduced here. Quote is verbatim from the module's added summary/proof-excerpt block in the diff (source text quoted into the module), not an authored comment; the commit body is empty and the PR body says nothing about surviving spouses. Rev. Proc. text was read only through the module's own quoted excerpt, not resolve_provision (the guidance corpus path us/guidance/irs/rev-proc-2025-32/page-18 was not fetched).",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_entity_or_scope",
+    "verifier_confidence": 0.78,
+    "verifier_justification": "The pre-fix `basic_standard_deduction_amount` formula matched only filing_status 1, 2, 3 and 0 with no default arm, so surviving-spouse filers (code 4) got no basic standard deduction, while the pinned corpus text for us/guidance/irs/rev-proc-2025-32/page-18 puts them in the top row of the § 63(c)(2) table (\"Married Individuals Filing Joint Returns and Surviving Spouses (§ 1(j)(2)(A)) $32,200\"); the post-fix `basic_standard_deduction_by_filing_status` adds `4 => joint_or_surviving_spouse_standard_deduction_amount`. My attempts to refute it fail: code 4 was demonstrably live and meant surviving spouse before this commit, since the pre-fix module's own additional-deduction formula branched on `filing_status == 4` and, at parent b3801ee4, the sibling Rev. Proc. modules (income-tax-brackets, alternative-minimum-tax, capital-gains) and statutes/26/1411 all map `4 => ..._joint`, making standard-deduction the lone module with the hole. It is not mechanical (formulas, parameters, output surface all changed) and not merely unclaimed new coverage, because the pre-fix rule was a general filing-status match purporting to encode the whole four-row table. Filing status is enumerated under wrong_entity_or_scope, so the first reader's kind fits better than unrepresented_clause.",
+    "verifier_quote": "+            4 => joint_or_surviving_spouse_standard_deduction_amount",
+    "verifier_notes": "Caveats for the reviewer. (1) This is a wholesale encoder re-encode, not a targeted fix: the commit subject is \"Encode upstream IRC 63 dependencies\" and PR #25 (\"Encode 26 USC 63(c) standard deduction\") never mentions a surviving-spouse gap, so intent evidence is absent and the corroboration is the diff plus the source text plus repo convention. (2) Several other meaning changes ride along in the same module diff and a reviewer may want them split out or excluded: the § 63(c)(5) dependent limit is now actually applied (`basic_standard_deduction_after_dependent_limit`) rather than sitting as inert parameters; aged/blind amounts are aggregated via `additional_standard_deduction_entitlement_count_under_subsection_f`; a new top-level `standard_deduction` output is added; and the pre-fix `single_basic_standard_deduction` rule (which returned the single amount irrespective of filing status) is deleted. (3) The `4` arm is untested in both directions: neither the pre-fix nor the post-fix policies/irs/rev-proc-2025-32/standard-deduction.test.yaml has a filing_status 4 case (post cases cover 1, 3, 0, 2), so CI would not have caught the gap and does not now pin the fix. (4) I could not determine engine semantics for a non-exhaustive `match` (error vs 0) without running the compiler; either way the pre-fix encoded meaning disagrees with the source for that population. (5) Source verified through the pinned release us-rulespec-2026-07-13, provision file sha256 5c8d241a..., line 19, resolved text sha256 d1c89e5b....",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Amounts themselves were already correct pre-fix (16100/32200/16100/24150/1650/2050/1350/450 verified against the parent file), so this is not amount_mismatch. The rest of the diff is a full encoder rewrite that adds outputs the module never claimed (dependent_standard_deduction_limit, basic_standard_deduction_after_dependent_limit, additional_standard_deduction_for_aged_or_blind, a top-level standard_deduction) and drops the source_verification.values block and the single_basic_standard_deduction rule; those additions are not defects by the rubric. Caution for reviewers: this commit also REPLACED the grounded filing-status test in additional_standard_deduction_per_condition_amount with a free input `individual_is_unmarried_and_not_surviving_spouse`, and a later commit 5cdc45e55 'Repair standard deduction status component' put the filing-status test back (`if filing_status == 0 or filing_status == 3`), i.e. a regression introduced here. Quote is verbatim from the module's added summary/proof-excerpt block in the diff (source text quoted into the module), not an authored comment; the commit body is empty and the PR body says nothing about surviving spouses. Rev. Proc. text was read only through the module's own quoted excerpt, not resolve_provision (the guidance corpus path us/guidance/irs/rev-proc-2025-32/page-18 was not fetched). | verifier confirmed at 0.78",
+  "family_id": "us-86e2549d-6869864df9cb",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

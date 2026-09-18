@@ -1,0 +1,123 @@
+{
+  "id": "us-410-1e0518cb-statutes-26-3101-b-2",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "1e0518cbfa63f1d43f056edff9990b13eac8941d",
+  "parent_commit": "62c8dc7ade465b3d1c6666dc5fd4139fd07cef83",
+  "commit_date": "2026-05-28",
+  "commit_subject": "Repair generated section 3101(b)(2) filing status threshold (#311)",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/311",
+  "module_path": "statutes/26/3101/b/2.yaml",
+  "corpus_citation_path": "us/statute/26/3101",
+  "corpus_citation_paths_all": [
+    "us/statute/26/3101"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "wrong_entity_or_scope",
+  "other_kind": null,
+  "confidence": 0.86,
+  "description": "regenerate 26 USC 3101(b)(2) so surviving spouse filing status uses the statutory ,000 other-case additional Medicare wage threshold",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        11,
+        11
+      ],
+      [
+        16,
+        18
+      ],
+      [
+        89,
+        89
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        11,
+        11
+      ],
+      [
+        14,
+        14
+      ],
+      [
+        17,
+        18
+      ],
+      [
+        89,
+        89
+      ]
+    ],
+    "rule_names": [
+      "additional_medicare_wage_tax_threshold"
+    ],
+    "rule_path": "rules[additional_medicare_wage_tax_threshold].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "c79e593747b22cf54f34573eb8108d55e422adc1387497c14f0bbc0f04a40bb5",
+  "post_fix_artifact_sha256": "f06b93b281a9f04e380d545bbc6f6484b0ae591237831b84051b57d05aa661fa",
+  "provision_sha256": "3fa3fc0b75faa2701c24747d44bf2a351beec597d7ef67823f6b4e78452300a0",
+  "provision_chars": 1694,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/3101",
+    "provision_file": "data/corpus/provisions/us/statute/2026-05-10-tax-sections-r2026-07-15-self-contained-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "f48f152a03f99915c6ac9a847986e238ebeddd29ffb4199f0528c5e2a406eae4",
+    "line_number": 5,
+    "record_id": "a0e0112b-9ca1-57e0-9a5d-7c9062cb1eeb",
+    "stored_body_sha256": "3fa3fc0b75faa2701c24747d44bf2a351beec597d7ef67823f6b4e78452300a0",
+    "resolved_text_sha256": "3fa3fc0b75faa2701c24747d44bf2a351beec597d7ef67823f6b4e78452300a0",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2025-12-03",
+    "source_as_of": "2025-12-03",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us/statute/26/3101",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3101'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3101'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3101'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3101'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix match formula routed filing status 4 (surviving spouse / qualifying widow(er)) to the $250,000 joint-return threshold, but 26 USC 3101(b)(2)(A) grants that amount only \"in the case of a joint return\" and a surviving spouse falls under subparagraph (C), \"in any other case, $200,000\".",
+    "triage_notes": "Provision read through the pinned corpus release (us/statute/26/3101): (A) \"in the case of a joint return, $250,000\", (B) married filing separately = 1/2 of (A), (C) \"in any other case, $200,000\" — a surviving spouse does not file a joint return, so (C) controls; the diff matches exactly. Single-module commit; the only other module-file change is the module.summary prose, which was corrected in the same direction (status 1 narrowed from \"joint / surviving spouse\" to \"joint\", new line \"4 = surviving spouse / qualifying widow(er)\"), so nothing unrelated was touched. The companion test statutes/26/3101/b/2.test.yaml confirms the behavioral change (case renamed surviving_spouse_uses_joint_threshold -> surviving_spouse_uses_other_threshold; threshold 250000 -> 200000, excess 50000 -> 100000, tax 450 -> 900) and also drops four arithmetic comments, which is cosmetic. Kind could arguably be read as amount_mismatch since the effective threshold moved $250,000 -> $200,000, but the defect is which filing status the joint amount applied to, and the kind list names filing status explicitly under wrong_entity_or_scope; the parameter values themselves (250000 / 200000) were already correct and unchanged. Note on the quote: the PR body as stored on GitHub literally reads \",000\" — the \"$200\" was lost when the PR was created (shell mangling), so the quote is verbatim but visibly truncated; PR title is \"Repair 26 USC 3101(b)(2) surviving-spouse threshold\". No reviews or review comments on PR #311. Commit body is empty apart from a newline.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_entity_or_scope",
+    "verifier_confidence": 0.93,
+    "verifier_justification": "The sole substantive change is the match arm routing filing status 4 (surviving spouse / qualifying widow(er)) from the $250,000 joint threshold to the $200,000 other-case threshold, with the companion test flipping 250000/50000/450 to 200000/100000/900; no parameter value, effective date, period, entity, or input/output changed. Read through the pinned corpus release (us-rulespec-2026-07-13, corpus commit 612d20ca43), 26 USC 3101(b)(2) grants $250,000 only \"in the case of a joint return\" (A) and $200,000 \"in any other case\" (C), and a surviving spouse does not file a joint return, so the pre-fix encoding disagreed with the source. I tried and failed to refute: it is not mechanical (a formula branch changed), not new coverage (the status-4 branch already existed pre-fix), and not amount_mismatch (both threshold parameters were already correct at 250000 and 200000 and were untouched — only the population routed to each changed). The closest competing kind is untraceable_branch (the arm was grounded on subparagraph (A) rather than (C)), but the branch itself is legitimate and the kind list enumerates \"filing status\" explicitly under wrong_entity_or_scope, so that remains the tighter fit.",
+    "verifier_quote": "-              4 => additional_medicare_wage_tax_joint_threshold\n+              4 => additional_medicare_wage_tax_other_threshold",
+    "verifier_notes": "Statute text verified through the pinned release resolver: provision file data/corpus/provisions/us/statute/2026-05-10-tax-sections-r2026-07-15-self-contained-r2026-07-15-self-contained.jsonl, body sha256 3fa3fc0b75aa2701c24747d44bf2a351beec597d7ef67823f6b4e78452300a0, expression_date 2025-12-03. Verbatim: \"(A) in the case of a joint return, $250,000, (B) in the case of a married taxpayer (as defined in section 7703) filing a separate return, 1/2 of the dollar amount determined under subparagraph (A), and (C) in any other case, $200,000.\" Note selection_basis was \"no_toolchain_corpus_pin\" (fallback_index 4), so the release was chosen by fallback rather than a recorded toolchain pin; the text is nonetheless unambiguous and matches IRS Form 8959 treatment of qualifying surviving spouse at $200,000. CAVEAT for the reviewer: the first reader's pr_body quote renders the amount as \",000\" because the stored PR body has the \"$200\" stripped — that quote should not be relied on as a verbatim amount citation; the diff line is the decisive evidence. The commit also corrected the module summary prose, which pre-fix asserted \"$250,000 for a joint return or surviving spouse\" — a claim the cited (A)-(C) text does not support — and touched .axiom/encoding-manifests/statutes/26/3101/b/2.json (manifest refresh, incidental). Secondary kind if a reviewer disagrees: untraceable_branch (arm grounded on the wrong subparagraph).",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Provision read through the pinned corpus release (us/statute/26/3101): (A) \"in the case of a joint return, $250,000\", (B) married filing separately = 1/2 of (A), (C) \"in any other case, $200,000\" — a surviving spouse does not file a joint return, so (C) controls; the diff matches exactly. Single-module commit; the only other module-file change is the module.summary prose, which was corrected in the same direction (status 1 narrowed from \"joint / surviving spouse\" to \"joint\", new line \"4 = surviving spouse / qualifying widow(er)\"), so nothing unrelated was touched. The companion test statutes/26/3101/b/2.test.yaml confirms the behavioral change (case renamed surviving_spouse_uses_joint_threshold -> surviving_spouse_uses_other_threshold; threshold 250000 -> 200000, excess 50000 -> 100000, tax 450 -> 900) and also drops four arithmetic comments, which is cosmetic. Kind could arguably be read as amount_mismatch since the effective threshold moved $250,000 -> $200,000, but the defect is which filing status the joint amount applied to, and the kind list names filing status explicitly under wrong_entity_or_scope; the parameter values themselves (250000 / 200000) were already correct and unchanged. Note on the quote: the PR body as stored on GitHub literally reads \",000\" — the \"$200\" was lost when the PR was created (shell mangling), so the quote is verbatim but visibly truncated; PR title is \"Repair 26 USC 3101(b)(2) surviving-spouse threshold\". No reviews or review comments on PR #311. Commit body is empty apart from a newline. | verifier confirmed at 0.93",
+  "family_id": "us-1e0518cb-9e5f4d36ecaa",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

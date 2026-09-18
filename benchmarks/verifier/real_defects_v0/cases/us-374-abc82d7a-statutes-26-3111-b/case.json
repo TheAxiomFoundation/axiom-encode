@@ -1,0 +1,140 @@
+{
+  "id": "us-374-abc82d7a-statutes-26-3111-b",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "abc82d7a76a9a1da5cfc77d228a0eeace1e5cde6",
+  "parent_commit": "5323ecb4055fe6b6029ed953020b15237f835b87",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Bulk refresh with entity corrections (3101(a) and 3101(b)(1) TaxUnit->Person; 3111(a) and 3111(b) Business->Employer), 3121(b) rules removed and deferred, 3121(b)(8) rule deferred, and formula changes in 3121(b)(9), 3121(a)(8), 3121(g), 3121(j), 3402(n).",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/328",
+  "module_path": "statutes/26/3111/b.yaml",
+  "corpus_citation_path": "us/statute/26/3111",
+  "corpus_citation_paths_all": [
+    "us/statute/26/3111"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "wrong_entity_or_scope",
+  "other_kind": null,
+  "confidence": 0.72,
+  "description": "refresh generated RuleSpec artifacts for the Chapter 21 FICA wage/tax chain, including `3101`, `3111`, and selected `3121` wage/employment rules",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        21,
+        21
+      ],
+      [
+        28,
+        28
+      ],
+      [
+        40,
+        40
+      ],
+      [
+        42,
+        45
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        21,
+        21
+      ],
+      [
+        26,
+        26
+      ],
+      [
+        29,
+        29
+      ],
+      [
+        41,
+        41
+      ],
+      [
+        43,
+        47
+      ]
+    ],
+    "rule_names": [
+      "hospital_insurance_employer_tax",
+      "hospital_insurance_employer_tax_rate"
+    ],
+    "rule_path": "rules[hospital_insurance_employer_tax].entity"
+  },
+  "pre_fix_artifact_sha256": "342eabb01340bdb2a8b4785a3948f2c51c59657045662fb4f668b4b7422ee906",
+  "post_fix_artifact_sha256": "02cb26afb163a49113d15e8cea6adc2f2c8e82e67a2dc46b905950d39c2f198e",
+  "provision_sha256": "d997d5ff5be0f67762689cbc42728cb142a29dd7724e829caed1ec05d3dcd28c",
+  "provision_chars": 5071,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/3111",
+    "provision_file": "data/corpus/provisions/us/statute/2026-05-10-tax-sections-r2026-07-15-self-contained-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "f48f152a03f99915c6ac9a847986e238ebeddd29ffb4199f0528c5e2a406eae4",
+    "line_number": 6,
+    "record_id": "34f225fc-fe69-54a6-b69f-66a3b6b98a5e",
+    "stored_body_sha256": "d997d5ff5be0f67762689cbc42728cb142a29dd7724e829caed1ec05d3dcd28c",
+    "resolved_text_sha256": "d997d5ff5be0f67762689cbc42728cb142a29dd7724e829caed1ec05d3dcd28c",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2025-12-03",
+    "source_as_of": "2025-12-03",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "earliest_release_after_toolchain_corpus_ref",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": "9b575a00116da20b0952644f14d8530896f72cd3",
+    "requested_citation_path": "us/statute/26/3111",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3111'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3111'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3111'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3111'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The 1.45 percent employer hospital insurance excise tax was attached to a Business entity although 26 USC 3111(b) imposes it on 'every employer', which is broader than the set of businesses.",
+    "triage_notes": "Same pattern as index 3 (identical hunk shape: summary paraphrase, text->excerpt key rename, definition atom replaced by a rate import atom, entity Business -> Employer, blank-line reflow). Corpus text confirms '(b) Hospital insurance ... there is hereby imposed on every employer an excise tax ... equal to 1.45 percent of the wages ... paid by the employer'. Rate value 0.0145 and effective_from '1986-01-01' unchanged.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_entity_or_scope",
+    "verifier_confidence": 0.72,
+    "verifier_justification": "The only meaning-bearing line in the diff moves the 1.45 percent hospital insurance excise tax from `entity: Business` to `entity: Employer`, which changes the declared population/output surface of the rule while formula, rate, effective date, dtype, period and unit stay identical. The pinned corpus text for us/statute/26/3111 imposes the tax \"on every employer\", and the same section's (e)(5)(A) defines a \"qualified tax-exempt organization\" as \"an employer that is an organization described in section 501(c)\", so section 3111's taxpayer set demonstrably includes non-business employers and `Business` was the narrower, wrong entity. My refutation attempts failed: `Business` and `Employer` coexist as distinct entity names both before and after the commit (Business survives in 3111/c, 3231/f, 3304, 45A/e, 45A/f), so this is not a vocabulary rename, and at the parent commit the downstream importers 3131(f), 3132(f) and 3134(c) already declared `entity: Employer` on rules consuming `hospital_insurance_employer_tax`, so the pre-fix module was also inconsistent with its own consumers. The kind the first reader chose fits; only their quote was wrong (a generic PR-body line rather than the diff line).",
+    "verifier_quote": "-    entity: Business\n+    entity: Employer",
+    "verifier_notes": "Decisive evidence is the single line `entity: Business` -> `entity: Employer` on rule `hospital_insurance_employer_tax` in statutes/26/3111/b.yaml; the sibling module 3111/a.yaml got the identical change. Everything else in this module diff is provenance/metadata and should not be cited as the defect: the module `summary` was rewritten from the statutory quote to a paraphrase, proof-atom key `text:` became `excerpt:`, and one atom changed from `kind: definition` to `kind: import` with `target: us:statutes/26/3111/b#hospital_insurance_employer_tax_rate` and `hash: sha256:local`. Caveats a reviewer should weigh: (1) the commit subject is only \"Refresh payroll generated rules\" and the PR #328 body never mentions an entity correction, so the \"entity corrections (3111(a) and 3111(b) Business->Employer)\" wording in the task prompt is a screener summary, not repo text; (2) .axiom/encoding-manifests/statutes/26/3111/b.json shows a full regeneration (axiom_encode_version 0.2.68 -> 0.2.531, backend codex -> openai), so the entity change is a byproduct of re-encoding rather than a targeted repair with a recorded finding; (3) the companion test statutes/26/3111/b.test.yaml changed only case names, values unchanged (1450), and the PR reports zero-mismatch person-level PE parity, so no observable numeric behavior changed; (4) `entity` is a free-form string in axiom-rules-engine schemas/rulespec-module.v1.schema.json with no enum and no entity registry I could locate in the engine, so the Business-vs-Employer population distinction is declarative and bound by the data/compose layer, which I did not verify. The rubric counts entity as input/output scope, and the source text plus the Employer-entity consumers settle it for me at confirmed, but a reviewer who requires an explicit repair finding in the repo could reasonably downgrade this to unclear. Source verified through resolve_provision.py: corpus release us-rulespec-2026-07-13, expression_date 2025-12-03.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Same pattern as index 3 (identical hunk shape: summary paraphrase, text->excerpt key rename, definition atom replaced by a rate import atom, entity Business -> Employer, blank-line reflow). Corpus text confirms '(b) Hospital insurance ... there is hereby imposed on every employer an excise tax ... equal to 1.45 percent of the wages ... paid by the employer'. Rate value 0.0145 and effective_from '1986-01-01' unchanged. | verifier confirmed at 0.72",
+  "family_id": "us-abc82d7a-aea9ca5101dd",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

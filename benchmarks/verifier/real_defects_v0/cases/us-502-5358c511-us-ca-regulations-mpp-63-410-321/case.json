@@ -1,0 +1,114 @@
+{
+  "id": "us-502-5358c511-us-ca-regulations-mpp-63-410-321",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "5358c511c6e27e36c8be28c527337e460d2ee5a3",
+  "parent_commit": "7284408e780d7a466490431425380beae6f9e282",
+  "commit_date": "2026-08-05",
+  "commit_subject": "Address sol audit: FRA-dated bound, exact quotations, scoped claims",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1223",
+  "module_path": "us-ca/regulations/mpp/63-410/321.yaml",
+  "corpus_citation_path": "us-ca/regulation/mpp/63-410.321",
+  "corpus_citation_paths_all": [
+    "us-ca/regulation/mpp/63-410.321",
+    "us/statute/7/2015/o/3",
+    "us/guidance/usda/fns/snap-obbb-abawd-exceptions-implementation-memo/page-1",
+    "us/guidance/usda/fns/snap-obbb-abawd-exceptions-implementation-memo/page-4"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "wrong_period_or_effective_date",
+  "other_kind": null,
+  "confidence": 0.78,
+  "description": "keeping the version alive through June 2025 preserved a legally obsolete result across the FRA phase-in",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        18,
+        28
+      ],
+      [
+        32,
+        48
+      ],
+      [
+        65,
+        73
+      ],
+      [
+        75,
+        75
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        18,
+        33
+      ],
+      [
+        37,
+        66
+      ],
+      [
+        83,
+        97
+      ],
+      [
+        99,
+        99
+      ]
+    ],
+    "rule_names": [
+      "person_under_18_or_50_years_of_age_or_over"
+    ],
+    "rule_path": "rules[person_under_18_or_50_years_of_age_or_over].versions[0].effective_to"
+  },
+  "pre_fix_artifact_sha256": "cc5583e90f19184452a41fe5e12b19d11d4233534b9a127dac6c1501293f49ad",
+  "post_fix_artifact_sha256": "b1d6a7415ee7b7a20102edaeee97766dcaf1e9e367030dba76b7ba5217ab7945",
+  "provision_sha256": "1e08b7720cc6f04b612de8961c0411fd589f60e9249a8d6da4ddd8b6751bd3e2",
+  "provision_chars": 36,
+  "provision_resolution": {
+    "mode": "direct_row_exact",
+    "resolved_citation_path": "us-ca/regulation/mpp/63-410.321",
+    "provision_file": "data/corpus/provisions/us-ca/regulation/2026-07-13-recovery.jsonl",
+    "provision_file_sha256": "a3dbf1276f8b86b2b3b40951b0ec900aee29b35c5ccbd1b1e14b35a71693d4c8",
+    "line_number": 439,
+    "record_id": "",
+    "stored_body_sha256": "1e08b7720cc6f04b612de8961c0411fd589f60e9249a8d6da4ddd8b6751bd3e2",
+    "resolved_text_sha256": "1e08b7720cc6f04b612de8961c0411fd589f60e9249a8d6da4ddd8b6751bd3e2",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "resolver_error": "Active release row is missing required metadata: id at /private/tmp/claude-501/-Users-maxghenis-TheAxiomFoundation-axiom-encode--claude-worktrees-zealous-heyrovsky-31a96b/86103d8f-b97f-4559-a96c-7e79b",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "1e8bfc0a52d2d5fa38ce7cf4ab2577b0536d971e",
+    "requested_citation_path": "us-ca/regulation/mpp/63-410.321",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The module's only version ran through 2025-06-30, so every month from September 2023 (when P.L. 118-5 section 311(a)(1)'s strike of the mirrored federal \"under 18 or over 50 years of age;\" exception began applying to certifications and recertifications) through June 2025 still resolved to the superseded pre-FRA criteria that the source had already replaced.",
+    "triage_notes": "Decisive change is one line: versions[0].effective_to '2025-06-30' -> '2023-08-31'. The formula, rule name, inputs, outputs, and the MPP proof atom/excerpt are untouched. Everything else in this module diff is prose (module.summary, upstream_source_check.rationale, the version comment) rewritten for exact quotation punctuation, attribution of the amendment-note quotes to the archived USLM source document, and scoping of the pre-FRA band claim; those parts alone would be mechanical/provenance, so the fidelity call rests solely on the date bound. Confidence is not higher only because the pre-fix state is an earlier commit on the same PR branch (parent 7284408e, which itself introduced the 2025-06-30 bound over a previously timeless version), not a state that ever reached main - the wrong bound was caught by the audit before merge. Provision read: resolve_provision.py on us/statute/7/2015/o/3 at the pinned corpus (release us-rulespec-2026-08-03-ecps-pit-tariff-union, corpus commit d9d6fba0) returns current text \"(A) under 18, or over 65, years of age;\", confirming no 50-year exception survives today; the corpus provision rows do not carry the P.L. 118-5 amendment or effective-date notes, so the September 1, 2023 application date rests on the commit message and PR body, which quote the USLM note that the amended paragraph applies \"to any application for initial certification or recertification received starting 90 days after the date of enactment\" (enacted June 3, 2023). The PR calls the module out of FY2026 program scope with no consumers (\"archival honesty, not a behavior fix\"), so the defect is in asserted encoded meaning rather than in any computed output. Companion file us-ca/regulations/mpp/63-410/321.test.yaml moved its three cases from 2026-05 to 2023-05 and .axiom/encoding-manifests/us-ca/regulations/mpp/63-410/321.json was re-signed; neither is a separate module index. The bundle contains exactly the one module index expected for this chunk.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_period_or_effective_date",
+    "verifier_confidence": 0.78,
+    "verifier_justification": "The only encoded value the commit touches is the single version's `effective_to`, moved from 2025-06-30 to 2023-08-31, and the companion cases move from period 2025-06 to 2023-05 to stay inside the narrowed window — so encoded meaning (which months resolve to the pre-FRA \"under 18 or 50 or over\" criterion) really changed, which rules out mechanical/test_only, and no other kind fits a pure version-window change (it is not a comparison-strictness flip, a missing clause, or an entity/scope change). The commit message states the fidelity failure directly: the prior bound \"preserved a legally obsolete result across the FRA phase-in,\" i.e. every month from September 2023 through June 2025 asserted criteria P.L. 118-5 §311(a)(1) had already struck from the federal text this manual provision mirrors. My refutation attempts do not land: the pinned corpus confirms current 7 U.S.C. 2015(o)(3) reads \"under 18, or over 65, years of age;\" with no 50-year exception, so a version alive past the supersession asserts law that no longer existed, and \"no consumers / out of FY2026 scope\" bears on severity, not on whether the encoded window disagreed with the source. The residual doubt — enough to keep confidence below 0.9 — is that the FRA application-date evidence lives in USLM amendment notes that are not registered provision rows (unresolvable through the pinned resolver), and the module's primary cited source, MPP 63-410.321, still reads \"Under 18 or 50 years of age or over;\" at the pinned corpus, so the exact choice of 2023-08-31 over 2025-06-30 rests on federal supersession reasoning rather than on a change in the cited state text.",
+    "verifier_quote": "-        effective_to: '2025-06-30'\n+        effective_to: '2023-08-31'",
+    "verifier_notes": "Bundle: /private/tmp/claude-501/-Users-maxghenis-TheAxiomFoundation-axiom-encode--claude-worktrees-zealous-heyrovsky-31a96b/86103d8f-b97f-4559-a96c-7e79bdbe616d/scratchpad/inputs/us/5358c511c6.json; diff: .../scratchpad/diffs/us/5358c511c6/000.diff. Everything else in the module diff is prose (summary, upstream_source_check rationale, version comment) — provenance/wording only; the lone substantive edit is the effective_to bound. Reviewer caveats worth knowing: (1) this is a within-PR self-correction on branch PR #1223 — the parent's 2025-06-30 bound was itself introduced by the same unmerged PR (main had a timeless version), so the \"before\" state never shipped; if the corpus is meant to hold defects that reached main, this case is a branch-internal audit fix, though the meaning change is real either way. (2) Source checks I ran through the pinned corpus (release us-rulespec-2026-08-03-ecps-pit-tariff-union, corpus commit d9d6fba0): us/statute/7/2015/o/3 resolves to \"(A) under 18, or over 65, years of age;\" (current post-OBBBA text, expression_date 2026-06-26), and us-ca/regulation/mpp/63-410.321 resolves to \"Under 18 or 50 years of age or over;\" (expression_date 2026-07-13) — i.e. the cited state manual text is unchanged, and the pinned rows corroborate supersession as of P.L. 119-21 but do NOT independently corroborate the September 1, 2023 FRA application date, which the commit itself concedes comes from amendment notes that are \"part of the archived source document, not registered provision rows.\" (3) The commit acknowledges the FRA transition was certification-keyed, so pre-September-2023 certifications could carry the old criteria into later months; the module abstains rather than modeling that, which means the new bound is a defensible operational choice, not a uniquely determined date. That affects the precision of the new bound, not the classification: under either date the defect being fixed is a version window / effective date that disagreed with when the encoded criterion stopped stating the law.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Decisive change is one line: versions[0].effective_to '2025-06-30' -> '2023-08-31'. The formula, rule name, inputs, outputs, and the MPP proof atom/excerpt are untouched. Everything else in this module diff is prose (module.summary, upstream_source_check.rationale, the version comment) rewritten for exact quotation punctuation, attribution of the amendment-note quotes to the archived USLM source document, and scoping of the pre-FRA band claim; those parts alone would be mechanical/provenance, so the fidelity call rests solely on the date bound. Confidence is not higher only because the pre-fix state is an earlier commit on the same PR branch (parent 7284408e, which itself introduced the 2025-06-30 bound over a previously timeless version), not a state that ever reached main - the wrong bound was caught by the audit before merge. Provision read: resolve_provision.py on us/statute/7/2015/o/3 at the pinned corpus (release us-rulespec-2026-08-03-ecps-pit-tariff-union, corpus commit d9d6fba0) returns current text \"(A) under 18, or over 65, years of age;\", confirming no 50-year exception survives today; the corpus provision rows do not carry the P.L. 118-5 amendment or effective-date notes, so the September 1, 2023 application date rests on the commit message and PR body, which quote the USLM note that the amended paragraph applies \"to any application for initial certification or recertification received starting 90 days after the date of enactment\" (enacted June 3, 2023). The PR calls the module out of FY2026 program scope with no consumers (\"archival honesty, not a behavior fix\"), so the defect is in asserted encoded meaning rather than in any computed output. Companion file us-ca/regulations/mpp/63-410/321.test.yaml moved its three cases from 2026-05 to 2023-05 and .axiom/encoding-manifests/us-ca/regulations/mpp/63-410/321.json was re-signed; neither is a separate module index. The bundle contains exactly the one module index expected for this chunk. | verifier confirmed at 0.78",
+  "family_id": "us-5358c511-6ace8ad56547",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

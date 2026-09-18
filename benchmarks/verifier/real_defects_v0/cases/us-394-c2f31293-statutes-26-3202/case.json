@@ -1,0 +1,119 @@
+{
+  "id": "us-394-c2f31293-statutes-26-3202",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "c2f312931f5f44c8ac5843b94d6d9881816f5b09",
+  "parent_commit": "6874470918ed1655ad3380cb402e7f9949de71c8",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Refresh removes the previously executable 3201 tier_2_employee_tax (compensation * 3241 percentage) and its 3202 import, deferring both because applying the rate to raw compensation \"would ignore the cross-referenced base limitation\" of 3231(e)(2); PR body: \"Keep unsafe railroad payroll tax amount surfaces deferred\" (wrong amount / missing contribution base, fixed by fail-closed deferral).",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/191",
+  "module_path": "statutes/26/3202.yaml",
+  "corpus_citation_path": "us/statute/26/3202",
+  "corpus_citation_paths_all": [
+    "us/statute/26/3202"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "wrong_entity_or_scope",
+  "other_kind": null,
+  "confidence": 0.6,
+  "description": "The collection amount depends on the taxes imposed by section 3201. The copied 26 USC 3201 context does not export executable section 3201 tax amounts needed to compute the amount deductible from compensation.",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        2,
+        3
+      ],
+      [
+        10,
+        32
+      ],
+      [
+        34,
+        130
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        7,
+        8
+      ],
+      [
+        10,
+        32
+      ],
+      [
+        34,
+        170
+      ]
+    ],
+    "rule_names": [
+      "tier_2_employee_tax_collectible_by_employer_deduction"
+    ],
+    "rule_path": "rules[tier_2_employee_tax_collectible_by_employer_deduction].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "6385ca9f0fa15a3a1dc01150f1fa88b4ed828c59826eacefe973bf33dfeb15a1",
+  "post_fix_artifact_sha256": "37979be14574c0f3619fdd88b95c6c753fe279ba96427eeddc45e47c5a995a18",
+  "provision_sha256": "cecd5c4bb23ea6b46980f0b529d805cb65ecea163f9df4d673651dc5db7c72f4",
+  "provision_chars": 4365,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/3202",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "1b0b185ca3335eb06c4fe10af488a8984bdd2cedd4087badf78583c267af7b7b",
+    "line_number": 72,
+    "record_id": "3051a0fa-fbac-513e-acad-40f53ffffec5",
+    "stored_body_sha256": "cecd5c4bb23ea6b46980f0b529d805cb65ecea163f9df4d673651dc5db7c72f4",
+    "resolved_text_sha256": "cecd5c4bb23ea6b46980f0b529d805cb65ecea163f9df4d673651dc5db7c72f4",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us/statute/26/3202",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3202'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3202'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3202'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3202'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix collection rule computed min(compensation available, tier_2_employee_tax) from the imported 3201 tier 2 tax, inheriting that amount's missing 3231(e)(2) contribution-base limitation, while the excerpt it was grounded on ('The taxes imposed by section 3201 shall be collected by the employer...') covers both the tier 1 and tier 2 taxes, not tier 2 alone.",
+    "triage_notes": "Provision read: 26 USC 3202(a) says 'The taxes imposed by section 3201 shall be collected by the employer of the taxpayer by deducting the amount of the taxes from the compensation of the employee as and when paid' (plural), and the post-fix deferral is named section_3201_taxes_collectible_by_employer_deduction blocked by BOTH us:statutes/26/3201/a#tier_1_employee_tax and us:statutes/26/3201/b#tier_2_employee_tax, which is why an alternative kind of wrong_entity_or_scope (tier-2-only surface standing in for all section 3201 taxes) is defensible; confidence is lowered for that reason. The fix also removes the whole imports block, adds a summary, adds three genuinely new rules (tip_statement_low_total_threshold_amount = 20, group_term_life_insurance_special_rule_applies, subsection_a_collection_rule_inapplicable_to_group_term_life_payment) and two further deferrals (tips excess, 6051 reporting); the added rules are new coverage, not defect fixes. Minor oddity in the post-fix (not part of the defect): tip_statement_low_total_threshold_amount carries source '26 USC 3202(a)' while its excerpt 'is less than $20' does come from the last sentence of (a), so it checks out.",
+    "verifier_verdict": "reclassify",
+    "verifier_defect_kind": "wrong_entity_or_scope",
+    "verifier_confidence": 0.6,
+    "verifier_justification": "The change is a real fidelity correction — an executable Money output and its 3201 import are deleted and replaced by a deferral — but \"unrepresented_clause\" does not fit, because on the flagged rule path the fix adds no missing condition, exception or carve-out; it deletes the formula. What the diff actually demonstrates is an output-surface/scope error: the pre-fix rule `tier_2_employee_tax_collectible_by_employer_deduction` computed `min(compensation available, tier_2_employee_tax)` while its own proof excerpt (verified against the pinned corpus text of 3202(a): \"The taxes imposed by section 3201 shall be collected by the employer of the taxpayer by deducting the amount of the taxes from the compensation of the employee as and when paid.\") governs both 3201(a) tier 1 and 3201(b) tier 2. The fix renames the surface to `section_3201_taxes_collectible_by_employer_deduction` and blocks it on both `3201/a#tier_1_employee_tax` and `3201/b#tier_2_employee_tax`, which is exactly a correction of which taxes the output covers, not the addition of an omitted clause.",
+    "verifier_quote": "-- us:statutes/26/3201#tier_2_employee_tax\n-- name: tier_2_employee_tax_collectible_by_employer_deduction\n-    formula: \"min(\\n    max(0, compensation_of_employee_available_for_employer_deduction),\\n\n-      \\    max(0, tier_2_employee_tax)\\n)\"\n+    - output: us:statutes/26/3202#section_3201_taxes_collectible_by_employer_deduction\n+      blocked_by:\n+        - us:statutes/26/3201/a#tier_1_employee_tax\n+        - us:statutes/26/3201/b#tier_2_employee_tax",
+    "verifier_notes": "Refutation targets the kind, not the fidelity call; keep the case, change the kind. Evidence read: bundle JSON, diff 001.diff (module 3202) and 000.diff (module 3201), pre-fix file at 6874470918, and the pinned corpus text of 26 USC 3202 (corpus release us-rulespec-2026-07-13, resolved_text_sha256 cecd5c4b...).\n\nThree kinds compete and a reviewer should know why I picked scope:\n- unrepresented_clause (first reader's pick): the taxonomy's signal is \"the fix adds it\". Here the fix removes the rule and defers; nothing on rules[tier_2_employee_tax_collectible_by_employer_deduction] is added back. The missing tier 1 component is also not a condition/exception/carve-out but half of the output's coverage.\n- amount_mismatch (what the screen text suggests: \"wrong amount / missing contribution base\"): the 3231(e)(2) contribution-base omission is real but lives in module 3201 (statutes/26/3201.yaml, module index 0), whose deferral reason says applying the rate to raw compensation \"would ignore the cross-referenced base limitation\". Module 3202 contains no wrong numeric literal, rate or unit, so amount_mismatch is a poor fit for THIS module; 3202 only inherits the bad value by import. If the corpus grades per-commit rather than per-module, amount_mismatch/unrepresented_clause may be the intended label for 3201.yaml, and this 3202 entry is the cascade.\n- untraceable_branch is the runner-up: `min(max(0, compensation_of_employee_available_for_employer_deduction), ...)` has no basis in 3202(a) — the \"only to the extent that collection can be made by the employer\" limit appears only in 3202(c)(1) for tips — so the removed formula also imported a limitation from the wrong subsection. I did not pick it because the fix's recorded rationale is about the section 3201 amounts, not about that cap, and because the rename/blocked_by pair is the more explicit diff evidence.\n\nRuled out: mechanical (an executable derived Money output and a cross-module import were deleted; formulas and outputs changed, not hashes/pins/formatting) and not_a_defect (the pre-fix amount disagreed with the source in two independent ways: it omitted the tier 1 tax entirely and its tier 2 input ignored the 3231(e)(2) base). Confidence is 0.6 because the kind choice, not the fidelity call, is the uncertain part.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Provision read: 26 USC 3202(a) says 'The taxes imposed by section 3201 shall be collected by the employer of the taxpayer by deducting the amount of the taxes from the compensation of the employee as and when paid' (plural), and the post-fix deferral is named section_3201_taxes_collectible_by_employer_deduction blocked by BOTH us:statutes/26/3201/a#tier_1_employee_tax and us:statutes/26/3201/b#tier_2_employee_tax, which is why an alternative kind of wrong_entity_or_scope (tier-2-only surface standing in for all section 3201 taxes) is defensible; confidence is lowered for that reason. The fix also removes the whole imports block, adds a summary, adds three genuinely new rules (tip_statement_low_total_threshold_amount = 20, group_term_life_insurance_special_rule_applies, subsection_a_collection_rule_inapplicable_to_group_term_life_payment) and two further deferrals (tips excess, 6051 reporting); the added rules are new coverage, not defect fixes. Minor oddity in the post-fix (not part of the defect): tip_statement_low_total_threshold_amount carries source '26 USC 3202(a)' while its excerpt 'is less than $20' does come from the last sentence of (a), so it checks out. | verifier reclassified unrepresented_clause -> wrong_entity_or_scope at 0.60; verifier kind used",
+  "family_id": "us-c2f31293-34697c52d7fc",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

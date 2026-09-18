@@ -1,0 +1,169 @@
+{
+  "id": "us-482-86d35779-us-policies-usitc-us-tariff-duty-overlays-section-301-forced-labor-vietnam-9903-",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "86d35779d9eea3ec3f1c9ca211c4a78226878093",
+  "parent_commit": "b58a5c650ba76fb2313b53d006dd8a708d3fd2de",
+  "commit_date": "2026-08-01",
+  "commit_subject": "Repair overlay effective dates and retire heading 9903.01.20 module",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1192",
+  "module_path": "us/policies/usitc/us-tariff-duty/overlays/section-301/forced-labor-vietnam-9903-05-84.yaml",
+  "corpus_citation_path": "us/statute/hts/9903.05.84",
+  "corpus_citation_paths_all": [
+    "us/statute/hts/9903.05.84"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "wrong_period_or_effective_date",
+  "other_kind": null,
+  "confidence": 0.93,
+  "description": "Forced-labor 301 headings gate entries on/after 2026-07-24 per FR\n  2026-15181 DATES (was 2026-07-23).",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        32,
+        32
+      ],
+      [
+        62,
+        62
+      ],
+      [
+        91,
+        91
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        32,
+        32
+      ],
+      [
+        62,
+        62
+      ],
+      [
+        91,
+        91
+      ]
+    ],
+    "rule_names": [
+      "forced_labor_vietnam_heading_applies",
+      "general_duty_rate_after_forced_labor_vietnam_overlay",
+      "special_duty_rate_after_forced_labor_vietnam_overlay"
+    ],
+    "rule_path": "rules[forced_labor_vietnam_heading_applies].versions[0].effective_from"
+  },
+  "pre_fix_artifact_sha256": "e2965fb6cc1d2d72f8594407a5a900508daf7924b448319193e8cce04347ae42",
+  "post_fix_artifact_sha256": "3f888b609828e7e1cb11a0235e0d1e7a591c0c3731942dfc31ac00503f9e502c",
+  "provision_sha256": "be369dd3613bbdbef13af2b4fff302c4065f3cfa765a7c90177782d059eff260",
+  "provision_chars": 436,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/hts/9903.05.84",
+    "provision_file": "data/corpus/provisions/us/statute/2026-08-03-rulespec-hts-current-with-legacy-aluminum.jsonl",
+    "provision_file_sha256": "7406b42f2f6a35bd43ed67d7fe4d0f7323e12c3e49c67b8d6699f9978d23b770",
+    "line_number": 1357,
+    "record_id": "006bfb7c-c48d-507b-b232-d364417c0d93",
+    "stored_body_sha256": "be369dd3613bbdbef13af2b4fff302c4065f3cfa765a7c90177782d059eff260",
+    "resolved_text_sha256": "be369dd3613bbdbef13af2b4fff302c4065f3cfa765a7c90177782d059eff260",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-31",
+    "source_as_of": "2026-08-01",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "2ccb67efa41f60b5a80cb736c0272e68d5591389",
+    "requested_citation_path": "us/statute/hts/9903.05.84",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.84'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.84'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.84'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.84'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.84'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.84'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.84'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.84'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.84'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.84'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.84'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.84'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.84'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.84'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.84'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.84'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The three rules applying the 12.5% forced-labor 301 duty to products of Vietnam under HTS 9903.05.84 started 2026-07-23, a day before the notice's entry-date gate of July 24, 2026.",
+    "triage_notes": "Same pattern as index 5/6 (Vietnam); only effective_from lines changed. FR 2026-15181 DATES verified through the pinned corpus. Across indices 1-8 the commit changed nothing but effective_from lines in the modules themselves; the remaining files in the commit are the re-signed .axiom/encoding-manifests entries (manual_exception \"repair\") and the deleted companion test for index 0, so none of the corrected boundaries gained a test case in this commit.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_period_or_effective_date",
+    "verifier_confidence": 0.96,
+    "verifier_justification": "The diff changes nothing but the three `effective_from` values in the module's version windows from '2026-07-23' to '2026-07-24', which is a meaning-bearing change to when the +12.5% forced-labor 301 overlay attaches (formulas, proof atoms, excerpts, inputs and scope are byte-identical). I resolved the governing notice through the pinned corpus release (us/rulemaking/federal-register/2026-07-28/2026-15181, release us-rulespec-2026-08-03-ecps-pit-tariff-union) and its DATES clause reads \"The additional rates of duty are applicable with respect to products that are entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern time on July 24, 2026\", so the pre-fix window genuinely applied the duty a day before the source authorizes it. Attempts to refute failed: it is not mechanical (a version window changed), not boundary_direction (the date value moved, the inclusive `effective_from` semantics did not), and not merely new coverage (the module previously claimed 07-23 entries and was wrong about them). The PR body itself records the pre-fix state as a known mismatch — \"Forced-labor 301 component gated at >= 2026-07-24 per FR 2026-15181 DATES, although heading modules carry effective_from 2026-07-23\" — which the repair commit closes.",
+    "verifier_quote": "-      - effective_from: '2026-07-23'\n+      - effective_from: '2026-07-24'",
+    "verifier_notes": "Diff: /private/tmp/claude-501/-Users-maxghenis-TheAxiomFoundation-axiom-encode--claude-worktrees-zealous-heyrovsky-31a96b/86103d8f-b97f-4559-a96c-7e79bdbe616d/scratchpad/diffs/us/86d35779d9/008.diff — exactly three hunks, each only the effective_from line. Module cites us/statute/hts/9903.05.84, whose corpus text carries no date, so the date's source basis is FR 2026-15181, which I resolved separately and which states July 24, 2026 verbatim. Corroborating detail a reviewer may want: the sibling module forced-labor-presidential-action.yaml keeps effective_from '2026-07-23' for the rate parameters (the memorandum is dated July 23) and was not touched by this commit, so the 07-23/07-24 split in the repo is deliberate, not an inconsistency. Behavior at the composed level was already gated at >= 2026-07-24 (composition.yaml is not in this commit's file list), so the composed output likely did not change; the defect was nonetheless real at the module surface, which is the encoded meaning under review. Separate, still-unrepresented clause in the same DATES sentence (not fixed here, candidate unrepresented_clause for a future pass): goods loaded and in transit before 12:01 a.m. July 24 and entered before 12:01 a.m. July 28, 2026 are exempt from the additional duty. This is one of four date repairs in the same commit (9903.01.20 retire, Rev12 232 consolidations 07-21, Brazil 301 07-22), so the sibling module cases are likely the same kind.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Same pattern as index 5/6 (Vietnam); only effective_from lines changed. FR 2026-15181 DATES verified through the pinned corpus. Across indices 1-8 the commit changed nothing but effective_from lines in the modules themselves; the remaining files in the commit are the re-signed .axiom/encoding-manifests entries (manual_exception \"repair\") and the deleted companion test for index 0, so none of the corrected boundaries gained a test case in this commit. | verifier confirmed at 0.96",
+  "family_id": "us-86d35779-cf5e83b12851",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

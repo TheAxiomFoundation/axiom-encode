@@ -1,0 +1,111 @@
+{
+  "id": "uk-012-e61a529e-uk-worthing-policies-worthing-council-tax-reduction",
+  "jurisdiction": "uk",
+  "repo": "TheAxiomFoundation/rulespec-uk",
+  "commit": "e61a529e531776fb1c44a60d7bead14ba5cc4324",
+  "parent_commit": "ab5dfe3a93e2a3264b369ccffb0f2f2bca4f8027",
+  "commit_date": "2026-08-14",
+  "commit_subject": "Fix Worthing CTR taper and boundary coverage",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-uk/pull/267",
+  "module_path": "uk-worthing/policies/worthing/council-tax-reduction.yaml",
+  "corpus_citation_path": "uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-46",
+  "corpus_citation_paths_all": [
+    "uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-46"
+  ],
+  "corpus_release": "uk-rulespec-2026-08-10",
+  "corpus_release_content_sha256": "835714abb9c3bf36962094cee893e4f284263b3ab4ad2fcdc47a13d616aa9fea",
+  "corpus_commit": "f398953ab957978a651032220b03bf20930f62fa",
+  "defect_kind": "amount_mismatch",
+  "other_kind": null,
+  "confidence": 0.4,
+  "description": "taper decomposed from the printed mixed number by the printed 7-day denominator (oldham 4-param precedent), never a decimal literal",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        62,
+        62
+      ],
+      [
+        467,
+        467
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        46,
+        118
+      ],
+      [
+        135,
+        135
+      ],
+      [
+        540,
+        540
+      ]
+    ],
+    "rule_names": [
+      "worthing_council_tax_reduction_daily_taper_rate",
+      "worthing_council_tax_reduction_taper_whole_percentage_points",
+      "worthing_council_tax_reduction_taper_fraction_numerator",
+      "worthing_council_tax_reduction_taper_fraction_denominator",
+      "worthing_council_tax_reduction_percent_divisor",
+      "worthing_council_tax_reduction_award_conditions_met"
+    ],
+    "rule_path": "rules[worthing_council_tax_reduction_daily_taper_rate].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "7dbf22e2867673927d7c921266a9c843c9f721eb3e3ec0dec5ef426209880790",
+  "post_fix_artifact_sha256": "cdb7a865552f74f4f86e047cac41d84648a1e7e9963c33eab165cd8fe6a49089",
+  "provision_sha256": "6437cb4c3ddde81d86121254ac8e67fed49a872b0edabd860df3740a018d8867",
+  "provision_chars": 1209,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-46",
+    "provision_file": "data/corpus/provisions/uk-worthing/manual/2026-08-03-worthing-council-tax-reduction-2026-2027.jsonl",
+    "provision_file_sha256": "2aaaedc1464c1c0cacbf1e393d3a3d4e2ced288de826bebde36aa8bac83c9abc",
+    "line_number": 47,
+    "record_id": "17deff5d-bfa0-5aff-b922-23be29e8d15f",
+    "stored_body_sha256": "6437cb4c3ddde81d86121254ac8e67fed49a872b0edabd860df3740a018d8867",
+    "resolved_text_sha256": "6437cb4c3ddde81d86121254ac8e67fed49a872b0edabd860df3740a018d8867",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-04-01",
+    "source_as_of": "2026-08-03",
+    "corpus_commit": "f398953ab957978a651032220b03bf20930f62fa",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "toolchain_release_pin",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-46",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "unclear",
+    "pre_fix_wrong_because": "unclear: the pre-fix daily taper was a rounded 28-digit decimal literal instead of the printed \"2 6/7 per cent\", so the derived weekly taper evaluated to 0.2000000000000000000000000002 rather than exactly 20 percent - a genuine but de-minimis (2e-28) numeric departure from the source, while the commit's other change (Class D \"<\" to \"<=\") was not source-supported and was later reverted.",
+    "triage_notes": "Two-part commit, and only one part survives as a candidate defect. (1) Taper: pre-fix rules[worthing_council_tax_reduction_daily_taper_rate].versions[0].formula was the literal 0.0285714285714285714285714286, cited to the page-25 excerpt \"amount B is 2 6/7 per cent...\"; the fix adds four printed-component parameters and computes (2 + 6/7)/100. Observable effect is confined to exactness: the companion expectation for daily_taper_rate is unchanged ('0.0285714285714285714285714286'), and only weekly_taper_rate moves from '0.2000000000000000000000000002' to 0.2. A fidelity judge reading the pre-fix module would have to apply a strict exactness/no-decimal-literal norm to flag it, which is why I did not mark this fidelity. (2) Boundary: the fix changed award_conditions_met from income_including_tariff_weekly < applicable_amount_weekly to <=, adding a companion case (worthing_ctr_income_including_tariff_equals_applicable_amount) asserting award_conditions_met: holds and weekly_amount: 100 at equality. I read page-25 through the pinned corpus release (resolve_provision.py, release resolved cleanly): para 13.0(e) Class D reads \"whose income (if any) for the relevant week is less than his applicable amount\" and para 14.0(e) Class E reads \"whose income for the relevant week is greater than his applicable amount\" - strict on both sides, so the source assigns no class at equality and the pre-fix \"<\" matched the printed text. Follow-up commit 1641f4c (2026-08-19, on origin/main) reverts <= back to < and flips that companion case to not_holds / 0, with the module summary stating \"Class D strictly requires income less than the applicable amount and Class E strictly requires income greater than it; the corpus assigns no class at equality, so this module preserves that drafting gap rather than extending either class.\" So this commit's boundary_direction half introduced a defect rather than fixing one; do NOT harvest it as a boundary_direction specimen. (3) This commit also grounded the new percent_divisor parameter partly on an irrelevant excerpt (page-83 \"100.0 Extended reductions (qualifying contributory benefits).\", a paragraph-number coincidence); 1641f4c dropped it and b12f2ca replaced the whole parameter with a per_cent_unit Rate of 0.01 grounded on page-40 \"100 per cent of the amount A/B\" because the validator rejected the literal 100. Non-module changes in the commit: the companion test file (new parameter expectations, two tariff-income boundary cases at 6250 and 6250.01, the equality case) and oracle-coverage-pending.yaml (four new legal_ids, ceiling 2984 -> 2988) - bookkeeping. Recommend pruning this commit from the corpus, or keeping it only as a negative/near-miss example.",
+    "verifier_verdict": "not_a_defect",
+    "verifier_defect_kind": "none",
+    "verifier_confidence": 0.6,
+    "verifier_justification": "The commit has exactly two meaning-level changes and neither survives as a fidelity correction. The taper change replaces the literal 0.0285714285714285714285714286 with a 4-parameter decomposition of the same printed \"2 6/7 per cent\"; the pre-fix literal is already the correctly-rounded 28-decimal value of 20/700 and already carried the correct proof atom citing that exact sentence, so the only change in encoded meaning is the derived weekly rate moving from 0.2000000000000000000000000002 to 0.2 — a 2e-28 artifact of representing a repeating fraction in the engine's 28-digit decimal type (2e-26 GBP on £100 of excess income), i.e. added precision the module never misstated, which the task rules cap at \"not a defect / unclear at most\". The Class D/E boundary change is affirmatively wrong, not a fix: the pinned corpus prints \"whose income (if any) for the relevant week is less than his applicable amount\" (Class D) and \"whose income for the relevant week is greater than his applicable amount\" (Class E), and commit 1641f4c reverted the \"<=\" five days later with the rationale that \"the corpus assigns no class at equality, so this module preserves that drafting gap\". The kind label amount_mismatch is therefore unsupported at any material level, and untraceable_branch does not fit either because the pre-fix value was traceable to the right sentence.",
+    "verifier_quote": "-          0.0285714285714285714285714286\n+          (worthing_council_tax_reduction_taper_whole_percentage_points + worthing_council_tax_reduction_taper_fraction_numerator / worthing_council_tax_reduction_taper_fraction_denominator) / worthing_council_tax_reduction_percent_divisor",
+    "verifier_notes": "New evidence the first reader did not have, all read-only:\n1. The boundary half is definitively refuted. Source text resolved through the pinned release (uk-rulespec-2026-08-10, corpus commit f398953a, provision uk-worthing/manual/council-tax-reduction-scheme-2026-2027/page-25) prints Class D as \"whose income (if any) for the relevant week is less than his applicable amount\" and Class E as \"whose income for the relevant week is greater than his applicable amount\" — strict on both sides, no class at equality. Follow-up commit 1641f4c (2026-08-19, \"Ground Worthing taper and preserve strict classes\") restores \"<\" and adds to the module summary: \"Class D strictly requires income less than the applicable amount and Class E strictly requires income greater than it; the corpus assigns no class at equality, so this module preserves that drafting gap rather than extending either class.\" The companion test worthing_ctr_income_including_tariff_equals_applicable_amount added in this commit asserted award_conditions_met: holds at equality, which the source does not support.\n2. The taper half is a 1-ulp decimal refinement, verified numerically at 28-digit precision: literal 0.0285714285714285714285714286 x 7 = 0.2000000000000000000000000002; the decomposition x 7 = 0.2000000000000000000000000000; delta 2E-28 (2.00E-26 GBP on £100 of excess income, i.e. never a penny of award). The test diff corroborates that the engine really carries this (weekly_taper_rate expectation '0.2000000000000000000000000002' -> 0.2), so the departure is real but de minimis and is a representation artifact, not a misreading — the pre-fix atom already cited \"amount B is 2 6/7 per cent of the difference between his income for the relevant week and his applicable amount\".\n3. This commit is a poor fidelity exemplar for a third reason: the percent_divisor it adds is itself grounded on unrelated excerpts (page-40 \"100 per cent of the amount A/B\" plus page-83 \"100.0 Extended reductions (qualifying contributory benefits).\" — a paragraph heading number). 1641f4c re-grounds it onto the page-25 taper sentence, and b12f2ca (2026-09-05) then removes the divisor entirely: \"The percent-divisor form (/100) cannot ground: the validator rejects the literal 100 against both the taper sentence and the page-40 maximum provision.\"\nRecommendation: prune from the real-defects corpus. If a reviewer prefers to keep it, keep it as unclear/amount_mismatch but record the magnitude (2e-28, no monetary effect), record that the pre-fix value was correctly cited and correctly rounded, and record that the commit's other change was source-contradicting and reverted — otherwise the case teaches a detector that a house-style decomposition (\"never a decimal literal\") is an amount defect.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Two-part commit, and only one part survives as a candidate defect. (1) Taper: pre-fix rules[worthing_council_tax_reduction_daily_taper_rate].versions[0].formula was the literal 0.0285714285714285714285714286, cited to the page-25 excerpt \"amount B is 2 6/7 per cent...\"; the fix adds four printed-component parameters and computes (2 + 6/7)/100. Observable effect is confined to exactness: the companion expectation for daily_taper_rate is unchanged ('0.0285714285714285714285714286'), and only weekly_taper_rate moves from '0.2000000000000000000000000002' to 0.2. A fidelity judge reading the pre-fix module would have to apply a strict exactness/no-decimal-literal norm to flag it, which is why I did not mark this fidelity. (2) Boundary: the fix changed award_conditions_met from income_including_tariff_weekly < applicable_amount_weekly to <=, adding a companion case (worthing_ctr_income_including_tariff_equals_applicable_amount) asserting award_conditions_met: holds and weekly_amount: 100 at equality. I read page-25 through the pinned corpus release (resolve_provision.py, release resolved cleanly): para 13.0(e) Class D reads \"whose income (if any) for the relevant week is less than his applicable amount\" and para 14.0(e) Class E reads \"whose income for the relevant week is greater than his applicable amount\" - strict on both sides, so the source assigns no class at equality and the pre-fix \"<\" matched the printed text. Follow-up commit 1641f4c (2026-08-19, on origin/main) reverts <= back to < and flips that companion case to not_holds / 0, with the module summary stating \"Class D strictly requires income less than the applicable amount and Class E strictly requires income greater than it; the corpus assigns no class at equality, so this module preserves that drafting gap rather than extending either class.\" So this commit's boundary_direction half introduced a defect rather than fixing one; do NOT harvest it as a boundary_direction specimen. (3) This commit also grounded the new percent_divisor parameter partly on an irrelevant excerpt (page-83 \"100.0 Extended reductions (qualifying contributory benefits).\", a paragraph-number coincidence); 1641f4c dropped it and b12f2ca replaced the whole parameter with a per_cent_unit Rate of 0.01 grounded on page-40 \"100 per cent of the amount A/B\" because the validator rejected the literal 100. Non-module changes in the commit: the companion test file (new parameter expectations, two tariff-income boundary cases at 6250 and 6250.01, the equality case) and oracle-coverage-pending.yaml (four new legal_ids, ceiling 2984 -> 2988) - bookkeeping. Recommend pruning this commit from the corpus, or keeping it only as a negative/near-miss example. | verifier said not_a_defect at 0.60 (below 0.7); kept as unclear",
+  "family_id": "uk-e61a529e-cb11eacea166",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

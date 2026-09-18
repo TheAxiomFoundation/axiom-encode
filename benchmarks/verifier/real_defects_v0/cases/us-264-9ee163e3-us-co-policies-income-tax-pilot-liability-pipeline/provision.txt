@@ -1,0 +1,873 @@
+(1) Subject to subsection (2) of this section, with respect to taxable years commencing on or after January 1, 1987, but prior to January 1, 1999, a tax of five percent is imposed on the federal taxable income, as determined pursuant to section 63 of the internal revenue code, of every individual, estate, and trust.
+(1.5) Subject to subsection (2) of this section, with respect to taxable years
+commencing on or after January 1, 1999, but prior to January 1, 2000, a tax of four
+and three-quarters percent is imposed on the federal taxable income, as
+determined pursuant to section 63 of the internal revenue code, of every individual,
+estate, and trust.
+(1.7) (a) Except as otherwise provided in section 39-22-627, subject to
+subsection (2) of this section, with respect to taxable years commencing on or after
+January 1, 2000, but before January 1, 2020, a tax of four and sixty-three one-hundredths percent is imposed on the federal taxable income, as determined
+pursuant to section 63 of the internal revenue code, of every individual, estate, and
+trust.
+(b) Except as otherwise provided in section 39-22-627, subject to subsection
+(2) of this section, with respect to taxable years commencing on or after January 1,
+2020, but before January 1, 2022, a tax of four and fifty-five one-hundredths
+percent is imposed on the federal taxable income, as determined pursuant to
+section 63 of the internal revenue code, of every individual, estate, and trust.
+(c) Except as otherwise provided in section 39-22-627, subject to subsection
+(2) of this section, with respect to taxable years commencing on or after January 1,
+2022, a tax of four and forty one-hundredths percent is imposed on the federal
+taxable income, as determined pursuant to section 63 of the internal revenue code,
+of every individual, estate, and trust.
+(2) Prior to the application of the rate of tax prescribed in subsection (1), (1.5),
+or (1.7) of this section, the federal taxable income shall be modified as provided in
+subsections (3) and (4) of this section.
+(3) There shall be added to the federal taxable income:
+(a) Any federal net operating loss deduction carried over from a taxable year
+beginning prior to January 1, 1987;
+(b) An amount equal to the interest income which is excluded from gross
+income for federal income tax purposes pursuant to section 103 (a) of the internal
+revenue code less amortization of premium on obligations of any state or any
+political subdivision thereof, other than interest income on obligations of the state
+of Colorado or any political subdivision thereof which are issued on or after May 1,
+1980, and other than interest income on obligations of the state of Colorado or any
+political subdivision thereof which were issued prior to May 1, 1980, to the extent
+that such interest is specifically exempt from income taxation under the laws of the
+state of Colorado authorizing the issuance of such obligations. The amount of such
+interest shall be the net amount after reduction by the amount of the deductions
+related thereto which are required by the internal revenue code to be allocated to
+such classes of interest.
+(c) Repealed.
+(d) (I) For income tax years beginning on and after January 1, 1992, for those
+taxpayers who deduct state income taxes pursuant to section 164 (a)(3) of the
+internal revenue code, an amount equal to the deduction claimed; except that such
+amount shall be limited to the amount required to reduce the federal itemized
+amount computed under section 161 of the internal revenue code to the amount of
+the standard deduction allowable under section 63 (c) of the internal revenue code.
+(II) For income tax years beginning on or after January 1, 2000, for two
+individuals whose federal taxable income is determined on a joint federal return and
+who deduct state income taxes pursuant to section 164 (a)(3) of the internal
+revenue code, an amount equal to the deduction claimed; except that such amount
+shall be limited to the amount required to reduce the federal itemized amount
+computed under section 161 of the internal revenue code to an amount equal to
+double the amount of the basic standard deduction allowable under section 63
+(c)(2) of the internal revenue code in the case of an individual federal return for an
+individual who is not the head of a household plus any additional standard
+deduction allowable under section 63 (c)(3) of the internal revenue code, if
+applicable.
+(e) (I) Any expenses incurred by a taxpayer with respect to expenditures
+made at, or payments made to, a club licensed pursuant to section 44-3-418 that
+has a policy to restrict membership on the basis of sex, sexual orientation, gender
+identity, gender expression, marital status, race, creed, religion, color, ancestry, or
+national origin. Any such club shall provide on each receipt furnished to a taxpayer
+a printed statement as follows:
+The expenditures covered by this receipt are
+nondeductible for state income tax purposes.
+(II) The general assembly finds, determines, and declares that the people of
+the state of Colorado desire to promote and achieve tax equity and fairness among
+all the state's citizens and further desire to conform to the public policy of
+nondiscrimination. The general assembly further declares that the provisions of this
+paragraph (e) are enacted for these reasons and for no other purpose.
+(f) Any amount withdrawn from a medical savings account pursuant to
+section 39-22-504.7 (3)(b)(II) or (3)(b)(III);
+(g) For the income tax years commencing on or after January 1, 2000, an
+amount equal to the charitable contribution deduction allowed by section 170 of the
+internal revenue code to the extent such deduction includes a contribution of real
+property to a charitable organization for a conservation purpose for which an
+income tax credit is claimed pursuant to section 39-22-522;
+(h) Repealed.
+(i) An amount equal to a business expense for labor services that is deducted
+pursuant to section 162 (a)(1) of the internal revenue code but that is prohibited
+from being claimed as a deductible business expense for state income tax purposes
+pursuant to section 39-22-529;
+(j) For income tax years commencing on or after January 1, 2015, but before
+January 1, 2020, an amount equal to the charitable contribution deduction allowed
+by section 170 of the internal revenue code to the extent such deduction includes a
+food contribution during the tax year to a hunger-relief charitable organization for
+which an income tax credit is claimed pursuant to section 39-22-536;
+(k) (I) Prior to January 1, 2025, the amount recaptured in accordance with
+section 39-22-4705 (2).
+(II) This subsection (3)(k) is repealed, effective December 31, 2028.
+(l) For income tax years ending on and after the enactment of the March
+2020 Coronavirus Aid, Relief, and Economic Security Act, Pub.L. 116-136, referred
+to in this section as the CARES Act, but before January 1, 2021, and for income tax
+years beginning on and after the enactment of the CARES Act, but before January
+1, 2021, an amount equal to the difference between a taxpayer's net operating loss
+deduction as determined under section 172 (a) of the internal revenue code before
+the amendments made by section 2303 of the CARES Act and the taxpayer's net
+operating loss deduction as determined under section 172 (a) of the internal
+revenue code after the amendments made by section 2303 of the CARES Act;
+(m) For income tax years ending on and after the enactment of the CARES
+Act, but before January 1, 2021, and for income tax years beginning on and after
+the enactment of the CARES Act, but before January 1, 2021, an amount equal to a
+taxpayer's excess business loss as determined under section 461 (l) of the internal
+revenue code without regard to the amendments made by section 2304 of the
+CARES Act, but with regard to the technical amendment made by section 2304
+(b)(2)(B) of the CARES Act;
+(n) For income tax years ending on and after the enactment of the CARES
+Act, but before January 1, 2021, and for income tax years beginning on and after
+the enactment of the CARES Act, but before January 1, 2021, an amount equal to
+the amount in excess of the limitation on business interest under section 163 (j) of
+the internal revenue code without regard to the amendments made by section 2306
+of the CARES Act;
+(o) For income tax years commencing on or after January 1, 2021, an amount
+equal to the deduction allowed under section 199A of the internal revenue code for
+a taxpayer who files a single return and whose adjusted gross income is greater
+than five hundred thousand dollars, and for taxpayers who file a joint return and
+whose adjusted gross income is greater than one million dollars; except that this
+subsection (3)(o) does not apply to a taxpayer who is required to file a schedule F,
+profit or loss from farming, or successor form, as an attachment to a federal income
+tax return for the tax year in which the taxpayer claims the deduction allowed
+under section 199A of the internal revenue code.
+(p) Except as otherwise provided in subsection (3)(p.5) of this section, for
+income tax years commencing on or after January 1, 2022, for taxpayers who claim
+itemized deductions as defined in section 63 (d) of the internal revenue code and
+who have federal adjusted gross income in the income tax year equal to or
+exceeding four hundred thousand dollars:
+(I) For a taxpayer who files a single return, the amount by which the itemized
+deductions deducted from gross income under section 63 (a) of the internal
+revenue code exceed thirty thousand dollars; and
+(II) For taxpayers who file a joint return, the amount by which the itemized
+deductions deducted from gross income under section 63 (a) of the internal
+revenue code exceed sixty thousand dollars.
+(p.5) (I) [Editor's note: This version of the introductory portion of subsection
+(3)(p.5)(I) is effective unless the ballot issue described in section 22-82.9-213 is
+approved by the people at the next statewide election or unless the ballot issue
+described in section 22-82.9-212 and the ballot issue described in section 22-82.9-213 are rejected by the people at the next statewide election.] For income tax
+years commencing on or after January 1, 2023, for taxpayers who claim itemized
+deductions as defined in section 63 (d) of the internal revenue code or the standard
+deduction as defined in section 63 (c) of the internal revenue code and who have
+federal adjusted gross income in the income tax year equal to or exceeding three
+hundred thousand dollars:
+(p.5) (I) [Editor's note: This version of the introductory portion of subsection
+(3)(p.5)(I) is effective if the ballot issue described in section 22-82.9-213 is
+approved by the people at the next statewide election.] For income tax years
+commencing on or after January 1, 2023, but before January 1, 2026, for taxpayers
+who claim itemized deductions as defined in section 63 (d) of the internal revenue
+code or the standard deduction as defined in section 63 (c) of the internal revenue
+code and who have federal adjusted gross income in the income tax year equal to or
+exceeding three hundred thousand dollars:
+(p.5) (I) [Editor's note: This version of the introductory portion of subsection
+(3)(p.5)(I) is effective if the ballot issue described in section 22-82.9-212 and the
+ballot issue described in section 22-82.9-213 are rejected by the people at the
+next statewide election.] For income tax years commencing on or after January 1,
+2023, but before January 1, 2026, for taxpayers who claim itemized deductions as
+defined in section 63 (d) of the internal revenue code or the standard deduction as
+defined in section 63 (c) of the internal revenue code and who have federal adjusted
+gross income in the income tax year equal to or exceeding three hundred thousand
+dollars:
+(A) For a taxpayer who files a single return, the amount by which the
+itemized deductions deducted from gross income under section 63 (a) of the
+internal revenue code exceed, or the standard deduction deducted from gross
+income under section 63 (c) of the internal revenue code exceeds, twelve thousand
+dollars; and
+(B) For taxpayers who file a joint return, the amount by which the itemized
+deductions deducted from gross income under section 63 (a) of the internal
+revenue code exceed, or the standard deduction deducted from gross income under
+section 63 (c) of the internal revenue code exceeds, sixteen thousand dollars.
+(I.5) [Editor's note: Subsection (3)(p.5)(I.5) is effective if the ballot issue
+described in section 22-82.9-212 and the ballot issue described in section 22-82.9-213 are rejected by the people at the next statewide election.] For income tax
+years commencing on or after January 1, 2026, for taxpayers who claim itemized
+deductions as defined in section 63 (d) of the internal revenue code or the standard
+deduction as defined in section 63 (c) of the internal revenue code and who have a
+federal adjusted gross income in the income tax year equal to or exceeding three
+hundred thousand dollars:
+(A) For a taxpayer who files a single return, the amount by which the
+itemized deductions deducted from gross income under section 63 (a) of the
+internal revenue code exceed, or the standard deduction deducted from gross
+income under section 63 (c) of the internal revenue code exceeds, an amount that is
+greater than twelve thousand dollars, is three-quarters of the amount described in
+subsection (3)(p.5)(I.5)(B) of this section, and that the department of revenue
+determines that, in combination with the amount described in subsection
+(3)(p.5)(I.5)(B) of this section, had it been used instead of the addition to federal
+taxable income required by subsection (3)(p.5)(I) of this section, would have
+reduced the amount of additional state income tax revenue for the 2023-24 state
+fiscal year generated by that addition to one hundred million seven hundred
+twenty-seven thousand eight hundred twenty dollars; and
+(B) For taxpayers who file a joint return, the amount by which the itemized
+deductions deducted from gross income under section 63 (a) of the internal
+revenue code exceed, or the standard deduction deducted from gross income under
+section 63 (c) of the internal revenue code exceeds, an amount that is greater than
+sixteen thousand dollars, is one-third greater than the amount described in
+subsection (3)(p.5)(I.5)(A) of this section, and that the department of revenue
+determines that, in combination with the amount described in subsection
+(3)(p.5)(I.5)(A) of this section, had it been used instead of the addition to federal
+taxable income required by subsection (3)(p.5)(I) of this section, would have
+reduced the amount of additional state income tax revenue for the 2023-24 state
+fiscal year generated by that addition to one hundred million seven hundred
+twenty-seven thousand eight hundred twenty dollars.
+(II) [Editor's note: This version of subsection (3)(p.5)(II) is effective unless
+the ballot issue described in section 22-82.9-213 is approved by the people at the
+next statewide election or unless the ballot issue described in section 22-82.9-212
+and the ballot issue described in section 22-82.9-213 are rejected by the people at
+the next statewide election.] For the 2023-24 state fiscal year and state fiscal
+years thereafter, the general assembly shall annually appropriate an amount at
+least equal to the amount of revenue generated by the addition to federal taxable
+income described in subsection (3)(p.5)(I) of this section, calculated without regard
+to any temporary rate reduction pursuant to section 39-22-627, but not more than
+the amount required, to fully fund the direct and indirect costs of implementing the
+healthy school meals for all program as provided in section 22-82.9-209. The
+provisions of subsection (3)(p.5)(I) of this section constitute a voter-approved
+revenue change, approved by the voters at the statewide election in November of
+2022, and the revenue generated by this voter-approved revenue change may be
+collected, retained, appropriated, and spent without subsequent voter approval,
+notwithstanding any other limits in the state constitution or law. The addition to
+federal taxable income described in subsection (3)(p.5)(I) of this section does not
+apply for an income tax year that commences after the healthy school meals for all
+program, or any successor program, is repealed. Upon repeal of the healthy school
+meals for all program, or any successor program, the commissioner of education
+shall promptly notify the executive director in writing that the program is repealed.
+(II) [Editor's note: This version of subsection (3)(p.5)(II) is effective if the
+ballot issue described in section 22-82.9-213 is approved by the people at the next
+statewide election.] For the 2023-24 state fiscal year and state fiscal years
+thereafter, the general assembly shall annually appropriate an amount at least
+equal to the amount of revenue generated by the addition to federal taxable income
+described in subsection (3)(p.5)(I) of this section, calculated without regard to any
+temporary rate reduction pursuant to section 39-22-627, to the healthy school
+meals for all program cash fund created in section 22-82.9-211. Subsection
+(3)(p.5)(I) of this section constitutes a voter-approved revenue change, approved by
+the voters at the statewide election in November of 2022, and the revenue
+generated by this voter-approved revenue change may be collected, retained,
+appropriated, and spent without subsequent voter approval, notwithstanding any
+other limits in the state constitution or law. The addition to federal taxable income
+described in subsection (3)(p.5)(I) of this section does not apply for an income tax
+year that commences after the healthy school meals for all program, or any
+successor program, is repealed. Upon repeal of the healthy school meals for all
+program, or any successor program, the commissioner of education shall promptly
+notify the executive director in writing that the program is repealed.
+(II) [Editor's note: This version of subsection (3)(p.5)(II) is effective if the
+ballot issue described in section 22-82.9-212 and the ballot issue described in
+section 22-82.9-213 are rejected by the people at the next statewide election.] For
+the 2023-24 state fiscal year and state fiscal years thereafter, the general
+assembly shall annually appropriate an amount at least equal to the amount of
+revenue generated by the addition to federal taxable income described in
+subsections (3)(p.5)(I) and (3)(p.5)(I.5) of this section, calculated without regard to
+any temporary rate reduction pursuant to section 39-22-627, but not more than the
+amount required, to fully fund the direct and indirect costs of implementing the
+healthy school meals for all program as provided in section 22-82.9-209.
+Subsections (3)(p.5)(I) and (3)(p.5)(I.5) of this section constitute a voter-approved
+revenue change, approved by the voters at the statewide election in November of
+2022, and the revenue generated by this voter-approved revenue change may be
+collected, retained, appropriated, and spent without subsequent voter approval,
+notwithstanding any other limits in the state constitution or law. The addition to
+federal taxable income described in subsections (3)(p.5)(I) and (3)(p.5)(I.5) of this
+section does not apply for an income tax year that commences after the healthy
+school meals for all program, or any successor program, is repealed. Upon repeal of
+the healthy school meals for all program, or any successor program, the
+commissioner of education shall promptly notify the executive director in writing
+that the program is repealed.
+(III) [Editor's note: Subsection (3)(p.5)(III) is effective if the ballot issue
+described in section 22-82.9-213 is approved by the people at the next statewide
+election.] This subsection (3)(p.5) is repealed, effective December 31, 2028.
+(p.7) [Editor's note: Subsection (3)(p.7) is effective if the ballot issue
+described in section 22-82.9-213 is approved by the people at the next statewide
+election.]
+(I) For income tax years commencing on or after January 1, 2026, for taxpayers who
+claim itemized deductions as defined in section 63 (d) of the internal revenue code
+or the standard deduction as defined in section 63 (c) of the internal revenue code
+and who have a federal adjusted gross income in the income tax year equal to or
+exceeding three hundred thousand dollars:
+(A) For a taxpayer who files a single return, the amount by which the
+itemized deductions deducted from gross income under section 63 (a) of the
+internal revenue code exceed, or the standard deduction deducted from gross
+income under section 63 (c) of the internal revenue code exceeds one thousand
+dollars; and
+(B) For taxpayers who file a joint return, the amount by which the itemized
+deductions deducted from gross income under section 63 (a) of the internal
+revenue code exceed, or the standard deduction deducted from gross income under
+section 63 (c) of the internal revenue code exceeds two thousand dollars.
+(II) In addition to the funding appropriated in subsection (3)(p.5) of this
+section, for the 2026-27 state fiscal year and every state fiscal year thereafter, the
+general assembly shall annually appropriate an amount at least equal to the
+amount of revenue generated by the addition to federal taxable income described
+in this subsection (3)(p.7) to the healthy school meals for all program cash fund
+created in section 22-82.9-211. The provisions of this subsection (3)(p.7) constitute a
+voter-approved revenue change, approved by the voters at the statewide election in
+November 2025, and the revenue generated by this voter-approved revenue change
+may be collected, retained, appropriated, and spent without subsequent voter
+approval, notwithstanding any other limits in the state constitution or law. The
+addition to federal taxable income described in this subsection (3)(p.7) does not
+apply for an income tax year that commences after the healthy school meals for all
+program, or any successor program, is repealed. Upon repeal of the healthy school
+meals for all program, or any successor program, the commissioner of education
+shall promptly notify the executive director in writing that the program is repealed.
+(q) (I) For income tax years commencing on or after January 1, 2022, but
+before January 1, 2023, an amount equal to a federal deduction claimed for the
+income tax year for a food and beverage expense that exceeds fifty percent of the
+amount of the expense and that was allowed under section 274 (n)(2)(D) of the
+internal revenue code.
+(II) This subsection (3)(q) is repealed, effective December 31, 2030.
+(r) Notwithstanding subsection (3)(o) of this section, for income tax years
+commencing on or after January 1, 2018, an amount equal to the deduction taken
+under section 199A of the internal revenue code, except to the extent the deduction
+is otherwise disallowed under section 265 of the internal revenue code, for an
+electing pass-through entity owner of an electing pass-through entity, as such
+terms are defined in section 39-22-342, that makes the election allowed in subpart
+3 of part 3 of this article 22.
+(s) (I) For income tax years commencing on or after January 1, 2024, but
+before January 1, 2031, an amount equal to a federal deduction claimed for a
+business meal pursuant to section 274 (k) of the internal revenue code.
+(II) This subsection (3)(s) is repealed, effective December 31, 2035.
+(t) [Editor's note: This version of subsection (3)(t) is effective until January 1,
+2026.] For income tax years commencing on or after January 1, 2025, an amount
+equal to the amount of employer contribution that an employee forfeits pursuant to
+section 39-22-558 (3)(c) and that the taxpayer had previously subtracted from the
+taxpayer's federal taxable income pursuant to subsection (4)(bb) of this section.
+(t) [Editor's note: This version of subsection (3)(t) is effective January 1,
+2026.] For income tax years commencing on or after January 1, 2025, an amount
+equal to the amount of employer contribution that an employee forfeits pursuant to
+section 39-22-558 (3)(c) and that the taxpayer had previously subtracted from the
+taxpayer's federal taxable income pursuant to subsection (4)(bb) of this section;
+and
+(u) [Editor's note: Subsection (3)(u) is effective January 1, 2026.] The amount
+of any overtime compensation excluded or deducted from federal gross income.
+(4) There shall be subtracted from federal taxable income:
+(a) An amount equal to any interest income on obligations of the United
+States and its possessions to the extent included in federal taxable income;
+(a.5) Repealed.
+(b) To the extent included in federal adjusted gross income, the portion of
+any gain or loss from the sale or other disposition of property having a higher
+adjusted basis for Colorado income tax purposes than for federal income tax
+purposes on the date such property was sold or disposed of in a transaction in
+which gain or loss was recognized for purposes of federal income tax that does not
+exceed such difference in basis;
+(c) The amount necessary to prevent the taxation under this article of any
+annuity or other amount of income or gain which was properly included in income or
+gain and was taxed under the laws of this state for a prior tax year, to the taxpayer,
+or to a decedent by reason of whose death the taxpayer acquired the right to
+receive the income or gain, or to a trust or estate from which the taxpayer received
+the income or gain;
+(d) Repealed.
+(e) (I) The amount of any refund or credit for overpayment of income taxes
+imposed by this state or any other taxing jurisdiction to the extent included in gross
+income for federal income tax purposes but not previously allowed as a deduction
+for Colorado income tax purposes;
+(II) The purpose of the subtraction authorized in this subsection (4)(e) is to
+avoid re-taxing a taxpayer's state income tax refund when a state refund is
+required to be included as income on the taxpayer's federal return pursuant to the
+internal revenue code;
+(III) The effectiveness of the subtraction authorized in this subsection (4)(e)
+is measured by the number of taxpayers claiming the subtraction and the total
+amount of state refunds claimed as subtractions from Colorado taxable income;
+(f) (I) For income tax years commencing on or after January 1, 1989, amounts
+received as pensions or annuities from any source by any individual who is fifty-five
+years of age or older at the close of the taxable year, to the extent included in
+federal adjusted gross income;
+(II) For income tax years commencing on or after January 1, 1989, amounts
+received as pensions or annuities from any source by any individual who is less than
+fifty-five years of age at the close of the taxable year if such benefits are received
+because of the death of the person originally entitled to receive such benefits and
+only to the extent such benefits are included in federal adjusted gross income;
+(III) (A) Amounts subtracted under this subsection (4)(f) are capped at twenty
+thousand dollars per tax year for any individual who is fifty-five years of age or
+older but less than sixty-five years of age at the close of the taxable year. For
+income tax years commencing on or after January 1, 2025, the cap set forth in this
+subsection (4)(f)(III)(A) is calculated by first considering the total amount of social
+security benefits a taxpayer received that were included in federal taxable income
+at the close of the taxable year. If the total amount of such social security benefits
+exceeds the cap set forth in this subsection (4)(f)(III)(A), and the taxpayer's adjusted
+gross income for the applicable tax year is less than or equal to seventy-five
+thousand dollars if filing individually or ninety-five thousand dollars if filing jointly,
+then the cap is increased to an amount equal to the total amount of such social
+security benefits.
+(B) Amounts subtracted under this subsection (4)(f) are capped at twenty-four thousand dollars per tax year for any individual who is sixty-five years of age or
+older at the close of the taxable year. For income tax years commencing on or after
+January 1, 2022, the cap set forth in this subsection (4)(f)(III)(B) is calculated by first
+considering the total amount of social security benefits a taxpayer received that
+were included in federal taxable income at the close of the taxable year. If the total
+amount of such social security benefits exceeds the cap set forth in this subsection
+(4)(f)(III)(B), then the cap is increased to an amount equal to the total amount of
+such social security benefits.
+(C) For the purpose of determining the subtraction allowed by this
+subsection (4)(f), in the case of a joint return, social security benefits included in
+federal taxable income shall be apportioned in a ratio of the gross social security
+benefits of each taxpayer to the total gross social security benefits of both
+taxpayers.
+(D) As used in this subsection (4)(f), pensions and annuities means
+retirement benefits that are periodic payments attributable to personal services
+performed by an individual prior to his or her retirement from employment and that
+arise from an employer-employee relationship, from service in the uniformed
+services of the United States, or from contributions to a retirement plan that are
+deductible for federal income tax purposes. Pensions and annuities includes
+distributions from individual retirement arrangements and self-employed
+retirement accounts to the extent that such distributions are not deemed to be
+premature distributions for federal income tax purposes, amounts received from
+fully matured privately purchased annuities, social security benefits, and amounts
+paid from any such sources by reason of permanent disability or death of the
+person entitled to receive the benefits.
+(E) In accordance with section 39-21-304 (1), which requires each bill that
+creates a new tax expenditure to include a tax preference performance statement
+as part of a statutory legislative declaration, the general assembly finds and
+declares that the general purpose of the tax expenditure created in subsection
+(4)(f)(III)(B) of this section is to provide tax relief for certain individuals and that the
+specific purpose of the tax expenditure is to provide such tax relief to persons aged
+fifty-five and older in light of the increase in property tax rates in the income tax
+year commencing on January 1, 2023. The general assembly and the state auditor
+shall measure the effectiveness of the exemption allowed by this section based on
+the total amount of social security benefits in excess of twenty thousand dollars
+per individual per tax year that individuals aged fifty-five to sixty-four, inclusive,
+subtract from their federal taxable income when calculating their state taxable
+income.
+(F) The department of revenue, in consultation with the state auditor, shall
+collect the information necessary for the state auditor to measure the
+effectiveness of the income tax subtraction allowed by this section based on the
+total amount of social security benefits in excess of twenty thousand dollars per
+individual per tax year that individuals who are aged fifty-five to sixty-four, and
+whose adjusted gross income is less than or equal to seventy-five thousand dollars
+if filing individually or ninety-five thousand dollars if filing jointly, subtract from
+their federal taxable income when calculating their state taxable income.
+(g) Repealed.
+(h) (I) Prior to January 1, 2025, any amount contributed to a medical savings
+account by an employer pursuant to section 39-22-504.7 (2)(e), to the extent such
+amount is not claimed as a deduction on the taxpayer's federal tax return.
+(II) This subsection (4)(h) is repealed, effective December 31, 2028.
+(i) (I) (A) For income tax years commencing on or after January 1, 1998, an
+amount equal to the portion attributable to interest and other income of a
+distribution under a qualified state tuition program that is distributed for the
+purpose of meeting qualified higher education expenses of a designated
+beneficiary, to the extent such amount is included in federal taxable income;
+(B) Before January 1, 2031, an amount equal to the portion attributable to
+interest and other income of a distribution under a qualified ABLE program that is
+distributed for the purpose of meeting qualified disability expenses of a designated
+beneficiary, to the extent such amount is included in federal taxable income;
+(C) Subsection (4)(i)(I)(B) of this section and this subsection (4)(i)(I)(C) are
+repealed, effective January 1, 2035.
+(II) (A) For income tax years commencing on or after January 1, 2001, but
+before January 1, 2022, an amount equal to all payments or contributions made
+during the taxable year under an advance payment contract, to a savings trust
+account, or otherwise in connection with a qualified state tuition program
+established by collegeinvest created in section 23-3.1-203, or to a qualified state
+tuition program that is affiliated with an educational institution in the state and that
+is established and maintained pursuant to section 529 of the internal revenue code
+or any successor section.
+(B) Except as provided in subsection (4)(i)(II)(C) of this section, for income tax
+years commencing on or after January 1, 2022, an amount equal to all payments or
+contributions, not to exceed twenty thousand dollars per taxpayer per beneficiary
+for a taxpayer who files a single return, or thirty thousand dollars per taxpayer per
+beneficiary for taxpayers who file a joint return, made during the taxable year under
+an advance payment contract, to a savings trust account, or otherwise in
+connection with a qualified state tuition program established by collegeinvest
+created in section 23-3.1-203, or to a qualified state tuition program that is
+affiliated with an educational institution in the state and that is established and
+maintained pursuant to section 529 of the internal revenue code or any successor
+section, or, before January 1, 2031, in connection with a qualified ABLE program.
+Notwithstanding subsection (4)(i)(III)(D) of this section, collegeinvest may treat a
+change in beneficiary as a nonqualifying distribution if the change was made for the
+purpose of evading the limit in this subsection (4)(i)(II)(B).
+(C) For income tax years commencing on or after January 1, 2023, the limits
+specified in subsection (4)(i)(II)(B) of this section are annually adjusted by the
+percentage change in the combined average annual costs of tuition and room and
+board for all state institutions of higher education, as defined in section 24-30-1301
+(18). The department of higher education shall annually calculate the percentage
+change described in this subsection (4)(i)(II)(C) and shall provide the calculation to
+the department of revenue by a deadline determined by the department of revenue.
+The department of revenue may round the adjusted limits to the nearest hundred
+dollars.
+(III) No subtraction is allowed pursuant to this subsection (4)(i) to the extent
+that such payments or contributions are excluded from the taxpayer's federal
+taxable income for the taxable year. Any subtraction taken under this subsection
+(4)(i) is added to the account holder's taxable income in the taxable year or years in
+which any distribution, refund, or any other withdrawal is made pursuant to an
+advance payment contract, from a savings trust account, or otherwise in connection
+with a qualified state tuition program for any reason other than:
+(A) To pay qualified higher education expenses;
+(B) As a result of the beneficiary's death or disability;
+(C) As a result of receiving a scholarship and as long as the aggregate
+amount of distributions, refunds, or withdrawals made pursuant to this subsection
+(4)(i)(III)(C) do not exceed the amount of the scholarship provided during such tax
+year; or
+(D) As a result of a change in designated beneficiary, if the change complies
+with section 529 (c)(3)(C)(ii) of the internal revenue code.
+(III.5) No subtraction is allowed pursuant to this subsection (4)(i) to the
+extent that such payments or contributions are excluded from the taxpayer's
+federal taxable income for the taxable year. Before January 1, 2031, any subtraction
+taken under this subsection (4)(i) is added to the account holder's taxable income in
+the taxable year or years in which any distribution, refund, or any other withdrawal
+is made pursuant to an advance payment contract, from a savings trust account, or
+otherwise in connection with a qualified ABLE program for any reason other than:
+(A) To pay qualified disability expenses;
+(B) As a result of the beneficiary's death or disability; or
+(C) As a result of a change in designated beneficiary, if the change complies
+with section 529A (c)(1)(C)(ii) of the internal revenue code.
+(D) This subsection (4)(i)(III.5) is repealed, effective January 1, 2035.
+(IV) As used in this subsection (4)(i), unless the context otherwise requires:
+(A) Designated beneficiary has the same meaning as defined in section 529
+(e)(1) of the internal revenue code.
+(B) Qualified higher education expense has the same meaning as defined in
+section 529 (e)(3) of the internal revenue code, and expenses for fees, books,
+supplies, and equipment required for the participation of a designated beneficiary
+in an apprenticeship program as defined in section 529 (c)(8) of the internal
+revenue code.
+(C) Qualified state tuition program means a qualified tuition program as
+defined in section 529 (b) of the internal revenue code.
+(D) Qualified ABLE program, before January 1, 2031, means a qualified
+ABLE program as defined in section 529A (b) of the internal revenue code.
+(E) Qualified disability expense, before January 1, 2031, has the same
+meaning as defined in section 529A (e)(5) of the internal revenue code.
+(IV.5) Subsections (4)(i)(IV)(B) and (4)(i)(IV)(C) of this section and this
+subsection (4)(i)(IV.5) are repealed, effective January 1, 2035.
+(V) Beginning January 1, 2022, and annually thereafter, collegeinvest shall
+provide the department with a secure electronic report containing information for
+the 529 qualified state tuition program's account owners and third-party
+contributors necessary for the administration of the deduction allowed in this
+section. The report must include:
+(A) The name and social security number, and the contribution amount, of all
+Colorado taxpayers making a contribution to a collegeinvest account in the
+reporting tax year commencing on or after January 1, 2021;
+(B) The name and social security number, and the contribution amount, of
+any other Colorado taxpayer making a contribution to a collegeinvest account in
+the reporting tax year commencing on or after January 1, 2021, who intends to
+participate in the deduction allowed in this section; and
+(C) The name and social security number, and the distribution amount, of
+each account holder of a collegeinvest account who is also a Colorado taxpayer
+making a distribution in the reporting tax year commencing on or after January 1,
+2021, and the reason, if any, for the distribution.
+(VI) The purpose of the deduction authorized in this subsection (4)(i) is to
+create additional incentives for saving for college tuition not already created by
+other state or federal law.
+(VII) The purposes of the deduction authorized in subsection (4)(i)(I)(B) of this
+section are to provide support to individuals with disabilities and their families and
+to provide an incentive for individuals with disabilities and their families to set aside
+money in an account to cover future disability-related expenses.
+(j) to (l.5) Repealed.
+(m) (I) Except as provided in subparagraph (VII) of this paragraph (m), for any
+income tax year commencing on or after January 1, 2001, for any individual who
+claims the basic standard deduction allowed under section 63 (c)(2) of the internal
+revenue code on the individual's federal return and, therefore, cannot claim an
+itemized deduction for charitable contributions pursuant to section 170 of the
+internal revenue code, an amount equal to the amount of any deduction based upon
+the aggregate amount of charitable contributions in excess of five hundred dollars
+that the individual could have claimed pursuant to section 170 of the internal
+revenue code if the individual had not claimed the basic standard deduction.
+(II) Any state income tax modification allowed pursuant to the provisions of
+subparagraph (I) of this paragraph (m) shall be published in rules promulgated by
+the executive director in accordance with article 4 of title 24, C.R.S., and shall be
+included in income tax forms for that taxable year.
+(III) to (VI) Repealed.
+(VII) For any income tax year commencing on or after January 1, 2015, but
+before January 1, 2020, any individual who claims an income tax credit allowed in
+section 39-22-536 may not claim the deduction set forth in this paragraph (m) for
+the food contribution to the hunger-relief charitable organization.
+(n) Repealed.
+(n.5) (I) (A) For income tax years commencing on or after January 1, 2014, but
+prior to January 1, 2017, and for income tax years commencing on or after January 1,
+2020, but prior to January 1, 2025, an amount equal to fifty percent of a landowner's
+costs incurred in performing wildfire mitigation measures in that income tax year on
+his or her property located within the state; except that the amount of the
+deduction claimed in an income tax year shall not exceed two thousand five
+hundred dollars or the total amount of the landowner's federal taxable income for
+the income tax year for which the deduction is claimed, whichever is less.
+(A.5) For income tax years commencing on or after January 1, 2017, but prior
+to January 1, 2020, an amount equal to one hundred percent of a landowner's costs
+incurred in performing wildfire mitigation measures in that income tax year on his or
+her property located within the state; except that the amount of the deduction
+claimed in an income tax year shall not exceed two thousand five hundred dollars or
+the total amount of the landowner's federal taxable income for the income tax year
+for which the deduction is claimed, whichever is less.
+(B) In the case of two taxpayers filing a joint return, the amount subtracted
+from federal taxable income shall not exceed two thousand five hundred dollars in
+any taxable year. In the case of two taxpayers who may legally file a joint return but
+actually file separate returns, only one of the taxpayers may claim the deduction
+specified in this paragraph (n.5).
+(C) In the case of real property owned as tenants in common, the deduction
+allowed pursuant to this paragraph (n.5) shall only be allowed to one of the
+individuals of the ownership group.
+(II) A landowner who performs wildfire mitigation measures on his or her real
+property located within the state may claim the deduction authorized by this
+paragraph (n.5) if the wildfire mitigation measures are performed in a wildland-urban interface area.
+(III) For purposes of this paragraph (n.5):
+(A) Colorado state forest service means the Colorado state forest service
+identified in section 23-31-302, C.R.S.
+(B) Costs means any actual out-of-pocket expense incurred and paid by
+the landowner, documented by receipt, for performing wildfire mitigation measures.
+Costs do not include any inspection or certification fees, in-kind contributions,
+donations, incentives, or cost sharing associated with performing wildfire mitigation
+measures. Costs do not include expenses paid by the landowner from any grants
+awarded to the landowner for performing wildfire mitigation measures.
+(C) Landowner means any owner of record of private land located within
+the state, including any easement, right-of-way, or estate in the land, and includes
+the heirs, successors, and assigns of such land, and shall not include any
+partnership, S corporation, or other similar entity that owns private land as an
+entity.
+(D) Wildfire mitigation measures means the creation of a defensible space
+around structures; the establishment of fuel breaks; the thinning of woody
+vegetation for the primary purpose of reducing risk to structures from wildland fire;
+or the secondary treatment of woody fuels by lopping and scattering, piling,
+chipping, removing from the site, or prescribed burning; so long as such activities
+meet or exceed any Colorado state forest service standards or any other applicable
+state rules.
+(IV) This subsection (4)(n.5) is repealed, effective January 1, 2028.
+(o) For income tax years commencing on or after January 1, 2011, an amount
+equal to any amount received as employer matching contributions to an adult
+learner's individual trust account or savings account made pursuant to part 3 of
+article 3.1 of title 23, C.R.S.;
+(p) For income tax years commencing on or after January 1, 2014, any amount
+received as a grant from the military family relief fund created in section 28-3-1502, C.R.S., to the extent that it is included in federal taxable income;
+(q) For income tax years commencing on or after January 1, 2013, an amount
+equal to any amount received as compensation for an exonerated person pursuant
+to section 13-65-103, C.R.S., on or after January 1, 2014, except as to those portions
+of the judgment awarded as attorney fees for bringing a claim under such section;
+(r) For income tax years commencing on or after January 1, 2014, if a
+taxpayer is licensed under the Colorado Marijuana Code, article 10 of title 44, or
+its predecessor codes, an amount equal to any expenditure that is eligible to be
+claimed as a federal income tax deduction but is disallowed by section 280E of the
+internal revenue code because marijuana is a controlled substance under federal
+law;
+(r.5) For income tax years commencing on or after January 1, 2024, if a
+taxpayer is licensed pursuant to the Colorado Natural Medicine Code, article 50
+of title 44, an amount equal to any expenditure that is eligible to be claimed as a
+federal income tax deduction but is disallowed by section 280E of the internal
+revenue code because natural medicine is a controlled substance under federal
+law;
+(s) Repealed.
+(t) (I) For income tax years commencing on or after January 1, 2015, and prior
+to January 1, 2025, compensation that would be subject to withholding under
+section 39-22-604, received by a nonresident individual for performing disaster-related work in the state during a disaster period.
+(II) For purposes of this paragraph (t):
+(A) Declared state disaster emergency means a disaster or emergency
+event for which the governor has issued an executive order declaring a disaster
+emergency.
+(B) Disaster period means a period that begins with the day of the
+governor's executive order declaring a state disaster emergency and that extends
+for a period of sixty calendar days after the expiration of the governor's executive
+order.
+(C) Disaster-related work means repairing, renovating, installing, building,
+or rendering services that relate to infrastructure that has been damaged, impaired,
+or destroyed by a declared state disaster emergency or providing emergency
+medical, firefighting, law enforcement, hazardous material, search and rescue, or
+other emergency service related to a declared state disaster emergency.
+(D) Infrastructure means property and equipment owned or used by
+communications networks, gas and electric utilities, water pipelines, and public
+roads and bridges and related support facilities that service multiple customers or
+citizens, including but not limited to real and personal property such as buildings,
+offices, lines, poles, pipes, structures, and equipment.
+(III) This subsection (4)(t) is repealed, effective December 31, 2028.
+(u) For income tax years commencing on or after January 1, 2016, an amount
+equal to any compensation received for active duty service in the armed forces of
+the United States by an individual who has reacquired residency in the state
+pursuant to section 39-22-110.5, to the extent that the compensation is included in
+federal taxable income;
+(v) Repealed.
+(w) (I) For income tax years commencing on or after January 1, 2017, and prior
+to January 1, 2025, to the extent included in federal taxable income and as
+permitted under part 47 of this article 22, an amount equal to any interest and other
+income earned on the investment of the money in a first-time home buyer savings
+account during the taxable year.
+(II) Any exclusion taken under subparagraph (I) of this paragraph (w) is
+subject to recapture under paragraph (k) of subsection (3) of this section as
+specified in section 39-22-4705.
+(III) This subsection (4)(w) is repealed, effective December 31, 2028.
+(x) (I) Except as otherwise provided in subsection (4)(x)(II) of this section, for
+income tax years commencing on or after January 1, 2018, all income earned, to the
+extent included in federal taxable income except as otherwise provided in
+subsection (4)(x)(IV) of this section, as a direct result of winning a medal while
+competing for the United States of America at the Olympic games.
+(II) The subtraction provided for in subsection (4)(x)(I) of this section does not
+apply to a taxpayer whose federal adjusted gross income for the income tax year in
+which the taxpayer has income earned as a direct result of winning a medal, as
+determined prior to application of this subsection (4)(x), exceeds one million dollars
+or, if the taxpayer's filing status is married filing separately, exceeds five hundred
+thousand dollars.
+(III) As used in this subsection (4)(x):
+(A) Income earned as a direct result of winning a medal includes both the
+monetary value of the medal itself and any monetary award given for winning the
+medal by the United States Olympic committee or any sport-specific national
+governing body or Paralympic sport organization but does not include endorsement
+income or nonmonetary benefits.
+(B) Olympic games means the summer and winter Olympic games and the
+summer and winter Paralympic games.
+(IV) The monetary value of any medal won while competing for the United
+States of America at either the summer or winter Olympic games or the summer or
+winter Paralympic games shall be subtracted from federal taxable income
+regardless of whether or not said monetary value is included in federal taxable
+income.
+(y) (I) For income tax years commencing on or after January 1, 2019, but prior
+to January 1, 2029, an amount equal to a qualified individual's military retirement
+benefits included in federal adjusted gross income, but not to exceed the following
+amounts:
+(A) Four thousand five hundred dollars for income tax years commencing on
+or after January 1, 2019, but prior to January 1, 2020;
+(B) Seven thousand five hundred dollars for income tax years commencing
+on or after January 1, 2020, but prior to January 1, 2021;
+(C) Ten thousand dollars for income tax years commencing on or after
+January 1, 2021, but before January 1, 2022; or
+(D) Fifteen thousand dollars for income tax years commencing on or after
+January 1, 2022, but before January 1, 2029.
+(II) As used in this subsection (4)(y):
+(A) Military retirement benefits means any retirement benefits received as
+a result of the individual's service in the armed forces of the United States.
+(B) Qualified individual means an individual who is under fifty-five years of
+age at the close of the taxable year.
+(III) (A) In accordance with section 39-21-304 (1), which requires each bill that
+extends a tax expenditure to include a tax preference performance statement as
+part of a statutory legislative declaration if one was not previously included in the
+tax expenditure, the general assembly finds and declares that the purpose of the
+tax expenditure in this subsection (4)(y) is to provide tax relief to certain individuals,
+namely military retirees.
+(B) The general assembly and the state auditor shall measure the
+effectiveness of this tax expenditure in achieving the purpose specified in
+subsection (4)(y)(III)(A) of this section by measuring whether military retirees are
+benefitting from the tax expenditure, and by how much.
+(z) (I) Except as provided in subsection (4)(z)(II) of this section, for income tax
+years beginning on or after January 1, 2021, but before January 1, 2022, the sum of
+the amount by which taxable income for the specified tax years exceeds the
+taxable income for the modified specified tax years computed separately for each
+income tax year, plus the sum of any amounts added back by the taxpayer as
+specified in subsections (3)(l), (3)(m), and (3)(n) of this section.
+(II) (A) The subtraction calculated under subsection (4)(z)(I) of this section
+applies after the application of the other subtractions provided for in this
+subsection (4) and is limited to the lesser of the taxpayer's Colorado taxable
+income or three hundred thousand dollars.
+(B) Any amount of the subtraction calculated under subsection (4)(z)(I) of
+this section that a taxpayer may not claim by operation of subsection (4)(z)(II)(A) of
+this section may be carried forward to subsequent tax years as a subtraction from
+the taxpayer's federal taxable income until exhausted; except that each tax year's
+subtraction may not exceed the lesser of the taxpayer's Colorado taxable income
+or one hundred fifty thousand dollars for the income tax years commencing on or
+after January 1, 2022, but before January 1, 2026, and each year's subtraction may
+not exceed the taxpayer's Colorado taxable income in any income tax years
+thereafter. Any subtraction must be applied first to the earliest income tax years
+possible.
+(III) A taxpayer that applies the subtraction allowed in this subsection (4)(z)
+with respect to qualified improvement property shall calculate the gain or loss on a
+sale of such qualified improvement property for purposes of the subtraction in
+subsection (4)(b) of this section using the basis reported on their federal income tax
+return at the time of the sale.
+(IV) As used in this subsection (4)(z), unless the context otherwise requires:
+(A) CARES Act means the March 2020 Coronavirus Aid, Relief, and
+Economic Security Act, Pub.L. 116-136.
+(B) Colorado taxable income means federal taxable income as modified by
+this article 22 without regard to this subsection (4)(z).
+(C) Retroactive provisions of the CARES Act means the changes made to
+the internal revenue code in sections 2303, 2304, 2306, and 2307 of the CARES
+Act.
+(D) Taxable income for the modified specified tax years means the
+taxpayer's Colorado taxable income for tax years ending before March 27, 2020, as
+calculated under the internal revenue code and Colorado law applicable to the
+taxpayer's return as of the date the return was due, as modified by the application
+of the retroactive provisions of the CARES Act applied to the calculation of the
+taxpayer's federal taxable income, but only to the extent the taxpayer
+appropriately applied those provisions to the taxpayer's federal income tax returns
+for each tax year.
+(E) Taxable income for the specified tax years means the taxpayer's
+Colorado taxable income for tax years ending before March 27, 2020, as calculated
+under Colorado law applicable to the taxpayer's return as of the date the return
+was due.
+(aa) Repealed.
+(bb) For income tax years commencing on or after January 1, 2024, but
+before January 1, 2027, an amount equal to any employer contribution received
+from an employer pursuant to section 39-22-558. This subsection (4)(bb) is
+repealed, effective December 31, 2034.
+(cc) (I) For income tax years commencing on or after January 1, 2026, but
+before January 1, 2034, an amount equal to the amount of any Segal AmeriCorps
+Education Award received for service in the AmeriCorps national service program,
+which is used by the taxpayer during the income tax year.
+(II) In accordance with section 39-21-304 (1), which requires each bill that
+creates a new tax expenditure to include a tax preference performance statement
+as part of a statutory legislative declaration, the general assembly finds and
+declares that:
+(A) The purpose of the income tax subtraction created in this subsection
+(4)(cc) is to provide tax relief for certain individuals, specifically taxpayers who have
+received Segal AmeriCorps Education Awards for AmeriCorps service; and
+(B) The general assembly and the state auditor shall measure the
+effectiveness of the subtraction in achieving the purpose specified in subsection
+(4)(cc)(II)(A) of this section based on the number and aggregate amount of
+subtractions claimed in a tax year.
+(III) The department of revenue shall maintain information about the number
+of taxpayers who claim the subtraction in a tax year and the aggregate amount of
+subtractions claimed in a tax year, in addition to any other information determined
+necessary by the department of revenue, to evaluate the effectiveness of the tax
+subtraction allowed in this subsection (4)(cc) in achieving the purpose specified in
+subsection (4)(cc)(II)(A) of this section, and shall provide this information upon
+request of the general assembly or the state auditor.
+(IV) This subsection (4)(cc) is repealed, effective July 1, 2039.
+(dd) (I) For income tax years commencing on or after January 1, 2027, but
+before January 1, 2038, an amount equal to qualifying capital gains that are subject
+to tax under this article 22 and that are realized by an owner during the taxable
+year for the qualified sale of a qualified business.
+(II) As used in this subsection (4)(dd), unless the context otherwise requires:
+(A) Office means the Colorado office of economic development created in
+section 24-48.5-101.
+(B) Owner has the same meaning as set forth in section 39-22-542 (2)(h).
+(C) Qualified business has the same meaning as set forth in section 39-22-542 (2)(i).
+(D) Qualified employee-owned business has the same meaning as set forth
+in section 39-22-542 (2)(j).
+(E) Qualified sale means the conversion to a qualified employee-owned
+business; except that the conversion must be by an increment of at least twenty
+percent of the total ownership of the entire qualified employee-owned business.
+(F) Qualifying capital gains means the amount of net capital gains, as
+defined in section 1222 (11) of the internal revenue code, subject to the limitation set
+forth in subsection (4)(dd)(V) of this section.
+(III) In accordance with section 39-21-304 (1), which requires each bill that
+creates a new tax expenditure to include a tax preference performance statement
+as part of a statutory legislative declaration, the general assembly finds and
+declares that the purpose of the income tax subtraction provided in this subsection
+(4)(dd) is to:
+(A) Induce certain designated behavior by taxpayers, specifically for
+businesses to establish employee stock ownership plans or employee ownership
+trusts or to convert to a worker-owned cooperative; and
+(B) Provide tax relief for certain businesses or individuals, specifically to
+businesses that establish employee stock ownership plans or employee ownership
+trusts or that convert to a worker-owned cooperative.
+(IV) The general assembly and the state auditor shall measure the
+effectiveness of the subtraction in achieving the purpose specified in subsection
+(4)(dd)(III) of this section based on the number and aggregate amount of
+subtractions claimed in a tax year.
+(V) (A) On or before June 30, 2026, the office shall establish and post on its
+website the total amount of capital gains that may be subtracted from an owner's
+federal taxable income pursuant to this subsection (4)(dd), which amount is in
+effect for income tax years commencing on or after January 1, 2027, but before
+January 1, 2038, or until the office adjusts the amount as set forth in subsection
+(4)(dd)(V)(B) of this section.
+(B) After June 30, 2026, on or before June 30, 2027, and on or before June 30
+of each year thereafter until June 30, 2036, the office may adjust the total amount
+of capital gains that may be subtracted from an owner's federal taxable income
+that the office has previously established in accordance with this subsection
+(4)(dd)(V). The adjusted amount must be posted on the office's website and is in
+effect for income tax years commencing on or after January 1 of the year
+immediately following the year in which the adjustment is made but before January
+1, 2038, or until the office subsequently adjusts the amount as set forth in this
+subsection (4)(dd)(V)(B).
+(C) An owner may not subtract more than the amount of capital gains
+established by the office in accordance with subsection (4)(dd)(V)(A) or (4)(dd)(V)(B)
+of this section in the income tax year.
+(D) Beginning in January 2027, and in January every year thereafter following
+a year in which the office adjusts the amount of capital gains that may be
+subtracted from an owner's federal taxable income pursuant to subsection
+(4)(dd)(V)(B) of this section, the office shall include, as part of its presentation
+during its SMART Act hearing required by section 2-7-203, information
+concerning the amount of capital gains that may be subtracted from an owner's
+federal taxable income that the office has established pursuant to subsection
+(4)(dd)(V)(A) or (4)(dd)(V)(B) of this section and the method that the office used to
+establish the amount.
+(VI) This subsection (4)(dd) is repealed, effective July 1, 2042.
+(ee) (I) For income tax years commencing on or after January 1, 2026, for a
+taxpayer who receives a payment pursuant to section 24-33.5-122 (4) that does not
+qualify for the federal income tax exemption described in section 101 (h) of the
+internal revenue code, including a payment that does not qualify as a result of the
+exceptions described in section 101 (h)(2) of the internal revenue code, an amount
+equal to the amount received pursuant to section 24-33.5-122 (4); and
+(II) In accordance with section 39-21-304 (1), which requires each bill that
+creates a new tax expenditure to include a tax preference performance statement
+as part of a statutory legislative declaration, the general assembly finds and
+declares that:
+(A) The purpose of the income tax subtraction created in this subsection
+(4)(ee) is to provide tax relief for certain individuals, specifically taxpayers who
+have received a payment in connection with the death of a first responder pursuant
+to section 24-33.5-122 (4); and
+(B) The general assembly and the state auditor shall measure the
+effectiveness of the subtraction in achieving the purpose specified in subsection
+(4)(ee)(II)(A) of this section based on the number and aggregate amount of
+subtractions claimed;
+(III) The department of revenue shall maintain information about the number
+of taxpayers who claim the subtraction in a tax year and the aggregate amount of
+subtractions claimed in a tax year, in addition to any other information determined
+necessary by the department of revenue, to evaluate the effectiveness of the tax
+subtraction allowed in this subsection (4)(ee) in achieving the purpose specified in
+subsection (4)(ee)(II)(A) of this section, and shall provide this information upon
+request of the general assembly or the state auditor; and
+(IV) Notwithstanding section 39-21-304 (4), the tax subtraction allowed in
+this subsection (4)(ee) extends indefinitely until no less than five years after the
+executive director of the department of public safety disburses the last payment in
+connection with the death of a first responder pursuant to section 24-33.5-122 (4).
+(5) Repealed.

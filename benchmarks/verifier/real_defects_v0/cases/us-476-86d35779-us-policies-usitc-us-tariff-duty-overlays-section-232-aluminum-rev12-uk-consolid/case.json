@@ -1,0 +1,151 @@
+{
+  "id": "us-476-86d35779-us-policies-usitc-us-tariff-duty-overlays-section-232-aluminum-rev12-uk-consolid",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "86d35779d9eea3ec3f1c9ca211c4a78226878093",
+  "parent_commit": "b58a5c650ba76fb2313b53d006dd8a708d3fd2de",
+  "commit_date": "2026-08-01",
+  "commit_subject": "Repair overlay effective dates and retire heading 9903.01.20 module",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1192",
+  "module_path": "us/policies/usitc/us-tariff-duty/overlays/section-232-aluminum/rev12-uk-consolidation.yaml",
+  "corpus_citation_path": "us/statute/hts/9903.82.04",
+  "corpus_citation_paths_all": [
+    "us/statute/hts/9903.82.04"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "wrong_period_or_effective_date",
+  "other_kind": null,
+  "confidence": 0.85,
+  "description": "Rev12 section-232 consolidations effective 2026-07-21 (was 07-23).",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        23,
+        23
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        23,
+        23
+      ]
+    ],
+    "rule_names": [
+      "section_232_uk_aluminum_steel_derivative_articles_additional_duty_rate"
+    ],
+    "rule_path": "rules[section_232_uk_aluminum_steel_derivative_articles_additional_duty_rate].versions[0].effective_from"
+  },
+  "pre_fix_artifact_sha256": "86b725a885f764ab356d8b70b71a1e113329229739616a428fa5f329cf8a148b",
+  "post_fix_artifact_sha256": "aad8ad31bfff2cbb5543294513d043108bd557f76951f88b807f496205a9dbbe",
+  "provision_sha256": "2e85fba6ec0e55821b018c517c6f7f2ecf3213270316543610f3457a684a5eac",
+  "provision_chars": 443,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/hts/9903.82.04",
+    "provision_file": "data/corpus/provisions/us/statute/2026-08-03-rulespec-hts-current-with-legacy-aluminum.jsonl",
+    "provision_file_sha256": "7406b42f2f6a35bd43ed67d7fe4d0f7323e12c3e49c67b8d6699f9978d23b770",
+    "line_number": 1537,
+    "record_id": "6aecb2f7-c902-5e28-999f-db4f1010d51e",
+    "stored_body_sha256": "2e85fba6ec0e55821b018c517c6f7f2ecf3213270316543610f3457a684a5eac",
+    "resolved_text_sha256": "2e85fba6ec0e55821b018c517c6f7f2ecf3213270316543610f3457a684a5eac",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-31",
+    "source_as_of": "2026-08-01",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "2ccb67efa41f60b5a80cb736c0272e68d5591389",
+    "requested_citation_path": "us/statute/hts/9903.82.04",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us/statute/hts/9903.82.04'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us/statute/hts/9903.82.04'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us/statute/hts/9903.82.04'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us/statute/hts/9903.82.04'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us/statute/hts/9903.82.04'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us/statute/hts/9903.82.04'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us/statute/hts/9903.82.04'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us/statute/hts/9903.82.04'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.82.04'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.82.04'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us/statute/hts/9903.82.04'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us/statute/hts/9903.82.04'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.82.04'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.82.04'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.82.04'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.82.04'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The +25% UK section 232 consolidated rate under HTS 9903.82.04 was encoded as starting 2026-07-23 when the Rev12 consolidation took effect 2026-07-21, leaving entries on 07-21 and 07-22 without the UK overlay.",
+    "triage_notes": "Same pattern as index 1 (single-rule parameter module, one effective_from line, formula 0.25 unchanged). Corpus row us/statute/hts/9903.82.04 confirms the +25% UK rate but carries no effective date, so the 07-21 date rests on the commit message. Companion test unchanged; manifest re-signed with manual_exception \"repair\".",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_period_or_effective_date",
+    "verifier_confidence": 0.86,
+    "verifier_justification": "The entire module diff is the version-window start of the sole parameter rule moving from '2026-07-23' to '2026-07-21', with the formula (0.25), scope, proof atoms, excerpt, and citation path unchanged, so it is a meaning change and not provenance bookkeeping. The commit message names exactly this repair (\"Rev12 section-232 consolidations effective 2026-07-21 (was 07-23)\") as a cross-review finding, and the sibling non-UK module (9903.82.02) got the identical 07-23 to 07-21 correction in the same commit, which is what an encoded effective date disagreeing with the revision's real effective date looks like. The PR body corroborates that 2026-07-23 was a lane-wide default rather than a source-derived date: it admits \"heading modules carry effective_from 2026-07-23\" while the forced-labor component was gated at 2026-07-24, and 07-23 is also the composition window boundary. I tried to refute this as mechanical or as new coverage and could not: an effective_from edit is explicitly a version-window change, and nothing was added to the module.",
+    "verifier_quote": "-      - effective_from: '2026-07-23'\n+      - effective_from: '2026-07-21'",
+    "verifier_notes": "Two caveats for the reviewer, neither of which changes the kind. (1) Source grounding is indirect: resolving us/statute/hts/9903.82.04 through the pinned release (us-rulespec-2026-08-03-ecps-pit-tariff-union, provision sha 2e85fba6...) returns only \"Articles of aluminum or of steel and derivative aluminum or steel articles the product of the United Kingdom, as provided for in subdivisions (c)(i)-(iv) and (d) of U.S. note 16 to this subchapter / Rates of duty (1-General): The duty provided in the applicable subheading + 25%\" with expression_date 2026-07-31 and no effective date anywhere in the text. The 2026-07-21 basis is the HTS Rev 12 publication asserted in the commit message and the cross-review, not text in the cited provision (unlike the sibling repairs in this commit, which cite FR 2026-15181 and FR 2026-14542 DATES). The pre-fix 07-23 was equally ungrounded in the provision text, so this remains a date-versus-source correction rather than a policy choice. (2) The first reader's stated consequence — \"leaving entries on 07-21 and 07-22 without the UK overlay\" — is likely overstated: the predecessor module us/policies/usitc/us-tariff-duty/overlays/section-232-aluminum/uk-rate.yaml (HTS 9903.85.12) carries effective_from '2026-02-15' with no effective_to and the same 0.25 rate, so at module level the UK +25% was still expressible on 07-21/07-22; which heading actually fires is decided by the composition, which the PR says was \"reworked accordingly\". The classification rests on the window itself being wrong, not on a duty-amount gap.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Same pattern as index 1 (single-rule parameter module, one effective_from line, formula 0.25 unchanged). Corpus row us/statute/hts/9903.82.04 confirms the +25% UK rate but carries no effective date, so the 07-21 date rests on the commit message. Companion test unchanged; manifest re-signed with manual_exception \"repair\". | verifier confirmed at 0.86",
+  "family_id": "us-86d35779-556ba06caf03",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

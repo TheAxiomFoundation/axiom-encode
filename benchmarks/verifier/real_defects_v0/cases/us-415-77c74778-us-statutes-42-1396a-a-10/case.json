@@ -1,0 +1,143 @@
+{
+  "id": "us-415-77c74778-us-statutes-42-1396a-a-10",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "77c74778c8659f1a9219f01dfb214ccdfee15d7c",
+  "parent_commit": "ea75b198ee150bd91dc0afbc43789c5a2f3ca0ff",
+  "commit_date": "2026-07-01",
+  "commit_subject": "Repair Medicaid community engagement timing (#500)",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/500",
+  "module_path": "us/statutes/42/1396a/a/10.yaml",
+  "corpus_citation_path": "us/statute/42/1396a/a/10",
+  "corpus_citation_paths_all": [
+    "us/statute/42/1396a/a/10"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "wrong_period_or_effective_date",
+  "other_kind": null,
+  "confidence": 0.93,
+  "description": "keep adult-group Medicaid ungated before the 2026-12-31 community engagement effective date",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        459,
+        459
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        423,
+        426
+      ],
+      [
+        433,
+        438
+      ],
+      [
+        445,
+        450
+      ],
+      [
+        457,
+        462
+      ],
+      [
+        469,
+        474
+      ],
+      [
+        481,
+        486
+      ],
+      [
+        493,
+        499
+      ],
+      [
+        511,
+        516
+      ],
+      [
+        523,
+        528
+      ],
+      [
+        535,
+        540
+      ],
+      [
+        543,
+        556
+      ]
+    ],
+    "rule_names": [
+      "is_medicaid_eligible"
+    ],
+    "rule_path": "rules[is_medicaid_eligible].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "dea98af9099b74602e4d9db6838f08f13c401eada245116d4b09bf039979c278",
+  "post_fix_artifact_sha256": "4b0ab9425c5064a50c8584fb7b5a1a854bd280290e032dc6ca6c1c18fecee46b",
+  "provision_sha256": "d8bf3b8e4a503ab4163ecd3bc61f619706c2f5162b3f1073cbb841b358f9ef60",
+  "provision_chars": 26705,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/42/1396a/a/10",
+    "provision_file": "data/corpus/provisions/us/statute/2026-06-26-medicaid-title-42-r2026-07-15-self-contained-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "78e603358d79714a4c90eb86815ab566a924aa345616536388b5495000bdf7bb",
+    "line_number": 32,
+    "record_id": "50ca2dfe-90cd-5f73-bcc9-ca55742b6b75",
+    "stored_body_sha256": "d8bf3b8e4a503ab4163ecd3bc61f619706c2f5162b3f1073cbb841b358f9ef60",
+    "resolved_text_sha256": "d8bf3b8e4a503ab4163ecd3bc61f619706c2f5162b3f1073cbb841b358f9ef60",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2025-12-08",
+    "source_as_of": "2025-12-08",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "earliest_release_after_toolchain_corpus_ref",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": "a2a8eac83b6da1c3130c68e5cff72d1a82df3d57",
+    "requested_citation_path": "us/statute/42/1396a/a/10",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/42/1396a/a/10'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "Cannot establish legal hierarchy depth for parent 'us/statute/42'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "Cannot establish legal hierarchy depth for parent 'us/statute/42'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "Ambiguous active corpus citation 'us/statute/42/1396a/a/10': data/corpus/provisions/us/statute/2026-06-26-chip-title-xxi-title-42.jsonl:1, data/corpus/provisions/us/statute/2026-07-05-oasdi-title-ii-t"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The single 2014-01-01 version of `is_medicaid_eligible` applied the 42 USC 1396a(xx) community engagement condition (`adult_group_eligible and demonstrated_community_engagement_for_month`) to every month back to 2014, although the source makes that requirement effective no earlier than the first quarter after December 31, 2026, so adult-group Medicaid was wrongly gated in all pre-2027 periods.",
+    "triage_notes": "Only one rule module changed; the commit's other files (.axiom/toolchain.toml engine/encoder pins and us/.axiom/encoding-manifests/statutes/42/1396a/a/10.json) are mechanical. The fix removes `and demonstrated_community_engagement_for_month` from the 2014-01-01 formula and adds an otherwise identical formula carrying that gate as a new version effective_from '2026-12-31'; the community-engagement import proof atom moves from versions[0] to versions[1], and the remaining proof atoms are duplicated for versions[1] (mechanical provenance mirroring). No parameters, entities, scope, or other rules changed. Effective date verified against the imported module us/statutes/42/1396a/xx.yaml at this same commit, where `demonstrated_community_engagement_for_month` and every other community-engagement rule/parameter carry effective_from '2026-12-31' and the module summary reads \"beginning not later than the first quarter after December 31, 2026\". resolve_provision was not run because this module's own corpus citation (us/statute/42/1396a/a/10) does not contain the (xx) timing language; evidence is the PR body plus the imported (xx) module. No test files in the commit. PR body notes full Populace parity additionally depends on axiom-encode#919 (Medicaid oracle pregnancy input projection), an unrelated follow-up.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_period_or_effective_date",
+    "verifier_confidence": 0.94,
+    "verifier_justification": "I tried to refute this as mechanical or as merely-added coverage and could not: the pre-fix file had a single `is_medicaid_eligible` version at `effective_from: '2014-01-01'` whose formula read `or (adult_group_eligible and demonstrated_community_engagement_for_month)`, so the gate fired in every month from 2014 onward, and the fix rewrites that 2014 version to plain `or adult_group_eligible` and adds a second version at 2026-12-31 carrying the gate — a change in encoded meaning for all pre-2027 periods, not bookkeeping. The pinned corpus confirms the source basis: 42 USC 1396a(a)(10)(A)(i)(VIII) is \"subject to subsections (k) and (xx)\", and 1396a(xx)(1) says the requirement applies \"beginning not later than the first day of the first quarter that begins after December 31, 2026\", so the old timeless encoding disagreed with the source on timing, not on the clause's content, its logic, or its population. Alternative kinds fail: the clause itself was present (not unrepresented_clause), it has a real statutory basis (not untraceable_branch), and the boolean combination `adult_group_eligible and demonstrated_community_engagement_for_month` is unchanged in the post-2026 version (not polarity_or_logic). The only residual doubt is the fix's own boundary choice, which does not change the kind of the defect being corrected.",
+    "verifier_quote": "+      - effective_from: '2026-12-31'",
+    "verifier_notes": "Second decisive diff line: `+          or adult_group_eligible` (diff line 130) replacing the pre-fix `or (adult_group_eligible and demonstrated_community_engagement_for_month)` in the 2014-01-01 version; the community-engagement proof atom is re-pathed from `versions[0].formula` to `versions[1].formula`, so the import now grounds only the post-2026 formula. Everything else in the diff (duplicated import proof atoms at versions[1]) is mechanical fallout of the version split. Reviewer flag, not a reason to change this classification: the new window starts at `2026-12-31`, while 1396a(xx)(1) says \"beginning not later than the first day of the first quarter that begins after December 31, 2026\" — i.e. 2027-01-01 — so the repaired version is arguably one day (and, for a monthly period kind, potentially the whole December 2026 month) early; 1396a(xx)(1) also permits a State to elect an earlier date by waiver/State plan, which this module does not represent at all. Both are candidate follow-on defects in the fix itself (boundary_direction / unrepresented_clause), not defects in the pre-fix text this commit repaired. Corpus evidence read through the pinned resolver: release us-rulespec-2026-07-13, provision file sha256 78e603358d..., 1396a(xx) expression_date 2025-07-04.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Only one rule module changed; the commit's other files (.axiom/toolchain.toml engine/encoder pins and us/.axiom/encoding-manifests/statutes/42/1396a/a/10.json) are mechanical. The fix removes `and demonstrated_community_engagement_for_month` from the 2014-01-01 formula and adds an otherwise identical formula carrying that gate as a new version effective_from '2026-12-31'; the community-engagement import proof atom moves from versions[0] to versions[1], and the remaining proof atoms are duplicated for versions[1] (mechanical provenance mirroring). No parameters, entities, scope, or other rules changed. Effective date verified against the imported module us/statutes/42/1396a/xx.yaml at this same commit, where `demonstrated_community_engagement_for_month` and every other community-engagement rule/parameter carry effective_from '2026-12-31' and the module summary reads \"beginning not later than the first quarter after December 31, 2026\". resolve_provision was not run because this module's own corpus citation (us/statute/42/1396a/a/10) does not contain the (xx) timing language; evidence is the PR body plus the imported (xx) module. No test files in the commit. PR body notes full Populace parity additionally depends on axiom-encode#919 (Medicaid oracle pregnancy input projection), an unrelated follow-up. | verifier confirmed at 0.94",
+  "family_id": "us-77c74778-25628fb2c8c2",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

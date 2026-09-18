@@ -1,0 +1,93 @@
+{
+  "id": "us-003-07f5517d-us-wa-policies-income-tax-pilot-liability-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "07f5517d7416416a753e57b591f632ae99d310d7",
+  "parent_commit": "4bca2b9f3fcf4d08a5922238e379a6b85af5cab2",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Time-bound: WA and VT pilot pipelines bounded to tax year 2026 (effective period).",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1017",
+  "module_path": "us-wa/policies/income_tax/pilot_liability_pipeline.yaml",
+  "corpus_citation_path": "us-wa/statute/82/82.87/82.87.040",
+  "corpus_citation_paths_all": [
+    "us-wa/statute/82/82.87/82.87.040",
+    "us-wa/statute/82/82.87/82.87.060",
+    "us-wa/statute/82/82.87/82.87.080"
+  ],
+  "corpus_release": "us-rulespec-2026-07-22-current-la-status-fix",
+  "corpus_release_content_sha256": "6bfd97b24cb63cb709fa52e9a5e6764c916dec95c5557447e11f47778ee4768f",
+  "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+  "defect_kind": "wrong_period_or_effective_date",
+  "other_kind": null,
+  "confidence": 0.49,
+  "description": "Closes the remaining cross-state TY2026 truthfulness and period-boundary gaps without changing the underlying tax formulas",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [],
+    "post_fix_lines": [
+      [
+        61,
+        61
+      ],
+      [
+        87,
+        87
+      ],
+      [
+        109,
+        109
+      ]
+    ],
+    "rule_names": [
+      "wa_pit_pilot_taxable_income",
+      "wa_pit_pilot_schedule_tax",
+      "wa_pit_pilot_income_tax_liability"
+    ],
+    "rule_path": "rules[wa_pit_pilot_income_tax_liability].versions[0].effective_to"
+  },
+  "pre_fix_artifact_sha256": "0b0c6fcdfea4799ded8e12d7a78927bf1795df267ac81fda289a30961e1397df",
+  "post_fix_artifact_sha256": "1777a5cd91562959eebab3376117136fbe608ff4d834b0774012858fb614e6d4",
+  "provision_sha256": "5409542da8f1684c699180389c3f419daa44206e914e60dad10a3249dbf4e13f",
+  "provision_chars": 6913,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-wa/statute/82/82.87/82.87.040",
+    "provision_file": "data/corpus/provisions/us-wa/statute/2026-07-13-recovery.jsonl",
+    "provision_file_sha256": "7f3e5add2d996a5e0186b954eface43ecbda3292f7c553ae964c36032ee73c86",
+    "line_number": 1,
+    "record_id": "6603046f-0fc7-5a4b-b2da-2f9590d95f8a",
+    "stored_body_sha256": "5409542da8f1684c699180389c3f419daa44206e914e60dad10a3249dbf4e13f",
+    "resolved_text_sha256": "5409542da8f1684c699180389c3f419daa44206e914e60dad10a3249dbf4e13f",
+    "slice_required": false,
+    "component_rows": 1,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+    "fix_time_corpus_match": "row_body_empty_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "527a5be2ca97f19301c2e8964d305548cadefa03",
+    "requested_citation_path": "us-wa/statute/82/82.87/82.87.040",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "All three derived WA outputs were encoded with no effective_to, so the module asserted its 2026-only composed pipeline — built on a supplied PolicyEngine 2026 projected $284,000 standard deduction and 2026 supplied rates/threshold, per its own \"2026 oracle slice\" summary — remained valid for every year after 2026, even though RCW 82.87.060(1) makes the standard deduction annually adjusted under RCW 82.87.150.",
+    "triage_notes": "Same pattern as index 0: three identical one-line additions of effective_to: '2026-12-31', no formula/parameter/input/output/scope change. Provision read: resolve_provision.py for us-wa/statute/82/82.87/82.87.060 at this rulespec commit returns RCW 82.87.060 with \"A standard deduction of $250,000 per individual... The amount of the standard deduction shall be adjusted pursuant to RCW 82.87.150\", confirming the operative deduction is year-specific while the module supplies a single 2026 value. Weaker case than VT: unlike VT, none of WA's inputs are module-internal parameters bounded to 2026 (all deduction/rate/threshold values are caller-supplied), so the open-ended window did not create an internal inconsistency and the formula shape is not itself year-specific — hence lower confidence and a real possibility a reviewer prunes this to 'unclear' as pilot-coverage conservatism rather than a source disagreement. The claim the fix corrects is the period claim itself: the module's summary scopes it to the 2026 oracle slice while its versions claimed all future years, and the PR records that \"explicit 2025/2027 probes fail closed\" after the change. Commit body empty; see index 0 notes on PR #1017 being a multi-state consolidation.",
+    "verifier_verdict": "not_a_defect",
+    "verifier_defect_kind": "none",
+    "verifier_confidence": 0.64,
+    "verifier_justification": "The only meaning change in the WA module is three identical `effective_to: '2026-12-31'` additions to the three derived rules, and the cited sources supply no such terminus: RCW 82.87.040 reads \"Beginning January 1, 2022 ... Beginning January 1, 2025\" with no sunset, and RCW 82.87.060 simply indexes the $250,000 standard deduction under RCW 82.87.150. The module hardcodes nothing year-specific — the standard deduction, charitable deduction, both rates and the $1,000,000 threshold are all caller-supplied inputs (the 2026 projected $284,000 lives only in the companion test fixtures) — so `max(0, gains - std_ded - charitable_ded)` and the two-rate schedule remain true statements of RCW 82.87.040/060/080 in 2027 and later; the pre-fix open window did not disagree with the source text. The fix narrows the module below what the source supports, as a fail-closed declaration of the validated 2026 oracle slice (the PR itself says it closes \"truthfulness and period-boundary gaps without changing the underlying tax formulas\"), which is a project scoping/validation-coverage policy, not a corrected misreading of the statute. Note the pre-existing `effective_from: '2026-01-01'` is likewise a pilot-slice date rather than a source date (the tax began 2022, the additional rate 2025), which confirms these window endpoints track validation scope, not the provision.",
+    "verifier_quote": "+        effective_to: '2026-12-31'",
+    "verifier_notes": "Refutation targets the \"fidelity\" classification, not the kind: if a reviewer does treat this as a fidelity defect, wrong_period_or_effective_date is the right kind, so \"reclassify\" was never the alternative. The first reader's stated reading is factually off on the decisive point — it claims the module was \"built on a supplied PolicyEngine 2026 projected $284,000 standard deduction and 2026 supplied rates/threshold\", but those values appear nowhere in the module; they are only in pilot_liability_pipeline.test.yaml inputs (`wa_pit_pilot_supplied_standard_deduction: 284000`), so RCW 82.87.060's annual adjustment under RCW 82.87.150 does not make the unbounded formula false. Pre/post files confirm the WA module contains only three derived rules and no parameters (unlike VT, whose \"two parameters were already bounded\" per the PR), so there is not even an internal inconsistency between bounded parameters and unbounded dependents here. Verdict is not \"mechanical\": the version window is encoded meaning and the engine behavior for 2027 genuinely changes (probes now fail closed) — the change just isn't a correction against the cited source. A reviewer who holds that in this repo an open version window is itself an ungrounded claim about unvalidated periods could reasonably keep this as \"unclear\"; I would not accept \"confirmed\" without a source-side basis for a 2026-12-31 end date, and none exists in RCW 82.87.040/060 as resolved through corpus release us-rulespec-2026-07-22-current-la-status-fix. Same reasoning applies verbatim to module index 0 (VT) except that VT's parameters were already bounded.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Same pattern as index 0: three identical one-line additions of effective_to: '2026-12-31', no formula/parameter/input/output/scope change. Provision read: resolve_provision.py for us-wa/statute/82/82.87/82.87.060 at this rulespec commit returns RCW 82.87.060 with \"A standard deduction of $250,000 per individual... The amount of the standard deduction shall be adjusted pursuant to RCW 82.87.150\", confirming the operative deduction is year-specific while the module supplies a single 2026 value. Weaker case than VT: unlike VT, none of WA's inputs are module-internal parameters bounded to 2026 (all deduction/rate/threshold values are caller-supplied), so the open-ended window did not create an internal inconsistency and the formula shape is not itself year-specific — hence lower confidence and a real possibility a reviewer prunes this to 'unclear' as pilot-coverage conservatism rather than a source disagreement. The claim the fix corrects is the period claim itself: the module's summary scopes it to the 2026 oracle slice while its versions claimed all future years, and the PR records that \"explicit 2025/2027 probes fail closed\" after the change. Commit body empty; see index 0 notes on PR #1017 being a multi-state consolidation. | verifier said not_a_defect at 0.64 (below 0.7); kept as unclear",
+  "family_id": "us-07f5517d-8e1effdfd1fa",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

@@ -1,0 +1,125 @@
+{
+  "id": "us-261-915fc7cc-us-mt-policies-income-tax-resident-core-liability-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "915fc7cc88c448db7f49a380c0c0e1f9bb458687",
+  "parent_commit": "bc6ff08e695906690cbc5c0f55e1bed2802068e0",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Tightens the Montana resident core domain: domain tightening of an existing module.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1031",
+  "module_path": "us-mt/policies/income_tax/resident_core_liability_pipeline.yaml",
+  "corpus_citation_path": "us-mt/statute/15-30-2101",
+  "corpus_citation_paths_all": [
+    "us-mt/statute/15-30-2101",
+    "us-mt/statute/15-30-2103",
+    "us-mt/statute/15-30-2105",
+    "us-mt/statute/15-30-2120",
+    "us-mt/statute/15-30-2302",
+    "us-mt/statute/15-30-2318/block-1",
+    "us-mt/statute/15-30-2321",
+    "us-mt/statute/15-30-2328",
+    "us-mt/statute/15-30-2334",
+    "us-mt/statute/15-30-2335",
+    "us-mt/statute/15-30-2337",
+    "us-mt/statute/15-30-2338",
+    "us-mt/statute/15-30-2340",
+    "us-mt/statute/15-30-2341",
+    "us-mt/statute/15-30-2342",
+    "us-mt/statute/15-30-2357",
+    "us-mt/statute/15-30-2359",
+    "us-mt/statute/15-30-2361",
+    "us-mt/statute/15-30-2380",
+    "us-mt/statute/15-30-3005",
+    "us-mt/statute/15-30-3328",
+    "us-mt/statute/15-30-3703",
+    "us-mt/statute/15-30-3704",
+    "us-mt/statute/15-62-208"
+  ],
+  "corpus_release": "us-rulespec-2026-07-22-current-la-status-fix",
+  "corpus_release_content_sha256": "6bfd97b24cb63cb709fa52e9a5e6764c916dec95c5557447e11f47778ee4768f",
+  "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+  "defect_kind": "polarity_or_logic",
+  "other_kind": null,
+  "confidence": 0.35,
+  "description": "Findings covering specialty taxes and recaptures, capital character, transitive fail-closed gates, caller-completed legal results, public-output gating, federal-EITC domain consistency, adoption proof completeness, and generated-artifact minimality were fixed and revalidated.",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        51,
+        51
+      ],
+      [
+        90,
+        90
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        51,
+        51
+      ],
+      [
+        90,
+        90
+      ],
+      [
+        493,
+        496
+      ],
+      [
+        1113,
+        1115
+      ]
+    ],
+    "rule_names": [
+      "mt_pit_2026_input_domain_is_valid"
+    ],
+    "rule_path": "rules[mt_pit_2026_input_domain_is_valid].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "12ee2cb860541e4554f37649c16060f505eb7f93a8079e1d74a584c7db65c237",
+  "post_fix_artifact_sha256": "77b3b276c20013b502dcc9a454556ea2e1d9a6ed397cf8b653f207fdb34fc31e",
+  "provision_sha256": "0598a7152cb135b361d52bcf334cb9eba3c344b3313bb727a95f7b536f0f2f54",
+  "provision_chars": 13326,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-mt/statute/15-30-2101",
+    "provision_file": "data/corpus/provisions/us-mt/statute/2026-07-16-pit-central-us-mt-title-15.jsonl",
+    "provision_file_sha256": "c464e5931eb7d9eb0ea0e703996c9f0a260c6cb661b6d3dca80629ac496a87f4",
+    "line_number": 1261,
+    "record_id": "20415b07-3c5e-5a2d-a608-8ad02c29e9e2",
+    "stored_body_sha256": "0598a7152cb135b361d52bcf334cb9eba3c344b3313bb727a95f7b536f0f2f54",
+    "resolved_text_sha256": "0598a7152cb135b361d52bcf334cb9eba3c344b3313bb727a95f7b536f0f2f54",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-03-24",
+    "source_as_of": "2026-03-24",
+    "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "7b1fc1524ec2373ef9a53f56d1f18c1789be1fa1",
+    "requested_citation_path": "us-mt/statute/15-30-2101",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "unclear",
+    "pre_fix_wrong_because": "unclear: the pre-fix domain admitted an internally impossible input (a positive federal earned income credit with zero federal EITC earned income), where the reduction-rate zero-denominator fallback returned 0 and the module silently paid a full 20% Montana credit instead of holding, but MCA 15-30-2318 states no such input constraint, so no statutorily possible case changes its answer.",
+    "triage_notes": "Three changes in one module diff, only one of which touches behavior. (1) Formula: mt_pit_2026_input_domain_is_valid gains 'and ( mt_pit_2026_federal_earned_income_credit == 0 or mt_pit_2026_federal_eitc_earned_income > 0 )'. (2) Metadata only: module.description and deferred_outputs[0].reason change 'November 2025' to 'November 2026'; I read MCA 15-30-2120(7) through the pinned corpus and it says 'By November 1 of each year, the department shall multiply the subtractions ... by the inflation factor for that tax year' and 'The resulting amounts are effective for that tax year', so the new year is the right one for TY2026 — but this is a prose note about which corpus release is missing, not a formula, parameter, effective date, or output, so it is provenance/metadata (mechanical) on its own. (3) mt_pit_2026_adopted_child_is_eligible gains only a proof atom (excerpt 'in the tax year the adoption is final'); its formula already contained mt_pit_2026_adoption_became_final_in_2026, so that part is excerpt-only provenance = mechanical. WHY UNCLEAR AND NOT FIDELITY (recommend prune): I resolved MCA 15-30-2318 through the pinned corpus. Subsection (2) is 20% of the federal section 32 credit and (5)(b) defines 'Reduction percentage' as disallowed earned income divided by total earned income. Pre-fix, mt_pit_2026_earned_income_credit_reduction_rate returns 0 when the denominator is 0, and the pre-existing domain clause 'section_501d_disallowed_earned_income <= federal_eitc_earned_income' already forces disallowance to 0 in that case, so a 0 reduction and a 20%-of-federal credit is literally what the Montana statute prescribes for that input. The only thing wrong is that the input combination itself cannot occur under IRC section 32 (no earned income means no federal EITC) — a federal-law consistency constraint the cited Montana provision never states. Consistent with that, the added clause carries NO new proof atom, unlike every genuinely source-grounded condition in this module. A fidelity judge comparing the pre-fix module to us-mt/statute/15-30-2318 would have no source basis to flag it, so this looks like defensive domain hardening (scope the module never needed to claim) rather than an encoded meaning that disagrees with the source. Kind 'polarity_or_logic' is my best-fit-if-it-is-a-defect choice because the taxonomy lists 'fail-open vs fail-closed, default value' and the companion test added in the same commit is named 'positive federal EITC with zero earned-income denominator fails closed' (test file, not a module comment, so not used as the quote); 'wrong_entity_or_scope' is a defensible alternative since the changed rule is the module's input-domain gate. The quoted PR-body sentence names 'federal-EITC domain consistency' and 'adoption proof completeness' — both land in this commit — so the provenance of the change is clear even though its fidelity status is not. Other files in the commit are the companion test (+1 case), the regenerated signed manifest (hashes/timestamps/supersedes chain only), and a two-line reordering of unrelated us-la entries in oracle-coverage-pending.yaml; no unrelated Montana rule changed. The only PR discussion is a rebase note from PavelMakarchuk stating Montana module/test/manifest hashes were unchanged by the rebase; there are no PR reviews or inline review comments in the bundle. Bundle had exactly the one module index expected.",
+    "verifier_verdict": "not_a_defect",
+    "verifier_defect_kind": "none",
+    "verifier_confidence": 0.6,
+    "verifier_justification": "The only substantive change is one added conjunct to `mt_pit_2026_input_domain_is_valid` asserting an internal consistency invariant between two caller-supplied federal inputs (a positive federal EITC implies positive federal EITC earned income); MCA 15-30-2318, read in full through the pinned release, imposes no such constraint — subsection (2) fixes the credit at 20% of the federal credit and (5)(b) defines the reduction percentage as disallowed earned income divided by total earned income. For every input the statute actually decides, the pre-fix module already produced the statutory answer; the only inputs whose result changes are ones where the statutory denominator is zero (0/0, which the source leaves undefined) and which cannot arise because a positive IRC 32 credit presupposes positive earned income. Tellingly, the fix neither removes nor re-grounds the ungrounded `if mt_pit_2026_federal_eitc_earned_income == 0: 0` fallback — that branch is byte-identical pre and post and still reachable when both inputs are zero — and no proof atom was added for the new conjunct, confirming it is a defensive domain guard rather than a corrected reading of the source. The PR's own label for the finding is \"federal-EITC domain consistency\", i.e. an input-invariant hardening, not a disagreement with MCA text.",
+    "verifier_quote": "+          and (\n+            mt_pit_2026_federal_earned_income_credit == 0\n+            or mt_pit_2026_federal_eitc_earned_income > 0\n+          )",
+    "verifier_notes": "Bundle: /private/tmp/claude-501/-Users-maxghenis-TheAxiomFoundation-axiom-encode--claude-worktrees-zealous-heyrovsky-31a96b/86103d8f-b97f-4559-a96c-7e79bdbe616d/scratchpad/inputs/us/915fc7cc88.json; diff: .../diffs/us/915fc7cc88/000.diff (43 lines, 3 hunks).\n\nFull content of the commit, all three hunks:\n1. Prose only: \"November 2025\" -> \"November 2026\" in `module.description` and in a `deferred_outputs[].reason`. No formula/parameter/version/effective-date field changed, so mechanical by the stated rules. Worth noting for a reviewer that the new text is the correct one: MCA 15-30-2120(7) (read via the pinned release) says \"By November 1 of each year, the department shall multiply the subtractions ... by the inflation factor for that tax year\" and \"The resulting amounts are effective for that tax year\" — so the TY2026 determinations are made in November 2026, and the pre-fix prose said 2025. If the corpus wants to count prose-level period corrections, this hunk (not the domain conjunct) would be the wrong_period_or_effective_date candidate, but it has zero computational effect: the output stays deferred either way.\n2. The domain conjunct (the screened change) — my verdict above.\n3. One added proof atom on the adoption-credit rule: `{corpus_citation_path: us-mt/statute/15-30-2321, excerpt: \"in the tax year the adoption is final\"}`. The adoption formula is unchanged, so this is proof-coverage bookkeeping (mechanical).\n\nContext that bears on keeping vs pruning: this is an in-PR repair round, not a fix to shipped encoded law. `git log --follow` on the module shows only three commits, all inside PR 1031 (\"Add Montana 2026 resident income-tax core\", merged 2026-07-24): 34b60479e creates it, bc6ff08e6 \"Address Montana resident core review\", 915fc7cc8 \"Tighten Montana resident core domain\". The defect, if any, never existed outside the authoring PR.\n\nIf a reviewer disagrees with not_a_defect and keeps the case, the first reader's kind is the right one: the pre-fix behavior is a fail-open default (an inconsistent input was accepted and silently paid the full 20% credit instead of routing to the module's declared fail-closed hold), which the kind list puts under polarity_or_logic. My objection is to the classification, not the kind. The strongest argument against my verdict is that this module's stated contract is a \"Fail-closed domain for the statutory resident core\" whose purpose is to reject inputs it cannot compute faithfully, so accepting a 0/0 case could be read as breaking the module's own claim; I weight that below the fidelity definition used here (encoded meaning disagreeing with cited source text) because no statutorily possible case changes its answer and the added conjunct has no basis in MCA 15-30-2318.\n\nRead-only throughout: only `git show`/`git log`/`git grep`/`git diff` against rulespec-us and the resolver script.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Three changes in one module diff, only one of which touches behavior. (1) Formula: mt_pit_2026_input_domain_is_valid gains 'and ( mt_pit_2026_federal_earned_income_credit == 0 or mt_pit_2026_federal_eitc_earned_income > 0 )'. (2) Metadata only: module.description and deferred_outputs[0].reason change 'November 2025' to 'November 2026'; I read MCA 15-30-2120(7) through the pinned corpus and it says 'By November 1 of each year, the department shall multiply the subtractions ... by the inflation factor for that tax year' and 'The resulting amounts are effective for that tax year', so the new year is the right one for TY2026 — but this is a prose note about which corpus release is missing, not a formula, parameter, effective date, or output, so it is provenance/metadata (mechanical) on its own. (3) mt_pit_2026_adopted_child_is_eligible gains only a proof atom (excerpt 'in the tax year the adoption is final'); its formula already contained mt_pit_2026_adoption_became_final_in_2026, so that part is excerpt-only provenance = mechanical. WHY UNCLEAR AND NOT FIDELITY (recommend prune): I resolved MCA 15-30-2318 through the pinned corpus. Subsection (2) is 20% of the federal section 32 credit and (5)(b) defines 'Reduction percentage' as disallowed earned income divided by total earned income. Pre-fix, mt_pit_2026_earned_income_credit_reduction_rate returns 0 when the denominator is 0, and the pre-existing domain clause 'section_501d_disallowed_earned_income <= federal_eitc_earned_income' already forces disallowance to 0 in that case, so a 0 reduction and a 20%-of-federal credit is literally what the Montana statute prescribes for that input. The only thing wrong is that the input combination itself cannot occur under IRC section 32 (no earned income means no federal EITC) — a federal-law consistency constraint the cited Montana provision never states. Consistent with that, the added clause carries NO new proof atom, unlike every genuinely source-grounded condition in this module. A fidelity judge comparing the pre-fix module to us-mt/statute/15-30-2318 would have no source basis to flag it, so this looks like defensive domain hardening (scope the module never needed to claim) rather than an encoded meaning that disagrees with the source. Kind 'polarity_or_logic' is my best-fit-if-it-is-a-defect choice because the taxonomy lists 'fail-open vs fail-closed, default value' and the companion test added in the same commit is named 'positive federal EITC with zero earned-income denominator fails closed' (test file, not a module comment, so not used as the quote); 'wrong_entity_or_scope' is a defensible alternative since the changed rule is the module's input-domain gate. The quoted PR-body sentence names 'federal-EITC domain consistency' and 'adoption proof completeness' — both land in this commit — so the provenance of the change is clear even though its fidelity status is not. Other files in the commit are the companion test (+1 case), the regenerated signed manifest (hashes/timestamps/supersedes chain only), and a two-line reordering of unrelated us-la entries in oracle-coverage-pending.yaml; no unrelated Montana rule changed. The only PR discussion is a rebase note from PavelMakarchuk stating Montana module/test/manifest hashes were unchanged by the rebase; there are no PR reviews or inline review comments in the bundle. Bundle had exactly the one module index expected. | verifier said not_a_defect at 0.60 (below 0.7); kept as unclear",
+  "family_id": "us-915fc7cc-5966a8c95e3e",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

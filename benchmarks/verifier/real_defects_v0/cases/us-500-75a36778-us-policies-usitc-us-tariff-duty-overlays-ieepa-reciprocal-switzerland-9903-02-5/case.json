@@ -1,0 +1,231 @@
+{
+  "id": "us-500-75a36778-us-policies-usitc-us-tariff-duty-overlays-ieepa-reciprocal-switzerland-9903-02-5",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "75a3677870cc38e35dffbe9099f363a82bde53aa",
+  "parent_commit": "91d3b50b9c75b266a1c54596477171fd40cf44d3",
+  "commit_date": "2026-08-02",
+  "commit_subject": "Sol r1 fixes: afghanistan 02.78 exception, five floor modules completed, terminated predecessors, FALSE-origin witnesses",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1197",
+  "module_path": "us/policies/usitc/us-tariff-duty/overlays/ieepa/reciprocal-switzerland-9903-02-58.yaml",
+  "corpus_citation_path": "us/statute/hts/9903.02.58",
+  "corpus_citation_paths_all": [
+    "us/statute/hts/9903.02.58"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "wrong_period_or_effective_date",
+  "other_kind": null,
+  "confidence": 0.82,
+  "description": "Terminated per the compiler's note (90 Fed. Reg. 59281; no termination date in the corpus text); effective_to 2026-02-14 is a conservative no-later-than bound",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        8,
+        8
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        25,
+        29
+      ],
+      [
+        32,
+        32
+      ],
+      [
+        55,
+        59
+      ],
+      [
+        62,
+        62
+      ],
+      [
+        93,
+        97
+      ],
+      [
+        100,
+        100
+      ],
+      [
+        122,
+        126
+      ],
+      [
+        129,
+        129
+      ],
+      [
+        152,
+        156
+      ],
+      [
+        159,
+        159
+      ],
+      [
+        184,
+        188
+      ],
+      [
+        191,
+        191
+      ],
+      [
+        209,
+        213
+      ],
+      [
+        216,
+        216
+      ],
+      [
+        234,
+        238
+      ],
+      [
+        241,
+        241
+      ],
+      [
+        259,
+        263
+      ],
+      [
+        266,
+        266
+      ]
+    ],
+    "rule_names": [
+      "reciprocal_switzerland_additional_duty_rate",
+      "reciprocal_switzerland_in_transit_exception_applies",
+      "reciprocal_switzerland_heading_product_exception_applies",
+      "reciprocal_switzerland_otherwise_provision_exception_applies",
+      "reciprocal_switzerland_additional_duty_applies",
+      "reciprocal_switzerland_additional_duty",
+      "reciprocal_switzerland_general_duty_rate",
+      "reciprocal_switzerland_special_duty_rate",
+      "reciprocal_switzerland_column_2_duty_change"
+    ],
+    "rule_path": "rules[reciprocal_switzerland_additional_duty_applies].versions[0].effective_to"
+  },
+  "pre_fix_artifact_sha256": "6e73bd899584f3f0593a6d0b2a305d1c0133c1e562741d0f2638b4940b58db52",
+  "post_fix_artifact_sha256": "22e45f8937f5d088f6262db43b49c4d7f7834341badece87e77b9fecf00a1583",
+  "provision_sha256": "9515165c1eb9f7ec07094d5966c522564031bd2e10fe9682a0998b5d30c33a8d",
+  "provision_chars": 896,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/hts/9903.02.58",
+    "provision_file": "data/corpus/provisions/us/statute/2026-08-03-rulespec-hts-current-with-legacy-aluminum.jsonl",
+    "provision_file_sha256": "7406b42f2f6a35bd43ed67d7fe4d0f7323e12c3e49c67b8d6699f9978d23b770",
+    "line_number": 1218,
+    "record_id": "bc0f2c9b-020d-5240-8035-7839c1e2485b",
+    "stored_body_sha256": "9515165c1eb9f7ec07094d5966c522564031bd2e10fe9682a0998b5d30c33a8d",
+    "resolved_text_sha256": "9515165c1eb9f7ec07094d5966c522564031bd2e10fe9682a0998b5d30c33a8d",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-31",
+    "source_as_of": "2026-08-01",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "05ce3d3dd21b0ced76f9af40c2ecc02c1c57d9c6",
+    "requested_citation_path": "us/statute/hts/9903.02.58",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.58'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.58'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.58'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.58'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.58'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.58'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.58'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.58'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.58'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.58'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.58'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.58'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.58'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.58'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.58'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.58'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "9903.02.58's compiler's note marks the provision terminated, but all nine rule versions ran open-ended from 2025-08-07 with no effective_to, so the Switzerland +39% heading stayed live past termination and past the 2026-02-15 start of its 9903.02.82/.83 floor successors.",
+    "triage_notes": "Same pattern as indices 2, 3, 6; this is the 39 percent Switzerland predecessor. The end date 2026-02-14 is inferred (the note states no date), so the specific day is an encoder judgment while the missing termination window is the defect. Pre-fix summary said 'Compiler's note: provision terminated.' Provision text for this heading not separately re-read.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_period_or_effective_date",
+    "verifier_confidence": 0.9,
+    "verifier_justification": "I tried to refute this as mechanical or as an enhancement and could not: the pre-fix file at 91d3b50b9c has nine `effective_from: '2025-08-07'` versions and zero `effective_to` lines, and the fix adds `effective_to: '2026-02-14'` to every one of the nine, which changes what each rule yields for any day after that bound — a version-window change, not metadata. The pinned corpus text for us/statute/hts/9903.02.58 (release us-rulespec-2026-08-03-ecps-pit-tariff-union, body sha 9515165c1e) ends with the verbatim \"[Compiler's note: provision terminated. See 90 Fed. Reg. 59281.]\", so the open-ended pre-fix encoding kept a source-terminated +39% Switzerland heading live forever — the \"timeless encoding of superseded text\" case the kind definition names, and the pre-fix summary already recited the termination it failed to encode. The reader's boundary reading also checks out: reciprocal-switzerland-9903-02-83.yaml at this same commit runs from `effective_from: '2026-02-15'`, so 2026-02-14 is the day before the successor floor heading with no gap or overlap. No better kind fits: nothing was removed or re-grounded, no comparison strictness changed, and the only changed rule paths are versions[0].effective_to plus its proof atoms.",
+    "verifier_quote": "     versions:\n       - effective_from: '2025-08-07'\n+        effective_to: '2026-02-14'",
+    "verifier_notes": "Strongest surviving objection, which I judge non-fatal: the specific date 2026-02-14 is not in the cited source. The provision text carries no termination date, and the nine new proof atoms excerpt only the compiler's note (\"[Compiler's note: provision terminated. See 90 Fed. Reg. 59281.]\"), not any date; the module comment itself concedes the bound is inferred from the successors' 2026-02-15 panel domain rather than read from the text. So the exact terminal date is an editorial inference, and a reviewer who wants every value source-traceable could call the date under-evidenced. That does not rescue the pre-fix state, though: the defect being corrected is the unbounded window on a provision the source marks terminated, which is wrong against the source independent of which precise day the bound lands on. Secondary consideration for the reviewer: one could argue unrepresented_clause (the compiler's note is a source clause the encoding omitted), but the kind list routes effective_to/version-window omissions and timeless encoding of superseded text to wrong_period_or_effective_date, and the changed rule path is literally versions[0].effective_to, so I did not reclassify. Side observation, out of scope for this case: the sibling reciprocal-switzerland-9903-02-82.yaml (the >=15% pass-through heading) runs from 2025-08-07 rather than 2026-02-15 at this commit, unlike its .83 floor partner — worth a separate look if the corpus puts both successors in the same 2026-02-15 domain.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Same pattern as indices 2, 3, 6; this is the 39 percent Switzerland predecessor. The end date 2026-02-14 is inferred (the note states no date), so the specific day is an encoder judgment while the missing termination window is the defect. Pre-fix summary said 'Compiler's note: provision terminated.' Provision text for this heading not separately re-read. | verifier confirmed at 0.90",
+  "family_id": "us-75a36778-97bd01108c19",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

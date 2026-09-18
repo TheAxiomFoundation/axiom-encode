@@ -1,0 +1,102 @@
+{
+  "id": "us-503-7284408e-us-ca-regulations-mpp-63-410-321",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "7284408e780d7a466490431425380beae6f9e282",
+  "parent_commit": "09d8d50a9add072adcd3bce2500f1c1e16104c15",
+  "commit_date": "2026-08-05",
+  "commit_subject": "Time-bound the superseded MPP 63-410.321 ABAWD age exception",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1223",
+  "module_path": "us-ca/regulations/mpp/63-410/321.yaml",
+  "corpus_citation_path": "us-ca/regulation/mpp/63-410.321",
+  "corpus_citation_paths_all": [
+    "us-ca/regulation/mpp/63-410.321",
+    "us/statute/7/2015/o/3",
+    "us/guidance/usda/fns/snap-obbb-abawd-exceptions-implementation-memo/page-1",
+    "us/guidance/usda/fns/snap-obbb-abawd-exceptions-implementation-memo/page-4"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "wrong_period_or_effective_date",
+  "other_kind": null,
+  "confidence": 0.9,
+  "description": "The module timelessly encoded the pre-Fiscal Responsibility Act age exception (under 18 or 50 years of age or over).",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        6,
+        6
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        6,
+        28
+      ],
+      [
+        31,
+        48
+      ],
+      [
+        65,
+        73
+      ],
+      [
+        75,
+        75
+      ]
+    ],
+    "rule_names": [
+      "person_under_18_or_50_years_of_age_or_over"
+    ],
+    "rule_path": "rules[person_under_18_or_50_years_of_age_or_over].versions[0].effective_to"
+  },
+  "pre_fix_artifact_sha256": "d3f2a2eee1eb7851a333cbe3f2e22c8fa190092956ef910a29b62c4f7e1dab73",
+  "post_fix_artifact_sha256": "cc5583e90f19184452a41fe5e12b19d11d4233534b9a127dac6c1501293f49ad",
+  "provision_sha256": "1e08b7720cc6f04b612de8961c0411fd589f60e9249a8d6da4ddd8b6751bd3e2",
+  "provision_chars": 36,
+  "provision_resolution": {
+    "mode": "direct_row_exact",
+    "resolved_citation_path": "us-ca/regulation/mpp/63-410.321",
+    "provision_file": "data/corpus/provisions/us-ca/regulation/2026-07-13-recovery.jsonl",
+    "provision_file_sha256": "a3dbf1276f8b86b2b3b40951b0ec900aee29b35c5ccbd1b1e14b35a71693d4c8",
+    "line_number": 439,
+    "record_id": "",
+    "stored_body_sha256": "1e08b7720cc6f04b612de8961c0411fd589f60e9249a8d6da4ddd8b6751bd3e2",
+    "resolved_text_sha256": "1e08b7720cc6f04b612de8961c0411fd589f60e9249a8d6da4ddd8b6751bd3e2",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "resolver_error": "Active release row is missing required metadata: id at /private/tmp/claude-501/-Users-maxghenis-TheAxiomFoundation-axiom-encode--claude-worktrees-zealous-heyrovsky-31a96b/86103d8f-b97f-4559-a96c-7e79b",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "1e8bfc0a52d2d5fa38ce7cf4ab2577b0536d971e",
+    "requested_citation_path": "us-ca/regulation/mpp/63-410.321",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The module's only version had effective_from '0001-01-01' and no effective_to, so it asserted the pre-FRA MPP age exception (under 18 or 50 years of age or over) as live law for every month, including months after P.L. 119-21 section 10102(a) struck and replaced 7 U.S.C. 2015(o)(3) on July 4, 2025 — the current statutory text excepts an individual \"under 18, or over 65, years of age\".",
+    "triage_notes": "Read the pre-fix and post-fix module in full: the decisive change is the added `effective_to: '2025-06-30'` on versions[0]; the formula, rule name, entity/period, and the MPP proof atom (excerpt \"Under 18 or 50 years of age or over;\") are byte-identical. Everything else in the module diff is supporting documentation/provenance (three added module-level corpus_citation_paths, an upstream_source_check rationale, an expanded summary, and a version comment explaining the engine's inclusive bound), so the fidelity signal is the version window alone. Provisions were read through the pinned corpus release (us-rulespec-2026-08-03-ecps-pit-tariff-union, toolchain corpus ref 1e8bfc0a): us-ca/regulation/mpp/63-410.321 still reads \"Under 18 or 50 years of age or over;\" as of expression_date 2026-07-13 (CDSS has not revised the manual), while us/statute/7/2015/o/3 at expression_date 2026-06-26 reads \"(A) under 18, or over 65, years of age;\" — confirming the encoded criteria are superseded as a statement of current law and that the defect is temporal scope, not a wrong formula. Non-module files in the commit (encoding manifest, .axiom/index/provisions_to_rules.json, known-validation-gaps.yaml waiver removal) and the companion test period shift 2026-05 -> 2025-06 are bookkeeping consistent with the bound. IMPORTANT CAVEAT for a reviewer: this commit is an intermediate revision of PR #1223, not the merged end state. The very next commit on the same PR, 5358c511c (\"Address sol audit: FRA-dated bound, exact quotations, scoped claims\"), refutes this commit's bound — \"The cross-family audit refuted the 2025-06-30 bound ... so keeping the version alive through June 2025 preserved a legally obsolete result across the FRA phase-in\" — and moves effective_to to '2023-08-31' with companion cases at 2023-05. So the post-fix state HERE is still partially defective (under-corrected by ~22 months); the pre-fix state is unambiguously wrong, which is what matters for a pre-fix fidelity benchmark, but this commit should not be used as a gold post-fix target. Relatedly, the PR body captured in the bundle describes the LATER revision (it cites effective_to '2023-08-31' and test period 2023-05), so it does not match this commit's diff — I took the description_quote from the commit message rather than the PR body for that reason. No PR reviews or review comments exist in the bundle. One arguable objection to the fidelity label: the PR body itself says \"this is archival honesty, not a behavior fix\" (the module is outside the FY2026 program scope and has no consumers), but under the stated rubric timeless encoding of superseded text is explicitly wrong_period_or_effective_date, and the encoded meaning did disagree with current law for post-supersession periods.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_period_or_effective_date",
+    "verifier_confidence": 0.9,
+    "verifier_justification": "The diff changes encoded meaning by adding a closing bound to the module's only version (`effective_from: '0001-01-01'` with no `effective_to` becomes `0001-01-01` → `2025-06-30`), so months from July 2025 onward resolve to no version instead of the repealed ABAWD age criteria; the companion cases move from period 2026-05 to 2025-06, confirming the behavior change is real and not bookkeeping. That is squarely the \"timeless encoding of superseded text\" case named in wrong_period_or_effective_date, and the commit message states it verbatim. I tested the strongest counter — that the cited CA source is unchanged and still current (the pinned corpus row for `us-ca/regulation/mpp/63-410.321` still reads \"Under 18 or 50 years of age or over;\" at expression_date 2026-07-13, and the formula and proof atom are untouched) — but the pre-fix open-ended window was itself an unsupported temporal assertion over undated manual text, and the PR states the old state was \"wrong as a statement of law for any current date.\" No other kind fits: nothing numeric, no comparison strictness, no clause added, no scope or boolean change.",
+    "verifier_quote": "+        effective_to: '2025-06-30'",
+    "verifier_notes": "Two things a reviewer should know. (1) This commit is only the first of two in PR #1223: 36 minutes later, 5358c511c (\"Address sol audit: FRA-dated bound, exact quotations, scoped claims\") moved the bound to 2023-08-31, because P.L. 118-5 sec. 311(a)(1) (FRA) had already struck the \"under 18 or over 50\" subparagraph effective for applications received from September 1, 2023. So the state produced by this candidate commit was itself still wrong for Sept 2023 - June 2025, and the bundled PR body describes the final 2023-08-31 state, not this commit's 2025-06-30. The defect class is unaffected either way (both commits are period/effective-date corrections), but if the corpus keys the \"correct\" post-state to 7284408e78 alone, that post-state is not the merged one. (2) The residual not_a_defect argument, worth recording but not enough to flip the verdict: the module's proof atom and formula still ground verbatim on the cited MPP text, which the corpus shows unrepealed as of 2026-07-13; the bound derives entirely from authorities the same diff newly cites (7 U.S.C. 2015(o)(3), FNS OBBBA memo pages 1 and 4), and the PR calls the change \"archival honesty, not a behavior fix\" with no consumers and out of FY2026 program scope. Blast radius is zero, but defect-ness does not depend on it. The rest of the diff (corpus_citation_path to corpus_citation_paths, upstream_source_check, expanded summary, waiver removal, index regeneration) is mechanical provenance riding along with the one meaning change.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Read the pre-fix and post-fix module in full: the decisive change is the added `effective_to: '2025-06-30'` on versions[0]; the formula, rule name, entity/period, and the MPP proof atom (excerpt \"Under 18 or 50 years of age or over;\") are byte-identical. Everything else in the module diff is supporting documentation/provenance (three added module-level corpus_citation_paths, an upstream_source_check rationale, an expanded summary, and a version comment explaining the engine's inclusive bound), so the fidelity signal is the version window alone. Provisions were read through the pinned corpus release (us-rulespec-2026-08-03-ecps-pit-tariff-union, toolchain corpus ref 1e8bfc0a): us-ca/regulation/mpp/63-410.321 still reads \"Under 18 or 50 years of age or over;\" as of expression_date 2026-07-13 (CDSS has not revised the manual), while us/statute/7/2015/o/3 at expression_date 2026-06-26 reads \"(A) under 18, or over 65, years of age;\" — confirming the encoded criteria are superseded as a statement of current law and that the defect is temporal scope, not a wrong formula. Non-module files in the commit (encoding manifest, .axiom/index/provisions_to_rules.json, known-validation-gaps.yaml waiver removal) and the companion test period shift 2026-05 -> 2025-06 are bookkeeping consistent with the bound. IMPORTANT CAVEAT for a reviewer: this commit is an intermediate revision of PR #1223, not the merged end state. The very next commit on the same PR, 5358c511c (\"Address sol audit: FRA-dated bound, exact quotations, scoped claims\"), refutes this commit's bound — \"The cross-family audit refuted the 2025-06-30 bound ... so keeping the version alive through June 2025 preserved a legally obsolete result across the FRA phase-in\" — and moves effective_to to '2023-08-31' with companion cases at 2023-05. So the post-fix state HERE is still partially defective (under-corrected by ~22 months); the pre-fix state is unambiguously wrong, which is what matters for a pre-fix fidelity benchmark, but this commit should not be used as a gold post-fix target. Relatedly, the PR body captured in the bundle describes the LATER revision (it cites effective_to '2023-08-31' and test period 2023-05), so it does not match this commit's diff — I took the description_quote from the commit message rather than the PR body for that reason. No PR reviews or review comments exist in the bundle. One arguable objection to the fidelity label: the PR body itself says \"this is archival honesty, not a behavior fix\" (the module is outside the FY2026 program scope and has no consumers), but under the stated rubric timeless encoding of superseded text is explicitly wrong_period_or_effective_date, and the encoded meaning did disagree with current law for post-supersession periods. | verifier confirmed at 0.90",
+  "family_id": "us-7284408e-2d8792eb14d7",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

@@ -1,0 +1,120 @@
+{
+  "id": "us-465-991bfb2a-us-sc-policies-dss-snap-policy-manual-page-159",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "991bfb2ace1de204c8413eae858838b057fbe33b",
+  "parent_commit": "bec5142d32a84bc6a8bb51ed5d96682f6b00cbf7",
+  "commit_date": "2026-07-27",
+  "commit_subject": "fix: require shared-residence utility agreement",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1139",
+  "module_path": "us-sc/policies/dss/snap-policy-manual/page-159.yaml",
+  "corpus_citation_path": "us-sc/manual/dss/snap-policy-manual/page-159",
+  "corpus_citation_paths_all": [
+    "us-sc/manual/dss/snap-policy-manual/page-159"
+  ],
+  "corpus_release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+  "corpus_release_content_sha256": "cb275c76c4f07f8ad37470a32296bb1763e5db853d152697524ab07021b6d544",
+  "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.85,
+  "description": "shared-residence agreement now gates MUA/BUA/actual/telephone outcomes (adversarial case returns $0)",
+  "description_source": "pr_review",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        136,
+        138
+      ],
+      [
+        142,
+        142
+      ],
+      [
+        174,
+        174
+      ],
+      [
+        220,
+        220
+      ],
+      [
+        226,
+        226
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        136,
+        138
+      ],
+      [
+        142,
+        142
+      ],
+      [
+        174,
+        174
+      ],
+      [
+        220,
+        220
+      ],
+      [
+        226,
+        226
+      ]
+    ],
+    "rule_names": [
+      "sc_current_snap_standard_utility_allowance_state_value",
+      "sc_current_snap_limited_utility_allowance_state_value",
+      "sc_current_snap_individual_utility_allowance_state_value"
+    ],
+    "rule_path": "rules[sc_current_snap_standard_utility_allowance_state_value].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "61ebdb98f03fff6cdc16fe55361389ac877a838ffd954f703b72c2ace8f12358",
+  "post_fix_artifact_sha256": "46918a96557228305af812283da622dad0007507ad2641f1c37895e33ab69d9d",
+  "provision_sha256": "631906fbd4b55efa5e9839d73a331782460c4755b0b05bd943ca55e49f56f52f",
+  "provision_chars": 1680,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-sc/manual/dss/snap-policy-manual/page-159",
+    "provision_file": "data/corpus/provisions/us-sc/manual/2026-05-27-sc-snap-manual.jsonl",
+    "provision_file_sha256": "c21539d472ea105695da5e007b24839b5f4e8cea9f4e6066a933e6d3817a8e13",
+    "line_number": 160,
+    "record_id": "54428e77-42da-5f45-90c5-4289d4479e0d",
+    "stored_body_sha256": "631906fbd4b55efa5e9839d73a331782460c4755b0b05bd943ca55e49f56f52f",
+    "resolved_text_sha256": "631906fbd4b55efa5e9839d73a331782460c4755b0b05bd943ca55e49f56f52f",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-01-01",
+    "source_as_of": "2025-12-30",
+    "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "bf97b17baebfdf12601f7c23697524bf5adcdaed",
+    "requested_citation_path": "us-sc/manual/dss/snap-policy-manual/page-159",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The MUA dollar output was computed directly from page-163's ungated `household_entitled_to_mandatory_utility_allowance`, so it paid the mandatory utility allowance even when multiple households sharing one residence had not agreed on an allowance type, which SNAP Manual p.165 requires.",
+    "triage_notes": "Two-module fix; this module carries the propagation half. The only semantic change is in `sc_current_snap_standard_utility_allowance_state_value`: the import target and formula reference move from `us-sc:policies/dss/snap-policy-manual/page-163#household_entitled_to_mandatory_utility_allowance` to `us-sc:policies/dss/snap-policy-manual/page-165#multiple_utility_allowance_entitlement`. Pre-fix those two were semantically identical (p.165's MUA rule was a pass-through), so the re-route only bites once index 1 adds the agreement conjunct — i.e. this is the change that carries the missing p.165 clause into the money output. The other two hunks (limited/individual allowance rules) are import-hash bumps only (15aefb4d -> 9146cdfb) from page-165 changing: mechanical bookkeeping riding along with the real change. Provision read via resolve_provision.py against release us-rulespec-2026-07-24-snap-cms-pit-union (fix_time_corpus_match: same_body); p.165 text confirms the agreement requirement. Companion test page-159.test.yaml adds `shared_residence_disagreement_blocks_mua_assignment` / `..._bua_assignment` cases asserting $0. Quote is from a maintainer comment on PR #1139 recording the repair round (stored as an issue_comment, not a formal review object); commit body is empty and the subject is 'fix: require shared-residence utility agreement'. Related but separate findings in the same review round (page-369 $33 vs $27 collision, uncited rent exclusion, p.163 timing qualifications) were fixed in other commits, not this one.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.85,
+    "verifier_justification": "The attempted refutation fails: module 0's diff changes encoded meaning, not just provenance — the MUA dollar rule's formula switches from page-163's ungated `household_entitled_to_mandatory_utility_allowance` to page-165's `multiple_utility_allowance_entitlement`, which the same commit redefines as that entitlement AND `same_residence_utility_allowance_agreement_requirement_satisfied`. The pinned corpus text for us-sc/manual/dss/snap-policy-manual/page-165 states the clause verbatim (\"Multiple households living in the same residence must agree on the type of utility allowance, either MUA, BUA or actual.\"), and pre-fix that condition existed in page-165 only as an orphan rule referenced by nothing, so it could not affect any dollar output — the encoding paid the $388 MUA to a shared-residence household that had not agreed. The companion test added in the same commit pins the meaning change (`sc_current_snap_standard_utility_allowance_state_value: 0` with `multiple_households_agree_on_utility_allowance_type_mua_bua_or_actual: false`), ruling out mechanical and test_only. This is a source-stated condition missing from the encoding that the fix adds, so unrepresented_clause fits better than untraceable_branch (nothing ungrounded was removed; the page-163 grounding for MUA entitlement remains valid) or polarity_or_logic (a conjunct was added, not inverted).",
+    "verifier_quote": "-          if household_entitled_to_mandatory_utility_allowance:\n+          if multiple_utility_allowance_entitlement:",
+    "verifier_notes": "Scope caveat for the reviewer: within module 0 (page-159.yaml) only `sc_current_snap_standard_utility_allowance_state_value` has its own formula/import-target changed; the other two named rules (`..._limited_...`, `..._individual_...`) change only their import hashes (15aefb4d… → 9146cdfb…), and their meaning shifts transitively because page-165's `basic_utility_allowance_entitlement` and `household_entitled_to_telephone_only_standard` gain the same agreement conjunct in module index 1 of this commit. The candidate's rule_path (rules[sc_current_snap_standard_utility_allowance_state_value].versions[0].formula) is therefore the correct anchor. One genuine residual (why I hold at 0.85 rather than higher): the manual says households \"must agree on the type\" but does not state the consequence of non-agreement, so zeroing MUA/BUA/actual/telephone (fail-closed to $0) is the encoder's chosen semantics rather than text the source spells out — the missing-clause finding stands regardless, since pre-fix the clause had zero effect on any output, but a reviewer grading severity should note the fail-closed reading is an interpretation. Also note the first-reader quote is from a PR issue comment by MaxGhenis (\"Repair round 2\"), not a formal PR review; the commit subject \"fix: require shared-residence utility agreement\" and the round-1 comment's \"orphaned shared-residence condition\" finding corroborate it independently.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Two-module fix; this module carries the propagation half. The only semantic change is in `sc_current_snap_standard_utility_allowance_state_value`: the import target and formula reference move from `us-sc:policies/dss/snap-policy-manual/page-163#household_entitled_to_mandatory_utility_allowance` to `us-sc:policies/dss/snap-policy-manual/page-165#multiple_utility_allowance_entitlement`. Pre-fix those two were semantically identical (p.165's MUA rule was a pass-through), so the re-route only bites once index 1 adds the agreement conjunct — i.e. this is the change that carries the missing p.165 clause into the money output. The other two hunks (limited/individual allowance rules) are import-hash bumps only (15aefb4d -> 9146cdfb) from page-165 changing: mechanical bookkeeping riding along with the real change. Provision read via resolve_provision.py against release us-rulespec-2026-07-24-snap-cms-pit-union (fix_time_corpus_match: same_body); p.165 text confirms the agreement requirement. Companion test page-159.test.yaml adds `shared_residence_disagreement_blocks_mua_assignment` / `..._bua_assignment` cases asserting $0. Quote is from a maintainer comment on PR #1139 recording the repair round (stored as an issue_comment, not a formal review object); commit body is empty and the subject is 'fix: require shared-residence utility agreement'. Related but separate findings in the same review round (page-369 $33 vs $27 collision, uncited rent exclusion, p.163 timing qualifications) were fixed in other commits, not this one. | verifier confirmed at 0.85",
+  "family_id": "us-991bfb2a-73ee1af79c43",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

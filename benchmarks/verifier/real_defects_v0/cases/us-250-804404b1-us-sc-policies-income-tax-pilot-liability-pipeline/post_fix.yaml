@@ -1,0 +1,198 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us-sc/statute/12-6-510
+    upstream_source_check:
+      status: official_parameter_source
+      checked_paths:
+        - us-sc/statute/12-6-510
+      rationale: |-
+        South Carolina Act 110 of 2026 amended section 12-6-510(C) for
+        taxable years beginning after 2025. The enacted 2026 schedule taxes
+        South Carolina taxable income at 1.99 per cent through $30,000 and,
+        at $30,000 or more, at 5.21 per cent less $966. Beginning with tax
+        year 2027, the top rate may decrease only if a future revenue-growth
+        determination is met. This module therefore encodes the fixed 2026
+        schedule and deliberately fails closed outside that year.
+  summary: |-
+    Composed South Carolina individual-income-tax pipeline for the 2026
+    before-nonrefundable-credit target. It accepts one TaxUnit-level
+    completed-return South Carolina taxable-income boundary, floors it at
+    zero, and applies the two-bracket schedule enacted by Act 110 in section
+    12-6-510(C)(1). It makes no independent claim about the upstream federal
+    conformity, deductions, exemptions, special income classes, filing-status
+    allocation, or credit chain. This narrow resident boundary is suitable
+    for comparison with PolicyEngine's sc_taxable_income feeding
+    sc_income_tax_before_non_refundable_credits. All policy-bearing amounts and
+    calculations are bounded to tax year 2026 because section 12-6-510(C)(2)
+    makes later rates depend on annual revenue determinations.
+rules:
+  - name: sc_pit_pilot_lower_bracket_rate
+    kind: parameter
+    dtype: Rate
+    period: Year
+    source: S.C. Code section 12-6-510(C)(1), 2026 lower-bracket rate
+    metadata:
+      private: true
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: table_cell
+            source:
+              corpus_citation_path: us-sc/statute/12-6-510
+              table:
+                header: "At least But less than Compute tax as follows"
+                row: "$0 $30,000"
+                column: "Compute tax as follows"
+              excerpt: "$0 $30,000 1.99% times the amount"
+    versions:
+      - effective_from: '2026-01-01'
+        effective_to: '2026-12-31'
+        formula: |-
+          0.0199
+
+  - name: sc_pit_pilot_upper_bracket_floor
+    kind: parameter
+    dtype: Money
+    period: Year
+    unit: USD
+    source: S.C. Code section 12-6-510(C)(1), 2026 upper-bracket floor
+    metadata:
+      private: true
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: us-sc/statute/12-6-510
+              excerpt: "$30,000 or more 5.21% times the amount minus $966"
+    versions:
+      - effective_from: '2026-01-01'
+        effective_to: '2026-12-31'
+        formula: |-
+          30000
+
+  - name: sc_pit_pilot_upper_bracket_rate
+    kind: parameter
+    dtype: Rate
+    period: Year
+    source: S.C. Code section 12-6-510(C)(1), 2026 upper-bracket rate
+    metadata:
+      private: true
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: table_cell
+            source:
+              corpus_citation_path: us-sc/statute/12-6-510
+              table:
+                header: "At least But less than Compute tax as follows"
+                row: "$30,000 or more"
+                column: "Compute tax as follows"
+              excerpt: "$30,000 or more 5.21% times the amount minus $966"
+    versions:
+      - effective_from: '2026-01-01'
+        effective_to: '2026-12-31'
+        formula: |-
+          0.0521
+
+  - name: sc_pit_pilot_upper_bracket_subtraction
+    kind: parameter
+    dtype: Money
+    period: Year
+    unit: USD
+    source: S.C. Code section 12-6-510(C)(1), 2026 upper-bracket subtraction
+    metadata:
+      private: true
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: us-sc/statute/12-6-510
+              excerpt: "$30,000 or more 5.21% times the amount minus $966"
+    versions:
+      - effective_from: '2026-01-01'
+        effective_to: '2026-12-31'
+        formula: |-
+          966
+
+  - name: sc_pit_pilot_taxable_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: S.C. Code section 12-6-510(C), supplied completed-return South Carolina taxable income floored at zero
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-sc/statute/12-6-510
+              excerpt: "a tax is imposed on the South Carolina taxable income of individuals"
+    versions:
+      - effective_from: '2026-01-01'
+        effective_to: '2026-12-31'
+        formula: |-
+          max(0, sc_pit_pilot_state_taxable_income)
+
+  - name: sc_pit_pilot_schedule_tax
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: S.C. Code section 12-6-510(C)(1), enacted two-bracket 2026 schedule
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-sc/statute/12-6-510
+              excerpt: "$0 $30,000 1.99% times the amount"
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-sc/statute/12-6-510
+              excerpt: "$30,000 or more 5.21% times the amount minus $966"
+    versions:
+      - effective_from: '2026-01-01'
+        effective_to: '2026-12-31'
+        formula: |-
+          if sc_pit_pilot_taxable_income < sc_pit_pilot_upper_bracket_floor:
+            sc_pit_pilot_lower_bracket_rate * sc_pit_pilot_taxable_income
+          else:
+            sc_pit_pilot_upper_bracket_rate * sc_pit_pilot_taxable_income - sc_pit_pilot_upper_bracket_subtraction
+
+  - name: sc_pit_pilot_income_tax_liability
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: S.C. Code section 12-6-510(C), tax before nonrefundable credits
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-sc/statute/12-6-510
+              excerpt: "for taxable years beginning after 2025, a tax is imposed"
+    versions:
+      - effective_from: '2026-01-01'
+        effective_to: '2026-12-31'
+        formula: |-
+          sc_pit_pilot_schedule_tax
+inputs:
+  - name: sc_pit_pilot_state_taxable_income
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    description: Completed-return South Carolina taxable income supplied by the caller as an upstream oracle boundary.

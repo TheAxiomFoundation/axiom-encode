@@ -1,0 +1,156 @@
+{
+  "id": "us-400-c6db535b-us-ga-statutes-48-48-7-29-10",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "c6db535b079ba51d62cb43b2dffe02d27e3b086f",
+  "parent_commit": "9ff9a7aa4917c0939d2dc6d1c2f122be7d5c25bb",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Logic fix: GA 48-7A-3 low-income credit replaces age-65 doubling multiplier with one additional credit unit per taxpayer/spouse age 65+; also extends 2026 versions on 48-7-26/27/29.10.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/907",
+  "module_path": "us-ga/statutes/48/48-7-29/10.yaml",
+  "corpus_citation_path": "us-ga/statute/48/48-7-29.10",
+  "corpus_citation_paths_all": [
+    "us-ga/statute/48/48-7-29.10",
+    "us-ga/statute/session-laws/2025/hb136/document-1"
+  ],
+  "corpus_release": "us-rulespec-2026-07-22-current",
+  "corpus_release_content_sha256": "7b1c6c0ec237dc3767f770fbb30178d6857bbe43fd4d952f57ebfc8409874bcc",
+  "corpus_commit": "c5af541326e024e04cb533bbf5709ae04e6305f6",
+  "defect_kind": "wrong_period_or_effective_date",
+  "other_kind": null,
+  "confidence": 0.75,
+  "description": "the 2025 child-care credit transition",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        6,
+        6
+      ],
+      [
+        8,
+        8
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        6,
+        8
+      ],
+      [
+        10,
+        10
+      ],
+      [
+        35,
+        44
+      ],
+      [
+        53,
+        53
+      ],
+      [
+        56,
+        58
+      ]
+    ],
+    "rule_names": [
+      "child_and_dependent_care_credit_percentage"
+    ],
+    "rule_path": "rules[child_and_dependent_care_credit_percentage].versions[2].effective_to"
+  },
+  "pre_fix_artifact_sha256": "20b03223506d5073e7266e04fdc7777930213c991e5aac196a462e292764f36f",
+  "post_fix_artifact_sha256": "5269bf5b6f2daaf9e396fe4bff7d237b3674ff5075dcee9283634422e09afb2f",
+  "provision_sha256": "cb923cdc9c4ab23021f12d9708b0f62a50cf00b60e92195570369281f6dafad2",
+  "provision_chars": 1433,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-ga/statute/48/48-7-29.10",
+    "provision_file": "data/corpus/provisions/us-ga/statute/2026-07-21-ga-ocga-title-48-release86-us-ga-title-48.jsonl",
+    "provision_file_sha256": "8a56a7bda977c94135ef111f208f36c9984791f3c6a3a265dc4724b36486d4e0",
+    "line_number": 687,
+    "record_id": "7575b8c1-f631-5190-890d-3ecc2a0a1d2a",
+    "stored_body_sha256": "cb923cdc9c4ab23021f12d9708b0f62a50cf00b60e92195570369281f6dafad2",
+    "resolved_text_sha256": "cb923cdc9c4ab23021f12d9708b0f62a50cf00b60e92195570369281f6dafad2",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2022-11-01",
+    "source_as_of": "2022-11-01",
+    "corpus_commit": "c5af541326e024e04cb533bbf5709ae04e6305f6",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 12,
+    "toolchain_corpus_ref": "77a36bc1807228e84591400b3d4409a4532e2953",
+    "requested_citation_path": "us-ga/statute/48/48-7-29.10",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-29.10'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-29.10'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-29.10'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-29.10'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-29.10'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-29.10'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-29.10'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-29.10'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-29.10'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-29.10'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-29.10'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-29.10'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The 30% rate version carried effective_from 2008-01-01 with no effective_to, so the module returned 0.30 of the federal Section 21 credit for 2025 and later even though HB 136 (2025) amended 48-7-29.10(a) to 50 percent, applicable to all taxable years beginning on or after January 1, 2025.",
+    "triage_notes": "Read HB 136 through the pinned corpus: Section 1-1 rewrites 48-7-29.10(a) to 'The amount of such credit shall be equal to 50 percent of the amount of the credit provided for in Section 21 of the Internal Revenue Code', and Section 3-1(b) states 'Section 1-1 of this Act shall be applicable to all taxable years beginning on or after January 1, 2025.' The fix bounds versions[2] at '2024-12-31' and adds versions[3] 0.50 from 2025-01-01 with two proof atoms quoting exactly those sentences, plus the module citation-paths list gains the act. Nothing else in the module changed (the credit formula, carryforward and prior-year branches are untouched). Alternative kind: amount_mismatch (0.30 vs 0.50 for 2025+); I chose wrong_period_or_effective_date for the same reason as index 0. Follow-up commit 5474dca0e adds an effective_to proof atom and narrows the rule's source string from '(a)(1)-(3)' to '(a)'.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_period_or_effective_date",
+    "verifier_confidence": 0.82,
+    "verifier_justification": "The pre-fix module encoded the 30% rate version with effective_from 2008-01-01 and no effective_to, so it returned 0.30 of the federal Section 21 credit for 2025 and later; the fix bounds that version at 2024-12-31 and adds a 2025-01-01 version at 0.50, i.e. it changes an existing output value for 2025+ rather than adding new scope. I read the pinned sources: HB 136 (2025) §1-1 revises 48-7-29.10(a) to \"The amount of such credit shall be equal to 50 percent of the amount of the credit provided for in Section 21 of the Internal Revenue Code\", and §3-1(b) makes §1-1 \"applicable to all taxable years beginning on or after January 1, 2025\" — exactly the window the fix installs. I tried amount_mismatch and unrepresented_clause instead, but no encoded number was wrong for the window it was assigned; the defect is a superseded rate left open-ended, which the kind list places under wrong_period_or_effective_date (\"timeless encoding of superseded text\"), and the fix's pivot is the added effective_to. The one surviving caveat is that the corpus's codified 48-7-29.10 expression (2022-11-01) still reads \"Thirty percent for all taxable years beginning on or after January 1, 2008\", so the defect becomes visible only once the 2025 session law is admitted as a source.",
+    "verifier_quote": "-      - effective_from: '2008-01-01'\n+      - effective_from: '2008-01-01'\n+        effective_to: '2024-12-31'\n         formula: |-\n           0.30\n+      - effective_from: '2025-01-01'\n+        formula: |-\n+          0.50",
+    "verifier_notes": "Diff file: /private/tmp/claude-501/-Users-maxghenis-TheAxiomFoundation-axiom-encode--claude-worktrees-zealous-heyrovsky-31a96b/86103d8f-b97f-4559-a96c-7e79bdbe616d/scratchpad/diffs/us/c6db535b07/002.diff (48 lines; the quote is the versions block, verbatim apart from the unchanged context line being shown once as the pre-image anchor — the literal added lines are \"+        effective_to: '2024-12-31'\", \"+      - effective_from: '2025-01-01'\", \"+        formula: |-\", \"+          0.50\"). Source verification: resolve_provision at rulespec-commit c6db535b07, corpus release us-rulespec-2026-07-22-current. (a) us-ga/statute/48/48-7-29.10, expression_date 2022-11-01, text \"(3) Thirty percent for all taxable years beginning on or after January 1, 2008.\" — no terminal date, no 50 percent; the pre-fix proof-atom excerpt matched this verbatim. (b) us-ga/statute/session-laws/2025/hb136/document-1, expression_date 2025-05-13, §1-1 \"The amount of such credit shall be equal to 50 percent of the amount of the credit provided for in Section 21 of the Internal Revenue Code\", §3-1(b) \"Section 1-1 of this Act shall be applicable to all taxable years beginning on or after January 1, 2025.\" Both resolutions reported fix_time_corpus_match = provision_file_absent_at_corpus_ref. Reviewer decision point: the pre-fix module's only citation path was the stale codified snapshot, so a strict \"wrong against the cited source\" reading could downgrade this to not_a_defect (stale corpus, new source admitted by the same campaign — the PR pins the Georgia source chain via rulespec-us #954). I weighed that and rejected it because the unbounded version claimed 2025+ and returned the superseded 0.30 there. PR #907 body supports the repair framing: \"repair Georgia PIT law through 2027, including 2026 standard/dependent amounts, the 2027 retirement-income exclusion, the 2025 child-care credit transition\". Alternative kinds if a reviewer disagrees: amount_mismatch (2025 rate 0.30 vs 0.50) or unrepresented_clause (the HB 136 amendment clause was absent); both are second-best to the period framing. Also note the module change is co-located with unrelated edits in the same commit (48-7A-3 age-65 logic, 2026 versions on 48-7-26/27), so the commit subject does not describe this module.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Read HB 136 through the pinned corpus: Section 1-1 rewrites 48-7-29.10(a) to 'The amount of such credit shall be equal to 50 percent of the amount of the credit provided for in Section 21 of the Internal Revenue Code', and Section 3-1(b) states 'Section 1-1 of this Act shall be applicable to all taxable years beginning on or after January 1, 2025.' The fix bounds versions[2] at '2024-12-31' and adds versions[3] 0.50 from 2025-01-01 with two proof atoms quoting exactly those sentences, plus the module citation-paths list gains the act. Nothing else in the module changed (the credit formula, carryforward and prior-year branches are untouched). Alternative kind: amount_mismatch (0.30 vs 0.50 for 2025+); I chose wrong_period_or_effective_date for the same reason as index 0. Follow-up commit 5474dca0e adds an effective_to proof atom and narrows the rule's source string from '(a)(1)-(3)' to '(a)'. | verifier confirmed at 0.82",
+  "family_id": "us-c6db535b-9ea1e11a9619",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

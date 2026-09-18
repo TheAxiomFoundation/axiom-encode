@@ -1,0 +1,166 @@
+{
+  "id": "us-266-a495db32-policies-otda-snap-fy-2026-benefit-calculation",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "a495db3292dfbd7c5a94b48123baf92cc37063c8",
+  "parent_commit": "29d50449425f678970b3edd692f06ae959ed87a3",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) PR body includes 'Repair New York SNAP benefit composition'; changes snap_eligible formula in the existing otda composition, removes/replaces 18 NYCRR 387.14(a)(1) proration rules, and re-encodes 387.14(a)(5) categorical rules with changed imports.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/395",
+  "module_path": "policies/otda/snap/fy-2026-benefit-calculation.yaml",
+  "corpus_citation_path": "us/guidance/usda/fns/snap-fy2026-cola/page-1",
+  "corpus_citation_paths_all": [
+    "us/guidance/usda/fns/snap-fy2026-cola/page-1"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "polarity_or_logic",
+  "other_kind": null,
+  "confidence": 0.7,
+  "description": "Repair New York SNAP benefit composition",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        66,
+        66
+      ],
+      [
+        87,
+        88
+      ],
+      [
+        97,
+        97
+      ],
+      [
+        107,
+        107
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        3,
+        4
+      ],
+      [
+        46,
+        54
+      ],
+      [
+        62,
+        69
+      ],
+      [
+        77,
+        189
+      ],
+      [
+        196,
+        203
+      ],
+      [
+        206,
+        206
+      ],
+      [
+        213,
+        220
+      ],
+      [
+        232,
+        239
+      ],
+      [
+        243,
+        243
+      ],
+      [
+        250,
+        257
+      ],
+      [
+        260,
+        260
+      ],
+      [
+        267,
+        274
+      ],
+      [
+        278,
+        281
+      ]
+    ],
+    "rule_names": [
+      "snap_ssn_eligible",
+      "snap_student_eligible",
+      "snap_work_requirement_eligible",
+      "snap_eligible"
+    ],
+    "rule_path": "rules[snap_ssn_eligible].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "3f2dc2e3d0dac063dae7b9f28e4ccc9b2abb3167cc18f7018a4e9157085fe04f",
+  "post_fix_artifact_sha256": "db8680b69dee90d95b8b2320b6d8e5810823e33404aa82833a5c49d61ae82961",
+  "provision_sha256": "806907224a37eecb7fb5fa3f8279fcd7bd29de7bd3fc9c3111953d2cb6701566",
+  "provision_chars": 1025,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/guidance/usda/fns/snap-fy2026-cola/page-1",
+    "provision_file": "data/corpus/provisions/us/guidance/2026-05-01-snap-fy2026-cola-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "83eb59832a53d979e0927327f49f99ccd95551335818af505077047033e1ebf3",
+    "line_number": 2,
+    "record_id": "2416046b-5e45-5c74-9d7f-f3084034ed5f",
+    "stored_body_sha256": "806907224a37eecb7fb5fa3f8279fcd7bd29de7bd3fc9c3111953d2cb6701566",
+    "resolved_text_sha256": "806907224a37eecb7fb5fa3f8279fcd7bd29de7bd3fc9c3111953d2cb6701566",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2025-10-01",
+    "source_as_of": "2025-08-14",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us/guidance/usda/fns/snap-fy2026-cola/page-1",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/guidance/usda/fns/snap-fy2026-cola/page-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/guidance/usda/fns/snap-fy2026-cola/page-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/guidance/usda/fns/snap-fy2026-cola/page-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/guidance/usda/fns/snap-fy2026-cola/page-1'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The household-level SSN and student screens were satisfied whenever at least one member passed (count_where(member_of_household, snap_member_ssn_requirement_eligible) > 0), a fail-open aggregation that let a household with SSN-ineligible or student-ineligible members clear the gate, whereas the member predicates (7 CFR 273.6, 273.5) make the household test 'no member is ineligible'.",
+    "triage_notes": "This file is module.kind: composition (assembled rather than encoder-generated), so a reviewer may prefer not_a_rule_module; it is format: rulespec/v1 and its rules carry real formulas, so I kept it as a rule module. Three formulas changed meaning: snap_ssn_eligible and snap_student_eligible flip from count_where(..._eligible) > 0 to count_where(..._ineligible) == 0, and snap_work_requirement_eligible drops its 'count_where(..._eligible) > 0 and' conjunct (which fail-closed a household where no member was affirmatively work-eligible, e.g. all exempt). I confirmed on main that us/regulations/7-cfr/273/6.yaml defines snap_member_ssn_requirement_eligible as 'not snap_member_ssn_requirement_ineligible', so the pre-fix formula resolved fine and was simply wrong logic, not a dangling reference. The snap_eligible change (snap_income_eligible -> (snap_income_limit_exemption_for_categorically_eligible_household or snap_standard_income_eligible)) is semantically neutral: it just follows the rename/narrowing in index 2, where the old snap_income_eligible was exactly that disjunction. The commit also ADDS five rules (member_of_household data_relation, snap_gross_monthly_income, snap_monthly_household_income, ny_snap_excess_shelter_cost, snap_excess_shelter_deduction, snap_initial_month_allotment_after_minimum_issuance) plus proof-atom metadata on every rule; that added wiring is new coverage, not a defect fix. Note the fix is incomplete: snap_residency_citizenship_eligible still uses count_where(..., snap_member_citizenship_or_alien_status_eligible) > 0, the same fail-open pattern. The proof atoms for all these composition rules cite us/guidance/usda/fns/snap-fy2026-cola/page-1 (the FY2026 COLA memo), which says nothing about SSN/student/work screens, so the 'cited source' anchor for this module is weak; the defect is nonetheless a real inversion relative to the federal member-level rules it composes. The pre-existing companion test ssn_ineligible_household_gets_zero_allotment uses a one-member household and passes under both formulas, so the defect was invisible to the module's tests.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "polarity_or_logic",
+    "verifier_confidence": 0.85,
+    "verifier_justification": "I tried to refute this as composition wiring or a forced rename and could not: both `snap_member_ssn_requirement_eligible` and `snap_member_ssn_requirement_ineligible` exist as sibling rules in the imported `us/regulations/7-cfr/273/6.yaml` (with `snap_member_ssn_requirement_eligible: formula: not snap_member_ssn_requirement_ineligible`), and the same eligible/ineligible pair exists in `273/5.yaml` for students, so the edit was a free choice of aggregation semantics, not a repair of a dangling reference. The pre-fix household screens passed whenever any one member cleared the member predicate (`count_where(..., *_eligible) > 0`), i.e. fail-open, while 7 CFR 273.6(a) read through the pinned corpus requires \"the social security number (SSN) of each household member or apply for one before certification\" — so the flip to `count_where(..., *_ineligible) == 0` changes encoded meaning in exactly the fail-open→fail-closed direction the first reader described. The companion change to `snap_work_requirement_eligible` drops a redundant-but-fail-closed `count_where(..., *_eligible) > 0` conjunct, which is the same boolean-combination family. This is a formula change, not proof-hash or metadata bookkeeping (those are present in the same diff but are not what the reader cited), so mechanical and not_a_defect both fail.",
+    "verifier_quote": "-        formula: count_where(member_of_household, snap_member_ssn_requirement_eligible) > 0\n+        formula: count_where(member_of_household, snap_member_ssn_requirement_ineligible) == 0",
+    "verifier_notes": "Evidence checked: diff 000.diff; pre/post of policies/otda/snap/fy-2026-benefit-calculation.yaml at 29d5044 and a495db3292; imported member predicates in us/regulations/7-cfr/273/6.yaml (lines 25-44), 273/5.yaml (lines 267-284), 273/24.yaml (lines 330-346); 7 CFR 273.6 text via resolve_provision (corpus release us-sc-snap-2026-07-15, provision sha 0520761c903c...). Caveats a reviewer should weigh: (1) the commit is a 4-bullet squash — most of the diff is composition glue (new member_of_household data_relation, snap_gross_monthly_income, snap_monthly_household_income, ny_snap_excess_shelter_cost, snap_excess_shelter_deduction, snap_initial_month_allotment_after_minimum_issuance) plus proof-atom metadata, which is mechanical/additive; only the four Judgment formulas carry the defect. (2) The snap_eligible change (`snap_income_eligible` → `(snap_income_limit_exemption_for_categorically_eligible_household or snap_standard_income_eligible)`) is a mixed case: `snap_income_eligible` does not exist as a rule anywhere under us/regulations/7-cfr, us/statutes/7 or us/policies at HEAD, so part of it is a dangling-reference repair, and the added disjunct is closer to unrepresented_clause (categorical eligibility exemption from income limits) than to polarity. If the corpus wants one kind per case, polarity_or_logic still dominates (2 of 4 rules are pure fail-open flips, a 3rd is a conjunct removal). (3) The post-fix household screen is itself stricter than 273.6(c) — \"The disqualification applies to the individual for whom the SSN is not provided and not to the entire household\" — so the fix is directionally correct against 273.6(a) but the composition still lacks per-member exclusion; that is a separate, unfixed gap, not a reason to reject this case. (4) No companion test exercises the multi-member fail-open path: the `ssn_ineligible_household_gets_zero_allotment` case uses household_size 1, where both the pre and post formulas yield not_holds.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "This file is module.kind: composition (assembled rather than encoder-generated), so a reviewer may prefer not_a_rule_module; it is format: rulespec/v1 and its rules carry real formulas, so I kept it as a rule module. Three formulas changed meaning: snap_ssn_eligible and snap_student_eligible flip from count_where(..._eligible) > 0 to count_where(..._ineligible) == 0, and snap_work_requirement_eligible drops its 'count_where(..._eligible) > 0 and' conjunct (which fail-closed a household where no member was affirmatively work-eligible, e.g. all exempt). I confirmed on main that us/regulations/7-cfr/273/6.yaml defines snap_member_ssn_requirement_eligible as 'not snap_member_ssn_requirement_ineligible', so the pre-fix formula resolved fine and was simply wrong logic, not a dangling reference. The snap_eligible change (snap_income_eligible -> (snap_income_limit_exemption_for_categorically_eligible_household or snap_standard_income_eligible)) is semantically neutral: it just follows the rename/narrowing in index 2, where the old snap_income_eligible was exactly that disjunction. The commit also ADDS five rules (member_of_household data_relation, snap_gross_monthly_income, snap_monthly_household_income, ny_snap_excess_shelter_cost, snap_excess_shelter_deduction, snap_initial_month_allotment_after_minimum_issuance) plus proof-atom metadata on every rule; that added wiring is new coverage, not a defect fix. Note the fix is incomplete: snap_residency_citizenship_eligible still uses count_where(..., snap_member_citizenship_or_alien_status_eligible) > 0, the same fail-open pattern. The proof atoms for all these composition rules cite us/guidance/usda/fns/snap-fy2026-cola/page-1 (the FY2026 COLA memo), which says nothing about SSN/student/work screens, so the 'cited source' anchor for this module is weak; the defect is nonetheless a real inversion relative to the federal member-level rules it composes. The pre-existing companion test ssn_ineligible_household_gets_zero_allotment uses a one-member household and passes under both formulas, so the defect was invisible to the module's tests. | verifier confirmed at 0.85",
+  "family_id": "us-a495db32-38378d6e1a88",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

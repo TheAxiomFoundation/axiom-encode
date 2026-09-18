@@ -1,0 +1,329 @@
+{
+  "id": "us-384-b3801ee4-statutes-26-24-d",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "b3801ee4eb82f8fc2c753d809c8b36d9ae6c42c2",
+  "parent_commit": "2175d5239a22bce42aa7a3b2f5a7c4af4c6940ea",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Wholesale regeneration with semantic corrections to existing modules: 24(d) phase-in threshold 2500 to 3000 and SS-excess gated on 3+ children, 1411 effective_from 2026 to 2013 and estate/trust base, CDCC/22/32/6401/2017(a)/273.10 formulas rewritten.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/25",
+  "module_path": "statutes/26/24/d.yaml",
+  "corpus_citation_path": "us/statute/26/24",
+  "corpus_citation_paths_all": [
+    "us/statute/26/24"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.55,
+  "description": "text: the amount of the taxes imposed by sections 3101 and 3201(a) ... 50 percent of the taxes imposed by section 1401 ... 50 percent of the taxes imposed by section 3211(a) ... shall not include any taxes to the extent the taxpayer is entitled to a special refund ... amounts paid pursuant to an agreement under section 3121(l) ... shall be treated as taxes",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        3,
+        6
+      ],
+      [
+        9,
+        14
+      ],
+      [
+        22,
+        22
+      ],
+      [
+        27,
+        27
+      ],
+      [
+        30,
+        30
+      ],
+      [
+        37,
+        44
+      ],
+      [
+        48,
+        50
+      ],
+      [
+        56,
+        56
+      ],
+      [
+        60,
+        69
+      ],
+      [
+        75,
+        75
+      ],
+      [
+        78,
+        79
+      ],
+      [
+        85,
+        85
+      ],
+      [
+        89,
+        93
+      ],
+      [
+        99,
+        99
+      ],
+      [
+        102,
+        103
+      ],
+      [
+        109,
+        109
+      ],
+      [
+        112,
+        113
+      ],
+      [
+        119,
+        119
+      ],
+      [
+        122,
+        123
+      ],
+      [
+        129,
+        129
+      ],
+      [
+        132,
+        132
+      ],
+      [
+        141,
+        141
+      ],
+      [
+        148,
+        148
+      ],
+      [
+        153,
+        153
+      ],
+      [
+        162,
+        162
+      ],
+      [
+        165,
+        165
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        2,
+        3
+      ],
+      [
+        5,
+        6
+      ],
+      [
+        9,
+        10
+      ],
+      [
+        16,
+        23
+      ],
+      [
+        26,
+        28
+      ],
+      [
+        33,
+        41
+      ],
+      [
+        44,
+        46
+      ],
+      [
+        51,
+        58
+      ],
+      [
+        61,
+        75
+      ],
+      [
+        79,
+        81
+      ],
+      [
+        87,
+        95
+      ],
+      [
+        99,
+        102
+      ],
+      [
+        108,
+        116
+      ],
+      [
+        119,
+        123
+      ],
+      [
+        129,
+        137
+      ],
+      [
+        141,
+        150
+      ],
+      [
+        156,
+        170
+      ],
+      [
+        173,
+        179
+      ],
+      [
+        185,
+        193
+      ],
+      [
+        196,
+        199
+      ],
+      [
+        205,
+        213
+      ],
+      [
+        216,
+        223
+      ],
+      [
+        229,
+        237
+      ],
+      [
+        240,
+        242
+      ],
+      [
+        249,
+        256
+      ],
+      [
+        259,
+        261
+      ],
+      [
+        268,
+        276
+      ],
+      [
+        281,
+        284
+      ],
+      [
+        287,
+        287
+      ],
+      [
+        294,
+        302
+      ],
+      [
+        305,
+        306
+      ]
+    ],
+    "rule_names": [
+      "ctc_social_security_tax",
+      "ctc_social_security_half_share",
+      "ctc_phase_in_earned_income_base",
+      "ctc_refundable_phase_in_threshold",
+      "ctc_refundable_cap",
+      "refundable_ctc",
+      "non_refundable_ctc"
+    ],
+    "rule_path": "rules[ctc_social_security_tax].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "9ad22282f00cc19e029f2224270dff2d29c803a12eac54fc4310401582042fb7",
+  "post_fix_artifact_sha256": "5f829ac68d54d78dcb5da9a70a96a49d04b33d2c2d2ab94e442e9d20a2658012",
+  "provision_sha256": "646a541a7de0684e472cba321a463df8e074a572eb730a1ead2bb8423d7c8439",
+  "provision_chars": 16265,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/24",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "1b0b185ca3335eb06c4fe10af488a8984bdd2cedd4087badf78583c267af7b7b",
+    "line_number": 12,
+    "record_id": "96d9e9c9-315d-5ccd-aae0-fca1ae79fc66",
+    "stored_body_sha256": "646a541a7de0684e472cba321a463df8e074a572eb730a1ead2bb8423d7c8439",
+    "resolved_text_sha256": "646a541a7de0684e472cba321a463df8e074a572eb730a1ead2bb8423d7c8439",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us/statute/26/24",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/24'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/24'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/24'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/24'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix `ctc_social_security_tax` was a Form-1040/PolicyEngine-style aggregate (employee social security + medicare + unreported payroll + self_employment_tax_ald + additional medicare - excess_payroll_tax_withheld) that omitted 24(d)(2)(A)(iii)'s 50 percent of section 3211(a) railroad taxes and 24(d)(2)(C)'s section 3121(l) foreign-affiliate equivalents, substituted the self-employment above-the-line deduction for 24(d)(2)(A)(ii)'s 50 percent of section 1401 taxes, and used excess withholding in place of 24(d)(2)(B)'s section 6413(c) special refund.",
+    "triage_notes": "IMPORTANT CAVEAT on the screen-flagged item: the threshold change `ctc_refundable_phase_in_threshold` 2500 -> 3000 is probably NOT a fidelity correction. I resolved us/statute/26/24 from the pinned corpus (expression_date 2026-07-13): 24(h)(1) reads 'In the case of a taxable year beginning after December 31, 2017, this section shall be applied as provided in paragraphs (2) through (7)' with no sunset, and 24(h)(6) substitutes '$2,500' for '$3,000' in (d)(1)(B)(i). The pre-fix module was explicit about this (`source: 26 USC 24(d)(1)(B)(i), as modified by 26 USC 24(h)(6)`, value 2500, `imports: us:statutes/26/24/h`). The post-fix drops the 24/h import and encodes the un-substituted base text 3000 under an effective_from of 2026-01-01, while the regenerated 24/h module (index 6) grows its own `ctc_refundable_phase_in_threshold_under_subsection_h` = 2500. So this is a per-module literal re-grounding whose operative value for 2026 now depends on composition wiring; treat it as a possible regression, not an amount_mismatch fix. Second point: the 'SS-excess gated on 3+ children' item is behaviour-neutral — the pre-fix gated the 3-or-more-children test inside `ctc_phase_in`, the post-fix gates it inside `ctc_social_security_excess` and takes max() in `ctc_refundable_limitation_increase_amount`; the results agree. Genuine structural gains besides the social security tax definition: `ctc_phase_in_earned_income_base` now adds the section 112 combat-pay sentence, `ctc_refundable_cap` now tracks 24(d)(1)(A) literally (pre-fix used `min(ctc_refundable_maximum, ctc)` sourced partly to 24(h)(5)), and the module now imports `us:statutes/26/32` with a pinned hash for the (d)(1)(B)(ii) EITC offset.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.6,
+    "verifier_justification": "I tried to refute this as a mere restyle and could not: the pre-fix `ctc_social_security_tax` (source: `26 USC 24(d)(2)`) summed `employee_social_security_tax + employee_medicare_tax + unreported_payroll_tax + self_employment_tax_ald + additional_medicare_tax - excess_payroll_tax_withheld`, which covers the §3101 leg of (A)(i), the §1401 half under (A)(ii) (via the §164(f) deduction), and the §6413(c) carve-out in (B), but contains no term whatsoever for §3201(a)/§3211(a) railroad taxes or the §3121(l) foreign-affiliate equivalents. I read 26 USC 24 through the pinned release (us-rulespec-2026-07-13, corpus commit 612d20ca43) and confirmed (A)(iii) \"50 percent of the taxes imposed by section 3211(a)\" and (C) \"Any amounts paid pursuant to an agreement under section 3121( l ) ... shall be treated as taxes referred to in such subparagraph\" are live clauses of the cited provision, so the omission is a missing clause inside scope the rule explicitly claimed, not new coverage the module never claimed. The post-fix formula adds an explicit term for each, which is the unrepresented_clause pattern; the remaining substitutions (`self_employment_tax_ald` to `0.50 * self_employment_1401_taxes`, `excess_payroll_tax_withheld` to `special_refund_social_security_taxes_under_6413c`) are semantically equivalent re-groundings, so untraceable_branch fits worse than unrepresented_clause. Confidence is held at 0.6 rather than higher because no author statement supports a defect intent and the same regeneration demonstrably regressed a different rule in this module.",
+    "verifier_quote": "+              + american_employer_foreign_affiliate_equivalent_3121l_taxes\n+              + (ctc_social_security_half_share * self_employment_1401_taxes)\n+              + (ctc_social_security_half_share * railroad_3211a_taxes)",
+    "verifier_notes": "Evidence quality caveats the reviewer should weigh. (1) There is no author defect claim anywhere: commit subject is \"Regenerate validated US RuleSpec encodings\" with an EMPTY body, and PR #25 is titled \"Encode 26 USC 63(c) standard deduction\" with no reviews, no review comments, and no mention of 24(d). The first reader's quote is not a review statement — it is the proof-atom `text:` excerpt that this very regeneration added, i.e. provenance string, which the rubric itself calls mechanical. The finding therefore rests entirely on the formula diff plus the statute, which is why I verified the statute directly rather than trusting the excerpt.\n\n(2) IMPORTANT — the same module change contains a fidelity REGRESSION that the screening summary mislabels as a \"semantic correction\". Pre-fix: `ctc_refundable_phase_in_threshold` = 2500, source \"26 USC 24(d)(1)(B)(i), as modified by 26 USC 24(h)(6)\", with `imports: [us:statutes/26/24/h]`. Post-fix: 3000, source reduced to \"26 USC 24(d)(1)(B)(i)\", and the 24/h import dropped. In the pinned release 24(h)(1) reads \"In the case of a taxable year beginning after December 31, 2017, this section shall be applied as provided in paragraphs (2) through (7)\" with no sunset, and 24(h)(6) reads \"Subsection (d)(1)(B)(i) shall be applied by substituting '$2,500' for '$3,000'.\" The version is `effective_from: '2026-01-01'`, so $2,500 is operative and the pre-fix was right. If this commit is being mined for real defects, that threshold change should be screened as a regression (amount_mismatch in the wrong direction), not banked as a fix, and it undercuts the premise that this regeneration was a validated fidelity pass.\n\n(3) Character of the change: this is a wholesale restyle of the module from computable PolicyEngine-style variables to statute-mirroring free inputs that are nowhere defined in the module (`employee_3101_3201a_taxes`, `railroad_3211a_taxes`, `taxable_earned_income_under_section_32`, `aggregate_subpart_c_credits_with_increased_26a_limit`, `ctc_credit_without_subsection_and_26a_limit`). The clause coverage added is therefore nominal — named placeholder terms, not computed ones. Both pre and post rely on undeclared free names, so the comparison is symmetric and I did not treat this as disqualifying, but a reviewer who requires added clauses to be *computable* would downgrade this to unclear.\n\n(4) Related non-defects in the same module the reviewer should not double-count: the \"SS-excess gated on 3+ children\" item in the screening summary is a refactor, not a meaning change — the pre-fix gated identically inside `ctc_phase_in` (\"if ctc_qualifying_children < ctc_refundable_min_children_for_ss_excess\"), the post-fix merely moved that test into `ctc_social_security_excess`. Likewise `ctc_phase_in_earned_income_base` adding the §112 combat-pay term is a separate, independent unrepresented_clause candidate (24(d)(1) flush text: \"any amount excluded from gross income by reason of section 112 shall be treated as earned income\"), distinct from the one adjudicated here.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "IMPORTANT CAVEAT on the screen-flagged item: the threshold change `ctc_refundable_phase_in_threshold` 2500 -> 3000 is probably NOT a fidelity correction. I resolved us/statute/26/24 from the pinned corpus (expression_date 2026-07-13): 24(h)(1) reads 'In the case of a taxable year beginning after December 31, 2017, this section shall be applied as provided in paragraphs (2) through (7)' with no sunset, and 24(h)(6) substitutes '$2,500' for '$3,000' in (d)(1)(B)(i). The pre-fix module was explicit about this (`source: 26 USC 24(d)(1)(B)(i), as modified by 26 USC 24(h)(6)`, value 2500, `imports: us:statutes/26/24/h`). The post-fix drops the 24/h import and encodes the un-substituted base text 3000 under an effective_from of 2026-01-01, while the regenerated 24/h module (index 6) grows its own `ctc_refundable_phase_in_threshold_under_subsection_h` = 2500. So this is a per-module literal re-grounding whose operative value for 2026 now depends on composition wiring; treat it as a possible regression, not an amount_mismatch fix. Second point: the 'SS-excess gated on 3+ children' item is behaviour-neutral — the pre-fix gated the 3-or-more-children test inside `ctc_phase_in`, the post-fix gates it inside `ctc_social_security_excess` and takes max() in `ctc_refundable_limitation_increase_amount`; the results agree. Genuine structural gains besides the social security tax definition: `ctc_phase_in_earned_income_base` now adds the section 112 combat-pay sentence, `ctc_refundable_cap` now tracks 24(d)(1)(A) literally (pre-fix used `min(ctc_refundable_maximum, ctc)` sourced partly to 24(h)(5)), and the module now imports `us:statutes/26/32` with a pinned hash for the (d)(1)(B)(ii) EITC offset. | verifier confirmed at 0.60",
+  "family_id": "us-b3801ee4-107837b3a768",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

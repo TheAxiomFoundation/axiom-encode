@@ -1,0 +1,181 @@
+{
+  "id": "us-248-70376bf8-us-policies-usitc-us-tariff-duty-overlays-ieepa-fentanyl-energy-9903-01-13",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "70376bf80a09ea7110e3eb80883c9ecec568a7e5",
+  "parent_commit": "729408dbf61dc8f2806099f5928c46b7f7b31ea7",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Adds missing note 2(j)/2(m) gates to the existing energy heading and \"re-anchor the heading-exception atom to the 9903.01.13 record's inherited ancestor text\" (PR #1195).",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1195",
+  "module_path": "us/policies/usitc/us-tariff-duty/overlays/ieepa/fentanyl-energy-9903-01-13.yaml",
+  "corpus_citation_path": "us/statute/hts/9903.01.13",
+  "corpus_citation_paths_all": [
+    "us/statute/hts/9903.01.13",
+    "us/statute/hts/9903.01.11",
+    "us/statute/hts/9903.01.12",
+    "us/statute/hts/9903.01.14",
+    "us/statute/hts/9903.01.15",
+    "us/statute/hts/chapter-99/page-174",
+    "us/statute/hts/chapter-99/page-175"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.92,
+  "description": "Note 2(j) excludes properly claimed chapter 98 entries from the 9903.01.13 additional duty except goods entered under 9802.00.80/.40/.50/.60, and note 2(m) substitutes heading 9903.01.16's 40% rate for goods CBP determines were transshipped to evade these duties.",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        15,
+        15
+      ],
+      [
+        56,
+        57
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        13,
+        13
+      ],
+      [
+        15,
+        15
+      ],
+      [
+        56,
+        57
+      ],
+      [
+        83,
+        97
+      ],
+      [
+        118,
+        120
+      ]
+    ],
+    "rule_names": [
+      "fentanyl_energy_additional_duty_applies"
+    ],
+    "rule_path": "rules[fentanyl_energy_additional_duty_applies].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "bca59c69f58781ff8e06cc37eedf84bf7a0ac580e869335d1891d53821f600ee",
+  "post_fix_artifact_sha256": "c09050af487e0912fd2987609bbd5236ebf69ef91a9b03e4c315e859fabf33cd",
+  "provision_sha256": "b6762c3f5a1058084b905e80e87da95a93c7d04f869f73345ebe588eea887639",
+  "provision_chars": 477,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/hts/9903.01.13",
+    "provision_file": "data/corpus/provisions/us/statute/2026-08-03-rulespec-hts-current-with-legacy-aluminum.jsonl",
+    "provision_file_sha256": "7406b42f2f6a35bd43ed67d7fe4d0f7323e12c3e49c67b8d6699f9978d23b770",
+    "line_number": 1094,
+    "record_id": "4af929c8-26db-5fa5-b1dd-db517100f355",
+    "stored_body_sha256": "b6762c3f5a1058084b905e80e87da95a93c7d04f869f73345ebe588eea887639",
+    "resolved_text_sha256": "b6762c3f5a1058084b905e80e87da95a93c7d04f869f73345ebe588eea887639",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-31",
+    "source_as_of": "2026-08-01",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "05ce3d3dd21b0ced76f9af40c2ecc02c1c57d9c6",
+    "requested_citation_path": "us/statute/hts/9903.01.13",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix applicability formula applied the 9903.01.13 additional 10% duty to goods that HTS U.S. note 2(j) exempts because entry was properly claimed under a chapter 98 provision (outside the 9802.00.80/.40/.50/.60 exceptions), and to goods that note 2(m) removes from this heading's rate in favor of heading 9903.01.16's 40% transshipment rate.",
+    "triage_notes": "Provision read through the pinned corpus release (us-rulespec-2026-08-03-ecps-pit-tariff-union). Page-174 note 2(j) verbatim: \"The additional duties imposed by headings 9903.01.10 and 9903.01.13 shall not apply to goods for which entry is properly claimed under a provision of chapter 98 of the tariff schedule ... except for goods entered under heading 9802.00.80; and subheadings 9802.00.40, 9802.00.50, and 9802.00.60\" — it names 9903.01.13 explicitly, so the carve-out was genuinely missing, not new scope. Page-175 note 2(m) verbatim: transshipped-to-evade goods are subject to 40% \"in lieu of the additional rate of duty provided for in headings 9903.01.10, 9903.01.13, or 9903.01.15\", so the pre-fix module over-applied the 10% to those goods. Decisive change is the formula: adds `and not (article_is_properly_claimed_chapter_98_entry and not article_is_9802_excepted_entry)` and `and not article_is_cbp_determined_transshipped_to_evade`. Bundled with the formula fix, and mechanical on their own: the heading-exception proof atom was re-anchored from corpus_citation_path us/statute/hts/9903.01.10 (excerpt \"Except for products described in headings 9903.01.11, 9903.01.12, 9903.01.13, 9903.01.14 or 9903.01.15\", which is 9903.01.10's own exception list, i.e. the wrong record) to us/statute/hts/9903.01.13 with its inherited ancestor text; module summary expanded; source_verification list drops 9903.01.10 and adds chapter-99/page-175. The resolver returns only the 9903.01.13 record body (no inherited ancestor text), so the new excerpt could not be byte-verified against the resolver output — proof-validate presumably checks it against the inherited text. Residual precision gap a reviewer may note: the new transshipment gate does not encode note 2(m)'s \"do not qualify as originating under the USMCA\" qualifier, though the formula separately excludes article_is_usmca_duty_free_good. The bundled PR body is PR #1195, which describes the original creation of these overlay modules and does not mention these gates; the commit message is the defect statement. Also changed in the commit: the companion test file (12 new behavioral witness cases plus the three new inputs added to existing cases) and the .axiom encoding manifest.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.93,
+    "verifier_justification": "The diff changes encoded meaning: the applicability formula for fentanyl_energy_additional_duty_applies gains three conjuncts that gate the 9903.01.13 additional duty on a properly claimed chapter 98 entry (with the 9802.00.80/.40/.50/.60 carve-back) and on CBP-determined transshipment. Reading note 2(j) and 2(m) through the pinned release (provision file data/corpus/provisions/us/statute/2026-08-01-usitc-hts-2026-rev3-notes.jsonl, lines 184 and 185) confirms the source states both clauses for heading 9903.01.13 — \"The additional duties imposed by headings 9903.01.10 and 9903.01.13 shall not apply to goods for which entry is properly claimed under a provision of chapter 98 ... except for goods entered under heading 9802.00.80; and subheadings 9802.00.40, 9802.00.50, and 9802.00.60\" and the 40% transshipment rate \"in lieu of\" this heading's rate — so the pre-fix encoding, whose own source field is \"HTS 9903.01.13 article scope under U.S. note 2(j)\", disagreed with the very provision it cites. This is not mechanical (the formula, not just proof atoms, changed) and not mere new scope (the module already claimed note 2(j) scope); the added companion cases show the gates flip the result. The concurrent re-anchor of the heading-exception atom from 9903.01.10 to 9903.01.13 is provenance only and does not displace unrepresented_clause as the kind.",
+    "verifier_quote": "+          and not (article_is_properly_claimed_chapter_98_entry\n+                   and not article_is_9802_excepted_entry)\n+          and not article_is_cbp_determined_transshipped_to_evade",
+    "verifier_notes": "Decisive evidence is the formula hunk at rules[fentanyl_energy_additional_duty_applies].versions[0].formula (diff /private/tmp/claude-501/-Users-maxghenis-TheAxiomFoundation-axiom-encode--claude-worktrees-zealous-heyrovsky-31a96b/86103d8f-b97f-4559-a96c-7e79bdbe616d/scratchpad/diffs/us/70376bf80a/000.diff). Source verification: resolve_provision on us/statute/hts/chapter-99/page-174 (note 2(j), chapter 98 / 9802 carve-back) and page-175 (note 2(m), 40% in lieu of the 9903.01.13 rate), corpus release us-rulespec-2026-08-03-ecps-pit-tariff-union. Companion test additions witness the behavior change (chapter-98 claim with 9802 false -> not subject; 9802 true -> still subject; transshipped -> out of heading), so the new conjuncts are load-bearing rather than inert free facts. Mixed-content caveat: the same commit re-anchors one exception proof atom from us/statute/hts/9903.01.10 to us/statute/hts/9903.01.13 with a new excerpt, adds page-175 to corpus_citation_paths, drops 9903.01.10, and extends the summary — those parts are mechanical provenance/metadata. Residual fidelity gaps left unencoded: note 2(m)'s \"do not qualify as originating under the USMCA\" qualifier is not in the transshipment gate (only partly covered by the pre-existing not article_is_usmca_duty_free_good), and note 2(j)'s partial-value base for 9802.00.40/.50/.60 (value of repairs/alterations/processing) and 9802.00.80 (value assembled abroad less US content) is not represented — the module treats a 9802 entry as fully subject to the 10%.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Provision read through the pinned corpus release (us-rulespec-2026-08-03-ecps-pit-tariff-union). Page-174 note 2(j) verbatim: \"The additional duties imposed by headings 9903.01.10 and 9903.01.13 shall not apply to goods for which entry is properly claimed under a provision of chapter 98 of the tariff schedule ... except for goods entered under heading 9802.00.80; and subheadings 9802.00.40, 9802.00.50, and 9802.00.60\" — it names 9903.01.13 explicitly, so the carve-out was genuinely missing, not new scope. Page-175 note 2(m) verbatim: transshipped-to-evade goods are subject to 40% \"in lieu of the additional rate of duty provided for in headings 9903.01.10, 9903.01.13, or 9903.01.15\", so the pre-fix module over-applied the 10% to those goods. Decisive change is the formula: adds `and not (article_is_properly_claimed_chapter_98_entry and not article_is_9802_excepted_entry)` and `and not article_is_cbp_determined_transshipped_to_evade`. Bundled with the formula fix, and mechanical on their own: the heading-exception proof atom was re-anchored from corpus_citation_path us/statute/hts/9903.01.10 (excerpt \"Except for products described in headings 9903.01.11, 9903.01.12, 9903.01.13, 9903.01.14 or 9903.01.15\", which is 9903.01.10's own exception list, i.e. the wrong record) to us/statute/hts/9903.01.13 with its inherited ancestor text; module summary expanded; source_verification list drops 9903.01.10 and adds chapter-99/page-175. The resolver returns only the 9903.01.13 record body (no inherited ancestor text), so the new excerpt could not be byte-verified against the resolver output — proof-validate presumably checks it against the inherited text. Residual precision gap a reviewer may note: the new transshipment gate does not encode note 2(m)'s \"do not qualify as originating under the USMCA\" qualifier, though the formula separately excludes article_is_usmca_duty_free_good. The bundled PR body is PR #1195, which describes the original creation of these overlay modules and does not mention these gates; the commit message is the defect statement. Also changed in the commit: the companion test file (12 new behavioral witness cases plus the three new inputs added to existing cases) and the .axiom encoding manifest. | verifier confirmed at 0.93",
+  "family_id": "us-70376bf8-3370c1963faf",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

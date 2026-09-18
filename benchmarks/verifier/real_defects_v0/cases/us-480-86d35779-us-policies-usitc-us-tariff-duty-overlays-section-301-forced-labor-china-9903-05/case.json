@@ -1,0 +1,169 @@
+{
+  "id": "us-480-86d35779-us-policies-usitc-us-tariff-duty-overlays-section-301-forced-labor-china-9903-05",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "86d35779d9eea3ec3f1c9ca211c4a78226878093",
+  "parent_commit": "b58a5c650ba76fb2313b53d006dd8a708d3fd2de",
+  "commit_date": "2026-08-01",
+  "commit_subject": "Repair overlay effective dates and retire heading 9903.01.20 module",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1192",
+  "module_path": "us/policies/usitc/us-tariff-duty/overlays/section-301/forced-labor-china-9903-05-31.yaml",
+  "corpus_citation_path": "us/statute/hts/9903.05.31",
+  "corpus_citation_paths_all": [
+    "us/statute/hts/9903.05.31"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "wrong_period_or_effective_date",
+  "other_kind": null,
+  "confidence": 0.93,
+  "description": "Forced-labor 301 headings gate entries on/after 2026-07-24 per FR\n  2026-15181 DATES (was 2026-07-23).",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        32,
+        32
+      ],
+      [
+        62,
+        62
+      ],
+      [
+        91,
+        91
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        32,
+        32
+      ],
+      [
+        62,
+        62
+      ],
+      [
+        91,
+        91
+      ]
+    ],
+    "rule_names": [
+      "forced_labor_china_heading_applies",
+      "general_duty_rate_after_forced_labor_china_overlay",
+      "special_duty_rate_after_forced_labor_china_overlay"
+    ],
+    "rule_path": "rules[forced_labor_china_heading_applies].versions[0].effective_from"
+  },
+  "pre_fix_artifact_sha256": "de72610ea1dc83980e2e8e9996bb791ccb96b46a502c2e1aa824e5f67c1e2d74",
+  "post_fix_artifact_sha256": "2be96ad08271f4f16f868386f8c884da50faf8d664aa0103b9df8c5c7cee615e",
+  "provision_sha256": "0662026f9639ae7231b19e5cf478537992f3b1c583a6a82c842555ce8ee74356",
+  "provision_chars": 434,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/hts/9903.05.31",
+    "provision_file": "data/corpus/provisions/us/statute/2026-08-03-rulespec-hts-current-with-legacy-aluminum.jsonl",
+    "provision_file_sha256": "7406b42f2f6a35bd43ed67d7fe4d0f7323e12c3e49c67b8d6699f9978d23b770",
+    "line_number": 1304,
+    "record_id": "8d182abe-3db2-5b54-a0e9-6a911a849c97",
+    "stored_body_sha256": "0662026f9639ae7231b19e5cf478537992f3b1c583a6a82c842555ce8ee74356",
+    "resolved_text_sha256": "0662026f9639ae7231b19e5cf478537992f3b1c583a6a82c842555ce8ee74356",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-31",
+    "source_as_of": "2026-08-01",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "2ccb67efa41f60b5a80cb736c0272e68d5591389",
+    "requested_citation_path": "us/statute/hts/9903.05.31",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.31'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.31'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.31'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.31'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.31'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.31'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.31'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.31'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.31'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.31'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.31'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.31'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.31'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.31'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.31'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.31'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The three rules applying the 12.5% forced-labor 301 duty to products of China under HTS 9903.05.31 started 2026-07-23, a day before the notice's entry-date gate of July 24, 2026.",
+    "triage_notes": "Same pattern as index 5 (China instead of Brazil); only effective_from lines changed, formulas and the 9903.05.85-9903.05.92 exception untouched. FR 2026-15181 DATES verified through the pinned corpus. Companion test unchanged.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_period_or_effective_date",
+    "verifier_confidence": 0.94,
+    "verifier_justification": "The whole diff is three identical version-window edits — `effective_from` moved from '2026-07-23' to '2026-07-24' on all three rules (heading applicability, general rate, special rate) — with formulas, rates, inputs, outputs, proof atoms, and scope untouched, so it is a pure meaning change to the version window, not provenance bookkeeping. I attempted to refute it two ways and both failed: the pinned corpus text of the cited HTS heading (us/statute/hts/9903.05.31) carries no date at all, but the establishing notice it implements, FR 2026-15181 Annex I, reads \"A. Effective with respect to goods entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern time on July 24, 2026, subchapter III of chapter 99 of the Harmonized Tariff Schedule of the United States (HTSUS) is modified as follows: 1. The following new provisions are inserted\" — so the heading did not exist for July 23 entries and the pre-fix encoding applied a 12.5% duty a day early. Nor is this a strictness error (effective_from stays an inclusive lower bound matching \"on or after\"), an amount change, or added coverage, so no other kind fits better than wrong_period_or_effective_date, and the PR itself had already flagged the mismatch as an open judgment call (\"Forced-labor 301 component gated at ≥ 2026-07-24 per FR 2026-15181 DATES, although heading modules carry effective_from 2026-07-23\").",
+    "verifier_quote": "-      - effective_from: '2026-07-23'\n+      - effective_from: '2026-07-24'",
+    "verifier_notes": "Corroborating detail a reviewer may want: the companion module forced-labor-presidential-action.yaml deliberately KEEPS effective_from '2026-07-23' (the date of the presidential memorandum) in this same commit, while only the HTS heading modules move to 07-24 (the Annex I entry-date gate). That asymmetry is source-correct, not an inconsistency, and it rules out a \"someone bulk-shifted dates\" reading. Two things stop short of refuting but are worth recording: (1) the module's own declared corpus_citation_path is the dateless HTS article description, so the date's grounding lives in FR 2026-15181 (cited in the composition, not in this module's proof atoms) — a provenance gap, not a misclassification; (2) the composition already gated the forced-labor 301 component at >= 2026-07-24, so the composed program's numbers likely did not change — the defect was latent in the module's standalone meaning. Also note the companion test file was not touched: all three cases run at 2026-08-01, so no case exercises the 07-23/07-24 boundary and the defect could not have been caught by the module's own tests. Separately unrepresented (and not addressed by this fix): the FR's in-transit carve-out exempting goods loaded before 07-24 and entered before 07-28.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Same pattern as index 5 (China instead of Brazil); only effective_from lines changed, formulas and the 9903.05.85-9903.05.92 exception untouched. FR 2026-15181 DATES verified through the pinned corpus. Companion test unchanged. | verifier confirmed at 0.94",
+  "family_id": "us-86d35779-c386cbc69b9d",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

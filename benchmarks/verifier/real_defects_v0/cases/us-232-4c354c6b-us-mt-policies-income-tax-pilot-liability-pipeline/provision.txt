@@ -1,0 +1,29 @@
+15-30-2103. (Temporary) Rate of tax -- net long-term capital gains -- definitions. (1) Except as provided in subsection (2), there must be levied, collected, and paid for each tax year on the Montana taxable income of each taxpayer subject to this chapter a tax on the brackets of taxable income as follows:
+(a) for every married individual who files a joint return and for every surviving spouse:
+(i) on the first $95,000 of Montana taxable income or any part of that income, 4.7%;
+(ii) on any Montana taxable income in excess of $95,000 or any part of that income, 5.65%;
+(b) for every head of household:
+(i) on the first $71,250 of Montana taxable income or any part of that income, 4.7%;
+(ii) on any Montana taxable income in excess of $71,250 or any part of that income, 5.65%;
+(c) for every individual other than a surviving spouse or head of household who is not a married individual:
+(i) on the first $47,500 of Montana taxable income or any part of that income, 4.7%;
+(ii) on any Montana taxable income in excess of $47,500 or any part of that income, 5.65%;
+(d) for every married individual who does not make a joint return and for every estate or trust not exempt from taxation under the Internal Revenue Code:
+(i) on the first $47,500 of Montana taxable income or any part of that income, 4.7%;
+(ii) on any Montana taxable income in excess of $47,500 or any part of that income, 5.65%.
+(2) Except as provided in 15-30-3704, that portion of a taxpayer's Montana taxable income that consists of net long-term capital gains after accounting for amounts included in taxable income that is not net long-term capital gains is subject to a tax on the brackets of net long-term capital gains as follows:
+(a) for every married individual who files a joint return and for every surviving spouse:
+(i) on the first $95,000 less nonqualified taxable income of net long-term capital gains, 3.0%;
+(ii) on net long-term capital gains that exceed $95,000 less nonqualified taxable income or any part of that income, 4.1%, except that if the total nonqualified taxable income is $95,000 or greater, all of the net long-term capital gains are taxed at 4.1%;
+(b) for every head of household:
+(i) on the first $71,250 less nonqualified taxable income of net long-term capital gains, 3.0%;
+(ii) on any net long-term capital gains that exceed $71,250 less nonqualified taxable income or any part of that income, 4.1%, except that if the total nonqualified taxable income is $71,250 or greater, all of the net long-term capital gains are taxed at 4.1%;
+(c) for every individual other than a surviving spouse or head of household who is not a married individual:
+(i) on the first $47,500 less nonqualified taxable income of net long-term capital gains, 3.0%;
+(ii) on any net long-term capital gains that exceed $47,500 less nonqualified taxable income or any part of that income, 4.1%, except that if the total nonqualified taxable income is $47,500 or greater, all of the net long-term capital gains are taxed at 4.1%;
+(d) for every married individual who does not make a joint return and for every estate or trust that is not exempt from taxation under the Internal Revenue Code:
+(i) on the first $47,500 less nonqualified taxable income of net long-term capital gains, 3.0%;
+(ii) on any net long-term capital gains that exceed $47,500 less nonqualified taxable income or any part of that income, 4.1%, except that if the total nonqualified taxable income is $47,500 or greater, all of the net long-term capital gains are taxed at 4.1%.
+(3) For the purposes of this section, the following definitions apply:
+(a) "Net long-term capital gains" means net long-term capital gains as that term is defined in section 1222 of the Internal Revenue Code, 26 U.S.C. 1222.
+(b) "Nonqualified taxable income" means Montana taxable income that is not considered net long-term capital gains. (Terminates December 31, 2026--sec. 7, Ch. 227, L. 2025.)

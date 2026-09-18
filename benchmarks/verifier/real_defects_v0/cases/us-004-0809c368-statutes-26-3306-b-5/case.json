@@ -1,0 +1,248 @@
+{
+  "id": "us-004-0809c368-statutes-26-3306-b-5",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "0809c368a78b8be9954760483796a9eb38749a54",
+  "parent_commit": "663801e5f67f439ebbd5bff1dea30912f4cc712d",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Alongside CI/toolchain wiring, reverts 3306(b)(5) to the (A)-(H) encoding: restores the 408(p) branch and removes the deferred outputs and 3121(v) import introduced by 0a89bda45d (restore/revert of module semantics).",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/328",
+  "module_path": "statutes/26/3306/b/5.yaml",
+  "corpus_citation_path": "us/statute/26/3306",
+  "corpus_citation_paths_all": [
+    "us/statute/26/3306"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.4,
+  "description": "The complete paragraph (5) wage exclusion includes clause (H), which is blocked by the unsupported section 408(p) arrangement dependency. This file therefore exposes executable non-408(p) branches only.",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        2,
+        3
+      ],
+      [
+        10,
+        15
+      ],
+      [
+        17,
+        17
+      ],
+      [
+        22,
+        22
+      ],
+      [
+        30,
+        30
+      ],
+      [
+        35,
+        35
+      ],
+      [
+        40,
+        40
+      ],
+      [
+        45,
+        45
+      ],
+      [
+        50,
+        50
+      ],
+      [
+        52,
+        56
+      ],
+      [
+        61,
+        61
+      ],
+      [
+        66,
+        66
+      ],
+      [
+        71,
+        71
+      ],
+      [
+        76,
+        76
+      ],
+      [
+        93,
+        93
+      ],
+      [
+        104,
+        104
+      ],
+      [
+        110,
+        110
+      ],
+      [
+        122,
+        123
+      ],
+      [
+        128,
+        128
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        10,
+        10
+      ],
+      [
+        15,
+        15
+      ],
+      [
+        23,
+        23
+      ],
+      [
+        28,
+        28
+      ],
+      [
+        33,
+        33
+      ],
+      [
+        38,
+        38
+      ],
+      [
+        43,
+        43
+      ],
+      [
+        45,
+        48
+      ],
+      [
+        53,
+        53
+      ],
+      [
+        58,
+        58
+      ],
+      [
+        63,
+        63
+      ],
+      [
+        68,
+        68
+      ],
+      [
+        85,
+        85
+      ],
+      [
+        95,
+        98
+      ],
+      [
+        100,
+        100
+      ],
+      [
+        106,
+        106
+      ],
+      [
+        118,
+        119
+      ],
+      [
+        124,
+        124
+      ]
+    ],
+    "rule_names": [
+      "qualified_plan_cafeteria_or_deferred_compensation_exclusion_category_applies",
+      "qualified_plan_cafeteria_or_deferred_compensation_payment_excluded_from_wages"
+    ],
+    "rule_path": "rules[qualified_plan_cafeteria_or_deferred_compensation_exclusion_category_applies].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "a1caadfa01c13cef8b46a4c0a83d73d3a925af29452db6c01b40c30b568270ee",
+  "post_fix_artifact_sha256": "4b119febeddb7af4833c0eac069fe4e04401b6e848592cd746144e545d1c98cf",
+  "provision_sha256": "eeb9d8da8084dd18b6bd90f296eff74884335e21781c4c9a23b67e0785b45717",
+  "provision_chars": 39401,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/3306",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "1b0b185ca3335eb06c4fe10af488a8984bdd2cedd4087badf78583c267af7b7b",
+    "line_number": 85,
+    "record_id": "eee51368-a0be-578a-92f2-95027c382965",
+    "stored_body_sha256": "eeb9d8da8084dd18b6bd90f296eff74884335e21781c4c9a23b67e0785b45717",
+    "resolved_text_sha256": "eeb9d8da8084dd18b6bd90f296eff74884335e21781c4c9a23b67e0785b45717",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us/statute/26/3306",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3306'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3306'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3306'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3306'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "unclear",
+    "pre_fix_wrong_because": "The pre-fix module dropped 26 USC 3306(b)(5)(H) from the paragraph-(5) FUTA wage exclusion, so a payment under a section 408(p) arrangement (other than an elective contribution under 408(p)(2)(A)(i)) was not excluded from wages even though the source says it is — though the pre-fix file declared that omission openly via deferred_outputs rather than encoding it silently.",
+    "triage_notes": "Provision read through the pinned corpus release (us/statute/26/3306): clause (H) verbatim is 'under an arrangement to which section 408(p) applies, other than any elective contributions under paragraph (2)(A)(i) thereof', and clause (E) is 'under or to an exempt governmental deferred compensation plan (as defined in section 3121(v)(3))'; the post-fix proof excerpts match the source verbatim while the pre-fix excerpts were elided with '...'. Why only unclear: (a) this is a pure revert — 0809c368a7:statutes/26/3306/b/5.yaml and .test.yaml are byte-identical to e68b7d9fc (the original PR #152 encoding), undoing in-branch commit 0a89bda45 'Re-encode FUTA wage exclusions'; (b) the commit body is empty, the subject is 'Scope payroll validation refresh', and PR #328's body never mentions 3306(b)(5) — its scope list covers 3101/3111/3121/3241/3201/3221/3131(f)/3132(f)/3133(a)/3134(c) only — so the operative stated reason is PR scoping ('keep this PR scoped to generated RuleSpec artifacts and manifests'), not a diagnosed fidelity defect; the same commit deletes .axiom/toolchain.toml and reverts the workflow ref, matching the PR line about dropping the toolchain/workflow bump; (c) the pre-fix state was an explicitly documented deferral (deferred_outputs with a reason, rules renamed to non_408_p_*, source narrowed to '26 USC 3306(b)(5)(A)-(G)'), which a judge could reasonably read as honest partial coverage rather than an infidelity. Counter-evidence that it is a real defect: main still carries the (A)-(H) form (us/statutes/26/3306/b/5.yaml after the 86ec136fd path move), so the (A)-(G) de-scoping was transient. Secondary observation for the reviewer: the revert also replaces the pre-fix clause-(E) import of us:statutes/26/3121/v#exempt_governmental_deferred_compensation_plan (a plan-status predicate) with a direct input 'payment_under_or_to_exempt_governmental_deferred_compensation_plan_defined_in_section_3121_v_3'; the statute requires the payment be 'under or to' such a plan, so the pre-fix import arguably fired on plan status alone (a possible over-inclusion), but that is speculative and not the driving change. No external module imports this file's outputs at either revision (only its own companion test), so the rename broke no downstream consumer. Companion test statutes/26/3306/b/5.test.yaml (+509/-) was reverted in lockstep.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.65,
+    "verifier_justification": "The pinned corpus text of 26 USC 3306(b)(5) ends with clause (H) covering payments \"under an arrangement to which section 408(p) applies, other than any elective contributions under paragraph (2)(A)(i) thereof\", and the pre-fix module had no executable path for it: its category rule was renamed non_408_p_exclusion_category_applies and sourced \"26 USC 3306(b)(5)(A)-(G)\", so a non-elective 408(p) payment was not excluded from FUTA wages though the source excludes it. The diff adds exactly that disjunct to versions[0].formula with a verbatim clause-(H) proof excerpt and moves the rule sources from (A)-(G) to (A)-(H) and to the paragraph-wide \"26 USC 3306(b)(5)\", so the encoded meaning changes in the way the first reader described and the kind holds. The hedge in that reading — that the omission was declared openly via deferred_outputs — does not make the pre-fix state source-faithful: the encoder prompt in force on the commit date (axiom-encode fb6ca5c8ae, prompts/encoder.py:493-500) says to treat category-membership phrases as factual boundary predicates and \"Do not defer merely because the cited section is unavailable unless the current source requires computing numeric amounts or legal mechanics from that section rather than testing membership in the described category\", which is exactly the excuse the deleted deferral gave. I hold confidence at 0.65 because the commit is a byte-exact revert inside a bookkeeping PR whose message never calls the prior encoding wrong.",
+    "verifier_quote": "-    source: 26 USC 3306(b)(5)(A)-(G)\n+    source: 26 USC 3306(b)(5)(A)-(H)\n...\n+          or (\n+            payment_under_arrangement_to_which_section_408_p_applies\n+            and not payment_is_elective_contribution_under_paragraph_2_a_i_of_section_408_p\n+          )",
+    "verifier_notes": "Refutation attempts and what survived, for the pruning reviewer:\n\n1) Source check (survives for the defect). resolve_provision on us/statute/26/3306 at the pinned release us-rulespec-2026-07-13 (corpus commit 612d20ca43) shows paragraph (5) running (A) through (H), with (H) = \"under an arrangement to which section 408(p) applies, other than any elective contributions under paragraph (2)(A)(i) thereof\". The restored formula disjunct and its new proof excerpt are verbatim from that text, so this is a real clause the source states.\n\n2) \"It is only a revert, not a fix\" (partially survives — strongest prune argument). Blob ids show an exact round trip of BOTH the module and its companion test: statutes/26/3306/b/5.yaml is 048411bd1 at e68b7d9fc (the original generated encoding, PR #152), 4968763 at 0a89bda45d \"Re-encode FUTA wage exclusions\" (2026-06-01), and back to 048411bd1 at 0809c368a7 (2026-06-02); the test file goes 6938e62b1 -> b63c4861f -> 6938e62b1. So the 509-line test diff is not new coverage work, it is the revert. The defective window lasted one day, and neither the commit subject (\"Scope payroll validation refresh\") nor PR #328's body mentions a 3306(b)(5) fidelity correction — the body says \"refresh dependent payroll proof-import hashes\" and \"apply signed encoder output/repairs only\". If the corpus wants defects that a human identified and repaired, this one was never described as wrong by anyone; it was overwritten by a re-run.\n\n3) \"The module never claimed clause (H), so this is new scope, not a defect\" (does not survive). It is the closest fit to the not_a_defect carve-out — the pre-fix rules were renamed non_408_p_*, sourced (A)-(G), and both the paragraph-wide output and the 408(p) output were listed under module.deferred_outputs with reasons. But the file is still the repo's encoding of that citation (path statutes/26/3306/b/5.yaml, corpus_citation_path us/statute/26/3306), its own pre-fix summary still listed \"section 408(p) arrangements\" as part of the paragraph, and the contemporaneous encoder policy forbids deferring a pure membership predicate on the ground that the cited section is unavailable. Clause (H) needs only an arrangement-status membership test, not numeric mechanics from 408(p), so the deferral was an improper deferral rather than a legitimate scope declaration.\n\n4) Blast radius (mitigating, worth recording). git grep for \"3306/b/5#\" under statutes/26 at both the parent (663801e5f) and the fix commit returns no importers outside the module itself, so no downstream module computed a wrong FUTA wage during the one-day window. The gap was latent, not live.\n\n5) Collateral change the first reader did not mention. The same diff deletes the imports: block and replaces the clause (E) import us:statutes/26/3121/v#exempt_governmental_deferred_compensation_plan (with its pinned hash) with a free local boolean input payment_under_or_to_exempt_governmental_deferred_compensation_plan_defined_in_section_3121_v_3. Clause (H) likewise arrives as two caller-asserted booleans (visible as #input.payment_under_arrangement_to_which_section_408_p_applies in the test file). So the \"fix\" is not a strict grounding improvement: it buys full (A)-(H) coverage by trading one grounded cross-module import for caller-supplied predicates. A reviewer who wants only defects whose fix strictly increases grounding should downgrade this case; the excerpt-only changes in the same diff (ellipsis excerpts restored to verbatim source text) are provenance, i.e. mechanical, and are not what carries the verdict.\n\nBottom line: the kind is right and the formula change is unambiguous, but this is a self-disclosed, zero-consumer, one-day gap closed by an exact revert — a weak detection case even though it is a genuine missing-clause defect.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Provision read through the pinned corpus release (us/statute/26/3306): clause (H) verbatim is 'under an arrangement to which section 408(p) applies, other than any elective contributions under paragraph (2)(A)(i) thereof', and clause (E) is 'under or to an exempt governmental deferred compensation plan (as defined in section 3121(v)(3))'; the post-fix proof excerpts match the source verbatim while the pre-fix excerpts were elided with '...'. Why only unclear: (a) this is a pure revert — 0809c368a7:statutes/26/3306/b/5.yaml and .test.yaml are byte-identical to e68b7d9fc (the original PR #152 encoding), undoing in-branch commit 0a89bda45 'Re-encode FUTA wage exclusions'; (b) the commit body is empty, the subject is 'Scope payroll validation refresh', and PR #328's body never mentions 3306(b)(5) — its scope list covers 3101/3111/3121/3241/3201/3221/3131(f)/3132(f)/3133(a)/3134(c) only — so the operative stated reason is PR scoping ('keep this PR scoped to generated RuleSpec artifacts and manifests'), not a diagnosed fidelity defect; the same commit deletes .axiom/toolchain.toml and reverts the workflow ref, matching the PR line about dropping the toolchain/workflow bump; (c) the pre-fix state was an explicitly documented deferral (deferred_outputs with a reason, rules renamed to non_408_p_*, source narrowed to '26 USC 3306(b)(5)(A)-(G)'), which a judge could reasonably read as honest partial coverage rather than an infidelity. Counter-evidence that it is a real defect: main still carries the (A)-(H) form (us/statutes/26/3306/b/5.yaml after the 86ec136fd path move), so the (A)-(G) de-scoping was transient. Secondary observation for the reviewer: the revert also replaces the pre-fix clause-(E) import of us:statutes/26/3121/v#exempt_governmental_deferred_compensation_plan (a plan-status predicate) with a direct input 'payment_under_or_to_exempt_governmental_deferred_compensation_plan_defined_in_section_3121_v_3'; the statute requires the payment be 'under or to' such a plan, so the pre-fix import arguably fired on plan status alone (a possible over-inclusion), but that is speculative and not the driving change. No external module imports this file's outputs at either revision (only its own companion test), so the rename broke no downstream consumer. Companion test statutes/26/3306/b/5.test.yaml (+509/-) was reverted in lockstep. | verifier confirmed at 0.65",
+  "family_id": "us-0809c368-8cf9e8b60336",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

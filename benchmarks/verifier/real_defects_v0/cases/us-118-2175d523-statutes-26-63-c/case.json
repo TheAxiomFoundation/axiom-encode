@@ -1,0 +1,182 @@
+{
+  "id": "us-118-2175d523-statutes-26-63-c",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "2175d5239a22bce42aa7a3b2f5a7c4af4c6940ea",
+  "parent_commit": "adae20d1a4f21048c54d538a96e14e5fc4d76d0f",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Re-encode adds the missing 63(c)(5) dependent limitation to standard_deduction and sources the aged/blind count from 63(f) instead of local count_where inputs.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/25",
+  "module_path": "statutes/26/63/c.yaml",
+  "corpus_citation_path": "us/statute/26/63",
+  "corpus_citation_paths_all": [
+    "us/statute/26/63"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.79,
+  "description": "Re-encode 26 USC 63(c) with upstream dependencies",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        12,
+        20
+      ],
+      [
+        71,
+        71
+      ],
+      [
+        75,
+        75
+      ],
+      [
+        88,
+        88
+      ],
+      [
+        91,
+        91
+      ],
+      [
+        109,
+        109
+      ],
+      [
+        114,
+        114
+      ],
+      [
+        117,
+        117
+      ],
+      [
+        122,
+        122
+      ],
+      [
+        132,
+        132
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        11,
+        11
+      ],
+      [
+        63,
+        63
+      ],
+      [
+        67,
+        67
+      ],
+      [
+        80,
+        80
+      ],
+      [
+        83,
+        83
+      ],
+      [
+        95,
+        134
+      ],
+      [
+        141,
+        141
+      ],
+      [
+        146,
+        146
+      ],
+      [
+        149,
+        149
+      ],
+      [
+        154,
+        160
+      ],
+      [
+        170,
+        173
+      ]
+    ],
+    "rule_names": [
+      "standard_deduction",
+      "basic_standard_deduction_limited_for_dependents",
+      "num_additional_standard_deduction_conditions",
+      "member_of_tax_unit"
+    ],
+    "rule_path": "rules[standard_deduction].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "ca469084ca7bebe668c8ec5d217b0c7541c521e2dbbc8d21118e8f3c0f135e95",
+  "post_fix_artifact_sha256": "b0456fe4c1b877d2a461fbc8d56bf84e647d94ca604b0487835cfb769583b517",
+  "provision_sha256": "7fa5f5d72de7ef69a3543175d7f57f83aaee5defb237144d85afef68564f153b",
+  "provision_chars": 8017,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/63",
+    "provision_file": "data/corpus/provisions/us/statute/2026-05-10-tax-sections-r2026-07-15-self-contained-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "f48f152a03f99915c6ac9a847986e238ebeddd29ffb4199f0528c5e2a406eae4",
+    "line_number": 3,
+    "record_id": "7acfd1b0-b61a-5a75-ab49-380a365a45a2",
+    "stored_body_sha256": "7fa5f5d72de7ef69a3543175d7f57f83aaee5defb237144d85afef68564f153b",
+    "resolved_text_sha256": "7fa5f5d72de7ef69a3543175d7f57f83aaee5defb237144d85afef68564f153b",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2025-12-03",
+    "source_as_of": "2025-12-03",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us/statute/26/63",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/63'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/63'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/63'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/63'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module computed standard_deduction as basic_standard_deduction_amount + additional_std_ded_amount with no 63(c)(5) cap, so a taxpayer for whom a section 151 deduction is allowable to another taxpayer received the full basic standard deduction instead of the statutory limit of the greater of $500 or $250 plus earned income (inflation-adjusted), e.g. $16,100 rather than $5,450 for a 2026 dependent with $5,000 of earned income.",
+    "triage_notes": "Read the module diff, the full pre-fix and post-fix module bodies, the companion test diff, and the 26 USC 63 provision text via resolve_provision.py (us/statute/26/63 at this rulespec commit); 63(c)(5) and 63(f) both resolve and are quoted below.\n\nPrimary defect (the one I classified): 63(c)(5) was present in the module's own cited summary but wholly unencoded pre-fix. The fix adds rule `basic_standard_deduction_limited_for_dependents` with an explicit proof atom `kind: exception` carrying the verbatim 63(c)(5) text, imports `us:statutes/26/63/c/5#dependent_standard_deduction` (that module already existed at the parent commit, adae20d1a, so this is purely a failure to wire the clause in), and rewrites `standard_deduction` to `if standard_deduction_ineligible: 0 else: basic_standard_deduction_limited_for_dependents + additional_std_ded_amount`. The new test `dependent_basic_standard_deduction_limited` pins the behavior at 5450 for earned_income 5000.\n\nSecond, co-occurring defect in the same commit (would be wrong_entity_or_scope / untraceable_branch if scored separately): `num_additional_standard_deduction_conditions` was `count_where(member_of_tax_unit, is_aged_65_or_over) + count_where(member_of_tax_unit, is_blind)`, counting every tax-unit member including dependents, while 63(c)(3) points to 63(f), which entitles additional amounts only \"for himself\" and \"for the spouse of the taxpayer\" (verified in the resolved provision text). The fix replaces the local count with the 63(f)-sourced input and deletes the `member_of_tax_unit` data_relation rule. I picked unrepresented_clause because the screen description and the larger, value-changing hunk are the 63(c)(5) addition, but a reviewer building the corpus could legitimately split this module into two seeded defects.\n\nAlso changed but non-substantive: several proof-atom `kind: formula` -> `kind: definition` relabels and excerpt-string expansions (provenance only, mechanical), and `source:` metadata strings updated to cite (5).\n\nEvidence caveats for the reviewer: the commit body is empty and the subject is generic, so the only quotable text naming the defect is inside the diff itself as the added proof-atom excerpt (\"In the case of an individual with respect to whom a deduction under section 151 is allowable to another taxpayer ... the basic standard deduction applicable to such individual ... shall not exceed the greater of— (A) $500, or (B) the sum of $250 and such individual's earned income.\"), which is source text rather than an authored comment, so I quoted the commit subject instead and held confidence at 0.79. The bundle's PR (rulespec-us#25, merged 2026-05-12) is the PR that contains BOTH the defective parent commit adae20d1a and this fix; its body describes the original encode, not this correction, and contains no reviews or review comments. That means the pre-fix state was only ever on the PR branch, never on merged main — the defect is real but was self-caught within the same PR. History is linear (adae20d1a -> 2175d5239a). Follow-up commits touching the same file: 86e2549dc (2026-05-12, \"Encode upstream IRC 63 dependencies\"), 095d680d4 (2026-05-23), 86ec136fd (2026-06-10, path move to us/).",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.93,
+    "verifier_justification": "The refutation attempt fails on every angle I tried. The pre-fix `standard_deduction` formula was `if standard_deduction_ineligible: 0 else: basic_standard_deduction_amount + additional_std_ded_amount`, with no reference anywhere in the module to 63(c)(5); the fix inserts a new `basic_standard_deduction_limited_for_dependents` rule whose proof carries an `kind: exception` atom quoting the (5) cap and routes the sum through it. This is not \"coverage the module never claimed\": the module's `corpus_citation_path: us/statute/26/63` resolves (release us-rulespec-2026-07-13, body sha256 7fa5f5d7…) to text whose paragraph (1) reads \"Except as otherwise provided in this subsection\" and whose paragraph (5) states the dependent cap, so encoding (1) without (5) contradicts the cited provision on its own terms — and the cap module `us:statutes/26/63/c/5#dependent_standard_deduction` already existed at the parent commit, so the encoder simply failed to wire an available, required clause. The added test `dependent_basic_standard_deduction_limited` (earned_income 5000 → standard_deduction 5450, vs 16100 in the non-dependent case) pins the numeric consequence, confirming the first reader's kind and illustration.",
+    "verifier_quote": "-          if standard_deduction_ineligible: 0 else: basic_standard_deduction_amount + additional_std_ded_amount\n+          if standard_deduction_ineligible:\n+              0\n+          else:\n+              basic_standard_deduction_limited_for_dependents + additional_std_ded_amount",
+    "verifier_notes": "Verification performed: bundle JSON, full diff, pre-fix and post-fix c.yaml, the parent-commit copy of statutes/26/63/c/5.yaml, the c.test.yaml diff, and the provision text through resolve_provision (corpus_release us-rulespec-2026-07-13, corpus_commit 612d20ca, resolved_text_sha256 7fa5f5d7…). Three caveats for the reviewer, none of which overturn the verdict: (1) The commit carries a SECOND, independent fidelity change on the same module — `num_additional_standard_deduction_conditions` goes from `count_where(member_of_tax_unit, is_aged_65_or_over) + count_where(member_of_tax_unit, is_blind)` to the input `additional_standard_deduction_entitlement_count_under_subsection_f`, and the `member_of_tax_unit` data_relation is deleted. The pinned 63(f) text entitles additional amounts only to \"himself\" and to a spouse for whom a 151(b) exemption is allowable, so the old count over all tax-unit members would over-count aged/blind dependents; that sub-defect is better described as wrong_entity_or_scope (or untraceable_branch — a formula grounded on a member-set the cited provision does not use). Note the PR body offers a competing, non-fidelity motive for that specific deletion: \"Depends on TheAxiomFoundation/axiom-rules-engine#35 for correct namespacing when this module is compiled with other tax modules that also declare member_of_tax_unit.\" If the corpus wants one kind per case, the anchored rule_path (rules[standard_deduction].versions[0].formula) is squarely the 63(c)(5) clause, so unrepresented_clause stands; if the corpus can carry a secondary kind, flag the 63(f) count separately. (2) Provenance: `gh api .../pulls/25/commits` shows the parent adae20d1a4 (\"Encode 26 USC 63(c) standard deduction\") and this commit 2175d5239a are BOTH in PR #25, merged 2026-05-12 — so the defect was introduced and corrected pre-merge within the same PR, never on main. That is a real fidelity correction against the source, but if this corpus is meant to hold defects that survived into shipped/merged content, this case is an intra-PR self-correction and the reviewer may want it tagged as such. (3) Minor: the new `basic_standard_deduction_limited_for_dependents` is `entity: TaxUnit` while the imported `dependent_standard_deduction` in c/5.yaml is `entity: Person` — an entity-lift the diff does not explain; irrelevant to this classification but worth noting if anyone mines this module again. Also note the first reader's quote \"Re-encode 26 USC 63(c) with upstream dependencies\" is the bare commit subject (the commit body is empty) and is generic — it does not by itself support any kind; the decisive evidence is the diff and the test, which I read directly.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Read the module diff, the full pre-fix and post-fix module bodies, the companion test diff, and the 26 USC 63 provision text via resolve_provision.py (us/statute/26/63 at this rulespec commit); 63(c)(5) and 63(f) both resolve and are quoted below.\n\nPrimary defect (the one I classified): 63(c)(5) was present in the module's own cited summary but wholly unencoded pre-fix. The fix adds rule `basic_standard_deduction_limited_for_dependents` with an explicit proof atom `kind: exception` carrying the verbatim 63(c)(5) text, imports `us:statutes/26/63/c/5#dependent_standard_deduction` (that module already existed at the parent commit, adae20d1a, so this is purely a failure to wire the clause in), and rewrites `standard_deduction` to `if standard_deduction_ineligible: 0 else: basic_standard_deduction_limited_for_dependents + additional_std_ded_amount`. The new test `dependent_basic_standard_deduction_limited` pins the behavior at 5450 for earned_income 5000.\n\nSecond, co-occurring defect in the same commit (would be wrong_entity_or_scope / untraceable_branch if scored separately): `num_additional_standard_deduction_conditions` was `count_where(member_of_tax_unit, is_aged_65_or_over) + count_where(member_of_tax_unit, is_blind)`, counting every tax-unit member including dependents, while 63(c)(3) points to 63(f), which entitles additional amounts only \"for himself\" and \"for the spouse of the taxpayer\" (verified in the resolved provision text). The fix replaces the local count with the 63(f)-sourced input and deletes the `member_of_tax_unit` data_relation rule. I picked unrepresented_clause because the screen description and the larger, value-changing hunk are the 63(c)(5) addition, but a reviewer building the corpus could legitimately split this module into two seeded defects.\n\nAlso changed but non-substantive: several proof-atom `kind: formula` -> `kind: definition` relabels and excerpt-string expansions (provenance only, mechanical), and `source:` metadata strings updated to cite (5).\n\nEvidence caveats for the reviewer: the commit body is empty and the subject is generic, so the only quotable text naming the defect is inside the diff itself as the added proof-atom excerpt (\"In the case of an individual with respect to whom a deduction under section 151 is allowable to another taxpayer ... the basic standard deduction applicable to such individual ... shall not exceed the greater of— (A) $500, or (B) the sum of $250 and such individual's earned income.\"), which is source text rather than an authored comment, so I quoted the commit subject instead and held confidence at 0.79. The bundle's PR (rulespec-us#25, merged 2026-05-12) is the PR that contains BOTH the defective parent commit adae20d1a and this fix; its body describes the original encode, not this correction, and contains no reviews or review comments. That means the pre-fix state was only ever on the PR branch, never on merged main — the defect is real but was self-caught within the same PR. History is linear (adae20d1a -> 2175d5239a). Follow-up commits touching the same file: 86e2549dc (2026-05-12, \"Encode upstream IRC 63 dependencies\"), 095d680d4 (2026-05-23), 86ec136fd (2026-06-10, path move to us/). | verifier confirmed at 0.93",
+  "family_id": "us-2175d523-984d74d9f1fa",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

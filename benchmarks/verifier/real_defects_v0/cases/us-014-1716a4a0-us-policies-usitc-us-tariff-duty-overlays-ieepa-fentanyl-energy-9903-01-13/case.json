@@ -1,0 +1,199 @@
+{
+  "id": "us-014-1716a4a0-us-policies-usitc-us-tariff-duty-overlays-ieepa-fentanyl-energy-9903-01-13",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "1716a4a06c5197251356dad38cb9d08aa1ecbff5",
+  "parent_commit": "242124b63ca527ebed3c4f032830b42825de8936",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Subject says Encode but body: \"Sol r4 found two omitted antecedents\" — existing chapter 98 exclusion judgment gains the missing CBP-agreement conjunct; transshipment gains the non-USMCA conjunct (PR #1195).",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1195",
+  "module_path": "us/policies/usitc/us-tariff-duty/overlays/ieepa/fentanyl-energy-9903-01-13.yaml",
+  "corpus_citation_path": "us/statute/hts/9903.01.13",
+  "corpus_citation_paths_all": [
+    "us/statute/hts/9903.01.13",
+    "us/statute/hts/9903.01.11",
+    "us/statute/hts/9903.01.12",
+    "us/statute/hts/9903.01.14",
+    "us/statute/hts/9903.01.15",
+    "us/statute/hts/chapter-99/page-174",
+    "us/statute/hts/chapter-99/page-175"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.93,
+  "description": "Sol r4 found two omitted antecedents: the chapter 98 exclusion requires CBP to agree the entry is appropriate, and heading 9903.01.16's in-lieu treatment requires the product not qualify as USMCA-originating in addition to CBP's transshipment determination.",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        15,
+        15
+      ],
+      [
+        47,
+        47
+      ],
+      [
+        112,
+        112
+      ],
+      [
+        117,
+        117
+      ],
+      [
+        139,
+        139
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        15,
+        15
+      ],
+      [
+        47,
+        47
+      ],
+      [
+        57,
+        57
+      ],
+      [
+        60,
+        84
+      ],
+      [
+        138,
+        138
+      ],
+      [
+        143,
+        143
+      ],
+      [
+        165,
+        165
+      ]
+    ],
+    "rule_names": [
+      "fentanyl_energy_chapter_98_exclusion_applies",
+      "fentanyl_energy_transshipment_in_lieu_applies",
+      "fentanyl_energy_additional_duty_applies"
+    ],
+    "rule_path": "rules[fentanyl_energy_chapter_98_exclusion_applies].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "d6747bd2a87c8e315ad309a08632efaad69c4e621d22d383bc83833e859cffe9",
+  "post_fix_artifact_sha256": "6061eee3994dd483776a8413e90289072a883b89098b5d5b98feedf8588766c9",
+  "provision_sha256": "b6762c3f5a1058084b905e80e87da95a93c7d04f869f73345ebe588eea887639",
+  "provision_chars": 477,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/hts/9903.01.13",
+    "provision_file": "data/corpus/provisions/us/statute/2026-08-03-rulespec-hts-current-with-legacy-aluminum.jsonl",
+    "provision_file_sha256": "7406b42f2f6a35bd43ed67d7fe4d0f7323e12c3e49c67b8d6699f9978d23b770",
+    "line_number": 1094,
+    "record_id": "4af929c8-26db-5fa5-b1dd-db517100f355",
+    "stored_body_sha256": "b6762c3f5a1058084b905e80e87da95a93c7d04f869f73345ebe588eea887639",
+    "resolved_text_sha256": "b6762c3f5a1058084b905e80e87da95a93c7d04f869f73345ebe588eea887639",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-31",
+    "source_as_of": "2026-08-01",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "05ce3d3dd21b0ced76f9af40c2ecc02c1c57d9c6",
+    "requested_citation_path": "us/statute/hts/9903.01.13",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.13'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module dropped two conjuncts the source requires: the chapter 98 exclusion fired on a properly claimed chapter 98 entry alone, although note 2(j) also requires \"whenever CBP agrees that entry under such a provision is appropriate\", and the in-lieu transshipment carve-out fired on a CBP transshipment determination alone, although note 2(m) also requires that the product \"do not qualify as originating under the United States-Canada-Mexico Free Trade Agreement (USMCA)\".",
+    "triage_notes": "Provision read through the pinned corpus release (us/statute/hts/chapter-99/page-174 for note 2(j), page-175 for note 2(m)); both omitted antecedents are verbatim in the source, so this is a confirmed fidelity defect, not a scope expansion. Two distinct defects in one module, both of the same kind (a required conjunct absent from the encoding): (1) rules[fentanyl_energy_chapter_98_exclusion_applies].versions[0].formula gains `and cbp_agrees_chapter_98_entry_is_appropriate`; (2) a new rule fentanyl_energy_transshipment_in_lieu_applies = `not article_qualifies_as_usmca_originating and article_is_cbp_determined_transshipped_to_evade` replaces the bare `not article_is_cbp_determined_transshipped_to_evade` conjunct in rules[fentanyl_energy_additional_duty_applies].versions[0].formula. Direction of pre-fix error: both omissions made the exclusions fire too readily, so goods that the source keeps subject to the 10% additional duty were let out (a USMCA-originating but CBP-determined-transshipped article escaped .13 without landing in .16's 40% in-lieu rate; a chapter 98 claim without CBP agreement escaped the duty). Also changed in the same module, but provenance-only and not defect-bearing on their own: the module summary sentence and three proof-atom excerpt strings extended to the full source sentences. Non-module files in the commit (the .test.yaml with two new witness cases, the encoding manifest, and oracle-coverage-pending.yaml ledger +1 to 2289) are companion/bookkeeping. The PR body (#1195) is the umbrella PR description for the three-overlay encode and does not itself describe this defect; no PR reviews or review comments exist in the bundle, so the commit message is the only quotable statement of the defect.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.94,
+    "verifier_justification": "The pinned corpus (release us-rulespec-2026-08-03-ecps-pit-tariff-union, provisions file 2026-08-01-usitc-hts-2026-rev3-notes.jsonl) confirms note 2(j) reads \"...pursuant to applicable regulations of U.S. Customs and Border Protection (\\\"CBP\\\"), and whenever CBP agrees that entry under such a provision is appropriate\", and note 2(m) reads \"products of Canada that do not qualify as originating under the United States-Canada-Mexico Free Trade Agreement (USMCA) and are determined by ... CBP ... to have been transshipped to evade applicable duties\"; the pre-fix formulas encoded neither conjunct. The fix changes executable logic, not provenance: fentanyl_energy_chapter_98_exclusion_applies gains \"and cbp_agrees_chapter_98_entry_is_appropriate\", and the main rule's conjunct is rewired from \"not article_is_cbp_determined_transshipped_to_evade\" to \"not fentanyl_energy_transshipment_in_lieu_applies\", which requires \"not article_qualifies_as_usmca_originating\" as well. Pre-fix, a chapter 98 claim CBP had not agreed to wrongly escaped the 10% duty, so this is an encoded meaning that disagreed with the source, not new coverage the module never claimed (both carve-outs were already encoded, just under-specified). The companion test adds the two new inputs to every case, confirming a behavioral change rather than metadata churn.",
+    "verifier_quote": "+          and cbp_agrees_chapter_98_entry_is_appropriate",
+    "verifier_notes": "Refutation attempts that failed: (1) \"mechanical/excerpt-only\" — the excerpt extensions on both proof atoms are indeed provenance-only, but two formula bodies changed and a new derived judgment rule was added, so the change is not excerpt-only; (2) \"not_a_defect / new coverage\" — the module's pre-fix summary already asserted both the note 2(j) chapter 98 exclusion and the note 2(m) in-lieu carve-out, so the omitted conjuncts are missing parts of claims the module made, not new scope; (3) \"polarity_or_logic\" — no boolean was inverted or mis-combined, conjuncts the source states were simply absent, which is unrepresented_clause by the given definitions. One caveat worth a reviewer's eye: for the main rule fentanyl_energy_additional_duty_applies, the new non-USMCA conjunct is partly shadowed by the pre-existing \"and not article_is_usmca_duty_free_good\" conjunct, so the transshipment half of the fix may be behaviorally near-inert on that one output (it is live on the new fentanyl_energy_transshipment_in_lieu_applies judgment, and the two predicates are not identical — USMCA-originating is not the same as claiming USMCA duty-free treatment under 9903.01.14). The chapter 98 CBP-agreement conjunct has no such shadow and is unambiguously live, which alone carries the confirmed verdict. Note the first reader's quote is from the commit body and is verbatim; the PR (#1195) predates the fix and says nothing about these antecedents, so the commit message is the only narrative evidence, but the diff plus corpus text is self-sufficient.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Provision read through the pinned corpus release (us/statute/hts/chapter-99/page-174 for note 2(j), page-175 for note 2(m)); both omitted antecedents are verbatim in the source, so this is a confirmed fidelity defect, not a scope expansion. Two distinct defects in one module, both of the same kind (a required conjunct absent from the encoding): (1) rules[fentanyl_energy_chapter_98_exclusion_applies].versions[0].formula gains `and cbp_agrees_chapter_98_entry_is_appropriate`; (2) a new rule fentanyl_energy_transshipment_in_lieu_applies = `not article_qualifies_as_usmca_originating and article_is_cbp_determined_transshipped_to_evade` replaces the bare `not article_is_cbp_determined_transshipped_to_evade` conjunct in rules[fentanyl_energy_additional_duty_applies].versions[0].formula. Direction of pre-fix error: both omissions made the exclusions fire too readily, so goods that the source keeps subject to the 10% additional duty were let out (a USMCA-originating but CBP-determined-transshipped article escaped .13 without landing in .16's 40% in-lieu rate; a chapter 98 claim without CBP agreement escaped the duty). Also changed in the same module, but provenance-only and not defect-bearing on their own: the module summary sentence and three proof-atom excerpt strings extended to the full source sentences. Non-module files in the commit (the .test.yaml with two new witness cases, the encoding manifest, and oracle-coverage-pending.yaml ledger +1 to 2289) are companion/bookkeeping. The PR body (#1195) is the umbrella PR description for the three-overlay encode and does not itself describe this defect; no PR reviews or review comments exist in the bundle, so the commit message is the only quotable statement of the defect. | verifier confirmed at 0.94",
+  "family_id": "us-1716a4a0-5fb424915344",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

@@ -1,0 +1,238 @@
+{
+  "id": "us-238-551f1ac4-us-sd-policies-income-tax-2026-resident-zero-liability",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "551f1ac46faf84040f5b1f0bbab901b9e52a711d",
+  "parent_commit": "51e0fbb412a01a64bc9014e1ccb42aae218c8d04",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Holds unsupported South Dakota credit stages in an existing module: scope/retire correction.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1065",
+  "module_path": "us-sd/policies/income_tax/2026_resident_zero_liability.yaml",
+  "corpus_citation_path": "us-sd/guidance/revenue/2026/sales-and-use-tax-guide/document-1",
+  "corpus_citation_paths_all": [
+    "us-sd/guidance/revenue/2026/sales-and-use-tax-guide/document-1",
+    "us-sd/statute/10/43/2/block-1"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.78,
+  "description": "Hold unsupported South Dakota credit stages",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        24,
+        31
+      ],
+      [
+        126,
+        126
+      ],
+      [
+        128,
+        128
+      ],
+      [
+        130,
+        130
+      ],
+      [
+        135,
+        135
+      ],
+      [
+        141,
+        141
+      ],
+      [
+        149,
+        149
+      ],
+      [
+        187,
+        187
+      ],
+      [
+        206,
+        206
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        23,
+        28
+      ],
+      [
+        30,
+        43
+      ],
+      [
+        47,
+        66
+      ],
+      [
+        158,
+        158
+      ],
+      [
+        160,
+        161
+      ],
+      [
+        163,
+        163
+      ],
+      [
+        168,
+        168
+      ],
+      [
+        174,
+        175
+      ],
+      [
+        183,
+        183
+      ],
+      [
+        215,
+        233
+      ],
+      [
+        240,
+        240
+      ],
+      [
+        253,
+        271
+      ],
+      [
+        278,
+        278
+      ]
+    ],
+    "rule_names": [
+      "sd_pit_2026_credit_stage_applies",
+      "sd_pit_2026_nonrefundable_credit_source_hold_applies",
+      "sd_pit_2026_refundable_credit_source_hold_applies",
+      "sd_pit_2026_net_liability_source_hold_applies",
+      "sd_pit_2026_resident_personal_income_tax_after_nonrefundable_credits",
+      "sd_pit_2026_resident_refundable_personal_income_tax_credits",
+      "sd_pit_2026_resident_net_personal_income_tax_liability_before_payments"
+    ],
+    "rule_path": "rules[sd_pit_2026_credit_stage_applies].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "39c6c1d4ca8c85504ad1c7a6d17f1a0bb3ffbda8e103e830dd4efd37117ad744",
+  "post_fix_artifact_sha256": "7b4de9228bf798bd9cd525a180dead371a698fbd1afcc8eaf69422a36f51ed18",
+  "provision_sha256": "87a4f042299827f3ebe5015c7f9b917e81c365816c5f7ec856ddf251be9e49f5",
+  "provision_chars": 47544,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-sd/guidance/revenue/2026/sales-and-use-tax-guide/document-1",
+    "provision_file": "data/corpus/provisions/us-sd/guidance/2026-07-24-sd-personal-income-tax-zero-liability.jsonl",
+    "provision_file_sha256": "a7013957ce93f011230192149364a881d34eab2abc75fdfb80a7e01db4d02edc",
+    "line_number": 2,
+    "record_id": "db285bc4-6821-537f-901e-d40fc4ad626d",
+    "stored_body_sha256": "87a4f042299827f3ebe5015c7f9b917e81c365816c5f7ec856ddf251be9e49f5",
+    "resolved_text_sha256": "87a4f042299827f3ebe5015c7f9b917e81c365816c5f7ec856ddf251be9e49f5",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-01-01",
+    "source_as_of": "2026-07-24",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "e08fa9767a1faf6ac1d38efe803dfbdc7c2550e7",
+    "requested_citation_path": "us-sd/guidance/revenue/2026/sales-and-use-tax-guide/document-1",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us-sd/guidance/revenue/2026/sales-and-use-tax-guide/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us-sd/guidance/revenue/2026/sales-and-use-tax-guide/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us-sd/guidance/revenue/2026/sales-and-use-tax-guide/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us-sd/guidance/revenue/2026/sales-and-use-tax-guide/document-1'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us-sd/guidance/revenue/2026/sales-and-use-tax-guide/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us-sd/guidance/revenue/2026/sales-and-use-tax-guide/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us-sd/guidance/revenue/2026/sales-and-use-tax-guide/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us-sd/guidance/revenue/2026/sales-and-use-tax-guide/document-1'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us-sd/guidance/revenue/2026/sales-and-use-tax-guide/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us-sd/guidance/revenue/2026/sales-and-use-tax-guide/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us-sd/guidance/revenue/2026/sales-and-use-tax-guide/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us-sd/guidance/revenue/2026/sales-and-use-tax-guide/document-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us-sd/guidance/revenue/2026/sales-and-use-tax-guide/document-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us-sd/guidance/revenue/2026/sales-and-use-tax-guide/document-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us-sd/guidance/revenue/2026/sales-and-use-tax-guide/document-1'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us-sd/guidance/revenue/2026/sales-and-use-tax-guide/document-1'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module asserted, as a source-backed output, that no personal-income-tax credit stage applies (sd_pit_2026_credit_stage_applies = false) and that the after-nonrefundable-credit, refundable-credit, and net-liability amounts are substantively zero, all grounded on a sales-and-use-tax guide sentence that establishes only the absence of a personal income tax before credits and says nothing about credits, credit ordering, or signed net liability.",
+    "triage_notes": "Provision read through the pinned corpus release (us-sd/guidance/revenue/2026/sales-and-use-tax-guide/document-1, 47,544 chars): the phrase 'personal income tax' appears exactly once, in the 'Tax Basics' sentence used as the excerpt; the document contains no personal-income-tax credit, refundable-credit, or net-liability material, confirming the pre-fix branches had no basis in the cited source. Single-module commit; it also rewrites module.summary and upstream_source_check.rationale, adds a module.deferred_outputs block, and rewrites the companion test (sd_pit_2026_credit_stage_applies: false replaced by three '... _source_hold_applies: holds' expectations) plus the encoding manifest and .axiom/toolchain.toml. Numeric formulas for the three money outputs stay 0, so execution values do not change; what changes is the retracted Boolean output, the new typed Judgment holds (dtype Judgment, entity TaxUnit, effective_from 2026-01-01 / effective_to 2026-12-31, formula true), and the claim status of the zeros - a reviewer could argue this is hold/provenance discipline rather than a value correction, which is the main residual doubt. Note a self-inflicted slip inside this commit: the 'Fail-closed sentinel pending complete nonrefundable-credit authority' source label was attached to sd_pit_2026_resident_personal_income_tax_before_credits (the stage that IS source-backed) while sd_pit_2026_resident_personal_income_tax_after_nonrefundable_credits (a deferred output) kept the substantive label; the immediate follow-up commit 99c78e257 'Correct South Dakota source provenance' swaps those two labels back and also repoints us-sd/statute/10/43/2/block-1 to .../operative-text. Additional supporting prose added by this diff inside the module: \"The pinned authority does not establish the absence of independently refundable credits or a complete signed net-liability surface.\" PR #1065 has no reviews or review comments; its body describes the post-fix state ('credit, refund, and terminal-liability zeros remain fail-closed sentinels behind typed holds').",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "untraceable_branch",
+    "verifier_confidence": 0.78,
+    "verifier_justification": "I tried to refute this as mechanical and as not-a-defect and both fail: the diff retires the output `sd_pit_2026_credit_stage_applies` (dtype Boolean, formula false), replaces it with three `Judgment` source-hold rules whose formula is `true` with a new `effective_to: '2026-12-31'` window, and rewrites the companion test expectations from `sd_pit_2026_credit_stage_applies: false` to three `... _source_hold_applies: holds` entries — encoded meaning and output surface, not bookkeeping. The pre-fix encoding asserted, as source-backed outputs, that no credit stage applies and that the refundable-credit and signed net-liability amounts are zero, all proved by the single excerpt \"South Dakota does not have a corporate, unitary, or personal income tax\"; I read that provision through the pinned release (corpus_release us-rulespec-2026-08-03-ecps-pit-tariff-union) and the Sales and Use Tax Guide's only credit/refund language is sales-tax trade-in, returned-merchandise and credit-card-fee text, nothing about personal-income-tax credits, ordering, or signed net liability. So those values had no basis in the cited source and the fix removes/re-grounds them behind typed holds, which is exactly untraceable_branch; the author's own subject calls them \"unsupported\". The nearest alternative kind, wrong_entity_or_scope (the summary retracts \"Complete ... pipeline\" and the screen label says \"scope/retire correction\"), is a consequence of the ungrounded values rather than a mis-targeted entity or population, so it fits worse.",
+    "verifier_quote": "-  - name: sd_pit_2026_credit_stage_applies\n+  - name: sd_pit_2026_nonrefundable_credit_source_hold_applies\n-    dtype: Boolean\n+    dtype: Judgment\n-        formula: false\n+        formula: true",
+    "verifier_notes": "Caveats for the reviewer. (1) Strength is uneven across the three held stages: `after_nonrefundable_credits = 0` follows arithmetically from `before_credits = 0` (nonrefundable credits cannot go below zero), so that zero was defensible; the genuinely ungrounded ones are the refundable-credit zero and the signed net-liability zero, since a refundable credit can exist without an income tax. The defect is real but narrower than \"all credit stages\". (2) No computed Money value changes: all three Money outputs still have literal `formula: 0` and the formulas never reference the new hold rules — the fail-closed status lives only in `source:` strings, the new module-level `deferred_outputs` block, and the new Judgment outputs. A consumer reading only the numbers gets the same zeros; the meaning change is carried by the retired Boolean output, the three new `holds` outputs, and the test expectations. (3) This commit also introduced an off-by-one in the source relabeling: `sd_pit_2026_resident_personal_income_tax_before_credits` (the one output the authority does support) was labeled \"Fail-closed sentinel pending complete nonrefundable-credit authority\" while `..._after_nonrefundable_credits` kept \"South Dakota Department of Revenue, no personal income tax\"; the very next commit 99c78e257 swaps those two lines back. (4) Provenance: this is an intra-PR self-correction, not a fix to long-merged content — `git log --follow` on the module shows only efd821a3e (create), 551f1ac46f (this hold), 99c78e257 (provenance), all in PR #1065 merged 2026-07-24. If the corpus is meant to capture defects that survived into merged production rules, flag it on that ground rather than on kind.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Provision read through the pinned corpus release (us-sd/guidance/revenue/2026/sales-and-use-tax-guide/document-1, 47,544 chars): the phrase 'personal income tax' appears exactly once, in the 'Tax Basics' sentence used as the excerpt; the document contains no personal-income-tax credit, refundable-credit, or net-liability material, confirming the pre-fix branches had no basis in the cited source. Single-module commit; it also rewrites module.summary and upstream_source_check.rationale, adds a module.deferred_outputs block, and rewrites the companion test (sd_pit_2026_credit_stage_applies: false replaced by three '... _source_hold_applies: holds' expectations) plus the encoding manifest and .axiom/toolchain.toml. Numeric formulas for the three money outputs stay 0, so execution values do not change; what changes is the retracted Boolean output, the new typed Judgment holds (dtype Judgment, entity TaxUnit, effective_from 2026-01-01 / effective_to 2026-12-31, formula true), and the claim status of the zeros - a reviewer could argue this is hold/provenance discipline rather than a value correction, which is the main residual doubt. Note a self-inflicted slip inside this commit: the 'Fail-closed sentinel pending complete nonrefundable-credit authority' source label was attached to sd_pit_2026_resident_personal_income_tax_before_credits (the stage that IS source-backed) while sd_pit_2026_resident_personal_income_tax_after_nonrefundable_credits (a deferred output) kept the substantive label; the immediate follow-up commit 99c78e257 'Correct South Dakota source provenance' swaps those two labels back and also repoints us-sd/statute/10/43/2/block-1 to .../operative-text. Additional supporting prose added by this diff inside the module: \"The pinned authority does not establish the absence of independently refundable credits or a complete signed net-liability surface.\" PR #1065 has no reviews or review comments; its body describes the post-fix state ('credit, refund, and terminal-liability zeros remain fail-closed sentinels behind typed holds'). | verifier confirmed at 0.78",
+  "family_id": "us-551f1ac4-40241b08cf70",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

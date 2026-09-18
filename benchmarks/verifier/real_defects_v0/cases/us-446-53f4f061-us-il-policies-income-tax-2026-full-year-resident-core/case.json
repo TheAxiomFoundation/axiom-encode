@@ -1,0 +1,219 @@
+{
+  "id": "us-446-53f4f061-us-il-policies-income-tax-2026-full-year-resident-core",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "53f4f061e52467a5a16c7d32415c2d7adfc3b4e0",
+  "parent_commit": "013bdfa41fa1016e9bd0967192396aaa40ccb104",
+  "commit_date": "2026-07-24",
+  "commit_subject": "Fix Illinois resident tax profile review findings",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1074",
+  "module_path": "us-il/policies/income_tax/2026_full_year_resident_core.yaml",
+  "corpus_citation_path": "us-il/statute/35/5/201-current/block-1",
+  "corpus_citation_paths_all": [
+    "us-il/statute/35/5/201-current/block-1",
+    "us-il/statute/35/5/203-current/block-1",
+    "us-il/statute/35/5/204-current/block-1",
+    "us-il/statute/35/5/208-current/block-1",
+    "us-il/statute/35/5/212-current/block-1",
+    "us-il/statute/35/5/244-current/block-1",
+    "us-il/statute/35/5/601-current/block-1",
+    "us-il/statute/public-act/104-0468/page-992",
+    "us-il/statute/public-act/104-0468/page-1290",
+    "us-il/statute/public-act/104-0468/page-1333",
+    "us-il/guidance/idor/2026-personal-exemption-allowance/block-1"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.7,
+  "description": "United States obligation income included in the section 203 modified total, including federal-tax-exempt amounts first added under paragraph (A).",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        34,
+        35
+      ],
+      [
+        45,
+        45
+      ],
+      [
+        270,
+        270
+      ],
+      [
+        508,
+        508
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        15,
+        16
+      ],
+      [
+        29,
+        30
+      ],
+      [
+        38,
+        40
+      ],
+      [
+        50,
+        52
+      ],
+      [
+        277,
+        277
+      ],
+      [
+        279,
+        279
+      ],
+      [
+        306,
+        306
+      ],
+      [
+        313,
+        313
+      ],
+      [
+        320,
+        320
+      ],
+      [
+        327,
+        334
+      ],
+      [
+        398,
+        402
+      ],
+      [
+        532,
+        532
+      ]
+    ],
+    "rule_names": [
+      "il_pit_2026_directly_encoded_subtractions",
+      "il_pit_2026_input_domain_is_valid",
+      "il_pit_2026_filing_status_is_valid"
+    ],
+    "rule_path": "rules[il_pit_2026_directly_encoded_subtractions].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "02de00f7a0ad0dbe64a88528ff696c6436b698e4a33f48641a45e29a42a3e8dc",
+  "post_fix_artifact_sha256": "b5518f0e95ce64c4c6929051848492de8b6bbef5d53485715c1c2decd8fe5f24",
+  "provision_sha256": "e29e6bc8e61cff95a49863e636e1c45aa1f0192a9c3ad29eba9228f5a3bbfbdf",
+  "provision_chars": 61553,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-il/statute/35/5/201-current/block-1",
+    "provision_file": "data/corpus/provisions/us-il/statute/2026-07-24-il-individual-income-tax-resident-core.jsonl",
+    "provision_file_sha256": "078c74a849b4ca05b360e66cfa047615f3ad442f6c3316310206134ff9ce5bc2",
+    "line_number": 2,
+    "record_id": "5a104720-59ad-5d9b-9008-62ddfd897b7c",
+    "stored_body_sha256": "e29e6bc8e61cff95a49863e636e1c45aa1f0192a9c3ad29eba9228f5a3bbfbdf",
+    "resolved_text_sha256": "e29e6bc8e61cff95a49863e636e1c45aa1f0192a9c3ad29eba9228f5a3bbfbdf",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-24",
+    "source_as_of": "2026-07-24",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "b157a201285a90f185903ba8db6aa52497c201b4",
+    "requested_citation_path": "us-il/statute/35/5/201-current/block-1",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us-il/statute/35/5/201-current/block-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us-il/statute/35/5/201-current/block-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us-il/statute/35/5/201-current/block-1'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us-il/statute/35/5/201-current/block-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us-il/statute/35/5/201-current/block-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us-il/statute/35/5/201-current/block-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us-il/statute/35/5/201-current/block-1'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us-il/statute/35/5/201-current/block-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us-il/statute/35/5/201-current/block-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us-il/statute/35/5/201-current/block-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us-il/statute/35/5/201-current/block-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us-il/statute/35/5/201-current/block-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us-il/statute/35/5/201-current/block-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us-il/statute/35/5/201-current/block-1'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us-il/statute/35/5/201-current/block-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us-il/statute/35/5/201-current/block-1'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix subtraction term used il_pit_2026_federally_included_united_states_obligation_income, so US-obligation interest that is excluded from federal AGI but added back to Illinois base income under 35 ILCS 5/203(a)(2)(A) was never subtracted, although 203(a)(2)(N) deducts \"all amounts included in such total which are exempt from taxation by this State ... by reason of the Constitution, treaties or statutes of the United States\" and \"such total\" is the total after the paragraph (A) additions.",
+    "triage_notes": "Multi-fix commit on one module; the decisive fidelity change is the US-obligation subtraction base (input renamed to il_pit_2026_united_states_obligation_income_in_section_203_modified_total in both il_pit_2026_directly_encoded_subtractions and the input-domain guard). Provision was read: resolve_provision on us-il/statute/35/5/203-current/block-1 confirms the individual chain \"and by deducting from the total so obtained the sum of the following amounts\" with subparagraph (N) \"An amount equal to all amounts included in such total which are exempt from taxation by this State either by reason of its statutes or Constitution or by reason of the Constitution, treaties or statutes of the United States\", so the pre-fix 'federally included' restriction narrowed the statutory deduction. New companion test 'federal-tax-exempt United States obligation interest is added then subtracted' (500 added under (A), 500 subtracted, base income back to 10000) proves the behavior change, so this is not a rename-only edit. Two secondary changes ride along: (a) adding il_pit_2026_filing_status_qualifying_surviving_spouse as a fifth mutually exclusive branch in il_pit_2026_filing_status_is_valid, which previously fail-closed every federal qualifying-surviving-spouse filer out of the supported profile even though 35 ILCS 5/204 grants the exemption to such individuals - a separate defect best read as wrong_entity_or_scope (new test 'qualifying surviving spouse uses the supported nonjoint branch'); (b) adding il_pit_2026_dependent_count == floor(il_pit_2026_dependent_count) to the input-domain guard, which is input-domain hygiene rather than a clear source-disagreement (new test 'fractional dependent count fails closed'). Purely provenance/mechanical parts of the same commit: two added corpus_citation_paths (PA 104-0468 page-1290, page-1333), the rewritten upstream_source_check rationale, and a new proof atom on il_pit_2026_credit_source_hold_applies whose formula already contained il_pit_2026_has_pass_through_entity_refundable_credit (grounding only, no meaning change). Commit body is empty and PR 1074 records no reviews or review comments (its body describes an earlier corpus-pin correction, not these findings), so the only quotable description of the defect is the module's own rationale text in the diff; if the kind is contested, the runner-up for the decisive change is wrong_entity_or_scope (scope of the amounts eligible for the (N) subtraction).",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.7,
+    "verifier_justification": "The subtraction rule il_pit_2026_directly_encoded_subtractions is proof-anchored to 35 ILCS 5/203(a)(2)(N), whose text I read through the pinned corpus release (us-rulespec-2026-08-03-ecps-pit-tariff-union, provision us-il/statute/35/5/203-current/block-1): \"(N) An amount equal to all amounts included in such total which are exempt from taxation by this State ... by reason of the Constitution, treaties or statutes of the United States\", where \"such total\" is federal AGI after the (A)-(D-26) additions (\"and by deducting from the total so obtained\"). Pre-fix the term operated on an input whose name confined it to federally included amounts, while the module's own (A) addition input (il_pit_2026_federal_tax_exempt_interest_and_dividends_other_than_section_305_e_utility_stock_dividends) accepts federally excluded interest with no typed hold, so US-obligation interest excluded from federal AGI was added under (A) and never subtracted under (N) — part of the cited deduction was simply unrepresentable, overstating Illinois base income. The fix swaps the operand to il_pit_2026_united_states_obligation_income_in_section_203_modified_total and rewrites the rationale to say the input now covers \"federal-tax-exempt amounts first added under paragraph (A)\", which is the missing-clause coverage the source requires, so fidelity/unrepresented_clause fits.",
+    "verifier_quote": "-          + il_pit_2026_federally_included_united_states_obligation_income\n+          + il_pit_2026_united_states_obligation_income_in_section_203_modified_total",
+    "verifier_notes": "Refutation attempts and residual doubt, for the reviewer: (1) Mechanically this is an identifier rename plus prose — no operator, coefficient, parameter, version window, effective date, entity or output changed, the (N) proof-atom excerpt (\"all amounts included in such total which are exempt from taxation by this State\") is identical pre and post, and the companion test kept the same values (0 and 1000) under the new input name, so no computed test expectation moved. The meaning change lives entirely in the input's name/contract; the module has no separate inputs block (the identifier appears only twice in the pre file, lines 270 and 508), so the name is the only carrier of the input's semantics, and the rationale edit states the broadening explicitly. I judged that a meaning change rather than a cosmetic rename, but a reviewer applying \"renames are mechanical\" strictly could land on mechanical/unclear — this is the main reason I capped confidence at 0.7. (2) A \"not_a_defect / disclosed scope\" reading exists: the pre-fix rationale already said the encoded profile was \"limited to ... federally included United States obligation income\", and the module carries a caller-asserted hold il_pit_2026_has_other_section_203_addition_or_subtraction. I discounted it because the module claims to encode (N) itself, the matching (A) addition is accepted without a hold, and a caller would not naturally flag the (N) subtraction of its own (A)-added dollars as an \"other\" section 203 modification — so the pre-fix module could silently overstate base income for an in-domain filer. (3) The commit body is empty and the PR body (#1074) describes only a corpus-pin correction, so there is no review text naming this finding; the only textual support is the module rationale. (4) The same diff contains a cleaner, separately classifiable meaning change the first reader folded in via rule_names: il_pit_2026_filing_status_is_valid gains il_pit_2026_filing_status_qualifying_surviving_spouse as a fifth exclusive status (a filing status the encoding omitted — that one would be wrong_entity_or_scope), plus a new integrality constraint \"and il_pit_2026_dependent_count == floor(il_pit_2026_dependent_count)\" and a new PTE refundable-credit exception proof atom. If the corpus is being deduplicated per defect, consider splitting the filing-status change out as its own case.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Multi-fix commit on one module; the decisive fidelity change is the US-obligation subtraction base (input renamed to il_pit_2026_united_states_obligation_income_in_section_203_modified_total in both il_pit_2026_directly_encoded_subtractions and the input-domain guard). Provision was read: resolve_provision on us-il/statute/35/5/203-current/block-1 confirms the individual chain \"and by deducting from the total so obtained the sum of the following amounts\" with subparagraph (N) \"An amount equal to all amounts included in such total which are exempt from taxation by this State either by reason of its statutes or Constitution or by reason of the Constitution, treaties or statutes of the United States\", so the pre-fix 'federally included' restriction narrowed the statutory deduction. New companion test 'federal-tax-exempt United States obligation interest is added then subtracted' (500 added under (A), 500 subtracted, base income back to 10000) proves the behavior change, so this is not a rename-only edit. Two secondary changes ride along: (a) adding il_pit_2026_filing_status_qualifying_surviving_spouse as a fifth mutually exclusive branch in il_pit_2026_filing_status_is_valid, which previously fail-closed every federal qualifying-surviving-spouse filer out of the supported profile even though 35 ILCS 5/204 grants the exemption to such individuals - a separate defect best read as wrong_entity_or_scope (new test 'qualifying surviving spouse uses the supported nonjoint branch'); (b) adding il_pit_2026_dependent_count == floor(il_pit_2026_dependent_count) to the input-domain guard, which is input-domain hygiene rather than a clear source-disagreement (new test 'fractional dependent count fails closed'). Purely provenance/mechanical parts of the same commit: two added corpus_citation_paths (PA 104-0468 page-1290, page-1333), the rewritten upstream_source_check rationale, and a new proof atom on il_pit_2026_credit_source_hold_applies whose formula already contained il_pit_2026_has_pass_through_entity_refundable_credit (grounding only, no meaning change). Commit body is empty and PR 1074 records no reviews or review comments (its body describes an earlier corpus-pin correction, not these findings), so the only quotable description of the defect is the module's own rationale text in the diff; if the kind is contested, the runner-up for the decisive change is wrong_entity_or_scope (scope of the amounts eligible for the (N) subtraction). | verifier confirmed at 0.70",
+  "family_id": "us-53f4f061-57930dac19d1",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

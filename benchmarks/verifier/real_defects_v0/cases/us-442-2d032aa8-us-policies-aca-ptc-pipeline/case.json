@@ -1,0 +1,202 @@
+{
+  "id": "us-442-2d032aa8-us-policies-aca-ptc-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "2d032aa87a117c5548a3cfbd60a6177b5ae74d13",
+  "parent_commit": "6ac6b2c0a6ab9130529f9cf17613ff536488f716",
+  "commit_date": "2026-07-24",
+  "commit_subject": "fix: gate ACA PTC public arithmetic off grid",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1002",
+  "module_path": "us/policies/aca/ptc_pipeline.yaml",
+  "corpus_citation_path": "us/statute/26/36B",
+  "corpus_citation_paths_all": [
+    "us/statute/26/36B",
+    "us/statute/26/36B/c/1/A",
+    "us/statute/26/36B/c/1/C",
+    "us/statute/26/36B/c/1/D",
+    "us/statute/26/36B/d/3",
+    "us/guidance/irs/rev-proc-2025-25"
+  ],
+  "corpus_release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+  "corpus_release_content_sha256": "cb275c76c4f07f8ad37470a32296bb1763e5db853d152697524ab07021b6d544",
+  "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+  "defect_kind": "polarity_or_logic",
+  "other_kind": null,
+  "confidence": 0.49,
+  "description": "the round-2 residual (ungated public intermediates) are all addressed at this head",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        62,
+        64
+      ],
+      [
+        121,
+        121
+      ],
+      [
+        404,
+        404
+      ],
+      [
+        407,
+        408
+      ],
+      [
+        410,
+        415
+      ],
+      [
+        452,
+        452
+      ],
+      [
+        478,
+        478
+      ],
+      [
+        504,
+        504
+      ],
+      [
+        529,
+        531
+      ],
+      [
+        548,
+        548
+      ],
+      [
+        551,
+        551
+      ],
+      [
+        594,
+        594
+      ],
+      [
+        615,
+        615
+      ],
+      [
+        635,
+        635
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        62,
+        66
+      ],
+      [
+        123,
+        124
+      ],
+      [
+        407,
+        407
+      ],
+      [
+        410,
+        411
+      ],
+      [
+        413,
+        421
+      ],
+      [
+        458,
+        462
+      ],
+      [
+        488,
+        492
+      ],
+      [
+        518,
+        522
+      ],
+      [
+        547,
+        555
+      ],
+      [
+        572,
+        585
+      ],
+      [
+        588,
+        601
+      ],
+      [
+        644,
+        648
+      ],
+      [
+        669,
+        673
+      ],
+      [
+        693,
+        697
+      ]
+    ],
+    "rule_names": [
+      "aca_ptc_applicable_percentage",
+      "applicable_percentage_for_taxable_year",
+      "monthly_premiums_for_exchange_qualified_health_plans_covering_taxpayer_spouse_or_dependents",
+      "adjusted_monthly_premium_for_applicable_second_lowest_cost_silver_plan",
+      "aca_ptc_full_year_runtime_inputs_valid",
+      "aca_ptc_required_monthly_contribution",
+      "aca_ptc_monthly_premium_assistance_amount",
+      "aca_ptc_annual_premium_assistance_amount"
+    ],
+    "rule_path": "rules[aca_ptc_applicable_percentage].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "a8cea482c76b4e36c7666f06d728b8c9f346971e9ce0a72ed27534cfa95f9517",
+  "post_fix_artifact_sha256": "5d61f73f560afd21696cd914e13297930a2a18cfd15f99fcfc61105ace84347d",
+  "provision_sha256": "c0ad1a2e2eb0c8a61ea850e50886eb8064fee3c4c1206e03554be15f686bb9e1",
+  "provision_chars": 23755,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/36B",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+    "provision_file_sha256": "03ddda0b2bcd59345ec4efa1daaf1c77b423a5166852fd80bb4cf00c0bd8e461",
+    "line_number": 20,
+    "record_id": "32497825-1819-54e9-af3e-02dd22aec1ca",
+    "stored_body_sha256": "c0ad1a2e2eb0c8a61ea850e50886eb8064fee3c4c1206e03554be15f686bb9e1",
+    "resolved_text_sha256": "c0ad1a2e2eb0c8a61ea850e50886eb8064fee3c4c1206e03554be15f686bb9e1",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "5dfd89d131564e4ee0e1e763571dbb5d7fc7f5e7",
+    "requested_citation_path": "us/statute/26/36B",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "Pre-fix only the annual credit was gated on the on-grid validity judgment, so for off-grid income ratios the module still published an applicable percentage, required monthly contribution, and monthly/annual premium assistance computed from the raw unrounded 36B(b)(3)(A)(i) interpolation - values that are not the lawful applicable percentage, which 26 CFR 1.36B-3(g) (cross-referenced by Rev. Proc. 2025-25 sec. 3.01) requires rounded to the nearest 0.01 percentage point.",
+    "triage_notes": "Single-module commit (PROGRESS.md also changed; no companion test file in this commit - PROGRESS's 'Next' shows companion expectations for the gated surfaces landed in a later commit of PR #1002). Commit body is empty, so evidence is the PR body plus the module's own summary/deferred_outputs prose changed in the diff ('every public percentage, contribution, and assistance output fails closed unless that candidate already equals its nearest-0.01-percentage-point value'). PROGRESS.md in the same commit states the pre-fix defect most plainly (removed line): 'public legally operative ACA PTC intermediates still emit the unrounded calculation chain when `aca_ptc_full_year_runtime_inputs_valid` is `not_holds`' - not quoted in description_quote because PROGRESS.md is not one of the allowed quote sources. I read us/guidance/irs/rev-proc-2025-25 through the pinned corpus resolver (release us-rulespec-2026-07-24-snap-cms-pit-union): sec. 3.01 gives the 2026 table 'for purposes of § 36B(b)(3)(A)(i) and § 1.36B-3(g)' but the corpus contains no 26 CFR 1.36B-3(g) text, so the rounding requirement itself is only cross-referenced, not readable in the pinned corpus - the module documents it as a deferred output. Kind is arguable: I chose polarity_or_logic because the rubric puts 'fail-open vs fail-closed' there and the pre-fix formulas fired the computing branch where they should have defaulted to zero; wrong_entity_or_scope ('output surface') is the plausible alternative, since the delta is which public output surfaces the existing guard covers. Confidence held below 0.8 because the fix suppresses the unlawful values rather than computing the lawful rounded ones (a conservative fail-closed narrowing rather than a value correction), which leaves room to call this defensive hygiene instead of a meaning correction. The rest of the diff is consequential, not unrelated: aca_ptc_full_year_runtime_inputs_valid inlines the raw interpolation candidate (and swaps its proof-atom import from #aca_ptc_applicable_percentage to the Rev. Proc. initial/final percentage imports) purely to break the cycle created by gating the public percentage; no parameter values, effective dates, entities, or module scope changed.",
+    "verifier_verdict": "unclear",
+    "verifier_defect_kind": "polarity_or_logic",
+    "verifier_confidence": 0.6,
+    "verifier_justification": "The diff does change encoded meaning — five public outputs go from unconditional formulas to `if aca_ptc_full_year_runtime_inputs_valid: ... else: 0` — but it is doubtful that this corrects a disagreement with the cited source text. The rounding requirement driving the gate lives in 26 CFR 1.36B-3(g), which the resolver confirms is absent from the pinned corpus (Rev. Proc. 2025-25 sec. 3.01 only cross-references \"§ 36B(b)(3)(A)(i) and § 1.36B-3(g)\" for the table and states no rounding rule; 36B(b)(3)(A)(i) itself prescribes only that the percentage \"increase, on a sliding scale in a linear manner\"), and the module declares that surface a deferred output both before and after the fix, with the guard parameter labeled \"Guard-only ... not a general rounded-rate output\" and the judgment sourced as a \"fail-closed computability boundary pending ingestion of 26 CFR 1.36B-3(g)\". Post-fix the off-grid outputs are 0, which is not the lawful applicable percentage either, so the change withdraws an assertion rather than bringing the encoding into agreement with the source; it even gates the monthly enrolled-premium and adjusted monthly SLCSP outputs, whose statutory definitions (36B(b)(2)(A), (b)(2)(B)(i)) do not depend on the applicable percentage at all, to 0 for off-grid ratios. If a reviewer counts \"published a value the module disclaimed the ability to compute\" as fidelity, polarity_or_logic (fail-open → fail-closed default) is the right kind; on the pinned source text alone this reads as declared-boundary hygiene, not a fidelity correction.",
+    "verifier_quote": "-        formula: aca_ptc_annual_slcsp_benchmark_premium / required_contribution_annual_to_monthly_divisor\n+        formula: |-\n+          if aca_ptc_full_year_runtime_inputs_valid:\n+            aca_ptc_annual_slcsp_benchmark_premium / required_contribution_annual_to_monthly_divisor\n+          else:\n+            0",
+    "verifier_notes": "Facts a reviewer should weigh. (1) Provenance of the \"quote\" the first reader used: PR #1002 has `reviews: []` and `review_comments: []` in the bundle, so \"the round-2 residual (ungated public intermediates) are all addressed at this head\" is the PR author's own body text summarizing a blind-review finding, not an independent reviewer statement. (2) Commit 2d032aa87a is a within-PR review round on the same PR (#1002, merged 2026-07-24) that introduced `us/policies/aca/ptc_pipeline.yaml`; the pre-fix state was never merged or live. (3) The annual credit was already gated pre-fix (`if aca_ptc_full_year_runtime_inputs_valid and aca_ptc_applicable_taxpayer:` at pre-file line 661, unchanged by this commit), so the fix extends an existing convention to intermediates rather than adding a missing source clause. (4) Pre-fix deferred_outputs already said the module \"does not claim to compute the general rounded rate ... every other interpolation fails closed before the annual premium tax credit is exported\" — literally true pre-fix; the fix widens that sentence to \"across the public applicable-percentage, contribution, assistance, and annual-credit surfaces.\" (5) Source check via the pinned release us-rulespec-2026-07-24-snap-cms-pit-union (corpus commit 0fd35bfbda): Rev. Proc. 2025-25 sec. 3.01 reads \"the Applicable Percentage Table for purposes of § 36B(b)(3)(A)(i) and § 1.36B-3(g) is:\" with no rounding language; 36B(b)(3)(A)(i) has no rounding language. So no pinned, cited text makes the pre-fix raw interpolation wrong. (6) The large `aca_ptc_full_year_runtime_inputs_valid` hunk that inlines the interpolation is a circularity consequence of gating `aca_ptc_applicable_percentage` on the judgment (it could no longer import it), not an independent meaning change; the two new import atoms for applicable_initial/final_percentage follow from that inlining. (7) Under the task's own rule that scope/precision a module never claimed is not a defect, this is the mirror case: the module explicitly deferred the rounded general surface, and the fix suppresses output inside that deferred region. Keep as unclear; if the corpus convention treats \"publishes a value it cannot show lawful\" as fidelity, keep polarity_or_logic and lower confidence, rather than reclassifying to unrepresented_clause (the fix does not add the rounding the source states) or untraceable_branch (the pre-fix formula was grounded in 36B(b)(3)(A)(i)).",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Single-module commit (PROGRESS.md also changed; no companion test file in this commit - PROGRESS's 'Next' shows companion expectations for the gated surfaces landed in a later commit of PR #1002). Commit body is empty, so evidence is the PR body plus the module's own summary/deferred_outputs prose changed in the diff ('every public percentage, contribution, and assistance output fails closed unless that candidate already equals its nearest-0.01-percentage-point value'). PROGRESS.md in the same commit states the pre-fix defect most plainly (removed line): 'public legally operative ACA PTC intermediates still emit the unrounded calculation chain when `aca_ptc_full_year_runtime_inputs_valid` is `not_holds`' - not quoted in description_quote because PROGRESS.md is not one of the allowed quote sources. I read us/guidance/irs/rev-proc-2025-25 through the pinned corpus resolver (release us-rulespec-2026-07-24-snap-cms-pit-union): sec. 3.01 gives the 2026 table 'for purposes of § 36B(b)(3)(A)(i) and § 1.36B-3(g)' but the corpus contains no 26 CFR 1.36B-3(g) text, so the rounding requirement itself is only cross-referenced, not readable in the pinned corpus - the module documents it as a deferred output. Kind is arguable: I chose polarity_or_logic because the rubric puts 'fail-open vs fail-closed' there and the pre-fix formulas fired the computing branch where they should have defaulted to zero; wrong_entity_or_scope ('output surface') is the plausible alternative, since the delta is which public output surfaces the existing guard covers. Confidence held below 0.8 because the fix suppresses the unlawful values rather than computing the lawful rounded ones (a conservative fail-closed narrowing rather than a value correction), which leaves room to call this defensive hygiene instead of a meaning correction. The rest of the diff is consequential, not unrelated: aca_ptc_full_year_runtime_inputs_valid inlines the raw interpolation candidate (and swaps its proof-atom import from #aca_ptc_applicable_percentage to the Rev. Proc. initial/final percentage imports) purely to break the cycle created by gating the public percentage; no parameter values, effective dates, entities, or module scope changed. | verifier unclear at 0.60",
+  "family_id": "us-2d032aa8-cfa02b18f65a",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

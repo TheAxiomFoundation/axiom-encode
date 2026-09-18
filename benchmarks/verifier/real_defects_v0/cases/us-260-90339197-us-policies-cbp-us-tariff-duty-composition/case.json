@@ -1,0 +1,305 @@
+{
+  "id": "us-260-90339197-us-policies-cbp-us-tariff-duty-composition",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "90339197c911153277964c3647a786b84ba402d6",
+  "parent_commit": "d168b7f532feb119687cbfa23965283358f31716",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Scope defect in merged composition: fentanyl branch gated on origin_is_china only \"so HK entries paid 0 instead of the 10% note 2(u) additional duty\"; adds origin_is_hong_kong gate (PR #1198).",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1198",
+  "module_path": "us/policies/cbp/us-tariff-duty/composition.yaml",
+  "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
+  "corpus_citation_paths_all": [
+    "us/statute/hts/general-note-3/page-1",
+    "us/statute/hts/general-note-3/page-4",
+    "us/statute/hts/7202",
+    "us/statute/hts/7202.11.10.00",
+    "us/statute/hts/7601.10.30.00",
+    "us/statute/hts/9506.62.40",
+    "us/statute/hts/9506.62.40.40",
+    "us/statute/hts/9903.01.01",
+    "us/statute/hts/9903.01.02",
+    "us/statute/hts/9903.01.03",
+    "us/statute/hts/9903.01.04",
+    "us/statute/hts/9903.01.05",
+    "us/statute/hts/9903.01.10",
+    "us/statute/hts/9903.01.11",
+    "us/statute/hts/9903.01.12",
+    "us/statute/hts/9903.01.13",
+    "us/statute/hts/9903.01.14",
+    "us/statute/hts/9903.01.15",
+    "us/statute/hts/9903.01.25",
+    "us/statute/hts/9903.01.26",
+    "us/statute/hts/9903.01.27",
+    "us/statute/hts/9903.01.33",
+    "us/statute/hts/9903.02.19",
+    "us/statute/hts/9903.02.20",
+    "us/statute/hts/9903.02.72",
+    "us/statute/hts/9903.02.73",
+    "us/statute/hts/9903.02.79",
+    "us/statute/hts/9903.02.80",
+    "us/statute/hts/9903.02.82",
+    "us/statute/hts/9903.02.83",
+    "us/statute/hts/9903.02.87",
+    "us/statute/hts/9903.02.88",
+    "us/statute/hts/9903.05.01",
+    "us/statute/hts/9903.85.67",
+    "us/statute/hts/9903.90.09",
+    "us/statute/hts/chapter-99/page-175",
+    "us/statute/hts/chapter-99/page-176",
+    "us/statute/hts/chapter-99/page-177",
+    "us/statute/hts/chapter-99/page-182",
+    "us/statute/hts/chapter-99/page-219",
+    "us/statute/hts/chapter-99/page-221",
+    "us/statute/hts/chapter-99/page-226",
+    "us/statute/hts/chapter-99/page-230",
+    "us/statute/hts/chapter-99/page-508",
+    "us/statute/hts/chapter-99/page-509",
+    "us/statute/hts/chapter-99/page-542",
+    "us/statute/hts/chapter-99/page-545",
+    "us/statute/hts/chapter-99/page-553",
+    "us/statute/hts/chapter-99/page-555",
+    "us/statute/hts/chapter-99/page-558",
+    "us/statute/hts/chapter-99/page-566",
+    "us/statute/hts/chapter-99/page-640",
+    "us/statute/hts/chapter-99/page-251",
+    "us/statute/hts/9903.05.20",
+    "us/statute/hts/9903.05.21",
+    "us/statute/hts/9903.05.22",
+    "us/statute/hts/9903.05.23",
+    "us/statute/hts/9903.05.24",
+    "us/statute/hts/9903.05.25",
+    "us/statute/hts/9903.05.26",
+    "us/statute/hts/9903.05.27",
+    "us/statute/hts/9903.05.28",
+    "us/statute/hts/9903.05.29",
+    "us/statute/hts/9903.05.30",
+    "us/statute/hts/9903.05.31",
+    "us/statute/hts/9903.05.32",
+    "us/statute/hts/9903.05.33",
+    "us/statute/hts/9903.05.34",
+    "us/statute/hts/9903.05.35",
+    "us/statute/hts/9903.05.36",
+    "us/statute/hts/9903.05.37",
+    "us/statute/hts/9903.05.38",
+    "us/statute/hts/9903.05.39",
+    "us/statute/hts/9903.05.40",
+    "us/statute/hts/9903.05.41",
+    "us/statute/hts/9903.05.42",
+    "us/statute/hts/9903.05.43",
+    "us/statute/hts/9903.05.44",
+    "us/statute/hts/9903.05.45",
+    "us/statute/hts/9903.05.46",
+    "us/statute/hts/9903.05.47",
+    "us/statute/hts/9903.05.49",
+    "us/statute/hts/9903.05.50",
+    "us/statute/hts/9903.05.51",
+    "us/statute/hts/9903.05.52",
+    "us/statute/hts/9903.05.53",
+    "us/statute/hts/9903.05.54",
+    "us/statute/hts/9903.05.55",
+    "us/statute/hts/9903.05.56",
+    "us/statute/hts/9903.05.57",
+    "us/statute/hts/9903.05.58",
+    "us/statute/hts/9903.05.59",
+    "us/statute/hts/9903.05.60",
+    "us/statute/hts/9903.05.61",
+    "us/statute/hts/9903.05.62",
+    "us/statute/hts/9903.05.63",
+    "us/statute/hts/9903.05.64",
+    "us/statute/hts/9903.05.65",
+    "us/statute/hts/9903.05.66",
+    "us/statute/hts/9903.05.67",
+    "us/statute/hts/9903.05.68",
+    "us/statute/hts/9903.05.69",
+    "us/statute/hts/9903.05.71",
+    "us/statute/hts/9903.05.72",
+    "us/statute/hts/9903.05.74",
+    "us/statute/hts/9903.05.76",
+    "us/statute/hts/9903.05.77",
+    "us/statute/hts/9903.05.78",
+    "us/statute/hts/9903.05.79",
+    "us/statute/hts/9903.05.80",
+    "us/statute/hts/9903.05.81",
+    "us/statute/hts/9903.05.82",
+    "us/statute/hts/9903.05.83",
+    "us/statute/hts/9903.05.84",
+    "us/statute/hts/9903.05.48",
+    "us/statute/hts/9903.05.70",
+    "us/statute/hts/9903.05.73",
+    "us/statute/hts/9903.05.75",
+    "us/statute/hts/9903.05.85",
+    "us/statute/hts/9903.05.91",
+    "us/statute/hts/9903.05.92",
+    "us/statute/hts/9903.05.93",
+    "us/statute/hts/9903.05.94",
+    "us/rulemaking/federal-register/2026-02-25/2026-03824",
+    "us/rulemaking/federal-register/2026-02-25/2026-03829",
+    "us/rulemaking/federal-register/2026-02-25/2026-03832",
+    "us/rulemaking/federal-register/2026-06-24/2026-12669",
+    "us/rulemaking/federal-register/2026-07-20/2026-14542",
+    "us/rulemaking/federal-register/2026-07-28/2026-15181"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "wrong_entity_or_scope",
+  "other_kind": null,
+  "confidence": 0.88,
+  "description": "the composition gated its fentanyl branch on origin_is_china only, so HK entries paid 0 instead of the 10% note 2(u) additional duty",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        362,
+        362
+      ],
+      [
+        2398,
+        2398
+      ],
+      [
+        2539,
+        2539
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        362,
+        364
+      ],
+      [
+        661,
+        679
+      ],
+      [
+        2419,
+        2419
+      ],
+      [
+        2526,
+        2530
+      ],
+      [
+        2565,
+        2565
+      ]
+    ],
+    "rule_names": [
+      "ieepa_component_rate",
+      "ieepa_component_rate_with_declared_exceptions",
+      "origin_is_hong_kong"
+    ],
+    "rule_path": "rules[ieepa_component_rate].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "f42c17c013578b5537893065483d39582261408997118915bd7dbe14a6bd011e",
+  "post_fix_artifact_sha256": "d9d36956a9b4d0c8547d8a4f8dda804154bdc318f17175707d69157ff9ac8262",
+  "provision_sha256": "00d95211f2040a84be41d52b92256f93047713f97f45318e5945139cb1d8cb36",
+  "provision_chars": 4835,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/hts/general-note-3/page-1",
+    "provision_file": "data/corpus/provisions/us/statute/2026-08-01-usitc-hts-2026-rev3-notes.jsonl",
+    "provision_file_sha256": "818d993ea9bbb613b1c78ec03e1394b4d2b2468c259c3b1ff89ca3a004cf129c",
+    "line_number": 2,
+    "record_id": "6623bf55-dd9b-572a-a1c9-62e4af7c2829",
+    "stored_body_sha256": "00d95211f2040a84be41d52b92256f93047713f97f45318e5945139cb1d8cb36",
+    "resolved_text_sha256": "00d95211f2040a84be41d52b92256f93047713f97f45318e5945139cb1d8cb36",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-02-12",
+    "source_as_of": "2026-08-01",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "05ce3d3dd21b0ced76f9af40c2ecc02c1c57d9c6",
+    "requested_citation_path": "us/statute/hts/general-note-3/page-1",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The composition's fentanyl branch applied the heading 9903.01.24 / note 2(u) 10% additional duty only to China-origin entries, omitting the Hong Kong half of the provision's stated scope (\"products of China and Hong Kong\"), so HK-origin entries were assigned a 0 fentanyl rate.",
+    "triage_notes": "Single module in the commit (chunk covers all of module_files). Provision WAS read through the pinned corpus release: us/statute/hts/chapter-99/page-176 note 2(u) reads \"For the purposes of heading 9903.01.24, products of China and Hong Kong entered for consumption... shall be subject to an additional 10% ad valorem rate of duty\", confirming the scope. Verified with git show that the parent commit d168b7f5 contains zero occurrences of 'hong_kong' anywhere in composition.yaml, while the post-fix file has 3 (new rule + both widened formulas). The file is `module.kind: composition` but is a rulespec/v1 module carrying real rules, versions and formulas (the commit itself calls it the \"merged composition\"), so I treated it as a rule module rather than not_a_rule_module. The diff also changes a rationale comment block and adds one condition proof atom (verbatim note 2(u) entry-date clause) on ieepa_component_rate_with_declared_exceptions; those are provenance/documentation, mechanical alongside the substantive scope fix. Non-module files in the commit (composition.test.yaml with 3 new HK cases, the encoding manifest, oracle-coverage-pending.yaml ledger +1 for the new judgment output) are consistent with the stated fix and change nothing else. Kind alternative: this could also be read as unrepresented_clause (the HK half of the source clause was missing and the fix adds it); I chose wrong_entity_or_scope because the commit and PR both describe it as a scope/geography defect (\"Scope defect in merged composition\") and the correction is to the geographic population the branch fires for. PR #1198 body notes a follow-up panel re-classification landing harness-side in axiom-oracles (lane E), not in this repo. No PR reviews or review comments exist on the merged PR.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_entity_or_scope",
+    "verifier_confidence": 0.93,
+    "verifier_justification": "The diff changes encoded meaning in exactly the way the first reader described: both `ieepa_component_rate` and `ieepa_component_rate_with_declared_exceptions` fentanyl branches go from `(if origin_is_china: ...` to `(if origin_is_china or origin_is_hong_kong: ...`, plus a new `origin_is_hong_kong` derived judgment (`country_of_origin == \"HK\"`) — formulas and origin scope, not bookkeeping. The pinned corpus text of U.S. note 2(u) (us/statute/hts/chapter-99/page-176) reads \"For the purposes of heading 9903.01.24, products of China and Hong Kong entered for consumption ... shall be subject to an additional 10% ad valorem rate of duty\", so the pre-fix encoding covered only half the provision's stated geography. This is not uncla<br>imed new coverage: the pre-fix composition already priced HK entries through its general origin cascade (reciprocal/baseline `else` branches, no `HK` string anywhere in the pre file), so an HK entry got a computed fentanyl component of 0 — a wrong value for an in-scope population. Kind holds: the defect is an under-inclusive geographic population, which is wrong_entity_or_scope; unrepresented_clause fits worse because the added disjunct is the second half of the provision's scope phrase rather than a separate exception or carve-out, and polarity_or_logic fits worse because no boolean was inverted or mis-combined.",
+    "verifier_quote": "-          (if origin_is_china: fentanyl_china_note_u_additional_duty_rate\n+          (if origin_is_china or origin_is_hong_kong: fentanyl_china_note_u_additional_duty_rate",
+    "verifier_notes": "Verified against the pinned release (corpus commit d9d6fba0, provision file 2026-08-01-usitc-hts-2026-rev3-notes.jsonl line 186): note 2(u) scope is verbatim \"products of China and Hong Kong\", and the new proof atom's excerpt is verbatim from that record. Pre-file check (git show d168b7f5:...composition.yaml) shows no \"HK\" / \"hong\" token anywhere and origin judgments only for CN/CA/MX/KR/VN/ZA/GB/BR/RU/etc., confirming HK fell to the fentanyl `else: 0`. Post-file has both fentanyl gates widened (lines 2419, 2565); the remaining `origin_is_china`-only gates at 2804-2806 are Section 301 list rates, a different provision, so the fix is complete for note 2(u). No period issue: the new judgment's effective_from 2026-02-15 matches the branch version window, and the note's own Nov 10 2025 entry-date clause predates the composition's coverage. Non-module files in the commit (companion tests, manifest, oracle-coverage ledger) are consistent with the fidelity fix, not the substance of it.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Single module in the commit (chunk covers all of module_files). Provision WAS read through the pinned corpus release: us/statute/hts/chapter-99/page-176 note 2(u) reads \"For the purposes of heading 9903.01.24, products of China and Hong Kong entered for consumption... shall be subject to an additional 10% ad valorem rate of duty\", confirming the scope. Verified with git show that the parent commit d168b7f5 contains zero occurrences of 'hong_kong' anywhere in composition.yaml, while the post-fix file has 3 (new rule + both widened formulas). The file is `module.kind: composition` but is a rulespec/v1 module carrying real rules, versions and formulas (the commit itself calls it the \"merged composition\"), so I treated it as a rule module rather than not_a_rule_module. The diff also changes a rationale comment block and adds one condition proof atom (verbatim note 2(u) entry-date clause) on ieepa_component_rate_with_declared_exceptions; those are provenance/documentation, mechanical alongside the substantive scope fix. Non-module files in the commit (composition.test.yaml with 3 new HK cases, the encoding manifest, oracle-coverage-pending.yaml ledger +1 for the new judgment output) are consistent with the stated fix and change nothing else. Kind alternative: this could also be read as unrepresented_clause (the HK half of the source clause was missing and the fix adds it); I chose wrong_entity_or_scope because the commit and PR both describe it as a scope/geography defect (\"Scope defect in merged composition\") and the correction is to the geographic population the branch fires for. PR #1198 body notes a follow-up panel re-classification landing harness-side in axiom-oracles (lane E), not in this repo. No PR reviews or review comments exist on the merged PR. | verifier confirmed at 0.93",
+  "family_id": "us-90339197-e0cbfa98c723",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

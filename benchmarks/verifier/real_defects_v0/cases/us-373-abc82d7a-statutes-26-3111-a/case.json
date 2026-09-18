@@ -1,0 +1,140 @@
+{
+  "id": "us-373-abc82d7a-statutes-26-3111-a",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "abc82d7a76a9a1da5cfc77d228a0eeace1e5cde6",
+  "parent_commit": "5323ecb4055fe6b6029ed953020b15237f835b87",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Bulk refresh with entity corrections (3101(a) and 3101(b)(1) TaxUnit->Person; 3111(a) and 3111(b) Business->Employer), 3121(b) rules removed and deferred, 3121(b)(8) rule deferred, and formula changes in 3121(b)(9), 3121(a)(8), 3121(g), 3121(j), 3402(n).",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/328",
+  "module_path": "statutes/26/3111/a.yaml",
+  "corpus_citation_path": "us/statute/26/3111",
+  "corpus_citation_paths_all": [
+    "us/statute/26/3111"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "wrong_entity_or_scope",
+  "other_kind": null,
+  "confidence": 0.75,
+  "description": "refresh generated RuleSpec artifacts for the Chapter 21 FICA wage/tax chain, including `3101`, `3111`, and selected `3121` wage/employment rules",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        21,
+        21
+      ],
+      [
+        28,
+        28
+      ],
+      [
+        40,
+        40
+      ],
+      [
+        42,
+        45
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        21,
+        21
+      ],
+      [
+        26,
+        26
+      ],
+      [
+        29,
+        29
+      ],
+      [
+        41,
+        41
+      ],
+      [
+        43,
+        47
+      ]
+    ],
+    "rule_names": [
+      "employer_oasdi_excise_tax",
+      "employer_oasdi_excise_tax_rate"
+    ],
+    "rule_path": "rules[employer_oasdi_excise_tax].entity"
+  },
+  "pre_fix_artifact_sha256": "efb33150d9a178e184a16c1d9fd99bd56e789343f781eedb42228d1359df25ca",
+  "post_fix_artifact_sha256": "0bca2cb6ef64473e7a802903f3c3ffd0afb887c481303cad6d620b9b2159ef82",
+  "provision_sha256": "d997d5ff5be0f67762689cbc42728cb142a29dd7724e829caed1ec05d3dcd28c",
+  "provision_chars": 5071,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/3111",
+    "provision_file": "data/corpus/provisions/us/statute/2026-05-10-tax-sections-r2026-07-15-self-contained-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "f48f152a03f99915c6ac9a847986e238ebeddd29ffb4199f0528c5e2a406eae4",
+    "line_number": 6,
+    "record_id": "34f225fc-fe69-54a6-b69f-66a3b6b98a5e",
+    "stored_body_sha256": "d997d5ff5be0f67762689cbc42728cb142a29dd7724e829caed1ec05d3dcd28c",
+    "resolved_text_sha256": "d997d5ff5be0f67762689cbc42728cb142a29dd7724e829caed1ec05d3dcd28c",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2025-12-03",
+    "source_as_of": "2025-12-03",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "earliest_release_after_toolchain_corpus_ref",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": "9b575a00116da20b0952644f14d8530896f72cd3",
+    "requested_citation_path": "us/statute/26/3111",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3111'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3111'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3111'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3111'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The employer OASDI excise tax was attached to a Business entity although 26 USC 3111(a) imposes it on 'every employer', a population that includes household, governmental, and tax-exempt employers that are not businesses.",
+    "triage_notes": "Provision read through the pinned corpus (us/statute/26/3111): '(a) ... there is hereby imposed on every employer an excise tax, with respect to having individuals in his employ, equal to 6.2 percent of the wages ... paid by the employer with respect to employment'. Decisive change entity: Business -> Employer. Remaining hunks are summary paraphrase, proof-atom key rename text->excerpt, replacement of a 'definition' atom by an import atom for the rate, and a blank-line reflow; all provenance. No maintainer text names the entity fix (empty commit body, no PR reviews), so confidence is in the 0.5-0.79 band. This entity change is what forced the dependent import-hash refresh in index 5.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_entity_or_scope",
+    "verifier_confidence": 0.87,
+    "verifier_justification": "The only meaning-bearing change in statutes/26/3111/a.yaml is the derived rule's entity moving from `Business` to `Employer`; the formula (`wages * employer_oasdi_excise_tax_rate`), the 0.062 rate, dtype, period, unit, and effective_from ('1990-01-01') are byte-identical before and after, and everything else in the diff (summary rewording, `text:`→`excerpt:` proof-atom keys, definition atom replaced by an import atom with `hash: sha256:local`) is provenance/metadata bookkeeping. The pinned corpus text for us/statute/26/3111 reads \"there is hereby imposed on every employer an excise tax\", and subsection (e) of the same section expressly treats a section 501(c) \"qualified tax-exempt organization\" as \"an employer\", so the taxed population is employers generally, not businesses — the pre-fix `Business` entity under-scoped it. I tried to refute this as a cosmetic schema rename and it does not hold: `Employer` already appears 194 times at the parent commit while `Business` appears 7 times, and `Business` still survives at the fix commit (3111/c.yaml, 3231/f.yaml, 3304.yaml, 45A/e.yaml, 45A/f.yaml), so this is a targeted entity correction, not a global relabel. Entity is the entity kind a derived rule is computed for and values are keyed by entity/entity_id at runtime, so the change alters the output surface rather than a label.",
+    "verifier_quote": "-    entity: Business\n+    entity: Employer",
+    "verifier_notes": "The first reader's quote (\"refresh generated RuleSpec artifacts for the Chapter 21 FICA wage/tax chain...\") is generic PR boilerplate and proves nothing by itself; the decisive evidence is the diff line plus the source text, not the PR body. Neither the commit (subject \"Refresh payroll generated rules\", empty body) nor the PR contains any reviewer text calling the old entity wrong, and the PR has zero reviews/comments — the defect reading is inferred from the statute and the repo's own entity convention, which is why I did not go above ~0.87. Companion test statutes/26/3111/a.test.yaml changed only rule-case names and dropped two redundant rate assertions; it never pins an entity, so the entity error was not test-observable. Worth flagging for the corpus: the identical scope defect survives untouched at the same commit in statutes/26/3111/c.yaml (`entity: Business` on wages_exempt_by_international_social_security_agreement, grounded on 3111(c) which also speaks of taxes imposed on employers), so this fix was partial. Module index 3 of 16; sibling module 3111/b.yaml carries the same Business->Employer change and would be a duplicate of this case if screened separately.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Provision read through the pinned corpus (us/statute/26/3111): '(a) ... there is hereby imposed on every employer an excise tax, with respect to having individuals in his employ, equal to 6.2 percent of the wages ... paid by the employer with respect to employment'. Decisive change entity: Business -> Employer. Remaining hunks are summary paraphrase, proof-atom key rename text->excerpt, replacement of a 'definition' atom by an import atom for the rate, and a blank-line reflow; all provenance. No maintainer text names the entity fix (empty commit body, no PR reviews), so confidence is in the 0.5-0.79 band. This entity change is what forced the dependent import-hash refresh in index 5. | verifier confirmed at 0.87",
+  "family_id": "us-abc82d7a-e47ca77d5c5b",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

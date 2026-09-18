@@ -1,0 +1,151 @@
+{
+  "id": "us-478-86d35779-us-policies-usitc-us-tariff-duty-overlays-section-301-forced-labor-annex-9903-05",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "86d35779d9eea3ec3f1c9ca211c4a78226878093",
+  "parent_commit": "b58a5c650ba76fb2313b53d006dd8a708d3fd2de",
+  "commit_date": "2026-08-01",
+  "commit_subject": "Repair overlay effective dates and retire heading 9903.01.20 module",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1192",
+  "module_path": "us/policies/usitc/us-tariff-duty/overlays/section-301/forced-labor-annex-9903-05-86.yaml",
+  "corpus_citation_path": "us/statute/hts/9903.05.86",
+  "corpus_citation_paths_all": [
+    "us/statute/hts/9903.05.86"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "wrong_period_or_effective_date",
+  "other_kind": null,
+  "confidence": 0.93,
+  "description": "Forced-labor 301 headings gate entries on/after 2026-07-24 per FR\n  2026-15181 DATES (was 2026-07-23).",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        25,
+        25
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        25,
+        25
+      ]
+    ],
+    "rule_names": [
+      "forced_labor_annex_heading_applies"
+    ],
+    "rule_path": "rules[forced_labor_annex_heading_applies].versions[0].effective_from"
+  },
+  "pre_fix_artifact_sha256": "b129035b07ed33fa4074ae8fd27d3c714da8d5ef6d6d07a33db80a8cb6c1fde9",
+  "post_fix_artifact_sha256": "3818715a0ba8af62b2c182e2ad8fd25ee47414f425a4b1b343d1723b6e91dec7",
+  "provision_sha256": "4f4b457ccb0b466b9a73b424fab8664de8743760dec17960c7cf2d554f3e0072",
+  "provision_chars": 347,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/hts/9903.05.86",
+    "provision_file": "data/corpus/provisions/us/statute/2026-08-03-rulespec-hts-current-with-legacy-aluminum.jsonl",
+    "provision_file_sha256": "7406b42f2f6a35bd43ed67d7fe4d0f7323e12c3e49c67b8d6699f9978d23b770",
+    "line_number": 1359,
+    "record_id": "c35b3a35-1c7c-5fe2-8dea-51e8be060dc7",
+    "stored_body_sha256": "4f4b457ccb0b466b9a73b424fab8664de8743760dec17960c7cf2d554f3e0072",
+    "resolved_text_sha256": "4f4b457ccb0b466b9a73b424fab8664de8743760dec17960c7cf2d554f3e0072",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-31",
+    "source_as_of": "2026-08-01",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "2ccb67efa41f60b5a80cb736c0272e68d5591389",
+    "requested_citation_path": "us/statute/hts/9903.05.86",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.86'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.86'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.86'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.86'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.86'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.86'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.86'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.86'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.86'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.86'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.86'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.86'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.86'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.86'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.86'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.86'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The 9903.05.86 annex carve-out predicate was gated from 2026-07-23, a day before the forced-labor 301 action applies (FR 2026-15181 DATES: entries on or after 12:01 a.m. July 24, 2026), so the heading's carve-out was live a day early relative to the action it belongs to.",
+    "triage_notes": "Single-rule module; only the effective_from changed, formula article_provided_for_in_subdivision_b_of_us_note_52 untouched. Source verified: us/rulemaking/federal-register/2026-07-28/2026-15181 DATES reads 'The additional rates of duty are applicable with respect to products that are entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern time on July 24, 2026'. Note the sibling module forced-labor-presidential-action.yaml (the memorandum of July 23, 2026, rate parameters) keeps effective_from 2026-07-23 and was deliberately not changed, which is consistent: the memorandum date differs from the entry-date gate. Companion test unchanged.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_period_or_effective_date",
+    "verifier_confidence": 0.94,
+    "verifier_justification": "The only change in this module is the single version window start, `effective_from: '2026-07-23'` → `'2026-07-24'`, which is a meaning-bearing field (version window / effective date), so it cannot be mechanical, and no formula, parameter, scope, or logic moved, so no other kind fits. I resolved the governing source through the pinned release (us-rulespec-2026-08-03-ecps-pit-tariff-union): FR 2026-15181 DATES reads \"The additional rates of duty are applicable with respect to products that are entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern time on July 24, 2026\", and Annex I.A — the block that inserts the new subchapter III provisions effective July 24, 2026 — is where heading 9903.05.86 and U.S. note 52(b) appear, so the heading simply did not operate on 2026-07-23. The pre-fix date was therefore wrong against the source rather than an enhancement or a policy choice; the PR body had itself flagged the inconsistency (\"although heading modules carry effective_from 2026-07-23\") and the repair commit corrects it in the same direction across the whole forced-labor 301 family, while moving Brazil 9903.05.01 the other way to 07-22 per FR 2026-14542 — a pattern consistent with per-notice DATES alignment, not a blanket shift.",
+    "verifier_quote": "-      - effective_from: '2026-07-23'\n+      - effective_from: '2026-07-24'",
+    "verifier_notes": "Refutation attempts that failed: (1) mechanical — excluded, effective dates are explicitly meaning-bearing and nothing else in the file changed; (2) boundary_direction — the fix moves the date value, not the strictness/inclusivity of a comparison (effective_from stays an inclusive start), so wrong_period_or_effective_date is the precise kind; (3) not_a_defect — the source settles it, the heading is created by Annex I.A effective 2026-07-24. Two caveats a reviewer should see. First, the module's own `corpus_citation_path` (us/statute/hts/9903.05.86) resolves to article-description and rate text with no date at all; the date authority is FR 2026-15181, which this module does not cite (the composition does, carrying the DATES excerpt as a proof atom at us/rulemaking/federal-register/2026-07-28/2026-15181). So the disagreement is with the governing notice named in the commit message, not with text under the module's own citation path. Second, 9903.05.86 is a carve-out the duty headings except out of, and those headings also started 07-24, so the one-day-early window likely had no standalone computed effect — still an encoded-meaning defect, not merely cosmetic. Unrelated nuance visible in the same FR, out of scope here: Annex I.B modifies the article description of 9903.05.90 effective 2026-07-31, while module 007 (forced-labor-metals-9903-05-90) carries a single version from 2026-07-24; that module may warrant its own look.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Single-rule module; only the effective_from changed, formula article_provided_for_in_subdivision_b_of_us_note_52 untouched. Source verified: us/rulemaking/federal-register/2026-07-28/2026-15181 DATES reads 'The additional rates of duty are applicable with respect to products that are entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern time on July 24, 2026'. Note the sibling module forced-labor-presidential-action.yaml (the memorandum of July 23, 2026, rate parameters) keeps effective_from 2026-07-23 and was deliberately not changed, which is consistent: the memorandum date differs from the entry-date gate. Companion test unchanged. | verifier confirmed at 0.94",
+  "family_id": "us-86d35779-cfbbfb3cb8ea",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

@@ -1,0 +1,30 @@
+format: rulespec/v1
+module:
+  summary: |-
+    Internal Revenue Code section 63(c)(5) caps a dependent individual's
+    standard deduction at the greater of a minimum amount or earned income plus
+    an addition, subject to the single-filer basic standard deduction. Annual
+    inflation-adjusted dollar amounts are imported from the IRS tax-year
+    authority, not encoded in the statute file.
+  source_verification:
+    corpus_citation_path: us/statute/26/63
+imports:
+  - us:policies/irs/rev-proc-2025-32/standard-deduction
+rules:
+  - name: dependent_standard_deduction
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    source: IRC section 63(c)(5)
+    versions:
+      - effective_from: '2026-01-01'
+        formula: |-
+          min(
+              single_basic_standard_deduction,
+              max(
+                  dependent_minimum,
+                  earned_income + dependent_earned_income_addition
+              )
+          )

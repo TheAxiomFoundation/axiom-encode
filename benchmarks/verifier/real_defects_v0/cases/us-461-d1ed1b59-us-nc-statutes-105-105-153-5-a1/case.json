@@ -1,0 +1,168 @@
+{
+  "id": "us-461-d1ed1b59-us-nc-statutes-105-105-153-5-a1",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "d1ed1b5949f83e68fc8e29bf2501c5964d4e6bc2",
+  "parent_commit": "5c087fc884919b049933f2f63a461122146bd56b",
+  "commit_date": "2026-07-26",
+  "commit_subject": "Repair NC TY2026 statute source backing",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1106",
+  "module_path": "us-nc/statutes/105/105-153.5/a1.yaml",
+  "corpus_citation_path": "us-nc/statute/105/105-153.5",
+  "corpus_citation_paths_all": [
+    "us-nc/statute/105/105-153.5"
+  ],
+  "corpus_release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+  "corpus_release_content_sha256": "cb275c76c4f07f8ad37470a32296bb1763e5db853d152697524ab07021b6d544",
+  "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+  "defect_kind": "wrong_period_or_effective_date",
+  "other_kind": null,
+  "confidence": 0.6,
+  "description": "independent review fixed two actionable findings: incomplete current child-deduction bands and an incorrectly anchored wagering proof",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        7,
+        7
+      ],
+      [
+        9,
+        9
+      ],
+      [
+        30,
+        30
+      ],
+      [
+        36,
+        36
+      ],
+      [
+        44,
+        61
+      ],
+      [
+        74,
+        74
+      ],
+      [
+        80,
+        80
+      ],
+      [
+        87,
+        105
+      ],
+      [
+        118,
+        118
+      ],
+      [
+        124,
+        124
+      ],
+      [
+        126,
+        149
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        7,
+        7
+      ],
+      [
+        9,
+        12
+      ],
+      [
+        33,
+        33
+      ],
+      [
+        39,
+        39
+      ],
+      [
+        47,
+        68
+      ],
+      [
+        81,
+        81
+      ],
+      [
+        87,
+        87
+      ],
+      [
+        94,
+        116
+      ],
+      [
+        129,
+        129
+      ],
+      [
+        135,
+        135
+      ],
+      [
+        137,
+        164
+      ]
+    ],
+    "rule_names": [
+      "child_deduction_amount_by_band",
+      "child_deduction_band_lower_agi",
+      "child_deduction_band_upper_agi"
+    ],
+    "rule_path": "rules[child_deduction_amount_by_band].versions[0].values"
+  },
+  "pre_fix_artifact_sha256": "11fcb721be69b5150289117a524588c36d235866ca1a535c1c694409053fd757",
+  "post_fix_artifact_sha256": "64d3f29c9d1ee3a17dd3ed9b7fc6687eaa4077bc5dd5c6e3df8442a6fe251bb3",
+  "provision_sha256": "f40ff33b90f5f23e2ed1a4264d6ae3488f12d85c9d429b91cedb9c981ecc5ada",
+  "provision_chars": 40801,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-nc/statute/105/105-153.5",
+    "provision_file": "data/corpus/provisions/us-nc/statute/2026-07-13-recovery.jsonl",
+    "provision_file_sha256": "671d105b274dc6d7bd7faeadceecf6aa2f5850444d2785c5e752e6e5604c1bb7",
+    "line_number": 52,
+    "record_id": "5650de2f-f5e5-5772-bfc4-ff4581dc34df",
+    "stored_body_sha256": "f40ff33b90f5f23e2ed1a4264d6ae3488f12d85c9d429b91cedb9c981ecc5ada",
+    "resolved_text_sha256": "f40ff33b90f5f23e2ed1a4264d6ae3488f12d85c9d429b91cedb9c981ecc5ada",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "e07011cce174be6b4f6c6e132e66dc4e122565bd",
+    "requested_citation_path": "us-nc/statute/105/105-153.5",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The child-deduction table encoded the superseded pre-2022 schedule — six bands per filing status topping out at $2,500 — while the cited §105-153.5(a1) states seven bands per status topping out at $3,000 (MFJ bounds 40k/60k/80k/100k/120k/140k), so every child deduction came out $500 low and the top band was missing.",
+    "triage_notes": "Provision read and matched cell by cell against the pinned successor (corpus b403bf49, §105-153.5(a1)): 'Married, filing jointly/ Up to $40,000 $3,000 ... Over $120,000 Up to $140,000 500.00 Over $140,000 0', Head of Household to $105,000, Single and MFS to $70,000 — identical to the post-fix 28-entry tables. The same commit also fixes the version window from the timeless effective_from '0001-01-01' to '2022-01-01' and repoints the citation from the .../105-153.5/a1 fragment to the section, so this module carries a wrong_period_or_effective_date aspect as well; I tagged amount_mismatch because the decisive change is the replacement of every band bound and deduction amount. Pre-fix summary even self-described as 'Effective for taxable years beginning before January 1, 2022', yet the module fed the TY2026 resident pipeline.",
+    "verifier_verdict": "reclassify",
+    "verifier_defect_kind": "wrong_period_or_effective_date",
+    "verifier_confidence": 0.6,
+    "verifier_justification": "The pre-fix module was not a botched transcription of the current table: its own summary declared it encoded the schedule \"Effective for taxable years beginning before January 1, 2022\", and its six-band / $2,500-max values are a faithful encoding of that superseded pre-2022 §105-153.5(a1) text — but all three parameter tables carried `effective_from: '0001-01-01'` with no `effective_to`, so superseded text applied for all time, including the TY2026 pipeline that consumed it. The fix narrows the window to `effective_from: '2022-01-01'`, repoints `corpus_citation_path` from the stale `/a1` predecessor fragment to `us-nc/statute/105/105-153.5`, and swaps in the current seven-band / $3,000 schedule; the commit subject (\"Repair NC TY2026 statute source backing\") and PR bullets (\"repoint … from stale predecessor fragments to the official TY2026 temporal statute successor\"; \"This is a legitimate temporal/source-structure repair\") frame it the same way. The kind taxonomy assigns exactly this pattern — \"timeless encoding of superseded text\" — to wrong_period_or_effective_date, so the changed cell values are the symptom of a version-anchoring defect rather than an independent amount error. It is still a fidelity defect (the numbers really were wrong for TY2026), so only the kind changes, not the classification.",
+    "verifier_quote": "-    Effective for taxable years beginning before January 1, 2022, a taxpayer allowed a federal child tax credit under section 24 is allowed a North Carolina deduction for each qualifying child, with the per-child amount set by filing status and federal adjusted gross income.\n-      - effective_from: '0001-01-01'\n+      - effective_from: '2022-01-01'",
+    "verifier_notes": "Verified source text: the resolver (pinned release us-rulespec-2026-07-24-snap-cms-pit-union, corpus commit 0fd35bfbda, provision file data/corpus/provisions/us-nc/statute/2026-07-13-recovery.jsonl line 52, body sha256 f40ff33b90…) gives current §105-153.5(a1) as seven bands per filing status topping at $3,000 with MFJ bounds 40k/60k/80k/100k/120k/140k, HoH 30/45/60/75/90/105k, Single and MFS 20/30/40/50/60/70k. The post-fix tables match that exactly; the pre-fix tables match the pre-2022 statute exactly (same bounds minus the top band, every amount $500 lower, $2,500 max). So the pre-fix numbers were internally coherent law, just the wrong vintage — that is the reason I moved the kind.\n\nTwo honest counterweights for the reviewer, which is why confidence is 0.6 and not higher: (1) resolving the pre-fix citation path `us-nc/statute/105/105-153.5/a1` at the parent commit 5c087fc884 through the same pinned corpus returns the CURRENT text ($3,000, seven bands, sha256 2422c4d27b…) — the stale predecessor fragment is no longer reachable, so a reviewer who defines \"the cited source\" as what that path resolves to today would legitimately keep amount_mismatch, since the encoded cells disagree with the resolvable cited text. (2) The diff really does change ~60 table cells and add a band per status, and the PR bullet \"encode the current §105-153.5 child-deduction bands\" supports the numeric framing. If the corpus rubric prefers root cause, this is wrong_period_or_effective_date; if it prefers the surface of what the fix edited, amount_mismatch survives.\n\nSeparately, the first reader's justification quote (\"independent review fixed two actionable findings: incomplete current child-deduction bands and an incorrectly anchored wagering proof\") is weak evidence for the pre-fix defect: it describes findings raised and fixed inside PR #1106's own review cycle against an intermediate head, not the state of main before d1ed1b5949, and the \"wagering proof\" half belongs to a different module (the §165(d) itemized component, not a1.yaml). The decisive evidence for this module is the diff itself plus the old summary line.\n\nNot mechanical: parameter values and version windows both changed. Not not_a_defect: the module fed us-nc/policies/income_tax/resident_core_liability_pipeline.yaml for TY2026, so the superseded schedule was live, producing child deductions $500 low per band with the >120k band wrongly zeroed at what the current law makes a $500 band.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Provision read and matched cell by cell against the pinned successor (corpus b403bf49, §105-153.5(a1)): 'Married, filing jointly/ Up to $40,000 $3,000 ... Over $120,000 Up to $140,000 500.00 Over $140,000 0', Head of Household to $105,000, Single and MFS to $70,000 — identical to the post-fix 28-entry tables. The same commit also fixes the version window from the timeless effective_from '0001-01-01' to '2022-01-01' and repoints the citation from the .../105-153.5/a1 fragment to the section, so this module carries a wrong_period_or_effective_date aspect as well; I tagged amount_mismatch because the decisive change is the replacement of every band bound and deduction amount. Pre-fix summary even self-described as 'Effective for taxable years beginning before January 1, 2022', yet the module fed the TY2026 resident pipeline. | verifier reclassified amount_mismatch -> wrong_period_or_effective_date at 0.60; verifier kind used",
+  "family_id": "us-d1ed1b59-1aed1f526eec",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

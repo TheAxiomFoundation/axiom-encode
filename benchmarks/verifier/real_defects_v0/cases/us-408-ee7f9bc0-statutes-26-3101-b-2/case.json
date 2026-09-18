@@ -1,0 +1,130 @@
+{
+  "id": "us-408-ee7f9bc0-statutes-26-3101-b-2",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "ee7f9bc09acb3f5dac1a39fa77970f54096ff81b",
+  "parent_commit": "86e2549dc760f652ab5419fa52d4cb6eeba1f87b",
+  "commit_date": "2026-05-12",
+  "commit_subject": "Repair generated RuleSpec validation coverage",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/25",
+  "module_path": "statutes/26/3101/b/2.yaml",
+  "corpus_citation_path": "us/statute/26/3101",
+  "corpus_citation_paths_all": [
+    "us/statute/26/3101"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "wrong_entity_or_scope",
+  "other_kind": null,
+  "confidence": 0.6,
+  "description": "Repair generated RuleSpec validation coverage",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [],
+    "post_fix_lines": [
+      [
+        3,
+        4
+      ],
+      [
+        26,
+        33
+      ],
+      [
+        42,
+        49
+      ],
+      [
+        58,
+        65
+      ],
+      [
+        76,
+        83
+      ],
+      [
+        89,
+        89
+      ],
+      [
+        92,
+        92
+      ],
+      [
+        100,
+        107
+      ],
+      [
+        118,
+        125
+      ]
+    ],
+    "rule_names": [
+      "additional_medicare_wage_tax_threshold"
+    ],
+    "rule_path": "rules[additional_medicare_wage_tax_threshold].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "26ff9a2039f47529fcd72d4d74904ef07eeee4eab8a7dc971e08a47d04e3c329",
+  "post_fix_artifact_sha256": "c79e593747b22cf54f34573eb8108d55e422adc1387497c14f0bbc0f04a40bb5",
+  "provision_sha256": "3fa3fc0b75faa2701c24747d44bf2a351beec597d7ef67823f6b4e78452300a0",
+  "provision_chars": 1694,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/3101",
+    "provision_file": "data/corpus/provisions/us/statute/2026-05-10-tax-sections-r2026-07-15-self-contained-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "f48f152a03f99915c6ac9a847986e238ebeddd29ffb4199f0528c5e2a406eae4",
+    "line_number": 5,
+    "record_id": "a0e0112b-9ca1-57e0-9a5d-7c9062cb1eeb",
+    "stored_body_sha256": "3fa3fc0b75faa2701c24747d44bf2a351beec597d7ef67823f6b4e78452300a0",
+    "resolved_text_sha256": "3fa3fc0b75faa2701c24747d44bf2a351beec597d7ef67823f6b4e78452300a0",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2025-12-03",
+    "source_as_of": "2025-12-03",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us/statute/26/3101",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3101'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3101'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3101'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3101'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix match on filing_status enumerated only joint (1), married-filing-separately (2) and single (0), so head-of-household and surviving-spouse taxpayers got no threshold at all, leaving 26 USC 3101(b)(2)(C)'s catch-all ('in any other case, $200,000') unrepresented for those statuses.",
+    "triage_notes": "MIXED MODULE - read carefully before using as a benchmark item. The rest of the diff (module.proof_validation.required plus metadata.proof.atoms blocks on all six rules) is mechanical provenance; only the match arms are meaning-bearing. The fix adds '4 => additional_medicare_wage_tax_joint_threshold' and '3 => additional_medicare_wage_tax_other_threshold'. Branch 3 (head of household) at $200,000 matches the statute's clause (C), which I read through the pinned corpus release: '(A) in the case of a joint return, $250,000, (B) in the case of a married taxpayer (as defined in section 7703) filing a separate return, 1/2 of the dollar amount determined under subparagraph (A), and (C) in any other case, $200,000.' Branch 4 (surviving spouse) at $250,000 is itself unsupported by (C) - a qualifying surviving spouse does not file a joint return - and follow-up commit 1e0518cbf 'Repair generated section 3101(b)(2) filing status threshold (#311)' flips '4 => additional_medicare_wage_tax_joint_threshold' to '...other_threshold' and rewrites the module summary's filing-status convention. So this commit fixes one missing branch correctly and introduces a second defect that a later commit repairs; that later commit is the cleaner amount/scope instance. The companion test added here (surviving_spouse_uses_joint_threshold, filing_status 4 -> 250000) encodes the wrong expectation. Confidence held at 0.6: the diff and test show the missing-coverage defect but the commit message is generic and the PR body describes an unrelated module.",
+    "verifier_verdict": "reclassify",
+    "verifier_defect_kind": "wrong_entity_or_scope",
+    "verifier_confidence": 0.62,
+    "verifier_justification": "The diff does change encoded meaning, so it is a fidelity fix, not mechanical: beyond the proof-atom metadata it adds two arms to the `additional_medicare_wage_tax_threshold` match, which pre-fix enumerated only filing_status 1, 2 and 0, so head-of-household (3) and surviving-spouse (4) tax units fell out of the rule entirely even though the module's own summary claimed to cover head of household. But the defect is filing-status coverage of the derived rule, not a missing clause: 3101(b)(2)(C)'s catch-all and its $200,000 were already encoded (`additional_medicare_wage_tax_other_threshold` = '200000', applied to status 0), so nothing about the clause was unrepresented — the rule simply applied to the wrong population, which the kind list assigns to wrong_entity_or_scope. The first reader's rationale is also partly contradicted by the fix itself: it maps status 4 to the $250,000 joint threshold, not to the catch-all, and the pinned corpus text reads \"(A) in the case of a joint return, $250,000 ... (C) in any other case, $200,000\" with no surviving-spouse language, which is why the later commit 1e0518cbf re-repaired `4 => additional_medicare_wage_tax_other_threshold`.",
+    "verifier_quote": "+              3 => additional_medicare_wage_tax_other_threshold",
+    "verifier_notes": "Bundle path statutes/26/3101/b/2.yaml, module index 2; commit ee7f9bc09a, parent 86e2549dc7. Two meaning-bearing added lines: \"+              4 => additional_medicare_wage_tax_joint_threshold\" and \"+              3 => additional_medicare_wage_tax_other_threshold\"; everything else in the diff is `proof_validation: required` plus per-rule proof atoms (provenance/mechanical). Corroboration that the pre-fix state was wrong rather than an unclaimed enhancement: the pre-fix test file already contained `head_of_household_above_threshold` (filing_status 3, expecting threshold 200000) with no matching arm in the formula, and the module summary already listed \"3 = head of household\" and \"$200,000 in any other case\". Pinned release us-rulespec-2026-07-13 (corpus commit 612d20ca43, body sha 3fa3fc0b75) gives 3101(b)(2) as \"(A) in the case of a joint return, $250,000, (B) ... ½ of the dollar amount determined under subparagraph (A), and (C) in any other case, $200,000.\" Caveat worth recording in the corpus: this same commit INTRODUCED a second fidelity defect — `4 => joint_threshold` ($250,000 for a surviving spouse) has no basis in (A), and commit 1e0518cbf (\"Repair generated section 3101(b)(2) filing status threshold (#311)\", 2026-05-28) reversed it to `other_threshold` and rewrote the summary convention to \"1 = joint\" / \"4 = surviving spouse / qualifying widow(er)\". If the taxonomy prefers to route all additive-coverage fixes to unrepresented_clause, keeping the original kind is defensible; my objection is that clause (C) itself was already represented and only the filing-status population was wrong. Commit message is generic (\"Repair generated RuleSpec validation coverage\") and the PR (#25, \"Encode 26 USC 63(c) standard deduction\") says nothing about 3101, so the diff and the later #311 repair are the only evidence.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "MIXED MODULE - read carefully before using as a benchmark item. The rest of the diff (module.proof_validation.required plus metadata.proof.atoms blocks on all six rules) is mechanical provenance; only the match arms are meaning-bearing. The fix adds '4 => additional_medicare_wage_tax_joint_threshold' and '3 => additional_medicare_wage_tax_other_threshold'. Branch 3 (head of household) at $200,000 matches the statute's clause (C), which I read through the pinned corpus release: '(A) in the case of a joint return, $250,000, (B) in the case of a married taxpayer (as defined in section 7703) filing a separate return, 1/2 of the dollar amount determined under subparagraph (A), and (C) in any other case, $200,000.' Branch 4 (surviving spouse) at $250,000 is itself unsupported by (C) - a qualifying surviving spouse does not file a joint return - and follow-up commit 1e0518cbf 'Repair generated section 3101(b)(2) filing status threshold (#311)' flips '4 => additional_medicare_wage_tax_joint_threshold' to '...other_threshold' and rewrites the module summary's filing-status convention. So this commit fixes one missing branch correctly and introduces a second defect that a later commit repairs; that later commit is the cleaner amount/scope instance. The companion test added here (surviving_spouse_uses_joint_threshold, filing_status 4 -> 250000) encodes the wrong expectation. Confidence held at 0.6: the diff and test show the missing-coverage defect but the commit message is generic and the PR body describes an unrelated module. | verifier reclassified unrepresented_clause -> wrong_entity_or_scope at 0.62; verifier kind used",
+  "family_id": "us-ee7f9bc0-e939f3091a89",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

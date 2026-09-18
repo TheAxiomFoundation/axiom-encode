@@ -1,0 +1,179 @@
+{
+  "id": "us-223-2e82126b-us-or-policies-income-tax-resident-core-liability-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "2e82126ba262d4572d0e9da78d8b84c9345145fe",
+  "parent_commit": "c8e871b0fe0c0319b256cd2263df59509801a4d2",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Fails closed on Oregon 2026 held tax outputs: fail-closed correction to an existing module.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1038",
+  "module_path": "us-or/policies/income_tax/resident_core_liability_pipeline.yaml",
+  "corpus_citation_path": "us-or/form/individual-income-tax/2026/or-estimate/document-1",
+  "corpus_citation_paths_all": [
+    "us-or/form/individual-income-tax/2026/or-estimate/document-1",
+    "us-or/statute/session-laws/2026/sb1507/document-1",
+    "us-or/statute/session-laws/2026/hb4084/document-1",
+    "us-or/statute/session-laws/2026/sb1510/document-1",
+    "us-or/statute/316.037",
+    "us-or/statute/316.042",
+    "us-or/statute/316.048",
+    "us-or/statute/316.054",
+    "us-or/statute/316.056",
+    "us-or/statute/316.099",
+    "us-or/statute/316.102",
+    "us-or/statute/316.680",
+    "us-or/statute/316.685",
+    "us-or/statute/316.695",
+    "us-or/statute/316.698",
+    "us-or/statute/316.758",
+    "us-or/statute/316.765",
+    "us-or/statute/316.777",
+    "us-or/statute/316.792",
+    "us-or/statute/316.812",
+    "us-or/statute/316.821",
+    "us-or/statute/316.832",
+    "us-or/statute/316.837",
+    "us-or/statute/316.846",
+    "us-or/statute/316.847",
+    "us-or/statute/316.848",
+    "us-or/statute/316.853",
+    "us-or/statute/316.859",
+    "us-or/statute/316.861"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "polarity_or_logic",
+  "other_kind": null,
+  "confidence": 0.68,
+  "description": "Independent review found that the public refundable EITC candidate could remain nonzero when the bounded profile failed",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        1296,
+        1296
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        1296,
+        1296
+      ]
+    ],
+    "rule_names": [
+      "or_pit_2026_profile_candidate_refundable_earned_income_credit"
+    ],
+    "rule_path": "rules[or_pit_2026_profile_candidate_refundable_earned_income_credit].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "3e4c011b5c604b456cab914bc052eacb28961adc2822d871358740f717913908",
+  "post_fix_artifact_sha256": "89e13d03bd19233e481f84519ffa3b93bdffa38cf0efdba970a5a3cec0a25eec",
+  "provision_sha256": "712318f26303aad12348d9e546192a24638758a900370df8106541908876599c",
+  "provision_chars": 25469,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-or/form/individual-income-tax/2026/or-estimate/document-1",
+    "provision_file": "data/corpus/provisions/us-or/form/2026-07-22-or-estimate-2026.jsonl",
+    "provision_file_sha256": "8d8e9f7bc9045959ffa41470941cdbc95e1ba18e84e0fd1124b6a34770d1ab74",
+    "line_number": 2,
+    "record_id": "6c6c1de7-3312-5dd2-85a4-463394e8e718",
+    "stored_body_sha256": "712318f26303aad12348d9e546192a24638758a900370df8106541908876599c",
+    "resolved_text_sha256": "712318f26303aad12348d9e546192a24638758a900370df8106541908876599c",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-01-01",
+    "source_as_of": "2026-07-22",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "ddc9b0f95cb0cd7ed24d42bd62fec4dbf0e1b846",
+    "requested_citation_path": "us-or/form/individual-income-tax/2026/or-estimate/document-1",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The refundable Oregon EITC was gated only on full-year residency plus a valid input domain rather than on the module's bounded no-held-branch profile, so on profiles the module explicitly holds as unsupported it published a nonzero credit (e.g. 170) while every other output in the same pipeline returned 0, asserting a net Oregon result the encoding has no source support for instead of failing closed.",
+    "triage_notes": "Only one module file in the commit (chunk covers index 0 as expected); the commit also touched the companion test file and the signed encoding manifest (hash/signature bookkeeping only). Diff is a one-line gate swap at rules[or_pit_2026_profile_candidate_refundable_earned_income_credit].versions[0].formula; every sibling candidate rule in the file (deduction, schedule tax, nonrefundable credits, bounded net liability) was already gated on or_pit_2026_bounded_profile_applies, so this was the single fail-open output. Test evidence: `sb1507_eitc_young_dependent_rate_17_percent` (federal EITC 1000, dependent under three) changed its expected EITC from '170' to '0' while asserting `or_pit_2026_dependent_exemption_source_hold_applies: holds` and `or_pit_2026_bounded_profile_applies: not_holds`; two held-path tests gained ~19 zero assertions each. DOUBT worth a reviewer's attention: I read the cited provision (ORS 315.266 as amended by SB 1507 sec. 3, via resolve_provision on us-or/statute/session-laws/2026/sb1507/document-1) and it allows the credit to 'an eligible resident individual' at 14 percent (17 percent 'for a taxpayer with a dependent under the age of three at the close of the tax year') with no bounded-profile condition, so the pre-fix 170 was statutorily plausible for that taxpayer. The wrongness is therefore against the module's own declared hold architecture and fail-closed convention (an ungrounded partial legal result) rather than against the statute's numeric rule; a reviewer may prefer classification 'unclear', or kind 'wrong_entity_or_scope' (output surface / supported population) over 'polarity_or_logic'. I chose polarity_or_logic because the task taxonomy names 'fail-open vs fail-closed' under it and the commit subject is literally 'Fail close Oregon 2026 held tax outputs'. Side effect to note: because `or_pit_2026_has_dependent_under_age_three_at_year_end` is itself a disjunct of `or_pit_2026_dependent_exemption_source_hold_applies`, the statutory 17 percent young-dependent branch inside the EITC formula is now unreachable in this module, and the test still named `sb1507_eitc_young_dependent_rate_17_percent` now asserts 0. The commit is a repair round inside PR #1038 (merged 2026-07-24); the commit message body is empty, so all stated reasoning comes from the PR body's 'Review-fix cycle' section; PR has no separate review or comment records in the bundle.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "polarity_or_logic",
+    "verifier_confidence": 0.7,
+    "verifier_justification": "The one-hunk diff replaces the gate on the public refundable Oregon EITC candidate from the weak pair `or_pit_2026_is_full_year_resident and or_pit_2026_input_domain_is_valid` with the module's declared boundary `or_pit_2026_bounded_profile_applies`, so a branch that previously fired on profiles the module holds as unsupported now fails closed; the companion test flips that exact case from '170' to '0' and adds 19 zero assertions on the invalid and new-jobs-held paths. This is a genuine change of encoded meaning, not bookkeeping, and it is the single odd-one-out rule: the pre-fix file already referenced `bounded_profile_applies` in 20 places (every other profile_candidate / bounded money output), the post-fix file in 21. Fail-open versus fail-closed is named explicitly under polarity_or_logic, and the gate substitution is a mis-combined boolean condition rather than an amount, boundary, date, or missing clause, so the first reader's kind holds. I tried the two available refutations and neither displaces it: wrong_entity_or_scope (output surface) is the runner-up but describes the consequence rather than the mechanism, and not_a_defect is weakened by the fact that the pre-fix rule contradicted the module's own documented hold contract even though the 14/17 percent value it produced was itself source-correct.",
+    "verifier_quote": "-          if or_pit_2026_is_full_year_resident and or_pit_2026_input_domain_is_valid:\n+          if or_pit_2026_bounded_profile_applies:",
+    "verifier_notes": "Caveat a reviewer should weigh: I read ORS 315.266 as amended by SB 1507 sec. 3 through the pinned release (corpus release us-rulespec-2026-08-03-ecps-pit-tariff-union, provision text sha256 29a0174648242146a78c2ab2dbf04b615bb00016f6a0ee18027da9ffee2fd895). It allows \"an eligi- ble resident individual ... a credit ... equal to [nine] 14 percent of the earned income credit allowable\", with 17 percent for a dependent under three, and conditions nothing on the module's held branches (new-jobs credit, dependent-exemption hold, kicker, PTE-E, held modifications). So on a held profile the statute's own answer is still 14/17 percent of federal EITC; the post-fix 0 is the encoding's hold convention, not a literal source value, and the pre-fix gate actually tracked the statute's resident condition. The wrongness is against the module's declared bounded contract (all sibling money outputs return 0 when the profile is held) rather than against the words of ORS 315.266 — reviewers who require source-text disagreement for \"fidelity\" could argue not_a_defect here. The concrete hazard that makes it a real defect: with tax-after-nonrefundable-credits already zeroed on a held profile, an ungated EITC of 170 lets a consumer derive a -170 Oregon refund the module cannot support. Two more context points: the reader's phrase \"asserting a net Oregon result\" is slightly off, since `or_pit_2026_bounded_net_income_tax_liability_candidate` was already gated on the bounded profile and returned 0 pre-fix; and this commit is an intra-PR repair inside PR #1038, the same PR that first encoded the module, so the defect never landed on main independently (relevant only if the corpus policy excludes intra-PR review repairs).",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Only one module file in the commit (chunk covers index 0 as expected); the commit also touched the companion test file and the signed encoding manifest (hash/signature bookkeeping only). Diff is a one-line gate swap at rules[or_pit_2026_profile_candidate_refundable_earned_income_credit].versions[0].formula; every sibling candidate rule in the file (deduction, schedule tax, nonrefundable credits, bounded net liability) was already gated on or_pit_2026_bounded_profile_applies, so this was the single fail-open output. Test evidence: `sb1507_eitc_young_dependent_rate_17_percent` (federal EITC 1000, dependent under three) changed its expected EITC from '170' to '0' while asserting `or_pit_2026_dependent_exemption_source_hold_applies: holds` and `or_pit_2026_bounded_profile_applies: not_holds`; two held-path tests gained ~19 zero assertions each. DOUBT worth a reviewer's attention: I read the cited provision (ORS 315.266 as amended by SB 1507 sec. 3, via resolve_provision on us-or/statute/session-laws/2026/sb1507/document-1) and it allows the credit to 'an eligible resident individual' at 14 percent (17 percent 'for a taxpayer with a dependent under the age of three at the close of the tax year') with no bounded-profile condition, so the pre-fix 170 was statutorily plausible for that taxpayer. The wrongness is therefore against the module's own declared hold architecture and fail-closed convention (an ungrounded partial legal result) rather than against the statute's numeric rule; a reviewer may prefer classification 'unclear', or kind 'wrong_entity_or_scope' (output surface / supported population) over 'polarity_or_logic'. I chose polarity_or_logic because the task taxonomy names 'fail-open vs fail-closed' under it and the commit subject is literally 'Fail close Oregon 2026 held tax outputs'. Side effect to note: because `or_pit_2026_has_dependent_under_age_three_at_year_end` is itself a disjunct of `or_pit_2026_dependent_exemption_source_hold_applies`, the statutory 17 percent young-dependent branch inside the EITC formula is now unreachable in this module, and the test still named `sb1507_eitc_young_dependent_rate_17_percent` now asserts 0. The commit is a repair round inside PR #1038 (merged 2026-07-24); the commit message body is empty, so all stated reasoning comes from the PR body's 'Review-fix cycle' section; PR has no separate review or comment records in the bundle. | verifier confirmed at 0.70",
+  "family_id": "us-2e82126b-8c025a7202ee",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

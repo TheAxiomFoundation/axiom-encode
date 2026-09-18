@@ -1,0 +1,168 @@
+{
+  "id": "us-401-c6db535b-us-ga-statutes-48-48-7a-3",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "c6db535b079ba51d62cb43b2dffe02d27e3b086f",
+  "parent_commit": "9ff9a7aa4917c0939d2dc6d1c2f122be7d5c25bb",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Logic fix: GA 48-7A-3 low-income credit replaces age-65 doubling multiplier with one additional credit unit per taxpayer/spouse age 65+; also extends 2026 versions on 48-7-26/27/29.10.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/907",
+  "module_path": "us-ga/statutes/48/48-7A-3.yaml",
+  "corpus_citation_path": "us-ga/statute/48/48-7A-3",
+  "corpus_citation_paths_all": [
+    "us-ga/statute/48/48-7A-3"
+  ],
+  "corpus_release": "us-rulespec-2026-07-22-current",
+  "corpus_release_content_sha256": "7b1c6c0ec237dc3767f770fbb30178d6857bbe43fd4d952f57ebfc8409874bcc",
+  "corpus_commit": "c5af541326e024e04cb533bbf5709ae04e6305f6",
+  "defect_kind": "wrong_entity_or_scope",
+  "other_kind": null,
+  "confidence": 0.5,
+  "description": "the DOR-backed low-income age calculation",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        269,
+        269
+      ],
+      [
+        272,
+        272
+      ],
+      [
+        286,
+        286
+      ],
+      [
+        305,
+        305
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        269,
+        269
+      ],
+      [
+        272,
+        272
+      ],
+      [
+        286,
+        286
+      ],
+      [
+        305,
+        305
+      ]
+    ],
+    "rule_names": [
+      "additional_age_credit_units",
+      "low_income_credit_before_liability_cap"
+    ],
+    "rule_path": "rules[additional_age_credit_units].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "ee857810dc2b2f5f3a9607b166d395355f6967ee0ae09f2ed653472c99946520",
+  "post_fix_artifact_sha256": "a984c1a647472c39e1245db41cfcccea3d0d5edcdab23645a9bde241e31126d9",
+  "provision_sha256": "afbefa61031b685c8c5ef20d7386c1aae2983b598b157b2c3f720bdd18dbd024",
+  "provision_chars": 3750,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-ga/statute/48/48-7A-3",
+    "provision_file": "data/corpus/provisions/us-ga/statute/2026-07-21-ga-ocga-title-48-release86-us-ga-title-48.jsonl",
+    "provision_file_sha256": "8a56a7bda977c94135ef111f208f36c9984791f3c6a3a265dc4724b36486d4e0",
+    "line_number": 829,
+    "record_id": "e5787ab1-a6a8-59b1-b4ea-7d0258b1ac2b",
+    "stored_body_sha256": "afbefa61031b685c8c5ef20d7386c1aae2983b598b157b2c3f720bdd18dbd024",
+    "resolved_text_sha256": "afbefa61031b685c8c5ef20d7386c1aae2983b598b157b2c3f720bdd18dbd024",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2022-11-01",
+    "source_as_of": "2022-11-01",
+    "corpus_commit": "c5af541326e024e04cb533bbf5709ae04e6305f6",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 12,
+    "toolchain_corpus_ref": "77a36bc1807228e84591400b3d4409a4532e2953",
+    "requested_citation_path": "us-ga/statute/48/48-7A-3",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7A-3'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7A-3'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7A-3'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7A-3'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7A-3'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7A-3'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7A-3'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7A-3'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7A-3'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7A-3'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7A-3'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7A-3'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The age-65 enhancement was applied at the wrong scope and to the wrong member set: it multiplied the entire tax unit's credit (schedule amount times all dependents) by 2 whenever the filing taxpayer was 65 or over, instead of adding one credit unit for the aged individual, and it ignored the spouse's age entirely, so a joint return on which only the spouse was 65 or over received no enhancement even though 48-7A-3(b) says 'Each taxpayer 65 years of age or over may claim double the tax credit' and (a)(1) deems each spouse on a joint return a dependent.",
+    "triage_notes": "Read the full provision text of us-ga/statute/48/48-7A-3 through the pinned corpus. Important tension a reviewer should weigh: the literal sentence is 'Each taxpayer 65 years of age or over may claim double the tax credit', which on a flat reading supports the PRE-fix formula (schedule amount * dependents * 2 = 48 in the updated test case) rather than the post-fix one (8 * (3 + 1) = 32). The maintainers' basis is administrative guidance, not the statute sentence: the PR body says the repair covers 'the DOR-backed low-income age calculation' and that 'independent Georgia review found and drove fixes for contingent 2027 deductions, transition proofs/tests, DOR worksheet support'. Follow-up commit 5474dca0e (same PR) makes that explicit by adding corpus path us-ga/form/it-511/2025/document-1 and an upstream_source_check rationale: 'The official Georgia DOR 2025 IT-511 worksheet supplies the operational joint-return arithmetic: one age unit when either spouse is 65 or older, two when both are, with those units added to the number of exemptions before multiplication by the schedule amount.' At the time of THIS commit the new formula's only proof atom still cites the statute excerpt about doubling, so the module briefly asserts DOR arithmetic under a statutory citation. I kept classification 'fidelity' because one component is squarely source-grounded regardless of the DOR reading (the pre-fix encoding gave a 65+ spouse on a joint return nothing at all, contradicting 'Each taxpayer 65 years of age or over'), and because the whole change was review-driven and described as a repair; confidence is only 0.5 because the kind is arguable (amount_mismatch for the 2-vs-+1 multiplier, unrepresented_clause for the omitted spouse, or 'other' for wrong aggregation structure) and because a judge reading only the statute could defend the pre-fix formula. Mechanics of the diff: rule renamed age_credit_multiplier -> additional_age_credit_units, dtype Decimal -> Integer, new input spouse_is_65_years_of_age_or_over, and the credit formula changes from '* age_credit_multiplier' to '* (dependents_entitled_to_claim_count + additional_age_credit_units)'. Companion test renames the doubling case, changes its expected credit from 48 to 32, and adds a new joint-return case where only the spouse is 65+. No other rule in the module changed.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_entity_or_scope",
+    "verifier_confidence": 0.72,
+    "verifier_justification": "The diff changes encoded meaning, not bookkeeping: the age rule is re-typed Decimal→Integer and its formula goes from a unit-wide multiplier keyed only on the filer to an additive count of aged individuals, and the consuming formula moves the age term from a multiplier on the whole schedule×dependents product into the credit-unit count. Against the pinned source — \"Each taxpayer 65 years of age or over may claim double the tax credit\" read with (a)(1)'s \"A husband and wife filing a joint return shall each be deemed a dependent\" — the pre-fix encoding applied the doubling at the wrong level (it doubled every dependent's credit unit, not the aged taxpayer's own unit) and to the wrong member set (a 65-or-over spouse on a joint return got nothing at all). The companion test diff makes both errors concrete: a new joint-return case with only the spouse 65+ now yields one extra unit where it previously yielded none, and the taxpayer-65 case drops from 48 to 32. I tried to refute this as amount_mismatch (the \"2\" is not a source number, and the change is structural: a product replaced by a member-count) and as new coverage the module never claimed (joint returns were already in scope via low_income_credit_claimable_before_liability_cap), and neither refutation holds; wrong_entity_or_scope fits.",
+    "verifier_quote": "+          (if taxpayer_is_65_years_of_age_or_over: 1 else: 0) + (if spouse_is_65_years_of_age_or_over: 1 else: 0)",
+    "verifier_notes": "Second decisive diff line: \"+          if low_income_credit_allowed and adjusted_gross_income_band >= 0: credit_amount_per_dependent[adjusted_gross_income_band] * (dependents_entitled_to_claim_count + additional_age_credit_units) else: 0\" (was \"* dependents_entitled_to_claim_count * age_credit_multiplier\"). Honest tension a reviewer should weigh: the surviving proof-atom excerpt on the rewritten formula still reads \"Each taxpayer 65 years of age or over may claim double the tax credit.\", which the new additive formula does not literally implement, and the PR body grounds the change on \"the DOR-backed low-income age calculation\" (IT-511-style worksheet), i.e. partly on administrative guidance rather than the statute alone. That is why I hold confidence at 0.72 rather than higher — but the member-set half of the defect is settled by the statute's own words (\"Each taxpayer 65 years of age or over\"), since a 65+ spouse on a joint return previously received no enhancement whatsoever, so a fidelity defect exists regardless of how one scores the doubling-vs-one-unit magnitude question. Bundle: /private/tmp/claude-501/-Users-maxghenis-TheAxiomFoundation-axiom-encode--claude-worktrees-zealous-heyrovsky-31a96b/86103d8f-b97f-4559-a96c-7e79bdbe616d/scratchpad/diffs/us/c6db535b07/003.diff; module /Users/maxghenis/TheAxiomFoundation/rulespec-us/us-ga/statutes/48/48-7A-3.yaml at c6db535b07. Note the commit is a 4-module GA sweep with an empty body; the quoted \"screen-flagged\" summary in the task text is not the commit's own message (commit subject is \"Update Georgia income tax rules through 2026\"), so the diff and tests, not the message, carry the weight here.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Read the full provision text of us-ga/statute/48/48-7A-3 through the pinned corpus. Important tension a reviewer should weigh: the literal sentence is 'Each taxpayer 65 years of age or over may claim double the tax credit', which on a flat reading supports the PRE-fix formula (schedule amount * dependents * 2 = 48 in the updated test case) rather than the post-fix one (8 * (3 + 1) = 32). The maintainers' basis is administrative guidance, not the statute sentence: the PR body says the repair covers 'the DOR-backed low-income age calculation' and that 'independent Georgia review found and drove fixes for contingent 2027 deductions, transition proofs/tests, DOR worksheet support'. Follow-up commit 5474dca0e (same PR) makes that explicit by adding corpus path us-ga/form/it-511/2025/document-1 and an upstream_source_check rationale: 'The official Georgia DOR 2025 IT-511 worksheet supplies the operational joint-return arithmetic: one age unit when either spouse is 65 or older, two when both are, with those units added to the number of exemptions before multiplication by the schedule amount.' At the time of THIS commit the new formula's only proof atom still cites the statute excerpt about doubling, so the module briefly asserts DOR arithmetic under a statutory citation. I kept classification 'fidelity' because one component is squarely source-grounded regardless of the DOR reading (the pre-fix encoding gave a 65+ spouse on a joint return nothing at all, contradicting 'Each taxpayer 65 years of age or over'), and because the whole change was review-driven and described as a repair; confidence is only 0.5 because the kind is arguable (amount_mismatch for the 2-vs-+1 multiplier, unrepresented_clause for the omitted spouse, or 'other' for wrong aggregation structure) and because a judge reading only the statute could defend the pre-fix formula. Mechanics of the diff: rule renamed age_credit_multiplier -> additional_age_credit_units, dtype Decimal -> Integer, new input spouse_is_65_years_of_age_or_over, and the credit formula changes from '* age_credit_multiplier' to '* (dependents_entitled_to_claim_count + additional_age_credit_units)'. Companion test renames the doubling case, changes its expected credit from 48 to 32, and adds a new joint-return case where only the spouse is 65+. No other rule in the module changed. | verifier confirmed at 0.72",
+  "family_id": "us-c6db535b-924cf7547e32",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

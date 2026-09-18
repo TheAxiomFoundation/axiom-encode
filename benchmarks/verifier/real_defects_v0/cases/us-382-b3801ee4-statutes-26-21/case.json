@@ -1,0 +1,618 @@
+{
+  "id": "us-382-b3801ee4-statutes-26-21",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "b3801ee4eb82f8fc2c753d809c8b36d9ae6c42c2",
+  "parent_commit": "2175d5239a22bce42aa7a3b2f5a7c4af4c6940ea",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Wholesale regeneration with semantic corrections to existing modules: 24(d) phase-in threshold 2500 to 3000 and SS-excess gated on 3+ children, 1411 effective_from 2026 to 2013 and estate/trust base, CDCC/22/32/6401/2017(a)/273.10 formulas rewritten.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/25",
+  "module_path": "statutes/26/21.yaml",
+  "corpus_citation_path": "us/statute/26/21",
+  "corpus_citation_paths_all": [
+    "us/statute/26/21"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.6,
+  "description": "No credit is allowed for payments to specified related individuals, for failures to provide service-provider identifying information absent due diligence, or for failures to include the qualifying individual's TIN.",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        3,
+        8
+      ],
+      [
+        10,
+        26
+      ],
+      [
+        28,
+        28
+      ],
+      [
+        38,
+        53
+      ],
+      [
+        60,
+        60
+      ],
+      [
+        67,
+        67
+      ],
+      [
+        74,
+        74
+      ],
+      [
+        81,
+        81
+      ],
+      [
+        89,
+        89
+      ],
+      [
+        97,
+        97
+      ],
+      [
+        105,
+        106
+      ],
+      [
+        113,
+        113
+      ],
+      [
+        121,
+        122
+      ],
+      [
+        126,
+        126
+      ],
+      [
+        129,
+        129
+      ],
+      [
+        135,
+        135
+      ],
+      [
+        140,
+        140
+      ],
+      [
+        144,
+        146
+      ],
+      [
+        149,
+        151
+      ],
+      [
+        153,
+        153
+      ],
+      [
+        158,
+        158
+      ],
+      [
+        161,
+        162
+      ],
+      [
+        165,
+        165
+      ],
+      [
+        167,
+        167
+      ],
+      [
+        170,
+        171
+      ],
+      [
+        181,
+        186
+      ],
+      [
+        192,
+        192
+      ],
+      [
+        196,
+        200
+      ],
+      [
+        206,
+        206
+      ],
+      [
+        209,
+        210
+      ],
+      [
+        213,
+        213
+      ],
+      [
+        215,
+        215
+      ],
+      [
+        218,
+        219
+      ],
+      [
+        222,
+        222
+      ],
+      [
+        227,
+        227
+      ],
+      [
+        233,
+        243
+      ],
+      [
+        247,
+        253
+      ],
+      [
+        263,
+        269
+      ],
+      [
+        278,
+        278
+      ],
+      [
+        287,
+        288
+      ],
+      [
+        291,
+        291
+      ],
+      [
+        293,
+        293
+      ],
+      [
+        296,
+        296
+      ],
+      [
+        302,
+        302
+      ],
+      [
+        306,
+        309
+      ],
+      [
+        319,
+        320
+      ],
+      [
+        323,
+        323
+      ],
+      [
+        325,
+        326
+      ],
+      [
+        329,
+        330
+      ],
+      [
+        335,
+        335
+      ],
+      [
+        338,
+        338
+      ],
+      [
+        344,
+        344
+      ],
+      [
+        348,
+        351
+      ],
+      [
+        358,
+        358
+      ],
+      [
+        362,
+        363
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        3,
+        4
+      ],
+      [
+        6,
+        8
+      ],
+      [
+        10,
+        10
+      ],
+      [
+        13,
+        13
+      ],
+      [
+        15,
+        18
+      ],
+      [
+        23,
+        29
+      ],
+      [
+        32,
+        34
+      ],
+      [
+        39,
+        45
+      ],
+      [
+        48,
+        50
+      ],
+      [
+        55,
+        61
+      ],
+      [
+        64,
+        66
+      ],
+      [
+        71,
+        77
+      ],
+      [
+        80,
+        82
+      ],
+      [
+        87,
+        93
+      ],
+      [
+        96,
+        98
+      ],
+      [
+        104,
+        110
+      ],
+      [
+        113,
+        115
+      ],
+      [
+        121,
+        127
+      ],
+      [
+        130,
+        149
+      ],
+      [
+        155,
+        161
+      ],
+      [
+        164,
+        167
+      ],
+      [
+        172,
+        178
+      ],
+      [
+        181,
+        183
+      ],
+      [
+        189,
+        195
+      ],
+      [
+        198,
+        201
+      ],
+      [
+        205,
+        229
+      ],
+      [
+        232,
+        400
+      ],
+      [
+        406,
+        417
+      ],
+      [
+        422,
+        422
+      ],
+      [
+        424,
+        425
+      ],
+      [
+        428,
+        432
+      ],
+      [
+        435,
+        438
+      ],
+      [
+        440,
+        441
+      ],
+      [
+        446,
+        453
+      ],
+      [
+        456,
+        459
+      ],
+      [
+        462,
+        462
+      ],
+      [
+        464,
+        472
+      ],
+      [
+        475,
+        493
+      ],
+      [
+        500,
+        506
+      ],
+      [
+        510,
+        512
+      ],
+      [
+        518,
+        525
+      ],
+      [
+        529,
+        534
+      ],
+      [
+        540,
+        551
+      ],
+      [
+        554,
+        560
+      ],
+      [
+        563,
+        563
+      ],
+      [
+        565,
+        573
+      ],
+      [
+        576,
+        582
+      ],
+      [
+        585,
+        585
+      ],
+      [
+        588,
+        594
+      ],
+      [
+        597,
+        599
+      ],
+      [
+        605,
+        612
+      ],
+      [
+        616,
+        621
+      ],
+      [
+        628,
+        634
+      ],
+      [
+        638,
+        643
+      ],
+      [
+        650,
+        656
+      ],
+      [
+        659,
+        664
+      ],
+      [
+        671,
+        677
+      ],
+      [
+        680,
+        683
+      ],
+      [
+        686,
+        686
+      ],
+      [
+        688,
+        695
+      ],
+      [
+        698,
+        700
+      ],
+      [
+        706,
+        713
+      ],
+      [
+        717,
+        724
+      ],
+      [
+        732,
+        738
+      ],
+      [
+        741,
+        744
+      ],
+      [
+        747,
+        747
+      ],
+      [
+        749,
+        756
+      ],
+      [
+        759,
+        768
+      ],
+      [
+        773,
+        784
+      ],
+      [
+        787,
+        791
+      ],
+      [
+        797,
+        830
+      ],
+      [
+        834,
+        836
+      ],
+      [
+        843,
+        850
+      ],
+      [
+        854,
+        855
+      ]
+    ],
+    "rule_names": [
+      "cdcc_qualifying_individual",
+      "cdcc_earned_income_limit",
+      "cdcc_claim_requirements_satisfied",
+      "treated_as_not_married_under_section_21",
+      "cdcc_married_filing_requirement_satisfied",
+      "cdcc_creditable_expenses",
+      "cdcc_rate",
+      "cdcc"
+    ],
+    "rule_path": "rules[cdcc_qualifying_individual].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "6c8388612234cec4a4b32132491c887a08a6b878219e2e3ccad2728ce4c3db1c",
+  "post_fix_artifact_sha256": "ff43dd15e4d69da67d99b608048d230da5085d8521aac0272466ae2d9e4472b0",
+  "provision_sha256": "5d8f8dcfd94bb1babd4bd7d9ad7d37dadd6868bc4a848aad58b4f51bcc1268c2",
+  "provision_chars": 12744,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/21",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "1b0b185ca3335eb06c4fe10af488a8984bdd2cedd4087badf78583c267af7b7b",
+    "line_number": 10,
+    "record_id": "cbb1ef97-d7c6-5c00-a3a2-2d475999a1c8",
+    "stored_body_sha256": "5d8f8dcfd94bb1babd4bd7d9ad7d37dadd6868bc4a848aad58b4f51bcc1268c2",
+    "resolved_text_sha256": "5d8f8dcfd94bb1babd4bd7d9ad7d37dadd6868bc4a848aad58b4f51bcc1268c2",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us/statute/26/21",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/21'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/21'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/21'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/21'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix qualifying-individual test omitted 21(e)(1) (no credit where the abode relationship violates local law) and 21(e)(5) (a child of divorced/separated parents is a qualifying individual only of the custodial parent), the earned-income limit applied the married 21(d)(1) lesser-of-spouses rule to every taxpayer rather than only to married individuals, and the claim gate replaced 21(e)(6)'s related-individual bar, 21(e)(9)-(10) TIN rules and 21(e)(3)-(4) married-living-apart definition with opaque undefined inputs.",
+    "triage_notes": "Very large regeneration (312 -> 727 lines). Other meaning changes in the same diff: (1) the 21(g) 2021 special rules ($8,000/$16,000 expense limits, $125,000 first phaseout start, the 50 percent rate, and the $400,000 high-income phase-down) were added and gated on a `taxable_year_begins_in_2021` input, though the version window stayed effective_from 2026-01-01, which is an odd construction a reviewer may want to flag separately; (2) `cdcc_credit_limit` — pre-fix `max(0, income_tax_before_credits - foreign_tax_credit + alternative_minimum_tax)` with `source: 26 USC 26(a)` — was deleted and the module's source_verification narrowed from corpus_citation_paths [us/statute/26/21, us/statute/26/26] to the single path us/statute/26/21, so that is also an untraceable_branch removal (a 26(a) formula living inside the section 21 module); (3) the 21(d)(2) student/incapacitated-spouse deemed-income parameters ($250/$500) and the 21(e)(7)/(e)(6)(B)/(b)(2) structural parameters were added as parameters but are not referenced by any formula, so they add declaration without wiring. Expense limits are numerically unchanged (pre-fix 3000 * min(count,2) equals post-fix 3000/6000 split). Provision not separately resolved; evidence is the added verbatim module summary plus the diff.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.74,
+    "verifier_justification": "I tried to refute the call and could not: the diff adds two conditions that 26 USC 21 states verbatim and that the pre-fix file nowhere contained. The pinned corpus text (us-rulespec-2026-07-13) gives 21(e)(1) (\"An individual shall not be treated as having the same principal place of abode of the taxpayer if ... the relationship between the individual and the taxpayer is in violation of local law\") and 21(e)(5) (a 152(e) child \"shall not be treated as a qualifying individual with respect to the noncustodial parent\"), and `git grep` over the parent tree shows no \"local law\", \"custodial\", or 152(e) reference in statutes/26/21.yaml or any sibling 21 module. The companion test added in the same commit, `qualifying_child_local_law_exception_not_holds`, exercises exactly the added clause. The pre-fix module's own summary claimed to define \"qualifying individuals\", so this is a missing source-stated condition inside the module's claimed scope, not new coverage it never claimed.",
+    "verifier_quote": "+              and not abode_relationship_violates_local_law\n+              and not section_152_e_non_custodial_parent",
+    "verifier_notes": "The first reader's chosen quote is bad evidence and should be replaced with the diff lines above. That quote (\"No credit is allowed for payments to specified related individuals, for failures to provide service-provider identifying information absent due diligence, or for failures to include the qualifying individual's TIN\") is from the NEW module summary and points at 21(e)(6)/(9)/(10) — all three of which the pre-fix module already represented, as `expenses_paid_to_allowed_provider`, `provider_identification_requirements_met`, and `qualifying_individual_identification_requirements_met` in `cdcc_claim_requirements_satisfied`. The fix only renamed those. The real unrepresented clauses are elsewhere in the same diff: 21(e)(1), 21(e)(5), plus 21(h)(3) (`not possession_credit_or_payment_bars_united_states_credit`) and the 21(b)(2) employment-related-expense gate.\n\nCompeting kind worth recording: the earned-income limit is a separate, arguably more consequential defect of a different flavor. Pre-fix `cdcc_relevant_expenses` applied `min_head_spouse_earned` to every taxpayer; 21(d)(1)(A) gives unmarried individuals their own earned income and only (B) imposes the lesser-of-spouses rule. The fix branches on `married_at_close_of_taxable_year`. That reads as wrong_entity_or_scope (married rule applied to the whole population) as easily as an unrepresented (d)(1)(A) clause. If the corpus wants one kind per case, unrepresented_clause still covers the larger share of this diff; if multi-kind is allowed, flag wrong_entity_or_scope as a secondary.\n\nCaveats for the reviewer: (1) the commit message is generic — subject \"Regenerate validated US RuleSpec encodings\", empty body — so the case rests entirely on the diff plus the statutory text, not on any maintainer statement of intent; (2) this is a wholesale 312→727-line regeneration that renames essentially every input symbol and adds proof-atom metadata, so a lot of the diff is not defect repair; (3) the post-fix file has its own smells that are not this defect but may matter downstream: 21(g) 2021-only branches encoded in a module whose every version is `effective_from: '2026-01-01'`, `abode_relationship_violates_local_law` applied to the 21(b)(1)(A) under-13 branch even though 21(e)(1) only qualifies the same-principal-abode test, the 21(d)(2) student-spouse deemed-income parameters declared but used in no formula, and the 26(a) limitation (`cdcc_credit_limit`) dropped along with `us/statute/26/26` from `source_verification` in favor of `tax_imposed_by_chapter_before_cdcc`.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Very large regeneration (312 -> 727 lines). Other meaning changes in the same diff: (1) the 21(g) 2021 special rules ($8,000/$16,000 expense limits, $125,000 first phaseout start, the 50 percent rate, and the $400,000 high-income phase-down) were added and gated on a `taxable_year_begins_in_2021` input, though the version window stayed effective_from 2026-01-01, which is an odd construction a reviewer may want to flag separately; (2) `cdcc_credit_limit` — pre-fix `max(0, income_tax_before_credits - foreign_tax_credit + alternative_minimum_tax)` with `source: 26 USC 26(a)` — was deleted and the module's source_verification narrowed from corpus_citation_paths [us/statute/26/21, us/statute/26/26] to the single path us/statute/26/21, so that is also an untraceable_branch removal (a 26(a) formula living inside the section 21 module); (3) the 21(d)(2) student/incapacitated-spouse deemed-income parameters ($250/$500) and the 21(e)(7)/(e)(6)(B)/(b)(2) structural parameters were added as parameters but are not referenced by any formula, so they add declaration without wiring. Expense limits are numerically unchanged (pre-fix 3000 * min(count,2) equals post-fix 3000/6000 split). Provision not separately resolved; evidence is the added verbatim module summary plus the diff. | verifier confirmed at 0.74",
+  "family_id": "us-b3801ee4-c79b59395bd8",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

@@ -1,0 +1,258 @@
+{
+  "id": "us-425-063a0832-us-mo-policies-income-tax-pilot-liability-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "063a083250858ed65cd94235cabdb75062b51d97",
+  "parent_commit": "e9b82eac2e9dca3fa91c1a1a2f2391859e4b6d59",
+  "commit_date": "2026-07-22",
+  "commit_subject": "Encode Missouri 2026 individual tax schedule",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/994",
+  "module_path": "us-mo/policies/income_tax/pilot_liability_pipeline.yaml",
+  "corpus_citation_path": "us-mo/statute/143.011",
+  "corpus_citation_paths_all": [
+    "us-mo/statute/143.011",
+    "us-mo/statute/143.021"
+  ],
+  "corpus_release": "us-rulespec-2026-07-22-current-la-status-fix",
+  "corpus_release_content_sha256": "6bfd97b24cb63cb709fa52e9a5e6764c916dec95c5557447e11f47778ee4768f",
+  "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.49,
+  "description": "replace caller-supplied active-bracket inputs with the complete official 2026 Missouri eight-bracket schedule",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        10,
+        10
+      ],
+      [
+        15,
+        25
+      ],
+      [
+        27,
+        38
+      ],
+      [
+        40,
+        42
+      ],
+      [
+        46,
+        46
+      ],
+      [
+        50,
+        51
+      ],
+      [
+        53,
+        54
+      ],
+      [
+        57,
+        57
+      ],
+      [
+        59,
+        61
+      ],
+      [
+        65,
+        65
+      ],
+      [
+        69,
+        70
+      ],
+      [
+        73,
+        75
+      ],
+      [
+        82,
+        83
+      ],
+      [
+        88,
+        88
+      ],
+      [
+        92,
+        93
+      ],
+      [
+        95,
+        95
+      ],
+      [
+        97,
+        97
+      ],
+      [
+        101,
+        101
+      ],
+      [
+        112,
+        112
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        10,
+        10
+      ],
+      [
+        15,
+        29
+      ],
+      [
+        31,
+        38
+      ],
+      [
+        40,
+        41
+      ],
+      [
+        45,
+        46
+      ],
+      [
+        48,
+        48
+      ],
+      [
+        51,
+        52
+      ],
+      [
+        54,
+        59
+      ],
+      [
+        62,
+        70
+      ],
+      [
+        72,
+        73
+      ],
+      [
+        77,
+        78
+      ],
+      [
+        80,
+        80
+      ],
+      [
+        83,
+        84
+      ],
+      [
+        87,
+        149
+      ],
+      [
+        153,
+        180
+      ],
+      [
+        184,
+        200
+      ],
+      [
+        205,
+        205
+      ],
+      [
+        208,
+        208
+      ],
+      [
+        210,
+        217
+      ],
+      [
+        219,
+        219
+      ],
+      [
+        221,
+        221
+      ],
+      [
+        225,
+        225
+      ],
+      [
+        234,
+        238
+      ],
+      [
+        241,
+        253
+      ]
+    ],
+    "rule_names": [
+      "mo_pit_pilot_income_tax_before_credits_indiv",
+      "mo_pit_pilot_schedule_tax",
+      "mo_pit_pilot_bracket",
+      "mo_pit_pilot_bracket_upper",
+      "mo_pit_pilot_bracket_floor",
+      "mo_pit_pilot_bracket_base",
+      "mo_pit_pilot_bracket_rate",
+      "mo_pit_pilot_taxable_income"
+    ],
+    "rule_path": "rules[mo_pit_pilot_income_tax_before_credits_indiv].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "d84f3cd1d9d013bc4e404a9a2b7d98c99e2d49b52635f6c142d33a0712b1d051",
+  "post_fix_artifact_sha256": "926c3bb534f25b175c5e33873dab674d01eba6709b401febad9ceeb74418694b",
+  "provision_sha256": "d6a513119ce60337364a65fd1fa5bf8c316829275be17fa22ced89023a141db3",
+  "provision_chars": 5845,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-mo/statute/143.011",
+    "provision_file": "data/corpus/provisions/us-mo/statute/2026-07-16-pit-central-us-mo-143.jsonl",
+    "provision_file_sha256": "0063724a49551e64a2e224de645aa02559cfaf06f4392b3b4b738b811031fe84",
+    "line_number": 5,
+    "record_id": "94ec9511-ea8d-5ba9-8c84-40019ec587aa",
+    "stored_body_sha256": "d6a513119ce60337364a65fd1fa5bf8c316829275be17fa22ced89023a141db3",
+    "resolved_text_sha256": "d6a513119ce60337364a65fd1fa5bf8c316829275be17fa22ced89023a141db3",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-16",
+    "source_as_of": "2026-07-16",
+    "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "47cdff0d33ffe943cbb4c19f37af9e02d0f2f2b6",
+    "requested_citation_path": "us-mo/statute/143.011",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module claimed to implement the section 143.011 schedule and cited its bracket rows as proof atoms, but encoded none of the statute's eight brackets or their selection conditions: it applied one caller-supplied base/floor/rate linear piece to any taxable income, so for income outside the supplied bracket it returned a figure the statute's table does not produce (e.g. $263 rather than $89.68 on $5,000 of taxable income).",
+    "triage_notes": "Read the cited provisions through the pinned corpus release: us-mo/statute/143.011 subsection 1 lists exactly the eight rows the fix adds (0/1,348/2,696/4,044/5,392/6,740/8,088/9,436 with bases 0,0,27,61,101,148,202,263 and rates 0,2.0,2.5,3.0,3.5,4.0,4.5,4.7%), so every added parameter value matches the source, and the new bracket selection uses 'ti <= upper[k]', matching the source's 'Over $X but not over $Y' inclusive-upper phrasing. The commit bundles several other changes that each have an independent fidelity flavor and could support a different kind label: entity moves TaxUnit -> Person (143.011 'imposed ... on the Missouri taxable income of every resident' and 143.021 'Every resident having a taxable income shall determine his or her tax' are per-individual, so the old TaxUnit grain was wrong_entity_or_scope); every version gains effective_to '2026-12-31' where the pre-fix versions were open-ended even though 143.011 subsection 5 inflation-adjusts the brackets annually (wrong_period_or_effective_date); and the output rule is renamed from '..._income_tax_liability' to '..._income_tax_before_credits_indiv', dropping an over-claimed 'liability' surface. I chose unrepresented_clause because the PR's lead bullet and the bulk of the diff are about the missing statutory schedule. Counter-argument a reviewer should weigh: the pre-fix module's own rationale openly declared the bracket values 'caller-supplied current-authority inputs' (status composed_from_supplied_current_authority), so this can be read as a pilot being upgraded in scope rather than a targeted defect fix; the commit subject is 'Encode Missouri 2026 individual tax schedule', the commit body is empty, and the PR has zero reviews/comments (its own text says 'Draft only. Independent review-fix cycle is pending and required before readiness.') yet it was merged 2026-07-22. Hence confidence held at 0.6. No follow-up commits touch this file; its only prior commit is 699cc028f which created the pilot. Non-module changes in the commit: oracle-coverage-pending.yaml ledger entries (ceiling 1699 -> 1703, renamed legal_ids) and the signed encoding manifest, both bookkeeping.",
+    "verifier_verdict": "reclassify",
+    "verifier_defect_kind": "wrong_entity_or_scope",
+    "verifier_confidence": 0.55,
+    "verifier_justification": "The pre-fix module did not silently omit the eight brackets: its header declared `status: composed_from_supplied_current_authority` and its rationale said it \"accepts completed-return Missouri taxable income and the active bracket's cumulative base tax, floor, and marginal rate as caller-supplied current-authority inputs\", the same sanctioned pilot pattern the sibling us-dc module uses at the same parent commit, so internalizing the schedule is largely coverage the module expressly declared out of scope (and the reader's $5,000 → $263 example requires a caller to supply a non-active bracket, violating that stated contract). What the diff changes that the source does contradict is grain and output surface: every rule moves from `entity: TaxUnit` to `entity: Person` and the output is renamed from `mo_pit_pilot_income_tax_liability` to `mo_pit_pilot_income_tax_before_credits_indiv`, while the pinned corpus text of Mo. Rev. Stat. 143.011 imposes the tax \"on the Missouri taxable income of every resident\" and 143.021 says \"Every resident having a taxable income shall determine his or her tax from the rates provided in section 143.011\". Applying a per-resident graduated schedule to a TaxUnit aggregate mis-states the tax for any multi-earner unit (the pre-fix grid used only one-earner joint cases, which masked it; the fix adds `dual_person_y_companion_9100` / `dual_person_s_companion_3900`), and \"liability\" over-claimed an output that excludes credits. So it is a fidelity defect, but wrong_entity_or_scope is the kind that survives the module's own scope disclaimer.",
+    "verifier_quote": "-  - name: mo_pit_pilot_income_tax_liability\n+  - name: mo_pit_pilot_income_tax_before_credits_indiv\n     kind: derived\n-    entity: TaxUnit\n+    entity: Person",
+    "verifier_notes": "Both kinds are genuinely present in this one commit; the reviewer should decide which the corpus item is meant to capture.\n\nCase for keeping the first reader's unrepresented_clause (the strongest counter to my reclassify): the pinned corpus record for us-mo/statute/143.011 (release us-rulespec-2026-07-22-current-la-status-fix, body sha d6a5131…) contains all eight rows verbatim (\"$0 to $1,348: $0\" … \"Over $9,436: $263 plus 4.7% of excess over $9,436\"), and the pre-fix rule `mo_pit_pilot_schedule_tax` cited four of those rows as `kind: formula` proof atoms on `versions[0].formula` under `proof_validation: required: true`, while that formula was only `mo_pit_pilot_supplied_bracket_base + mo_pit_pilot_supplied_marginal_rate * max(0, mo_pit_pilot_taxable_income - mo_pit_pilot_supplied_bracket_floor)` — i.e. it asserted formula-level evidence from bracket rows it did not encode, and 143.021.2(1)'s zero-tax band was likewise unrepresented. If the reviewer holds that formula proof atoms citing a row constitute a claim to implement that row, unrepresented_clause stands and the verdict should be confirmed.\n\nCase against: the disclaimer is explicit and repo-wide, not an oversight. us-dc/policies/income_tax/pilot_liability_pipeline.yaml at the parent commit e9b82eac uses the identical status and says \"All tax-law amounts are inputs so the composition is source-grounded without embedding an unencoded annual schedule\". The commit subject is \"Encode Missouri 2026 individual tax schedule\" and the PR says \"replace … with …\"; no message, review, or comment anywhere calls the prior state wrong (PR #994 has zero reviews and was merged as a same-day draft-cycle PR). Post-fix values match the source table exactly, so nothing numeric was corrected — amount_mismatch is ruled out.\n\nTwo further meaning changes the reader did not cite, both secondary: every version gains `effective_to: '2026-12-31'` where the pre-fix versions were open-ended (143.011.5 requires annual bracket adjustment, so a timeless 2026 schedule would be wrong_period_or_effective_date — but pre-fix the values lived outside the module, so this mostly follows from the new parameter tables); and the caller input is renamed `mo_pit_pilot_supplied_taxable_income` → `mo_pit_pilot_individual_taxable_income` with a real `inputs:` block added (pre-fix the module declared no inputs at all; the supplied symbols existed only in test fixtures).\n\nIf the harness wants one label per commit and prefers the largest edit, unrepresented_clause is defensible at ~0.5; I put wrong_entity_or_scope slightly ahead because it needs no assumption about caller misuse and no contested reading of what the module claimed. Not mechanical and not not_a_defect under any reading: formulas, entities, versions and the output surface all changed.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Read the cited provisions through the pinned corpus release: us-mo/statute/143.011 subsection 1 lists exactly the eight rows the fix adds (0/1,348/2,696/4,044/5,392/6,740/8,088/9,436 with bases 0,0,27,61,101,148,202,263 and rates 0,2.0,2.5,3.0,3.5,4.0,4.5,4.7%), so every added parameter value matches the source, and the new bracket selection uses 'ti <= upper[k]', matching the source's 'Over $X but not over $Y' inclusive-upper phrasing. The commit bundles several other changes that each have an independent fidelity flavor and could support a different kind label: entity moves TaxUnit -> Person (143.011 'imposed ... on the Missouri taxable income of every resident' and 143.021 'Every resident having a taxable income shall determine his or her tax' are per-individual, so the old TaxUnit grain was wrong_entity_or_scope); every version gains effective_to '2026-12-31' where the pre-fix versions were open-ended even though 143.011 subsection 5 inflation-adjusts the brackets annually (wrong_period_or_effective_date); and the output rule is renamed from '..._income_tax_liability' to '..._income_tax_before_credits_indiv', dropping an over-claimed 'liability' surface. I chose unrepresented_clause because the PR's lead bullet and the bulk of the diff are about the missing statutory schedule. Counter-argument a reviewer should weigh: the pre-fix module's own rationale openly declared the bracket values 'caller-supplied current-authority inputs' (status composed_from_supplied_current_authority), so this can be read as a pilot being upgraded in scope rather than a targeted defect fix; the commit subject is 'Encode Missouri 2026 individual tax schedule', the commit body is empty, and the PR has zero reviews/comments (its own text says 'Draft only. Independent review-fix cycle is pending and required before readiness.') yet it was merged 2026-07-22. Hence confidence held at 0.6. No follow-up commits touch this file; its only prior commit is 699cc028f which created the pilot. Non-module changes in the commit: oracle-coverage-pending.yaml ledger entries (ceiling 1699 -> 1703, renamed legal_ids) and the signed encoding manifest, both bookkeeping. | verifier proposed wrong_entity_or_scope at 0.55 (below 0.6); triage kind kept",
+  "family_id": "us-063a0832-e8078fe29baf",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

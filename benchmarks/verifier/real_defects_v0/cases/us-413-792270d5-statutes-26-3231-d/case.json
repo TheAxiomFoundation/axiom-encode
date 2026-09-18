@@ -1,0 +1,195 @@
+{
+  "id": "us-413-792270d5-statutes-26-3231-d",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "792270d54b5aff43bab551fcdb92bd0066479724",
+  "parent_commit": "187161db90ae3c7dadc9253d042b30bf172ec9f0",
+  "commit_date": "2026-06-01",
+  "commit_subject": "Refresh payroll generated repairs",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/328",
+  "module_path": "statutes/26/3231/d.yaml",
+  "corpus_citation_path": "us/statute/26/3231",
+  "corpus_citation_paths_all": [
+    "us/statute/26/3231"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "polarity_or_logic",
+  "other_kind": null,
+  "confidence": 0.49,
+  "description": "apply signed encoder output/repairs only; no generated RuleSpec files were hand-edited",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        18,
+        18
+      ],
+      [
+        32,
+        32
+      ],
+      [
+        66,
+        66
+      ],
+      [
+        87,
+        87
+      ],
+      [
+        109,
+        109
+      ],
+      [
+        132,
+        132
+      ],
+      [
+        225,
+        228
+      ],
+      [
+        230,
+        230
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        18,
+        18
+      ],
+      [
+        32,
+        32
+      ],
+      [
+        40,
+        40
+      ],
+      [
+        67,
+        67
+      ],
+      [
+        75,
+        75
+      ],
+      [
+        89,
+        89
+      ],
+      [
+        97,
+        102
+      ],
+      [
+        117,
+        117
+      ],
+      [
+        125,
+        135
+      ],
+      [
+        151,
+        151
+      ],
+      [
+        159,
+        159
+      ],
+      [
+        176,
+        180
+      ],
+      [
+        241,
+        246
+      ],
+      [
+        256,
+        261
+      ],
+      [
+        263,
+        263
+      ]
+    ],
+    "rule_names": [
+      "general_chairman_service_remuneration_regarded_as_compensation"
+    ],
+    "rule_path": "rules[general_chairman_service_remuneration_regarded_as_compensation].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "30ca7b9c1a10d4058f8479a39f7d841ce516662c2a6b5a4366d13ff8c78d085d",
+  "post_fix_artifact_sha256": "0e0087f93dcad4f6abba7832e89718298783700dbbc50205200a8bafed05097e",
+  "provision_sha256": "2701fa1c5ee040be44fafad931ac1f5f47a9d5861786f50af4c0588ffe15916c",
+  "provision_chars": 17687,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/3231",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "1b0b185ca3335eb06c4fe10af488a8984bdd2cedd4087badf78583c267af7b7b",
+    "line_number": 76,
+    "record_id": "28d501c1-4bf1-554e-a1b2-847b4d0cbc32",
+    "stored_body_sha256": "2701fa1c5ee040be44fafad931ac1f5f47a9d5861786f50af4c0588ffe15916c",
+    "resolved_text_sha256": "2701fa1c5ee040be44fafad931ac1f5f47a9d5861786f50af4c0588ffe15916c",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "earliest_release_after_toolchain_corpus_ref",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": "9b575a00116da20b0952644f14d8530896f72cd3",
+    "requested_citation_path": "us/statute/26/3231",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3231'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3231'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3231'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/3231'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix formula flattened paragraph (7)'s three conditions into a single `and`, so whenever the individual was NOT acting as a general chairman or assistant general chairman the single `else` branch fell through to `remuneration_for_general_chairman_service` and treated the entire remuneration as compensation, although 26 USC 3231(d)(7) attaches its compensation treatment only \"in such case\", i.e. when he acts in that capacity; the fix nests the office/headquarters and non-US-employer conditions inside the general-chairman test and defaults the outer else to 0.",
+    "triage_notes": "Bundle contains exactly 2 module files, matching chunk indices [0,1]; nothing missing. Provision read through the pinned corpus release (us/statute/26/3231 resolved cleanly): (7) reads \"he acts in the capacity of a general chairman or an assistant general chairman of a general committee which represents individuals rendering service in the United States to an employer, but in such case if his office or headquarters is not located in the United States and the individuals represented by such general committee are employees of an employer not conducting the principal part of its business in the United States, only such proportion of the remuneration ... shall be regarded as compensation ...\", which grounds both the nesting and the zero default. Pre- and post-fix agree on every input combination where the general-chairman flag is true; the only behavioral delta is that flag false, where pre-fix returned full remuneration and post-fix returns 0 (a fail-open default corrected to fail-closed). Everything else in this 164-line diff is mechanical: module summary replaced with a verbatim statutory excerpt, source strings normalized (e.g. \"26 USC 3231(d), paragraphs (1) and (2)\" -> \"26 USC 3231(d)(1)-(2)\"), one proof atom's kind: amount -> kind: parameter, and about ten added proof-atom excerpt strings; no other formula, version, effective date, input, output, entity or scope changed. The companion statutes/26/3231/d.test.yaml was rewritten in the same commit (cases renamed/reordered, a new general_chairman_mileage_proration_below_minimum_is_zero_compensation case asserting 0, the old auto_zero case replaced by auto_positive cases), but no test pins the decisive not-a-general-chairman -> 0 behavior, so the formula change is not test-forced. Alternative kind considered: wrong_entity_or_scope (paragraph (7) treatment applied to individuals outside (7)'s scope); I chose polarity_or_logic because the defect mechanism is the mis-combined `and` and the wrong default value in the else branch. Confidence held at 0.62 because the commit message body is empty and the PR body is generic about \"signed encoder output/repairs\" and never mentions 3231(d); the diff plus the source text carry the classification.",
+    "verifier_verdict": "unclear",
+    "verifier_defect_kind": "polarity_or_logic",
+    "verifier_confidence": 0.6,
+    "verifier_justification": "The diff really does restructure the boolean nesting, but the only input state where pre and post disagree is `acts_as_general_chairman... == false` combined with a nonzero `remuneration_for_general_chairman_service`: with A true the two formulas are identical (A∧B∧C → proration, otherwise full remuneration), and with A false and the general-chairman remuneration at its only coherent value (0) both return 0. The pinned text of 26 USC 3231(d)(7) (\"he acts in the capacity of a general chairman ... but in such case if his office or headquarters is not located in the United States and the individuals represented ... only such proportion of the remuneration for such service shall be regarded as compensation\") gates the proration exactly as the old formula already did, and says nothing at all about a non-chairman, so the fix swaps one ungrounded default (full) for another (0) rather than aligning a reachable outcome with the source. Provenance points the same way: the manifest shows a wholesale re-encode (openai/0.2.279 → codex/0.2.529, new run_id and signature), the commit says only \"Refresh payroll generated repairs\", the PR body describes refreshing generated artifacts and proof-import hashes, and no test was added pinning the changed branch. If it is a defect the first reader's kind is the right one (a mis-nested `and` firing the wrong default branch = polarity_or_logic), but the evidence does not settle that it was wrong against the source.",
+    "verifier_quote": "           else:\n-              remuneration_for_general_chairman_service\n+              0",
+    "verifier_notes": "Refutation targets the verdict, not the kind. (1) The first reader's quote — \"apply signed encoder output/repairs only; no generated RuleSpec files were hand-edited\" — is generic PR boilerplate about the apply pipeline and carries zero evidence of a corrected meaning; the only real evidence is the diff. (2) Behavioral delta is confined to a self-contradictory input (not acting as general chairman, yet nonzero remuneration *for general chairman service*); on every coherent input pre == post. (3) `general_chairman_service_remuneration_regarded_as_compensation` has no consumer anywhere in the repo at this commit (`git grep` at 792270d54b over statutes/26 hits only d.yaml and d.test.yaml), so the old fail-open default could not propagate. (4) The companion test file was rewritten in the same commit, and the removed case `auto_zero_general_chairman_service_remuneration_regarded_as_compensation` (A=false, remuneration=0 → 0) passed under BOTH formulas; the replacement case `general_chairman_mileage_proration_below_minimum_is_zero_compensation` exercises A=true/B=true/C=true only. Nothing pins the corrected branch — not what you'd expect from a diagnosed repair. (5) Everything else in this module diff is provenance: summary rewritten to a source excerpt, proof-atom `kind: amount` → `kind: parameter`, added `excerpt` strings, and source-string normalizations (\"26 USC 3231(d), paragraphs (1) and (2)\" → \"26 USC 3231(d)(1)-(2)\") — mechanical on their own. (6) Corpus read: us-rulespec-2026-07-13, provision text sha256 2701fa1c5ee0…, resolver reported `fix_time_corpus_match: provision_file_absent_at_corpus_ref`, so the text read is a later release than the toolchain corpus ref — noted for completeness; (d)(7)'s wording is not in dispute. Recommend keeping as a borderline/weak corpus member or dropping it; a stronger reading would be \"defensive scoping added during a backend re-encode\", i.e. closer to not_a_defect than to a confirmed polarity defect.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Bundle contains exactly 2 module files, matching chunk indices [0,1]; nothing missing. Provision read through the pinned corpus release (us/statute/26/3231 resolved cleanly): (7) reads \"he acts in the capacity of a general chairman or an assistant general chairman of a general committee which represents individuals rendering service in the United States to an employer, but in such case if his office or headquarters is not located in the United States and the individuals represented by such general committee are employees of an employer not conducting the principal part of its business in the United States, only such proportion of the remuneration ... shall be regarded as compensation ...\", which grounds both the nesting and the zero default. Pre- and post-fix agree on every input combination where the general-chairman flag is true; the only behavioral delta is that flag false, where pre-fix returned full remuneration and post-fix returns 0 (a fail-open default corrected to fail-closed). Everything else in this 164-line diff is mechanical: module summary replaced with a verbatim statutory excerpt, source strings normalized (e.g. \"26 USC 3231(d), paragraphs (1) and (2)\" -> \"26 USC 3231(d)(1)-(2)\"), one proof atom's kind: amount -> kind: parameter, and about ten added proof-atom excerpt strings; no other formula, version, effective date, input, output, entity or scope changed. The companion statutes/26/3231/d.test.yaml was rewritten in the same commit (cases renamed/reordered, a new general_chairman_mileage_proration_below_minimum_is_zero_compensation case asserting 0, the old auto_zero case replaced by auto_positive cases), but no test pins the decisive not-a-general-chairman -> 0 behavior, so the formula change is not test-forced. Alternative kind considered: wrong_entity_or_scope (paragraph (7) treatment applied to individuals outside (7)'s scope); I chose polarity_or_logic because the defect mechanism is the mis-combined `and` and the wrong default value in the else branch. Confidence held at 0.62 because the commit message body is empty and the PR body is generic about \"signed encoder output/repairs\" and never mentions 3231(d); the diff plus the source text carry the classification. | verifier unclear at 0.60",
+  "family_id": "us-792270d5-008074817e3d",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

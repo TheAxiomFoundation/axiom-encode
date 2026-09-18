@@ -1,0 +1,72 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us-il/statute/35/5/201
+  summary: |-
+    Composed Illinois individual income-tax pipeline for the 2026 before-
+    nonrefundable-credit target. It accepts two TaxUnit-level completed-return
+    boundaries: Illinois taxable income and investment-credit recapture. It
+    floors taxable income at zero, applies the rate imported from encoded 35
+    ILCS 5/201, and adds the supplied recapture amount. It deliberately
+    excludes nonrefundable credits and makes no independent claim about the
+    upstream federal and Illinois adjustment, exemption, or investment-credit
+    chains. These narrow boundaries are suitable for comparison with
+    PolicyEngine's il_taxable_income and recapture_of_investment_credit feeding
+    il_income_tax_before_non_refundable_credits for full-year resident tax
+    units.
+imports:
+  - us-il:statutes/35/5/201#individual_trust_or_estate_current_income_tax_rate
+rules:
+  - name: il_pit_pilot_taxable_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 35 ILCS 5/201, supplied completed-return Illinois taxable income floored at zero
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-il/statute/35/5/201
+              excerpt: "A tax measured by net income is hereby imposed on every individual"
+    versions:
+      - effective_from: '2026-01-01'
+        effective_to: '2026-12-31'
+        formula: |-
+          max(0, il_pit_pilot_state_taxable_income)
+  - name: il_pit_pilot_income_tax_liability
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: 35 ILCS 5/201(b), (f)(6), and (h)(6), individual income tax on Illinois net income plus supplied investment-credit recapture, before nonrefundable credits
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: us-il:statutes/35/5/201#individual_trust_or_estate_current_income_tax_rate
+              output: individual_trust_or_estate_current_income_tax_rate
+              hash: sha256:d1d1a305bbbb185c71b69cf230f1937c77bb96e0bec7ccbcf1cbd2d2a15699e3
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-il/statute/35/5/201
+              excerpt: "for taxable years beginning on or after July 1, 2017, an amount equal to 4.95%"
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-il/statute/35/5/201
+              excerpt: "the tax imposed under subsections (a) and (b) of this Section for such taxable year shall be increased"
+    versions:
+      - effective_from: '2026-01-01'
+        effective_to: '2026-12-31'
+        formula: |-
+          il_pit_pilot_taxable_income * individual_trust_or_estate_current_income_tax_rate + il_pit_pilot_recapture_of_investment_credit

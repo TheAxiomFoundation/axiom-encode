@@ -1,0 +1,92 @@
+{
+  "id": "us-404-d15442b4-us-policies-medicaid-magi-household-income-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "d15442b4fd758e46d3b62ae1c56ab0b2f69cc430",
+  "parent_commit": "455cfb4a8c5923426dc8f505fb17ffacad319602",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Fail-closed guard on contradictory Medicaid applicant ages added to magi_household_income_pipeline; landed inside PR #1007 which introduced the module, so possibly a pre-merge repair.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1007",
+  "module_path": "us/policies/medicaid/magi_household_income_pipeline.yaml",
+  "corpus_citation_path": "us/regulation/42/435/603/b",
+  "corpus_citation_paths_all": [
+    "us/regulation/42/435/603/b",
+    "us/regulation/42/435/603/c",
+    "us/regulation/42/435/603/d",
+    "us/regulation/42/435/603/e",
+    "us/regulation/42/435/603/f",
+    "us/regulation/42/435/603/h",
+    "us/regulation/42/435/603/i",
+    "us/regulation/42/435/603/j",
+    "us/regulation/42/435/603/k",
+    "us/regulation/42/435/110",
+    "us/regulation/42/435/119",
+    "us/statute/26/36B"
+  ],
+  "corpus_release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+  "corpus_release_content_sha256": "cb275c76c4f07f8ad37470a32296bb1763e5db853d152697524ab07021b6d544",
+  "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+  "defect_kind": "polarity_or_logic",
+  "other_kind": null,
+  "confidence": 0.49,
+  "description": "Fail closed on contradictory Medicaid applicant ages",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [],
+    "post_fix_lines": [
+      [
+        778,
+        795
+      ]
+    ],
+    "rule_names": [
+      "medicaid_household_relation_applicant_facts_consistent"
+    ],
+    "rule_path": "rules[medicaid_household_relation_applicant_facts_consistent].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "78079f7ec406d7e818ff3c40f66ed235e7e2b8aad3512b260d65e26e5b43a469",
+  "post_fix_artifact_sha256": "df6b208e1f1874924d3aca4eef0d6cd531acb4e454342fcc0e3325bb85fe824f",
+  "provision_sha256": "9e87d180eb19913507fcf0290b2e6c60fd265ccb27f447d1192c72468775a83e",
+  "provision_chars": 850,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/regulation/42/435/603/b",
+    "provision_file": "data/corpus/provisions/us/regulation/2026-07-13-recovery-r2026-07-17-dedup.jsonl",
+    "provision_file_sha256": "9133fa7c05ffc60be99ca8c9363e78cebb13256f853936e13324559b2573085f",
+    "line_number": 48,
+    "record_id": "94662d19-4f24-5af1-a98c-aed766ff2a28",
+    "stored_body_sha256": "9e87d180eb19913507fcf0290b2e6c60fd265ccb27f447d1192c72468775a83e",
+    "resolved_text_sha256": "9e87d180eb19913507fcf0290b2e6c60fd265ccb27f447d1192c72468775a83e",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "5dfd89d131564e4ee0e1e763571dbb5d7fc7f5e7",
+    "requested_citation_path": "us/regulation/42/435/603/b",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The applicant-facts-consistency contract (sourced to 42 CFR 435.603(f), \"one applicant classification across all candidate rows\") cross-checked every applicant-level boolean against its row-duplicated copy but omitted the applicant's age, so an input where the canonical applicant age was 19 and the self row's applicant/candidate age was 65 passed the contract and the module still asserted eligibility while composing the (f)(2)/(f)(3) household from one age and applying the 435.119 adult-group band to the other.",
+    "triage_notes": "Purely additive change: two `sum_where(...) == medicaid_applicant_age * count_where(...)` conjuncts appended to the end of one formula; nothing else in the module (parameters, versions, effective dates, other rules' formulas, metadata) changed. Pre-fix the module did check row-internal coherence (`household_row_candidate_age == household_row_applicant_age` when `household_row_candidate_is_the_applicant`, inside household_row_inputs_valid) but never tied either row field to the canonical scalar, which separately drives medicaid_applicant_under_state_plan_age (f)(3)(iv) and the 435.119 adult-group bounds. Provision was read through the pinned corpus (us/regulation/42/435/603/f resolved cleanly): (f)(2)(ii)/(iii) and (f)(3)(ii)/(iii) key household composition off \"the age specified by the State under paragraph (f)(3)(iv)\", so the source treats the applicant's age as a single fact and the pre-fix encoding could use two contradictory values for it in one determination. Caveat on classification: this is an input-coherence guard on a duplicated-input surface that is an artifact of the encoding, not a clause the regulation states, so a stricter judge could call it defensive hygiene rather than source fidelity; I classified it fidelity because the rule itself claims to verify applicant-fact consistency under (f) and the fail-open path produced an affirmative eligibility answer on facts that cannot both hold. Kind chosen as polarity_or_logic per the 'fail-open vs fail-closed' clause, matching the commit subject. Provenance: this is the last commit on PR #1007's branch (https://github.com/TheAxiomFoundation/rulespec-us/pull/1007), which also introduced the module (30e2327e4) and carried sibling repair commits (3a3f3bf52 'Fail closed on Medicaid family size FPL mismatches', c3b9a2ea6, 455cfb4a8c), so this is a pre-merge repair, not a post-merge defect fix. No inline PR review comment names this specific hole; the closest reviewer text is the blind-review issue comment: \"runtime validity is diagnostic only, so structurally invalid inputs still emit affirmative results.\" No later commit touches the module file.",
+    "verifier_verdict": "not_a_defect",
+    "verifier_defect_kind": "none",
+    "verifier_confidence": 0.6,
+    "verifier_justification": "The added conjuncts compare two copies of the same input field (the canonical `medicaid_applicant_age` against the row-duplicated `household_row_applicant_age` / `household_row_candidate_age` on the self row), so they only bite on inputs that are self-contradictory — a state 42 CFR 435.603(f) never describes; read through the pinned release, (f) is pure household-composition text (filer/dependent/non-filer rules and the (f)(3)(iv) age election) and states no consistency requirement over duplicated applicant facts. For every coherent fact pattern the regulation actually determines, the pre- and post-fix modules return identical results, so no encoded meaning was corrected; by the corpus's own symmetry an added branch with no hook in the cited source is not a fidelity correction. The claimed kind is also unsupported on its face: nothing was inverted or mis-combined, a new conjunct was appended to an existing conjunction, and the source states no clause for `unrepresented_clause` to have omitted either. Context reinforces the reading — the commit sits inside PR #1007, which introduced the module, in a burst of pre-merge mutation-hardening commits, and the reviewer frames fail-closed inputs as \"the campaign-wide lesson from the sibling benefit reviews,\" i.e. a house design standard rather than a reading of 435.603.",
+    "verifier_quote": "+          and sum_where(\n+            medicaid_household_member_of_applicant,\n+            household_row_applicant_age,\n+            household_row_candidate_is_the_applicant\n+          ) == medicaid_applicant_age",
+    "verifier_notes": "Not mechanical — the change is real and behavior-altering: at the parent commit the runtime-validity gate was already wired, so pre-fix an input with canonical age 19 and self-row ages 65 passed `medicaid_household_relation_applicant_facts_consistent`, passed `medicaid_magi_household_runtime_inputs_valid`, and emitted `medicaid_adult_group_eligible: holds`. The companion case added in the same commit (`contradictory_canonical_and_self_row_ages_fail_closed`) pins exactly that: `internal_eligible_under_highest_applicable_magi_income_standard: holds` but gated `eligible_under_highest_applicable_magi_income_standard: not_holds`. So a reviewer who counts fail-open input-validation gaps as in-scope defects should retain the case; my objection is scope, not substance. Two further details for that reviewer. (1) The pre-fix module already enforced `household_row_candidate_age == household_row_applicant_age` on the self row (rows_valid, pre-fix line 522) and already cross-checked the derived boolean `medicaid_applicant_under_state_plan_age` against its row copy — the hole was only that 19 and 65 both sit above the (f)(3)(iv) threshold, so the boolean cross-check agreed while the raw scalars did not. That makes the gap a derived-vs-raw surface omission, not inverted logic. (2) If the case is kept, `polarity_or_logic` is the wrong kind: nothing was negated, re-ordered, or defaulted; the closest shape is a missing validity conjunct, which fits `unrepresented_clause` in form but fails its definition (\"a clause the source states\") because 435.603(f) states no such clause. Also note the first reader's quote, \"Fail closed on contradictory Medicaid applicant ages,\" is the commit subject only — the commit body is empty, there are no PR reviews or review comments on the diff, and the single issue comment's fail-open bullet (\"runtime validity is diagnostic only, so structurally invalid inputs still emit affirmative results\") describes a different repair, since gating was already present at parent 455cfb4a8c.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Purely additive change: two `sum_where(...) == medicaid_applicant_age * count_where(...)` conjuncts appended to the end of one formula; nothing else in the module (parameters, versions, effective dates, other rules' formulas, metadata) changed. Pre-fix the module did check row-internal coherence (`household_row_candidate_age == household_row_applicant_age` when `household_row_candidate_is_the_applicant`, inside household_row_inputs_valid) but never tied either row field to the canonical scalar, which separately drives medicaid_applicant_under_state_plan_age (f)(3)(iv) and the 435.119 adult-group bounds. Provision was read through the pinned corpus (us/regulation/42/435/603/f resolved cleanly): (f)(2)(ii)/(iii) and (f)(3)(ii)/(iii) key household composition off \"the age specified by the State under paragraph (f)(3)(iv)\", so the source treats the applicant's age as a single fact and the pre-fix encoding could use two contradictory values for it in one determination. Caveat on classification: this is an input-coherence guard on a duplicated-input surface that is an artifact of the encoding, not a clause the regulation states, so a stricter judge could call it defensive hygiene rather than source fidelity; I classified it fidelity because the rule itself claims to verify applicant-fact consistency under (f) and the fail-open path produced an affirmative eligibility answer on facts that cannot both hold. Kind chosen as polarity_or_logic per the 'fail-open vs fail-closed' clause, matching the commit subject. Provenance: this is the last commit on PR #1007's branch (https://github.com/TheAxiomFoundation/rulespec-us/pull/1007), which also introduced the module (30e2327e4) and carried sibling repair commits (3a3f3bf52 'Fail closed on Medicaid family size FPL mismatches', c3b9a2ea6, 455cfb4a8c), so this is a pre-merge repair, not a post-merge defect fix. No inline PR review comment names this specific hole; the closest reviewer text is the blind-review issue comment: \"runtime validity is diagnostic only, so structurally invalid inputs still emit affirmative results.\" No later commit touches the module file. | verifier said not_a_defect at 0.60 (below 0.7); kept as unclear",
+  "family_id": "us-d15442b4-9d3373a0b6ac",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

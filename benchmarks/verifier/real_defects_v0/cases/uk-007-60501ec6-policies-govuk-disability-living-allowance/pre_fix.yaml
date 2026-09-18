@@ -1,0 +1,152 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_paths:
+      - uk/regulation/uksi/2026/148/article/14
+      - uk/regulation/uksi/2013/376/schedule/4/paragraph/7
+  summary: |-
+    This PolicyEngine-alignment surface returns the annual Disability Living Allowance amount used by PolicyEngine UK and HBAI: the selected weekly self-care component plus the selected weekly mobility component, annualized over 52 weeks.
+imports:
+  - uk:regulations/uksi/2026/148/article/14#dla_self_care_higher_weekly_rate
+  - uk:regulations/uksi/2026/148/article/14#dla_self_care_middle_weekly_rate
+  - uk:regulations/uksi/2026/148/article/14#dla_self_care_lower_weekly_rate
+  - uk:regulations/uksi/2026/148/article/14#dla_mobility_higher_weekly_rate
+  - uk:regulations/uksi/2026/148/article/14#dla_mobility_lower_weekly_rate
+rules:
+  - name: disability_living_allowance_weeks_in_year
+    kind: parameter
+    entity: Person
+    dtype: Count
+    period: Year
+    source: Social Security (Claims and Payments) Regulations 1987 weekly-benefit annualization rule
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk/regulation/uksi/2013/376/schedule/4/paragraph/7
+              excerpt: weekly payments are multiplied by 52
+    versions:
+      - effective_from: '2026-04-06'
+        formula: |-
+          52
+
+  - name: disability_living_allowance_self_care_weekly_amount
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Week
+    unit: GBP
+    source: PolicyEngine UK dla_sc category-input wrapper over Social Security Benefits Up-rating Order 2026 article 14 self-care rates
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:regulations/uksi/2026/148/article/14#dla_self_care_higher_weekly_rate
+              output: dla_self_care_higher_weekly_rate
+              hash: sha256:2b397b176389de17d3f3f0745ae19d33bce746064f9e9e5a5c2dacbd7b78c002
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:regulations/uksi/2026/148/article/14#dla_self_care_middle_weekly_rate
+              output: dla_self_care_middle_weekly_rate
+              hash: sha256:2b397b176389de17d3f3f0745ae19d33bce746064f9e9e5a5c2dacbd7b78c002
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:regulations/uksi/2026/148/article/14#dla_self_care_lower_weekly_rate
+              output: dla_self_care_lower_weekly_rate
+              hash: sha256:2b397b176389de17d3f3f0745ae19d33bce746064f9e9e5a5c2dacbd7b78c002
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk/regulation/uksi/2026/148/article/14
+              excerpt: in paragraph (1)(a) for "£110.40" substitute "£114.60"
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk/regulation/uksi/2026/148/article/14
+              excerpt: in paragraph (1)(b) for "£73.90" substitute "£76.70"
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk/regulation/uksi/2026/148/article/14
+              excerpt: in paragraph (1)(c) for "£29.20" substitute "£30.30"
+    versions:
+      - effective_from: '2026-04-06'
+        formula: |-
+          if person_has_higher_rate_dla_self_care_category: dla_self_care_higher_weekly_rate else: if person_has_middle_rate_dla_self_care_category: dla_self_care_middle_weekly_rate else: if person_has_lower_rate_dla_self_care_category: dla_self_care_lower_weekly_rate else: 0
+
+  - name: disability_living_allowance_mobility_weekly_amount
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Week
+    unit: GBP
+    source: PolicyEngine UK dla_m category-input wrapper over Social Security Benefits Up-rating Order 2026 article 14 mobility rates
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:regulations/uksi/2026/148/article/14#dla_mobility_higher_weekly_rate
+              output: dla_mobility_higher_weekly_rate
+              hash: sha256:2b397b176389de17d3f3f0745ae19d33bce746064f9e9e5a5c2dacbd7b78c002
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:regulations/uksi/2026/148/article/14#dla_mobility_lower_weekly_rate
+              output: dla_mobility_lower_weekly_rate
+              hash: sha256:2b397b176389de17d3f3f0745ae19d33bce746064f9e9e5a5c2dacbd7b78c002
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk/regulation/uksi/2026/148/article/14
+              excerpt: in paragraph (2)(a) for "£77.05" substitute "£80.00"
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk/regulation/uksi/2026/148/article/14
+              excerpt: in paragraph (2)(b) for "£29.20" substitute "£30.30"
+    versions:
+      - effective_from: '2026-04-06'
+        formula: |-
+          if person_has_higher_rate_dla_mobility_category: dla_mobility_higher_weekly_rate else: if person_has_lower_rate_dla_mobility_category: dla_mobility_lower_weekly_rate else: 0
+
+  - name: disability_living_allowance_annual_amount
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    source: PolicyEngine UK dla final annual receipt wrapper over DLA self-care and mobility component rates
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:policies/govuk/disability-living-allowance#disability_living_allowance_self_care_weekly_amount
+              output: disability_living_allowance_self_care_weekly_amount
+              hash: sha256:local
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:policies/govuk/disability-living-allowance#disability_living_allowance_mobility_weekly_amount
+              output: disability_living_allowance_mobility_weekly_amount
+              hash: sha256:local
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk/regulation/uksi/2013/376/schedule/4/paragraph/7
+              excerpt: weekly payments are multiplied by 52
+    versions:
+      - effective_from: '2026-04-06'
+        formula: |-
+          (disability_living_allowance_self_care_weekly_amount + disability_living_allowance_mobility_weekly_amount) * disability_living_allowance_weeks_in_year

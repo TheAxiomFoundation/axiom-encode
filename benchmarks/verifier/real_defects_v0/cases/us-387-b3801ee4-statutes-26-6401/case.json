@@ -1,0 +1,148 @@
+{
+  "id": "us-387-b3801ee4-statutes-26-6401",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "b3801ee4eb82f8fc2c753d809c8b36d9ae6c42c2",
+  "parent_commit": "2175d5239a22bce42aa7a3b2f5a7c4af4c6940ea",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Wholesale regeneration with semantic corrections to existing modules: 24(d) phase-in threshold 2500 to 3000 and SS-excess gated on 3+ children, 1411 effective_from 2026 to 2013 and estate/trust base, CDCC/22/32/6401/2017(a)/273.10 formulas rewritten.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/25",
+  "module_path": "statutes/26/6401.yaml",
+  "corpus_citation_path": "us/statute/26/6401",
+  "corpus_citation_paths_all": [
+    "us/statute/26/6401"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.6,
+  "description": "For current-law 2026 individual cases, the refundable-credit aggregate includes the refundable credits modeled in Subpart C and payroll-tax refundable credits, and final federal income tax is income tax before refundable credits reduced by that aggregate.",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        3,
+        8
+      ],
+      [
+        18,
+        18
+      ],
+      [
+        22,
+        26
+      ],
+      [
+        33,
+        33
+      ],
+      [
+        36,
+        36
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        3,
+        4
+      ],
+      [
+        7,
+        12
+      ],
+      [
+        14,
+        73
+      ],
+      [
+        80,
+        115
+      ],
+      [
+        119,
+        124
+      ],
+      [
+        131,
+        165
+      ],
+      [
+        168,
+        170
+      ]
+    ],
+    "rule_names": [
+      "income_tax_refundable_credits",
+      "section_33_credit_treated_as_refundable_credit",
+      "refundable_credit_excess_overpayment",
+      "income_tax",
+      "limitation_period_overpayment_part",
+      "tax_payment_can_be_overpayment_despite_no_tax_liability"
+    ],
+    "rule_path": "rules[income_tax_refundable_credits].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "489136017a059b8347a1a8410c0c7fa4dae73908aab603e852e6856476a82169",
+  "post_fix_artifact_sha256": "0334fa762ac50e62bb3ab62b5be92fb8a670f156f910380bb711cccf8c14049a",
+  "provision_sha256": "96c1577d133a4932ad2e8d4f7874bddbfbf59cc531c11c9e2cd8cce5d2bf50e7",
+  "provision_chars": 1323,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/6401",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "1b0b185ca3335eb06c4fe10af488a8984bdd2cedd4087badf78583c267af7b7b",
+    "line_number": 112,
+    "record_id": "864d0135-23b1-577c-bad5-d906fc5e48c2",
+    "stored_body_sha256": "96c1577d133a4932ad2e8d4f7874bddbfbf59cc531c11c9e2cd8cce5d2bf50e7",
+    "resolved_text_sha256": "96c1577d133a4932ad2e8d4f7874bddbfbf59cc531c11c9e2cd8cce5d2bf50e7",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us/statute/26/6401",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/6401'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/6401'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/6401'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/6401'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "26 USC 6401(b)(1) defines the aggregate generically as 'the amount allowable as credits under subpart C of part IV of subchapter A of chapter 1', but the pre-fix module hard-coded a modelling list (eitc + refundable_american_opportunity_credit + refundable_ctc + recovery_rebate_credit + refundable_payroll_tax_credit) that is neither traceable to the provision nor confined to subpart C, and it omitted 6401(b)(2)'s rule that a section 33 credit counts only when a 6013(g)/(h) election is in effect (except when allowed by reason of section 1446).",
+    "triage_notes": "The quote is a verbatim fragment of the deleted module summary; the file wraps it across three lines, which I joined without changing any words. This module also went from encoding only a slice of 6401(b) to encoding 6401(a) (`limitation_period_overpayment_part`), the 6401(b)(1) overpayment output (`refundable_credit_excess_overpayment`) and 6401(c) (`tax_payment_can_be_overpayment_despite_no_tax_liability`) — so unrepresented_clause is an equally defensible kind here; I chose untraceable_branch because the hard-coded credit list is the change that most clearly had no basis in the cited text. `income_tax` also moved from `income_tax_before_refundable_credits - income_tax_refundable_credits` to the statutory phrase 'tax imposed by subtitle A (reduced by the credits allowable under subparts A, B, D, and G)'. The regenerated module now depends on several broad undefined inputs (e.g. `credits_allowable_under_subpart_c_excluding_section_33_for_overpayment`), which is faithful to the text but pushes the work to the composer. Effective dates unchanged at 2026-01-01. Provision not separately resolved; the module's added summary is verbatim corpus text.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "untraceable_branch",
+    "verifier_confidence": 0.76,
+    "verifier_justification": "The refutation attempt fails on the source text: the pinned release of 26 USC 6401(b)(1) defines the aggregate generically as \"the amount allowable as credits under subpart C of part IV of subchapter A of chapter 1\", with no enumeration, while the pre-fix `income_tax_refundable_credits` formula summed a closed modelling list that both overshoots subpart C (`refundable_payroll_tax_credit`, a non-statutory modelling variable the pre-fix summary itself calls \"payroll-tax refundable credits\") and omits the largest subpart C items (section 31 withheld tax, 35, 36B). The fix does not add a missing carve-out to that list; it deletes the enumeration outright and re-grounds the rule on the statutory subpart C term plus a separately encoded 6401(b)(2) section 33 rule, which is exactly the untraceable_branch operation (a value with no basis in the cited source, removed/re-grounded). The competing kind, unrepresented_clause, describes only the secondary additions (the 6013(g)/(h) election condition and the new 6401(a), (b)(1)-excess and (c) rules), and at the anchored rule path rules[income_tax_refundable_credits].versions[0].formula the decisive change is the removal of the ungrounded list, so the first reader's kind stands.",
+    "verifier_quote": "-          eitc\n-          + refundable_american_opportunity_credit\n-          + refundable_ctc\n-          + recovery_rebate_credit\n-          + refundable_payroll_tax_credit\n+          credits_allowable_under_subpart_c_excluding_section_33_for_overpayment\n+          + section_33_credit_treated_as_refundable_credit",
+    "verifier_notes": "Evidence read: diff 008.diff (whole file, pre 36 lines to post 170), the parent-commit file at 2175d5239a, and the provision via resolve_provision (corpus release us-rulespec-2026-07-13, provision sha 96c1577d...), which confirms (b)(1)'s generic subpart C reference and (b)(2)'s \"only if an election under subsection (g) or (h) of section 6013 is in effect\" condition with the section 1446 carve-out.\n\nThree caveats for the reviewer:\n1. Mixed-kind fix. Besides the re-grounding, the commit adds four rules that are new coverage the pre-fix module never claimed (limitation_period_overpayment_part for 6401(a), refundable_credit_excess_overpayment for the (b)(1) overpayment rule, section_33_credit_treated_as_refundable_credit for (b)(2), tax_payment_can_be_overpayment_despite_no_tax_liability for (c)). Per the task's own guidance those additions alone would not carry a fidelity verdict; the verdict rests solely on the changed formula in the pre-existing income_tax_refundable_credits rule.\n2. `income_tax` was also re-grounded: `income_tax_before_refundable_credits` became `tax_imposed_by_subtitle_a_reduced_by_subparts_a_b_d_and_g_credits`. That is closer to a naming/traceability change than a meaning change (the two are roughly the same quantity), so it is weak supporting evidence, not decisive.\n3. Executability caveat, and the strongest remaining argument for \"unclear\": the post-fix formulas reference placeholder variables that the module does not declare or define (`credits_allowable_under_subpart_c_excluding_section_33_for_overpayment`, `tax_imposed_by_subtitle_a_reduced_by_subparts_a_b_d_and_g_credits`, `section_6013_g_or_h_election_in_effect_for_taxable_year`, `amount_of_internal_revenue_tax_payment_assessed_or_collected_after_limitation_period`). The fix trades a runnable modelling implementation for a statutory paraphrase, so if the corpus wants defects whose fix is verifiable by execution rather than by traceability, this case is weaker than the confidence suggests. It is still a genuine meaning disagreement with the source, which is why I did not drop to unclear.\n\nNot applicable: every version keeps effective_from '2026-01-01' pre and post (not wrong_period_or_effective_date); entity stays TaxUnit on the anchored rule (the new 6401(a) rule uses entity Payment, but that rule is new, not a scope correction); no numeric values changed (not amount_mismatch); the only comparison added is max(0, ...) in a newly created rule (not boundary_direction).\n\nCommit context: b3801ee4eb is screen-flagged as a wholesale regeneration, and its subject explicitly groups 6401 under \"formulas rewritten\" semantic corrections. There is no commit body, PR title, or PR body in the bundle, so no maintainer prose beyond the subject line corroborates the kind.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "The quote is a verbatim fragment of the deleted module summary; the file wraps it across three lines, which I joined without changing any words. This module also went from encoding only a slice of 6401(b) to encoding 6401(a) (`limitation_period_overpayment_part`), the 6401(b)(1) overpayment output (`refundable_credit_excess_overpayment`) and 6401(c) (`tax_payment_can_be_overpayment_despite_no_tax_liability`) — so unrepresented_clause is an equally defensible kind here; I chose untraceable_branch because the hard-coded credit list is the change that most clearly had no basis in the cited text. `income_tax` also moved from `income_tax_before_refundable_credits - income_tax_refundable_credits` to the statutory phrase 'tax imposed by subtitle A (reduced by the credits allowable under subparts A, B, D, and G)'. The regenerated module now depends on several broad undefined inputs (e.g. `credits_allowable_under_subpart_c_excluding_section_33_for_overpayment`), which is faithful to the text but pushes the work to the composer. Effective dates unchanged at 2026-01-01. Provision not separately resolved; the module's added summary is verbatim corpus text. | verifier confirmed at 0.76",
+  "family_id": "us-b3801ee4-a6bc1dcb6053",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

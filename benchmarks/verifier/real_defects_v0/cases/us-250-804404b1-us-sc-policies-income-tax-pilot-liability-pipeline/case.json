@@ -1,0 +1,205 @@
+{
+  "id": "us-250-804404b1-us-sc-policies-income-tax-pilot-liability-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "804404b13c23599aeb2a90d0f4f3f0aa55bb3025",
+  "parent_commit": "7c0ebc4eb4370ae2f27e37e2d1e5e9573ae2d797",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Unsure (promote pattern): rewrites existing SC pilot_liability_pipeline.yaml (154 lines); not inspected line by line.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/966",
+  "module_path": "us-sc/policies/income_tax/pilot_liability_pipeline.yaml",
+  "corpus_citation_path": "us-sc/statute/12-6-510",
+  "corpus_citation_paths_all": [
+    "us-sc/statute/12-6-510"
+  ],
+  "corpus_release": "us-rulespec-2026-07-22-current",
+  "corpus_release_content_sha256": "7b1c6c0ec237dc3767f770fbb30178d6857bbe43fd4d952f57ebfc8409874bcc",
+  "corpus_commit": "c5af541326e024e04cb533bbf5709ae04e6305f6",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.42,
+  "description": "Replaces the supplied-schedule South Carolina pilot with the complete two-bracket schedule enacted by 2026 Act 110 in S.C. Code section 12-6-510(C)(1).",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        12,
+        20
+      ],
+      [
+        22,
+        30
+      ],
+      [
+        38,
+        38
+      ],
+      [
+        49,
+        49
+      ],
+      [
+        57,
+        57
+      ],
+      [
+        74,
+        75
+      ],
+      [
+        94,
+        94
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        12,
+        18
+      ],
+      [
+        20,
+        30
+      ],
+      [
+        32,
+        121
+      ],
+      [
+        128,
+        128
+      ],
+      [
+        139,
+        141
+      ],
+      [
+        149,
+        149
+      ],
+      [
+        165,
+        165
+      ],
+      [
+        167,
+        170
+      ],
+      [
+        189,
+        198
+      ]
+    ],
+    "rule_names": [
+      "sc_pit_pilot_schedule_tax",
+      "sc_pit_pilot_taxable_income",
+      "sc_pit_pilot_income_tax_liability",
+      "sc_pit_pilot_lower_bracket_rate",
+      "sc_pit_pilot_upper_bracket_floor",
+      "sc_pit_pilot_upper_bracket_rate",
+      "sc_pit_pilot_upper_bracket_subtraction"
+    ],
+    "rule_path": "rules[sc_pit_pilot_schedule_tax].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "011516c3158e0a1c00f0769d731a771c4f98dfb613f6e2dab91ffa1eb612af8c",
+  "post_fix_artifact_sha256": "65b7edf448650793859d7a0319c668a479336a37326c5d5c9aa38edb577c9dea",
+  "provision_sha256": "e81a5bf99f94690a83c7c640ca5c921b7e46427176cbb02c7b837164dd07028f",
+  "provision_chars": 7870,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-sc/statute/12-6-510",
+    "provision_file": "data/corpus/provisions/us-sc/statute/2026-07-16-pit-central-us-sc-title-12-chapter-6.jsonl",
+    "provision_file_sha256": "77cd95ea30d606938471d262e05409324b76f85ded4b43d6f0ddab53eba6174a",
+    "line_number": 9,
+    "record_id": "3334b479-a9fa-556c-8aab-15ae4dc8f4c9",
+    "stored_body_sha256": "e81a5bf99f94690a83c7c640ca5c921b7e46427176cbb02c7b837164dd07028f",
+    "resolved_text_sha256": "e81a5bf99f94690a83c7c640ca5c921b7e46427176cbb02c7b837164dd07028f",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-16",
+    "source_as_of": "2026-07-16",
+    "corpus_commit": "c5af541326e024e04cb533bbf5709ae04e6305f6",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 12,
+    "toolchain_corpus_ref": "a6ef35176a5d094c3f3c49e96c9a1b3d06207996",
+    "requested_citation_path": "us-sc/statute/12-6-510",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us-sc/statute/12-6-510'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us-sc/statute/12-6-510'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us-sc/statute/12-6-510'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us-sc/statute/12-6-510'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us-sc/statute/12-6-510'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us-sc/statute/12-6-510'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us-sc/statute/12-6-510'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us-sc/statute/12-6-510'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us-sc/statute/12-6-510'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us-sc/statute/12-6-510'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us-sc/statute/12-6-510'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us-sc/statute/12-6-510'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "unclear",
+    "pre_fix_wrong_because": "unclear: the pre-fix module did not represent section 12-6-510(C)(1)'s schedule at all - the $30,000 bracket threshold, the 1.99% and 5.21% rates, and the $966 subtraction were caller-supplied inputs rather than encoded, and the 2026-only schedule carried no effective_to - but the module openly declared that supplied-input scope and, with its documented inputs, reproduced the statutory amounts exactly, so no wrong number was ever produced.",
+    "triage_notes": "Single-module commit (index 0 is the only module file); companion test file and .axiom/encoding-manifests/.../pilot_liability_pipeline.json also changed (fixtures rewritten from 6 PolicyEngine-grid cases to 8 boundary cases; manifest is bookkeeping). Provision WAS read through the pinned corpus release (us-sc/statute/12-6-510): (C)(1) states '$0 $30,000 1.99% times the amount' and '$30,000 or more 5.21% times the amount minus $966', and (C)(2)(a) makes the top rate from Tax Year 2027 contingent on a 5% individual-income-tax revenue projection, with (C)(2)(b) eventually collapsing the schedule to a single rate on all income - so the encoded rates, floor, subtraction, and the new '< floor' boundary (lower bracket is 'but less than $30,000', upper is '$30,000 or more') are all source-faithful, and no boundary defect is introduced. Reason for 'unclear' rather than 'fidelity': this is a promote/hardening change, and I verified the old and new formulas are algebraically identical given the pre-fix module's documented inputs (597 + 0.0521*(TI-30000) == 0.0521*TI - 966; at TI=30,000 both brackets give $597; at TI=50,450 both give $1,662.445). The pre-fix upstream_source_check status was literally 'composed_from_supplied_current_authority' and its rationale disclosed the delegation, so the module never claimed to encode the rate schedule - which matches the task's 'scope the module never claimed' carve-out. Secondary candidate kind is wrong_period_or_effective_date: the PR states 'Bounds every policy-bearing amount and calculation to tax year 2026; 2025 and 2027 fail closed because later rates depend on future revenue determinations,' and the pre-fix versions had effective_from '2026-01-01' with no effective_to; I did not choose it because the pre-fix formulas were fully caller-parameterized, so the open-ended window did not freeze any stale statutory rate into 2027+. One genuine over-claim in the pre-fix file: sc_pit_pilot_schedule_tax carried two proof atoms citing the table cells '$0 $30,000 1.99% times the amount' and '$30,000 or more 5.21% times the amount minus $966' as grounding for versions[0].formula, although that formula contained none of 1.99%, 5.21%, $30,000, or $966; the fix makes the formula actually implement those atoms (this is the strongest argument for calling it a fidelity correction). The fix also drops an ungrounded max(0, ...) clamp on sc_pit_pilot_income_tax_liability, which is behavior-neutral under the new schedule, and renames the boundary input sc_pit_pilot_supplied_taxable_income to sc_pit_pilot_state_taxable_income while adding an explicit 'inputs:' block that the pre-fix file lacked. PR #966 has zero reviews and zero review comments; the two issue comments are post-merge main-refresh gate reports by the author and contain no defect description. Screening note 'Unsure (promote pattern)' agrees with this triage.",
+    "verifier_verdict": "not_a_defect",
+    "verifier_defect_kind": "none",
+    "verifier_confidence": 0.62,
+    "verifier_justification": "The pre-fix module explicitly declared, in its status (`composed_from_supplied_current_authority`), rationale, and summary, that the active bracket's base, floor, and marginal rate were caller-supplied rather than encoded, and it documented the $597 cumulative base as exactly equivalent to the statutory 5.21%-minus-$966 expression; I verified that equivalence (0.0521 x 30000 - 966 = 597, and 597 + 0.0521*(y-30000) = 0.0521*y - 966) and confirmed against the pinned corpus text of 12-6-510(C)(1) that the lower/upper bracket boundary at $30,000 is continuous, so no bracket-selection error could produce a wrong amount at the boundary either. The companion fixtures corroborate this: every expected value shared between the old and new fixture sets is byte-identical (30,000 -> 597, 300,000 -> 14,664), so the fix corrected no number, threshold, rate, or boundary. The added `effective_to: '2026-12-31'` is a consequence of newly hardcoding 2026 constants, not a correction: the pre-fix version carried no year-specific value at all, so its open-ended window was not a timeless encoding of superseded text. Under the stated rule that a change merely adding scope the module never claimed is not a defect, this is a declared-scope promotion (commit subject \"Promote South Carolina 2026 income tax schedule\", PR \"Promote South Carolina 2026 PIT schedule\"), not a fidelity correction, which refutes the unrepresented_clause reading.",
+    "verifier_quote": "-        the active bracket's cumulative base tax, floor, and marginal rate as\n-        caller-supplied current-authority inputs. The upper-bracket inputs use\n-        a $597 cumulative base at $30,000, exactly equivalent to the statutory\n-        5.21-percent-minus-$966 expression. Deductions, exemptions, special",
+    "verifier_notes": "Strongest counter-argument, if a reviewer wants to keep this at \"unclear\" rather than drop it: the pre-fix `sc_pit_pilot_schedule_tax` rule was sourced \"S.C. Code section 12-6-510(C)(1), two-bracket 2026 schedule\" and carried two proof atoms on `versions[0].formula` quoting both table rows (\"$0 $30,000 1.99% times the amount\" and \"$30,000 or more 5.21% times the amount minus $966\") while that formula contained neither rate nor the $30,000 threshold. That is an over-claim of proof coverage relative to the formula, and the fix converts those to `table_cell`/`amount` atoms on real encoded parameters. I judged it not a fidelity defect because the atoms are `kind: formula` (shape grounding, and the cumulative-base-plus-marginal form does mirror the two-row table), and because three other places in the module declared the supplied-input scope. Note also that `composed_from_supplied_current_authority` is free text, not a schema-enforced enum (no hit for it in axiom-encode `src/` at this worktree HEAD), so \"declared scope\" rests on the module's own prose, not on validator machinery. Other diff changes are non-semantic in effect: `max(0, sc_pit_pilot_schedule_tax)` -> `sc_pit_pilot_schedule_tax` is a no-op (schedule tax is non-negative once taxable income is floored at zero, and equals 597 at the bracket floor), and the input rename `sc_pit_pilot_supplied_taxable_income` -> `sc_pit_pilot_state_taxable_income` plus the new `inputs:` block only formalize the boundary. Ruled out reclassifications: wrong_period_or_effective_date (pre-fix encoded no year-specific value), amount_mismatch and boundary_direction (all shared fixture outputs unchanged; boundary continuous at $30,000), wrong_entity_or_scope (entity TaxUnit unchanged on both sides). Neither version encodes (C)(1)'s \"income brackets indexed in accordance with Section 12-6-520\" or (C)(2) rate reductions; the post-fix handles that by failing closed outside 2026, which is a design choice, not something the pre-fix got wrong.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Single-module commit (index 0 is the only module file); companion test file and .axiom/encoding-manifests/.../pilot_liability_pipeline.json also changed (fixtures rewritten from 6 PolicyEngine-grid cases to 8 boundary cases; manifest is bookkeeping). Provision WAS read through the pinned corpus release (us-sc/statute/12-6-510): (C)(1) states '$0 $30,000 1.99% times the amount' and '$30,000 or more 5.21% times the amount minus $966', and (C)(2)(a) makes the top rate from Tax Year 2027 contingent on a 5% individual-income-tax revenue projection, with (C)(2)(b) eventually collapsing the schedule to a single rate on all income - so the encoded rates, floor, subtraction, and the new '< floor' boundary (lower bracket is 'but less than $30,000', upper is '$30,000 or more') are all source-faithful, and no boundary defect is introduced. Reason for 'unclear' rather than 'fidelity': this is a promote/hardening change, and I verified the old and new formulas are algebraically identical given the pre-fix module's documented inputs (597 + 0.0521*(TI-30000) == 0.0521*TI - 966; at TI=30,000 both brackets give $597; at TI=50,450 both give $1,662.445). The pre-fix upstream_source_check status was literally 'composed_from_supplied_current_authority' and its rationale disclosed the delegation, so the module never claimed to encode the rate schedule - which matches the task's 'scope the module never claimed' carve-out. Secondary candidate kind is wrong_period_or_effective_date: the PR states 'Bounds every policy-bearing amount and calculation to tax year 2026; 2025 and 2027 fail closed because later rates depend on future revenue determinations,' and the pre-fix versions had effective_from '2026-01-01' with no effective_to; I did not choose it because the pre-fix formulas were fully caller-parameterized, so the open-ended window did not freeze any stale statutory rate into 2027+. One genuine over-claim in the pre-fix file: sc_pit_pilot_schedule_tax carried two proof atoms citing the table cells '$0 $30,000 1.99% times the amount' and '$30,000 or more 5.21% times the amount minus $966' as grounding for versions[0].formula, although that formula contained none of 1.99%, 5.21%, $30,000, or $966; the fix makes the formula actually implement those atoms (this is the strongest argument for calling it a fidelity correction). The fix also drops an ungrounded max(0, ...) clamp on sc_pit_pilot_income_tax_liability, which is behavior-neutral under the new schedule, and renames the boundary input sc_pit_pilot_supplied_taxable_income to sc_pit_pilot_state_taxable_income while adding an explicit 'inputs:' block that the pre-fix file lacked. PR #966 has zero reviews and zero review comments; the two issue comments are post-merge main-refresh gate reports by the author and contain no defect description. Screening note 'Unsure (promote pattern)' agrees with this triage. | verifier said not_a_defect at 0.62 (below 0.7); kept as unclear",
+  "family_id": "us-804404b1-ae375424b88d",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

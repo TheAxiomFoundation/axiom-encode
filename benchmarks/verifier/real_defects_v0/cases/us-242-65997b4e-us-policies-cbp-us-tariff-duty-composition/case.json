@@ -1,0 +1,301 @@
+{
+  "id": "us-242-65997b4e-us-policies-cbp-us-tariff-duty-composition",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "65997b4e4960f6d918e498f7d2c8df34855fe971",
+  "parent_commit": "4dfebb74e4e0ddfd19224cb104a4d414933c31d6",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) fl301 r2: addresses five review blockers, including \"repair 54 modules' heading-range excerpts to the Rev14 en-dash\" (proof grounding) and an entry-rule split (intra-PR #1196 repair round).",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1196",
+  "module_path": "us/policies/cbp/us-tariff-duty/composition.yaml",
+  "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
+  "corpus_citation_paths_all": [
+    "us/statute/hts/general-note-3/page-1",
+    "us/statute/hts/general-note-3/page-4",
+    "us/statute/hts/7202.11.10.00",
+    "us/statute/hts/7601.10.30.00",
+    "us/statute/hts/9506.62.40",
+    "us/statute/hts/9506.62.40.40",
+    "us/statute/hts/9903.01.25",
+    "us/statute/hts/9903.01.33",
+    "us/statute/hts/9903.05.01",
+    "us/statute/hts/9903.90.09",
+    "us/statute/hts/chapter-99/page-175",
+    "us/statute/hts/chapter-99/page-176",
+    "us/statute/hts/chapter-99/page-177",
+    "us/statute/hts/chapter-99/page-182",
+    "us/statute/hts/chapter-99/page-219",
+    "us/statute/hts/chapter-99/page-221",
+    "us/statute/hts/chapter-99/page-226",
+    "us/statute/hts/chapter-99/page-230",
+    "us/statute/hts/chapter-99/page-508",
+    "us/statute/hts/chapter-99/page-509",
+    "us/statute/hts/chapter-99/page-542",
+    "us/statute/hts/chapter-99/page-545",
+    "us/statute/hts/chapter-99/page-553",
+    "us/statute/hts/chapter-99/page-555",
+    "us/statute/hts/chapter-99/page-558",
+    "us/statute/hts/chapter-99/page-566",
+    "us/statute/hts/chapter-99/page-640",
+    "us/statute/hts/chapter-99/page-251",
+    "us/statute/hts/9903.05.20",
+    "us/statute/hts/9903.05.21",
+    "us/statute/hts/9903.05.22",
+    "us/statute/hts/9903.05.23",
+    "us/statute/hts/9903.05.24",
+    "us/statute/hts/9903.05.25",
+    "us/statute/hts/9903.05.26",
+    "us/statute/hts/9903.05.27",
+    "us/statute/hts/9903.05.28",
+    "us/statute/hts/9903.05.29",
+    "us/statute/hts/9903.05.30",
+    "us/statute/hts/9903.05.31",
+    "us/statute/hts/9903.05.32",
+    "us/statute/hts/9903.05.33",
+    "us/statute/hts/9903.05.34",
+    "us/statute/hts/9903.05.35",
+    "us/statute/hts/9903.05.36",
+    "us/statute/hts/9903.05.37",
+    "us/statute/hts/9903.05.38",
+    "us/statute/hts/9903.05.39",
+    "us/statute/hts/9903.05.40",
+    "us/statute/hts/9903.05.41",
+    "us/statute/hts/9903.05.42",
+    "us/statute/hts/9903.05.43",
+    "us/statute/hts/9903.05.44",
+    "us/statute/hts/9903.05.45",
+    "us/statute/hts/9903.05.46",
+    "us/statute/hts/9903.05.47",
+    "us/statute/hts/9903.05.49",
+    "us/statute/hts/9903.05.50",
+    "us/statute/hts/9903.05.51",
+    "us/statute/hts/9903.05.52",
+    "us/statute/hts/9903.05.53",
+    "us/statute/hts/9903.05.54",
+    "us/statute/hts/9903.05.55",
+    "us/statute/hts/9903.05.56",
+    "us/statute/hts/9903.05.57",
+    "us/statute/hts/9903.05.58",
+    "us/statute/hts/9903.05.59",
+    "us/statute/hts/9903.05.60",
+    "us/statute/hts/9903.05.61",
+    "us/statute/hts/9903.05.62",
+    "us/statute/hts/9903.05.63",
+    "us/statute/hts/9903.05.64",
+    "us/statute/hts/9903.05.65",
+    "us/statute/hts/9903.05.66",
+    "us/statute/hts/9903.05.67",
+    "us/statute/hts/9903.05.68",
+    "us/statute/hts/9903.05.69",
+    "us/statute/hts/9903.05.71",
+    "us/statute/hts/9903.05.72",
+    "us/statute/hts/9903.05.74",
+    "us/statute/hts/9903.05.76",
+    "us/statute/hts/9903.05.77",
+    "us/statute/hts/9903.05.78",
+    "us/statute/hts/9903.05.79",
+    "us/statute/hts/9903.05.80",
+    "us/statute/hts/9903.05.81",
+    "us/statute/hts/9903.05.82",
+    "us/statute/hts/9903.05.83",
+    "us/statute/hts/9903.05.84",
+    "us/statute/hts/9903.05.48",
+    "us/statute/hts/9903.05.70",
+    "us/statute/hts/9903.05.73",
+    "us/statute/hts/9903.05.75",
+    "us/statute/hts/9903.05.85",
+    "us/statute/hts/9903.05.93",
+    "us/statute/hts/9903.05.94",
+    "us/rulemaking/federal-register/2026-02-25/2026-03824",
+    "us/rulemaking/federal-register/2026-02-25/2026-03829",
+    "us/rulemaking/federal-register/2026-02-25/2026-03832",
+    "us/rulemaking/federal-register/2026-06-24/2026-12669",
+    "us/rulemaking/federal-register/2026-07-20/2026-14542",
+    "us/rulemaking/federal-register/2026-07-28/2026-15181"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.7,
+  "description": "split the composition into a non-exempt panel projection plus a legally complete entry-level rate applying the 9903.05.85 in-transit safe harbor, note 52(g)/(h) USMCA exception, note 52(a) chapter-98 exclusion, and personal-use baggage",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        233,
+        233
+      ],
+      [
+        246,
+        246
+      ],
+      [
+        348,
+        348
+      ],
+      [
+        1285,
+        1285
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        95,
+        101
+      ],
+      [
+        208,
+        214
+      ],
+      [
+        247,
+        264
+      ],
+      [
+        277,
+        281
+      ],
+      [
+        383,
+        391
+      ],
+      [
+        1328,
+        1328
+      ],
+      [
+        1352,
+        1361
+      ],
+      [
+        1422,
+        1471
+      ],
+      [
+        1492,
+        1634
+      ]
+    ],
+    "rule_names": [
+      "forced_labor_section_301_entry_component_rate",
+      "forced_labor_in_transit_safe_harbor_applies",
+      "forced_labor_usmca_exception_applies",
+      "forced_labor_chapter_98_exclusion_applies",
+      "forced_labor_section_301_component_rate",
+      "origin_is_korea"
+    ],
+    "rule_path": "rules[forced_labor_section_301_entry_component_rate].versions[1].formula"
+  },
+  "pre_fix_artifact_sha256": "2157465ec80d979e1cdf7199c1647f97250c30a6402d4fb4155c078cbce28b89",
+  "post_fix_artifact_sha256": "8e2322b1e94d6976df6a6654aa26628442fc9db124b7d8a55b924565b936c860",
+  "provision_sha256": "00d95211f2040a84be41d52b92256f93047713f97f45318e5945139cb1d8cb36",
+  "provision_chars": 4835,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/hts/general-note-3/page-1",
+    "provision_file": "data/corpus/provisions/us/statute/2026-08-01-usitc-hts-2026-rev3-notes.jsonl",
+    "provision_file_sha256": "818d993ea9bbb613b1c78ec03e1394b4d2b2468c259c3b1ff89ca3a004cf129c",
+    "line_number": 2,
+    "record_id": "6623bf55-dd9b-572a-a1c9-62e4af7c2829",
+    "stored_body_sha256": "00d95211f2040a84be41d52b92256f93047713f97f45318e5945139cb1d8cb36",
+    "resolved_text_sha256": "00d95211f2040a84be41d52b92256f93047713f97f45318e5945139cb1d8cb36",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-02-12",
+    "source_as_of": "2026-08-01",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "05ce3d3dd21b0ced76f9af40c2ecc02c1c57d9c6",
+    "requested_citation_path": "us/statute/hts/general-note-3/page-1",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/general-note-3/page-1'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The composition's forced-labor section 301 component encoded the country tiers and line A/B carve-outs but represented none of the exceptions the source states for headings 9903.05.20-9903.05.84 - the 9903.05.85 in-transit safe harbor, the note 52(g)/(h) USMCA relief for Canada and Mexico, the note 52(a) chapter-98 exclusion, and the personal-use accompanied-baggage carve-out - so duty was computed as if those exempt entries were dutiable.",
+    "triage_notes": "Verified against the parent: `git show 4dfebb74...:us/policies/cbp/us-tariff-duty/composition.yaml` has zero matches for 9903.05.85, USMCA, chapter 98, baggage or in-transit, so the four exception clauses were entirely absent pre-fix; the fix adds three new Judgment rules plus the entry-level rate. Provision read: the resolver returned HTS 9903.05.85 verbatim ('loaded onto a vessel ... before 12:01 a.m. eastern time on July 24, 2026' and 'entered for consumption ... before 12:01 a.m. eastern time on July 28, 2026'), which matches both the new excerpts and the new version windows (2026-07-24 to 2026-07-27, then false). Caveat on the note 52(a) grounding: `us/statute/hts/chapter-99/page-553` resolves through the pinned release to `2026-08-01-usitc-hts-2026-rev3-notes.jsonl` (Rev3), whose text is the 2025 note 2(v) reciprocal table and contains no '9903.05' string, so I could NOT confirm the note 52(a) chapter-98/baggage excerpts against the corpus - the Rev14 text the module quotes is not reachable at that citation path in this resolver. Partial correction only: `us_tariff_total_ad_valorem_rate` still consumes the non-exempt `forced_labor_section_301_component_rate` (line ~1650 post-fix); the new legally complete rate is deliberately unconsumed by panel-facing rules, and the module note says so. The commit also makes non-fidelity changes in this same file: 7 added corpus_citation_paths in module.source_verification (twice), a longer module note/summary, an added proof atom on `origin_is_korea` citing 9903.05.71, and 14 added proof atoms on `forced_labor_section_301_component_rate` grounding the existing MFN-floor branches in 9903.05.38/.48/.70/.73/.75 and 7601.10.30.00 - that rule's formula itself is byte-identical pre and post. Module is `kind: composition`; I classified it as a rule module because it carries rules with formulas and versions, not as a compose spec. No PR reviews or review comments exist on #1196 (reviews/review_comments/issue_comments all empty), so the commit message is the only stated reason.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.7,
+    "verifier_justification": "The cited source really does state the exceptions and the pre-fix module represented none of them: `9903.05.85` resolves through the pinned release to the in-transit safe harbor verbatim and `9903.05.93` to the note 52(g) Canada USMCA heading, while pre-fix `forced_labor_section_301_component_rate` (entity CustomsEntry, entry-date version windows, source string claiming \"Forced labor section 301 overlay composition under headings 9903.05.20 through 9903.05.84\") branched only on country tier and line A/B and already carried an `exception` atom for heading 9903.05.86 from the same exception family, so it claimed exception coverage and omitted four of them. The fix adds three new Judgment rules plus an entry-level rate that applies them, along with six new module inputs, which is an encoded-meaning change of exactly the kind the reason describes. I tried to refute this as mere added scope and could not: the rule declared entry-level scope, so an entry inside the 9903.05.85 window was given the full additional duty against the source text. The caveat that keeps confidence at 0.7 rather than higher is that the fix is purely additive — the defective formula and `us_tariff_total_ad_valorem_rate` are byte-identical post-fix, and the corrected rate is consumed by nothing.",
+    "verifier_quote": "+          if forced_labor_in_transit_safe_harbor_applies\n+             or forced_labor_usmca_exception_applies\n+             or forced_labor_chapter_98_exclusion_applies\n+             or entry_is_personal_use_accompanied_baggage: 0\n+          else: forced_labor_section_301_component_rate",
+    "verifier_notes": "Verification detail for a reviewer. (1) Source grounding checked through the pinned release (us-rulespec-2026-08-03-ecps-pit-tariff-union): `us/statute/hts/9903.05.85` -> \"Articles that (1) were loaded onto a vessel at the port of loading and in transit on the final mode of transit prior to entry into the United States before 12:01 a.m. eastern time on July 24, 2026; and (2) are entered for consumption, or withdrawn from warehouse for consumption, before 12:01 a.m. eastern time on July 28, 2026\"; `us/statute/hts/9903.05.93` -> \"Articles the product of Canada, as provided for in subdivision (g) of U.S. note 52 to this subchapter\". The encoded version window (effective_from 2026-07-24, effective_to 2026-07-27) matches the \"before July 28\" cutoff. Note: `us/statute/hts/chapter-99/page-553` (the note 52(a) chapter-98/baggage excerpt) does NOT resolve to that text in this release — it resolves to a Revision 3 page covering headings 9903.02.02-9903.02.05 (Afghanistan/Algeria/Angola/Bangladesh reciprocal). That looks like a Rev3-vs-Rev14 page-numbering artifact (the same commit repairs \"54 modules' heading-range excerpts to the Rev14 en-dash\"), not a fabricated excerpt, but the note 52(a) excerpts are unverified against the resolvable corpus and someone should re-check them against Rev14. (2) The fix does not cure the computed duty. `forced_labor_section_301_component_rate`'s `versions:` block and the whole `us_tariff_total_ad_valorem_rate` rule are byte-identical between 4dfebb74e4 and 65997b4e49; the total still sums the non-exempt projection, and the new `forced_labor_section_301_entry_component_rate` is consumed by nothing (its own source says \"not consumed by the panel total\"). The added tests pin this explicitly: for an in-transit Canadian entry on 2026-07-25 they assert `forced_labor_section_301_component_rate: 0.10` and `forced_labor_section_301_entry_component_rate: 0`. So the first reader's tail clause \"duty was computed as if those exempt entries were dutiable\" remains true of the module's headline output after the fix. (3) The first reader's rule_names list mixes real and provenance-only items: `origin_is_korea` and `forced_labor_section_301_component_rate` changed only in `source:` string and proof atoms (including new atoms for 9903.05.38/.48/.70/.73/.75), which is mechanical; the meaning change is confined to the four newly added rules. (4) Related context: the per-country overlays (e.g. forced-labor-algeria-9903-05-20.yaml) already encoded the exception at Asset level as `and not article_described_in_headings_9903_05_85_through_9903_05_92`, but the composition re-derived the rate independently and did not inherit it — which is why the omission was composition-local.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Verified against the parent: `git show 4dfebb74...:us/policies/cbp/us-tariff-duty/composition.yaml` has zero matches for 9903.05.85, USMCA, chapter 98, baggage or in-transit, so the four exception clauses were entirely absent pre-fix; the fix adds three new Judgment rules plus the entry-level rate. Provision read: the resolver returned HTS 9903.05.85 verbatim ('loaded onto a vessel ... before 12:01 a.m. eastern time on July 24, 2026' and 'entered for consumption ... before 12:01 a.m. eastern time on July 28, 2026'), which matches both the new excerpts and the new version windows (2026-07-24 to 2026-07-27, then false). Caveat on the note 52(a) grounding: `us/statute/hts/chapter-99/page-553` resolves through the pinned release to `2026-08-01-usitc-hts-2026-rev3-notes.jsonl` (Rev3), whose text is the 2025 note 2(v) reciprocal table and contains no '9903.05' string, so I could NOT confirm the note 52(a) chapter-98/baggage excerpts against the corpus - the Rev14 text the module quotes is not reachable at that citation path in this resolver. Partial correction only: `us_tariff_total_ad_valorem_rate` still consumes the non-exempt `forced_labor_section_301_component_rate` (line ~1650 post-fix); the new legally complete rate is deliberately unconsumed by panel-facing rules, and the module note says so. The commit also makes non-fidelity changes in this same file: 7 added corpus_citation_paths in module.source_verification (twice), a longer module note/summary, an added proof atom on `origin_is_korea` citing 9903.05.71, and 14 added proof atoms on `forced_labor_section_301_component_rate` grounding the existing MFN-floor branches in 9903.05.38/.48/.70/.73/.75 and 7601.10.30.00 - that rule's formula itself is byte-identical pre and post. Module is `kind: composition`; I classified it as a rule module because it carries rules with formulas and versions, not as a compose spec. No PR reviews or review comments exist on #1196 (reviews/review_comments/issue_comments all empty), so the commit message is the only stated reason. | verifier confirmed at 0.70",
+  "family_id": "us-65997b4e-c4efa5720dfc",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

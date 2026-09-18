@@ -1,0 +1,160 @@
+{
+  "id": "us-243-65997b4e-us-policies-usitc-us-tariff-duty-overlays-section-301-forced-labor-eu-9903-05-39",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "65997b4e4960f6d918e498f7d2c8df34855fe971",
+  "parent_commit": "4dfebb74e4e0ddfd19224cb104a4d414933c31d6",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) fl301 r2: addresses five review blockers, including \"repair 54 modules' heading-range excerpts to the Rev14 en-dash\" (proof grounding) and an entry-rule split (intra-PR #1196 repair round).",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1196",
+  "module_path": "us/policies/usitc/us-tariff-duty/overlays/section-301/forced-labor-eu-9903-05-39.yaml",
+  "corpus_citation_path": "us/statute/hts/9903.05.39",
+  "corpus_citation_paths_all": [
+    "us/statute/hts/9903.05.39",
+    "us/statute/hts/9903.05.38"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.49,
+  "description": "encode the five deferred\ncolumn-1 floor headings (9903.05.39/.49/.71/.74/.76) with boundary and\nexception tests",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        2,
+        2
+      ],
+      [
+        7,
+        27
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        6,
+        179
+      ]
+    ],
+    "rule_names": [
+      "forced_labor_eu_floor_heading_applies",
+      "forced_labor_eu_floor_column_1_rate_threshold",
+      "forced_labor_eu_floor_duty_rate",
+      "general_duty_rate_after_forced_labor_eu_floor_overlay",
+      "special_duty_rate_after_forced_labor_eu_floor_overlay"
+    ],
+    "rule_path": "rules[forced_labor_eu_floor_heading_applies].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "f851b4008fca3b70bab16fc2e963bf0d18741b576b74290afa7293d892993ed9",
+  "post_fix_artifact_sha256": "c32d43192ef5c6d5fd2deada4fecc156d34ada1ecc842284291a578a8e54f00b",
+  "provision_sha256": "b28af1834bb0aea6c93658aa266938745f6feb3a697ae15c77e3906d45582aa3",
+  "provision_chars": 437,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/hts/9903.05.39",
+    "provision_file": "data/corpus/provisions/us/statute/2026-08-03-rulespec-hts-current-with-legacy-aluminum.jsonl",
+    "provision_file_sha256": "7406b42f2f6a35bd43ed67d7fe4d0f7323e12c3e49c67b8d6699f9978d23b770",
+    "line_number": 1312,
+    "record_id": "c9742916-7c67-5cb1-be47-e7a39c4a934e",
+    "stored_body_sha256": "b28af1834bb0aea6c93658aa266938745f6feb3a697ae15c77e3906d45582aa3",
+    "resolved_text_sha256": "b28af1834bb0aea6c93658aa266938745f6feb3a697ae15c77e3906d45582aa3",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-31",
+    "source_as_of": "2026-08-01",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "05ce3d3dd21b0ced76f9af40c2ecc02c1c57d9c6",
+    "requested_citation_path": "us/statute/hts/9903.05.39",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.39'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.39'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.39'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.39'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.39'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.39'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.39'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.39'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.39'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.39'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.39'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.39'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.39'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.39'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.39'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.39'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The module carried `rules: []` with `status: deferred`, so HTS 9903.05.39's operative clause — that EU-origin articles whose column-1 ad valorem rate is less than 10 percent take a 10% rate, except for goods described in headings 9903.05.85–9903.05.92 and 9903.05.97 — was not represented in the encoding at all.",
+    "triage_notes": "Read the provision through the pinned resolver: source text is \"articles the product of a member state of the European Union, with an ad valorem (or ad valorem equivalent) rate of duty under column 1 less than 10 percent\" with \"Rates of duty (1-General): 10%\" / \"(1-Special): 10%\", so the added strict `<` against a 0.10 threshold and the 0.10 floor rate match the source; the resolver reported fix_time_corpus_match=provision_file_absent_at_corpus_ref and fell back to release us-rulespec-2026-08-03-ecps-pit-tariff-union, so the text is from a later release than the toolchain corpus ref. The fix bundles three things: (a) the substantive encoding of the missing clause, (b) a rename of every export to a `_floor_` infix, which is what cleared the stated deferral reason (\"Generated rule used a local name that collides with a sibling RuleSpec export\") and is mechanical, and (c) the same en-dash summary repair as the rest of the chunk; it also switches module.source_verification to plural `corpus_citation_paths` adding us/statute/hts/9903.05.38 to ground the else-branch of the two rate rules on the sibling heading. A companion test file us/policies/usitc/us-tariff-duty/overlays/section-301/forced-labor-eu-9903-05-39.test.yaml was added in the same commit (only the five floor headings and the composition got tests). Caveat for the reviewer: the pre-fix module self-declared the gap via `deferred_outputs`/`status: deferred` rather than encoding a wrong formula, so if the corpus is meant to hold only silently-wrong meanings this belongs at 'unclear'; I kept 'fidelity' because the rubric treats added source-required coverage as unrepresented_clause and the maintainers treated the omission as a review blocker. PR #1196 body records no reviews or review comments in the bundle (0 reviews, 0 review comments, 0 issue comments), so the commit message is the only stated reason.",
+    "verifier_verdict": "not_a_defect",
+    "verifier_defect_kind": "none",
+    "verifier_confidence": 0.64,
+    "verifier_justification": "The pre-fix file encoded nothing at all — it was a machine-declared stub (`rules: []`, `module.status: deferred`) whose three `deferred_outputs` entries each name the missing output and state the reason, the first being an encoder namespace problem (\"Generated rule used a local name that collides with a sibling RuleSpec export\"), with the other two deferred only as dependents of it. Under the rubric a fidelity defect is \"an encoded meaning that disagrees with the cited source text\"; here no formula, parameter, version, date, input/output or scope asserted anything that the source contradicts, so the fix supplies coverage the module explicitly disclaimed rather than repairing a clause missing from a working encoding. That the repair renames the blocked output to the collision-free `forced_labor_eu_floor_heading_applies` confirms the gap's cause was a pipeline/naming block, not a misreading of HTS 9903.05.39. Git history also shows the stub was created by the immediate parent commit 4dfebb74e in the same PR (#1196) and drained in this intra-PR repair round, so no incorrect encoded meaning ever existed as a shipped state.",
+    "verifier_quote": "-  status: deferred\n-rules: []",
+    "verifier_notes": "Post-fix encoding is itself faithful (checked against the pinned release, us-rulespec-2026-08-03-ecps-pit-tariff-union, provision text: \"Except for products described in headings 9903.05.85–9903.05.92 and 9903.05.97, articles the product of a member state of the European Union, with an ad valorem (or ad valorem equivalent) rate of duty under column 1 less than 10 percent... Rates of duty (1-General): 10%\"), so strict `<`, the 0.10 threshold, the 0.10 rate and both exception carve-outs all match — but that speaks to the quality of the added encoding, not to the pre-state being wrong. Verbatim deferral reason from the diff (line-wrapped in the file): \"-    reason: Generated rule used a local name that collides with a sibling RuleSpec\" / \"-      export. This output is deferred until it can be encoded with a semantic branch-specific\" / \"-      name without creating ambiguous sibling imports.\" PR #1196 carries zero reviews, review comments, or issue comments in the bundle, so the only \"review blocker\" evidence is the commit author's own summary line, which is self-reported. Residual uncertainty for the curator: if this corpus's policy is that a declared deferral leaving a cited provision unrepresented counts as a fidelity gap, then the first reader's kind (unrepresented_clause) is the right fallback and the verdict would be confirmed; I read the rubric's carve-out (\"new outputs... or scope the module never claimed is not a defect\") as controlling because `deferred_outputs` enumerates precisely the outputs never claimed. Secondary changes in the same diff are provenance-only: hyphen→en-dash in the summary heading range, `corpus_citation_path` → `corpus_citation_paths` (adding us/statute/hts/9903.05.38 for the complement branch), and removal of an empty `imports:` key.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Read the provision through the pinned resolver: source text is \"articles the product of a member state of the European Union, with an ad valorem (or ad valorem equivalent) rate of duty under column 1 less than 10 percent\" with \"Rates of duty (1-General): 10%\" / \"(1-Special): 10%\", so the added strict `<` against a 0.10 threshold and the 0.10 floor rate match the source; the resolver reported fix_time_corpus_match=provision_file_absent_at_corpus_ref and fell back to release us-rulespec-2026-08-03-ecps-pit-tariff-union, so the text is from a later release than the toolchain corpus ref. The fix bundles three things: (a) the substantive encoding of the missing clause, (b) a rename of every export to a `_floor_` infix, which is what cleared the stated deferral reason (\"Generated rule used a local name that collides with a sibling RuleSpec export\") and is mechanical, and (c) the same en-dash summary repair as the rest of the chunk; it also switches module.source_verification to plural `corpus_citation_paths` adding us/statute/hts/9903.05.38 to ground the else-branch of the two rate rules on the sibling heading. A companion test file us/policies/usitc/us-tariff-duty/overlays/section-301/forced-labor-eu-9903-05-39.test.yaml was added in the same commit (only the five floor headings and the composition got tests). Caveat for the reviewer: the pre-fix module self-declared the gap via `deferred_outputs`/`status: deferred` rather than encoding a wrong formula, so if the corpus is meant to hold only silently-wrong meanings this belongs at 'unclear'; I kept 'fidelity' because the rubric treats added source-required coverage as unrepresented_clause and the maintainers treated the omission as a review blocker. PR #1196 body records no reviews or review comments in the bundle (0 reviews, 0 review comments, 0 issue comments), so the commit message is the only stated reason. | verifier said not_a_defect at 0.64 (below 0.7); kept as unclear",
+  "family_id": "us-65997b4e-f10f36b5dd54",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

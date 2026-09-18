@@ -1,0 +1,53 @@
+{
+ "module_rows": 1256,
+ "chunks_with_triage": {
+  "us": 347,
+  "uk": 40
+ },
+ "chunks_missing": [],
+ "by_classification": {
+  "mechanical": 606,
+  "not_a_rule_module": 5,
+  "fidelity": 522,
+  "unclear": 118,
+  "test_only": 5
+ },
+ "verifier_verdicts": {
+  "confirmed": 453,
+  "not_a_defect": 133,
+  "reclassify": 30,
+  "unclear": 19,
+  "mechanical": 5
+ },
+ "dropped_by_reason": {
+  "triage_mechanical": 606,
+  "triage_not_a_rule_module": 5,
+  "verifier_not_a_defect": 84,
+  "verifier_mechanical": 3,
+  "triage_test_only": 5
+ },
+ "kept": 553,
+ "kept_by_status": {
+  "fidelity": 462,
+  "unclear": 91
+ },
+ "kept_by_kind": {
+  "unrepresented_clause": 81,
+  "amount_mismatch": 7,
+  "untraceable_branch": 314,
+  "wrong_period_or_effective_date": 43,
+  "boundary_direction": 1,
+  "wrong_entity_or_scope": 86,
+  "none": 3,
+  "other": 2,
+  "polarity_or_logic": 16
+ },
+ "kept_by_jurisdiction": {
+  "uk": 21,
+  "us": 532
+ },
+ "kept_by_source": {
+  "screen": 432,
+  "keyword": 121
+ }
+}

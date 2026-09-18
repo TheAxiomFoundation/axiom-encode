@@ -1,0 +1,112 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_path: us-ia/statute/422.5
+    upstream_source_check:
+      status: official_parameter_source
+      checked_paths:
+        - us-ia/statute/422.5
+      rationale: |-
+        Iowa Code section 422.5 states the 3.8 per cent regular rate and 4.3
+        per cent alternate rate in word form. The caller supplies those two
+        rates because the pinned numeric-grounding validator does not convert
+        mixed word-form tenths percentages into decimal RuleSpec literals.
+        The caller also supplies the two word-form statutory income floors so
+        every source-stated numeric remains explicit at the runtime boundary.
+        The module encodes the complete regular/alternate selection mechanics
+        from the same current primary authority.
+  summary: |-
+    Composed Iowa individual income-tax pipeline for the 2026 before-credit
+    target. It accepts completed-return TaxUnit-level Iowa taxable income and
+    modified income, the two source-stated rates, plus supplied indicators for
+    alternate-tax eligibility and whether the head or spouse is at least age
+    65. It computes alternate tax above the applicable supplied $13,500 or
+    $32,000 statutory floor and returns the lesser tax when that branch is
+    available. The caller-supplied boundaries preserve filing-status,
+    spouse-combination, dependency, net-operating-loss, and upstream income-
+    allocation decisions made outside this module. Credits, nonresident
+    apportionment after credits, and separately taxed lump-sum distributions
+    are outside this before-credit resident core. All rules are bounded to tax
+    year 2026.
+  deferred_outputs:
+    - output: us-ia:statutes/422.5/b#nonresident_and_s_corporation_apportionment_after_nonrefundable_credits
+      reason: |-
+        Section 422.5(1)(b) applies nonresident and qualifying S-corporation
+        shareholder fractions only after nonrefundable credits. Those credit
+        and allocation mechanics are outside this before-credit resident core.
+rules:
+  - name: ia_pit_pilot_taxable_income
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: Iowa Code § 422.5(1)(a), supplied completed-return Iowa taxable income floored at zero
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-ia/statute/422.5
+              excerpt: "upon and with respect to the entire taxable income as defined in this subchapter"
+    versions:
+      - effective_from: '2026-01-01'
+        effective_to: '2026-12-31'
+        formula: |-
+          max(0, ia_pit_pilot_state_taxable_income)
+  - name: ia_pit_pilot_schedule_tax
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: Iowa Code § 422.5(1)(a), 3.8 per cent regular tax before credits
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-ia/statute/422.5
+              excerpt: "at a rate of three and eight-tenths percent"
+    versions:
+      - effective_from: '2026-01-01'
+        effective_to: '2026-12-31'
+        formula: |-
+          ia_pit_pilot_taxable_income * ia_pit_pilot_supplied_regular_tax_rate
+  - name: ia_pit_pilot_income_tax_liability
+    kind: derived
+    entity: TaxUnit
+    dtype: Money
+    period: Year
+    unit: USD
+    source: Iowa Code § 422.5(2)-(3), lesser of regular tax or the applicable alternate tax before credits
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-ia/statute/422.5
+              excerpt: "the regular tax imposed under this subchapter shall be the lesser of the alternate state individual income tax rate of four and three-tenths percent"
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-ia/statute/422.5
+              excerpt: "the portion of the net income in excess of thirteen thousand five hundred dollars"
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: us-ia/statute/422.5
+              excerpt: "the portion of the net income in excess of thirty-two thousand dollars"
+    versions:
+      - effective_from: '2026-01-01'
+        effective_to: '2026-12-31'
+        formula: |-
+          if ia_pit_pilot_alternate_tax_eligible:
+            min(ia_pit_pilot_schedule_tax, ia_pit_pilot_supplied_alternate_tax_rate * max(0, ia_pit_pilot_modified_income - (if ia_pit_pilot_head_or_spouse_age_65_or_older: ia_pit_pilot_supplied_elderly_alternate_tax_floor else: ia_pit_pilot_supplied_nonelderly_alternate_tax_floor)))
+          else:
+            ia_pit_pilot_schedule_tax

@@ -1,0 +1,207 @@
+{
+  "id": "us-483-0ae98bd5-us-policies-usitc-us-tariff-duty-overlays-ieepa-reciprocal-annex-exclusion-9903-",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "0ae98bd52d4b474cacd05e7d46ff53232951709e",
+  "parent_commit": "4d2856a9587ea13d74d6321a79dcde956bb239e2",
+  "commit_date": "2026-08-02",
+  "commit_subject": "Fix sol r3 finding: exclusion judgments dated from EO 14257 effectiveness",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1197",
+  "module_path": "us/policies/usitc/us-tariff-duty/overlays/ieepa/reciprocal-annex-exclusion-9903-01-32.yaml",
+  "corpus_citation_path": "us/statute/hts/9903.01.32",
+  "corpus_citation_paths_all": [
+    "us/statute/hts/9903.01.32",
+    "us/rulemaking/federal-register/2025-04-07/2025-06063"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "wrong_period_or_effective_date",
+  "other_kind": null,
+  "confidence": 0.9,
+  "description": "Fix sol r3 finding: exclusion judgments dated from EO 14257 effectiveness",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        6,
+        6
+      ],
+      [
+        30,
+        30
+      ],
+      [
+        49,
+        49
+      ],
+      [
+        68,
+        68
+      ],
+      [
+        87,
+        87
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        6,
+        8
+      ],
+      [
+        11,
+        12
+      ],
+      [
+        33,
+        42
+      ],
+      [
+        44,
+        44
+      ],
+      [
+        62,
+        66
+      ],
+      [
+        68,
+        68
+      ],
+      [
+        86,
+        90
+      ],
+      [
+        92,
+        92
+      ],
+      [
+        110,
+        114
+      ],
+      [
+        116,
+        116
+      ]
+    ],
+    "rule_names": [
+      "reciprocal_annex_exclusion_applies",
+      "reciprocal_annex_exclusion_general_duty_rate",
+      "reciprocal_annex_exclusion_special_duty_rate",
+      "reciprocal_annex_exclusion_column_2_duty_change"
+    ],
+    "rule_path": "rules[reciprocal_annex_exclusion_applies].versions[0].effective_from"
+  },
+  "pre_fix_artifact_sha256": "7273694062407cb29cb43757d1c312d2c84faad6879fcbc4b6645d234b12e4c4",
+  "post_fix_artifact_sha256": "bba87ac41936db0898ffb2c5e1683c13ea37007b08b96fec4a087f61fde8cd85",
+  "provision_sha256": "f1145eb487c8a7d1b1fc8dc1ad2d564028aa0d56e1df14585018c5c4cb5850f1",
+  "provision_chars": 410,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/hts/9903.01.32",
+    "provision_file": "data/corpus/provisions/us/statute/2026-08-03-rulespec-hts-current-with-legacy-aluminum.jsonl",
+    "provision_file_sha256": "7406b42f2f6a35bd43ed67d7fe4d0f7323e12c3e49c67b8d6699f9978d23b770",
+    "line_number": 1110,
+    "record_id": "e1b55f0a-3a01-5d5c-929c-0e26db5047eb",
+    "stored_body_sha256": "f1145eb487c8a7d1b1fc8dc1ad2d564028aa0d56e1df14585018c5c4cb5850f1",
+    "resolved_text_sha256": "f1145eb487c8a7d1b1fc8dc1ad2d564028aa0d56e1df14585018c5c4cb5850f1",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-31",
+    "source_as_of": "2026-08-01",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "05ce3d3dd21b0ced76f9af40c2ecc02c1c57d9c6",
+    "requested_citation_path": "us/statute/hts/9903.01.32",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.32'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.32'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.32'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.32'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.32'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.32'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.32'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.32'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.32'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.32'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.32'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.32'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.32'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.32'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.32'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.01.32'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "All four rules were dated effective_from 2026-02-15 (the HTS revision in which U.S. note 2's enumeration reached its (v)(iii)(a) wording) instead of 2025-04-05, so the Annex II product exclusion carried by heading 9903.01.32 did not exist in the encoding for entries from April 5, 2025 through February 14, 2026, even though EO 14257 Sec. 3(b)(iv) excluded those goods from the reciprocal duties as of the moment the duties took effect.",
+    "triage_notes": "This is the substantive module of the commit (with index 43, reciprocal-metals-exclusion-9903-01-33, which gets the same treatment and is outside this chunk). Diff changes effective_from '2026-02-15' -> '2025-04-05' in all four rules' versions[0], adds five effective_period proof atoms citing us/rulemaking/federal-register/2025-04-07/2025-06063, converts module.source_verification.corpus_citation_path to plural corpus_citation_paths (adding the FR doc), and appends a summary paragraph explaining that the judgment formula is invariant across the HTS renumbering of U.S. note 2, which is why the earlier window was unjustified. I read the pre-fix file at parent 4d2856a958 (single-citation source_verification, no effective_period atoms) and resolved the provision through the pinned corpus: FR doc 2025-06063 text confirms 'Such rates of duty shall apply with respect to goods entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern daylight time on April 5, 2025' and Sec. 3(b) 'The following goods as set forth in Annex II to this order, consistent with law, shall not be subject to the ad valorem rates of duty under this order'. The citation-path and proof-atom additions are provenance, but the effective_from change is a real meaning change, so the module is fidelity overall. Companion test file for this module also changed in the commit.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_period_or_effective_date",
+    "verifier_confidence": 0.9,
+    "verifier_justification": "The diff changes encoded meaning exactly as the first reader described: all four rules' single version window moves from effective_from '2026-02-15' to '2025-04-05' while every formula (article_classified_in_subheadings_enumerated_in_us_note_2_v_iii_a, applicable_subheading_general/special_duty_rate, 0) stays byte-identical, so the only substantive change is the version window. I could not refute it on source grounds: the pinned HTS record for us/statute/hts/9903.01.32 carries no effective date at all (its text is just the article scope and the three rate lines), so 2026-02-15 was an HTS-revision artifact with no basis in any cited source, while both newly added proof-atom excerpts resolve verbatim in the pinned FR doc 2025-06063 (\"Such rates of duty shall apply with respect to goods entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern daylight time on April 5, 2025\" and \"(iv) other products enumerated in Annex II to this order, including copper, pharmaceuticals, semiconductors, lumber articles, certain critical minerals, and energy and energy products;\"). The \"enhancement, not defect\" reading fails because a version window is a claim about when the encoded law is in force, not about which HTS revision was read, and the pre-fix module left the Annex II exclusion nonexistent for entries in a period when sibling country reciprocal-duty modules in the same directory were already live (637 effective_from lines at '2025-08-07', 46 at '2025-11-14').",
+    "verifier_quote": "-      - effective_from: '2026-02-15'\n+      - effective_from: '2025-04-05'",
+    "verifier_notes": "Refutation attempts and residual caveats for the reviewer. (1) Mechanical was ruled out: the commit does add provenance-only material (corpus_citation_path -> plural corpus_citation_paths, a summary paragraph, four new effective_period proof atoms), but the four date changes are substantive, so it is not excerpt/citation-only. (2) untraceable_branch was considered as a reclassification, since the discarded 2026-02-15 has no source basis anywhere in the cited records; wrong_period_or_effective_date is the more specific kind and matches both the changed path (versions[0].effective_from) and the commit message. (3) Two honest limits on the source chain: the pinned FR record for 2025-06063 contains EO 14257's operative text (Sec. 3(a) April 5, 2025 date; Sec. 3(b)(i)-(v) exclusions) but NOT Annex III, so the proposition that heading 9903.01.32 specifically was the HTS carrier of the Annex II exclusion as of April 5, 2025 is asserted in the module summary and is not verifiable from the pinned corpus records I read; and the HTS note text (us/statute/hts/chapter-99/page-177, \"Except as provided in headings 9903.01.26-9903.01.33 ... heading 9903.01.25 ... impose additional ad valorem rates of duty\") is the current Revision 3 (2026) text and is undated. If a reviewer wants the date nailed to Annex III rather than to Sec. 3, that is the gap. (4) Downstream consistency note, not a refutation: the caller composition's own gate rule entry_is_reciprocal_annex_excluded is still effective_from '2026-02-15' at the fix commit 0ae98bd52d (line ~2052 of us/policies/cbp/us-tariff-duty/composition.yaml); this commit's composition diff only rewords a comment (\"terminated in place effective through 2025-11-13\"). So the module-level backdating alone does not change composed outputs for 2025 entries — the fidelity defect is real at the module level, but the exclusion path remains dated 2026-02-15 one level up.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "This is the substantive module of the commit (with index 43, reciprocal-metals-exclusion-9903-01-33, which gets the same treatment and is outside this chunk). Diff changes effective_from '2026-02-15' -> '2025-04-05' in all four rules' versions[0], adds five effective_period proof atoms citing us/rulemaking/federal-register/2025-04-07/2025-06063, converts module.source_verification.corpus_citation_path to plural corpus_citation_paths (adding the FR doc), and appends a summary paragraph explaining that the judgment formula is invariant across the HTS renumbering of U.S. note 2, which is why the earlier window was unjustified. I read the pre-fix file at parent 4d2856a958 (single-citation source_verification, no effective_period atoms) and resolved the provision through the pinned corpus: FR doc 2025-06063 text confirms 'Such rates of duty shall apply with respect to goods entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern daylight time on April 5, 2025' and Sec. 3(b) 'The following goods as set forth in Annex II to this order, consistent with law, shall not be subject to the ad valorem rates of duty under this order'. The citation-path and proof-atom additions are provenance, but the effective_from change is a real meaning change, so the module is fidelity overall. Companion test file for this module also changed in the commit. | verifier confirmed at 0.90",
+  "family_id": "us-0ae98bd5-5a3793b28198",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

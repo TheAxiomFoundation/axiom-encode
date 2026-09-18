@@ -1,0 +1,360 @@
+{
+  "id": "us-013-0d0ab42a-us-or-policies-income-tax-resident-core-liability-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "0d0ab42ada62a3d8870989b72b6626708ccde164",
+  "parent_commit": "59a10dab866e5359c21b98d0df270ac81d60f22f",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) PR #1115: retires the ambiguous pilot pipeline and \"remove duplicate Chart S/J and annual tax/liability ownership from the resident core\" — scope/ownership correction in merged modules.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1115",
+  "module_path": "us-or/policies/income_tax/resident_core_liability_pipeline.yaml",
+  "corpus_citation_path": "us-or/form/individual-income-tax/2026/or-estimate/document-1",
+  "corpus_citation_paths_all": [
+    "us-or/form/individual-income-tax/2026/or-estimate/document-1",
+    "us-or/statute/session-laws/2026/sb1507/document-1",
+    "us-or/statute/session-laws/2026/hb4084/document-1",
+    "us-or/statute/session-laws/2026/sb1510/document-1",
+    "us-or/statute/316.037",
+    "us-or/statute/316.048",
+    "us-or/statute/316.054",
+    "us-or/statute/316.056",
+    "us-or/statute/316.099",
+    "us-or/statute/316.102",
+    "us-or/statute/316.680",
+    "us-or/statute/316.685",
+    "us-or/statute/316.695",
+    "us-or/statute/316.698",
+    "us-or/statute/316.758",
+    "us-or/statute/316.765",
+    "us-or/statute/316.777",
+    "us-or/statute/316.792",
+    "us-or/statute/316.812",
+    "us-or/statute/316.821",
+    "us-or/statute/316.832",
+    "us-or/statute/316.837",
+    "us-or/statute/316.846",
+    "us-or/statute/316.847",
+    "us-or/statute/316.848",
+    "us-or/statute/316.853",
+    "us-or/statute/316.859",
+    "us-or/statute/316.861"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.49,
+  "description": "Publication OR-ESTIMATE supports an estimated ordinary schedule amount only. This change therefore does not claim completed annual taxable income, tax before/after credits, net liability, or PolicyEngine parity.",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        12,
+        12
+      ],
+      [
+        46,
+        47
+      ],
+      [
+        56,
+        56
+      ],
+      [
+        84,
+        90
+      ],
+      [
+        94,
+        95
+      ],
+      [
+        124,
+        126
+      ],
+      [
+        128,
+        128
+      ],
+      [
+        134,
+        135
+      ],
+      [
+        137,
+        137
+      ],
+      [
+        142,
+        142
+      ],
+      [
+        144,
+        144
+      ],
+      [
+        289,
+        352
+      ],
+      [
+        401,
+        401
+      ],
+      [
+        407,
+        411
+      ],
+      [
+        657,
+        658
+      ],
+      [
+        681,
+        682
+      ],
+      [
+        976,
+        1110
+      ],
+      [
+        1142,
+        1142
+      ],
+      [
+        1152,
+        1152
+      ],
+      [
+        1154,
+        1154
+      ],
+      [
+        1178,
+        1178
+      ],
+      [
+        1191,
+        1191
+      ],
+      [
+        1193,
+        1193
+      ],
+      [
+        1263,
+        1282
+      ],
+      [
+        1307,
+        1323
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        45,
+        46
+      ],
+      [
+        55,
+        55
+      ],
+      [
+        74,
+        76
+      ],
+      [
+        86,
+        93
+      ],
+      [
+        97,
+        99
+      ],
+      [
+        128,
+        133
+      ],
+      [
+        135,
+        135
+      ],
+      [
+        141,
+        142
+      ],
+      [
+        144,
+        144
+      ],
+      [
+        149,
+        150
+      ],
+      [
+        152,
+        152
+      ],
+      [
+        345,
+        345
+      ],
+      [
+        351,
+        355
+      ],
+      [
+        601,
+        602
+      ],
+      [
+        625,
+        626
+      ],
+      [
+        951,
+        951
+      ],
+      [
+        961,
+        961
+      ],
+      [
+        963,
+        963
+      ],
+      [
+        987,
+        987
+      ],
+      [
+        1000,
+        1000
+      ],
+      [
+        1002,
+        1002
+      ]
+    ],
+    "rule_names": [
+      "or_pit_2026_profile_candidate_schedule_tax",
+      "or_pit_2026_bounded_tax_after_nonrefundable_credits",
+      "or_pit_2026_bounded_net_income_tax_liability_candidate",
+      "or_pit_2026_schedule_selector",
+      "or_pit_2026_schedule_rate",
+      "or_pit_2026_schedule_base",
+      "or_pit_2026_schedule_floor"
+    ],
+    "rule_path": "rules[or_pit_2026_profile_candidate_schedule_tax].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "89e13d03bd19233e481f84519ffa3b93bdffa38cf0efdba970a5a3cec0a25eec",
+  "post_fix_artifact_sha256": "d5366a990437d50a0e1ddede9b7e906a59a557ead0af04c13184cc610ed19202",
+  "provision_sha256": "712318f26303aad12348d9e546192a24638758a900370df8106541908876599c",
+  "provision_chars": 25469,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-or/form/individual-income-tax/2026/or-estimate/document-1",
+    "provision_file": "data/corpus/provisions/us-or/form/2026-07-22-or-estimate-2026.jsonl",
+    "provision_file_sha256": "8d8e9f7bc9045959ffa41470941cdbc95e1ba18e84e0fd1124b6a34770d1ab74",
+    "line_number": 2,
+    "record_id": "6c6c1de7-3312-5dd2-85a4-463394e8e718",
+    "stored_body_sha256": "712318f26303aad12348d9e546192a24638758a900370df8106541908876599c",
+    "resolved_text_sha256": "712318f26303aad12348d9e546192a24638758a900370df8106541908876599c",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-01-01",
+    "source_as_of": "2026-07-22",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "5dfd89d131564e4ee0e1e763571dbb5d7fc7f5e7",
+    "requested_citation_path": "us-or/form/individual-income-tax/2026/or-estimate/document-1",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The annual resident core derived and published tax before credits, tax after nonrefundable credits, and a net income-tax-liability candidate by applying Publication OR-ESTIMATE's estimated-tax Chart S/J, a source that supplies only 'Rate charts for estimating 2026 Oregon tax' and expressly is not a complete statement of law, so those annual-return branches had no authority in the cited sources.",
+    "triage_notes": "Modification (320 lines net removed). Removed rules: or_pit_2026_profile_candidate_schedule_tax, or_pit_2026_bounded_tax_after_nonrefundable_credits, or_pit_2026_bounded_net_income_tax_liability_candidate (all three were PUBLIC outputs -- confirmed at parent lines 1090, 1263, 1307 and referenced as deferred-output source_values at lines 128, 137, 144), plus the private Chart S/J parameter block (chart_s/chart_j ceilings, schedule_selector, schedule_floor/base/rate) and the eight or_pit_2026_table_index_* constants. The module also drops us-or/statute/316.042 from corpus_citation_paths. I read ORS 316.042 through the pinned corpus: it says the joint tax 'shall be twice the tax which would be imposed if the taxable income were cut in half', yet the removed or_pit_2026_profile_candidate_schedule_tax formula implemented no income-splitting branch at all -- it indexed the printed Chart J directly while carrying a 316.042 proof atom. That is a second, independent instance of a formula grounded on a provision it does not implement, reinforcing untraceable_branch. I also read the OR-ESTIMATE text and confirmed it is estimated-only ('Rate charts for estimating 2026 Oregon tax'; 'These instructions aren't a complete statement of laws and Department of Revenue rules'), which is the crux of the authority-boundary claim. ALTERNATIVE KIND: wrong_entity_or_scope (output surface) is defensible, since the correction can be read as the module claiming annual outputs it was not sourced for; I chose untraceable_branch because the rubric explicitly covers 'formulas grounded on the wrong provision' and the fix removes rather than re-parameterizes the branches. UNRELATED MECHANICAL CHANGES IN THE SAME DIFF: or_pit_2026_filing_status_count, the additional-standard-deduction rules, and the personal-exemption/severe-disability credit rules were rewritten to use literals 1/0 in place of or_pit_2026_table_index_one/_zero -- identical values, no meaning change. Prose in summary/rationale/deferred_outputs was also rewritten, and the deferred_outputs source_values were repointed away from the removed rules. Companion test file lost 1689 lines. Signing manifest flipped manual_exception from 'composition' to 'repair'. No follow-up commit touches us-or/policies/income_tax/ after this one; the post-fix state is still HEAD.",
+    "verifier_verdict": "not_a_defect",
+    "verifier_defect_kind": "none",
+    "verifier_confidence": 0.68,
+    "verifier_justification": "The removed branch was not untraceable: I read the pinned provisions, and ORS 316.037(1)(a) itself imposes the annual tax on \"the entire taxable income of every resident\" with a rate table, (1)(b) directs the Department to adopt an indexed table \"that shall apply in lieu of\" it, and ORS 316.042 supplies the joint/head-of-household doubling that Chart J's exactly-2x brackets embody — all three were already the removed rule's cited sources. Nor did the pre-fix module publish a completed annual amount: its pre-fix `deferred_outputs` already deferred complete_tax_before_credits, complete_tax_after_nonrefundable_credits, and net_income_tax_liability, and already recorded that \"Publication OR-ESTIMATE labels its indexed values as estimates,\" so the deleted rules were candidate signals, not annual-return claims. The identical Chart S/J values and the identical base + rate x excess formula survive unchanged in the new 2026_or_estimate_schedule.yaml added by the same commit, and the annual core keeps consuming the same estimated publication for standard deductions, the $8,750 subtraction ceiling, and the $260 exemption credit — so no encoded value, bound, or logic was corrected against any source. This is the PR's stated de-duplication of Chart S/J ownership after retiring the pilot pipeline plus a conservative narrowing of candidate outputs, not a fidelity correction.",
+    "verifier_quote": "-    source: ORS 316.037, 316.042, and 2026 Publication OR-ESTIMATE charts",
+    "verifier_notes": "Refutation evidence a reviewer can re-check quickly:\n1. Source text (pinned release us-rulespec-2026-08-03-ecps-pit-tariff-union, via resolve_provision at 0d0ab42ada): us-or/statute/316.037 = \"(1)(a) A tax is imposed for each taxable year on the entire taxable income of every resident of this state. The amount of the tax shall be determined in accordance with the following table\" ... \"(b) For tax years beginning in each calendar year, the Department of Revenue shall adopt a table that shall apply in lieu of the table contained in paragraph (a)\". us-or/statute/316.042 = \"the tax imposed by ORS 316.037 shall be twice the tax which would be imposed if the taxable income were cut in half ... a return of a head of household or a surviving spouse ... shall be treated as a joint return\". Chart J is exactly 2x Chart S (9,100/22,800/250,000 vs 4,550/11,400/125,000), i.e. the statute's doubling rule. So the deleted annual branch had statutory authority; it was not a branch \"with no basis in the cited source\".\n2. Pre-fix file (git show 59a10dab:...resident_core_liability_pipeline.yaml, lines 99-146) already lists complete_tax_before_credits, complete_tax_after_nonrefundable_credits and net_income_tax_liability under `deferred_outputs`, with the taxable-income deferral reason stating \"Publication OR-ESTIMATE labels its indexed values as estimates\". The screening reading that the core \"derived and published tax before credits ... net liability\" overstates the pre-state: those were deferred, and the removed rules only appeared as `source_values` candidates.\n3. Same-commit module 0 (2026_or_estimate_schedule.yaml) re-creates the identical chart values and identical formula shape, so no number, bound, rate, or comparison changed anywhere in the repo.\n4. Selectivity: diff line 28/29 shows the core still draws the standard deductions, the $8,750 federal-tax-subtraction ceiling and the $260 exemption credit from the same \"estimated\" publication (\"-        subtraction ceiling, $260 exemption-credit unit, and Chart S/J rates.\" / \"+        subtraction ceiling and $260 exemption-credit unit.\"), so the \"estimated source cannot support annual amounts\" principle is not applied as a fidelity rule — only Chart S/J ownership moved.\n5. PR body frames it as ownership/dedup: \"remove duplicate Chart S/J and annual tax/liability ownership from the resident core while preserving independently sourced upstream candidates and explicit annual deferrals\". The commit also converted private table-index parameters to literals 0/1 (pure refactor, no meaning change).\nIf a reviewer still wants to keep this case, the only defensible kind is wrong_entity_or_scope (estimated-tax chart exposed on an annual-return output surface), not untraceable_branch — but I would not keep it, because the complete annual surfaces were deferred both before and after, and the post-fix rationale even withdraws the (accurate) claim that the pinned ORS 316 snapshot supplies \"ordinary and specialty rate authority\" although 316.037(1)(a) plainly does.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Modification (320 lines net removed). Removed rules: or_pit_2026_profile_candidate_schedule_tax, or_pit_2026_bounded_tax_after_nonrefundable_credits, or_pit_2026_bounded_net_income_tax_liability_candidate (all three were PUBLIC outputs -- confirmed at parent lines 1090, 1263, 1307 and referenced as deferred-output source_values at lines 128, 137, 144), plus the private Chart S/J parameter block (chart_s/chart_j ceilings, schedule_selector, schedule_floor/base/rate) and the eight or_pit_2026_table_index_* constants. The module also drops us-or/statute/316.042 from corpus_citation_paths. I read ORS 316.042 through the pinned corpus: it says the joint tax 'shall be twice the tax which would be imposed if the taxable income were cut in half', yet the removed or_pit_2026_profile_candidate_schedule_tax formula implemented no income-splitting branch at all -- it indexed the printed Chart J directly while carrying a 316.042 proof atom. That is a second, independent instance of a formula grounded on a provision it does not implement, reinforcing untraceable_branch. I also read the OR-ESTIMATE text and confirmed it is estimated-only ('Rate charts for estimating 2026 Oregon tax'; 'These instructions aren't a complete statement of laws and Department of Revenue rules'), which is the crux of the authority-boundary claim. ALTERNATIVE KIND: wrong_entity_or_scope (output surface) is defensible, since the correction can be read as the module claiming annual outputs it was not sourced for; I chose untraceable_branch because the rubric explicitly covers 'formulas grounded on the wrong provision' and the fix removes rather than re-parameterizes the branches. UNRELATED MECHANICAL CHANGES IN THE SAME DIFF: or_pit_2026_filing_status_count, the additional-standard-deduction rules, and the personal-exemption/severe-disability credit rules were rewritten to use literals 1/0 in place of or_pit_2026_table_index_one/_zero -- identical values, no meaning change. Prose in summary/rationale/deferred_outputs was also rewritten, and the deferred_outputs source_values were repointed away from the removed rules. Companion test file lost 1689 lines. Signing manifest flipped manual_exception from 'composition' to 'repair'. No follow-up commit touches us-or/policies/income_tax/ after this one; the post-fix state is still HEAD. | verifier said not_a_defect at 0.68 (below 0.7); kept as unclear",
+  "family_id": "us-0d0ab42a-2fb97633001b",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

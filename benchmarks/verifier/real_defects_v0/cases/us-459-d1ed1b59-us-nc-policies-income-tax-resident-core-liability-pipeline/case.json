@@ -1,0 +1,129 @@
+{
+  "id": "us-459-d1ed1b59-us-nc-policies-income-tax-resident-core-liability-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "d1ed1b5949f83e68fc8e29bf2501c5964d4e6bc2",
+  "parent_commit": "5c087fc884919b049933f2f63a461122146bd56b",
+  "commit_date": "2026-07-26",
+  "commit_subject": "Repair NC TY2026 statute source backing",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1106",
+  "module_path": "us-nc/policies/income_tax/resident_core_liability_pipeline.yaml",
+  "corpus_citation_path": "us-nc/statute/105/105-153.5",
+  "corpus_citation_paths_all": [
+    "us-nc/statute/105/105-153.5",
+    "us-nc/statute/105/105-153.7",
+    "us-nc/statute/105/105-153.9",
+    "us-nc/statute/105/105-153.11"
+  ],
+  "corpus_release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+  "corpus_release_content_sha256": "cb275c76c4f07f8ad37470a32296bb1763e5db853d152697524ab07021b6d544",
+  "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.85,
+  "description": "encode the current §105-153.5 child-deduction bands, TY2026 3.99% rate, post-2023 §105-153.9 rendition, and §165(d) wagering-loss itemized component",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        6,
+        6
+      ],
+      [
+        13,
+        24
+      ],
+      [
+        41,
+        44
+      ],
+      [
+        759,
+        759
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        6,
+        10
+      ],
+      [
+        16,
+        17
+      ],
+      [
+        19,
+        32
+      ],
+      [
+        49,
+        52
+      ],
+      [
+        447,
+        451
+      ],
+      [
+        460,
+        460
+      ],
+      [
+        773,
+        773
+      ],
+      [
+        854,
+        859
+      ]
+    ],
+    "rule_names": [
+      "nc_pit_2026_itemized_deduction"
+    ],
+    "rule_path": "rules[nc_pit_2026_itemized_deduction].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "8be2982fa78201f49f853d21493dd7ef85d49a776660b2fb614f07be4818a4df",
+  "post_fix_artifact_sha256": "5b9533c01b8c58d35ffaadd5390bf9d7ec997c35f2d3c0576722c86f068f23fe",
+  "provision_sha256": "f40ff33b90f5f23e2ed1a4264d6ae3488f12d85c9d429b91cedb9c981ecc5ada",
+  "provision_chars": 40801,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-nc/statute/105/105-153.5",
+    "provision_file": "data/corpus/provisions/us-nc/statute/2026-07-13-recovery.jsonl",
+    "provision_file_sha256": "671d105b274dc6d7bd7faeadceecf6aa2f5850444d2785c5e752e6e5604c1bb7",
+    "line_number": 52,
+    "record_id": "5650de2f-f5e5-5772-bfc4-ff4581dc34df",
+    "stored_body_sha256": "f40ff33b90f5f23e2ed1a4264d6ae3488f12d85c9d429b91cedb9c981ecc5ada",
+    "resolved_text_sha256": "f40ff33b90f5f23e2ed1a4264d6ae3488f12d85c9d429b91cedb9c981ecc5ada",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "e07011cce174be6b4f6c6e132e66dc4e122565bd",
+    "requested_citation_path": "us-nc/statute/105/105-153.5",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The itemized-deduction sum omitted §105-153.5(a)(2)e., the deduction for wagering losses allowed under Code section 165(d) to the extent not deducted in arriving at adjusted gross income, so NC itemized deductions were understated for any taxpayer with such losses.",
+    "triage_notes": "Provision read: I resolved us-nc/statute/105/105-153.5 two ways. The resolver's default release (us-rulespec-2026-07-24-snap-cms-pit-union, expression 2026-07-13) has no wagering item, but the successor corpus commit b403bf49e3c9cf31f26f239f1e188683be1b9e65 that this PR pins (file data/corpus/provisions/us-nc/statute/2026-07-26-nc-ty2026-income-tax-core.jsonl, expression 2026-07-07) contains verbatim: 'e. The amount allowed as a deduction for wagering losses under section 165(d) of the Code, to the extent the losses are not deducted in arriving at adjusted gross income.' — exactly the new proof excerpt. Pre-fix the string 'wagering' appears nowhere under us-nc (git grep at parent 5c087fc8). The fix also adds input nc_pit_2026_wagering_loss_deduction_not_in_federal_agi (companion test file updated, outside this chunk), widens module.source_verification to four citation paths, refreshes the same imported rate hash as index 0, and rewrites the deferral rationale that had wrongly asserted 'the available section 105-153.9 provision is the pre-2023 version'; the final liability output stays deferred. PR body also says 'independent review fixed ... an incorrectly anchored wagering proof', i.e. the anchor landed on §105-153.5 in the final state. Max's later HOLD review (2026-07-27, after this commit) says other enacted S.L. 2026-31 modifications are still missing — not fixed here.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.88,
+    "verifier_justification": "The pre-fix TY2026 itemized sum was charitable + mortgage/property + medical/dental + claim-of-right, while the cited provision at the pinned successor record (us-nc/statute/105/105-153.5, expression date 2026-07-07, in 2026-07-26-nc-ty2026-income-tax-core.jsonl) lists a fifth item, \"e. The amount allowed as a deduction for wagering losses under section 165(d) of the Code, to the extent the losses are not deducted in arriving at adjusted gross income,\" and the rule's own proof atom claims to encode \"An amount equal to the sum of the items listed in this subdivision,\" so the encoding disagreed with its cited source rather than merely under-claiming scope. The fix adds exactly that missing statutory deduction item (plus its input and an excerpt-matched proof atom), which is the definition of unrepresented_clause; no effective date, version window, entity, threshold, or boolean structure changed, so wrong_period_or_effective_date and the other kinds do not fit the semantic delta even though the commit's root cause was stale source backing. It is not mechanical or an unclaimed enhancement: the sum flows through nc_pit_2026_deduction_amount = max(standard, itemized) into the live, non-deferred nc_pit_2026_income_tax_before_credits, and the companion suite's expected outputs moved (itemized '26000' → '28000', tax before credits '2633.4' → '2553.6') for the case carrying 2000 of wagering losses. I tried and failed to refute on all three fronts — clause absent from source (it is present verbatim), scope never claimed (proof atom claims the statutory sum), and metadata-only (formula and expectations changed).",
+    "verifier_quote": "+          + max(0, nc_pit_2026_wagering_loss_deduction_not_in_federal_agi)",
+    "verifier_notes": "Verification trail: (1) The added proof excerpt is verbatim in the pinned corpus successor — git -C /Users/maxghenis/TheAxiomFoundation/axiom-corpus show e07011cce174be6b4f6c6e132e66dc4e122565bd:data/corpus/provisions/us-nc/statute/2026-07-26-nc-ty2026-income-tax-core.jsonl, record 1, citation_path us-nc/statute/105/105-153.5, item e. appears immediately after item d. with no effective-year bracket excluding TY2026 (adjacent items that are time-limited do carry explicit brackets, e.g. the §105-153.11 donation carve-out \"Effective for taxable years beginning on or after January 1, 2025, and expiring ... January 1, 2027\"). (2) resolve_provision.py --citation us-nc/statute/105/105-153.5 --rulespec-commit d1ed1b5949 resolves to the OLDER rendition (release us-rulespec-2026-07-24-snap-cms-pit-union, file 2026-07-13-recovery.jsonl line 52) whose (a)(2) list ends at item d. and contains no \"wagering\" — so a reviewer running the resolver alone will wrongly conclude the clause is absent; the module's own pin (toolchain axiom_corpus_ref e07011cc, comment \"NC TY2026 temporal successor from axiom-corpus PR #539\") carries the successor row that does contain it. (3) The parent commit 5c087fc88 is \"Pin NC TY2026 corpus successor\", so the correct text was already available and cited when the omission stood — the disagreement with the cited source is real at the parent, not created by this commit. (4) Residual nuance a reviewer may weigh: the rule's source line (\"supported North Carolina itemized deductions\") and module summary (\"selects the larger supported standard or itemized deduction\") hedge with \"supported\" both before AND after the fix, so the hedge cannot be read as an intentional exclusion of item e.; and the commit-level framing (\"Repair NC TY2026 statute source backing\") is temporal, so someone could argue wrong_period_or_effective_date at commit granularity — but within this module no date/window/period field changed. (5) Out of scope but worth flagging: MaxGhenis's PR comment records a HOLD finding that the addition/deduction sums still omit S.L. 2026-31 items (§164 SALT addback, §105-153.6A R&E addback), so this module remains incomplete against TY2026 law even after the fix; that is a separate, unfixed gap and does not bear on this classification. Other module_files in the same commit are separate candidates: 002 (105-153.5/a.yaml) drops pre-2022 standard-deduction versions and repoints the fragment citation, 006 (105-153/9.yaml) swaps the pre-2023 rendition for the post-2023 one — those look like wrong_period_or_effective_date, not this kind.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Provision read: I resolved us-nc/statute/105/105-153.5 two ways. The resolver's default release (us-rulespec-2026-07-24-snap-cms-pit-union, expression 2026-07-13) has no wagering item, but the successor corpus commit b403bf49e3c9cf31f26f239f1e188683be1b9e65 that this PR pins (file data/corpus/provisions/us-nc/statute/2026-07-26-nc-ty2026-income-tax-core.jsonl, expression 2026-07-07) contains verbatim: 'e. The amount allowed as a deduction for wagering losses under section 165(d) of the Code, to the extent the losses are not deducted in arriving at adjusted gross income.' — exactly the new proof excerpt. Pre-fix the string 'wagering' appears nowhere under us-nc (git grep at parent 5c087fc8). The fix also adds input nc_pit_2026_wagering_loss_deduction_not_in_federal_agi (companion test file updated, outside this chunk), widens module.source_verification to four citation paths, refreshes the same imported rate hash as index 0, and rewrites the deferral rationale that had wrongly asserted 'the available section 105-153.9 provision is the pre-2023 version'; the final liability output stays deferred. PR body also says 'independent review fixed ... an incorrectly anchored wagering proof', i.e. the anchor landed on §105-153.5 in the final state. Max's later HOLD review (2026-07-27, after this commit) says other enacted S.L. 2026-31 modifications are still missing — not fixed here. | verifier confirmed at 0.88",
+  "family_id": "us-d1ed1b59-012fe5b3cfd4",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

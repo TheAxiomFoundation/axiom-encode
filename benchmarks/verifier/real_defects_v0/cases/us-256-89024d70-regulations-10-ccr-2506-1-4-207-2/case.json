@@ -1,0 +1,125 @@
+{
+  "id": "us-256-89024d70-regulations-10-ccr-2506-1-4-207-2",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "89024d705919130b1f14e5361dd1f9121b1ce7be",
+  "parent_commit": "65eadad2ff4b7027badb7005430083f26da15e1a",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Corrects merged Colorado SNAP modules despite the bland subject: 4.401.yaml flips snap_elderly_disabled_separate_household_allowed from entity Person to Household and replaces the gross-income comparison with a new household-size-scaled 165% FPL limit rule; 4.207.2.yaml rewrites the initial-month proration formula to min(allotment, floor(allotment * factor)). No commit body.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/395",
+  "module_path": "regulations/10-ccr-2506-1/4.207.2.yaml",
+  "corpus_citation_path": "us-co/regulation/10-ccr-2506-1/4.207.2",
+  "corpus_citation_paths_all": [
+    "us-co/regulation/10-ccr-2506-1/4.207.2"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.4,
+  "description": "repair initial-month proration and 4.401 separate-household source scope through signed encoder provenance",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        90,
+        90
+      ],
+      [
+        104,
+        104
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        16,
+        16
+      ],
+      [
+        91,
+        107
+      ],
+      [
+        121,
+        122
+      ],
+      [
+        124,
+        165
+      ]
+    ],
+    "rule_names": [
+      "snap_initial_month_prorated_allotment",
+      "snap_initial_month_allotment_after_minimum_issuance",
+      "snap_allotment",
+      "snap_maximum_allotment_for_household_size",
+      "snap_maximum_allotment_for_one_person_household",
+      "household_initial_month",
+      "state_agency_rounds_thirty_percent_net_income_up"
+    ],
+    "rule_path": "rules[snap_initial_month_prorated_allotment].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "fcf141857f9c28e2973877b731bcfd78b6924d9d9e7339524babbbbb10915743",
+  "post_fix_artifact_sha256": "b7256b5300dc65d73a2650000971b932bc126967f5b7ad2ae0eaab581c9707bc",
+  "provision_sha256": "650defd1e2332f128e522e66435c37dd7e67179c0f3948787bf42f267267493f",
+  "provision_chars": 1536,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-co/regulation/10-ccr-2506-1/4.207.2",
+    "provision_file": "data/corpus/provisions/us-co/regulation/2026-04-29-10-ccr-2506-1-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "690056c197e6c505adbc5bd8aceec55c48d7b459e570017576b0a871009dac8f",
+    "line_number": 137,
+    "record_id": "8952e367-db70-54f0-9354-02be2bec58c4",
+    "stored_body_sha256": "650defd1e2332f128e522e66435c37dd7e67179c0f3948787bf42f267267493f",
+    "resolved_text_sha256": "650defd1e2332f128e522e66435c37dd7e67179c0f3948787bf42f267267493f",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-05-29",
+    "source_as_of": "2026-05-29",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us-co/regulation/10-ccr-2506-1/4.207.2",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us-co/regulation/10-ccr-2506-1/4.207.2'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us-co/regulation/10-ccr-2506-1/4.207.2'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us-co/regulation/10-ccr-2506-1/4.207.2'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us-co/regulation/10-ccr-2506-1/4.207.2'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "unclear",
+    "pre_fix_wrong_because": "unclear: the pre-fix proration multiplied snap_allotment_before_minimum (7 USC 2017(a)) rather than the regulation's calculated monthly allotment before minimums, capped nothing, and handed off to snap_initial_month_allotment_after_minimum_issuance / snap_regular_month_allotment - names the rewritten federal 7 CFR 273.10 module no longer defines - so the initial-month amount was grounded on a stale/other provision, but no tested value actually changed.",
+    "triage_notes": "Read 10 CCR 2506-1 4.207.2 through the pinned corpus (release us-rulespec-2026-07-13): (C) says 'Multiply by the full month's benefits the household is eligible to receive; Divide by the number of days in the application month', and (A) says 'Eligible households are entitled to a full month allotment for all months except an initial month of application' - it does not state a min() cap, and with a proration factor that is <= 1 in every ordinary case the new min(A, floor(A*f)) is a defensive guard that only binds if a public-institution release date precedes the month. The bigger part of this diff is stale-cross-repo-reference repair: the pre-fix test asserted us:regulations/7-cfr/273/10#snap_initial_month_allotment_after_minimum_issuance and #snap_initial_month_minimum_issuance_threshold, and this commit moves the $10 gate into the CO module (formula 'if snap_initial_month_prorated_allotment < snap_initial_month_minimum_issuance: 0 else: ...', matching 7 CFR 273.10(e)(2)(ii)(B) 'less than $10 ... no benefits') while the federal parameter is now snap_initial_month_minimum_issuance. Every expected number in the companion test is unchanged (153, 211, 298, 9 -> 0), which is the main reason I did not call this fidelity. Also adds bridge rules (snap_maximum_allotment_for_household_size, snap_maximum_allotment_for_one_person_household, household_initial_month, and a parameter state_agency_rounds_thirty_percent_net_income_up = false that picks Colorado's rounding option for the federal 273.10(e)(2)(ii)(A) branch) and an import of us:statutes/7/2014/e/6/A. A reviewer may want to keep only the re-grounding of the proration base, or prune the whole module.",
+    "verifier_verdict": "not_a_defect",
+    "verifier_defect_kind": "none",
+    "verifier_confidence": 0.68,
+    "verifier_justification": "The Colorado source (10 CCR 2506-1 4.207.2(C), read through the pinned release) prescribes only \"Multiply by the full month's benefits the household is eligible to receive ... Divide by the number of days in the application month\" — no cap and no named provision for the base — and both the old base `snap_allotment_before_minimum` (7 USC 2017(a): `floor(max(0, snap_maximum_allotment - snap_household_food_contribution))`) and the new `snap_calculated_monthly_allotment_before_minimums` (7 CFR 273.10(e)(2)(ii)(A), with Colorado's new bridge parameter pinned to the round-down branch: `max(0, floor(...))`) encode the same amount, so the swap re-points at the sibling federal surface rather than correcting meaning. The added `min(...)` is mathematically non-binding under the module's own factor (proration_days ≤ days_in_month ⇒ factor ≤ 1 ⇒ floor(A·factor) ≤ A; I checked all 118 in-month application dates and none differ), and every pre-existing tested value is byte-identical across the commit (153, 211, 298, prorated 9 → allotment 0). The commit is titled \"Refresh Colorado SNAP federal references (#3)\" and its manifest records `\"tool\": \"axiom-encode repair-colorado-snap-federal-refs\"` with `\"runner\": \"deterministic-repair\"` — a mechanical rewiring onto the 7 CFR 273.10 module that had been rewritten on 2026-05-12 to stop exporting `snap_initial_month_allotment_after_minimum_issuance` — so the pre-fix text was a dangling cross-module reference, not an encoded meaning that disagrees with 4.207.2.",
+    "verifier_quote": "-        formula: floor(snap_allotment_before_minimum * snap_initial_month_proration_factor)\n+              floor(snap_calculated_monthly_allotment_before_minimums * snap_initial_month_proration_factor)",
+    "verifier_notes": "Refutation of the first reader on three points. (1) Their quote — \"repair initial-month proration and 4.401 separate-household source scope through signed encoder provenance\" — appears nowhere in the bundle: the commit body is empty (\"\\n\") and the attached pr_body is PR #395, the monorepo-consolidation PR; I string-searched the JSON for three fragments of it and all were absent, so the classification rests on text that is not in evidence. (2) \"Grounded on a stale/other provision\" does not hold: `us:statutes/7/2017/a#snap_allotment_before_minimum` still exists and is still asserted at 298 in the POST test file, and the two bases are algebraically identical for Colorado because the commit also adds `state_agency_rounds_thirty_percent_net_income_up: false`, selecting 273.10's `max(0, floor(A - B))` branch, which equals 2017(a)'s `floor(max(0, A - B))`. (3) Their own reading concedes \"no tested value actually changed\"; I confirmed the six test cases are the same six, with every pre-existing assertion unchanged — the only test edits are renamed federal input keys (`snap_countable_earned_income` → `snap_gross_monthly_earned_income`, `snap_initial_month_minimum_issuance_threshold` → `snap_initial_month_minimum_issuance`) and assertions for the newly added rules. Residual uncertainty that keeps this below 0.8: the min() does bind if `application_date` precedes `period_start` (factor > 1), and 273.10's `snap_net_monthly_income` chain can diverge from 2017(a)'s `snap_net_income_for_allotment` for households with medical/dependent-care/homeless-shelter deductions, so the post version could differ from the pre version in untested richer cases — but that is added precision/scope the module never claimed, which the rubric caps at \"unclear\", not a source-grounded correction. The four rules with `source: Colorado SNAP federal surface bridge` are adapter plumbing for the rewritten federal module and carry no 4.207.2 citation at all. Reviewer should also note the same deterministic-repair manifest covers the 4.401 file, so a sibling \"wrong_entity_or_scope\" reading of this commit deserves the same scrutiny.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Read 10 CCR 2506-1 4.207.2 through the pinned corpus (release us-rulespec-2026-07-13): (C) says 'Multiply by the full month's benefits the household is eligible to receive; Divide by the number of days in the application month', and (A) says 'Eligible households are entitled to a full month allotment for all months except an initial month of application' - it does not state a min() cap, and with a proration factor that is <= 1 in every ordinary case the new min(A, floor(A*f)) is a defensive guard that only binds if a public-institution release date precedes the month. The bigger part of this diff is stale-cross-repo-reference repair: the pre-fix test asserted us:regulations/7-cfr/273/10#snap_initial_month_allotment_after_minimum_issuance and #snap_initial_month_minimum_issuance_threshold, and this commit moves the $10 gate into the CO module (formula 'if snap_initial_month_prorated_allotment < snap_initial_month_minimum_issuance: 0 else: ...', matching 7 CFR 273.10(e)(2)(ii)(B) 'less than $10 ... no benefits') while the federal parameter is now snap_initial_month_minimum_issuance. Every expected number in the companion test is unchanged (153, 211, 298, 9 -> 0), which is the main reason I did not call this fidelity. Also adds bridge rules (snap_maximum_allotment_for_household_size, snap_maximum_allotment_for_one_person_household, household_initial_month, and a parameter state_agency_rounds_thirty_percent_net_income_up = false that picks Colorado's rounding option for the federal 273.10(e)(2)(ii)(A) branch) and an import of us:statutes/7/2014/e/6/A. A reviewer may want to keep only the re-grounding of the proration base, or prune the whole module. | verifier said not_a_defect at 0.68 (below 0.7); kept as unclear",
+  "family_id": "us-89024d70-8cfbb248407f",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

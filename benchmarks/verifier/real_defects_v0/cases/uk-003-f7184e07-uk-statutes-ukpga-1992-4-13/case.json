@@ -1,0 +1,117 @@
+{
+  "id": "uk-003-f7184e07-uk-statutes-ukpga-1992-4-13",
+  "jurisdiction": "uk",
+  "repo": "TheAxiomFoundation/rulespec-uk",
+  "commit": "f7184e07e167071e0e9c77156e10dbb63c045231",
+  "parent_commit": "eb61ae53e8b6f6d3bcc1cd8258898d67ea4ce21f",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Unsure: adds a 2026-04-06 version to the already-merged SSCBA 1992 s.13 Class 3 module, which until then carried only the 2025-26 rate (\"still GBP 17.75, the 2025-26 figure\"), so 2026-27 weeks returned a stale amount; body frames it as \"currency/completeness only\" but it is a wrong-amount-for-period correction of a merged module.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-uk/pull/85",
+  "module_path": "uk/statutes/ukpga/1992/4/13.yaml",
+  "corpus_citation_path": "uk/statute/ukpga/1992/4/13",
+  "corpus_citation_paths_all": [
+    "uk/statute/ukpga/1992/4/13",
+    "uk/guidance/govuk/national-insurance-rates/rates-and-allowances/block-11",
+    "uk/guidance/govuk/national-insurance-rates/rates-and-allowances/block-13"
+  ],
+  "corpus_release": "uk-rulespec-2026-07-12",
+  "corpus_release_content_sha256": "ec59e4017cd0c9b935ffed9092506fcc15313f58fe1ed18c1af909c8d0cd47e1",
+  "corpus_commit": "3cc9219ac4ce8d6f0bb30ad08960209f699a7ac5",
+  "defect_kind": "wrong_period_or_effective_date",
+  "other_kind": null,
+  "confidence": 0.45,
+  "description": "The s.13(1) base text on legislation.gov.uk still reads \"shall be £17.75\" (the 2025-26 figure) — the annual administrative re-rating is not consolidated into the statute text",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        6,
+        6
+      ],
+      [
+        12,
+        15
+      ],
+      [
+        26,
+        26
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        6,
+        33
+      ],
+      [
+        39,
+        46
+      ],
+      [
+        57,
+        57
+      ],
+      [
+        66,
+        80
+      ],
+      [
+        85,
+        87
+      ]
+    ],
+    "rule_names": [
+      "class_3_weekly_contribution_amount"
+    ],
+    "rule_path": "rules[class_3_weekly_contribution_amount].versions[1].formula"
+  },
+  "pre_fix_artifact_sha256": "d207b509768ce9708ecf8c3e5b94a94508e753e781d02033500daba5a2d47c91",
+  "post_fix_artifact_sha256": "ea6523dc34bea0512abbd2ad4ac7879f3004a789d4f3fa30956d82b4cb4d33ca",
+  "provision_sha256": "9a3b65c5e36d65269b6b0717cb5c08902c36f46de98d0e7285f1363696c03fb5",
+  "provision_chars": 2203,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "uk/statute/ukpga/1992/4/13",
+    "provision_file": "data/corpus/provisions/uk/statute/2026-07-10-uk-rulespec-source-promotion.jsonl",
+    "provision_file_sha256": "b2cd6c0cb00b39b8f1ff2ed2ebf72987dbd15ff4d229e6acf0c3b2bdd7da0cf3",
+    "line_number": 13,
+    "record_id": "db4dbaa0-59ae-55f8-9fe0-508d9ee08282",
+    "stored_body_sha256": "9a3b65c5e36d65269b6b0717cb5c08902c36f46de98d0e7285f1363696c03fb5",
+    "resolved_text_sha256": "9a3b65c5e36d65269b6b0717cb5c08902c36f46de98d0e7285f1363696c03fb5",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-06-01",
+    "source_as_of": "2026-06-01",
+    "corpus_commit": "3cc9219ac4ce8d6f0bb30ad08960209f699a7ac5",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "earliest_release_after_toolchain_corpus_ref",
+    "fallback_index": 1,
+    "toolchain_corpus_ref": "3ecec6d77c3af9930e7bb7de8622124e546cf72b",
+    "requested_citation_path": "uk/statute/ukpga/1992/4/13",
+    "release_errors_before_success": [
+      {
+        "release": "uk-legislation-pilot",
+        "error": "No active corpus source found for 'uk/statute/ukpga/1992/4/13'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "unclear",
+    "pre_fix_wrong_because": "unclear: the pre-fix module carried a single open-ended version (effective_from 2025-04-06, no effective_to) at 17.75, so it returned the 2025-26 figure for 2026-27 tax weeks whose official HMRC rate is 18.40 — but 17.75 is exactly what its only cited source, the unconsolidated s.13(1) text, says, and the 2026-27 guidance was not in the corpus at the module's pre-fix pin.",
+    "triage_notes": "Read the provision through the pinned corpus release: s.13(1) as expressed reads \"subject to the following provisions of this section, the amount of a Class 3 contribution shall be £17.75\", and s.13(4)-(7) presuppose that the amount varies by tax year (\"the amount of a Class 3 contribution applicable at the time of payment differs from...\"), but the statute text nowhere states 18.40. Timing argues FOR a real defect: the module was first merged 2026-07-06 in rulespec-uk#82 (git log on the file: 6346345 -> f7184e0), i.e. three months AFTER the 2026-04-06 uprating, so as merged it returned a stale amount for the then-current tax year, and the new companion test class_3_contribution_uses_uprated_weekly_rate_from_6_april_2026 would have failed against the pre-fix module. Timing argues AGAINST: the fix does not change any previously encoded number, effective date or formula — it only appends versions[1] — and the correcting value comes from a source (GOV.UK rates guidance, block-11/block-13) that was only ingested in axiom-corpus#222 and pinned in this same commit (toolchain axiom_corpus_ref 6bc9344 -> 3ecec6d), so a fidelity judge comparing the pre-fix module against its cited corpus source would correctly find agreement; the maintainer's stated reason is explicitly \"currency/ completeness only\", not a mis-encoding. Best fit if promoted to fidelity is wrong_period_or_effective_date under 'timeless encoding of superseded text' (the sole open-ended version claimed all periods from 2025-04-06 onward); amount_mismatch is a defensible alternate kind since the wrong output is a wrong rate for the 2026-27 period. The commit also makes non-fidelity changes in the same file: source_verification migrates from a single corpus_citation_path to corpus_citation_paths plus an upstream_source_check block, the rule's free-text `source:` string and the module summary prose are rewritten, and four proof atoms are added for versions[1] — all provenance/metadata, mechanical on their own. No PR reviews or review comments exist on PR #85 (empty reviews/review_comments/issue_comments), so no reviewer characterization is available. Single-module chunk; the only other files are the companion test file and .axiom/toolchain.toml. Later commit 0644db8 (2026-07-13, canonical-layout hard cut, #133) also touches this path but is a layout/binding change, not a fidelity follow-up.",
+    "verifier_verdict": "not_a_defect",
+    "verifier_defect_kind": "none",
+    "verifier_confidence": 0.63,
+    "verifier_justification": "The change is strictly additive: versions[0] (2025-04-06, 17.75) and its proof atom are byte-identical across the diff, no effective_to, formula, input, output, or scope was altered, and the only substantive addition is a new versions[1] grounded in a GOV.UK guidance page that `git diff --name-only 6bc9344..3ecec6d` in axiom-corpus shows was first ingested by corpus#222 in this very commit — so at the pre-fix pin the corpus contained no text stating the 2026-27 amount. Reading s.13(1) through the pinned release confirms the cited source still says \"the amount of a Class 3 contribution shall be £17.75\" with no temporal qualifier even at expression date 2026-06-01, so the pre-fix encoding did not disagree with its cited source text; it is faithful-but-stale relative to the world, which the commit itself labels \"currency/completeness only\". The 2025-04-06 effective_from is a module-wide convention (the two pure-condition rules in the same file carry the identical date), so it is not an asserted rate-specific boundary the encoder then failed to close. This is annual-uprating coverage enabled by a corpus ingest, not a correction of encoded meaning against the source.",
+    "verifier_quote": "     versions:\n       - effective_from: '2025-04-06'\n         formula: |-\n           17.75\n+      - effective_from: '2026-04-06'\n+        formula: |-\n+          18.40",
+    "verifier_notes": "Refutation basis, verified this session: (1) axiom-corpus 6bc9344..3ecec6d adds exactly one source tree, data/corpus/sources/uk/guidance/2026-07-05-uk-national-insurance-rates/..., i.e. the block-11/block-13 guidance did not exist at the pre-fix pin; (2) resolve_provision on uk/statute/ukpga/1992/4/13 returns \"the amount of a Class 3 contribution shall be £17.75\" at expression_date 2026-06-01 — the statute expression is unamended and untimed, so nothing in the corpus made the open-ended version wrong; (3) the diff touches no pre-existing value, date, formula, input, output, or scope.\n\nStrongest surviving counter-argument a pruning reviewer should weigh: behaviorally the module DID answer 2026-27 weeks (open-ended version, period Week) and returned 17.75 where HMRC's rate is 18.40, and the new companion test class_3_contribution_uses_uprated_weekly_rate_from_6_april_2026 asserts 18.40, so runtime output changed for periods the module already claimed. If the corpus's standard is \"encoded meaning vs the law in force\" rather than \"encoded meaning vs the cited corpus text\", this reads as wrong_period_or_effective_date under the \"timeless encoding of superseded text\" clause. I did not adopt that because the supersession (the re-rating order substituting the s.13(1) figure) is not present anywhere in the corpus at either pin, and the statute's current legislation.gov.uk expression still reads £17.75.\n\nAgainst the first reader's kind: even if kept as a defect, note the fix bounds nothing — no effective_to was added and 17.75 remains correct for its own period — so the corrective act is adding a period's value, which sits awkwardly between wrong_period_or_effective_date and amount_mismatch. That ambiguity is itself a reason this case is weak benchmark material: there is no pre-fix source text a reader could have compared against to catch it.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Read the provision through the pinned corpus release: s.13(1) as expressed reads \"subject to the following provisions of this section, the amount of a Class 3 contribution shall be £17.75\", and s.13(4)-(7) presuppose that the amount varies by tax year (\"the amount of a Class 3 contribution applicable at the time of payment differs from...\"), but the statute text nowhere states 18.40. Timing argues FOR a real defect: the module was first merged 2026-07-06 in rulespec-uk#82 (git log on the file: 6346345 -> f7184e0), i.e. three months AFTER the 2026-04-06 uprating, so as merged it returned a stale amount for the then-current tax year, and the new companion test class_3_contribution_uses_uprated_weekly_rate_from_6_april_2026 would have failed against the pre-fix module. Timing argues AGAINST: the fix does not change any previously encoded number, effective date or formula — it only appends versions[1] — and the correcting value comes from a source (GOV.UK rates guidance, block-11/block-13) that was only ingested in axiom-corpus#222 and pinned in this same commit (toolchain axiom_corpus_ref 6bc9344 -> 3ecec6d), so a fidelity judge comparing the pre-fix module against its cited corpus source would correctly find agreement; the maintainer's stated reason is explicitly \"currency/ completeness only\", not a mis-encoding. Best fit if promoted to fidelity is wrong_period_or_effective_date under 'timeless encoding of superseded text' (the sole open-ended version claimed all periods from 2025-04-06 onward); amount_mismatch is a defensible alternate kind since the wrong output is a wrong rate for the 2026-27 period. The commit also makes non-fidelity changes in the same file: source_verification migrates from a single corpus_citation_path to corpus_citation_paths plus an upstream_source_check block, the rule's free-text `source:` string and the module summary prose are rewritten, and four proof atoms are added for versions[1] — all provenance/metadata, mechanical on their own. No PR reviews or review comments exist on PR #85 (empty reviews/review_comments/issue_comments), so no reviewer characterization is available. Single-module chunk; the only other files are the companion test file and .axiom/toolchain.toml. Later commit 0644db8 (2026-07-13, canonical-layout hard cut, #133) also touches this path but is a layout/binding change, not a fidelity follow-up. | verifier said not_a_defect at 0.63 (below 0.7); kept as unclear",
+  "family_id": "uk-f7184e07-9c6229d86e8c",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

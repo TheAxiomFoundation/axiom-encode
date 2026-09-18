@@ -1,0 +1,140 @@
+{
+  "id": "us-416-b53ce208-us-regulations-7-cfr-273-10",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "b53ce208771085030939db4b9691762506b6bca2",
+  "parent_commit": "f82b37d27dad02076b686424275f3511d5161f77",
+  "commit_date": "2026-07-11",
+  "commit_subject": "Encode the whole-dollar rounding the FNS SNAP computation applies (#826)",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/826",
+  "module_path": "us/regulations/7-cfr/273/10.yaml",
+  "corpus_citation_path": "us/regulation/7/273/10",
+  "corpus_citation_paths_all": [
+    "us/regulation/7/273/10"
+  ],
+  "corpus_release": "us-sc-snap-2026-07-15",
+  "corpus_release_content_sha256": "23e17c993eeae58e83347e77be35c92d75623cc0304c0b5c3b951a900b0029fe",
+  "corpus_commit": "3932af44ea0fb6dd5a7432959a4396356ef8e6ae",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.82,
+  "description": "Fixes #762 — the last residual class in the SNAP QC administrative-data oracle (TheAxiomFoundation/axiom-oracles#244): 33 of 856 Colorado FY 2024 replays differed by exactly $1 because the encoded chain carried cents where FNS computes in whole dollars.",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        12,
+        12
+      ],
+      [
+        18,
+        18
+      ],
+      [
+        66,
+        66
+      ],
+      [
+        219,
+        219
+      ],
+      [
+        237,
+        237
+      ],
+      [
+        283,
+        283
+      ],
+      [
+        338,
+        338
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        12,
+        14
+      ],
+      [
+        20,
+        28
+      ],
+      [
+        76,
+        76
+      ],
+      [
+        229,
+        229
+      ],
+      [
+        247,
+        247
+      ],
+      [
+        293,
+        293
+      ],
+      [
+        345,
+        349
+      ],
+      [
+        353,
+        353
+      ]
+    ],
+    "rule_names": [
+      "snap_excess_shelter_cost",
+      "snap_earned_income_deduction_for_net_income",
+      "snap_homeless_shelter_deduction_for_net_income"
+    ],
+    "rule_path": "rules[snap_excess_shelter_cost].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "c0fea2e5d8677777fdf6356f65d31e93f7722eb83335e2dc01214e6b46dc3b27",
+  "post_fix_artifact_sha256": "f9b9f00101218d1d335aa9fff400f0578ae2dc314334693bae7e0dde51202dff",
+  "provision_sha256": "c23a70d7cd1839003de34b92291b09e860e1c7562bbdac92ab3cbfa68f8e8044",
+  "provision_chars": 52226,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/regulation/7/273/10",
+    "provision_file": "data/corpus/provisions/us/regulation/2026-07-15-title-7-part-273.jsonl",
+    "provision_file_sha256": "57dd752844884c36999ff701c1057406a026b57be44d144dc484fdfbed56b9c9",
+    "line_number": 15,
+    "record_id": "a1d18c47-e3ef-5f3b-8481-79d6077ad559",
+    "stored_body_sha256": "c23a70d7cd1839003de34b92291b09e860e1c7562bbdac92ab3cbfa68f8e8044",
+    "resolved_text_sha256": "c23a70d7cd1839003de34b92291b09e860e1c7562bbdac92ab3cbfa68f8e8044",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-09",
+    "source_as_of": "2026-07-09",
+    "corpus_commit": "3932af44ea0fb6dd5a7432959a4396356ef8e6ae",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "earliest_release_after_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "7661f3c9a3655e93fc9b2420048d70d231e7d44b",
+    "requested_citation_path": "us/regulation/7/273/10",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module carried cents through the entire net-income chain and so represented neither procedure of the 273.10(e)(1)(ii) rounding election the source says the State agency shall use — in particular the (e)(1)(ii)(A) round-down-1-to-49-cents / round-up-50-to-99-cents step on the excess shelter calculation — producing benefits a dollar off from the FNS computation.",
+    "triage_notes": "Single rule module in the commit (plus its companion test file and the encoding manifest). Read the cited provision through the pinned corpus release (us-sc-snap-2026-07-15, corpus commit 3932af44) and confirmed the source text verbatim: '(ii) In calculating net monthly income, the State agency shall use one of the following two procedures: (A) Round down each income and allotment calculation that ends in 1 through 49 cents and round up each calculation that ends in 50 through 99 cents; or (B) ...' — so the rounding clause is in the source and was absent from the pre-fix encoding. Three formulas changed inside this one module: snap_earned_income_deduction_for_net_income gained floor(...), and snap_homeless_shelter_deduction_for_net_income and snap_excess_shelter_cost gained floor(... + 0.5) (half-up nearest dollar). I picked snap_excess_shelter_cost for rule_path because it is the only one that also gained a new proof atom whose excerpt quotes the (e)(1)(ii)(A) election, making the source linkage decisive; the other two are equally part of the same defect. Caveat for a reviewer: the earned-income-deduction change is floor (drop cents), which is NOT literally the (e)(1)(ii)(A) half-up election — the commit and PR ground it empirically on the QC file's constructed FSERNDED values (earned 432 -> 86, 424 -> 84) and on the newly added checked_path us/guidance/usda/fns/snap-qc-fy2024-technical-documentation/page-84, i.e. on the computation FNS applies rather than on the (A) text alone. An alternative kind of amount_mismatch is defensible because the observable symptom was $1 benefit differences, but the fix adds a source-stated clause that was missing, so unrepresented_clause fits better. Non-fidelity changes ride along in the same diff and are mechanical: module rationale/summary prose, the source string on snap_earned_income_deduction_for_net_income ('7 CFR 273.10(e)(1)(i)(B) with the (e)(1)(ii) rounding election'), and the added checked_path. PR #826 has no reviews and no review or issue comments. The PR notes companion work #765 and a verification rerun landing on axiom-oracles#244, and states two pre-existing New York composition test failures are unrelated.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.85,
+    "verifier_justification": "The pinned corpus release (us-sc-snap-2026-07-15) carries a mandatory rounding step inside the very paragraph the module encodes: \"(ii) In calculating net monthly income, the State agency shall use one of the following two procedures: (A) Round down each income and allotment calculation that ends in 1 through 49 cents and round up each calculation that ends in 50 through 99 cents\". The pre-fix module contained no rounding anywhere in the (e)(1) chain — grep of the parent blob shows rounding only at the (e)(2)(ii) 30-percent reduction and the minimum benefit — so the (e)(1)(ii) election was simply absent, and the fix adds it as a half-up step on the flagged rule plus a new proof atom at versions[0].formula bound to the verbatim (A) excerpt. This changes computed meaning, not presentation (33 of 856 Colorado replays moved by $1), which rules out mechanical, and it is a clause the source states rather than new coverage the module never claimed, which rules out not_a_defect. boundary_direction does not fit better because there was no rounding operator whose side was wrong, and amount_mismatch does not fit because no numeric value, rate, or threshold changed.",
+    "verifier_quote": "+          if snap_homeless_shelter_deduction_for_net_income > 0: 0 else: max(0, floor(snap_total_allowable_shelter_expenses - (snap_net_income_before_shelter * snap_excess_shelter_income_share) + 0.5))",
+    "verifier_notes": "Two caveats a reviewer should see, neither of which overturns the verdict on the flagged rule_path. (1) The commit changes three formulas, and only two of them follow the (A) text. snap_earned_income_deduction_for_net_income becomes floor(...) (drop cents), which contradicts (A): the commit's own example, earned income 424 -> deduction 84, is 84.80, which (A) would round UP to 85. Its basis is the QC file's constructed FSERNDED (\"empirically decisive over nearest-dollar\"), i.e. agency practice, not the cited (A) election — closer to untraceable_branch/other if that sibling rule were the one being scored. The flagged rule (snap_excess_shelter_cost) is the well-grounded one: the commit says the regulation text \"fixes the shelter direction the data alone cannot distinguish,\" and the added proof atom excerpt is verbatim (A). (2) Procedure (B) lets a State include cents in income calculations where its TANF program does, so a cents-carrying chain is not literally forbidden for every State; I considered this as grounds for not_a_defect and rejected it, because (B) itself ends \"...and round the final shelter deduction amount,\" so the shelter deduction is rounded under either procedure, and because the module is a single national encoding with no State-election input for (e)(1)(ii). Worth noting the asymmetry: the module does parameterize the (e)(2)(ii) election via state_agency_rounds_thirty_percent_net_income_up but hardcodes (A) here. Source read through resolve_provision.py at corpus release us-sc-snap-2026-07-15, body sha256 c23a70d7cd1839003de34b92291b09e860e1c7562bbdac92ab3cbfa68f8e8044; pre-fix blob f82b37d27dad02076b686424275f3511d5161f77:us/regulations/7-cfr/273/10.yaml.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Single rule module in the commit (plus its companion test file and the encoding manifest). Read the cited provision through the pinned corpus release (us-sc-snap-2026-07-15, corpus commit 3932af44) and confirmed the source text verbatim: '(ii) In calculating net monthly income, the State agency shall use one of the following two procedures: (A) Round down each income and allotment calculation that ends in 1 through 49 cents and round up each calculation that ends in 50 through 99 cents; or (B) ...' — so the rounding clause is in the source and was absent from the pre-fix encoding. Three formulas changed inside this one module: snap_earned_income_deduction_for_net_income gained floor(...), and snap_homeless_shelter_deduction_for_net_income and snap_excess_shelter_cost gained floor(... + 0.5) (half-up nearest dollar). I picked snap_excess_shelter_cost for rule_path because it is the only one that also gained a new proof atom whose excerpt quotes the (e)(1)(ii)(A) election, making the source linkage decisive; the other two are equally part of the same defect. Caveat for a reviewer: the earned-income-deduction change is floor (drop cents), which is NOT literally the (e)(1)(ii)(A) half-up election — the commit and PR ground it empirically on the QC file's constructed FSERNDED values (earned 432 -> 86, 424 -> 84) and on the newly added checked_path us/guidance/usda/fns/snap-qc-fy2024-technical-documentation/page-84, i.e. on the computation FNS applies rather than on the (A) text alone. An alternative kind of amount_mismatch is defensible because the observable symptom was $1 benefit differences, but the fix adds a source-stated clause that was missing, so unrepresented_clause fits better. Non-fidelity changes ride along in the same diff and are mechanical: module rationale/summary prose, the source string on snap_earned_income_deduction_for_net_income ('7 CFR 273.10(e)(1)(i)(B) with the (e)(1)(ii) rounding election'), and the added checked_path. PR #826 has no reviews and no review or issue comments. The PR notes companion work #765 and a verification rerun landing on axiom-oracles#244, and states two pre-existing New York composition test failures are unrelated. | verifier confirmed at 0.85",
+  "family_id": "us-b53ce208-04863058f24a",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

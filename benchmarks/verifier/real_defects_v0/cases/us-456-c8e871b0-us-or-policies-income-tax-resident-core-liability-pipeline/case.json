@@ -1,0 +1,580 @@
+{
+  "id": "us-456-c8e871b0-us-or-policies-income-tax-resident-core-liability-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "c8e871b0fe0c0319b256cd2263df59509801a4d2",
+  "parent_commit": "dc9e9924929b2927f84354261a4cbfff4f747667",
+  "commit_date": "2026-07-24",
+  "commit_subject": "Repair Oregon 2026 resident income tax core",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1038",
+  "module_path": "us-or/policies/income_tax/resident_core_liability_pipeline.yaml",
+  "corpus_citation_path": "us-or/form/individual-income-tax/2026/or-estimate/document-1",
+  "corpus_citation_paths_all": [
+    "us-or/form/individual-income-tax/2026/or-estimate/document-1",
+    "us-or/statute/session-laws/2026/sb1507/document-1",
+    "us-or/statute/session-laws/2026/hb4084/document-1",
+    "us-or/statute/session-laws/2026/sb1510/document-1",
+    "us-or/statute/316.037",
+    "us-or/statute/316.042",
+    "us-or/statute/316.048",
+    "us-or/statute/316.054",
+    "us-or/statute/316.056",
+    "us-or/statute/316.099",
+    "us-or/statute/316.102",
+    "us-or/statute/316.680",
+    "us-or/statute/316.685",
+    "us-or/statute/316.695",
+    "us-or/statute/316.698",
+    "us-or/statute/316.758",
+    "us-or/statute/316.765",
+    "us-or/statute/316.777",
+    "us-or/statute/316.792",
+    "us-or/statute/316.812",
+    "us-or/statute/316.821",
+    "us-or/statute/316.832",
+    "us-or/statute/316.837",
+    "us-or/statute/316.846",
+    "us-or/statute/316.847",
+    "us-or/statute/316.848",
+    "us-or/statute/316.853",
+    "us-or/statute/316.859",
+    "us-or/statute/316.861"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "amount_mismatch",
+  "other_kind": null,
+  "confidence": 0.6,
+  "description": "The official chaptered 2026 SB 1507 supplies the operative passenger-vehicle-interest, qualified-small-business-stock, bonus-depreciation, earned-income-credit, and new-jobs provisions.",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        14,
+        17
+      ],
+      [
+        41,
+        41
+      ],
+      [
+        46,
+        47
+      ],
+      [
+        53,
+        53
+      ],
+      [
+        64,
+        64
+      ],
+      [
+        76,
+        80
+      ],
+      [
+        85,
+        86
+      ],
+      [
+        92,
+        92
+      ],
+      [
+        94,
+        95
+      ],
+      [
+        118,
+        120
+      ],
+      [
+        217,
+        218
+      ],
+      [
+        226,
+        227
+      ],
+      [
+        347,
+        355
+      ],
+      [
+        360,
+        362
+      ],
+      [
+        368,
+        378
+      ],
+      [
+        481,
+        481
+      ],
+      [
+        507,
+        507
+      ],
+      [
+        512,
+        512
+      ],
+      [
+        527,
+        528
+      ],
+      [
+        546,
+        546
+      ],
+      [
+        551,
+        551
+      ],
+      [
+        554,
+        562
+      ],
+      [
+        642,
+        642
+      ],
+      [
+        692,
+        695
+      ],
+      [
+        748,
+        748
+      ],
+      [
+        934,
+        935
+      ],
+      [
+        942,
+        942
+      ],
+      [
+        958,
+        958
+      ],
+      [
+        969,
+        970
+      ],
+      [
+        980,
+        981
+      ],
+      [
+        1003,
+        1105
+      ],
+      [
+        1112,
+        1113
+      ],
+      [
+        1120,
+        1129
+      ],
+      [
+        1141,
+        1141
+      ],
+      [
+        1170,
+        1170
+      ],
+      [
+        1202,
+        1203
+      ],
+      [
+        1208,
+        1208
+      ],
+      [
+        1226,
+        1226
+      ],
+      [
+        1239,
+        1239
+      ],
+      [
+        1249,
+        1251
+      ],
+      [
+        1253,
+        1253
+      ],
+      [
+        1255,
+        1255
+      ],
+      [
+        1285,
+        1285
+      ],
+      [
+        1292,
+        1297
+      ],
+      [
+        1302,
+        1305
+      ],
+      [
+        1310,
+        1310
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        8,
+        10
+      ],
+      [
+        21,
+        21
+      ],
+      [
+        41,
+        43
+      ],
+      [
+        47,
+        53
+      ],
+      [
+        59,
+        59
+      ],
+      [
+        70,
+        73
+      ],
+      [
+        85,
+        90
+      ],
+      [
+        95,
+        98
+      ],
+      [
+        104,
+        104
+      ],
+      [
+        106,
+        109
+      ],
+      [
+        132,
+        135
+      ],
+      [
+        232,
+        233
+      ],
+      [
+        241,
+        242
+      ],
+      [
+        366,
+        368
+      ],
+      [
+        374,
+        376
+      ],
+      [
+        413,
+        485
+      ],
+      [
+        512,
+        570
+      ],
+      [
+        588,
+        588
+      ],
+      [
+        604,
+        607
+      ],
+      [
+        616,
+        616
+      ],
+      [
+        642,
+        642
+      ],
+      [
+        647,
+        653
+      ],
+      [
+        668,
+        678
+      ],
+      [
+        696,
+        696
+      ],
+      [
+        701,
+        707
+      ],
+      [
+        710,
+        710
+      ],
+      [
+        790,
+        790
+      ],
+      [
+        800,
+        803
+      ],
+      [
+        828,
+        834
+      ],
+      [
+        851,
+        878
+      ],
+      [
+        902,
+        902
+      ],
+      [
+        932,
+        932
+      ],
+      [
+        1118,
+        1119
+      ],
+      [
+        1141,
+        1156
+      ],
+      [
+        1167,
+        1168
+      ],
+      [
+        1178,
+        1178
+      ],
+      [
+        1206,
+        1207
+      ],
+      [
+        1225,
+        1230
+      ],
+      [
+        1290,
+        1291
+      ],
+      [
+        1296,
+        1296
+      ],
+      [
+        1314,
+        1314
+      ],
+      [
+        1327,
+        1327
+      ],
+      [
+        1337,
+        1338
+      ],
+      [
+        1340,
+        1340
+      ],
+      [
+        1359,
+        1362
+      ],
+      [
+        1375,
+        1375
+      ],
+      [
+        1382,
+        1393
+      ],
+      [
+        1398,
+        1400
+      ],
+      [
+        1403,
+        1408
+      ],
+      [
+        1411,
+        1411
+      ]
+    ],
+    "rule_names": [
+      "or_pit_2026_earned_income_credit_base_rate",
+      "or_pit_2026_earned_income_credit_young_dependent_rate",
+      "or_pit_2026_profile_candidate_refundable_earned_income_credit",
+      "or_pit_2026_profile_candidate_dependent_care_credit",
+      "or_pit_2026_dependent_care_rate",
+      "or_pit_2026_dependent_care_rate_selector",
+      "or_pit_2026_disability_credit_amount",
+      "or_pit_2026_elderly_disabled_credit_rate",
+      "or_pit_2026_profile_candidate_other_supported_nonrefundable_credits",
+      "or_pit_2026_profile_candidate_total_nonrefundable_credits",
+      "or_pit_2026_profile_candidate_supported_additions",
+      "or_pit_2026_profile_candidate_supported_subtractions",
+      "or_pit_2026_profile_candidate_military_subtraction",
+      "or_pit_2026_profile_candidate_standard_deduction",
+      "or_pit_2026_profile_candidate_additional_standard_deduction",
+      "or_pit_2026_profile_candidate_personal_exemption_credit",
+      "or_pit_2026_profile_candidate_additional_exemption_credits",
+      "or_pit_2026_bounded_profile_applies",
+      "or_pit_2026_input_domain_is_valid",
+      "or_pit_2026_new_jobs_credit_source_hold_applies",
+      "or_pit_2026_pass_through_entity_tax_source_hold_applies",
+      "or_pit_2026_dependent_exemption_source_hold_applies"
+    ],
+    "rule_path": "rules[or_pit_2026_earned_income_credit_base_rate].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "aa1667f41dad8d4a6469a94c6390d070487b6e64e51950bde0e6129963361423",
+  "post_fix_artifact_sha256": "3e4c011b5c604b456cab914bc052eacb28961adc2822d871358740f717913908",
+  "provision_sha256": "712318f26303aad12348d9e546192a24638758a900370df8106541908876599c",
+  "provision_chars": 25469,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-or/form/individual-income-tax/2026/or-estimate/document-1",
+    "provision_file": "data/corpus/provisions/us-or/form/2026-07-22-or-estimate-2026.jsonl",
+    "provision_file_sha256": "8d8e9f7bc9045959ffa41470941cdbc95e1ba18e84e0fd1124b6a34770d1ab74",
+    "line_number": 2,
+    "record_id": "6c6c1de7-3312-5dd2-85a4-463394e8e718",
+    "stored_body_sha256": "712318f26303aad12348d9e546192a24638758a900370df8106541908876599c",
+    "resolved_text_sha256": "712318f26303aad12348d9e546192a24638758a900370df8106541908876599c",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-01-01",
+    "source_as_of": "2026-07-22",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "ddc9b0f95cb0cd7ed24d42bd62fec4dbf0e1b846",
+    "requested_citation_path": "us-or/form/individual-income-tax/2026/or-estimate/document-1",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us-or/form/individual-income-tax/2026/or-estimate/document-1'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module encoded a tax-year-2026 version window (2026-01-01 to 2026-12-31) carrying the superseded pre-amendment ORS 315.266 rates of 9% and 12%, although Oregon Laws 2026 chapter 142 section 3 (SB 1507) amended those rates to 14% and 17% and section 10 makes that amendment apply to tax years beginning on or after January 1, 2026; the same wrong-vintage grounding also let the module allow the ORS 316.078, 316.079 and 316.087 credits for 2026.",
+    "triage_notes": "Multi-defect repair round; this is commit 2 of 4 in PR #1038 and the module file changed in only these two commits (dc9e9924 encode, c8e871b0 repair). The PR body's 'Review-fix cycle' paragraph ('The repair gates EITC on the bounded profile...') describes the LATER commit 2e82126b ('Fail close Oregon 2026 held tax outputs'), not this one - this commit moves the public EITC gate the other way, from `if or_pit_2026_bounded_profile_applies` to `if or_pit_2026_is_full_year_resident and or_pit_2026_input_domain_is_valid`, and the next commit reverses that. So the PR text is NOT evidence for this commit; the only quotable prose is the module's own summary/rationale added in the diff. Provision read: yes. Resolved us-or/statute/session-laws/2026/sb1507/document-1 through the pinned corpus - SECTION 3 reads 'an amount equal to [nine] 14 percent of the earned income credit allowable' and '[12] 17 percent', and SECTION 10 reads 'the amendments to ORS 315.266 by sec-tion 3 of this 2026 Act apply to tax years begin-ning on or after January 1, 2026', so the 9%/12% pre-fix values are confirmed superseded for the encoded period. Also resolved us-or/statute/316.078, 316.079, 316.087: their section bodies in the pinned release (release us-rulespec-2026-07-22-current-la-status-fix) contain the 30%/15%/8%/6%/5%/4% dependent-care table, the '$50 credit' and the '40 percent of the credit for the elderly', and contain NO sunset note - so the module's added claim 'Credits under ORS 316.078, 316.079, and 316.087 are excluded because their statutory notes prohibit claims for tax years beginning on or after January 1, 2016.' rests on statutory notes not retrievable through the resolver; a reviewer should confirm that bar independently before using this as the anchor. Other real fidelity defects bundled in the same diff, any of which could be split out as separate corpus items: (a) unrepresented_clause - ORS 316.695's 'standard deduction referred to in subparagraph (A) of this paragraph shall be zero' for a married-separate filer whose spouse itemizes was missing and is added to rules[or_pit_2026_profile_candidate_standard_deduction] and [..._additional_standard_deduction]; (b) unrepresented_clause - the SB 1507 sections 2, 5, 7/9 additions (qualified passenger-vehicle loan interest, section 1202 excluded gain, section 168(k) bonus-depreciation difference) added to or_pit_2026_profile_candidate_supported_additions, and ORS 316.698 film labor rebate moved from a hold to a direct subtraction; (c) wrong_entity_or_scope - the ORS 316.792 military subtraction was one household-level cap over pooled 'specifically qualified' pay and is rewritten as separate taxpayer and spouse computations each with its own $6,000 other-pay cap (spouse leg only on a joint return); (d) wrong_entity_or_scope/unrepresented_clause - the personal exemption credit stops using the federal section 151 exemption count and derives 1 or 2 units from filing status, with dependents moved to a new hold. Provenance-only (mechanical) parts of the same diff: or_pit_2026_personal_exemption_single_agi_limit and _joint_agi_limit keep formulas 100000/200000 while only source and proof excerpt move from ORS 316.085 to the 2026 OR-ESTIMATE; or_pit_2026_profile_candidate_basic_standard_deduction gains a proof atom with no formula change. Companion test file grew by ~6300 lines and oracle-coverage-pending dropped the nine dependent-care/disability legal_ids (ceiling 2237 -> 2230), consistent with the module change. Confidence is 0.6 because the fidelity classification is near-certain but the single 'kind' is genuinely mixed: the EITC anchor could equally be labeled amount_mismatch (0.09 -> 0.14, 0.12 -> 0.17) rather than wrong_period_or_effective_date, since the effective_from/effective_to window itself was already correct and only the source vintage inside it was wrong.",
+    "verifier_verdict": "reclassify",
+    "verifier_defect_kind": "amount_mismatch",
+    "verifier_confidence": 0.82,
+    "verifier_justification": "The change at the anchored path is a real fidelity correction, but not a period/date one: the version window is byte-identical before and after (`effective_from: '2026-01-01', effective_to: '2026-12-31'`) and only the rate literal moves, 0.09 → 0.14 (and 0.12 → 0.17 on the companion young-dependent rule). I checked every `effective_from`/`effective_to`/`period:` line in the 874-line diff: not one date, window, or period kind value is changed anywhere in the module — the `+/-` window lines are only whole-rule insertions and deletions, all carrying the same 2026-01-01→2026-12-31 window. Reading SB 1507 through the pinned release (corpus release us-rulespec-2026-08-03-ecps-pit-tariff-union, commit d9d6fba0b9) confirms section 3 amends ORS 315.266(1)(a) to read \"[nine] 14 percent\" and (1)(b) to \"[12] 17 percent\", and section 10(1) makes it apply to tax years beginning on or after January 1, 2026 — so the pre-fix encoding was wrong against the operative source, but the way it was wrong is a superseded numeric rate, which the taxonomy calls amount_mismatch. The added `kind: effective_period` proof atom is provenance for the already-correct window, not a date correction.",
+    "verifier_quote": "-    versions: [{effective_from: '2026-01-01', effective_to: '2026-12-31', formula: '0.09'}]\n+    versions: [{effective_from: '2026-01-01', effective_to: '2026-12-31', formula: '0.14'}]",
+    "verifier_notes": "Source check (read this session, not recalled): SB 1507 text via resolve_provision on us-or/statute/session-laws/2026/sb1507/document-1 at rulespec commit c8e871b0fe — \"SECTION 3. ORS 315.266 is amended to read: 315.266. (1)(a) ... an amount equal to [nine] 14 percent of the earned income credit allowable\"; \"(b) ... equal to [12] 17 percent\"; \"SECTION 10. (1) Sections 2 and 5 of this 2026 Act and the amendments to ORS 315.266 by section 3 of this 2026 Act apply to tax years beginning on or after January 1, 2026.\" So fidelity (not mechanical, not an enhancement) is solid; only the kind is wrong.\n\nThe first reader's quote came from the module-level `rationale:` comment, not from the anchored rule, which is likely what pulled it toward a period reading. If a \"wrong vintage of the source\" framing is preferred over the plain numeric one, the better alternative kind is untraceable_branch (\"formulas grounded on the wrong provision\") — the rule was grounded on the pre-amendment ORS 315.266 in the pinned 2025 ORS snapshot. I still prefer amount_mismatch because the anchored path is `versions[0].formula` holding a bare numeric literal whose value changed; a citation-only swap with 0.09 retained would have been mechanical provenance.\n\nThis commit bundles several independent fidelity defects beyond the anchored one; a reviewer may want to split them into separate cases rather than let this one case absorb them:\n- Removal of the ORS 316.078 dependent-care table, 316.079 $50 limb-loss credit, and the 316.087 40% elderly/disabled rate, with the summary line \"Credits under ORS 316.078, 316.079, and 316.087 are excluded because their statutory notes prohibit claims for tax years beginning on or after January 1, 2016.\" That sub-defect IS period-flavored (a sunset the encoding ignored) and is the closest thing in this commit to wrong_period_or_effective_date, though the fix deletes the rules outright, which also reads as untraceable_branch. It is not the rule the case is anchored to.\n- Military subtraction re-scoped from a single household aggregate to per-spouse caps with a joint-only spouse leg (wrong_entity_or_scope).\n- Standard deduction and additional standard deduction now forced to 0 when married-separate and the spouse itemizes (unrepresented_clause, ORS 316.695).\n- EITC gate changed from `or_pit_2026_bounded_profile_applies` to `or_pit_2026_is_full_year_resident and or_pit_2026_input_domain_is_valid`, plus a new `or_pit_2026_input_domain_is_valid` guard and three new source holds folded into the bounded profile — scope/logic changes, not amounts.\n\nRead-only throughout: only `cat`, `sed`, `grep` on the diff bundle and the resolve_provision script; nothing in rulespec-us or the corpus was modified.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Multi-defect repair round; this is commit 2 of 4 in PR #1038 and the module file changed in only these two commits (dc9e9924 encode, c8e871b0 repair). The PR body's 'Review-fix cycle' paragraph ('The repair gates EITC on the bounded profile...') describes the LATER commit 2e82126b ('Fail close Oregon 2026 held tax outputs'), not this one - this commit moves the public EITC gate the other way, from `if or_pit_2026_bounded_profile_applies` to `if or_pit_2026_is_full_year_resident and or_pit_2026_input_domain_is_valid`, and the next commit reverses that. So the PR text is NOT evidence for this commit; the only quotable prose is the module's own summary/rationale added in the diff. Provision read: yes. Resolved us-or/statute/session-laws/2026/sb1507/document-1 through the pinned corpus - SECTION 3 reads 'an amount equal to [nine] 14 percent of the earned income credit allowable' and '[12] 17 percent', and SECTION 10 reads 'the amendments to ORS 315.266 by sec-tion 3 of this 2026 Act apply to tax years begin-ning on or after January 1, 2026', so the 9%/12% pre-fix values are confirmed superseded for the encoded period. Also resolved us-or/statute/316.078, 316.079, 316.087: their section bodies in the pinned release (release us-rulespec-2026-07-22-current-la-status-fix) contain the 30%/15%/8%/6%/5%/4% dependent-care table, the '$50 credit' and the '40 percent of the credit for the elderly', and contain NO sunset note - so the module's added claim 'Credits under ORS 316.078, 316.079, and 316.087 are excluded because their statutory notes prohibit claims for tax years beginning on or after January 1, 2016.' rests on statutory notes not retrievable through the resolver; a reviewer should confirm that bar independently before using this as the anchor. Other real fidelity defects bundled in the same diff, any of which could be split out as separate corpus items: (a) unrepresented_clause - ORS 316.695's 'standard deduction referred to in subparagraph (A) of this paragraph shall be zero' for a married-separate filer whose spouse itemizes was missing and is added to rules[or_pit_2026_profile_candidate_standard_deduction] and [..._additional_standard_deduction]; (b) unrepresented_clause - the SB 1507 sections 2, 5, 7/9 additions (qualified passenger-vehicle loan interest, section 1202 excluded gain, section 168(k) bonus-depreciation difference) added to or_pit_2026_profile_candidate_supported_additions, and ORS 316.698 film labor rebate moved from a hold to a direct subtraction; (c) wrong_entity_or_scope - the ORS 316.792 military subtraction was one household-level cap over pooled 'specifically qualified' pay and is rewritten as separate taxpayer and spouse computations each with its own $6,000 other-pay cap (spouse leg only on a joint return); (d) wrong_entity_or_scope/unrepresented_clause - the personal exemption credit stops using the federal section 151 exemption count and derives 1 or 2 units from filing status, with dependents moved to a new hold. Provenance-only (mechanical) parts of the same diff: or_pit_2026_personal_exemption_single_agi_limit and _joint_agi_limit keep formulas 100000/200000 while only source and proof excerpt move from ORS 316.085 to the 2026 OR-ESTIMATE; or_pit_2026_profile_candidate_basic_standard_deduction gains a proof atom with no formula change. Companion test file grew by ~6300 lines and oracle-coverage-pending dropped the nine dependent-care/disability legal_ids (ceiling 2237 -> 2230), consistent with the module change. Confidence is 0.6 because the fidelity classification is near-certain but the single 'kind' is genuinely mixed: the EITC anchor could equally be labeled amount_mismatch (0.09 -> 0.14, 0.12 -> 0.17) rather than wrong_period_or_effective_date, since the effective_from/effective_to window itself was already correct and only the source vintage inside it was wrong. | verifier reclassified wrong_period_or_effective_date -> amount_mismatch at 0.82; verifier kind used",
+  "family_id": "us-c8e871b0-3bbb7f93ab0f",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

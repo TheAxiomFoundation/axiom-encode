@@ -1,0 +1,177 @@
+{
+  "id": "us-421-2f99fc5a-us-il-policies-income-tax-pilot-liability-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "2f99fc5a02d12e6e3b5fc6cee3382d7f08f4def8",
+  "parent_commit": "fd918bb79f229464558b7e60c65899b15f7d9afa",
+  "commit_date": "2026-07-21",
+  "commit_subject": "Promote Illinois PIT to exact taxable-income boundary",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/958",
+  "module_path": "us-il/policies/income_tax/pilot_liability_pipeline.yaml",
+  "corpus_citation_path": "us-il/statute/35/5/201",
+  "corpus_citation_paths_all": [
+    "us-il/statute/35/5/201"
+  ],
+  "corpus_release": "us-rulespec-2026-07-19-dedup",
+  "corpus_release_content_sha256": "5b52bfb379fcd94250a835a604bb3383991dcca848778e29510c333d5adde731",
+  "corpus_commit": "9bcd8345798c0e0a9b54ab3f5962abbb3663c049",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.45,
+  "description": "promotes Illinois 2026 personal income tax to an exact taxable-income plus investment-credit-recapture boundary",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        2,
+        4
+      ],
+      [
+        9,
+        40
+      ],
+      [
+        42,
+        63
+      ],
+      [
+        65,
+        65
+      ],
+      [
+        71,
+        71
+      ],
+      [
+        78,
+        91
+      ],
+      [
+        95,
+        96
+      ],
+      [
+        102,
+        102
+      ],
+      [
+        109,
+        124
+      ],
+      [
+        129,
+        129
+      ],
+      [
+        133,
+        133
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        6,
+        6
+      ],
+      [
+        8,
+        20
+      ],
+      [
+        22,
+        22
+      ],
+      [
+        28,
+        28
+      ],
+      [
+        35,
+        36
+      ],
+      [
+        39,
+        39
+      ],
+      [
+        41,
+        42
+      ],
+      [
+        48,
+        48
+      ],
+      [
+        52,
+        57
+      ],
+      [
+        61,
+        62
+      ],
+      [
+        67,
+        67
+      ],
+      [
+        70,
+        70
+      ],
+      [
+        72,
+        72
+      ]
+    ],
+    "rule_names": [
+      "il_pit_pilot_income_tax_liability",
+      "il_pit_pilot_taxable_income",
+      "il_pit_pilot_standard_exemption",
+      "il_pit_pilot_net_income_after_exemption"
+    ],
+    "rule_path": "rules[il_pit_pilot_income_tax_liability].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "44fb0ed0b40fd5fd0bfba4fece062340c5238d9cdd94e7f209bdff22bce0b7d7",
+  "post_fix_artifact_sha256": "9f51c1de2eb1f626da6086d6e60edf3cac8fab65999c23d84c6f54e2b1392b53",
+  "provision_sha256": "067d9252f0a39e03dca17bf0d6de36cd97b95adaef9643832421727f32ca814e",
+  "provision_chars": 61632,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-il/statute/35/5/201",
+    "provision_file": "data/corpus/provisions/us-il/statute/2026-07-13-recovery.jsonl",
+    "provision_file_sha256": "93a9150221ec9ff08ad72ad5ebec84a46cc04bc1bd96d916e86a58c6cf54c2f5",
+    "line_number": 27,
+    "record_id": "a872d4bc-e1f3-5e4a-8ee6-2a41289d9afd",
+    "stored_body_sha256": "067d9252f0a39e03dca17bf0d6de36cd97b95adaef9643832421727f32ca814e",
+    "resolved_text_sha256": "067d9252f0a39e03dca17bf0d6de36cd97b95adaef9643832421727f32ca814e",
+    "slice_required": false,
+    "component_rows": 1,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "9bcd8345798c0e0a9b54ab3f5962abbb3663c049",
+    "fix_time_corpus_match": "row_body_empty_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "f66b3628a97c96bb0ab71809434ecaf84b6ad091",
+    "requested_citation_path": "us-il/statute/35/5/201",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "unclear",
+    "pre_fix_wrong_because": "The pre-fix liability rule was sourced to \"35 ILCS 5/201(b) ... before section 201/212 credits\" but computed only rate x net income, omitting the section 201(f)/(h) investment-credit recapture increase the statute states (\"the tax imposed under subsections (a) and (b) of this Section for such taxable year shall be increased\"), so it understated the before-credits tax for any unit with a recapture, and it applied a caller-supplied rate and a $2,925 per-person exemption figure that the cited sections do not state.",
+    "triage_notes": "Whole 133-line module was replaced by a 72-line one, so several things moved at once and the recapture omission cannot be isolated as the sole intent. (1) Input boundary changed: supplied base income + reconstructed 35 ILCS 5/204 standard-exemption stage (with the 204(g) AGI cutoff, strictness '>' which matches \"exceeds\") was dropped for a supplied il_pit_pilot_state_taxable_income floored at zero; rules il_pit_pilot_standard_exemption and il_pit_pilot_net_income_after_exemption were deleted and il_pit_pilot_taxable_income added. (2) Rate changed from the caller-supplied input il_pit_pilot_supplied_income_tax_rate to the import us-il:statutes/35/5/201#individual_trust_or_estate_current_income_tax_rate - same 4.95%, so this is grounding/provenance strengthening rather than a numeric change. (3) The only genuinely new statutory content is the added '+ il_pit_pilot_recapture_of_investment_credit' term with a new proof atom quoting the recapture increase clause; that reads as unrepresented_clause, but the pre-fix summary had explicitly declared it \"deliberately excludes the section 201 investment ... credits\", so a reviewer could also read the addition as new scope the module never claimed (which the triage guidance says is not a defect) - hence unclear. (4) effective_to: '2026-12-31' was added to both versions; this is pilot-year scoping with no statutory sunset (the 4.95% rate applies to taxable years beginning on or after July 1, 2017), so it is not the defect being fixed but is a scope narrowing worth noting. (5) Provision WAS read through the pinned corpus release (us-il/statute/35/5/201, resolver exit 0): it confirms \"(5.4) In the case of an individual, trust, or estate, for taxable years beginning on or after July 1, 2017, an amount equal to 4.95% of the taxpayer's net income\" and four \"shall be increased\" recapture clauses, including the (h) paragraph (6) text the post-fix atom quotes. (6) Commit body is empty (just a newline); the PR (TheAxiomFoundation/rulespec-us#958) has no reviews, review comments, or issue comments, so the only narrative evidence is the PR summary bullets. (7) Follow-up commit 4652444ae \"Address Illinois PIT review findings\" touched this same module but only changed the source string '(h)(6)' to '(h)(7)' plus the apply manifest and a waiver removal - mechanical citation bookkeeping, no formula change. (8) Companion test file was rewritten from seven exemption-chain fixtures to four boundary fixtures, and .axiom/index/provisions_to_rules.json lost the 35 ILCS 5/204 entries (index regeneration, consistent with dropping that citation).",
+    "verifier_verdict": "unclear",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.6,
+    "verifier_justification": "I could not refute the kind, but I also could not lift this to confirmed: the commit is dominated by an input-boundary re-scoping (the 204 standard-exemption stage and both 204 imports are deleted, the module drops to a single us-il/statute/35/5/201 citation, and the caller now supplies Illinois taxable income directly) plus a provenance upgrade (the caller-supplied rate becomes a hashed import of a rate rule that already existed at the parent commit, with the same 4.95% value), neither of which is an encoded meaning that disagreed with the source. The one element that does look like fidelity is the recapture increase: I confirmed through the pinned release that 35 ILCS 5/201(f)(6) states verbatim \"the tax imposed under subsections (a) and (b) of this Section for such taxable year shall be increased\", so a rule whose source line claimed \"before section 201/212 credits\" understated before-credits tax for any unit with a recapture, and the fix adds a proof atom quoting exactly that clause. It weighs against calling it a defect that the pre-fix summary explicitly scoped the module to \"the ordinary wage-earner slice\" and said it \"deliberately excludes the section 201 investment ... credits\", and that the recapture enters post-fix as a new caller-supplied input (il_pit_pilot_recapture_of_investment_credit) rather than as an encoded statutory computation — i.e. new boundary coverage, not a corrected formula. The message text (\"Promote ... to an exact taxable-income boundary\", parity statistics) describes a boundary promotion, never a correction, so the evidence does not settle it.",
+    "verifier_quote": "-          il_pit_pilot_net_income_after_exemption * il_pit_pilot_supplied_income_tax_rate\n+          il_pit_pilot_taxable_income * individual_trust_or_estate_current_income_tax_rate + il_pit_pilot_recapture_of_investment_credit",
+    "verifier_notes": "Evidence read: bundle JSON, full diff, pre file at fd918bb79f (133 lines) and post at 2f99fc5a02 (72 lines), and 35 ILCS 5/201 resolved through corpus release us-rulespec-2026-07-19-dedup (text sha256 067d9252f0a3...). Three distinguishable changes are bundled: (1) recapture added — the only meaning-vs-source candidate; (2) rate re-grounded from il_pit_pilot_supplied_income_tax_rate to the import us-il:statutes/35/5/201#individual_trust_or_estate_current_income_tax_rate, which already existed at the parent commit (us-il/statutes/35/5/201.yaml:48) and carries the same 4.95%, so this is provenance, not a corrected number; (3) the whole 204 exemption stage deleted, which REMOVES represented statutory coverage (the 204(g) AGI cutoff branch and its two hashed imports) and moves the caller boundary upstream — a scope move, not a correction, and evidence against reading the commit as a fidelity fix. Also note the pre-fix module's own rationale conceded its $2,925 per-person figure came from IDOR Informational Bulletin FY 2026-15 rather than the statute, and it was a declared input, never a hardcoded formula value, so amount_mismatch does not apply. Two smaller things for the reviewer: the deleted il_pit_pilot_net_income_after_exemption carried source \"35 ILCS 5/203\" while proving against us-il/statute/35/5/204 (net income is 35 ILCS 5/202), a grounding mismatch on a rule the fix deletes rather than repairs; and the fix's new source line cites \"(h)(6)\", but the resolved text limits (h)(6) recapture to \"any taxable year ending on or before December 31, 1996\", so for the 2026 window only (f)(6) (and (h)(7) relocation) can apply — a mis-citation introduced BY the fix. If a reviewer keeps this case, the honest framing is unrepresented_clause on the recapture alone; if the corpus wants only isolated fidelity corrections, this is a mixed boundary-promotion commit and is a reasonable prune.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Whole 133-line module was replaced by a 72-line one, so several things moved at once and the recapture omission cannot be isolated as the sole intent. (1) Input boundary changed: supplied base income + reconstructed 35 ILCS 5/204 standard-exemption stage (with the 204(g) AGI cutoff, strictness '>' which matches \"exceeds\") was dropped for a supplied il_pit_pilot_state_taxable_income floored at zero; rules il_pit_pilot_standard_exemption and il_pit_pilot_net_income_after_exemption were deleted and il_pit_pilot_taxable_income added. (2) Rate changed from the caller-supplied input il_pit_pilot_supplied_income_tax_rate to the import us-il:statutes/35/5/201#individual_trust_or_estate_current_income_tax_rate - same 4.95%, so this is grounding/provenance strengthening rather than a numeric change. (3) The only genuinely new statutory content is the added '+ il_pit_pilot_recapture_of_investment_credit' term with a new proof atom quoting the recapture increase clause; that reads as unrepresented_clause, but the pre-fix summary had explicitly declared it \"deliberately excludes the section 201 investment ... credits\", so a reviewer could also read the addition as new scope the module never claimed (which the triage guidance says is not a defect) - hence unclear. (4) effective_to: '2026-12-31' was added to both versions; this is pilot-year scoping with no statutory sunset (the 4.95% rate applies to taxable years beginning on or after July 1, 2017), so it is not the defect being fixed but is a scope narrowing worth noting. (5) Provision WAS read through the pinned corpus release (us-il/statute/35/5/201, resolver exit 0): it confirms \"(5.4) In the case of an individual, trust, or estate, for taxable years beginning on or after July 1, 2017, an amount equal to 4.95% of the taxpayer's net income\" and four \"shall be increased\" recapture clauses, including the (h) paragraph (6) text the post-fix atom quotes. (6) Commit body is empty (just a newline); the PR (TheAxiomFoundation/rulespec-us#958) has no reviews, review comments, or issue comments, so the only narrative evidence is the PR summary bullets. (7) Follow-up commit 4652444ae \"Address Illinois PIT review findings\" touched this same module but only changed the source string '(h)(6)' to '(h)(7)' plus the apply manifest and a waiver removal - mechanical citation bookkeeping, no formula change. (8) Companion test file was rewritten from seven exemption-chain fixtures to four boundary fixtures, and .axiom/index/provisions_to_rules.json lost the 35 ILCS 5/204 entries (index regeneration, consistent with dropping that citation). | verifier unclear at 0.60",
+  "family_id": "us-2f99fc5a-7e6c0c02a973",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

@@ -1,0 +1,120 @@
+{
+  "id": "uk-001-105a10d6-uk-policies-govuk-student-loan-repayments",
+  "jurisdiction": "uk",
+  "repo": "TheAxiomFoundation/rulespec-uk",
+  "commit": "105a10d67e01715635c843cace55b46599f8dc2a",
+  "parent_commit": "f7184e07e167071e0e9c77156e10dbb63c045231",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Missing boundary in the merged GOV.UK student-loan repayment module: body says it \"never capped the annual repayment at the borrower's outstanding balance\"; adds min(scheduled_deduction, balance) cap and grounds it (closes #77).",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-uk/pull/86",
+  "module_path": "uk/policies/govuk/student-loan-repayments.yaml",
+  "corpus_citation_path": "uk/guidance/govuk/student-loan-repayments/what-you-pay",
+  "corpus_citation_paths_all": [
+    "uk/guidance/govuk/student-loan-repayments/what-you-pay",
+    "uk/guidance/govuk/student-loan-repayments/getting-a-refund"
+  ],
+  "corpus_release": "uk-rulespec-2026-07-12",
+  "corpus_release_content_sha256": "ec59e4017cd0c9b935ffed9092506fcc15313f58fe1ed18c1af909c8d0cd47e1",
+  "corpus_commit": "3cc9219ac4ce8d6f0bb30ad08960209f699a7ac5",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.72,
+  "description": "The GOV.UK student-loan-repayments encoding modelled the scheduled income-\ncontingent deduction (9% over threshold for Plans 1/2/4/5, 6% for\nPostgraduate) but never capped the annual repayment at the borrower's\noutstanding balance.",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        6,
+        6
+      ],
+      [
+        8,
+        8
+      ],
+      [
+        254,
+        254
+      ],
+      [
+        278,
+        278
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        6,
+        25
+      ],
+      [
+        27,
+        27
+      ],
+      [
+        273,
+        273
+      ],
+      [
+        282,
+        291
+      ],
+      [
+        307,
+        307
+      ]
+    ],
+    "rule_names": [
+      "student_loan_repayment"
+    ],
+    "rule_path": "rules[student_loan_repayment].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "c655553d6756af84f10f54f2da383cd52e4dc8916b6bc3a248866c155ce0d06d",
+  "post_fix_artifact_sha256": "25eb2302f4f4be0b496d2436c149f3702f3cb09430d25e5e220c1c637d76f83c",
+  "provision_sha256": "87b95b8c398e8417a2d39b1701e14f50e1a83f0f9645d1074606091a0af3bbef",
+  "provision_chars": 765,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "uk/guidance/govuk/student-loan-repayments/what-you-pay",
+    "provision_file": "data/corpus/provisions/uk/guidance/2026-07-10-uk-rulespec-source-promotion.jsonl",
+    "provision_file_sha256": "91208a858cdfd837af1d01cbcc4bbe7c57e6e37b681b70b02d0489ee3dfebc2b",
+    "line_number": 12,
+    "record_id": "9227075c-eb47-51fa-8288-4be864a0cace",
+    "stored_body_sha256": "87b95b8c398e8417a2d39b1701e14f50e1a83f0f9645d1074606091a0af3bbef",
+    "resolved_text_sha256": "87b95b8c398e8417a2d39b1701e14f50e1a83f0f9645d1074606091a0af3bbef",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-06-05",
+    "source_as_of": "2026-06-05",
+    "corpus_commit": "3cc9219ac4ce8d6f0bb30ad08960209f699a7ac5",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "earliest_release_after_toolchain_corpus_ref",
+    "fallback_index": 1,
+    "toolchain_corpus_ref": "3ecec6d77c3af9930e7bb7de8622124e546cf72b",
+    "requested_citation_path": "uk/guidance/govuk/student-loan-repayments/what-you-pay",
+    "release_errors_before_success": [
+      {
+        "release": "uk-legislation-pilot",
+        "error": "No active corpus source found for 'uk/guidance/govuk/student-loan-repayments/what-you-pay'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix formula returned the full scheduled income-contingent deduction (rate x income over threshold) with no upper bound, so for a borrower whose remaining balance was smaller than that deduction it reported a repayment larger than the amount still owed, contradicting the cited GOV.UK provision that HMRC stops repayments once the loan is repaid in full and refunds anything paid over the total owed.",
+    "triage_notes": "Single-module commit; only this module file, its companion .test.yaml, and the encoding manifest changed. Provision WAS read through the pinned corpus release (uk/guidance/govuk/student-loan-repayments/getting-a-refund, 482 chars): 'You can ask for a refund if you have paid more than the total amount you owe. HM Revenue and Customs will tell your employer to stop taking repayments from your salary when you have repaid your loan in full...' — this supports the cap on the net annual repayment. Caveat a reviewer should know: the same provision says salary deductions 'can take around four weeks to stop, so you may pay back more than you owe', so the source describes over-deduction-then-refund rather than a hard in-year deduction cap; the encoding models the net-of-refund amount. Second caveat: the cap is gated on a new optional input defaulting to absent, so the module's output is unchanged for callers that do not supply a balance — this is why one could argue the change adds new scope; I still classify it fidelity because the module's claimed output (annual student loan repayment) was overstated near end of loan and the fix cites source text for the missing clause (the commit reports 43 dispositioned EFRS mismatches becoming raw matches). The same commit also made provenance-only changes bundled with the fidelity fix: corpus_citation_path -> corpus_citation_paths (adding getting-a-refund), a new module.source_verification.upstream_source_check block citing SI 2009/470 Sch 1A and Part 6, an updated module summary, an updated `source:` string on the rule, and two new proof atoms (kind: exception and kind: condition) on versions[0].formula. Downstream alias rule `student_loan_repayments` was not edited but inherits the cap since its formula is just `student_loan_repayment`. Screen flag called this a 'missing boundary', but the defect is a missing cap clause, not a wrong comparison strictness or direction, so unrepresented_clause rather than boundary_direction. PR #86 has no reviews or review comments; PR body restates the commit message.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.72,
+    "verifier_justification": "The diff changes encoded meaning: the `student_loan_repayment` formula gains a source-grounded upper bound `min(scheduled_deduction, max(0, outstanding_student_loan_balance))` that the pre-fix formula lacked entirely, and the module adds `getting-a-refund` as a citation path with two new proof atoms labeled `kind: exception` and `kind: condition`. I resolved that provision through the pinned release and both excerpts are verbatim, including \"HM Revenue and Customs will tell your employer to stop taking repayments from your salary when you have repaid your loan in full\" — a clause the source states and the encoding did not represent at all, which is exactly `unrepresented_clause`. I tried `boundary_direction` (the screen text says \"missing boundary\") and rejected it: no pre-existing comparison had its strictness or direction reversed, a whole clause was absent. I also tried `not_a_defect` on the grounds that the cap is gated behind a new optional input defaulting to absent, but no new output surface was added and needing a new input is the ordinary cost of representing a previously absent clause.",
+    "verifier_quote": "+          if listed_student_loan_plan_applies: if outstanding_student_loan_balance_is_known: min(student_loan_repayment_rate * max(0, annual_income_before_tax_and_other_deductions - student_loan_annual_income_threshold), max(0, outstanding_student_loan_balance)) else: student_loan_repayment_rate * max(0, annual_income_before_tax_and_other_deductions - student_loan_annual_income_threshold) else: 0",
+    "verifier_notes": "Two refutation attempts, both survived, but a reviewer should see the caveats.\n\n(1) The strongest counter-evidence is in the cited provision itself. Resolved `uk/guidance/govuk/student-loan-repayments/getting-a-refund` (corpus release `uk-rulespec-2026-07-12`, corpus commit 3cc9219a, provision file sha 91208a85, line 11, body sha ab400b5a). Full text: \"You can ask for a refund if you have paid more than the total amount you owe. HM Revenue and Customs will tell your employer to stop taking repayments from your salary when you have repaid your loan in full, but salary deductions can take around four weeks to stop, so you may pay back more than you owe.\" The source therefore explicitly contemplates the gross PAYE deduction EXCEEDING the outstanding balance, with a refund as the remedy. This contradicts the commit body's flat assertion \"A borrower never repays more than they still owe\". It does not rescue the pre-fix formula, because the rule is `period: Year` with `period_kind: tax_year` and the refund makes the annual amount borne equal to min(scheduled, balance), but the fix's own framing overstates the source. A reviewer grading the commit message against the provision should note this.\n\n(2) The pre-fix module cited ONLY `uk/guidance/govuk/student-loan-repayments/what-you-pay`, whose resolved text (body sha 87b95b8c) contains no stop-at-full-repayment language — only thresholds, the 9%/6% rates, and Self Assessment. So the fix expands the module's source scope to a provision it had not previously cited, rather than correcting a formula against the provision it did cite. Combined with the cap being gated behind a new `outstanding_student_loan_balance_is_known` input that defaults to false (all four pre-existing tests were amended to set it false and their expected outputs are unchanged), no previously-expressible scenario changes value. This is the residual argument for downgrading to `unclear`; I did not take it because the module's claimed output surface (`student_loan_repayment`, \"GOV.UK student loan repayment amount\") is unchanged and is what the clause bounds.\n\n(3) Supporting evidence of real wrong outputs, not just added precision: the PR states the companion axiom-oracles bridge change \"converts the 43 dispositioned near-end-of-loan mismatches in the `uk-tax-benefits-efrs` comparison from `bridge_artifact` to raw matches\". Note those 43 had been dispositioned as bridge artifacts, i.e. previously treated as an input-availability issue rather than an encoding error — a reviewer may read that either way.\n\n(4) Nothing mechanical-only here: module file is +37/-4 with a real formula rewrite. The commit also touches only the companion test file and `.axiom/encoding-manifests/`. No PR reviews or comments exist to quote.\n\n(5) Kind alternatives considered and rejected: amount_mismatch (no numeric literal changed — thresholds 26900/29385/33795/25000/21000 and rates 9%/6% are untouched), wrong_period_or_effective_date (effective_from stays '2026-04-06'), wrong_entity_or_scope (entity Person, unchanged), polarity_or_logic (no boolean inversion; the new `if/else` is additive gating).",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Single-module commit; only this module file, its companion .test.yaml, and the encoding manifest changed. Provision WAS read through the pinned corpus release (uk/guidance/govuk/student-loan-repayments/getting-a-refund, 482 chars): 'You can ask for a refund if you have paid more than the total amount you owe. HM Revenue and Customs will tell your employer to stop taking repayments from your salary when you have repaid your loan in full...' — this supports the cap on the net annual repayment. Caveat a reviewer should know: the same provision says salary deductions 'can take around four weeks to stop, so you may pay back more than you owe', so the source describes over-deduction-then-refund rather than a hard in-year deduction cap; the encoding models the net-of-refund amount. Second caveat: the cap is gated on a new optional input defaulting to absent, so the module's output is unchanged for callers that do not supply a balance — this is why one could argue the change adds new scope; I still classify it fidelity because the module's claimed output (annual student loan repayment) was overstated near end of loan and the fix cites source text for the missing clause (the commit reports 43 dispositioned EFRS mismatches becoming raw matches). The same commit also made provenance-only changes bundled with the fidelity fix: corpus_citation_path -> corpus_citation_paths (adding getting-a-refund), a new module.source_verification.upstream_source_check block citing SI 2009/470 Sch 1A and Part 6, an updated module summary, an updated `source:` string on the rule, and two new proof atoms (kind: exception and kind: condition) on versions[0].formula. Downstream alias rule `student_loan_repayments` was not edited but inherits the cap since its formula is just `student_loan_repayment`. Screen flag called this a 'missing boundary', but the defect is a missing cap clause, not a wrong comparison strictness or direction, so unrepresented_clause rather than boundary_direction. PR #86 has no reviews or review comments; PR body restates the commit message. | verifier confirmed at 0.72",
+  "family_id": "uk-105a10d6-9e2c810a3def",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

@@ -1,0 +1,134 @@
+{
+  "id": "us-007-095d680d-statutes-26-199a",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "095d680d471e75d35256db564f5dd547ca248a1e",
+  "parent_commit": "7d6981ae34844c047d9fee10a181438a9b5d6de1",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Bulk mixed refresh whose squash body includes \"Repair RuleSpec validation coverage\" and \"Repair validation tail for refreshed RuleSpecs\"; module diffs carry semantic changes (151 adds a deferred_output making exemption_phaseout_applicable_percentage non-executable because 68(b) no longer defines the applicable amount; 24 rewrites phaseout threshold selection and qualifying-child predicates; 1402/a drops 1401 import proof atoms) alongside text->excerpt format renames and new subsection modules; later stage should read the diff.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/46",
+  "module_path": "statutes/26/199A.yaml",
+  "corpus_citation_path": "us/statute/26/199A",
+  "corpus_citation_paths_all": [
+    "us/statute/26/199A"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "other",
+  "other_kind": "missing_nonnegativity_floor",
+  "confidence": 0.4,
+  "description": "Repair validation tail for refreshed RuleSpecs",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        394,
+        395
+      ],
+      [
+        522,
+        522
+      ],
+      [
+        626,
+        626
+      ],
+      [
+        647,
+        647
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        9,
+        31
+      ],
+      [
+        417,
+        418
+      ],
+      [
+        545,
+        545
+      ],
+      [
+        649,
+        649
+      ],
+      [
+        670,
+        670
+      ]
+    ],
+    "rule_names": [
+      "cooperative_reduction",
+      "qbi_deduction_before_minimum_active_qbi",
+      "cooperative_production_deduction_before_wage_limit",
+      "cooperative_production_deduction"
+    ],
+    "rule_path": "rules[cooperative_reduction].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "8c8a484aac648470c400945d55925b5152a408b03d87f4e60c293758ccb66b57",
+  "post_fix_artifact_sha256": "caa63943baa5fef539a7ae78ccf13c729149915e079f252cc44c97a7aa9db816",
+  "provision_sha256": "0af6c1cceb7351a690302b8773d7c90d8ed3711df8c3748f3b07603e3c96c53d",
+  "provision_chars": 29125,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/199A",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "1b0b185ca3335eb06c4fe10af488a8984bdd2cedd4087badf78583c267af7b7b",
+    "line_number": 40,
+    "record_id": "09e89e17-8e86-5caa-b36d-2de501af862d",
+    "stored_body_sha256": "0af6c1cceb7351a690302b8773d7c90d8ed3711df8c3748f3b07603e3c96c53d",
+    "resolved_text_sha256": "0af6c1cceb7351a690302b8773d7c90d8ed3711df8c3748f3b07603e3c96c53d",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us/statute/26/199A",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/199A'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/199A'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/199A'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/199A'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "unclear",
+    "pre_fix_wrong_because": "unclear: the pre-fix formulas let negative inputs propagate — most sharply in `cooperative_reduction`, where a negative QBI allocable to qualified cooperative payments produced a negative 199A(b)(7) 'reduction' that would have increased the deductible amount instead of reducing it — but the statute states no explicit 'but not below zero' floor at any of the four sites, so the clamps may be defensive rather than a source-mismatch repair.",
+    "triage_notes": "Only modified module in this chunk. Two independent changes: (a) new module-level deferred_outputs for 199A(c), (d) and (h), which is pure metadata (mechanical), and (b) four formulas that wrap operands in max(0, ...): `cooperative_reduction` (199A(b)(7)), `qbi_deduction_before_minimum_active_qbi` (199A(a), now max(0, min(combined QBI amount, taxable-income limit))), `cooperative_production_deduction_before_wage_limit` (199A(g)(1)(A)) and `cooperative_production_deduction` (199A(g)(1)(B), clamping W-2 wages). I read 199A through the pinned corpus release: (b)(7) says only 'shall be reduced by the lesser of— (A) 9 percent ... or (B) 50 percent ...' and (g)(1)(A) 'an amount equal to 9 percent of the lesser of— (i) ... or (ii) ...'; neither carries a zero floor, and 199A(c)(1) defines QBI as a 'net amount' that can be negative with (c)(2) handling losses by carryover. So the clamps encode an implied non-negativity rather than quoted text, and the only stated motive in the commit body is the generic 'Repair RuleSpec validation coverage' / 'Repair validation tail for refreshed RuleSpecs' — consistent with a validator-driven clamp. A reviewer should decide whether 'a negative statutory reduction that increases the deduction' counts as a fidelity defect; if kept, `cooperative_reduction` is the strongest single instance because there the sign flip inverts the direction of the adjustment.",
+    "verifier_verdict": "not_a_defect",
+    "verifier_defect_kind": "none",
+    "verifier_confidence": 0.62,
+    "verifier_justification": "The four changes only wrap already-existing operands in `max(0, ...)`, and the pinned source text has no floor to represent: \"but not below zero\" occurs zero times in the resolved 26 USC 199A text (corpus release us-rulespec-2026-07-13, body sha256 0af6c1cc…), and the one relevant \"(if any)\" — 199A(a)(2)'s \"20 percent of the excess (if any)\" — was already encoded pre-fix as `qbi_deduction_rate * max(0, taxable_income_computed_without_section_199A - net_capital_gain)`, untouched by this diff. Three of the four clamped quantities are non-negative by construction or by their own definition (W-2 wages under 199A(b)(4)/6051(a); QPAI is \"the excess (if any)\" under 199A(g)(3)(A)), so those clamps are no-ops, and the one substantive case — negative QBI allocable to cooperative payments in (b)(7) — is not handled by a statutory floor at all: 199A(c)(2) routes a negative net QBI to a succeeding-year loss carryover, which `max(0, ...)` does not encode. The apply manifest records a hand repair on top of the unchanged generated encoding (`\"model\": \"manual-repair-v1\"`, `\"tool\": \"axiom-encode deterministic/manual repair\"`, generated_output_sha256 unchanged), and axiom-encode at that exact commit (c0bc4a92) ships a house convention for exactly this shape — `repair-nonnegative-floors` / \"Benefit, allotment, credit, deduction, allowance, and subsidy outputs must use `max(0, ...)` before downstream minimums or eligibility branches\" — i.e. defensive hardening, not a source-mismatch repair.",
+    "verifier_quote": "+              cooperative_reduction_rate * max(0, qualified_business_income_allocable_to_qualified_cooperative_payments),",
+    "verifier_notes": "Refutation of the first reader's \"unclear / missing_nonnegativity_floor\": (1) Source check via the pinned release resolver — 199A(b)(7) reads \"shall be reduced by the lesser of— (A) 9 percent ... or (B) 50 percent ...\" with no \"but not below zero\"; 199A(g)(1)(A) reads \"9 percent of the lesser of— (i) the qualified production activities income ... or (ii) the taxable income\"; 199A(g)(1)(B)(i) \"shall not exceed 50 percent of the W-2 wages\". No floor clause at any of the four sites. (2) The module already carried unrelated, pre-existing `max(0, ...)` floors (trade_or_business_deductible_amount, trade_or_business_excess_amount, qbi_taxable_income_limit), so the house style predates this commit. (3) The clamped identifiers are unbound external inputs — the module has no `inputs:` block; they appear only inside formulas — so this is input hygiene on values the module does not compute. (4) Encoder-side convention exists and is enforced: src/axiom_encode/harness/validator_pipeline.py at c0bc4a92 defines find_nonnegative_amount_reduction_issues / repair_nonnegative_amount_reductions (\"Mechanically floor supported nonnegative amount reduction formulas\") and cli.py exposes `repair-nonnegative-floors` (model \"nonnegative-floor-v1\"). Caveat for the reviewer: that lint's own patterns would NOT match these four formulas (no \"-\" operator and no identifier containing \"max\" in the pre-fix expressions; `cooperative_reduction` doesn't even match the benefit/credit/deduction name pattern), so the clamps were hand-applied in the same spirit rather than emitted by that tool. (5) Residual reason a reviewer could keep this as \"unclear\" rather than \"not_a_defect\": the (b)(7) pre-fix formula genuinely could return a negative \"reduction\" that inflates the deduction, and \"reduced by\" arguably implies a non-negative subtrahend — but that is interpretive, and the statute's actual mechanism for negative QBI is the 199A(c)(2) carryover, which the fix does not add. (6) The other part of the diff (the `deferred_outputs` block for 199A(c), (d), (h)) is module-level coverage bookkeeping: no rule in this module produces those outputs, so nothing became non-executable — unlike module 151 in the same squash. No PR reviews, no test-file change for 199A (199A.test.yaml sha256 unchanged in the manifest), and the commit/PR text never mentions floors or 199A.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Only modified module in this chunk. Two independent changes: (a) new module-level deferred_outputs for 199A(c), (d) and (h), which is pure metadata (mechanical), and (b) four formulas that wrap operands in max(0, ...): `cooperative_reduction` (199A(b)(7)), `qbi_deduction_before_minimum_active_qbi` (199A(a), now max(0, min(combined QBI amount, taxable-income limit))), `cooperative_production_deduction_before_wage_limit` (199A(g)(1)(A)) and `cooperative_production_deduction` (199A(g)(1)(B), clamping W-2 wages). I read 199A through the pinned corpus release: (b)(7) says only 'shall be reduced by the lesser of— (A) 9 percent ... or (B) 50 percent ...' and (g)(1)(A) 'an amount equal to 9 percent of the lesser of— (i) ... or (ii) ...'; neither carries a zero floor, and 199A(c)(1) defines QBI as a 'net amount' that can be negative with (c)(2) handling losses by carryover. So the clamps encode an implied non-negativity rather than quoted text, and the only stated motive in the commit body is the generic 'Repair RuleSpec validation coverage' / 'Repair validation tail for refreshed RuleSpecs' — consistent with a validator-driven clamp. A reviewer should decide whether 'a negative statutory reduction that increases the deduction' counts as a fidelity defect; if kept, `cooperative_reduction` is the strongest single instance because there the sign flip inverts the direction of the adjustment. | verifier said not_a_defect at 0.62 (below 0.7); kept as unclear",
+  "family_id": "us-095d680d-da0e55a90f6d",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}
