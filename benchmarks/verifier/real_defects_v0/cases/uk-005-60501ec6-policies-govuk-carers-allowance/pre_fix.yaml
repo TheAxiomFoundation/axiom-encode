@@ -1,0 +1,86 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_paths:
+      - uk/guidance/govuk/carers-allowance/eligibility
+      - uk/regulation/uksi/2013/376/schedule/4/paragraph/7
+  summary: |-
+    This PolicyEngine-alignment surface returns the annual Carer's Allowance amount used by PolicyEngine UK and HBAI: the current weekly Carer's Allowance rate for people meeting the care-hours or reported-receipt gate, and nil in Scotland once Carer Support Payment replaces Carer's Allowance.
+imports:
+  - uk:regulations/uksi/2026/148/schedule/1#carers_allowance_weekly_rate
+rules:
+  - name: carers_allowance_minimum_weekly_care_hours
+    kind: parameter
+    entity: Person
+    dtype: Count
+    period: Week
+    source: GOV.UK Carer's Allowance eligibility guidance
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk/guidance/govuk/carers-allowance/eligibility
+              excerpt: "You need to spend at least 35 hours a week caring for someone."
+    versions:
+      - effective_from: '2026-04-06'
+        formula: |-
+          35
+
+  - name: carers_allowance_weeks_in_year
+    kind: parameter
+    entity: Person
+    dtype: Count
+    period: Year
+    source: Social Security (Claims and Payments) Regulations 1987 weekly-benefit annualization rule
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk/regulation/uksi/2013/376/schedule/4/paragraph/7
+              excerpt: "weekly payments are multiplied by 52"
+    versions:
+      - effective_from: '2026-04-06'
+        formula: |-
+          52
+
+  - name: carers_allowance_annual_amount
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    source: PolicyEngine UK carers_allowance final receipt wrapper
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:regulations/uksi/2026/148/schedule/1#carers_allowance_weekly_rate
+              output: carers_allowance_weekly_rate
+              hash: sha256:01b4050f255edf055e9c04e2b267c7a899f3f862b6e80e3e5bf54e18e29ddb88
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk/guidance/govuk/carers-allowance/eligibility
+              excerpt: "You need to spend at least 35 hours a week caring for someone."
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk/guidance/govuk/carers-allowance/eligibility
+              excerpt: "apply for Carer Support Payment instead of Carer's Allowance"
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk/regulation/uksi/2013/376/schedule/4/paragraph/7
+              excerpt: "weekly payments are multiplied by 52"
+    versions:
+      - effective_from: '2026-04-06'
+        formula: |-
+          if not (person_is_in_scotland and carer_support_payment_replaces_carers_allowance) and (weekly_care_hours >= carers_allowance_minimum_weekly_care_hours or reported_carers_allowance_for_year > 0): carers_allowance_weekly_rate * carers_allowance_weeks_in_year else: 0

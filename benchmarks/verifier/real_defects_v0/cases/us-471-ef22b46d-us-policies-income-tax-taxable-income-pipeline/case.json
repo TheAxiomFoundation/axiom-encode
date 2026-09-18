@@ -1,0 +1,99 @@
+{
+  "id": "us-471-ef22b46d-us-policies-income-tax-taxable-income-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "ef22b46dc0cf90ab948c2c1af01a6d4c08ed3bab",
+  "parent_commit": "f1c504ed8988d10da31f823f5b2b69299315ec98",
+  "commit_date": "2026-07-29",
+  "commit_subject": "fix: reject contradictory individual entity facts",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1179",
+  "module_path": "us/policies/income_tax/taxable_income_pipeline.yaml",
+  "corpus_citation_path": "us/statute/26/61",
+  "corpus_citation_paths_all": [
+    "us/statute/26/61",
+    "us/statute/26/62",
+    "us/statute/26/63",
+    "us/statute/26/151",
+    "us/statute/26/24/h/7",
+    "us/statute/26/2",
+    "us/statute/26/7703",
+    "us/statute/26/443/a/1",
+    "us/statute/26/163",
+    "us/statute/26/165",
+    "us/statute/26/170",
+    "us/statute/26/199A",
+    "us/statute/26/224",
+    "us/statute/26/225",
+    "us/guidance/irs/rev-proc-2025-32/page-18"
+  ],
+  "corpus_release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+  "corpus_release_content_sha256": "cb275c76c4f07f8ad37470a32296bb1763e5db853d152697524ab07021b6d544",
+  "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+  "defect_kind": "polarity_or_logic",
+  "other_kind": null,
+  "confidence": 0.6,
+  "description": "fix: reject contradictory individual entity facts",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [],
+    "post_fix_lines": [
+      [
+        127,
+        131
+      ],
+      [
+        215,
+        215
+      ]
+    ],
+    "rule_names": [
+      "taxable_income_pipeline_verified_domain_applies"
+    ],
+    "rule_path": "rules[taxable_income_pipeline_verified_domain_applies].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "92a310fbcafdac411f3fda2ce0284b578e4b6288a53393bd1ec2efb423565c7f",
+  "post_fix_artifact_sha256": "812f15410e4266a6118b9929399dbe4ae3f654eb77ad0e7bb77b15ee8c50de8f",
+  "provision_sha256": "a945c5db4f271ad8c4b7719802a9acbb0df13e6f4dfa1cc2ec226d1629784a57",
+  "provision_chars": 892,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/61",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+    "provision_file_sha256": "03ddda0b2bcd59345ec4efa1daaf1c77b423a5166852fd80bb4cf00c0bd8e461",
+    "line_number": 23,
+    "record_id": "3a09f201-af87-52d0-b549-37c0d088279e",
+    "stored_body_sha256": "a945c5db4f271ad8c4b7719802a9acbb0df13e6f4dfa1cc2ec226d1629784a57",
+    "resolved_text_sha256": "a945c5db4f271ad8c4b7719802a9acbb0df13e6f4dfa1cc2ec226d1629784a57",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "8af592162231e9de748ba6b98792b426ad4fe8b7",
+    "requested_citation_path": "us/statute/26/61",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The guard admitted a taxpayer attested as an estate, trust, common trust fund, or partnership into the 26 USC 63(b) individual taxable-income composition (it only required taxpayer_is_individual and not taxpayer_is_corporation), so the module produced an individual taxable-income figure, with §151 exemption, senior, tips, overtime and vehicle-interest deductions, for a population §63(b) and §63(c)(6)(D) treat as non-individual, instead of failing closed.",
+    "triage_notes": "Single module in the commit; the only substantive change is one conjunct added to the verified-domain formula (`and not estate_or_trust_common_trust_fund_or_partnership`) plus one new proof atom citing us/statute/26/63 with excerpt \"an estate or trust, common trust fund, or partnership\". Provision WAS read through the pinned corpus: §63(c)(6) reads \"In the case of— ... (D) an estate or trust, common trust fund, or partnership, the standard deduction shall be zero\", and §63(b) frames the nonitemizer computation as \"In the case of an individual\"; the added excerpt is a byte substring of that body. The flag is the shared input of the imported us:statutes/26/63/c/6#standard_deduction_ineligible module, so the §63(c)(6)(D) zeroing was already represented via that import — what was missing was entity-scope rejection in the individual composition itself, which is why I chose wrong_entity_or_scope over unrepresented_clause; a reviewer could reasonably prefer unrepresented_clause, or downgrade to `unclear` on the view that this is fail-closed hardening against contradictory caller facts rather than a mis-encoded formula (hence confidence 0.7). Companion test and PROGRESS.md changed in the same commit (PROGRESS: \"Made the individual verified-domain guard reject a simultaneous estate/trust/common-trust-fund/partnership fact.\"); nothing unrelated changed, and proof/import hashes were deliberately NOT regenerated here (PROGRESS says mechanical regeneration and manifest re-signing remain for the main lane). PR #1179's bundle carries no reviews or review comments; the blocker list lives in a \"frozen adversarial review\" at commit f58fc22a6 that is not in the bundle, so the commit subject is the best available quote. Preceding repair commit on the same file: c3e2a54de \"fix: align taxable-income proofs with current law\".",
+    "verifier_verdict": "reclassify",
+    "verifier_defect_kind": "polarity_or_logic",
+    "verifier_confidence": 0.6,
+    "verifier_justification": "The pre-fix guard already required `taxpayer_is_individual`, so a well-formed estate/trust/partnership fact set was already excluded and fell to zero; the only fact sets the new conjunct changes are ones that simultaneously attest `taxpayer_is_individual: true` and `estate_or_trust_common_trust_fund_or_partnership: true`, which the commit itself calls \"contradictory\" and the new test comment says \"must fail closed.\" That is a fail-open-to-fail-closed hardening of the verified-domain consistency check (the rubric's polarity_or_logic), not the admission of a genuinely wrong population, so \"wrong_entity_or_scope\" mis-describes the change. The refutation is reinforced by what the pre-fix behavior actually produced: the renamed test previously expected `*standard_ineligible_outputs` (`standard_deduction_ineligible: holds`, deductions `0`, taxable income `100000`), i.e. exactly the 26 USC 63(c)(6)(D) \"the standard deduction shall be zero\" outcome that the module already encoded through its `us:statutes/26/63/c/6#standard_deduction_ineligible` import — so the old encoding was not returning a figure that disagreed with the cited text for that fixture. It remains a real meaning change with a source-grounded proof atom (63(c)(6)(D)) and the module's unchanged summary already promised \"consistent branch facts ... and an individual taxpayer,\" so I keep it as a fidelity defect rather than not_a_defect, but the kind should be the logic/fail-closed one.",
+    "verifier_quote": "+          and not estate_or_trust_common_trust_fund_or_partnership",
+    "verifier_notes": "Evidence chain for a reviewer. (1) Diff is 6 lines: one added proof atom (corpus_citation_path us/statute/26/63, excerpt \"an estate or trust, common trust fund, or partnership\") plus the one added conjunct in rules[taxable_income_pipeline_verified_domain_applies].versions[0].formula. (2) The first reader's justification is accurate that the pre guard had only `taxpayer_is_individual` and `not taxpayer_is_corporation` (pre.yaml lines 209, 213), but it overstates the consequence: a taxpayer honestly attested as an estate has taxpayer_is_individual false and already failed closed pre-fix. Only a self-contradictory attestation reaches the changed behavior. (3) Companion test diff is decisive on intent: the case is renamed `ti-entity-zeroes-standard` -> `ti-contradictory-individual-entity-facts-fail-closed` with the comment \"The shared valid-domain facts attest that the taxpayer is an individual. Simultaneously claiming an estate, trust, common trust fund, or partnership is contradictory, so this individual compose must fail closed.\" Expected output moves from `*standard_ineligible_outputs` to `*taxable_income_fail_closed_outputs` (plus `us:statutes/26/63/c/6#standard_deduction_ineligible: holds`). (4) Source read through the pinned release (corpus release us-rulespec-2026-07-24-snap-cms-pit-union, provision us/statute/26/63, expression_date 2025-12-03, fix_time_corpus_match same_body): 63(b) is individual-scoped (\"In the case of an individual who does not elect to itemize his deductions\"), while 63(c)(6)(D) says only that for \"an estate or trust, common trust fund, or partnership, the standard deduction shall be zero\" - it does not make the composition undefined, and the module already implemented that zeroing via the 63(c)(6) import. Nothing in 63 prescribes an outcome for contradictory entity facts, so the fail-closed choice is the module's own convention. (5) `estate_or_trust_common_trust_fund_or_partnership` is not declared in this module's `inputs:`; it is an input surface of the imported us/statutes/26/63/c/6.yaml module (verified at ef22b46dc0). (6) Context worth recording: ef22b46dc0 is an intra-PR fix commit on the branch of PR #1179, which first introduced this module and merged 2026-07-30 - the defective state never existed on main. If the corpus is meant to hold defects that shipped, this case may warrant exclusion on that ground. (7) Live alternative verdicts: `not_a_defect` (only legally incoherent fact sets are affected and the pre outcome matched 63(c)(6)(D)) - I did not choose it because the module's unchanged summary already claimed the verified domain requires \"consistent branch facts ... and an individual taxpayer\", so the guard was failing its own stated contract; and `unclear` if the reviewer thinks contradictory-input handling is outside the fidelity frame entirely.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Single module in the commit; the only substantive change is one conjunct added to the verified-domain formula (`and not estate_or_trust_common_trust_fund_or_partnership`) plus one new proof atom citing us/statute/26/63 with excerpt \"an estate or trust, common trust fund, or partnership\". Provision WAS read through the pinned corpus: §63(c)(6) reads \"In the case of— ... (D) an estate or trust, common trust fund, or partnership, the standard deduction shall be zero\", and §63(b) frames the nonitemizer computation as \"In the case of an individual\"; the added excerpt is a byte substring of that body. The flag is the shared input of the imported us:statutes/26/63/c/6#standard_deduction_ineligible module, so the §63(c)(6)(D) zeroing was already represented via that import — what was missing was entity-scope rejection in the individual composition itself, which is why I chose wrong_entity_or_scope over unrepresented_clause; a reviewer could reasonably prefer unrepresented_clause, or downgrade to `unclear` on the view that this is fail-closed hardening against contradictory caller facts rather than a mis-encoded formula (hence confidence 0.7). Companion test and PROGRESS.md changed in the same commit (PROGRESS: \"Made the individual verified-domain guard reject a simultaneous estate/trust/common-trust-fund/partnership fact.\"); nothing unrelated changed, and proof/import hashes were deliberately NOT regenerated here (PROGRESS says mechanical regeneration and manifest re-signing remain for the main lane). PR #1179's bundle carries no reviews or review comments; the blocker list lives in a \"frozen adversarial review\" at commit f58fc22a6 that is not in the bundle, so the commit subject is the best available quote. Preceding repair commit on the same file: c3e2a54de \"fix: align taxable-income proofs with current law\". | verifier reclassified wrong_entity_or_scope -> polarity_or_logic at 0.60; verifier kind used",
+  "family_id": "us-ef22b46d-ffc18606eeb3",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

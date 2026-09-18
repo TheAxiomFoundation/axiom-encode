@@ -1,0 +1,248 @@
+{
+  "id": "us-431-667c9053-us-wv-policies-income-tax-resident-core-liability-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "667c9053cbbf2ab6fb299267ff8ff7d9dae763eb",
+  "parent_commit": "b254ec58af42aecb347c7a05fe589d776c7292e9",
+  "commit_date": "2026-07-23",
+  "commit_subject": "Address West Virginia resident core review",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1029",
+  "module_path": "us-wv/policies/income_tax/resident_core_liability_pipeline.yaml",
+  "corpus_citation_path": "us-wv/statute/11-21-3",
+  "corpus_citation_paths_all": [
+    "us-wv/statute/11-21-3",
+    "us-wv/statute/11-21-4J",
+    "us-wv/statute/11-21-9",
+    "us-wv/statute/11-21-10",
+    "us-wv/statute/11-21-11",
+    "us-wv/statute/11-21-12",
+    "us-wv/statute/11-21-12A",
+    "us-wv/statute/11-21-12C",
+    "us-wv/statute/11-21-12E",
+    "us-wv/statute/11-21-12F",
+    "us-wv/statute/11-21-12G",
+    "us-wv/statute/11-21-12I",
+    "us-wv/statute/11-21-12J",
+    "us-wv/statute/11-21-12M",
+    "us-wv/statute/11-21-12N",
+    "us-wv/statute/11-21-12O",
+    "us-wv/statute/11-21-13",
+    "us-wv/statute/11-21-16",
+    "us-wv/statute/11-21-22B",
+    "us-wv/statute/11-21-26"
+  ],
+  "corpus_release": "us-rulespec-2026-07-22-current-la-status-fix",
+  "corpus_release_content_sha256": "6bfd97b24cb63cb709fa52e9a5e6764c916dec95c5557447e11f47778ee4768f",
+  "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.76,
+  "description": "Independent review found unsupported-profile intermediate exposure, incomplete SS/exemption/gambling/full-year proofs, withdrawal addback semantics, and missing boundary/branch tests.",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        85,
+        85
+      ],
+      [
+        152,
+        153
+      ],
+      [
+        155,
+        156
+      ],
+      [
+        234,
+        234
+      ],
+      [
+        283,
+        289
+      ],
+      [
+        291,
+        291
+      ],
+      [
+        293,
+        300
+      ],
+      [
+        337,
+        338
+      ],
+      [
+        340,
+        341
+      ],
+      [
+        861,
+        862
+      ],
+      [
+        864,
+        865
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        85,
+        90
+      ],
+      [
+        157,
+        158
+      ],
+      [
+        160,
+        161
+      ],
+      [
+        217,
+        219
+      ],
+      [
+        242,
+        242
+      ],
+      [
+        270,
+        270
+      ],
+      [
+        288,
+        290
+      ],
+      [
+        295,
+        304
+      ],
+      [
+        306,
+        313
+      ],
+      [
+        315,
+        315
+      ],
+      [
+        325,
+        325
+      ],
+      [
+        353,
+        354
+      ],
+      [
+        356,
+        357
+      ],
+      [
+        385,
+        385
+      ],
+      [
+        403,
+        408
+      ],
+      [
+        412,
+        414
+      ],
+      [
+        492,
+        492
+      ],
+      [
+        516,
+        518
+      ],
+      [
+        554,
+        554
+      ],
+      [
+        575,
+        575
+      ],
+      [
+        597,
+        597
+      ],
+      [
+        609,
+        611
+      ],
+      [
+        630,
+        630
+      ],
+      [
+        760,
+        760
+      ],
+      [
+        899,
+        900
+      ],
+      [
+        902,
+        903
+      ]
+    ],
+    "rule_names": [
+      "wv_pit_2026_low_income_earned_income_exclusion",
+      "wv_pit_2026_profile_candidate_additions",
+      "wv_pit_2026_input_domain_is_valid",
+      "wv_pit_2026_supported_profile_applies"
+    ],
+    "rule_path": "rules[wv_pit_2026_low_income_earned_income_exclusion].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "acad94ea372d2618d7c5c4945e4c7d64496722fa3673fbbdb553740873c0cdc9",
+  "post_fix_artifact_sha256": "f4e63a07352fa22468db3982732386800eef84bbd711da9f19b86334cf47eabd",
+  "provision_sha256": "0ff74fb3800295453672a9cefcd397dfa1e07cdfbe412b48c68569721c02149a",
+  "provision_chars": 2441,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-wv/statute/11-21-3",
+    "provision_file": "data/corpus/provisions/us-wv/statute/2026-07-13-recovery.jsonl",
+    "provision_file_sha256": "6285a27012d5f78d42ab5bab53831caa818c3ab640c348a559648321cd72934a",
+    "line_number": 9,
+    "record_id": "68869dd5-6964-5bc5-bf57-eb34d752b7db",
+    "stored_body_sha256": "0ff74fb3800295453672a9cefcd397dfa1e07cdfbe412b48c68569721c02149a",
+    "resolved_text_sha256": "0ff74fb3800295453672a9cefcd397dfa1e07cdfbe412b48c68569721c02149a",
+    "slice_required": false,
+    "component_rows": 1,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+    "fix_time_corpus_match": "row_body_empty_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "4f0c9557a69b7cff7d2043d01ec4a8446ec7b876",
+    "requested_citation_path": "us-wv/statute/11-21-3",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The low-income earned-income exclusion returned a nonzero deduction for any return meeting the AGI thresholds, omitting W. Va. Code 11-21-10(d), which bars the exclusion for a taxable year covering a period of less than twelve months; the fix wraps the whole formula in `if wv_pit_2026_is_full_year_resident_return: ... else: 0`.",
+    "triage_notes": "Provision WAS read: resolve_provision.py on us-wv/statute/11-21-10 returns subsection (d) verbatim -- 'Taxable year must be full taxable year. -- Except in the case of a taxable year closed by reason of the death of the taxpayer, no credit shall be allowed under this section in the case of a taxable year covering a period of less than twelve months.' Pre-fix, `wv_pit_2026_is_full_year_resident_return` appeared ONLY in the wv_pit_2026_supported_profile_applies gate (parent line 220), never in the exclusion rule's own formula, and the exclusion rule was not private, so reading it directly for a short taxable year produced a wrong nonzero amount. Caveat on the fix: it does not implement the (d) death-of-taxpayer carve-out (a short year closed by death still gets zero); the module fails closed outside the full-year profile, so this is under- rather than over-claiming. The commit consists of four distinct change classes bundled together -- (1) the full-year gate above (fidelity); (2) renaming four increasing-modification withdrawal inputs to `..._not_in_federal_adjusted_gross_income` with matching descriptions and a new module-description sentence 'Increasing-modification withdrawal inputs are expressly limited to amounts not already included in federal adjusted gross income.', which aligns the inputs with the 11-21-12(b) lead-in 'There shall be added to federal adjusted gross income, unless already included therein' already cited as a pre-existing proof atom -- a second, weaker unrepresented_clause signal implemented only as input rename/description, with formulas otherwise unchanged; (3) adding `private: true` to eight intermediate rules, an output-surface narrowing that removes exposure the module arguably never intended to claim (not itself a defect under the task's 'added scope' rule, and it removes rather than adds surface); (4) five added proof-atom excerpts (social security pre/post-2026 AGI conditions, 11-21-9 gambling and personal-exemption definitions, 11-21-10 full-year condition on the profile gate) -- pure provenance, mechanical. Confidence held below 0.8 because the commit body is empty and the PR body names the finding set generically ('full-year proofs', 'withdrawal addback semantics') rather than stating the formula defect; the diff plus the resolved statute make the kind clear. Also changed outside this module index: the companion test file and the encoding manifest. No follow-up commits inspected.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.85,
+    "verifier_justification": "I tried to refute this as mere hardening and could not: the pinned corpus text of W. Va. Code §11-21-10(d) reads \"Taxable year must be full taxable year. -- Except in the case of a taxable year closed by reason of the death of the taxpayer, no credit shall be allowed under this section in the case of a taxable year covering a period of less than twelve months\", and the pre-fix `wv_pit_2026_low_income_earned_income_exclusion` formula tested only filing status and the AGI thresholds, so it returned a nonzero deduction on a short taxable year. The fix wraps the entire formula in `if wv_pit_2026_is_full_year_resident_return: ... else: 0` and adds a proof atom quoting that subsection, i.e. it adds a source-stated clause the encoding omitted. The rule was public before this commit (`private: true` is added in the same hunk) and the companion test now asserts `is_full_year_resident_return: false` → exclusion `'0'`, so the omission was observable at the module's output surface rather than masked by the `wv_pit_2026_supported_profile_applies` gate. Kind unrepresented_clause fits better than wrong_entity_or_scope because the decisive change at the cited rule_path is a missing statutory condition added to the formula, not a re-scoping of the population.",
+    "verifier_quote": "+          - path: versions[0].formula\n+            kind: exception\n+            source: {corpus_citation_path: us-wv/statute/11-21-10, excerpt: \"Except in the case of a taxable year closed by reason of the death of the taxpayer, no credit shall be allowed under this section in the case of a taxable year covering a period of less than twelve months\"}\n...\n+          if wv_pit_2026_is_full_year_resident_return:",
+    "verifier_notes": "Verification path: corpus release us-rulespec-2026-07-22-current-la-status-fix, provision us-wv/statute/11-21-10, body sha256 9dd6bea…858fbe; the added proof-atom excerpt is verbatim from subsection (d).\n\nThree caveats for the reviewer, none of which overturn the verdict:\n1. The fix over-corrects relative to the source. §11-21-10(d) excepts \"a taxable year closed by reason of the death of the taxpayer\", but the new gate denies the exclusion for every non-full-year return with no death carve-out. The module fails closed in a case the statute allows; that is a residual (opposite-direction) fidelity gap in the post state, not a reason to reject the pre-state as wrong.\n2. The gate input `wv_pit_2026_is_full_year_resident_return` is described as \"Whether the return covers a full taxable year for West Virginia full-year residents\", conflating residency status with the twelve-month period test that (d) actually states.\n3. The commit is mixed, so the other rule_names in this candidate carry changes of different character: `wv_pit_2026_input_domain_is_valid`, `wv_pit_2026_supported_profile_applies`, and `wv_pit_2026_profile_candidate_additions` change only through the rename of four withdrawal inputs to `..._not_in_federal_adjusted_gross_income` (a separate narrowing of increasing-modification semantics that would need its own §11-21-12(b) check), plus `private: true` metadata on intermediates and added proof atoms (provenance/scope hardening). The first reader's quote is the PR's generic laundry-list review sentence and does not by itself evidence this kind; the diff line and the §11-21-10(d) text do.\n\nPre/post copies written to the scratchpad at /private/tmp/claude-501/-Users-maxghenis-TheAxiomFoundation-axiom-encode--claude-worktrees-zealous-heyrovsky-31a96b/86103d8f-b97f-4559-a96c-7e79bdbe616d/scratchpad/pre.yaml and post.yaml. No repository state was modified.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Provision WAS read: resolve_provision.py on us-wv/statute/11-21-10 returns subsection (d) verbatim -- 'Taxable year must be full taxable year. -- Except in the case of a taxable year closed by reason of the death of the taxpayer, no credit shall be allowed under this section in the case of a taxable year covering a period of less than twelve months.' Pre-fix, `wv_pit_2026_is_full_year_resident_return` appeared ONLY in the wv_pit_2026_supported_profile_applies gate (parent line 220), never in the exclusion rule's own formula, and the exclusion rule was not private, so reading it directly for a short taxable year produced a wrong nonzero amount. Caveat on the fix: it does not implement the (d) death-of-taxpayer carve-out (a short year closed by death still gets zero); the module fails closed outside the full-year profile, so this is under- rather than over-claiming. The commit consists of four distinct change classes bundled together -- (1) the full-year gate above (fidelity); (2) renaming four increasing-modification withdrawal inputs to `..._not_in_federal_adjusted_gross_income` with matching descriptions and a new module-description sentence 'Increasing-modification withdrawal inputs are expressly limited to amounts not already included in federal adjusted gross income.', which aligns the inputs with the 11-21-12(b) lead-in 'There shall be added to federal adjusted gross income, unless already included therein' already cited as a pre-existing proof atom -- a second, weaker unrepresented_clause signal implemented only as input rename/description, with formulas otherwise unchanged; (3) adding `private: true` to eight intermediate rules, an output-surface narrowing that removes exposure the module arguably never intended to claim (not itself a defect under the task's 'added scope' rule, and it removes rather than adds surface); (4) five added proof-atom excerpts (social security pre/post-2026 AGI conditions, 11-21-9 gambling and personal-exemption definitions, 11-21-10 full-year condition on the profile gate) -- pure provenance, mechanical. Confidence held below 0.8 because the commit body is empty and the PR body names the finding set generically ('full-year proofs', 'withdrawal addback semantics') rather than stating the formula defect; the diff plus the resolved statute make the kind clear. Also changed outside this module index: the companion test file and the encoding manifest. No follow-up commits inspected. | verifier confirmed at 0.85",
+  "family_id": "us-667c9053-e7c7332d35bc",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

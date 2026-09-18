@@ -1,0 +1,285 @@
+{
+  "id": "us-017-18dc86db-us-policies-usitc-us-tariff-duty-overlays-section-232-aluminum-russia-9903-85-67",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "18dc86dbf43a5640ff4b28bc6a03547604caf15e",
+  "parent_commit": "354d1c67c1e276488485e7ae5927110acf081940",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) \"Address review findings on the section 232 Russia aluminum overlay\": scope predicate re-encoded against current heading text instead of note 19(b) enumerated coverage (intra-PR #1194 with the module's addition).",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1194",
+  "module_path": "us/policies/usitc/us-tariff-duty/overlays/section-232-aluminum/russia-9903-85-67.yaml",
+  "corpus_citation_path": "us/statute/hts/9903.85.67",
+  "corpus_citation_paths_all": [
+    "us/statute/hts/9903.85.67"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.6,
+  "description": "re-encode the module so its scope predicate follows the current heading disjunction of note 19(a)(vii)(A) and note 19(m)(A) terms instead of requiring note 19(b) enumerated-heading coverage",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        10,
+        10
+      ],
+      [
+        13,
+        13
+      ],
+      [
+        27,
+        27
+      ],
+      [
+        29,
+        29
+      ],
+      [
+        41,
+        41
+      ],
+      [
+        44,
+        63
+      ],
+      [
+        65,
+        65
+      ],
+      [
+        68,
+        68
+      ],
+      [
+        70,
+        80
+      ],
+      [
+        84,
+        84
+      ],
+      [
+        86,
+        86
+      ],
+      [
+        88,
+        88
+      ],
+      [
+        91,
+        91
+      ],
+      [
+        103,
+        104
+      ],
+      [
+        109,
+        110
+      ],
+      [
+        115,
+        115
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        10,
+        10
+      ],
+      [
+        13,
+        13
+      ],
+      [
+        27,
+        27
+      ],
+      [
+        29,
+        29
+      ],
+      [
+        40,
+        40
+      ],
+      [
+        42,
+        42
+      ],
+      [
+        45,
+        45
+      ],
+      [
+        47,
+        47
+      ],
+      [
+        50,
+        50
+      ],
+      [
+        52,
+        55
+      ],
+      [
+        59,
+        64
+      ],
+      [
+        66,
+        66
+      ],
+      [
+        68,
+        68
+      ],
+      [
+        71,
+        71
+      ],
+      [
+        83,
+        84
+      ],
+      [
+        89,
+        90
+      ],
+      [
+        95,
+        95
+      ]
+    ],
+    "rule_names": [
+      "section_232_aluminum_russia_additional_duty_applies",
+      "section_232_aluminum_russia_additional_duty_rate",
+      "section_232_aluminum_russia_statutory_additional_duty_rate"
+    ],
+    "rule_path": "rules[section_232_aluminum_russia_additional_duty_applies].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "a6fd686e2e33b11aa3f1b5805babd9e2b795e27887382cba3874329a99589047",
+  "post_fix_artifact_sha256": "f84b80ec638492774e017c1f6581b478d200f05252fa7e4fe3b418bf3dd1461c",
+  "provision_sha256": "edff4a24a2dcc0f24483518f527dd71e031c8d7307cd5364afc990056b807cb7",
+  "provision_chars": 863,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/hts/9903.85.67",
+    "provision_file": "data/corpus/provisions/us/statute/2026-08-03-rulespec-hts-current-with-legacy-aluminum.jsonl",
+    "provision_file_sha256": "7406b42f2f6a35bd43ed67d7fe4d0f7323e12c3e49c67b8d6699f9978d23b770",
+    "line_number": 1560,
+    "record_id": "764bd69e-0968-5b9a-a352-48833250586a",
+    "stored_body_sha256": "edff4a24a2dcc0f24483518f527dd71e031c8d7307cd5364afc990056b807cb7",
+    "resolved_text_sha256": "edff4a24a2dcc0f24483518f527dd71e031c8d7307cd5364afc990056b807cb7",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-31",
+    "source_as_of": "2026-08-01",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "05ce3d3dd21b0ced76f9af40c2ecc02c1c57d9c6",
+    "requested_citation_path": "us/statute/hts/9903.85.67",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us/statute/hts/9903.85.67'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us/statute/hts/9903.85.67'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us/statute/hts/9903.85.67'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us/statute/hts/9903.85.67'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us/statute/hts/9903.85.67'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us/statute/hts/9903.85.67'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us/statute/hts/9903.85.67'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us/statute/hts/9903.85.67'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.85.67'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.85.67'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us/statute/hts/9903.85.67'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us/statute/hts/9903.85.67'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.85.67'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.85.67'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.85.67'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.85.67'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix applicability formula AND-ed two extra conjuncts onto the Russia-origin disjunction -- aluminum_article_under_note_19_a_vii_A and aluminum_article_provided_for_in_headings_or_subheadings_enumerated_in_note_19_b -- but heading 9903.85.67 conditions coverage only on 'the foregoing under the terms of note 19(a)(vii)(A) ... or note 19(m)(A) ..., as applicable per the date of entry', so the encoding invented a note 19(b) enumerated-heading requirement the cited text never imposes and dropped the note 19(m)(A) alternative, making covered Russian aluminum articles fail the gate and escape the +200% duty.",
+    "triage_notes": "Provision was read through the pinned corpus release (resolve_provision.py, us/statute/hts/9903.85.67): text confirms the disjunctive scope, the 19(a)(vii)(A) / 19(m)(A) date-dependent alternative, the Commerce-exclusion carve-out, and 'The duty provided in the applicable subheading + 200%'. No note 19(b) appears anywhere in the heading text, which is what makes the removed conjunct untraceable. The single fix bundles several changes: (a) the named scope-predicate defect (decisive); (b) the note 19(m)(A) alternative, previously absent, now folded into the '_under_applicable_note_19_terms' input names -- a reviewer could reasonably also tag that sub-defect unrepresented_clause or wrong_period_or_effective_date, since the heading makes the note choice depend on the date of entry and the module still has a single 2026-02-15 version with no window split; (c) entity changed Asset -> AluminumArticle on both derived rules, a genuine wrong_entity_or_scope element I judged secondary to the stated predicate defect; (d) the redundant rule section_232_aluminum_russia_total_duty_rate (applicable_subheading_duty_rate + additional) was deleted and the remaining derived rate rule renamed, so the module now exposes only the additional-duty rate and the composition adds the base -- an output-surface reduction, not a meaning error I could ground in the source; (e) rule renames plus proof-atom excerpt additions (the three scope excerpts and the exception excerpt) are provenance-only. This is an intra-PR repair: the module was added earlier in PR #1194 and no review bodies or review comments were captured in the bundle (reviews, review_comments, issue_comments all empty), so the commit message is the only statement of the finding; the PR body's unchecked 'sol cross-review before merge' box is consistent with the fix landing from that cross-review. Rate value 2.00 and effective_from 2026-02-15 were not changed.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "untraceable_branch",
+    "verifier_confidence": 0.6,
+    "verifier_justification": "The diff does change encoded meaning in the way the commit message describes: the pre-fix applicability formula AND-ed `aluminum_article_under_note_19_a_vii_A` and `aluminum_article_provided_for_in_headings_or_subheadings_enumerated_in_note_19_b` onto the Russia-origin disjunction, and the fix removes both and re-grounds each limb on \"applicable note 19 terms\". But the first reader's rationale is factually wrong and must not be carried forward: note 19(a)(vii)(A) itself says heading 9903.85.67 covers Russia aluminum articles \"as enumerated in subdivision (b) of this note\", so the 19(b) rider was imposed by the cited heading through that cross-reference, not invented. The real defect is that note 19(a)(vii)(A) is expressly limited to goods entered \"prior to 12:01 a.m. eastern daylight time on March 12, 2025\", while the module's single version starts 2026-02-15, a window governed instead by note 19(m)(A) (which enumerates through subdivision (g) and puts no enumeration rider on the smelted-in-Russia or cast-in-Russia limbs) — so the conjuncts were grounded on the wrong provision, which untraceable_branch explicitly covers.",
+    "verifier_quote": "-          and aluminum_article_under_note_19_a_vii_A\n-          and aluminum_article_provided_for_in_headings_or_subheadings_enumerated_in_note_19_b",
+    "verifier_notes": "Source evidence (pinned release us-rulespec-2026-08-03-ecps-pit-tariff-union, corpus commit d9d6fba0, provision line 1560 + chapter-99 pages 247/248/249/251): heading 9903.85.67 reads \"the foregoing under the terms of note 19(a)(vii)(A) to this subchapter, or note 19(m)(A) to this subchapter, as applicable per the date of entry for consumption or withdrawal from warehouse for consumption\"; note 19(a)(vii)(A) = entries \"prior to ... March 12, 2025\", \"as enumerated in subdivision (b) of this note\"; note 19(m)(A) = entries \"on or after ... March 12, 2025\", \"as enumerated in subdivision (g) of this note\". Subdivisions (b) and (g) list the same chapter-76 article set (7601, 7604, 7605, 7606, 7607, 7608/7609, 7616.99.51), so the practical scope error is not the (b)-vs-(g) list but (1) requiring a subdivision that cannot apply to any entry in the module's own 2026-02-15+ window (the overlay would fail closed) and (2) attaching an enumeration requirement to the smelted/cast limbs that 19(m)(A) does not impose on them. Competing kinds a reviewer should consider: wrong_period_or_effective_date (\"timeless encoding of superseded text\" fits the root cause exactly, though the diff changes no effective_from/effective_to or version window), and unrepresented_clause (the omitted \"or note 19(m)(A) ..., as applicable per the date of entry\" limb, which the fix restores only implicitly by renaming inputs to *_under_applicable_note_19_terms rather than as an explicit clause). Caveat on the fix itself: the post state still carries one timeless version effective_from 2026-02-15 and delegates the date-of-entry selection entirely to input semantics, so the date logic is not visible in the formula. Ancillary changes in the same module diff, outside the quoted reason: all three rules renamed; entity changed Asset -> AluminumArticle; the `section_232_aluminum_russia_total_duty_rate` rule (applicable_subheading_duty_rate + additional rate) was dropped, an output-surface removal that a reviewer may want scored separately. This is an intra-PR review fix (PR #1194, same PR that added the module), so the defect never shipped to main on its own.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Provision was read through the pinned corpus release (resolve_provision.py, us/statute/hts/9903.85.67): text confirms the disjunctive scope, the 19(a)(vii)(A) / 19(m)(A) date-dependent alternative, the Commerce-exclusion carve-out, and 'The duty provided in the applicable subheading + 200%'. No note 19(b) appears anywhere in the heading text, which is what makes the removed conjunct untraceable. The single fix bundles several changes: (a) the named scope-predicate defect (decisive); (b) the note 19(m)(A) alternative, previously absent, now folded into the '_under_applicable_note_19_terms' input names -- a reviewer could reasonably also tag that sub-defect unrepresented_clause or wrong_period_or_effective_date, since the heading makes the note choice depend on the date of entry and the module still has a single 2026-02-15 version with no window split; (c) entity changed Asset -> AluminumArticle on both derived rules, a genuine wrong_entity_or_scope element I judged secondary to the stated predicate defect; (d) the redundant rule section_232_aluminum_russia_total_duty_rate (applicable_subheading_duty_rate + additional) was deleted and the remaining derived rate rule renamed, so the module now exposes only the additional-duty rate and the composition adds the base -- an output-surface reduction, not a meaning error I could ground in the source; (e) rule renames plus proof-atom excerpt additions (the three scope excerpts and the exception excerpt) are provenance-only. This is an intra-PR repair: the module was added earlier in PR #1194 and no review bodies or review comments were captured in the bundle (reviews, review_comments, issue_comments all empty), so the commit message is the only statement of the finding; the PR body's unchecked 'sol cross-review before merge' box is consistent with the fix landing from that cross-review. Rate value 2.00 and effective_from 2026-02-15 were not changed. | verifier confirmed at 0.60",
+  "family_id": "us-18dc86db-5121f902160c",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

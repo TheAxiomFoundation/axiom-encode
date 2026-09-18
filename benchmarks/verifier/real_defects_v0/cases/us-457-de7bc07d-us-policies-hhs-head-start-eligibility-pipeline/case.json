@@ -1,0 +1,237 @@
+{
+  "id": "us-457-de7bc07d-us-policies-hhs-head-start-eligibility-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "de7bc07dacef01ac9f08d6fa6c4e23817f7cd517",
+  "parent_commit": "fc95ef853f0e677b9a73bc312fa4735fafa7cb91",
+  "commit_date": "2026-07-25",
+  "commit_subject": "Fix Head Start eligibility boundaries",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1010",
+  "module_path": "us/policies/hhs/head_start/eligibility_pipeline.yaml",
+  "corpus_citation_path": "us/regulation/45/1302/12",
+  "corpus_citation_paths_all": [
+    "us/regulation/45/1302/12"
+  ],
+  "corpus_release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+  "corpus_release_content_sha256": "cb275c76c4f07f8ad37470a32296bb1763e5db853d152697524ab07021b6d544",
+  "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+  "defect_kind": "wrong_entity_or_scope",
+  "other_kind": null,
+  "confidence": 0.78,
+  "description": "the Head Start public age bridge is wrong for ordinary and dual program contexts; paragraph-(c)/participation outputs omit the statutory subject predicate; numeric runtime leaves fail OPEN with no domain contract",
+  "description_source": "pr_review",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        13,
+        13
+      ],
+      [
+        17,
+        22
+      ],
+      [
+        58,
+        59
+      ],
+      [
+        87,
+        87
+      ],
+      [
+        89,
+        89
+      ],
+      [
+        94,
+        94
+      ],
+      [
+        103,
+        107
+      ],
+      [
+        129,
+        149
+      ],
+      [
+        176,
+        176
+      ],
+      [
+        201,
+        201
+      ],
+      [
+        227,
+        227
+      ],
+      [
+        246,
+        260
+      ],
+      [
+        264,
+        274
+      ],
+      [
+        293,
+        301
+      ],
+      [
+        306,
+        313
+      ],
+      [
+        362,
+        366
+      ],
+      [
+        397,
+        397
+      ],
+      [
+        430,
+        430
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        13,
+        13
+      ],
+      [
+        17,
+        24
+      ],
+      [
+        64,
+        103
+      ],
+      [
+        127,
+        128
+      ],
+      [
+        130,
+        130
+      ],
+      [
+        135,
+        135
+      ],
+      [
+        156,
+        184
+      ],
+      [
+        194,
+        199
+      ],
+      [
+        226,
+        231
+      ],
+      [
+        256,
+        257
+      ],
+      [
+        283,
+        288
+      ],
+      [
+        307,
+        309
+      ],
+      [
+        313,
+        315
+      ],
+      [
+        334,
+        336
+      ],
+      [
+        341,
+        342
+      ],
+      [
+        391,
+        402
+      ],
+      [
+        433,
+        434
+      ],
+      [
+        467,
+        468
+      ],
+      [
+        492,
+        506
+      ]
+    ],
+    "rule_names": [
+      "head_start_ordinary_or_tribal_age_requirement_met",
+      "head_start_migrant_or_seasonal_age_requirement_met",
+      "head_start_paragraph_c_path_satisfied",
+      "head_start_participation_path_satisfied",
+      "head_start_additional_allowance_path_satisfied",
+      "head_start_tribal_service_area_path_satisfied",
+      "head_start_migrant_or_seasonal_path_satisfied",
+      "head_start_runtime_inputs_valid",
+      "head_start_eligible",
+      "early_head_start_eligible",
+      "family_does_not_meet_paragraph_c_criterion",
+      "head_start_paragraph_c_overincome_exception_path_satisfied"
+    ],
+    "rule_path": "rules[head_start_ordinary_or_tribal_age_requirement_met].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "786412c6ddf138e8f8948e8d19a4570f20a17f73f6d7c34e3c454873308149f0",
+  "post_fix_artifact_sha256": "c1f4566590d88943ef13d20487852a640c0d03ff3622c84a676712e71ab2f840",
+  "provision_sha256": "ec9bc785086563d88d8b9a790cf33c0b2ece01db539d7231a7c324692df62ccb",
+  "provision_chars": 14890,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/regulation/45/1302/12",
+    "provision_file": "data/corpus/provisions/us/regulation/2026-06-24-title-45-part-1302.jsonl",
+    "provision_file_sha256": "03066141d7d188a79575959c7fc8a7f522562e460ed98b0a47362d2ed3c8b45f",
+    "line_number": 6,
+    "record_id": "2e094665-d964-54fa-b8d0-94d42cc52236",
+    "stored_body_sha256": "ec9bc785086563d88d8b9a790cf33c0b2ece01db539d7231a7c324692df62ccb",
+    "resolved_text_sha256": "ec9bc785086563d88d8b9a790cf33c0b2ece01db539d7231a7c324692df62ccb",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-06-22",
+    "source_as_of": "2026-06-22",
+    "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "5dfd89d131564e4ee0e1e763571dbb5d7fc7f5e7",
+    "requested_citation_path": "us/regulation/45/1302/12",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The single public age bridge (participant_meets_age_requirements_under_paragraph_b) was gated on `tribal_program or migrant_or_seasonal_program`, so it denied paragraph-(b) age satisfaction to ordinary Head Start participants and let one program's age test (e.g. the (b)(1)/(b)(2) branch) satisfy the other program's requirement in dual contexts, while the paragraph-(c) and participation outputs dropped the §1302.12(c)(1) subject predicate (\"A pregnant woman or a child is eligible if\") and so fired for persons who are neither a child nor a pregnant woman.",
+    "triage_notes": "Read the pinned provision (us/regulation/45/1302/12, corpus release us-rulespec-2026-07-24-snap-cms-pit-union): (b) states age rules for Early Head Start, Head Start Preschool, and Migrant or Seasonal separately with no Tribal/Migrant gating on the ordinary case; (c)(1) reads \"A pregnant woman or a child is eligible if\"; (e) requires a Tribal program + approved service area + paragraph (b); (f) requires at least one family member with income primarily from agricultural employment + paragraph (b). Multi-defect repair in one module: (1) scope/contamination in the shared age bridge — pre-fix the local rule participant_meets_age_requirements_under_paragraph_b also fed the imported us:regulations/45-cfr/1302/12#tribal_service_area_participant_eligible and #migrant_or_seasonal_participant_eligible, whose own formulas consume that same open name, so one bridge served both program scopes; the fix drops those two imports and composes (e)/(f) locally from three newly declared inputs (head_start_tribal_program, head_start_participant_in_approved_tribal_service_area, head_start_family_has_primary_agricultural_employment_income). (2) missing statutory subject predicate added to head_start_paragraph_c_path_satisfied, head_start_additional_allowance_path_satisfied, and head_start_participation_path_satisfied. (3) a secondary polarity_or_logic defect — fail-open numeric runtime leaves replaced by the fail-closed head_start_runtime_inputs_valid contract, now ANDed into every rule; if a reviewer prefers one kind per finding, this module supports both wrong_entity_or_scope (primary, 2 of 3 named findings) and polarity_or_logic (secondary). The quote is verbatim from MaxGhenis's blind-review comment on PR #1010, which the bundle stores under issue_comments rather than reviews (reviews/review_comments are empty); it is a review in substance. The commit body is empty, so all stated reasoning comes from that review. No effective dates, thresholds, or multipliers changed (all versions stay effective_from 2021-01-01); the 100%/130% logic is untouched. Note the public rule rename participant_meets_age_requirements_under_paragraph_b -> head_start_ordinary_or_tribal_age_requirement_met, an interface-breaking rename bundled with the fidelity fix. Companion test file us/policies/hhs/head_start/eligibility_pipeline.test.yaml grew by 306 lines in the same commit. The review's top finding (WIC 185% federal maximum vs the operative State agency guideline) concerns a different module and is not in this commit.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_entity_or_scope",
+    "verifier_confidence": 0.78,
+    "verifier_justification": "My refutation attempt fails on the core claim: the pre-fix module published a single `participant_meets_age_requirements_under_paragraph_b` gated on `tribal_program ... or migrant_or_seasonal_program ...`, and the imported regulation rules `tribal_service_area_participant_eligible` (`tribal_program and participant_in_approved_service_area and participant_meets_age_requirements_under_paragraph_b`) and `migrant_or_seasonal_participant_eligible` both bound that one contaminated predicate by name, so in a dual context one program's age test satisfied the other program's §1302.12(b) requirement — the companion test flips prove it (`-...participant_meets_age_requirements_under_paragraph_b: holds` / `-...#migrant_or_seasonal_participant_eligible: holds` become `+...head_start_migrant_or_seasonal_age_requirement_met: not_holds` for a 2-year-old who fails (b)(3)), and in an ordinary (non-Tribal, non-MSHS) context the bridge returned false for a participant who does meet (b). Separately, §1302.12(c)(1) reads \"A pregnant woman or a child is eligible if\" (pinned release us-rulespec-2026-07-24, body sha ec9bc785...), yet the pre-fix (c)/(d)/participation outputs were the bare imported family-level predicates, so they held for a person outside the statutory subject class; the fix adds `participant_is_child or participant_is_pregnant_woman` to exactly those outputs. Both corrections are about which program, which population, and which output surface the rule speaks for, so wrong_entity_or_scope fits better than polarity_or_logic (the OR is the mechanism, the scope conflation is the error) or unrepresented_clause (the added clause is a population restriction).",
+    "verifier_quote": "-  - name: participant_meets_age_requirements_under_paragraph_b\n+  - name: head_start_ordinary_or_tribal_age_requirement_met\n[...]\n-          paragraph_c_participant_eligible\n+          head_start_runtime_inputs_valid\n+          and (\n+            participant_is_child\n+            or participant_is_pregnant_woman\n+          )\n+          and paragraph_c_participant_eligible",
+    "verifier_notes": "Three refutation angles I tested, two of which partly land and should temper the record. (1) The added `head_start_runtime_inputs_valid` fail-closed domain contract (`family_income >= 0`, `poverty_line_amount > 0`, shares in [0,1], `child_age_years >= 0`) has no basis in 45 CFR 1302.12 — the provision says nothing about negative income or a zero poverty line. That piece is defensive precision the module never claimed, i.e. not itself a fidelity defect, and it is the part of the reviewer's quote (\"numeric runtime leaves fail OPEN with no domain contract\") that would be polarity_or_logic if counted. It should not carry the kind; the age-bridge and subject-predicate defects do. (2) The new inputs `head_start_tribal_program` and `head_start_participant_in_approved_tribal_service_area` are NOT a missing-gate fix: the pre-fix import `us:regulations/45-cfr/1302/12#tribal_service_area_participant_eligible` already contained `tribal_program and participant_in_approved_service_area` (verified at parent fc95ef85, us/regulations/45-cfr/1302/12.yaml lines ~174-192). Those inputs are re-localization of the (e)/(f) conditions after the module stopped importing the two reg outputs, not new coverage. (3) The subject-predicate omission does not change the terminal answers: pre-fix `head_start_eligible` already required `participant_is_child` and `early_head_start_eligible` already required pregnant-or-child, so the (c)(1) subject fix corrects the published intermediate outputs (`head_start_paragraph_c_path_satisfied`, `head_start_additional_allowance_path_satisfied`, `head_start_participation_path_satisfied`) rather than eligibility results — an output-surface scope defect, still real, but narrower than \"wrong eligibility answer\". The dual-context contamination is the one piece that reaches a regulation-level eligibility output. Commit body is empty and the subject (\"Fix Head Start eligibility boundaries\") is generic; the evidence is the diff plus the PR #1010 issue comment. Files: /Users/maxghenis/TheAxiomFoundation/rulespec-us us/policies/hhs/head_start/eligibility_pipeline.yaml and .test.yaml at de7bc07dac vs fc95ef85; imported module us/regulations/45-cfr/1302/12.yaml (unchanged by this commit, so its own `tribal_service_area_participant_eligible` still references the now-removed bridge name — worth a follow-up check).",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Read the pinned provision (us/regulation/45/1302/12, corpus release us-rulespec-2026-07-24-snap-cms-pit-union): (b) states age rules for Early Head Start, Head Start Preschool, and Migrant or Seasonal separately with no Tribal/Migrant gating on the ordinary case; (c)(1) reads \"A pregnant woman or a child is eligible if\"; (e) requires a Tribal program + approved service area + paragraph (b); (f) requires at least one family member with income primarily from agricultural employment + paragraph (b). Multi-defect repair in one module: (1) scope/contamination in the shared age bridge — pre-fix the local rule participant_meets_age_requirements_under_paragraph_b also fed the imported us:regulations/45-cfr/1302/12#tribal_service_area_participant_eligible and #migrant_or_seasonal_participant_eligible, whose own formulas consume that same open name, so one bridge served both program scopes; the fix drops those two imports and composes (e)/(f) locally from three newly declared inputs (head_start_tribal_program, head_start_participant_in_approved_tribal_service_area, head_start_family_has_primary_agricultural_employment_income). (2) missing statutory subject predicate added to head_start_paragraph_c_path_satisfied, head_start_additional_allowance_path_satisfied, and head_start_participation_path_satisfied. (3) a secondary polarity_or_logic defect — fail-open numeric runtime leaves replaced by the fail-closed head_start_runtime_inputs_valid contract, now ANDed into every rule; if a reviewer prefers one kind per finding, this module supports both wrong_entity_or_scope (primary, 2 of 3 named findings) and polarity_or_logic (secondary). The quote is verbatim from MaxGhenis's blind-review comment on PR #1010, which the bundle stores under issue_comments rather than reviews (reviews/review_comments are empty); it is a review in substance. The commit body is empty, so all stated reasoning comes from that review. No effective dates, thresholds, or multipliers changed (all versions stay effective_from 2021-01-01); the 100%/130% logic is untouched. Note the public rule rename participant_meets_age_requirements_under_paragraph_b -> head_start_ordinary_or_tribal_age_requirement_met, an interface-breaking rename bundled with the fidelity fix. Companion test file us/policies/hhs/head_start/eligibility_pipeline.test.yaml grew by 306 lines in the same commit. The review's top finding (WIC 185% federal maximum vs the operative State agency guideline) concerns a different module and is not in this commit. | verifier confirmed at 0.78",
+  "family_id": "us-de7bc07d-4655f06665bf",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

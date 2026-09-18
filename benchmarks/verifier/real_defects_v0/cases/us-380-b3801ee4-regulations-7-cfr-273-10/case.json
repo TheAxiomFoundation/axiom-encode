@@ -1,0 +1,230 @@
+{
+  "id": "us-380-b3801ee4-regulations-7-cfr-273-10",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "b3801ee4eb82f8fc2c753d809c8b36d9ae6c42c2",
+  "parent_commit": "2175d5239a22bce42aa7a3b2f5a7c4af4c6940ea",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Wholesale regeneration with semantic corrections to existing modules: 24(d) phase-in threshold 2500 to 3000 and SS-excess gated on 3+ children, 1411 effective_from 2026 to 2013 and estate/trust base, CDCC/22/32/6401/2017(a)/273.10 formulas rewritten.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/25",
+  "module_path": "regulations/7-cfr/273/10.yaml",
+  "corpus_citation_path": "us/regulation/7/273/10",
+  "corpus_citation_paths_all": [
+    "us/regulation/7/273/10"
+  ],
+  "corpus_release": "us-sc-snap-2026-07-15",
+  "corpus_release_content_sha256": "23e17c993eeae58e83347e77be35c92d75623cc0304c0b5c3b951a900b0029fe",
+  "corpus_commit": "3932af44ea0fb6dd5a7432959a4396356ef8e6ae",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.49,
+  "description": "Multiply the total gross monthly earned income by 20 percent and subtract that amount from the total gross income.",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        3,
+        10
+      ],
+      [
+        14,
+        14
+      ],
+      [
+        16,
+        16
+      ],
+      [
+        18,
+        18
+      ],
+      [
+        27,
+        28
+      ],
+      [
+        34,
+        34
+      ],
+      [
+        37,
+        41
+      ],
+      [
+        44,
+        45
+      ],
+      [
+        51,
+        51
+      ],
+      [
+        54,
+        55
+      ],
+      [
+        64,
+        65
+      ],
+      [
+        75,
+        79
+      ],
+      [
+        82,
+        82
+      ],
+      [
+        85,
+        86
+      ],
+      [
+        92,
+        92
+      ],
+      [
+        96,
+        98
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        3,
+        4
+      ],
+      [
+        7,
+        8
+      ],
+      [
+        11,
+        11
+      ],
+      [
+        13,
+        152
+      ],
+      [
+        159,
+        166
+      ],
+      [
+        169,
+        172
+      ],
+      [
+        178,
+        192
+      ],
+      [
+        195,
+        212
+      ],
+      [
+        215,
+        218
+      ],
+      [
+        224,
+        258
+      ],
+      [
+        261,
+        273
+      ],
+      [
+        280,
+        287
+      ],
+      [
+        290,
+        293
+      ],
+      [
+        300,
+        319
+      ],
+      [
+        323,
+        327
+      ],
+      [
+        329,
+        329
+      ],
+      [
+        331,
+        339
+      ],
+      [
+        342,
+        345
+      ],
+      [
+        351,
+        399
+      ],
+      [
+        403,
+        403
+      ]
+    ],
+    "rule_names": [
+      "snap_total_gross_income",
+      "snap_earned_income_deduction_for_net_income",
+      "snap_excess_medical_deduction_for_net_income",
+      "snap_homeless_shelter_deduction_for_net_income",
+      "snap_net_income_before_shelter",
+      "snap_net_monthly_income",
+      "snap_calculated_monthly_allotment_before_minimums",
+      "snap_minimum_benefit",
+      "snap_monthly_allotment"
+    ],
+    "rule_path": "rules[snap_net_income_before_shelter].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "3c648414b7648dc441c1533bd7cc1b76b7e4d709011bcd9615cc6941c0ecb008",
+  "post_fix_artifact_sha256": "6e08bfce49e813ccd8425b0353f6167070cc5e34e0edc0be40bb3c58a00d5bda",
+  "provision_sha256": "c23a70d7cd1839003de34b92291b09e860e1c7562bbdac92ab3cbfa68f8e8044",
+  "provision_chars": 52226,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/regulation/7/273/10",
+    "provision_file": "data/corpus/provisions/us/regulation/2026-07-15-title-7-part-273.jsonl",
+    "provision_file_sha256": "57dd752844884c36999ff701c1057406a026b57be44d144dc484fdfbed56b9c9",
+    "line_number": 15,
+    "record_id": "a1d18c47-e3ef-5f3b-8481-79d6077ad559",
+    "stored_body_sha256": "c23a70d7cd1839003de34b92291b09e860e1c7562bbdac92ab3cbfa68f8e8044",
+    "resolved_text_sha256": "c23a70d7cd1839003de34b92291b09e860e1c7562bbdac92ab3cbfa68f8e8044",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-09",
+    "source_as_of": "2026-07-09",
+    "corpus_commit": "3932af44ea0fb6dd5a7432959a4396356ef8e6ae",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us/regulation/7/273/10",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module claimed to encode 7 CFR 273.10(e) net-income and benefit-level mechanics but jumped straight from gross income to the excess-shelter step, omitting the (e)(1)(i)(A) income exclusions and the entire (B)-(G) deduction sequence (20 percent earned-income deduction, standard deduction, medical expenses over $35, dependent care, child support, homeless shelter deduction capped at $143) as well as the (e)(2)(ii)(A) allotment formula and the (e)(2)(ii)(C) minimum benefit for one- and two-person households.",
+    "triage_notes": "Largest rewrite in the commit (98 -> 403 lines). Pre-fix rules were only snap_gross_monthly_income (= countable earned + countable unearned, with no '- exclusions'), snap_monthly_household_income, snap_excess_shelter_income_offset_rate, snap_half_adjusted_income, snap_uncapped_excess_shelter_deduction, snap_excess_shelter_deduction, snap_initial_month_minimum_issuance_threshold, snap_initial_month_allotment_after_minimum_issuance; the module produced no net monthly income and no allotment at all. Post-fix also adds a carve-out that excess shelter cost is 0 when the homeless shelter deduction is taken, and the (e)(2)(ii)(A) rounding option branch. Effective dates unchanged at 2025-10-01 throughout. Commit body is empty and the PR (#25) is titled for 26 USC 63(c), so the only descriptive text is the module's own added source excerpts; quote is from an added proof-atom excerpt line in the diff. Provision text not separately resolved for this module (the added excerpts are themselves corpus excerpts carrying citation path us/regulation/7/273/10).",
+    "verifier_verdict": "unclear",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.6,
+    "verifier_justification": "The first reader's stated reading is refuted on the facts: the pre-fix module did not \"jump straight from gross income to the excess-shelter step\" — it imported `us:statutes/7/2014/e/6/A` and fed the 50 percent step with `snap_net_income_pre_shelter`, which that statutory module computed as gross income minus the standard, earned-income, dependent-care, child-support and medical deductions, with the 20 percent rate encoded in `statutes/7/2014/e/2.yaml` and the allotment/30 percent/8 percent minimum benefit already encoded in `statutes/7/2017/a.yaml`. So the quoted 20 percent excerpt witnesses a deduction that was already encoded and consumed, and most of this diff re-homes existing statutory coverage into the regulation module rather than correcting wrong meaning. A narrower unrepresented_clause basis does survive — the (e)(1)(i)(G) homeless shelter deduction and the (e)(1)(i)(H) \"unless a deduction has been subtracted in accordance with (G)\" carve-out existed nowhere in the repo at the parent commit — but the commit subject is generic (\"Regenerate validated US RuleSpec encodings\", empty body) and the PR body is about 26 USC 63(c) and never mentions 7 CFR 273.10, so nothing settles whether that omission was the point of the change.",
+    "verifier_quote": "-        formula: snap_net_income_pre_shelter * snap_excess_shelter_income_offset_rate",
+    "verifier_notes": "Refuting evidence, all read at parent 2175d5239a22bce42aa7a3b2f5a7c4af4c6940ea in /Users/maxghenis/TheAxiomFoundation/rulespec-us:\n- The fix also deletes the import line `-  - us:statutes/7/2014/e/6/A` (diff line 25). That module defines `snap_net_income_pre_shelter = max(0, snap_monthly_household_income - snap_standard_deduction - snap_earned_income_deduction - dependent_care_deduction - child_support_deduction - medical_deduction)`, and imports `statutes/7/2014/e/2.yaml`, which holds `snap_earned_income_deduction_rate = 0.20`. The pre-fix `snap_monthly_household_income` rule that the reader read as a dead alias is in fact the input that module consumes (`statutes/7/2014/e/6/A.yaml:26`), so the pre-fix chain was a deliberate delegation, not an omission.\n- (e)(2)(ii)(A) and (C) were likewise already encoded at the parent in `statutes/7/2017/a.yaml`: 30 percent contribution rate, `floor(max(0, snap_maximum_allotment - snap_household_food_contribution))`, and `floor((snap_one_person_thrifty_food_plan_cost * 0.08) + 0.5)` for `household_size <= 2`. Their appearance in 273.10 is duplicated regulatory coverage.\n- No number was corrected: 0.50 and 10 survive unchanged; 0.20, 35, 143, 0.30, 0.08 and 2 are newly introduced, so amount_mismatch does not fit better. Effective dates all stay '2025-10-01', entity/period stay Household/Month, and no boolean was inverted, so the other kinds are out.\n- What was genuinely absent repo-wide: `git grep -l homeless` over statutes/7 at the parent returns nothing, and the only regulations hit is `regulations/7-cfr/273/24.yaml`, whose \"homeless\" reference is an ABAWD exemption (`or member_is_homeless`), not the shelter deduction. The $35 medical threshold was also only an unencoded input hook (`medical_deduction` was a bare input). The added branch `if snap_homeless_shelter_deduction_for_net_income > 0: 0` is well grounded in (e)(1)(i)(H) (\"Total the allowable shelter expenses ... unless a deduction has been subtracted in accordance with paragraph (e)(1)(i)(G)\").\n- Source text verified through the pinned release us-sc-snap-2026-07-15 (expression date 2026-07-09) via resolve_provision.py for us/regulation/7/273/10; every proof-atom excerpt added by the fix is verbatim in that text.\n- If a reviewer keeps this case, the basis should be restated as the missing (e)(1)(i)(G) homeless shelter deduction plus the (H) carve-out, and the quote replaced with `+          min(snap_claimed_homeless_shelter_deduction, snap_homeless_shelter_deduction_cap)`. If the corpus is meant to hold defects where the fix message identifies the error, this one should be pruned: it is a wholesale regeneration whose message names no defect in this module.\nResolver output saved at /private/tmp/claude-501/-Users-maxghenis-TheAxiomFoundation-axiom-encode--claude-worktrees-zealous-heyrovsky-31a96b/86103d8f-b97f-4559-a96c-7e79bdbe616d/scratchpad/adv_27310.json",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Largest rewrite in the commit (98 -> 403 lines). Pre-fix rules were only snap_gross_monthly_income (= countable earned + countable unearned, with no '- exclusions'), snap_monthly_household_income, snap_excess_shelter_income_offset_rate, snap_half_adjusted_income, snap_uncapped_excess_shelter_deduction, snap_excess_shelter_deduction, snap_initial_month_minimum_issuance_threshold, snap_initial_month_allotment_after_minimum_issuance; the module produced no net monthly income and no allotment at all. Post-fix also adds a carve-out that excess shelter cost is 0 when the homeless shelter deduction is taken, and the (e)(2)(ii)(A) rounding option branch. Effective dates unchanged at 2025-10-01 throughout. Commit body is empty and the PR (#25) is titled for 26 USC 63(c), so the only descriptive text is the module's own added source excerpts; quote is from an added proof-atom excerpt line in the diff. Provision text not separately resolved for this module (the added excerpts are themselves corpus excerpts carrying citation path us/regulation/7/273/10). | verifier unclear at 0.60",
+  "family_id": "us-b3801ee4-7dda8ef928fd",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

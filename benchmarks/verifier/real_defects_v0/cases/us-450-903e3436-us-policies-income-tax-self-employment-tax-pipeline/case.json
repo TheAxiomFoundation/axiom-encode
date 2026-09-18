@@ -1,0 +1,143 @@
+{
+  "id": "us-450-903e3436-us-policies-income-tax-self-employment-tax-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "903e3436a16b13da16b6ac0e634c41c06f8cd185",
+  "parent_commit": "f2aea3b2dc33ee6c95d44711bee2c40a8e753718",
+  "commit_date": "2026-07-24",
+  "commit_subject": "fix: gate ordinary SECA tax outputs",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1003",
+  "module_path": "us/policies/income_tax/self_employment_tax_pipeline.yaml",
+  "corpus_citation_path": "us/statute/26/1401",
+  "corpus_citation_paths_all": [
+    "us/statute/26/1401",
+    "us/statute/26/1402",
+    "us/guidance/ssa/contribution-and-benefit-base/2026/block-1"
+  ],
+  "corpus_release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+  "corpus_release_content_sha256": "cb275c76c4f07f8ad37470a32296bb1763e5db853d152697524ab07021b6d544",
+  "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.49,
+  "description": "Its ordinary-case section 1401(c) boundary is enforced by the required `no_foreign_system_exclusive_se_income` attestation, exposed as `self_employment_tax_pipeline_domain_is_valid`. When that Judgment is `not_holds`, all three public tax outputs fail closed to zero while the pre-relief income outputs remain observable.",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        44,
+        45
+      ],
+      [
+        47,
+        48
+      ],
+      [
+        320,
+        324
+      ],
+      [
+        351,
+        355
+      ],
+      [
+        376,
+        377
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        44,
+        49
+      ],
+      [
+        51,
+        52
+      ],
+      [
+        237,
+        255
+      ],
+      [
+        339,
+        344
+      ],
+      [
+        349,
+        356
+      ],
+      [
+        379,
+        384
+      ],
+      [
+        389,
+        396
+      ],
+      [
+        413,
+        418
+      ],
+      [
+        423,
+        427
+      ],
+      [
+        463,
+        467
+      ]
+    ],
+    "rule_names": [
+      "self_employment_tax_pipeline_domain_is_valid",
+      "federal_self_employment_oasdi_tax",
+      "federal_self_employment_hospital_insurance_tax",
+      "federal_self_employment_tax"
+    ],
+    "rule_path": "rules[federal_self_employment_tax].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "ed78e1e64615a479288b8ce0044da3924a011498284dcb3def270e3a5dde1a7c",
+  "post_fix_artifact_sha256": "2d74b4c3101a1ea3774cc47326d226e5f293cdcd1f2ffa3403f50f7bf86eaa60",
+  "provision_sha256": "38a25e0db79501f48205f05a735ee97cd663d622044f1de9747d015482dd2e65",
+  "provision_chars": 1924,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/1401",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-19-rulespec-title-26-consolidated.jsonl",
+    "provision_file_sha256": "397ee850815df0a050da457b5d08b557e9130e863a9c1473f19de52b0439ede6",
+    "line_number": 4,
+    "record_id": "28922e55-97ac-5e80-82dd-759fcf156217",
+    "stored_body_sha256": "38a25e0db79501f48205f05a735ee97cd663d622044f1de9747d015482dd2e65",
+    "resolved_text_sha256": "38a25e0db79501f48205f05a735ee97cd663d622044f1de9747d015482dd2e65",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2025-12-03",
+    "source_as_of": "2025-12-03",
+    "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "5dfd89d131564e4ee0e1e763571dbb5d7fc7f5e7",
+    "requested_citation_path": "us/statute/26/1401",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module computed and published the full section 1401(a) and 1401(b)(1) self-employment taxes for every taxpayer with no representation of section 1401(c), which exempts self-employment income that is subject exclusively to a foreign social-security system under a section 233 agreement, so an in-scope exempt taxpayer received a positive SECA tax the statute says is exempt.",
+    "triage_notes": "Provision was read through the pinned corpus release (resolve_provision.py, us/statute/26/1401): subsection (c) 'Relief from taxes in cases covered by certain international agreements' is present and the module's new proof-atom excerpt is verbatim from it. Pre-fix evidence that the clause was unrepresented rather than merely undocumented: at parent f2aea3b2dc the only mentions of 1401(c) were (a) the module summary saying the executable slice 'assumes ... no section 1401(c) foreign-exclusive social security coverage' and (b) a deferred_outputs entry for us:statutes/26/1401#self_employment_tax_after_international_agreement_exemption; the three public tax formulas were unconditional sum_where/addition expressions. The fix is a single coherent change (one new Judgment rule, one new required Boolean input, three formula gates, summary rewrite) with no unrelated formula, parameter, rate, base, or effective-date changes — the $184,500 base, 0.9235 factor, 12.4%/2.9% rates and 2026-01-01/2026-12-31 windows are untouched. Caveat for a reviewer: the remedy is a conservative fail-closed zero for the whole tax unit, whereas 1401(c) exempts only 'to the extent' the income is subject exclusively to the foreign system; the commit's own summary and the PR body acknowledge the actual foreign-agreement relief calculation remains a deferred boundary, so this corrects a fail-open defect without fully encoding the clause's partial-exemption arithmetic. Commit message is terse ('fix: gate ordinary SECA tax outputs') but PROGRESS.md in the same commit states 'Gated the existing OASDI, hospital-insurance, and combined ordinary SECA tax outputs behind that Judgment without renaming any existing surface', and the PR body (#1003) says '§1401(c) attestation gates the public outputs'. The companion test file adds `seca-foreign-system-boundary-fails-closed` asserting domain_is_valid: not_holds, federal_self_employment_income '46175' still observable, and all three taxes '0'. The new import proof atoms carry hash: sha256:local, and PROGRESS.md lists 'Refresh the downstream SE import hash' as remaining work, so a follow-up commit on the same branch likely rewrites those hashes (mechanical).",
+    "verifier_verdict": "unclear",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.58,
+    "verifier_justification": "The first reader's premise — \"no representation of section 1401(c)\" — is factually wrong: the pre-fix module already carried a structured `deferred_outputs` entry `us:statutes/26/1401#self_employment_tax_after_international_agreement_exemption` whose reason names section 1401(c) and states the submodules \"do not encode that exemption,\" and that entry survives this commit verbatim. The fix does not encode the exemption either; it adds a required TaxUnit attestation plus a fail-closed gate, and its own added comment still calls the relief calculation a deferred boundary, so the in-domain encoded meaning is unchanged and the out-of-domain output (zero for the whole tax unit) is not the statutory result for the \"to the extent that\" partial-exemption case the pinned §1401(c) text actually states. Against that, the pre-fix module did publish a positive `federal_self_employment_tax` for a population the statute exempts with no input by which a caller could express the fact, and the commit adds a breaking required input and a companion showing 7,064.775 → 0, which reads as a genuine fail-open correction. The message is generic (\"fix: gate ordinary SECA tax outputs\") and the diff is a domain guard rather than a clause encoding, so the evidence does not settle fidelity-correction versus enforcement of an already-declared deferred boundary.",
+    "verifier_quote": "When that Judgment is `not_holds`, all three public tax outputs fail closed to zero while the pre-relief income outputs remain observable. The unresolved foreign-agreement relief calculation, full upstream section 1402(a) completed-return construction, and the complete cross-referenced wage definition remain explicit deferred boundaries below.",
+    "verifier_notes": "Refutation attempt on the KIND failed: if this is kept as fidelity, `unrepresented_clause` is still the best fit. `polarity_or_logic` is tempting because its definition names \"fail-open vs fail-closed\" and PROGRESS.md calls this \"the ordinary SECA fail-closed foreign-coverage boundary,\" but there was no prior boolean or branch on this condition to invert — the fix creates the branch — so \"clause missing, fix adds it\" describes it better.\n\nRefutation on the CLASSIFICATION has real force, which is why I land on unclear rather than confirmed:\n1. Pre-declared boundary. Pre-fix `deferred_outputs` (unchanged by this commit) reads: \"Section 1401(c) exempts income subject exclusively to a foreign social security system under a section 233 agreement. The cap-aware, Person-level section 1401(a) and (b)(1) submodules do not encode that exemption...\" Pre-fix summary prose: \"The executable slice assumes ... no section 1401(c) foreign-exclusive social security coverage. Those mechanisms ... remain explicit deferred boundaries below.\" This is scope the module explicitly disclaimed, in machine-readable metadata, not a silent omission.\n2. The fix adds no statutory computation. The 1401(c) deferred_outputs entry is byte-identical post-fix; the new rule is a Judgment over a caller attestation, not the exemption.\n3. Post-fix is also not source-faithful for the partial case. Pinned §1401(c) (corpus release us-rulespec-2026-07-24-snap-cms-pit-union, provision sha256 38a25e0d...) exempts SE income \"to the extent that\" it is subject exclusively to the foreign system. The new input `no_foreign_system_exclusive_se_income` is Boolean and TaxUnit-level, while the statutory exemption is per-individual and proportional, so a partially-covered filer now gets zero for the whole unit — wrong in the opposite direction. Zero here is a refusal sentinel, not a computed result.\n\nCounterweights a reviewer should hold against the above, if they want to keep it as confirmed/unrepresented_clause: the pre-fix public output was unconditional over all TaxUnits, `us/statute/26/1401` was a claimed `corpus_citation_paths` entry, the new proof atom is `kind: exception` quoting the §1401(c) text verbatim from the pinned corpus (verified — the excerpt matches the release text exactly), the commit is labeled \"fix:\", and it adds a *required* input (a breaking caller-contract change), which implies the authors judged the prior surface wrong rather than merely incomplete. New companion `seca-foreign-system-boundary-fails-closed` pins the behavior change: pre-fix would have produced 5,725.70 + 1,339.075 = 7,064.775; post-fix all three tax outputs are '0' with `federal_self_employment_income` still '46175'.\n\nPR #1003 body describes this as the house pattern rather than a one-off correction (\"valid ONLY in its verified domain ... out-of-domain fails closed\"), applied to the NIIT pipeline in the same PR; if the benchmark wants genuine statutory-meaning defects rather than domain-guard hardening, this case and its NIIT sibling should be judged the same way.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Provision was read through the pinned corpus release (resolve_provision.py, us/statute/26/1401): subsection (c) 'Relief from taxes in cases covered by certain international agreements' is present and the module's new proof-atom excerpt is verbatim from it. Pre-fix evidence that the clause was unrepresented rather than merely undocumented: at parent f2aea3b2dc the only mentions of 1401(c) were (a) the module summary saying the executable slice 'assumes ... no section 1401(c) foreign-exclusive social security coverage' and (b) a deferred_outputs entry for us:statutes/26/1401#self_employment_tax_after_international_agreement_exemption; the three public tax formulas were unconditional sum_where/addition expressions. The fix is a single coherent change (one new Judgment rule, one new required Boolean input, three formula gates, summary rewrite) with no unrelated formula, parameter, rate, base, or effective-date changes — the $184,500 base, 0.9235 factor, 12.4%/2.9% rates and 2026-01-01/2026-12-31 windows are untouched. Caveat for a reviewer: the remedy is a conservative fail-closed zero for the whole tax unit, whereas 1401(c) exempts only 'to the extent' the income is subject exclusively to the foreign system; the commit's own summary and the PR body acknowledge the actual foreign-agreement relief calculation remains a deferred boundary, so this corrects a fail-open defect without fully encoding the clause's partial-exemption arithmetic. Commit message is terse ('fix: gate ordinary SECA tax outputs') but PROGRESS.md in the same commit states 'Gated the existing OASDI, hospital-insurance, and combined ordinary SECA tax outputs behind that Judgment without renaming any existing surface', and the PR body (#1003) says '§1401(c) attestation gates the public outputs'. The companion test file adds `seca-foreign-system-boundary-fails-closed` asserting domain_is_valid: not_holds, federal_self_employment_income '46175' still observable, and all three taxes '0'. The new import proof atoms carry hash: sha256:local, and PROGRESS.md lists 'Refresh the downstream SE import hash' as remaining work, so a follow-up commit on the same branch likely rewrites those hashes (mechanical). | verifier unclear at 0.58",
+  "family_id": "us-903e3436-6eaad3de2bcc",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

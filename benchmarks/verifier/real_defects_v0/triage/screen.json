@@ -1,0 +1,1215 @@
+{
+ "batches": 18,
+ "returned": 18,
+ "read_count": 1170,
+ "flagged": [
+  {
+   "jur": "us",
+   "commit": "198bee703e",
+   "date": "",
+   "subject": "(screen-flagged) b1.6 certify (PR #1300): diff changes the Brazil gate in every generated composition from `not entry_is_line_b` to `not entry_is_section_232_aluminum` and re-grounds the steel parameter proof from 9903.81.87/.88 to 9903.82.02; report says \"The task's 9903.81.x locator is stale for this corpus vintage\".",
+   "n_modules": 100,
+   "screen_reason": "b1.6 certify (PR #1300): diff changes the Brazil gate in every generated composition from `not entry_is_line_b` to `not entry_is_section_232_aluminum` and re-grounds the steel parameter proof from 9903.81.87/.88 to 9903.82.02; report says \"The task's 9903.81.x locator is stale for this corpus vintage\"."
+  },
+  {
+   "jur": "us",
+   "commit": "a9562cfd44",
+   "date": "",
+   "subject": "(screen-flagged) b1.6 generalize (PR #1300): decouples component gates from exemplar flags; PR body says the witness's exemplar coupling \"unlawfully suppressed the surcharge on §301-member lines for all origins\" — logic/scope correction to 100 merged generated modules.",
+   "n_modules": 100,
+   "screen_reason": "b1.6 generalize (PR #1300): decouples component gates from exemplar flags; PR body says the witness's exemplar coupling \"unlawfully suppressed the surcharge on §301-member lines for all origins\" — logic/scope correction to 100 merged generated modules."
+  },
+  {
+   "jur": "us",
+   "commit": "2a6bdb01de",
+   "date": "",
+   "subject": "(screen-flagged) b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair.",
+   "n_modules": 100,
+   "screen_reason": "b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair."
+  },
+  {
+   "jur": "us",
+   "commit": "497bc50a71",
+   "date": "",
+   "subject": "(screen-flagged) Review fix (Sol r2 LOW): composition doctrine wrongly claimed the declared-exceptions output is demanded only when declared facts are supplied, false for the 2026-02-20 zero version; \"Both fixed per the review\" (PR #1200).",
+   "n_modules": 1,
+   "screen_reason": "Review fix (Sol r2 LOW): composition doctrine wrongly claimed the declared-exceptions output is demanded only when declared facts are supplied, false for the 2026-02-20 zero version; \"Both fixed per the review\" (PR #1200)."
+  },
+  {
+   "jur": "us",
+   "commit": "2a40d980aa",
+   "date": "",
+   "subject": "(screen-flagged) Review r1: widened CN/HK declared-exceptions branch applied the 9903.01.24 rate unconditionally, \"bypassing U.S. note 2(u)'s exclusions\"; adds the missing exclusion gate (PR #1198, same PR as the HK widening).",
+   "n_modules": 1,
+   "screen_reason": "Review r1: widened CN/HK declared-exceptions branch applied the 9903.01.24 rate unconditionally, \"bypassing U.S. note 2(u)'s exclusions\"; adds the missing exclusion gate (PR #1198, same PR as the HK widening)."
+  },
+  {
+   "jur": "us",
+   "commit": "90339197c9",
+   "date": "",
+   "subject": "(screen-flagged) Scope defect in merged composition: fentanyl branch gated on origin_is_china only \"so HK entries paid 0 instead of the 10% note 2(u) additional duty\"; adds origin_is_hong_kong gate (PR #1198).",
+   "n_modules": 1,
+   "screen_reason": "Scope defect in merged composition: fentanyl branch gated on origin_is_china only \"so HK entries paid 0 instead of the 10% note 2(u) additional duty\"; adds origin_is_hong_kong gate (PR #1198)."
+  },
+  {
+   "jur": "us",
+   "commit": "bc7afd4695",
+   "date": "",
+   "subject": "(screen-flagged) fl301 r3 review blocker: entry component rate \"omitted the heading 9903.05.91 humanitarian-donation exception\"; adds missing exception headings to the zero branch (intra-PR #1196 repair round).",
+   "n_modules": 1,
+   "screen_reason": "fl301 r3 review blocker: entry component rate \"omitted the heading 9903.05.91 humanitarian-donation exception\"; adds missing exception headings to the zero branch (intra-PR #1196 repair round)."
+  },
+  {
+   "jur": "us",
+   "commit": "65997b4e49",
+   "date": "",
+   "subject": "(screen-flagged) fl301 r2: addresses five review blockers, including \"repair 54 modules' heading-range excerpts to the Rev14 en-dash\" (proof grounding) and an entry-rule split (intra-PR #1196 repair round).",
+   "n_modules": 60,
+   "screen_reason": "fl301 r2: addresses five review blockers, including \"repair 54 modules' heading-range excerpts to the Rev14 en-dash\" (proof grounding) and an entry-rule split (intra-PR #1196 repair round)."
+  },
+  {
+   "jur": "us",
+   "commit": "1716a4a06c",
+   "date": "",
+   "subject": "(screen-flagged) Subject says Encode but body: \"Sol r4 found two omitted antecedents\" — existing chapter 98 exclusion judgment gains the missing CBP-agreement conjunct; transshipment gains the non-USMCA conjunct (PR #1195).",
+   "n_modules": 1,
+   "screen_reason": "Subject says Encode but body: \"Sol r4 found two omitted antecedents\" — existing chapter 98 exclusion judgment gains the missing CBP-agreement conjunct; transshipment gains the non-USMCA conjunct (PR #1195)."
+  },
+  {
+   "jur": "us",
+   "commit": "70376bf80a",
+   "date": "",
+   "subject": "(screen-flagged) Adds missing note 2(j)/2(m) gates to the existing energy heading and \"re-anchor the heading-exception atom to the 9903.01.13 record's inherited ancestor text\" (PR #1195).",
+   "n_modules": 1,
+   "screen_reason": "Adds missing note 2(j)/2(m) gates to the existing energy heading and \"re-anchor the heading-exception atom to the 9903.01.13 record's inherited ancestor text\" (PR #1195)."
+  },
+  {
+   "jur": "us",
+   "commit": "62833ba10c",
+   "date": "",
+   "subject": "(screen-flagged) Splits declared-exception rate off the panel-demanded rate; \"the energy overlay judgment now carries the full U.S. note 2(j) scope\" — scope/exception correction (PR #1195).",
+   "n_modules": 2,
+   "screen_reason": "Splits declared-exception rate off the panel-demanded rate; \"the energy overlay judgment now carries the full U.S. note 2(j) scope\" — scope/exception correction (PR #1195)."
+  },
+  {
+   "jur": "us",
+   "commit": "18dc86dbf4",
+   "date": "",
+   "subject": "(screen-flagged) \"Address review findings on the section 232 Russia aluminum overlay\": scope predicate re-encoded against current heading text instead of note 19(b) enumerated coverage (intra-PR #1194 with the module's addition).",
+   "n_modules": 2,
+   "screen_reason": "\"Address review findings on the section 232 Russia aluminum overlay\": scope predicate re-encoded against current heading text instead of note 19(b) enumerated coverage (intra-PR #1194 with the module's addition)."
+  },
+  {
+   "jur": "us",
+   "commit": "a0a2ec5940",
+   "date": "",
+   "subject": "(screen-flagged) PR #1143 \"Restores the SE leg deliberately withheld from #1003\": merged additional Medicare tax pipeline lacked the §1401(b)(2) self-employment leg; a deliberate deferral rather than an error, flagged for the diff stage.",
+   "n_modules": 1,
+   "screen_reason": "PR #1143 \"Restores the SE leg deliberately withheld from #1003\": merged additional Medicare tax pipeline lacked the §1401(b)(2) self-employment leg; a deliberate deferral rather than an error, flagged for the diff stage."
+  },
+  {
+   "jur": "us",
+   "commit": "1f9e440d5a",
+   "date": "",
+   "subject": "(screen-flagged) PR #1120 titled \"Repair Alabama 2026 section 40-18-5 schedule\": replaces pilot/statute overlap with one canonical schedule, retires duplicate RuleSpecs; \"This is a structural repair, not an annual-liability workaround\".",
+   "n_modules": 3,
+   "screen_reason": "PR #1120 titled \"Repair Alabama 2026 section 40-18-5 schedule\": replaces pilot/statute overlap with one canonical schedule, retires duplicate RuleSpecs; \"This is a structural repair, not an annual-liability workaround\"."
+  },
+  {
+   "jur": "us",
+   "commit": "6ff6a4a8b3",
+   "date": "",
+   "subject": "(screen-flagged) PR #1123: \"replace the retired Georgia pilot and over-broad resident-core modules\" with a bounded tax-before-credits surface that fails closed at negative input — scope correction/retirement.",
+   "n_modules": 3,
+   "screen_reason": "PR #1123: \"replace the retired Georgia pilot and over-broad resident-core modules\" with a bounded tax-before-credits surface that fails closed at negative input — scope correction/retirement."
+  },
+  {
+   "jur": "us",
+   "commit": "4d10a73d4a",
+   "date": "",
+   "subject": "(screen-flagged) PR #1117: \"Replaces the Kentucky pilot schedule with one canonical TY2026 KRS 141.020 tax-before-credits surface\"; retires the pilot liability pipeline, re-bounds scope.",
+   "n_modules": 1,
+   "screen_reason": "PR #1117: \"Replaces the Kentucky pilot schedule with one canonical TY2026 KRS 141.020 tax-before-credits surface\"; retires the pilot liability pipeline, re-bounds scope."
+  },
+  {
+   "jur": "us",
+   "commit": "0d0ab42ada",
+   "date": "",
+   "subject": "(screen-flagged) PR #1115: retires the ambiguous pilot pipeline and \"remove duplicate Chart S/J and annual tax/liability ownership from the resident core\" — scope/ownership correction in merged modules.",
+   "n_modules": 3,
+   "screen_reason": "PR #1115: retires the ambiguous pilot pipeline and \"remove duplicate Chart S/J and annual tax/liability ownership from the resident core\" — scope/ownership correction in merged modules."
+  },
+  {
+   "jur": "us",
+   "commit": "54ef0d6fe3",
+   "date": "",
+   "subject": "(screen-flagged) PR #1113: \"rename the misleading public `income_tax_liability` output\" and add a selector-validity invariant so overlapping filing-status inputs fail closed — scope and fail-closed correction.",
+   "n_modules": 1,
+   "screen_reason": "PR #1113: \"rename the misleading public `income_tax_liability` output\" and add a selector-validity invariant so overlapping filing-status inputs fail closed — scope and fail-closed correction."
+  },
+  {
+   "jur": "us",
+   "commit": "6e0b21e114",
+   "date": "",
+   "subject": "(screen-flagged) PR #1112: \"remove estimated schedules and misleading tax/liability candidates from the annual resident core\"; retires duplicate pilot surface — scope correction.",
+   "n_modules": 2,
+   "screen_reason": "PR #1112: \"remove estimated schedules and misleading tax/liability candidates from the annual resident core\"; retires duplicate pilot surface — scope correction."
+  },
+  {
+   "jur": "us",
+   "commit": "e1296d6c1c",
+   "date": "",
+   "subject": "(screen-flagged) PR #1111: \"retire the ambiguous `pilot_liability_pipeline`\" and remove duplicate Form 1-ES tables from the annual core; mostly consolidation, flagged as unsure.",
+   "n_modules": 2,
+   "screen_reason": "PR #1111: \"retire the ambiguous `pilot_liability_pipeline`\" and remove duplicate Form 1-ES tables from the annual core; mostly consolidation, flagged as unsure."
+  },
+  {
+   "jur": "us",
+   "commit": "d15442b4fd",
+   "date": "",
+   "subject": "(screen-flagged) Fail-closed guard on contradictory Medicaid applicant ages added to magi_household_income_pipeline; landed inside PR #1007 which introduced the module, so possibly a pre-merge repair.",
+   "n_modules": 1,
+   "screen_reason": "Fail-closed guard on contradictory Medicaid applicant ages added to magi_household_income_pipeline; landed inside PR #1007 which introduced the module, so possibly a pre-merge repair."
+  },
+  {
+   "jur": "us",
+   "commit": "3a3f3bf525",
+   "date": "",
+   "subject": "(screen-flagged) Fail-closed guard on Medicaid family size / FPL mismatches added to magi_household_income_pipeline; landed inside PR #1007 which introduced the module, so possibly a pre-merge repair.",
+   "n_modules": 1,
+   "screen_reason": "Fail-closed guard on Medicaid family size / FPL mismatches added to magi_household_income_pipeline; landed inside PR #1007 which introduced the module, so possibly a pre-merge repair."
+  },
+  {
+   "jur": "us",
+   "commit": "c3b9a2ea60",
+   "date": "",
+   "subject": "(screen-flagged) Makes the Medicaid MAGI pipeline's relation orientation executable: a polarity/direction fix to an existing module (34-line module diff plus test changes).",
+   "n_modules": 1,
+   "screen_reason": "Makes the Medicaid MAGI pipeline's relation orientation executable: a polarity/direction fix to an existing module (34-line module diff plus test changes)."
+  },
+  {
+   "jur": "us",
+   "commit": "450ca0144a",
+   "date": "",
+   "subject": "(screen-flagged) Uncertain: replaces four corpus_citation_paths with a single corpus_citation_path in the NC pipeline's source_verification, a source-grounding change that may be locator bookkeeping.",
+   "n_modules": 1,
+   "screen_reason": "Uncertain: replaces four corpus_citation_paths with a single corpus_citation_path in the NC pipeline's source_verification, a source-grounding change that may be locator bookkeeping."
+  },
+  {
+   "jur": "us",
+   "commit": "aa886454ee",
+   "date": "",
+   "subject": "(screen-flagged) 'Bound' the Ohio 2026 nonbusiness income tax schedule: boundary/effective-period correction to an existing module.",
+   "n_modules": 1,
+   "screen_reason": "'Bound' the Ohio 2026 nonbusiness income tax schedule: boundary/effective-period correction to an existing module."
+  },
+  {
+   "jur": "us",
+   "commit": "a9fad7642a",
+   "date": "",
+   "subject": "(screen-flagged) Enforces a deduction-count domain on the existing Kansas resident core: domain tightening.",
+   "n_modules": 1,
+   "screen_reason": "Enforces a deduction-count domain on the existing Kansas resident core: domain tightening."
+  },
+  {
+   "jur": "us",
+   "commit": "2b95c4e8d1",
+   "date": "",
+   "subject": "(screen-flagged) Bounds Massachusetts 2026 resident income tax to official sources: re-grounding of an existing module.",
+   "n_modules": 1,
+   "screen_reason": "Bounds Massachusetts 2026 resident income tax to official sources: re-grounding of an existing module."
+  },
+  {
+   "jur": "us",
+   "commit": "083e609673",
+   "date": "",
+   "subject": "(screen-flagged) Bounds Kentucky 2026 resident income tax to official sources: re-grounding of an existing module.",
+   "n_modules": 1,
+   "screen_reason": "Bounds Kentucky 2026 resident income tax to official sources: re-grounding of an existing module."
+  },
+  {
+   "jur": "us",
+   "commit": "56ed245771",
+   "date": "",
+   "subject": "(screen-flagged) Bounds Idaho 2026 resident income tax to official sources: re-grounding of an existing module.",
+   "n_modules": 1,
+   "screen_reason": "Bounds Idaho 2026 resident income tax to official sources: re-grounding of an existing module."
+  },
+  {
+   "jur": "us",
+   "commit": "4b822bdbad",
+   "date": "",
+   "subject": "(screen-flagged) Pins the Kansas 2026 rate determination: adds effective_period proof atoms citing Notice 25-06 and changes upstream_source_check status from checked_higher_authority_with_typed_holds to checked_higher_authority (effective-period grounding of rates).",
+   "n_modules": 1,
+   "screen_reason": "Pins the Kansas 2026 rate determination: adds effective_period proof atoms citing Notice 25-06 and changes upstream_source_check status from checked_higher_authority_with_typed_holds to checked_higher_authority (effective-period grounding of rates)."
+  },
+  {
+   "jur": "us",
+   "commit": "364586f6d1",
+   "date": "",
+   "subject": "(screen-flagged) Corrects a mis-grounded proof: the PTE refundability exception atom's corpus_citation_path moves from page-1333 to page-1334.",
+   "n_modules": 1,
+   "screen_reason": "Corrects a mis-grounded proof: the PTE refundability exception atom's corpus_citation_path moves from page-1333 to page-1334."
+  },
+  {
+   "jur": "us",
+   "commit": "551f1ac46f",
+   "date": "",
+   "subject": "(screen-flagged) Holds unsupported South Dakota credit stages in an existing module: scope/retire correction.",
+   "n_modules": 1,
+   "screen_reason": "Holds unsupported South Dakota credit stages in an existing module: scope/retire correction."
+  },
+  {
+   "jur": "us",
+   "commit": "aada034367",
+   "date": "",
+   "subject": "(screen-flagged) Holds incomplete Nevada credit liability stages in an existing module: scope/retire correction.",
+   "n_modules": 1,
+   "screen_reason": "Holds incomplete Nevada credit liability stages in an existing module: scope/retire correction."
+  },
+  {
+   "jur": "us",
+   "commit": "7a453c81c5",
+   "date": "",
+   "subject": "(screen-flagged) Refreshes Florida 2026 authority and constitutional citation precision: source-grounding correction to an existing module.",
+   "n_modules": 1,
+   "screen_reason": "Refreshes Florida 2026 authority and constitutional citation precision: source-grounding correction to an existing module."
+  },
+  {
+   "jur": "us",
+   "commit": "2cf80aa971",
+   "date": "",
+   "subject": "(screen-flagged) Adds a guard on the WIC pregnancy income adjustment: branch/logic correction to an existing module.",
+   "n_modules": 1,
+   "screen_reason": "Adds a guard on the WIC pregnancy income adjustment: branch/logic correction to an existing module."
+  },
+  {
+   "jur": "us",
+   "commit": "0c0c23e0df",
+   "date": "",
+   "subject": "(screen-flagged) Replaces Connecticut proof excerpts with exact text: mis-grounded proof correction.",
+   "n_modules": 1,
+   "screen_reason": "Replaces Connecticut proof excerpts with exact text: mis-grounded proof correction."
+  },
+  {
+   "jur": "us",
+   "commit": "1a3a46d85e",
+   "date": "",
+   "subject": "(screen-flagged) Replaces Arkansas proof excerpts with exact text: mis-grounded proof correction.",
+   "n_modules": 1,
+   "screen_reason": "Replaces Arkansas proof excerpts with exact text: mis-grounded proof correction."
+  },
+  {
+   "jur": "us",
+   "commit": "68b3063a92",
+   "date": "",
+   "subject": "(screen-flagged) Reworks the already-encoded South Carolina core: removes the section 12-6-1130(2) itemized tax addback rule and its inputs and replaces the EITC formula (98 deletions alongside additions).",
+   "n_modules": 1,
+   "screen_reason": "Reworks the already-encoded South Carolina core: removes the section 12-6-1130(2) itemized tax addback rule and its inputs and replaces the EITC formula (98 deletions alongside additions)."
+  },
+  {
+   "jur": "us",
+   "commit": "e45d2f9e48",
+   "date": "",
+   "subject": "(screen-flagged) Floors Wisconsin completed taxable income at zero: boundary correction.",
+   "n_modules": 1,
+   "screen_reason": "Floors Wisconsin completed taxable income at zero: boundary correction."
+  },
+  {
+   "jur": "us",
+   "commit": "2e82126ba2",
+   "date": "",
+   "subject": "(screen-flagged) Fails closed on Oregon 2026 held tax outputs: fail-closed correction to an existing module.",
+   "n_modules": 1,
+   "screen_reason": "Fails closed on Oregon 2026 held tax outputs: fail-closed correction to an existing module."
+  },
+  {
+   "jur": "us",
+   "commit": "2ef1729c01",
+   "date": "",
+   "subject": "(screen-flagged) Converts Wisconsin annual liability to a hold pending the tax table (110 deletions in the module): scope/retire correction.",
+   "n_modules": 1,
+   "screen_reason": "Converts Wisconsin annual liability to a hold pending the tax table (110 deletions in the module): scope/retire correction."
+  },
+  {
+   "jur": "us",
+   "commit": "249e8e6f6b",
+   "date": "",
+   "subject": "(screen-flagged) Prevents Hawaii food credit child overlap: logic/double-counting correction.",
+   "n_modules": 1,
+   "screen_reason": "Prevents Hawaii food credit child overlap: logic/double-counting correction."
+  },
+  {
+   "jur": "us",
+   "commit": "26ebd1a18c",
+   "date": "",
+   "subject": "(screen-flagged) Tightens Hawaii tax-table and MFS holds: scope tightening of an existing module.",
+   "n_modules": 1,
+   "screen_reason": "Tightens Hawaii tax-table and MFS holds: scope tightening of an existing module."
+  },
+  {
+   "jur": "us",
+   "commit": "bdf6b69658",
+   "date": "",
+   "subject": "(screen-flagged) Constrains Rhode Island opportunity-zone investment grain: entity/grain correction.",
+   "n_modules": 1,
+   "screen_reason": "Constrains Rhode Island opportunity-zone investment grain: entity/grain correction."
+  },
+  {
+   "jur": "us",
+   "commit": "cfdc84cf75",
+   "date": "",
+   "subject": "(screen-flagged) Changes Rhode Island formulas to satisfy deterministic validation: moves max(0, ...) outside the supported-profile branch and adds max(0, ...) clamps to the other-state credit inputs (boundary/logic change).",
+   "n_modules": 1,
+   "screen_reason": "Changes Rhode Island formulas to satisfy deterministic validation: moves max(0, ...) outside the supported-profile branch and adds max(0, ...) clamps to the other-state credit inputs (boundary/logic change)."
+  },
+  {
+   "jur": "us",
+   "commit": "915fc7cc88",
+   "date": "",
+   "subject": "(screen-flagged) Tightens the Montana resident core domain: domain tightening of an existing module.",
+   "n_modules": 1,
+   "screen_reason": "Tightens the Montana resident core domain: domain tightening of an existing module."
+  },
+  {
+   "jur": "us",
+   "commit": "8765a05da5",
+   "date": "",
+   "subject": "(screen-flagged) Harden: rewrites Delaware resident_core_liability_pipeline (405 lines), narrows accepted boundaries and re-cites proof atoms to the recovered official document.",
+   "n_modules": 1,
+   "screen_reason": "Harden: rewrites Delaware resident_core_liability_pipeline (405 lines), narrows accepted boundaries and re-cites proof atoms to the recovered official document."
+  },
+  {
+   "jur": "us",
+   "commit": "8d3d0f5e30",
+   "date": "",
+   "subject": "(screen-flagged) Fail closed: adds la_2026_resident_filing_status_selection_valid guard to every joint-status branch of Louisiana 2026_resident_core (logic/polarity).",
+   "n_modules": 1,
+   "screen_reason": "Fail closed: adds la_2026_resident_filing_status_selection_valid guard to every joint-status branch of Louisiana 2026_resident_core (logic/polarity)."
+  },
+  {
+   "jur": "us",
+   "commit": "c294a83ec0",
+   "date": "",
+   "subject": "(screen-flagged) Clarify boundary: NC charitable deduction now excludes the section 170 deduction attributable to a credit-backed donation rather than the donation value (scope of excluded amount).",
+   "n_modules": 1,
+   "screen_reason": "Clarify boundary: NC charitable deduction now excludes the section 170 deduction attributable to a credit-backed donation rather than the donation value (scope of excluded amount)."
+  },
+  {
+   "jur": "us",
+   "commit": "9d343d49a3",
+   "date": "",
+   "subject": "(screen-flagged) Time-bound: Idaho pilot bounded to 2026, drops source-certified parity claim and relabels 2026 indexed amounts as caller-supplied projections.",
+   "n_modules": 1,
+   "screen_reason": "Time-bound: Idaho pilot bounded to 2026, drops source-certified parity claim and relabels 2026 indexed amounts as caller-supplied projections."
+  },
+  {
+   "jur": "us",
+   "commit": "07f5517d74",
+   "date": "",
+   "subject": "(screen-flagged) Time-bound: WA and VT pilot pipelines bounded to tax year 2026 (effective period).",
+   "n_modules": 2,
+   "screen_reason": "Time-bound: WA and VT pilot pipelines bounded to tax year 2026 (effective period)."
+  },
+  {
+   "jur": "us",
+   "commit": "4bca2b9f3f",
+   "date": "",
+   "subject": "(screen-flagged) Time-bound: RI and UT pilot pipelines bounded to 2026 (effective period).",
+   "n_modules": 2,
+   "screen_reason": "Time-bound: RI and UT pilot pipelines bounded to 2026 (effective period)."
+  },
+  {
+   "jur": "us",
+   "commit": "9ee163e304",
+   "date": "",
+   "subject": "(screen-flagged) Unsure (promote): verified diff reworks CO pipeline formula from AGI-minus-supplied-deductions to a supplied taxable-income boundary, adds effective_from proof atoms, removes known-validation-gaps entry (scope/entity rework).",
+   "n_modules": 1,
+   "screen_reason": "Unsure (promote): verified diff reworks CO pipeline formula from AGI-minus-supplied-deductions to a supplied taxable-income boundary, adds effective_from proof atoms, removes known-validation-gaps entry (scope/entity rework)."
+  },
+  {
+   "jur": "us",
+   "commit": "033968c960",
+   "date": "",
+   "subject": "(screen-flagged) Unsure (promote pattern): rewrites existing NJ pilot_liability_pipeline.yaml (505 lines); not inspected line by line.",
+   "n_modules": 1,
+   "screen_reason": "Unsure (promote pattern): rewrites existing NJ pilot_liability_pipeline.yaml (505 lines); not inspected line by line."
+  },
+  {
+   "jur": "us",
+   "commit": "b6beb41339",
+   "date": "",
+   "subject": "(screen-flagged) Unsure (promote pattern): rewrites existing NM pilot_liability_pipeline.yaml (669 lines) and oracle-coverage entries; not inspected line by line.",
+   "n_modules": 1,
+   "screen_reason": "Unsure (promote pattern): rewrites existing NM pilot_liability_pipeline.yaml (669 lines) and oracle-coverage entries; not inspected line by line."
+  },
+  {
+   "jur": "us",
+   "commit": "6458ba30eb",
+   "date": "",
+   "subject": "(screen-flagged) Unsure (promote pattern): rewrites existing DE pilot_liability_pipeline.yaml (315 lines) and removes known-validation-gaps entry.",
+   "n_modules": 1,
+   "screen_reason": "Unsure (promote pattern): rewrites existing DE pilot_liability_pipeline.yaml (315 lines) and removes known-validation-gaps entry."
+  },
+  {
+   "jur": "us",
+   "commit": "2da7252216",
+   "date": "",
+   "subject": "(screen-flagged) Unsure (promote pattern): rewrites existing CT pilot_liability_pipeline.yaml (608 lines) and removes known-validation-gaps entry.",
+   "n_modules": 1,
+   "screen_reason": "Unsure (promote pattern): rewrites existing CT pilot_liability_pipeline.yaml (608 lines) and removes known-validation-gaps entry."
+  },
+  {
+   "jur": "us",
+   "commit": "e58bf37fec",
+   "date": "",
+   "subject": "(screen-flagged) Unsure (promote): verified diff narrows VT pipeline to a supplied normal-tax boundary and independently encodes 32 V.S.A. 5822(a)(6) three-percent minimum instead of accepting bracket parameters from the caller; removes oracle-coverage-pending entries.",
+   "n_modules": 1,
+   "screen_reason": "Unsure (promote): verified diff narrows VT pipeline to a supplied normal-tax boundary and independently encodes 32 V.S.A. 5822(a)(6) three-percent minimum instead of accepting bracket parameters from the caller; removes oracle-coverage-pending entries."
+  },
+  {
+   "jur": "us",
+   "commit": "b0ecd370c5",
+   "date": "",
+   "subject": "(screen-flagged) Unsure (promote pattern): rewrites existing OH pilot_liability_pipeline.yaml (156 lines, roughly even add/delete); not inspected line by line.",
+   "n_modules": 1,
+   "screen_reason": "Unsure (promote pattern): rewrites existing OH pilot_liability_pipeline.yaml (156 lines, roughly even add/delete); not inspected line by line."
+  },
+  {
+   "jur": "us",
+   "commit": "4c354c6b53",
+   "date": "",
+   "subject": "(screen-flagged) Closes gap: existing MT pilot encoded only two ordinary brackets; commit adds head-of-household $71,250 threshold, subsection (2) capital-gain rates, and fails closed outside 2026.",
+   "n_modules": 1,
+   "screen_reason": "Closes gap: existing MT pilot encoded only two ordinary brackets; commit adds head-of-household $71,250 threshold, subsection (2) capital-gain rates, and fails closed outside 2026."
+  },
+  {
+   "jur": "us",
+   "commit": "0f9550daa2",
+   "date": "",
+   "subject": "(screen-flagged) Source grounding: adds Va. Code 58.1-321 no-tax/no-return threshold citation and a proof atom for the formula condition in the VA pipeline.",
+   "n_modules": 1,
+   "screen_reason": "Source grounding: adds Va. Code 58.1-321 no-tax/no-return threshold citation and a proof atom for the formula condition in the VA pipeline."
+  },
+  {
+   "jur": "us",
+   "commit": "623ad4b086",
+   "date": "",
+   "subject": "(screen-flagged) Unsure (promote pattern): rewrites existing VA pilot_liability_pipeline.yaml (165 lines, net deletions) and removes known-validation-gaps and oracle-coverage-pending entries.",
+   "n_modules": 1,
+   "screen_reason": "Unsure (promote pattern): rewrites existing VA pilot_liability_pipeline.yaml (165 lines, net deletions) and removes known-validation-gaps and oracle-coverage-pending entries."
+  },
+  {
+   "jur": "us",
+   "commit": "804404b13c",
+   "date": "",
+   "subject": "(screen-flagged) Unsure (promote pattern): rewrites existing SC pilot_liability_pipeline.yaml (154 lines); not inspected line by line.",
+   "n_modules": 1,
+   "screen_reason": "Unsure (promote pattern): rewrites existing SC pilot_liability_pipeline.yaml (154 lines); not inspected line by line."
+  },
+  {
+   "jur": "us",
+   "commit": "9615ec7118",
+   "date": "",
+   "subject": "(screen-flagged) Unsure (promote pattern): restructures AZ pipeline (108 lines) to import the rate from a new 2026_rate module; not inspected line by line.",
+   "n_modules": 2,
+   "screen_reason": "Unsure (promote pattern): restructures AZ pipeline (108 lines) to import the rate from a new 2026_rate module; not inspected line by line."
+  },
+  {
+   "jur": "us",
+   "commit": "586401e4c4",
+   "date": "",
+   "subject": "(screen-flagged) Re-anchor: every KS proof atom and source_verification moved from K.S.A. 79-32,110 to the 2026 Form K-40ES as controlling parameter source.",
+   "n_modules": 1,
+   "screen_reason": "Re-anchor: every KS proof atom and source_verification moved from K.S.A. 79-32,110 to the 2026 Form K-40ES as controlling parameter source."
+  },
+  {
+   "jur": "us",
+   "commit": "26969d5f91",
+   "date": "",
+   "subject": "(screen-flagged) Unsure (promote pattern): rewrites existing IA pilot_liability_pipeline.yaml selector (90 lines); not inspected line by line.",
+   "n_modules": 1,
+   "screen_reason": "Unsure (promote pattern): rewrites existing IA pilot_liability_pipeline.yaml selector (90 lines); not inspected line by line."
+  },
+  {
+   "jur": "us",
+   "commit": "ddac46987d",
+   "date": "",
+   "subject": "(screen-flagged) Unsure (promote pattern): rewrites existing KS pilot_liability_pipeline.yaml (147 lines); not inspected line by line.",
+   "n_modules": 1,
+   "screen_reason": "Unsure (promote pattern): rewrites existing KS pilot_liability_pipeline.yaml (147 lines); not inspected line by line."
+  },
+  {
+   "jur": "us",
+   "commit": "04e8599852",
+   "date": "",
+   "subject": "(screen-flagged) Restore: reinstates Michigan Treasury rate-determination proof atoms in 2026_rate_determination and pilot pipeline (proof grounding).",
+   "n_modules": 2,
+   "screen_reason": "Restore: reinstates Michigan Treasury rate-determination proof atoms in 2026_rate_determination and pilot pipeline (proof grounding)."
+  },
+  {
+   "jur": "us",
+   "commit": "fa704163bc",
+   "date": "",
+   "subject": "(screen-flagged) Unsure (promote pattern): rewrites existing LA pilot_liability_pipeline.yaml (94 lines, net deletions), adds 47:32 rule, removes oracle-coverage-pending entries.",
+   "n_modules": 2,
+   "screen_reason": "Unsure (promote pattern): rewrites existing LA pilot_liability_pipeline.yaml (94 lines, net deletions), adds 47:32 rule, removes oracle-coverage-pending entries."
+  },
+  {
+   "jur": "us",
+   "commit": "ee02ab9dbc",
+   "date": "",
+   "subject": "(screen-flagged) Unsure: rewrites Michigan source grounding strings to add MCL 206.51(10)(a)-(d) and refreshes import hash; part of the Michigan re-anchoring series.",
+   "n_modules": 2,
+   "screen_reason": "Unsure: rewrites Michigan source grounding strings to add MCL 206.51(10)(a)-(d) and refreshes import hash; part of the Michigan re-anchoring series."
+  },
+  {
+   "jur": "us",
+   "commit": "5fe657b565",
+   "date": "",
+   "subject": "(screen-flagged) Unsure: re-grounds Michigan rate source from Treasury determination alone to MCL 206.51(1)(b) and 1(c); part of the Michigan re-anchoring series.",
+   "n_modules": 2,
+   "screen_reason": "Unsure: re-grounds Michigan rate source from Treasury determination alone to MCL 206.51(1)(b) and 1(c); part of the Michigan re-anchoring series."
+  },
+  {
+   "jur": "us",
+   "commit": "140491c140",
+   "date": "",
+   "subject": "(screen-flagged) Mis-grounded proof: Michigan proof atoms re-pointed from Treasury guidance notice to us-mi/statute/206.51/1 with new excerpts.",
+   "n_modules": 2,
+   "screen_reason": "Mis-grounded proof: Michigan proof atoms re-pointed from Treasury guidance notice to us-mi/statute/206.51/1 with new excerpts."
+  },
+  {
+   "jur": "us",
+   "commit": "93b789af4e",
+   "date": "",
+   "subject": "(screen-flagged) Re-anchor: Michigan modules' source_verification corpus_citation_path moved from Treasury guidance to statute 206.51/1.",
+   "n_modules": 2,
+   "screen_reason": "Re-anchor: Michigan modules' source_verification corpus_citation_path moved from Treasury guidance to statute 206.51/1."
+  },
+  {
+   "jur": "us",
+   "commit": "5474dca0ea",
+   "date": "",
+   "subject": "(screen-flagged) Unsure: campaign wrap-up, but diff time-bounds GA 48-7-26 dependent exemption to 2026-12-31, defers contingent 2027+ increases, and adds effective-period proof atoms to 48-7-26/48-7-29.10.",
+   "n_modules": 4,
+   "screen_reason": "Unsure: campaign wrap-up, but diff time-bounds GA 48-7-26 dependent exemption to 2026-12-31, defers contingent 2027+ increases, and adds effective-period proof atoms to 48-7-26/48-7-29.10."
+  },
+  {
+   "jur": "us",
+   "commit": "c6db535b07",
+   "date": "",
+   "subject": "(screen-flagged) Logic fix: GA 48-7A-3 low-income credit replaces age-65 doubling multiplier with one additional credit unit per taxpayer/spouse age 65+; also extends 2026 versions on 48-7-26/27/29.10.",
+   "n_modules": 4,
+   "screen_reason": "Logic fix: GA 48-7A-3 low-income credit replaces age-65 doubling multiplier with one additional credit unit per taxpayer/spouse age 65+; also extends 2026 versions on 48-7-26/27/29.10."
+  },
+  {
+   "jur": "us",
+   "commit": "8e9d6b209c",
+   "date": "",
+   "subject": "(screen-flagged) Corrects NY SNAP composition's exposed benefit surface: statutory chain carried cents and diverged from FNS QC on 33 of 847 reviews by one dollar; moves issued benefit onto the 273.10 whole-dollar chain, binds claimed-homeless deduction to zero to remove a double homeless path, and removes duplicate inline bridges.",
+   "n_modules": 1,
+   "screen_reason": "Corrects NY SNAP composition's exposed benefit surface: statutory chain carried cents and diverged from FNS QC on 33 of 847 reviews by one dollar; moves issued benefit onto the 273.10 whole-dollar chain, binds claimed-homeless deduction to zero to remove a double homeless path, and removes duplicate inline bridges."
+  },
+  {
+   "jur": "us",
+   "commit": "b1d87bf4b4",
+   "date": "",
+   "subject": "(screen-flagged) Source grounding correction: re-anchors corpus_citation_path proof references in two Alaska CMS eligibility modules from the document root to the /block-1 body block (mis-grounded proof anchor).",
+   "n_modules": 2,
+   "screen_reason": "Source grounding correction: re-anchors corpus_citation_path proof references in two Alaska CMS eligibility modules from the document root to the /block-1 body block (mis-grounded proof anchor)."
+  },
+  {
+   "jur": "us",
+   "commit": "17c4a96dfb",
+   "date": "",
+   "subject": "(screen-flagged) Wrong amount: module carried the superseded printed $143 homeless shelter deduction cap and clamped the COLA-adjusted amount down for every homeless unit (oracle found $37 mismatch on all seven CO FY2024 units); rebinds min() to the annually adjusted maximum and removes the stale parameter.",
+   "n_modules": 1,
+   "screen_reason": "Wrong amount: module carried the superseded printed $143 homeless shelter deduction cap and clamped the COLA-adjusted amount down for every homeless unit (oracle found $37 mismatch on all seven CO FY2024 units); rebinds min() to the annually adjusted maximum and removes the stale parameter."
+  },
+  {
+   "jur": "us",
+   "commit": "82bb48dd9d",
+   "date": "",
+   "subject": "(screen-flagged) Adds missing proof atoms to already-merged CA RTC 17052 module; body: 2018/2019 versions were left 'without proof atoms' (source-grounding fix).",
+   "n_modules": 1,
+   "screen_reason": "Adds missing proof atoms to already-merged CA RTC 17052 module; body: 2018/2019 versions were left 'without proof atoms' (source-grounding fix)."
+  },
+  {
+   "jur": "us",
+   "commit": "044e91ad8a",
+   "date": "",
+   "subject": "(screen-flagged) Corrects 42 USC 415(i) which 'baked one determination year into a year-general statute module' (scope/effective-period fix, replaces hard import with free input).",
+   "n_modules": 2,
+   "screen_reason": "Corrects 42 USC 415(i) which 'baked one determination year into a year-general statute module' (scope/effective-period fix, replaces hard import with free input)."
+  },
+  {
+   "jur": "us",
+   "commit": "bcf602eaf1",
+   "date": "",
+   "subject": "(screen-flagged) Re-grounds the Medicaid eligibility composite from us/policies/hhs/medicaid/eligibility.yaml onto us/statutes/42/1396a/a/10.yaml (source re-anchor of an existing composite).",
+   "n_modules": 2,
+   "screen_reason": "Re-grounds the Medicaid eligibility composite from us/policies/hhs/medicaid/eligibility.yaml onto us/statutes/42/1396a/a/10.yaml (source re-anchor of an existing composite)."
+  },
+  {
+   "jur": "us",
+   "commit": "09960abf54",
+   "date": "",
+   "subject": "(screen-flagged) Uncertain: mainly a new 402(a) encoding, but also fixes merged 426(e) which 'conditioned on a local cross-reference input' and 'now imports that entitlement output instead of the placeholder' (cross-reference wiring correction).",
+   "n_modules": 3,
+   "screen_reason": "Uncertain: mainly a new 402(a) encoding, but also fixes merged 426(e) which 'conditioned on a local cross-reference input' and 'now imports that entitlement output instead of the placeholder' (cross-reference wiring correction)."
+  },
+  {
+   "jur": "us",
+   "commit": "b8f1c1db72",
+   "date": "",
+   "subject": "(screen-flagged) Subject reads as a new encoding, but the diff rewrites the already-merged module us/regulations/45-cfr/1302/12.yaml: the 10 percent over-income exception is removed from the paragraph_c_participant_eligible OR-chain into a new separate rule paragraph_c_overincome_exception_participant_may_be_enrolled, and the companion test that previously expected paragraph_c_participant_eligible: holds under that path is replaced. PR #461 body says only \"Update the generated 45 CFR 1302.12 Head Start eligibility source encoding and companion tests.\" Unsure whether this is a scope/branch correction or a regeneration; flagged for diff review.",
+   "n_modules": 2,
+   "screen_reason": "Subject reads as a new encoding, but the diff rewrites the already-merged module us/regulations/45-cfr/1302/12.yaml: the 10 percent over-income exception is removed from the paragraph_c_participant_eligible OR-chain into a new separate rule paragraph_c_overincome_exception_participant_may_be_enrolled, and the companion test that previously expected paragraph_c_participant_eligible: holds under that path is replaced. PR #461 body says only \"Update the generated 45 CFR 1302.12 Head Start eligibility source encoding and companion tests.\" Unsure whether this is a scope/branch correction or a regeneration; flagged for diff review."
+  },
+  {
+   "jur": "us",
+   "commit": "a87d1403bf",
+   "date": "",
+   "subject": "(screen-flagged) Reapply of delegated imports on already-merged CA/CO/NC SUA modules; PR #402 body: \"Aligns state utility allowance settings with the delegated-setting `sets` shape enforced in TheAxiomFoundation/axiom-encode#613.\" Reworks delegation wiring (removes source_relation sets/parameter rules added by 752ee8e283); uncertain whether encoded amounts change.",
+   "n_modules": 3,
+   "screen_reason": "Reapply of delegated imports on already-merged CA/CO/NC SUA modules; PR #402 body: \"Aligns state utility allowance settings with the delegated-setting `sets` shape enforced in TheAxiomFoundation/axiom-encode#613.\" Reworks delegation wiring (removes source_relation sets/parameter rules added by 752ee8e283); uncertain whether encoded amounts change."
+  },
+  {
+   "jur": "us",
+   "commit": "752ee8e283",
+   "date": "",
+   "subject": "(screen-flagged) Re-encode of merged CA/CO/NC/SC/TN SNAP utility allowance modules to correct their delegation structure; PR #402: \"Aligns state utility allowance settings with the delegated-setting `sets` shape enforced in TheAxiomFoundation/axiom-encode#613.\" Adds sets_* source_relation rules and per-allowance parameter rules ($594/$377/$71/$97 with effective_from 2025-10-01).",
+   "n_modules": 5,
+   "screen_reason": "Re-encode of merged CA/CO/NC/SC/TN SNAP utility allowance modules to correct their delegation structure; PR #402: \"Aligns state utility allowance settings with the delegated-setting `sets` shape enforced in TheAxiomFoundation/axiom-encode#613.\" Adds sets_* source_relation rules and per-allowance parameter rules ($594/$377/$71/$97 with effective_from 2025-10-01)."
+  },
+  {
+   "jur": "us",
+   "commit": "88882eac18",
+   "date": "",
+   "subject": "(screen-flagged) Fail-closed scope correction on existing 42 CFR 431.213 module: adds deferred_outputs for paragraphs (a),(b),(c),(e),(f),(g),(h), each with reason like \"Paragraph (a) is an existing advance-notice exception outside the CMS-2454-IFC whereabouts-unknown amendment encoded in this module.\"",
+   "n_modules": 1,
+   "screen_reason": "Fail-closed scope correction on existing 42 CFR 431.213 module: adds deferred_outputs for paragraphs (a),(b),(c),(e),(f),(g),(h), each with reason like \"Paragraph (a) is an existing advance-notice exception outside the CMS-2454-IFC whereabouts-unknown amendment encoded in this module.\""
+  },
+  {
+   "jur": "us",
+   "commit": "db9835b782",
+   "date": "",
+   "subject": "(screen-flagged) Encoder refresh of 3306(f) whose diff adds a new deferred output unemployment_fund_trust_fund_amounts_deemed_part (source \"26 USC 3306(f), Unemployment Trust Fund sentence\") and changes the existing output's source from \"first sentence\" to the whole subsection; scope/deferral change on a merged module, uncertain.",
+   "n_modules": 1,
+   "screen_reason": "Encoder refresh of 3306(f) whose diff adds a new deferred output unemployment_fund_trust_fund_amounts_deemed_part (source \"26 USC 3306(f), Unemployment Trust Fund sentence\") and changes the existing output's source from \"first sentence\" to the whole subsection; scope/deferral change on a merged module, uncertain."
+  },
+  {
+   "jur": "us",
+   "commit": "15ae13da75",
+   "date": "",
+   "subject": "(screen-flagged) Encoder refresh of 3306(c)(20) whose diff flips a gross-receipts seasonality test (input 900 -> 600, expected not_holds -> holds), restructures proof atoms from inline formula to imports of the short-operating-season and seasonality sub-tests, and normalizes test period_kind custom -> tax_year; possible boundary/logic correction, uncertain.",
+   "n_modules": 1,
+   "screen_reason": "Encoder refresh of 3306(c)(20) whose diff flips a gross-receipts seasonality test (input 900 -> 600, expected not_holds -> holds), restructures proof atoms from inline formula to imports of the short-operating-season and seasonality sub-tests, and normalizes test period_kind custom -> tax_year; possible boundary/logic correction, uncertain."
+  },
+  {
+   "jur": "us",
+   "commit": "ba159fdfde",
+   "date": "",
+   "subject": "(screen-flagged) Encoder refresh of 3306(c)(17) that lifts the \"more than 10 net tons\" vessel exception into a new parameter fishing_service_vessel_net_tonnage_exception_threshold (10) and a large_vessel_aquatic_life_service_exception_applies output, replacing an inline exception proof atom; structural rule change on a merged module, uncertain.",
+   "n_modules": 1,
+   "screen_reason": "Encoder refresh of 3306(c)(17) that lifts the \"more than 10 net tons\" vessel exception into a new parameter fishing_service_vessel_net_tonnage_exception_threshold (10) and a large_vessel_aquatic_life_service_exception_applies output, replacing an inline exception proof atom; structural rule change on a merged module, uncertain."
+  },
+  {
+   "jur": "us",
+   "commit": "61ce6bd3e1",
+   "date": "",
+   "subject": "(screen-flagged) Encoder refresh of 3306(c)(13) that adds a new parameter medical_school_course_years_required_for_hospital_intern_service (4) plus condition proof atoms and renames the student-nurse test; rule content change on a merged module, uncertain.",
+   "n_modules": 1,
+   "screen_reason": "Encoder refresh of 3306(c)(13) that adds a new parameter medical_school_course_years_required_for_hospital_intern_service (4) plus condition proof atoms and renames the student-nurse test; rule content change on a merged module, uncertain."
+  },
+  {
+   "jur": "us",
+   "commit": "bc592508c3",
+   "date": "",
+   "subject": "(screen-flagged) Encoder refresh of 3306(c)(10) that adds a $50 quarter threshold parameter (exempt_organization_service_remuneration_quarter_threshold: 50), flips test inputs for 501(a) vs 521 exempt employers, and adds expected outputs for each excepted-service branch; possible entity/branch correction, uncertain.",
+   "n_modules": 1,
+   "screen_reason": "Encoder refresh of 3306(c)(10) that adds a $50 quarter threshold parameter (exempt_organization_service_remuneration_quarter_threshold: 50), flips test inputs for 501(a) vs 521 exempt employers, and adds expected outputs for each excepted-service branch; possible entity/branch correction, uncertain."
+  },
+  {
+   "jur": "us",
+   "commit": "c2db9c4e33",
+   "date": "",
+   "subject": "(screen-flagged) Encoder refresh of 3306(c)(3) that lifts the $50 cash-remuneration and 24-day regular-employment thresholds into parameter imports and sub-tests (nonbusiness_service_*_threshold / _test_satisfied) in the proof; structural rule change on a merged module, uncertain.",
+   "n_modules": 1,
+   "screen_reason": "Encoder refresh of 3306(c)(3) that lifts the $50 cash-remuneration and 24-day regular-employment thresholds into parameter imports and sub-tests (nonbusiness_service_*_threshold / _test_satisfied) in the proof; structural rule change on a merged module, uncertain."
+  },
+  {
+   "jur": "us",
+   "commit": "014194a007",
+   "date": "",
+   "subject": "(screen-flagged) Encoder refresh of 3306(c)(4) that splits the combined vessel-and-aircraft exception test into separate non_american_vessel and non_american_aircraft cases and replaces two negative tests with required_service_connection_or_outside_united_states_employment_missing; test/branch restructuring on a merged module, uncertain.",
+   "n_modules": 1,
+   "screen_reason": "Encoder refresh of 3306(c)(4) that splits the combined vessel-and-aircraft exception test into separate non_american_vessel and non_american_aircraft cases and replaces two negative tests with required_service_connection_or_outside_united_states_employment_missing; test/branch restructuring on a merged module, uncertain."
+  },
+  {
+   "jur": "us",
+   "commit": "1fc80d5bbe",
+   "date": "",
+   "subject": "(screen-flagged) Encoder refresh of 3306(b)(20) that corrects the module summary from third-party payments being \"treated as employer wages\" to the third party being \"treated as the employer\", adds verbatim statutory excerpts to all four proof atoms (previously excerpt-less), and reshuffles test names/inputs; grounding correction with formula unchanged, uncertain.",
+   "n_modules": 1,
+   "screen_reason": "Encoder refresh of 3306(b)(20) that corrects the module summary from third-party payments being \"treated as employer wages\" to the third party being \"treated as the employer\", adds verbatim statutory excerpts to all four proof atoms (previously excerpt-less), and reshuffles test names/inputs; grounding correction with formula unchanged, uncertain."
+  },
+  {
+   "jur": "us",
+   "commit": "7b56e0f479",
+   "date": "",
+   "subject": "(screen-flagged) Refresh of 3306(d) re-grounds the one-half services threshold: drops the import of us:statutes/26/3121/c#one_half_services_threshold, adds a local 3306(d) threshold rule and a 3306(c)(9) import, and changes both deemed-employment formulas (source-grounding correction candidate).",
+   "n_modules": 1,
+   "screen_reason": "Refresh of 3306(d) re-grounds the one-half services threshold: drops the import of us:statutes/26/3121/c#one_half_services_threshold, adds a local 3306(d) threshold rule and a 3306(c)(9) import, and changes both deemed-employment formulas (source-grounding correction candidate)."
+  },
+  {
+   "jur": "us",
+   "commit": "48ef746464",
+   "date": "",
+   "subject": "(screen-flagged) Refresh of 3304 changes institution_of_higher_education effective_from from '2024-01-01' to '1990-01-01' (effective period correction).",
+   "n_modules": 1,
+   "screen_reason": "Refresh of 3304 changes institution_of_higher_education effective_from from '2024-01-01' to '1990-01-01' (effective period correction)."
+  },
+  {
+   "jur": "us",
+   "commit": "d306beb42d",
+   "date": "",
+   "subject": "(screen-flagged) Refresh of 3509 encodes the previously deferred subsection (b) reporting-failure increased rates as rule reporting_failure_increased_rates_apply and drops that deferred output (closes a coverage gap in a merged module).",
+   "n_modules": 1,
+   "screen_reason": "Refresh of 3509 encodes the previously deferred subsection (b) reporting-failure increased rates as rule reporting_failure_increased_rates_apply and drops that deferred output (closes a coverage gap in a merged module)."
+  },
+  {
+   "jur": "us",
+   "commit": "3c82aa9922",
+   "date": "",
+   "subject": "(screen-flagged) Refresh of 3505 removes the 3102/3202/3402/3403 imports and changes the direct_wage_payment_third_party_liability_applies formula, dropping the imported employer-withholding-duty conditions (logic/scope change in a merged module).",
+   "n_modules": 1,
+   "screen_reason": "Refresh of 3505 removes the 3102/3202/3402/3403 imports and changes the direct_wage_payment_third_party_liability_applies formula, dropping the imported employer-withholding-duty conditions (logic/scope change in a merged module)."
+  },
+  {
+   "jur": "us",
+   "commit": "4e6ff08087",
+   "date": "",
+   "subject": "(screen-flagged) Refresh of 3511 retargets deferred outputs and changes the customer-credit formulas from specified_credit_applies_to_customer_not_cpeo to credit_is_specified_in_subsection_d (branch/logic change).",
+   "n_modules": 1,
+   "screen_reason": "Refresh of 3511 retargets deferred outputs and changes the customer-credit formulas from specified_credit_applies_to_customer_not_cpeo to credit_is_specified_in_subsection_d (branch/logic change)."
+  },
+  {
+   "jur": "us",
+   "commit": "ce719c379f",
+   "date": "",
+   "subject": "(screen-flagged) Refresh of 3504 changes the designation condition to person_has_control_receipt_custody_disposal_or_pays_employee_wages, adding the statute's 'or pays the wages' branch (clause/branch correction).",
+   "n_modules": 1,
+   "screen_reason": "Refresh of 3504 changes the designation condition to person_has_control_receipt_custody_disposal_or_pays_employee_wages, adding the statute's 'or pays the wages' branch (clause/branch correction)."
+  },
+  {
+   "jur": "us",
+   "commit": "0809c368a7",
+   "date": "",
+   "subject": "(screen-flagged) Alongside CI/toolchain wiring, reverts 3306(b)(5) to the (A)-(H) encoding: restores the 408(p) branch and removes the deferred outputs and 3121(v) import introduced by 0a89bda45d (restore/revert of module semantics).",
+   "n_modules": 5,
+   "screen_reason": "Alongside CI/toolchain wiring, reverts 3306(b)(5) to the (A)-(H) encoding: restores the 408(p) branch and removes the deferred outputs and 3121(v) import introduced by 0a89bda45d (restore/revert of module semantics)."
+  },
+  {
+   "jur": "us",
+   "commit": "abc82d7a76",
+   "date": "",
+   "subject": "(screen-flagged) Bulk refresh with entity corrections (3101(a) and 3101(b)(1) TaxUnit->Person; 3111(a) and 3111(b) Business->Employer), 3121(b) rules removed and deferred, 3121(b)(8) rule deferred, and formula changes in 3121(b)(9), 3121(a)(8), 3121(g), 3121(j), 3402(n).",
+   "n_modules": 16,
+   "screen_reason": "Bulk refresh with entity corrections (3101(a) and 3101(b)(1) TaxUnit->Person; 3111(a) and 3111(b) Business->Employer), 3121(b) rules removed and deferred, 3121(b)(8) rule deferred, and formula changes in 3121(b)(9), 3121(a)(8), 3121(g), 3121(j), 3402(n)."
+  },
+  {
+   "jur": "us",
+   "commit": "5323ecb405",
+   "date": "",
+   "subject": "(screen-flagged) Re-encode of merged 3232 rescopes both jurisdiction formulas to '_on_such_employee' conditions (entity/scope change).",
+   "n_modules": 1,
+   "screen_reason": "Re-encode of merged 3232 rescopes both jurisdiction formulas to '_on_such_employee' conditions (entity/scope change)."
+  },
+  {
+   "jur": "us",
+   "commit": "0a89bda45d",
+   "date": "",
+   "subject": "(screen-flagged) Re-encode narrows 3306(b)(5) to clauses (A)-(G) with the 408(p) clause (H) deferred (fail closed) and imports the 3121(v) definition; 3306(c)(7) condition rescoped 'with_respect_to_such_service'.",
+   "n_modules": 3,
+   "screen_reason": "Re-encode narrows 3306(b)(5) to clauses (A)-(G) with the 408(p) clause (H) deferred (fail closed) and imports the 3121(v) definition; 3306(c)(7) condition rescoped 'with_respect_to_such_service'."
+  },
+  {
+   "jur": "us",
+   "commit": "187161db90",
+   "date": "",
+   "subject": "(screen-flagged) Re-encode of 3231(e)(2) removes three deferred outputs and encodes the hospital-insurance carve-out clauses and tier 2 base; formulas changed (closes gaps in a merged module).",
+   "n_modules": 1,
+   "screen_reason": "Re-encode of 3231(e)(2) removes three deferred outputs and encodes the hospital-insurance carve-out clauses and tier 2 base; formulas changed (closes gaps in a merged module)."
+  },
+  {
+   "jur": "us",
+   "commit": "75eeca7bfa",
+   "date": "",
+   "subject": "(screen-flagged) Re-encode of merged 3241(b) and 3302(d)(5): interval-bound parameter rules removed and proof atoms re-grounded, 1/5 parameterized; values unchanged, low confidence.",
+   "n_modules": 2,
+   "screen_reason": "Re-encode of merged 3241(b) and 3302(d)(5): interval-bound parameter rules removed and proof atoms re-grounded, 1/5 parameterized; values unchanged, low confidence."
+  },
+  {
+   "jur": "us",
+   "commit": "6596bfa399",
+   "date": "",
+   "subject": "(screen-flagged) Re-encode of merged 36B(b)(3)(A): tier boundaries now read from bound parameters, default branch '< 0' -> '== -1', proof atoms re-grounded to 'income tier row labels'; values unchanged, low confidence.",
+   "n_modules": 1,
+   "screen_reason": "Re-encode of merged 36B(b)(3)(A): tier boundaries now read from bound parameters, default branch '< 0' -> '== -1', proof atoms re-grounded to 'income tier row labels'; values unchanged, low confidence."
+  },
+  {
+   "jur": "us",
+   "commit": "36d716ec3a",
+   "date": "",
+   "subject": "(screen-flagged) Regeneration changes 36B(b)(3)(A) tier thresholds from 133/150/200/250/300/400 to 1.33/1.50/2.00/2.50/3.00/4.00 and rescales the tests (boundary/units correction).",
+   "n_modules": 1,
+   "screen_reason": "Regeneration changes 36B(b)(3)(A) tier thresholds from 133/150/200/250/300/400 to 1.33/1.50/2.00/2.50/3.00/4.00 and rescales the tests (boundary/units correction)."
+  },
+  {
+   "jur": "us",
+   "commit": "a495db3292",
+   "date": "",
+   "subject": "(screen-flagged) PR body includes 'Repair New York SNAP benefit composition'; changes snap_eligible formula in the existing otda composition, removes/replaces 18 NYCRR 387.14(a)(1) proration rules, and re-encodes 387.14(a)(5) categorical rules with changed imports.",
+   "n_modules": 3,
+   "screen_reason": "PR body includes 'Repair New York SNAP benefit composition'; changes snap_eligible formula in the existing otda composition, removes/replaces 18 NYCRR 387.14(a)(1) proration rules, and re-encodes 387.14(a)(5) categorical rules with changed imports."
+  },
+  {
+   "jur": "us",
+   "commit": "19f2408bbb",
+   "date": "",
+   "subject": "(screen-flagged) Refresh of 3402(h) narrows a rule's source citation from '26 USC 3402(h)(3)(C)-(D)' to '26 USC 3402(h)(3)(D)' and adds source_values to a deferred output (source-grounding tweak, low confidence).",
+   "n_modules": 1,
+   "screen_reason": "Refresh of 3402(h) narrows a rule's source citation from '26 USC 3402(h)(3)(C)-(D)' to '26 USC 3402(h)(3)(D)' and adds source_values to a deferred output (source-grounding tweak, low confidence)."
+  },
+  {
+   "jur": "us",
+   "commit": "90315cadb6",
+   "date": "",
+   "subject": "(screen-flagged) Refresh of 3508 changes source citations (qualified_real_estate_agent '3508(b)(1)' -> '3508(b)'; combined rule '(a), (b)' -> '(a), (b)(1), (b)(2)') with no formula change (source-grounding tweak, low confidence).",
+   "n_modules": 1,
+   "screen_reason": "Refresh of 3508 changes source citations (qualified_real_estate_agent '3508(b)(1)' -> '3508(b)'; combined rule '(a), (b)' -> '(a), (b)(1), (b)(2)') with no formula change (source-grounding tweak, low confidence)."
+  },
+  {
+   "jur": "us",
+   "commit": "89024d7059",
+   "date": "",
+   "subject": "(screen-flagged) Corrects merged Colorado SNAP modules despite the bland subject: 4.401.yaml flips snap_elderly_disabled_separate_household_allowed from entity Person to Household and replaces the gross-income comparison with a new household-size-scaled 165% FPL limit rule; 4.207.2.yaml rewrites the initial-month proration formula to min(allotment, floor(allotment * factor)). No commit body.",
+   "n_modules": 4,
+   "screen_reason": "Corrects merged Colorado SNAP modules despite the bland subject: 4.401.yaml flips snap_elderly_disabled_separate_household_allowed from entity Person to Household and replaces the gross-income comparison with a new household-size-scaled 165% FPL limit rule; 4.207.2.yaml rewrites the initial-month proration formula to min(allotment, floor(allotment * factor)). No commit body."
+  },
+  {
+   "jur": "us",
+   "commit": "ebc413e9f7",
+   "date": "",
+   "subject": "(screen-flagged) Scope correction on the existing us-ca/snap compose spec; commit body: \"pull in income definitions, exclusions, and resource limits the previous narrower scope missed\" (compose spec rather than atomic module; the commit also adds a new NY compose).",
+   "n_modules": 2,
+   "screen_reason": "Scope correction on the existing us-ca/snap compose spec; commit body: \"pull in income definitions, exclusions, and resource limits the previous narrower scope missed\" (compose spec rather than atomic module; the commit also adds a new NY compose)."
+  },
+  {
+   "jur": "us",
+   "commit": "30caaa931c",
+   "date": "",
+   "subject": "(screen-flagged) Logic/polarity fix on the existing us-ca/snap compose; comment in the module diff: \"Closes the over-permissive gap where the original spec only checked per-person eligibility and ignored household income/resource/residency tests that were already encoded in scope\"; PR body also reports \"snap_eligible is always False\" from the earlier members/count_related bug (compose spec rather than atomic module).",
+   "n_modules": 1,
+   "screen_reason": "Logic/polarity fix on the existing us-ca/snap compose; comment in the module diff: \"Closes the over-permissive gap where the original spec only checked per-person eligibility and ignored household income/resource/residency tests that were already encoded in scope\"; PR body also reports \"snap_eligible is always False\" from the earlier members/count_related bug (compose spec rather than atomic module)."
+  },
+  {
+   "jur": "us",
+   "commit": "c2f312931f",
+   "date": "",
+   "subject": "(screen-flagged) Refresh removes the previously executable 3201 tier_2_employee_tax (compensation * 3241 percentage) and its 3202 import, deferring both because applying the rate to raw compensation \"would ignore the cross-referenced base limitation\" of 3231(e)(2); PR body: \"Keep unsafe railroad payroll tax amount surfaces deferred\" (wrong amount / missing contribution base, fixed by fail-closed deferral).",
+   "n_modules": 4,
+   "screen_reason": "Refresh removes the previously executable 3201 tier_2_employee_tax (compensation * 3241 percentage) and its 3202 import, deferring both because applying the rate to raw compensation \"would ignore the cross-referenced base limitation\" of 3231(e)(2); PR body: \"Keep unsafe railroad payroll tax amount surfaces deferred\" (wrong amount / missing contribution base, fixed by fail-closed deferral)."
+  },
+  {
+   "jur": "us",
+   "commit": "915d4e979e",
+   "date": "",
+   "subject": "(screen-flagged) Mis-grounded proof: the 3241(b) excerpt for the section 3201(b) applicable-percentage table changes from an 8-value paraphrase (\"4.9, 4.4, 3.9, ...\") to the actual 12-row values (five 4.9 rows, matching the corpus XML); PR body: \"refresh generated 26 USC 3241(b) table proof text\"; 3201 import hash re-pinned.",
+   "n_modules": 2,
+   "screen_reason": "Mis-grounded proof: the 3241(b) excerpt for the section 3201(b) applicable-percentage table changes from an 8-value paraphrase (\"4.9, 4.4, 3.9, ...\") to the actual 12-row values (five 4.9 rows, matching the corpus XML); PR body: \"refresh generated 26 USC 3241(b) table proof text\"; 3201 import hash re-pinned."
+  },
+  {
+   "jur": "us",
+   "commit": "310b309137",
+   "date": "",
+   "subject": "(screen-flagged) Low confidence: CA SNAP composition spec (us-ca/snap/fy-2026.yaml) replaces the non-runnable bootstrap with transformations; snap_eligible is pointed at member_of_household instead of the derived snap_unit members because, per diff comment, \"the indirection through snap_unit returns 0\" (relation/scope change driven by a wrong result; may be a completion rather than a fix of merged semantics).",
+   "n_modules": 1,
+   "screen_reason": "Low confidence: CA SNAP composition spec (us-ca/snap/fy-2026.yaml) replaces the non-runnable bootstrap with transformations; snap_eligible is pointed at member_of_household instead of the derived snap_unit members because, per diff comment, \"the indirection through snap_unit returns 0\" (relation/scope change driven by a wrong result; may be a completion rather than a fix of merged semantics)."
+  },
+  {
+   "jur": "us",
+   "commit": "370be0e541",
+   "date": "",
+   "subject": "(screen-flagged) Refresh of already-merged 3241(b) module re-grounds its proof: `kind: formula` atoms with bare corpus citation become `parameter_table` atoms with table excerpts and the composite rules' atoms become `import` atoms; summary rewritten; no formula/amount changes; 3201/3211/3221 only get updated import hashes. Commit body is empty (subject only).",
+   "n_modules": 4,
+   "screen_reason": "Refresh of already-merged 3241(b) module re-grounds its proof: `kind: formula` atoms with bare corpus citation become `parameter_table` atoms with table excerpts and the composite rules' atoms become `import` atoms; summary rewritten; no formula/amount changes; 3201/3211/3221 only get updated import hashes. Commit body is empty (subject only)."
+  },
+  {
+   "jur": "us",
+   "commit": "be74fe1e2d",
+   "date": "",
+   "subject": "(screen-flagged) Regenerate of existing 3241(b) module: values unchanged but proof parameter_table keys re-anchored to the statute's table labels (header 'Tax rate schedule', row_key 'Average account benefits ratio') and downstream import hashes updated in 3201/3211/3221; grounding rework, not a new encoding.",
+   "n_modules": 4,
+   "screen_reason": "Regenerate of existing 3241(b) module: values unchanged but proof parameter_table keys re-anchored to the statute's table labels (header 'Tax rate schedule', row_key 'Average account benefits ratio') and downstream import hashes updated in 3201/3211/3221; grounding rework, not a new encoding."
+  },
+  {
+   "jur": "us",
+   "commit": "b08ec83a3a",
+   "date": "",
+   "subject": "(screen-flagged) Regenerate of existing 164(f) module changes entity TaxUnit -> Person, re-anchors imports from us:statutes/26/1401#self_employment_oasdi_tax / #self_employment_hospital_insurance_tax to us:statutes/26/1401/a#old_age_survivors_and_disability_insurance_tax and us:statutes/26/1401/b/1#self_employment_income_tax, adds proof spans, and rewrites the companion test.",
+   "n_modules": 1,
+   "screen_reason": "Regenerate of existing 164(f) module changes entity TaxUnit -> Person, re-anchors imports from us:statutes/26/1401#self_employment_oasdi_tax / #self_employment_hospital_insurance_tax to us:statutes/26/1401/a#old_age_survivors_and_disability_insurance_tax and us:statutes/26/1401/b/1#self_employment_income_tax, adds proof spans, and rewrites the companion test."
+  },
+  {
+   "jur": "us",
+   "commit": "eba8177ebf",
+   "date": "",
+   "subject": "(screen-flagged) Subject says Encode but 3241(b) already existed (#49, reworked in #53); diff removes the average_account_benefits_ratio_band_threshold_* parameter rules added in #53, collapses back to inline band literals, and updates 3201/3211/3221 import hashes; rework of an existing module, flagged as unsure.",
+   "n_modules": 4,
+   "screen_reason": "Subject says Encode but 3241(b) already existed (#49, reworked in #53); diff removes the average_account_benefits_ratio_band_threshold_* parameter rules added in #53, collapses back to inline band literals, and updates 3201/3211/3221 import hashes; rework of an existing module, flagged as unsure."
+  },
+  {
+   "jur": "us",
+   "commit": "53f375d713",
+   "date": "",
+   "subject": "(screen-flagged) Regenerate of existing railroad modules: renames and re-anchors 3201/3211/3221 imports to renamed 3241(b) outputs (e.g. applicable_percentage_for_section_3201_b), extracts band thresholds into proof-bearing parameters, rewrites deferred_outputs reasons; values unchanged as far as visible, but grounding/reference rework.",
+   "n_modules": 4,
+   "screen_reason": "Regenerate of existing railroad modules: renames and re-anchors 3201/3211/3221 imports to renamed 3241(b) outputs (e.g. applicable_percentage_for_section_3201_b), extracts band thresholds into proof-bearing parameters, rewrites deferred_outputs reasons; values unchanged as far as visible, but grounding/reference rework."
+  },
+  {
+   "jur": "us",
+   "commit": "095d680d47",
+   "date": "",
+   "subject": "(screen-flagged) Bulk mixed refresh whose squash body includes \"Repair RuleSpec validation coverage\" and \"Repair validation tail for refreshed RuleSpecs\"; module diffs carry semantic changes (151 adds a deferred_output making exemption_phaseout_applicable_percentage non-executable because 68(b) no longer defines the applicable amount; 24 rewrites phaseout threshold selection and qualifying-child predicates; 1402/a drops 1401 import proof atoms) alongside text->excerpt format renames and new subsection modules; later stage should read the diff.",
+   "n_modules": 68,
+   "screen_reason": "Bulk mixed refresh whose squash body includes \"Repair RuleSpec validation coverage\" and \"Repair validation tail for refreshed RuleSpecs\"; module diffs carry semantic changes (151 adds a deferred_output making exemption_phaseout_applicable_percentage non-executable because 68(b) no longer defines the applicable amount; 24 rewrites phaseout threshold selection and qualifying-child predicates; 1402/a drops 1401 import proof atoms) alongside text->excerpt format renames and new subsection modules; later stage should read the diff."
+  },
+  {
+   "jur": "us",
+   "commit": "5359b7012e",
+   "date": "",
+   "subject": "(screen-flagged) Corrects existing 32(c)(2) EITC module grounding: replaces the 1402(a) net_earnings_from_self_employment import with net earnings before the paragraph (12) adjustment minus the 164(f) deduction, per 32(c)(2)(A)(ii).",
+   "n_modules": 1,
+   "screen_reason": "Corrects existing 32(c)(2) EITC module grounding: replaces the 1402(a) net_earnings_from_self_employment import with net earnings before the paragraph (12) adjustment minus the 164(f) deduction, per 32(c)(2)(A)(ii)."
+  },
+  {
+   "jur": "us",
+   "commit": "3320c8e1d2",
+   "date": "",
+   "subject": "(screen-flagged) Regenerate rewrites 1(h) formulas: adjusted_net_capital_gain_limited floors taxable_income at 0, 28% gain tax is now capped by remaining taxable income, net_capital_gain subtracts the 163(d)(4)(B)(iii) election amount, and many source cites are corrected.",
+   "n_modules": 2,
+   "screen_reason": "Regenerate rewrites 1(h) formulas: adjusted_net_capital_gain_limited floors taxable_income at 0, 28% gain tax is now capped by remaining taxable income, net_capital_gain subtracts the 163(d)(4)(B)(iii) election amount, and many source cites are corrected."
+  },
+  {
+   "jur": "us",
+   "commit": "3f609bb669",
+   "date": "",
+   "subject": "(screen-flagged) Regenerate changes 1401 semantics: additional Medicare threshold match gains filing statuses 3 and 4 plus a separate-filer parameter, and the tax base now applies the 1401(c) international agreement exemption.",
+   "n_modules": 2,
+   "screen_reason": "Regenerate changes 1401 semantics: additional Medicare threshold match gains filing statuses 3 and 4 plus a separate-filer parameter, and the tax base now applies the 1401(c) international agreement exemption."
+  },
+  {
+   "jur": "us",
+   "commit": "b3801ee4eb",
+   "date": "",
+   "subject": "(screen-flagged) Wholesale regeneration with semantic corrections to existing modules: 24(d) phase-in threshold 2500 to 3000 and SS-excess gated on 3+ children, 1411 effective_from 2026 to 2013 and estate/trust base, CDCC/22/32/6401/2017(a)/273.10 formulas rewritten.",
+   "n_modules": 12,
+   "screen_reason": "Wholesale regeneration with semantic corrections to existing modules: 24(d) phase-in threshold 2500 to 3000 and SS-excess gated on 3+ children, 1411 effective_from 2026 to 2013 and estate/trust base, CDCC/22/32/6401/2017(a)/273.10 formulas rewritten."
+  },
+  {
+   "jur": "us",
+   "commit": "2175d5239a",
+   "date": "",
+   "subject": "(screen-flagged) Re-encode adds the missing 63(c)(5) dependent limitation to standard_deduction and sources the aged/blind count from 63(f) instead of local count_where inputs.",
+   "n_modules": 1,
+   "screen_reason": "Re-encode adds the missing 63(c)(5) dependent limitation to standard_deduction and sources the aged/blind count from 63(f) instead of local count_where inputs."
+  },
+  {
+   "jur": "us",
+   "commit": "c36a7900e0",
+   "date": "",
+   "subject": "(screen-flagged) Mostly source metadata, but nonpermanent_ineligibility_period_years in 2015(b)(1) changes branch order (drops the permanent gate, checks one-year before two-year) and 2015(d)(2)(C)/(e) rules are renamed; unsure.",
+   "n_modules": 11,
+   "screen_reason": "Mostly source metadata, but nonpermanent_ineligibility_period_years in 2015(b)(1) changes branch order (drops the permanent gate, checks one-year before two-year) and 2015(d)(2)(C)/(e) rules are renamed; unsure."
+  },
+  {
+   "jur": "us",
+   "commit": "97ba4dc683",
+   "date": "",
+   "subject": "(screen-flagged) Adds a restates source_relation from 18 NYCRR 387.14(a)(5) to the federal 7 CFR 273.2(j) rule; source grounding change to an existing module, unsure whether defect.",
+   "n_modules": 1,
+   "screen_reason": "Adds a restates source_relation from 18 NYCRR 387.14(a)(5) to the federal 7 CFR 273.2(j) rule; source grounding change to an existing module, unsure whether defect."
+  },
+  {
+   "jur": "us",
+   "commit": "0d84cba0ce",
+   "date": "",
+   "subject": "(screen-flagged) Restores the sets source_relation to the 7 CFR 273.9 state utility-allowance option (with delegation basis) that the ca94764e80 regeneration dropped from the NY telephone allowance module.",
+   "n_modules": 1,
+   "screen_reason": "Restores the sets source_relation to the 7 CFR 273.9 state utility-allowance option (with delegation basis) that the ca94764e80 regeneration dropped from the NY telephone allowance module."
+  },
+  {
+   "jur": "us",
+   "commit": "ca94764e80",
+   "date": "",
+   "subject": "(screen-flagged) Regeneration corrects NY telephone allowance eligibility to require the household incurred basic service cost for one telephone (previously granted whenever heating/cooling and utilities allowances did not apply) and replaces the paraphrased summary with regulation text.",
+   "n_modules": 1,
+   "screen_reason": "Regeneration corrects NY telephone allowance eligibility to require the household incurred basic service cost for one telephone (previously granted whenever heating/cooling and utilities allowances did not apply) and replaces the paraphrased summary with regulation text."
+  },
+  {
+   "jur": "us",
+   "commit": "682af97f25",
+   "date": "",
+   "subject": "(screen-flagged) Subject says Encode, but the diff also rewrites existing 32.yaml: eitc_maximum reverts to the Rev. Proc. table lookup and eitc_phased_in gains a max(0, earned_income) floor and an earned_income >= amount branch.",
+   "n_modules": 2,
+   "screen_reason": "Subject says Encode, but the diff also rewrites existing 32.yaml: eitc_maximum reverts to the Rev. Proc. table lookup and eitc_phased_in gains a max(0, earned_income) floor and an earned_income >= amount branch."
+  },
+  {
+   "jur": "us",
+   "commit": "86e2549dc7",
+   "date": "",
+   "subject": "(screen-flagged) Subject says Encode, but it re-encodes existing 63, 63(c), 63(c)(5) and rev-proc standard-deduction modules: taxable_income restructured into 63(a)/(b) branches, standard_deduction effective_from 2026 to 2018, inputs and rule sets replaced; unsure.",
+   "n_modules": 8,
+   "screen_reason": "Subject says Encode, but it re-encodes existing 63, 63(c), 63(c)(5) and rev-proc standard-deduction modules: taxable_income restructured into 63(a)/(b) branches, standard_deduction effective_from 2026 to 2018, inputs and rule sets replaced; unsure."
+  },
+  {
+   "jur": "us",
+   "commit": "3fe1c7bc3c",
+   "date": "",
+   "subject": "(screen-flagged) Subject says Encode, but it rewrites the existing 63(f) module: spouse entitlements move from tax-unit booleans to count_where over a spouse Person relation (entity/scope), the additional_standard_deduction_amount_under_subsection_f output is removed, and paragraph (3) becomes a deferred output.",
+   "n_modules": 1,
+   "screen_reason": "Subject says Encode, but it rewrites the existing 63(f) module: spouse entitlements move from tax-unit booleans to count_where over a spouse Person relation (entity/scope), the additional_standard_deduction_amount_under_subsection_f output is removed, and paragraph (3) becomes a deferred output."
+  },
+  {
+   "jur": "us",
+   "commit": "adae20d1a4",
+   "date": "",
+   "subject": "(screen-flagged) Subject says Encode, but it modifies existing 63(c): additional_std_ded_amount now counts aged plus blind conditions (was aged only) and standard_deduction gains the 63(c)(6) ineligibility gate.",
+   "n_modules": 1,
+   "screen_reason": "Subject says Encode, but it modifies existing 63(c): additional_std_ded_amount now counts aged plus blind conditions (was aged only) and standard_deduction gains the 63(c)(6) ineligibility gate."
+  },
+  {
+   "jur": "us",
+   "commit": "dbd9933f63",
+   "date": "",
+   "subject": "(screen-flagged) Subject says Encode, but it modifies existing 63.yaml beyond import wiring: adds max(0, ...) floors to both taxable_income branches and to the subsection (b) deductions sum; unsure.",
+   "n_modules": 1,
+   "screen_reason": "Subject says Encode, but it modifies existing 63.yaml beyond import wiring: adds max(0, ...) floors to both taxable_income branches and to the subsection (b) deductions sum; unsure."
+  },
+  {
+   "jur": "us",
+   "commit": "79be93e456",
+   "date": "",
+   "subject": "(screen-flagged) Boundary fix to existing snap_maximum_allotment formula: replaces if household_size > 8 / else table[household_size] with a clamped index max(min(household_size, 8), 1) plus max(household_size - 8, 0) additional-member term, so sizes 0 and >8 no longer index outside the table.",
+   "n_modules": 1,
+   "screen_reason": "Boundary fix to existing snap_maximum_allotment formula: replaces if household_size > 8 / else table[household_size] with a clamped index max(min(household_size, 8), 1) plus max(household_size - 8, 0) additional-member term, so sizes 0 and >8 no longer index outside the table."
+  },
+  {
+   "jur": "us",
+   "commit": "ca02796d40",
+   "date": "",
+   "subject": "(screen-flagged) Corrects the input consumed by 10 CCR 2506-1 4.408 resource test: snap_countable_resources_for_resource_test formula changed from nonexempt_resources + snap_sponsor_resources_counted to snap_countable_resources + snap_sponsor_resources_counted (wires to the 4.409 countable-resources derivation); tests updated to match.",
+   "n_modules": 1,
+   "screen_reason": "Corrects the input consumed by 10 CCR 2506-1 4.408 resource test: snap_countable_resources_for_resource_test formula changed from nonexempt_resources + snap_sponsor_resources_counted to snap_countable_resources + snap_sponsor_resources_counted (wires to the 4.409 countable-resources derivation); tests updated to match."
+  },
+  {
+   "jur": "us",
+   "commit": "34ad146770",
+   "date": "",
+   "subject": "(screen-flagged) Unsure (subject says Move): statute modules 26/63/c and 26/63/c/5 had hardcoded 2026 inflation-adjusted amounts (16100/32200/24150, 2050/1650, 1350/450) sourced as IRC 63(c)(2)/(f)(1) as amended 2026; commit removes them and imports a new Rev. Proc. 2025-32 module, i.e. re-grounds amounts that were attributed to the statute rather than IRS guidance.",
+   "n_modules": 3,
+   "screen_reason": "Unsure (subject says Move): statute modules 26/63/c and 26/63/c/5 had hardcoded 2026 inflation-adjusted amounts (16100/32200/24150, 2050/1650, 1350/450) sourced as IRC 63(c)(2)/(f)(1) as amended 2026; commit removes them and imports a new Rev. Proc. 2025-32 module, i.e. re-grounds amounts that were attributed to the statute rather than IRS guidance."
+  },
+  {
+   "jur": "us",
+   "commit": "010774a5de",
+   "date": "",
+   "subject": "(screen-flagged) Unsure: 10 CCR 2506-1 4.407.31 previously dispatched allowance amounts on a caller-supplied snap_utility_allowance_type string (SUA/LUA/OUA/IUA); commit replaces that with derived eligibility rules encoding the 4.407.31(A)-(D) conditions (HCUA, BUA, OUA, telephone), so the allowance-selection clauses the old module delegated to an input are now encoded and the labels match the regulation.",
+   "n_modules": 1,
+   "screen_reason": "Unsure: 10 CCR 2506-1 4.407.31 previously dispatched allowance amounts on a caller-supplied snap_utility_allowance_type string (SUA/LUA/OUA/IUA); commit replaces that with derived eligibility rules encoding the 4.407.31(A)-(D) conditions (HCUA, BUA, OUA, telephone), so the allowance-selection clauses the old module delegated to an input are now encoded and the labels match the regulation."
+  },
+  {
+   "jur": "uk",
+   "commit": "2d8fded7c8",
+   "date": "",
+   "subject": "(screen-flagged) Subject says Encode, but the diff reworks the Barnsley module already committed the same day in 598382330d: citations re-anchored (page-51->page-52, page-10->page-11, page-13->page-14), band table changed (0: 0.90 -> 0: 0, band 5 removed) and protected-group logic/summary rewritten; corrects existing encoded semantics and source grounding",
+   "n_modules": 1,
+   "screen_reason": "Subject says Encode, but the diff reworks the Barnsley module already committed the same day in 598382330d: citations re-anchored (page-51->page-52, page-10->page-11, page-13->page-14), band table changed (0: 0.90 -> 0: 0, band 5 removed) and protected-group logic/summary rewritten; corrects existing encoded semantics and source grounding"
+  },
+  {
+   "jur": "uk",
+   "commit": "2ad8f8025a",
+   "date": "",
+   "subject": "(screen-flagged) Subject says '(re-encode)' of Coventry working-age CTR; commit body records a wrong-rate fix: \"The module had encoded the maximum as 100% of the discounted annual liability less deductions, so every award was overstated by 25%.\" (80% max-liability rate, s.57.1). Diff needed to confirm it replaces the previously merged Coventry module.",
+   "n_modules": 1,
+   "screen_reason": "Subject says '(re-encode)' of Coventry working-age CTR; commit body records a wrong-rate fix: \"The module had encoded the maximum as 100% of the discounted annual liability less deductions, so every award was overstated by 25%.\" (80% max-liability rate, s.57.1). Diff needed to confirm it replaces the previously merged Coventry module."
+  },
+  {
+   "jur": "uk",
+   "commit": "105a10d67e",
+   "date": "",
+   "subject": "(screen-flagged) Missing boundary in the merged GOV.UK student-loan repayment module: body says it \"never capped the annual repayment at the borrower's outstanding balance\"; adds min(scheduled_deduction, balance) cap and grounds it (closes #77).",
+   "n_modules": 1,
+   "screen_reason": "Missing boundary in the merged GOV.UK student-loan repayment module: body says it \"never capped the annual repayment at the borrower's outstanding balance\"; adds min(scheduled_deduction, balance) cap and grounds it (closes #77)."
+  },
+  {
+   "jur": "uk",
+   "commit": "f7184e07e1",
+   "date": "",
+   "subject": "(screen-flagged) Unsure: adds a 2026-04-06 version to the already-merged SSCBA 1992 s.13 Class 3 module, which until then carried only the 2025-26 rate (\"still GBP 17.75, the 2025-26 figure\"), so 2026-27 weeks returned a stale amount; body frames it as \"currency/completeness only\" but it is a wrong-amount-for-period correction of a merged module.",
+   "n_modules": 1,
+   "screen_reason": "Unsure: adds a 2026-04-06 version to the already-merged SSCBA 1992 s.13 Class 3 module, which until then carried only the 2025-26 rate (\"still GBP 17.75, the 2025-26 figure\"), so 2026-27 weeks returned a stale amount; body frames it as \"currency/completeness only\" but it is a wrong-amount-for-period correction of a merged module."
+  },
+  {
+   "jur": "uk",
+   "commit": "829ab1a255",
+   "date": "",
+   "subject": "(screen-flagged) 'retire' verb: signed retirement of five PolicyEngine model wrappers (child-benefit, universal-credit, housing-benefit, esa-income, severe-disablement-allowance) because \"their legal content lives in the statute and regulation modules\"; source-grounding retirement of model-grounded modules.",
+   "n_modules": 5,
+   "screen_reason": "'retire' verb: signed retirement of five PolicyEngine model wrappers (child-benefit, universal-credit, housing-benefit, esa-income, severe-disablement-allowance) because \"their legal content lives in the statute and regulation modules\"; source-grounding retirement of model-grounded modules."
+  },
+  {
+   "jur": "uk",
+   "commit": "0644db8206",
+   "date": "",
+   "subject": "(screen-flagged) Unsure: subject is a layout/signing hard cut (bookkeeping), but the body says \"excerpts corrected to verbatim statutory text\" across the migrated modules, which is a proof-grounding correction; later stage should check whether any module's proof excerpts actually changed.",
+   "n_modules": 118,
+   "screen_reason": "Unsure: subject is a layout/signing hard cut (bookkeeping), but the body says \"excerpts corrected to verbatim statutory text\" across the migrated modules, which is a proof-grounding correction; later stage should check whether any module's proof excerpts actually changed."
+  },
+  {
+   "jur": "uk",
+   "commit": "17fc102363",
+   "date": "",
+   "subject": "(screen-flagged) Unsure: primarily a new encoding (reg 90 MIF, NMW reg 4A) but the second commit wires the minimum income floor into the already-merged composed UC pipeline (a gap in the award computation for gainfully self-employed claimants); body says it is \"preserving the existing supplied-input path\", so may be extension rather than correction.",
+   "n_modules": 3,
+   "screen_reason": "Unsure: primarily a new encoding (reg 90 MIF, NMW reg 4A) but the second commit wires the minimum income floor into the already-merged composed UC pipeline (a gap in the award computation for gainfully self-employed claimants); body says it is \"preserving the existing supplied-input path\", so may be extension rather than correction."
+  },
+  {
+   "jur": "uk",
+   "commit": "eb61ae53e8",
+   "date": "",
+   "subject": "(screen-flagged) Unsure: \"Extends the merged composed Child Benefit pipeline (rulespec-uk#76)\" with HICBC (ss.681B-681H) and a net-of-charge output, closing #75; adds statutory content missing from a merged module but may be new scope for the UKMOD oracle rather than a correction of wrong semantics.",
+   "n_modules": 1,
+   "screen_reason": "Unsure: \"Extends the merged composed Child Benefit pipeline (rulespec-uk#76)\" with HICBC (ss.681B-681H) and a net-of-charge output, closing #75; adds statutory content missing from a merged module but may be new scope for the UKMOD oracle rather than a correction of wrong semantics."
+  },
+  {
+   "jur": "uk",
+   "commit": "a0b6dd2c96",
+   "date": "",
+   "subject": "(screen-flagged) Source-grounding fix on merged Carer's Allowance module: annualization rule's source changes from 'PolicyEngine UK annual benefit wrapper' to the Claims and Payments Regulations citation and a formula proof atom grounded in uksi/2013/376 sch 4 para 7 is added (mis-grounded proof).",
+   "n_modules": 1,
+   "screen_reason": "Source-grounding fix on merged Carer's Allowance module: annualization rule's source changes from 'PolicyEngine UK annual benefit wrapper' to the Claims and Payments Regulations citation and a formula proof atom grounded in uksi/2013/376 sch 4 para 7 is added (mis-grounded proof)."
+  },
+  {
+   "jur": "uk",
+   "commit": "cee3c3d1d3",
+   "date": "",
+   "subject": "(screen-flagged) Re-anchors merged NI s.8 module's source grounding: every corpus_citation_path moves from uk/statute/legislation.gov.uk/ukpga/1992/4/section/8 to uk/statute/ukpga/1992/4/8, proof atoms are replaced, and companion tests are rewritten.",
+   "n_modules": 1,
+   "screen_reason": "Re-anchors merged NI s.8 module's source grounding: every corpus_citation_path moves from uk/statute/legislation.gov.uk/ukpga/1992/4/section/8 to uk/statute/ukpga/1992/4/8, proof atoms are replaced, and companion tests are rewritten."
+  }
+ ]
+}

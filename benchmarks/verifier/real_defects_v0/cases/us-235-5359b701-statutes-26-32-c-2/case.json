@@ -1,0 +1,141 @@
+{
+  "id": "us-235-5359b701-statutes-26-32-c-2",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "5359b7012eb95aba97f3b66b2f2bd70dcb8623d6",
+  "parent_commit": "1a4b1d3010801b845ca956425fb6d45f24222b13",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Corrects existing 32(c)(2) EITC module grounding: replaces the 1402(a) net_earnings_from_self_employment import with net earnings before the paragraph (12) adjustment minus the 164(f) deduction, per 32(c)(2)(A)(ii).",
+  "pr_url": null,
+  "module_path": "statutes/26/32/c/2.yaml",
+  "corpus_citation_path": "us/statute/26/32",
+  "corpus_citation_paths_all": [
+    "us/statute/26/32"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.8,
+  "description": "Use Section 164f for EITC self-employment",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        4,
+        4
+      ],
+      [
+        145,
+        147
+      ],
+      [
+        159,
+        159
+      ],
+      [
+        180,
+        182
+      ],
+      [
+        200,
+        200
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        3,
+        4
+      ],
+      [
+        127,
+        159
+      ],
+      [
+        179,
+        181
+      ],
+      [
+        193,
+        193
+      ],
+      [
+        214,
+        216
+      ],
+      [
+        234,
+        234
+      ]
+    ],
+    "rule_names": [
+      "self_employment_earned_income_component",
+      "earned_income_before_section_112_election",
+      "earned_income"
+    ],
+    "rule_path": "rules[self_employment_earned_income_component].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "d3493d2a1e3a6bc3be6be4d8b9725039dc46740b8078fd833d181a98d894330f",
+  "post_fix_artifact_sha256": "fdba9102bbc4ab312472c5420fe1e9b73d03f9ef38563869df02966b5284f8b0",
+  "provision_sha256": "f829a778ecb0710f0cf0e04cd270f4896d757b90d724e0798001428c46841e10",
+  "provision_chars": 16971,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/32",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "1b0b185ca3335eb06c4fe10af488a8984bdd2cedd4087badf78583c267af7b7b",
+    "line_number": 20,
+    "record_id": "7942801b-041c-5dc9-921e-f5431ccde5a2",
+    "stored_body_sha256": "f829a778ecb0710f0cf0e04cd270f4896d757b90d724e0798001428c46841e10",
+    "resolved_text_sha256": "f829a778ecb0710f0cf0e04cd270f4896d757b90d724e0798001428c46841e10",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us/statute/26/32",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/32'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/32'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/32'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/32'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module took the self-employment leg of EITC earned income straight from 1402(a)'s net_earnings_from_self_employment, which is net of the paragraph (12) deduction allowed in lieu of section 164(f), so it never represented 32(c)(2)(A)(ii)'s requirement that such net earnings \"shall be determined with regard to the deduction allowed to the taxpayer by section 164(f)\", understating earned income for self-employed filers (test case moves 59235 -> 59293.5225).",
+    "triage_notes": "Single module in the commit. Provision read through the pinned corpus release (us/statute/26/32): the statutory text confirms \"the amount of the taxpayer's net earnings from self-employment for the taxable year (within the meaning of section 1402(a)), but such net earnings shall be determined with regard to the deduction allowed to the taxpayer by section 164(f).\" The same sentence is quoted verbatim as the excerpt of the newly added proof atom in the module diff. Both imported rules already existed at the parent commit (statutes/26/1402/a#net_earnings_before_paragraph_12_adjustment and statutes/26/164/f#self_employment_tax_deduction_attributable_to_nonemployee_trade_or_business), so this is purely a re-grounding of 32(c)(2), not new upstream encoding. The commit also touches .axiom/encoding-manifests/statutes/26/32/c/2.json (bookkeeping) and three companion test files (26/24/d.test.yaml, 26/32.test.yaml, 26/32/c/2.test.yaml); the downstream two only add zero-self-employment inputs plus the new component output, while 26/32/c/2.test.yaml records the real value change. No PR is associated with the commit (bundle pr is null) and the commit body is empty, so the only maintainer text is the terse subject. Alternative kind reading: untraceable_branch (the formula was grounded on 1402(a)'s paragraph (12) deduction rather than the 164(f) deduction the section cites); I chose unrepresented_clause because the source states a specific deduction clause that the encoding omitted and the fix adds it. Effective_from on the new rule is 1990-01-01, matching the sibling rules, so no period change.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.91,
+    "verifier_justification": "The refutation attempt fails: the diff changes encoded meaning, not provenance. 32(c)(2)(A)(ii) as read through the pinned release (us-rulespec-2026-07-13, resolved sha f829a778...) says net earnings from self-employment \"shall be determined with regard to the deduction allowed to the taxpayer by section 164(f)\", and 1402(a)(12) supplies its own deduction \"in lieu of the deduction provided by section 164(f)\"; the pre-fix formula imported 1402(a)#net_earnings_from_self_employment (post-paragraph-12), so the trailing directive clause was simply not implemented, and the fix adds it by subtracting the actual 164(f) deduction from net earnings before the paragraph (12) adjustment. That the module already claimed the clause — the pre-fix `earned_income` rule carried a proof atom of kind `condition` quoting that exact sentence against versions[0].formula, and the module summary quotes it — rules out \"new coverage the module never claimed\", so this is a correction, not an enhancement. The arithmetic corroborates: with SE gross 10,000 the component moves 9,235 -> 9,293.5225, i.e. 10,000 - 0.5 x 0.153 x 9,235 = 10,000 - 706.4775, exactly the 164(f) half-of-SE-tax deduction replacing the 92.35% paragraph (12) haircut.",
+    "verifier_quote": "+        formula: |-\n+          net_earnings_before_paragraph_12_adjustment\n+          - self_employment_tax_deduction_attributable_to_nonemployee_trade_or_business",
+    "verifier_notes": "Decisive corroborating lines: in both `earned_income_before_section_112_election` and `earned_income` the diff replaces \"+ net_earnings_from_self_employment\" with \"+ self_employment_earned_income_component\"; the new rule's formula proof atom excerpt is verbatim \"net earnings from self-employment for the taxable year (within the meaning of section 1402(a)), but such net earnings shall be determined with regard to the deduction allowed to the taxpayer by section 164(f)\". Pre-fix file (parent 1a4b1d30) lines ~168-186 show `earned_income` already carrying a proof atom `kind: condition` with excerpt \"such net earnings shall be determined with regard to the deduction allowed to the taxpayer by section 164(f)\" while the formula omitted it — a claimed-but-unimplemented clause. Both import targets (26/1402/a#net_earnings_before_paragraph_12_adjustment and 26/164/f#self_employment_tax_deduction_attributable_to_nonemployee_trade_or_business) already existed at the parent commit, so nothing new was authored upstream; only 32(c)(2) was regrounded. Alternative kind considered and rejected: untraceable_branch (\"formulas grounded on the wrong provision\") is defensible for the half of the fix that drops the paragraph (12) deduction, but the pre-fix 1402(a) import was itself textually grounded (\"within the meaning of section 1402(a)\"); what was absent was the source's own trailing clause, which the fix adds — so unrepresented_clause is the better fit. Mechanical is ruled out (formulas and test outputs changed); amount_mismatch is ruled out (no numeric constant in this module changed). Note also that the new `self_employment_earned_income_component` output is a newly exposed surface, but it is an internal decomposition of an existing output whose value changed, not new scope. The two \"hash: sha256:local\" entries are the normal intra-module import marker, not a pin change.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Single module in the commit. Provision read through the pinned corpus release (us/statute/26/32): the statutory text confirms \"the amount of the taxpayer's net earnings from self-employment for the taxable year (within the meaning of section 1402(a)), but such net earnings shall be determined with regard to the deduction allowed to the taxpayer by section 164(f).\" The same sentence is quoted verbatim as the excerpt of the newly added proof atom in the module diff. Both imported rules already existed at the parent commit (statutes/26/1402/a#net_earnings_before_paragraph_12_adjustment and statutes/26/164/f#self_employment_tax_deduction_attributable_to_nonemployee_trade_or_business), so this is purely a re-grounding of 32(c)(2), not new upstream encoding. The commit also touches .axiom/encoding-manifests/statutes/26/32/c/2.json (bookkeeping) and three companion test files (26/24/d.test.yaml, 26/32.test.yaml, 26/32/c/2.test.yaml); the downstream two only add zero-self-employment inputs plus the new component output, while 26/32/c/2.test.yaml records the real value change. No PR is associated with the commit (bundle pr is null) and the commit body is empty, so the only maintainer text is the terse subject. Alternative kind reading: untraceable_branch (the formula was grounded on 1402(a)'s paragraph (12) deduction rather than the 164(f) deduction the section cites); I chose unrepresented_clause because the source states a specific deduction clause that the encoding omitted and the fix adds it. Effective_from on the new rule is 1990-01-01, matching the sibling rules, so no period change. | verifier confirmed at 0.91",
+  "family_id": "us-5359b701-2e15d2540df3",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

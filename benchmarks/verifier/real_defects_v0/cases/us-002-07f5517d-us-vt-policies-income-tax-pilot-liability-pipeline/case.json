@@ -1,0 +1,91 @@
+{
+  "id": "us-002-07f5517d-us-vt-policies-income-tax-pilot-liability-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "07f5517d7416416a753e57b591f632ae99d310d7",
+  "parent_commit": "4bca2b9f3fcf4d08a5922238e379a6b85af5cab2",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Time-bound: WA and VT pilot pipelines bounded to tax year 2026 (effective period).",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1017",
+  "module_path": "us-vt/policies/income_tax/pilot_liability_pipeline.yaml",
+  "corpus_citation_path": "us-vt/statute/32-5822",
+  "corpus_citation_paths_all": [
+    "us-vt/statute/32-5822"
+  ],
+  "corpus_release": "us-rulespec-2026-07-22-current-la-status-fix",
+  "corpus_release_content_sha256": "6bfd97b24cb63cb709fa52e9a5e6764c916dec95c5557447e11f47778ee4768f",
+  "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+  "defect_kind": "wrong_period_or_effective_date",
+  "other_kind": null,
+  "confidence": 0.49,
+  "description": "bounds the three WA and three previously open VT dependent outputs through 2026-12-31; VT’s two parameters were already bounded",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [],
+    "post_fix_lines": [
+      [
+        115,
+        115
+      ],
+      [
+        140,
+        140
+      ],
+      [
+        163,
+        163
+      ]
+    ],
+    "rule_names": [
+      "vt_pit_pilot_normal_income_tax",
+      "vt_pit_pilot_federal_agi_minimum_tax",
+      "vt_pit_pilot_income_tax_liability"
+    ],
+    "rule_path": "rules[vt_pit_pilot_income_tax_liability].versions[0].effective_to"
+  },
+  "pre_fix_artifact_sha256": "3394d120b89d002a73d295396e5f45c75aba3886645ba9171320c3f1cd191c39",
+  "post_fix_artifact_sha256": "9443a115dd2dc7cf9ce60681a2cc5ab86d6271affbced4a8089dac59fa92fdc2",
+  "provision_sha256": "57a339ae953625c375913f39c0d1fb8b7c235694c93cbfa9c492bf3a5093092a",
+  "provision_chars": 8979,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-vt/statute/32-5822",
+    "provision_file": "data/corpus/provisions/us-vt/statute/2026-07-16-pit-central-us-vt-title-32-chapter-151.jsonl",
+    "provision_file_sha256": "aae919cdf9dda9e5791155453c8fc7d7491bfc88d4c39e695f9a3e0f0ec88877",
+    "line_number": 16,
+    "record_id": "01302462-2e48-5b5e-9f1f-14f073baafcc",
+    "stored_body_sha256": "57a339ae953625c375913f39c0d1fb8b7c235694c93cbfa9c492bf3a5093092a",
+    "resolved_text_sha256": "57a339ae953625c375913f39c0d1fb8b7c235694c93cbfa9c492bf3a5093092a",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-16",
+    "source_as_of": "2026-07-16",
+    "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "527a5be2ca97f19301c2e8964d305548cadefa03",
+    "requested_citation_path": "us-vt/statute/32-5822",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The three derived VT outputs were encoded with an open-ended window (effective_from 2026-01-01, no effective_to), asserting the module's TY2026-only composition applies to every later year even though its own summary scopes it to \"Vermont 2026 individual income tax\", its normal-tax input is a supplied completed 2026 return, and the schedules it stands in for are annually re-indexed by the Commissioner.",
+    "triage_notes": "Diff is three identical one-line additions of effective_to: '2026-12-31'. Decisive internal evidence: the module's two parameters (vt_pit_pilot_federal_agi_minimum_threshold, vt_pit_pilot_federal_agi_minimum_rate) were ALREADY bounded to 2026-12-31 at the parent commit while the derived rules that reference them were not, so a 2027 evaluation would have run derived formulas against parameters with no active version — an internal window inconsistency the fix removes. Commit body is empty; PR #1017 (https://github.com/TheAxiomFoundation/rulespec-us/pull/1017) is a consolidation of several state lanes (MI, RI, UT, ID, WA, VT), so its body and the three PavelMakarchuk issue comments describe more than this commit; the WA/VT bullet and the sentence \"Closes the remaining cross-state TY2026 truthfulness and period-boundary gaps without changing the underlying tax formulas\" are the parts that cover it. No reviews/review_comments on the PR; the three issue comments are CLEAN combined-head reviews and a CI waiver fix (Idaho only). Only other files in the commit are the two .axiom encoding manifests; no companion test/fixture files changed here. Residual doubt for the reviewer: because the VT statutory threshold ($150,000) and rate (3%) are not themselves sunset in 32 V.S.A. 5822(a)(6), one could read this as pilot-coverage conservatism (limiting claims to the validated 2026 slice) rather than a disagreement with source text; I call it fidelity because the encoded version window over-claimed periods the module cannot represent, which is exactly wrong_period_or_effective_date, and because the change alters evaluated behavior (2027 now fails closed). Provision text not re-read for VT — the module's own rationale already quotes the annual-indexing mandate and the corpus lacks the 2026 indexed tables.",
+    "verifier_verdict": "not_a_defect",
+    "verifier_defect_kind": "none",
+    "verifier_confidence": 0.6,
+    "verifier_justification": "The cited source, 32 V.S.A. § 5822, imposes the tax \"for each taxable year\" with no sunset, and the (a)(6) greater-of test with its $150,000.00 threshold and three-percent rate is flat permanent text — only \"[t]he amounts of taxable income shown in the tables in this section shall be adjusted annually for inflation\" under (b)(2), and those indexed tables are explicitly deferred/supplied by this module — so the provision gives no basis for 2026-12-31 as an end date on these three derived outputs. The diff adds only three effective_to lines: every formula, parameter, input, output, entity and the TY2026 result are identical pre and post, and the PR frames the work as closing \"period-boundary gaps without changing the underlying tax formulas.\" The 2026 bound comes from the pilot's own validation scope (an explicitly supplied completed 2026 return, the pinned Populace artifact) and the repo's fail-closed convention, not from the cited text; if anything the post-fix window now understates the statute's permanent reach, just as the already-bounded $150,000/3% parameters do. The closest defensible alternative is unclear — open-ended outputs sitting above 2026-bounded parameters could emit an ungrounded 2027 number — but that is module self-consistency and scope hygiene, not encoded meaning that disagrees with the source.",
+    "verifier_quote": "+        effective_to: '2026-12-31'",
+    "verifier_notes": "Verified facts: (1) pre-fix, the two parameters vt_pit_pilot_federal_agi_minimum_threshold ('150000.0') and _rate ('0.03') already carried effective_from 2026-01-01 / effective_to 2026-12-31; only the three derived rules were open-ended. (2) Resolved source text (corpus release us-rulespec-2026-07-22-current-la-status-fix, provision us-vt/statute/32-5822, body sha256 57a339ae...) contains no sunset; the 2026 overlay (Act No. 164, Sec. 56) amends subsection (e) only and is itself permanent. (3) The (a)(6) $150,000 test is on federal AGI, which is not among \"the amounts of taxable income shown in the tables,\" so it is not one of the annually indexed amounts — the annual-indexing argument in the first reader's reading does not reach the parameters or the greater-of structure this module encodes. (4) 'mechanical' is excluded by definition here because version windows/effective dates did change. (5) If the project's standard is that a module validated only for TY2026 must not assert later years, then wrong_period_or_effective_date is the mechanically correct kind and the first reader's call stands; that standard is a repo convention (PR title \"Fail close 2026 state income-tax boundary modules\"), not the cited statute, which is why I land on not_a_defect rather than confirmed. A reviewer who wants to keep the case should downgrade it to unclear rather than confirmed. (6) No later commit touches this file, so the 2026 bound was not revisited. (7) This verdict covers module index 0 (VT) only; the WA half of commit 07f5517d74 has a different source posture (RCW 82.87 with its own indexed deductions) and should be judged separately.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Diff is three identical one-line additions of effective_to: '2026-12-31'. Decisive internal evidence: the module's two parameters (vt_pit_pilot_federal_agi_minimum_threshold, vt_pit_pilot_federal_agi_minimum_rate) were ALREADY bounded to 2026-12-31 at the parent commit while the derived rules that reference them were not, so a 2027 evaluation would have run derived formulas against parameters with no active version — an internal window inconsistency the fix removes. Commit body is empty; PR #1017 (https://github.com/TheAxiomFoundation/rulespec-us/pull/1017) is a consolidation of several state lanes (MI, RI, UT, ID, WA, VT), so its body and the three PavelMakarchuk issue comments describe more than this commit; the WA/VT bullet and the sentence \"Closes the remaining cross-state TY2026 truthfulness and period-boundary gaps without changing the underlying tax formulas\" are the parts that cover it. No reviews/review_comments on the PR; the three issue comments are CLEAN combined-head reviews and a CI waiver fix (Idaho only). Only other files in the commit are the two .axiom encoding manifests; no companion test/fixture files changed here. Residual doubt for the reviewer: because the VT statutory threshold ($150,000) and rate (3%) are not themselves sunset in 32 V.S.A. 5822(a)(6), one could read this as pilot-coverage conservatism (limiting claims to the validated 2026 slice) rather than a disagreement with source text; I call it fidelity because the encoded version window over-claimed periods the module cannot represent, which is exactly wrong_period_or_effective_date, and because the change alters evaluated behavior (2027 now fails closed). Provision text not re-read for VT — the module's own rationale already quotes the annual-indexing mandate and the corpus lacks the 2026 indexed tables. | verifier said not_a_defect at 0.60 (below 0.7); kept as unclear",
+  "family_id": "us-07f5517d-da60aea8eea3",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

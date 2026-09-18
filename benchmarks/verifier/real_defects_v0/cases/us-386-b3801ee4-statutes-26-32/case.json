@@ -1,0 +1,385 @@
+{
+  "id": "us-386-b3801ee4-statutes-26-32",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "b3801ee4eb82f8fc2c753d809c8b36d9ae6c42c2",
+  "parent_commit": "2175d5239a22bce42aa7a3b2f5a7c4af4c6940ea",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Wholesale regeneration with semantic corrections to existing modules: 24(d) phase-in threshold 2500 to 3000 and SS-excess gated on 3+ children, 1411 effective_from 2026 to 2013 and estate/trust base, CDCC/22/32/6401/2017(a)/273.10 formulas rewritten.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/25",
+  "module_path": "statutes/26/32.yaml",
+  "corpus_citation_path": "us/statute/26/32",
+  "corpus_citation_paths_all": [
+    "us/statute/26/32"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.65,
+  "description": "The term “eligible individual” does not include any individual who claims the benefits of section 911",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        3,
+        7
+      ],
+      [
+        10,
+        24
+      ],
+      [
+        26,
+        26
+      ],
+      [
+        60,
+        60
+      ],
+      [
+        67,
+        67
+      ],
+      [
+        73,
+        73
+      ],
+      [
+        77,
+        78
+      ],
+      [
+        84,
+        84
+      ],
+      [
+        87,
+        87
+      ],
+      [
+        96,
+        96
+      ],
+      [
+        131,
+        131
+      ],
+      [
+        146,
+        146
+      ],
+      [
+        150,
+        154
+      ],
+      [
+        161,
+        161
+      ],
+      [
+        186,
+        186
+      ],
+      [
+        196,
+        196
+      ],
+      [
+        207,
+        208
+      ],
+      [
+        218,
+        227
+      ],
+      [
+        244,
+        244
+      ],
+      [
+        248,
+        250
+      ],
+      [
+        255,
+        255
+      ],
+      [
+        261,
+        262
+      ],
+      [
+        269,
+        269
+      ],
+      [
+        273,
+        276
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        2,
+        3
+      ],
+      [
+        5,
+        6
+      ],
+      [
+        9,
+        13
+      ],
+      [
+        15,
+        15
+      ],
+      [
+        18,
+        18
+      ],
+      [
+        20,
+        23
+      ],
+      [
+        29,
+        39
+      ],
+      [
+        47,
+        47
+      ],
+      [
+        53,
+        63
+      ],
+      [
+        71,
+        71
+      ],
+      [
+        76,
+        83
+      ],
+      [
+        86,
+        88
+      ],
+      [
+        93,
+        100
+      ],
+      [
+        103,
+        105
+      ],
+      [
+        111,
+        129
+      ],
+      [
+        133,
+        140
+      ],
+      [
+        146,
+        154
+      ],
+      [
+        157,
+        159
+      ],
+      [
+        166,
+        176
+      ],
+      [
+        179,
+        181
+      ],
+      [
+        188,
+        198
+      ],
+      [
+        207,
+        207
+      ],
+      [
+        214,
+        224
+      ],
+      [
+        233,
+        233
+      ],
+      [
+        240,
+        254
+      ],
+      [
+        263,
+        263
+      ],
+      [
+        270,
+        278
+      ],
+      [
+        282,
+        283
+      ],
+      [
+        290,
+        310
+      ],
+      [
+        326,
+        326
+      ],
+      [
+        334,
+        341
+      ],
+      [
+        344,
+        346
+      ],
+      [
+        354,
+        361
+      ],
+      [
+        364,
+        366
+      ],
+      [
+        374,
+        381
+      ],
+      [
+        385,
+        386
+      ],
+      [
+        394,
+        401
+      ],
+      [
+        404,
+        406
+      ],
+      [
+        413,
+        420
+      ],
+      [
+        426,
+        426
+      ],
+      [
+        432,
+        498
+      ],
+      [
+        502,
+        508
+      ],
+      [
+        513,
+        551
+      ],
+      [
+        556,
+        556
+      ],
+      [
+        558,
+        558
+      ],
+      [
+        565,
+        578
+      ],
+      [
+        582,
+        582
+      ]
+    ],
+    "rule_names": [
+      "eitc_demographic_eligible",
+      "eitc_identification_requirements_satisfied",
+      "eitc_qualifying_child",
+      "eitc_allowed",
+      "eitc_maximum",
+      "eitc_phased_in",
+      "eitc"
+    ],
+    "rule_path": "rules[eitc_demographic_eligible].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "59ed2a3af4e68aab307c17ad61358ad897e07757b6c38e5b2bcd7b725f0ccea8",
+  "post_fix_artifact_sha256": "c564d6c833a031f3aab30d7774daacfdf9a2c826d1200f0659e92b156ec9c9d8",
+  "provision_sha256": "f829a778ecb0710f0cf0e04cd270f4896d757b90d724e0798001428c46841e10",
+  "provision_chars": 16971,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/32",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "1b0b185ca3335eb06c4fe10af488a8984bdd2cedd4087badf78583c267af7b7b",
+    "line_number": 20,
+    "record_id": "7942801b-041c-5dc9-921e-f5431ccde5a2",
+    "stored_body_sha256": "f829a778ecb0710f0cf0e04cd270f4896d757b90d724e0798001428c46841e10",
+    "resolved_text_sha256": "f829a778ecb0710f0cf0e04cd270f4896d757b90d724e0798001428c46841e10",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us/statute/26/32",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/32'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/32'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/32'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/32'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix eligibility test was only `eitc_child_count > 0 or count_where(member_of_tax_unit, eitc_childless_age_eligible) > 0` plus two opaque inputs, so it omitted 32(c)(1)(A)(ii)(I) and (III) (US principal abode for more than half the year, not a dependent of another taxpayer), 32(c)(1)(B) (taxpayer who is another taxpayer's qualifying child), 32(c)(1)(C) (section 911 claimants), 32(c)(1)(D) (nonresident aliens absent a 6013(g)/(h) election), 32(e) (short taxable year), 32(k) (fraud/reckless-disregard disallowance periods and prior deficiency denials), and 32(m)'s SSN definition, and it counted any tax-unit member — including dependents — toward the childless age test rather than the taxpayer or spouse.",
+    "triage_notes": "Provision not separately resolved; the added proof-atom `text:` fields carry the corpus excerpts and the module summary is verbatim statutory text. Two secondary formula corrections worth noting: `eitc_maximum` moved from the Rev. Proc. published maximum-credit table to 32(a)(2)(A)'s 'credit percentage of the earned income amount' (phase_in_rate * earned_income_amount), and `eitc_phased_in` moved from `min(eitc_maximum, earned_income * rate)` to 32(a)(1)'s `rate * min(earned_income, earned_income_amount)` — numerically these differ only by the Rev. Proc. rounding of the published maximum. `eitc_before_eligibility` changed from `min(P, max(0, M-R))` to `max(0, min(P, M-R))`, which is algebraically identical for non-negative P. The qualifying-child test gained the 32(c)(3)(C) US-abode requirement and the 32(c)(3)(B) married-child exception. The 32(b)(1) percentage tables and the childless age bounds (25/65) are unchanged. The `us:policies/irs/rev-proc-2025-32/earned-income-credit` import is retained for the (b)(2)/(i)(1) indexed amounts.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.82,
+    "verifier_justification": "I tried to refute this as provenance-only or as new scope the module never claimed, and both fail: `rules[eitc_demographic_eligible].versions[0].formula` itself changed from a two-term test (`eitc_child_count > 0 or count_where(member_of_tax_unit, eitc_childless_age_eligible) > 0`) to a conjunction that adds the US-abode test, the not-a-dependent test, the qualifying-child-of-another-taxpayer bar, the section 911 exception, the nonresident-alien bar, the joint-return rule, the full-12-month rule, and the 32(k) disallowance bars. The pinned corpus text (us-rulespec-2026-07-13, body sha256 f829a778…) shows those conditions verbatim in 32(c)(1)(A)(ii)(I) and (III), (B), (C), (D), and the pre-fix rule cited `26 USC 32(c)(1)(A)` while `eitc_eligible` cited `32(c), 32(d), 32(i)`, so the omitted conditions sat inside the scope the module already claimed — this is a missing-clause correction, not added coverage. The added proof-atom excerpt the first reader quoted is backed by a real formula term (`and not taxpayer_claims_section_911_benefits`), so the excerpt-only/mechanical escape does not apply. Kind stands: the fix predominantly adds conditions the source states and the encoding lacked.",
+    "verifier_quote": "-          or count_where(member_of_tax_unit, eitc_childless_age_eligible) > 0\n+                  childless_taxpayer_principal_place_of_abode_in_united_states_more_than_half_year\n+                  and not taxpayer_is_dependent_for_section_151_to_another_taxpayer\n+          and not taxpayer_claims_section_911_benefits",
+    "verifier_notes": "Competing kinds I considered and rejected as the primary label, but a reviewer should know they co-occur in the same rule rewrite: (1) wrong_entity_or_scope — the pre-fix childless branch tested ANY tax-unit member (`count_where(member_of_tax_unit, eitc_childless_age_eligible) > 0`) whereas 32(c)(1)(A)(ii)(II) scopes the age test to the individual or, if married, the individual or spouse; the fix narrows to `childless_taxpayer_or_spouse_age_eligible_for_eitc`. (2) polarity_or_logic — the pre-fix married gate `(filing_status != 2 or satisfies_eitc_separated_spouse_rules)` in `eitc_eligible` fails open for married filers in any status coded other than 2, versus 32(d)(1)'s joint-return requirement; the fix is `(filing_status == 1 or not taxpayer_is_married_under_section_7703_a or satisfies_eitc_separated_spouse_rules)`. (3) untraceable_branch — `eitc_maximum` moved off the imported Rev. Proc. `eitc_maximum_credit_amounts[...]` table onto the statutory `eitc_phase_in_rate * eitc_earned_income_amount`; that is a re-grounding but arithmetically equivalent, so it carries little independent weight. Caveats: the 32(e) short-year and 32(k) disallowance/prior-deficiency terms are arguably scope the module never claimed (no pre-fix rule cited them), so if a reviewer wants the narrowest defect it is 32(c)(1)(A)(ii)(I)/(III), (B), (C), (D) — all squarely inside the rule's own cited source. Also note every new condition is an undefined opaque input (`taxpayer_claims_section_911_benefits`, `taxpayer_is_nonresident_alien_for_any_portion_of_year`, etc.), so the runtime effect depends on the caller supplying them; the first reader's \"two opaque inputs\" characterization of the pre-fix state is imprecise (pre-fix also leaned on `is_qualifying_child_dependent`, `filer_meets_eitc_identification_requirements`, `satisfies_eitc_separated_spouse_rules`). The commit is a wholesale regeneration of 12 modules with no per-module message, so the anchor evidence is the diff, not the commit text; the PR (#25, \"Encode 26 USC 63(c) standard deduction\") says nothing about section 32. Sibling rule `eitc_qualifying_child` shows the same unrepresented_clause pattern (adds 32(c)(3)(B) married exception, 32(c)(3)(C) US abode, 32(c)(3)(D) name/age/TIN), which corroborates the kind.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Provision not separately resolved; the added proof-atom `text:` fields carry the corpus excerpts and the module summary is verbatim statutory text. Two secondary formula corrections worth noting: `eitc_maximum` moved from the Rev. Proc. published maximum-credit table to 32(a)(2)(A)'s 'credit percentage of the earned income amount' (phase_in_rate * earned_income_amount), and `eitc_phased_in` moved from `min(eitc_maximum, earned_income * rate)` to 32(a)(1)'s `rate * min(earned_income, earned_income_amount)` — numerically these differ only by the Rev. Proc. rounding of the published maximum. `eitc_before_eligibility` changed from `min(P, max(0, M-R))` to `max(0, min(P, M-R))`, which is algebraically identical for non-negative P. The qualifying-child test gained the 32(c)(3)(C) US-abode requirement and the 32(c)(3)(B) married-child exception. The 32(b)(1) percentage tables and the childless age bounds (25/65) are unchanged. The `us:policies/irs/rev-proc-2025-32/earned-income-credit` import is retained for the (b)(2)/(i)(1) indexed amounts. | verifier confirmed at 0.82",
+  "family_id": "us-b3801ee4-b4522d893edb",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

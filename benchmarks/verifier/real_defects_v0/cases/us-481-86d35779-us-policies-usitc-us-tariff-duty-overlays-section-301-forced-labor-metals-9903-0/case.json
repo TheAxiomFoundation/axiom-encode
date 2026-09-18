@@ -1,0 +1,151 @@
+{
+  "id": "us-481-86d35779-us-policies-usitc-us-tariff-duty-overlays-section-301-forced-labor-metals-9903-0",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "86d35779d9eea3ec3f1c9ca211c4a78226878093",
+  "parent_commit": "b58a5c650ba76fb2313b53d006dd8a708d3fd2de",
+  "commit_date": "2026-08-01",
+  "commit_subject": "Repair overlay effective dates and retire heading 9903.01.20 module",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1192",
+  "module_path": "us/policies/usitc/us-tariff-duty/overlays/section-301/forced-labor-metals-9903-05-90.yaml",
+  "corpus_citation_path": "us/statute/hts/9903.05.90",
+  "corpus_citation_paths_all": [
+    "us/statute/hts/9903.05.90"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "wrong_period_or_effective_date",
+  "other_kind": null,
+  "confidence": 0.92,
+  "description": "Forced-labor 301 headings gate entries on/after 2026-07-24 per FR\n  2026-15181 DATES (was 2026-07-23).",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        29,
+        29
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        29,
+        29
+      ]
+    ],
+    "rule_names": [
+      "forced_labor_metals_heading_applies"
+    ],
+    "rule_path": "rules[forced_labor_metals_heading_applies].versions[0].effective_from"
+  },
+  "pre_fix_artifact_sha256": "41a370208da3cab40db3a9ad10f1f5c6368f591c7886013d5cb6064351e3921e",
+  "post_fix_artifact_sha256": "908332070c1fc89d014be72bd8566d2d881c815898e3c25c0b4cf4eb27670592",
+  "provision_sha256": "c05ddcc0ae44d3687db978fe3ce88b2b49a3905e8e1d9c1cdf8067eb777d0dcb",
+  "provision_chars": 830,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/hts/9903.05.90",
+    "provision_file": "data/corpus/provisions/us/statute/2026-08-03-rulespec-hts-current-with-legacy-aluminum.jsonl",
+    "provision_file_sha256": "7406b42f2f6a35bd43ed67d7fe4d0f7323e12c3e49c67b8d6699f9978d23b770",
+    "line_number": 1363,
+    "record_id": "d55274fb-0251-5f6e-a849-8201fe43dc2c",
+    "stored_body_sha256": "c05ddcc0ae44d3687db978fe3ce88b2b49a3905e8e1d9c1cdf8067eb777d0dcb",
+    "resolved_text_sha256": "c05ddcc0ae44d3687db978fe3ce88b2b49a3905e8e1d9c1cdf8067eb777d0dcb",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-31",
+    "source_as_of": "2026-08-01",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "2ccb67efa41f60b5a80cb736c0272e68d5591389",
+    "requested_citation_path": "us/statute/hts/9903.05.90",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.90'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.90'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.90'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.90'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.90'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.90'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.90'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.90'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.90'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.90'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.90'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.90'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.90'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.90'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.90'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.05.90'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The 9903.05.90 metals/vehicles/wood/pharma/semiconductor carve-out predicate was gated from 2026-07-23, a day before the forced-labor 301 entry-date gate of July 24, 2026 that the carve-out operates against.",
+    "triage_notes": "Same pattern as index 4 (single-rule carve-out module, one effective_from line); the long disjunction formula is unchanged. FR 2026-15181 DATES verified through the pinned corpus. Companion test unchanged.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_period_or_effective_date",
+    "verifier_confidence": 0.95,
+    "verifier_justification": "The module diff is exactly one meaning-bearing line: the single version of `forced_labor_metals_heading_applies` moves from effective_from '2026-07-23' to '2026-07-24', with no change to formula, inputs, scope, or metadata, so it is not mechanical. The cited source settles it against the pre-fix text: FR 2026-15181 (the USTR notice implementing the July 23 memorandum) states in DATES that the additional duties apply to goods \"entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern time on July 24, 2026,\" and Annex I.A inserts the new chapter 99 provisions (which include heading 9903.05.90) on that same entry date. July 23 is only the memorandum's signature date and has no basis as an HTSUS effective date, so the prior window opened a day before the heading existed. The same one-day correction is applied uniformly across the sibling forced-labor 301 modules (9903.05.31, .05.86), consistent with the commit body, and an effective_from/version-window correction is precisely wrong_period_or_effective_date rather than boundary_direction (no comparison strictness changed).",
+    "verifier_quote": "-      - effective_from: '2026-07-23'\n+      - effective_from: '2026-07-24'",
+    "verifier_notes": "Source verified through the pinned release (resolve_provision, corpus release us-rulespec-2026-08-03-ecps-pit-tariff-union, citation us/rulemaking/federal-register/2026-07-28/2026-15181): \"DATES: The additional rates of duty are applicable with respect to products that are entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern time on July 24, 2026\" and \"Annex I / A. Effective with respect to goods entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern time on July 24, 2026, subchapter III of chapter 99 of the [HTSUS] is modified as follows: 1. The following new provisions are inserted...\". Two caveats a reviewer may want: (1) the module's own corpus_citation_path is us/statute/hts/9903.05.90, whose corpus text carries no date at all, so the date evidence comes from the FR notice cited in the commit body and in the composition file, not from the module's cited provision — the fix is still source-grounded, just via a citation the module does not carry; (2) a residual, unfixed period issue in the same module: Annex I.B of the same FR modifies heading 9903.05.90 to add \"patented pharmaceutical articles\" only effective 12:01 a.m. July 31, 2026, yet the module keeps a single version from 2026-07-24 whose formula already includes `article_is_patented_pharmaceutical_article`, so the 07-24..07-30 window over-includes pharma. That is a separate candidate defect, not a reason to doubt this one. Also note the PR body's \"Judgment calls\" section still describes the pre-fix state (\"heading modules carry effective_from 2026-07-23\"); commit 86d35779d9 is the in-PR repair that removed that inconsistency, so the stale PR text is not evidence that 07-23 was defensible.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Same pattern as index 4 (single-rule carve-out module, one effective_from line); the long disjunction formula is unchanged. FR 2026-15181 DATES verified through the pinned corpus. Companion test unchanged. | verifier confirmed at 0.95",
+  "family_id": "us-86d35779-48221a9d5a7d",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

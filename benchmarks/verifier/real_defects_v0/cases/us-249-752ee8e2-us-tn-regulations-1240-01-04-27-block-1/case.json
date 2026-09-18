@@ -1,0 +1,117 @@
+{
+  "id": "us-249-752ee8e2-us-tn-regulations-1240-01-04-27-block-1",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "752ee8e283209148e87d2caece95408a362f684d",
+  "parent_commit": "def45a4b319447676ce5b91127d0385d1bb35750",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Re-encode of merged CA/CO/NC/SC/TN SNAP utility allowance modules to correct their delegation structure; PR #402: \"Aligns state utility allowance settings with the delegated-setting `sets` shape enforced in TheAxiomFoundation/axiom-encode#613.\" Adds sets_* source_relation rules and per-allowance parameter rules ($594/$377/$71/$97 with effective_from 2025-10-01).",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/402",
+  "module_path": "us-tn/regulations/1240-01/04/27/block-1.yaml",
+  "corpus_citation_path": "us-tn/regulation/1240-01/04/27/block-1",
+  "corpus_citation_paths_all": [
+    "us-tn/regulation/1240-01/04/27/block-1"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.6,
+  "description": "Household Size 1 2 3 4 5 6+ Standard Deduction $142 $142 $142 $153 $179 $205",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        7,
+        8
+      ],
+      [
+        10,
+        467
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        7,
+        11
+      ],
+      [
+        13,
+        550
+      ]
+    ],
+    "rule_names": [
+      "snap_standard_deduction",
+      "sets_snap_standard_utility_allowance",
+      "sets_snap_limited_utility_allowance",
+      "sets_snap_individual_utility_allowance",
+      "snap_standard_utility_allowance_state_value",
+      "snap_limited_utility_allowance_state_value",
+      "snap_individual_utility_allowance_state_value"
+    ],
+    "rule_path": "rules[snap_standard_deduction].versions[0].values"
+  },
+  "pre_fix_artifact_sha256": "980b1e46a2d4b399f012e097256ad7fefc64cf9e95a8f32ddb4663c13e0d0cf2",
+  "post_fix_artifact_sha256": "244fd10ce8106799893775e4e43171cdd48e318f5357ad9babd3611b73e9d4f7",
+  "provision_sha256": "3381e3b3cf38f66490c78345f92627313eff6c52d9995a9fdb5040f04f1fa496",
+  "provision_chars": 3368,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-tn/regulation/1240-01/04/27/block-1",
+    "provision_file": "data/corpus/provisions/us-tn/regulation/2026-05-29-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "5d41bb5664431921e8f3229f245aee3814bb37a9024de33924c5c4d3197d9c27",
+    "line_number": 208,
+    "record_id": "ea8c406e-b08f-598c-be60-68e56415cc93",
+    "stored_body_sha256": "3381e3b3cf38f66490c78345f92627313eff6c52d9995a9fdb5040f04f1fa496",
+    "resolved_text_sha256": "3381e3b3cf38f66490c78345f92627313eff6c52d9995a9fdb5040f04f1fa496",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-05-29",
+    "source_as_of": "2026-05-29",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "earliest_release_after_toolchain_corpus_ref",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": "f880b1758701cfb85472a50597d5253495e8476e",
+    "requested_citation_path": "us-tn/regulation/1240-01/04/27/block-1",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us-tn/regulation/1240-01/04/27/block-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us-tn/regulation/1240-01/04/27/block-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us-tn/regulation/1240-01/04/27/block-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us-tn/regulation/1240-01/04/27/block-1'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "Table IV-A's top bucket is '6+', meaning every household of six or more gets $205, but the pre-fix `snap_standard_deduction` table stopped at key 6 even though its index `household_size` ranges to 10 in every sibling table in the same module, so households of 7-10 had no standard deduction value at all.",
+    "triage_notes": "Provision WAS read, via resolve_provision.py for us-tn/regulation/1240-01/04/27/block-1 (exit 0, 3368 chars). Verbatim source text: 'Table IV-A Standard Deduction\\n\\nHousehold Size 1 2 3 4 5 6+ Standard Deduction $142 $142 $142 $153 $179 $205'. Tables I, II and III in the same provision are keyed 'No. of Persons in Household 1 2 3 4 5 6 7 8 9 10' and Tables V-A/V-B run to '10 or more', so the module's shared `household_size` index demonstrably reaches 10; the pre-fix standard-deduction table's keys 1-6 therefore left 7, 8, 9 and 10 unresolvable. The fix adds 7: 205, 8: 205, 9: 205, 10: 205, which is exactly what '6+' requires, and adds the corresponding proof excerpt quoted above. This is the only value-level change anywhere in the five modules of this chunk. CAVEATS for a reviewer: (a) the commit subject 'Reencode SNAP utility delegated settings' and the PR body say nothing about the standard deduction, so the message is generic and I capped confidence at 0.6 per the calibration rule; (b) my description_quote is an `excerpt:` string added by this diff inside the module's proof metadata, not a literal YAML comment and not a maintainer statement — I chose quote_source 'module_comment' as the closest available value and flag the imprecision here rather than fabricate a maintainer quote; (c) the fix is incomplete in the same direction, since '6+' is open-ended but the table now stops at 10, so a household of 11+ is still unresolved unless the runtime clamps to the max key — NC in this same commit solves the analogous problem with an explicit cap rule instead (see index 2), and the inconsistency suggests a possible follow-up; (d) an alternative reading is that the pre-fix encoding relied on an implicit top-key clamp in the runtime, in which case this is a no-op and the entry should be pruned to mechanical — I did not read the engine's indexed-lookup semantics, so I cannot rule that out. Everything else in this 1012-line diff is the same plumbing pattern as indices 0/2/3: three `sets_*` source_relation rules, three passthrough `*_state_value` derived rules (SUA indexed by household_size, BUA and telephone as scalars), `imports: [us:regulations/7-cfr/273/9]`, YAML reflow, a rewritten summary, rule-level `source:` strings shortened (e.g. 'Table I \"For each additional member add $406\"' to 'Table I'), proof `table.row_key`/`column_key` changed from snake_case invented labels to the source's literal header text ('No. of Persons in Household', 'Gross Income Standard'), two previously empty proof atoms given excerpts, and long AFDC excerpts elided with '...'. All other tables (gross income, max net income, coupon allotment, SUA, BUA 126, telephone 25, homeless 143, shelter 458, the three 20-row AFDC tables, minimum AFDC payment 10) and every effective_from '0001-01-01' are unchanged.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.72,
+    "verifier_justification": "I could not refute the reading. The pinned corpus text for us-tn/regulation/1240-01/04/27/block-1 reads \"Table IV-A Standard Deduction / Household Size 1 2 3 4 5 6+ Standard Deduction $142 $142 $142 $153 $179 $205\", so the source assigns $205 to every household of six or more, while the pre-fix `snap_standard_deduction` table stopped at key 6 even though its index `household_size` is `household_member_count` and every sibling table in the module runs to 10. That omission is not harmless under the runtime: `lookup_parameter` in axiom-rules-engine `src/engine.rs` does `version.values.get(&key)` and raises `MissingParameterValue` (\"parameter `{parameter}` has no value for key `{key}`\") with no clamping to the top bracket, so sizes 7-10 had no standard deduction at all rather than $205. The fix adds keys 7-10 at 205, which changes encoded meaning in exactly the way the first reader described, and the open-ended \"6+\" bucket is a source clause the encoding failed to represent, so unrepresented_clause fits better than amount_mismatch (no existing cell value was wrong).",
+    "verifier_quote": "+      6: 205\n+      7: 205\n+      8: 205\n+      9: 205\n+      10: 205",
+    "verifier_notes": "Corroborating source line (from the added proof atom and confirmed verbatim in the pinned corpus release us-rulespec-2026-07-13, provision line 208): \"excerpt: Household Size 1 2 3 4 5 6+ Standard Deduction $142 $142 $142 $153 $179 $205\". Caveats a reviewer should weigh: (1) the commit subject (\"Reencode SNAP utility delegated settings\") and PR #402 body say nothing about the standard deduction — they only describe aligning with the delegated-setting `sets` shape from axiom-encode#613, so this meaning change is an unannounced byproduct of a full re-encode; (2) most of the 1012-line diff is not a defect fix — the new `sets_snap_*` source_relation rules and the three `snap_*_utility_allowance_state_value` derived rules are new output surface the module never claimed (per the task rules, enhancement, not a defect), and the rest is re-serialization plus excerpt/source-string provenance edits with unchanged values (SUA 314-419, BUA 126, telephone 25, homeless 143, all Table VIII tables identical); (3) the fix only extends to key 10, so a household of 11+ still hits MissingParameterValue — it mirrors the module's 1-10 index convention (the source's V-A/V-B/telephone/VII tables say \"10 or more\" and are likewise truncated at 10), so the \"6+\" clause is closed only within that domain; (4) the regenerated test file adds no size-7 standard-deduction assertion, so nothing enforces the corrected cells. If a reviewer rejects \"missing key raises an error\" as a fidelity disagreement (as opposed to incomplete coverage), the nearest alternative kind is wrong_entity_or_scope (household-size domain too narrow); I judged unrepresented_clause correct because the task rules assign \"adds coverage the source requires\" to that kind.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Provision WAS read, via resolve_provision.py for us-tn/regulation/1240-01/04/27/block-1 (exit 0, 3368 chars). Verbatim source text: 'Table IV-A Standard Deduction\\n\\nHousehold Size 1 2 3 4 5 6+ Standard Deduction $142 $142 $142 $153 $179 $205'. Tables I, II and III in the same provision are keyed 'No. of Persons in Household 1 2 3 4 5 6 7 8 9 10' and Tables V-A/V-B run to '10 or more', so the module's shared `household_size` index demonstrably reaches 10; the pre-fix standard-deduction table's keys 1-6 therefore left 7, 8, 9 and 10 unresolvable. The fix adds 7: 205, 8: 205, 9: 205, 10: 205, which is exactly what '6+' requires, and adds the corresponding proof excerpt quoted above. This is the only value-level change anywhere in the five modules of this chunk. CAVEATS for a reviewer: (a) the commit subject 'Reencode SNAP utility delegated settings' and the PR body say nothing about the standard deduction, so the message is generic and I capped confidence at 0.6 per the calibration rule; (b) my description_quote is an `excerpt:` string added by this diff inside the module's proof metadata, not a literal YAML comment and not a maintainer statement — I chose quote_source 'module_comment' as the closest available value and flag the imprecision here rather than fabricate a maintainer quote; (c) the fix is incomplete in the same direction, since '6+' is open-ended but the table now stops at 10, so a household of 11+ is still unresolved unless the runtime clamps to the max key — NC in this same commit solves the analogous problem with an explicit cap rule instead (see index 2), and the inconsistency suggests a possible follow-up; (d) an alternative reading is that the pre-fix encoding relied on an implicit top-key clamp in the runtime, in which case this is a no-op and the entry should be pruned to mechanical — I did not read the engine's indexed-lookup semantics, so I cannot rule that out. Everything else in this 1012-line diff is the same plumbing pattern as indices 0/2/3: three `sets_*` source_relation rules, three passthrough `*_state_value` derived rules (SUA indexed by household_size, BUA and telephone as scalars), `imports: [us:regulations/7-cfr/273/9]`, YAML reflow, a rewritten summary, rule-level `source:` strings shortened (e.g. 'Table I \"For each additional member add $406\"' to 'Table I'), proof `table.row_key`/`column_key` changed from snake_case invented labels to the source's literal header text ('No. of Persons in Household', 'Gross Income Standard'), two previously empty proof atoms given excerpts, and long AFDC excerpts elided with '...'. All other tables (gross income, max net income, coupon allotment, SUA, BUA 126, telephone 25, homeless 143, shelter 458, the three 20-row AFDC tables, minimum AFDC payment 10) and every effective_from '0001-01-01' are unchanged. | verifier confirmed at 0.72",
+  "family_id": "us-752ee8e2-a2377532e9dd",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

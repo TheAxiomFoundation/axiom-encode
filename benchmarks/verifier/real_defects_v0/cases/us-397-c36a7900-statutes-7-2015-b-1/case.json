@@ -1,0 +1,223 @@
+{
+  "id": "us-397-c36a7900-statutes-7-2015-b-1",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "c36a7900e0a106216b4f6e7a654d008018608166",
+  "parent_commit": "d66e787a765ed44d0218b78e7e355a8f69b2a665",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Mostly source metadata, but nonpermanent_ineligibility_period_years in 2015(b)(1) changes branch order (drops the permanent gate, checks one-year before two-year) and 2015(d)(2)(C)/(e) rules are renamed; unsure.",
+  "pr_url": null,
+  "module_path": "statutes/7/2015/b/1.yaml",
+  "corpus_citation_path": "us/statute/7/2015",
+  "corpus_citation_paths_all": [
+    "us/statute/7/2015"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "polarity_or_logic",
+  "other_kind": null,
+  "confidence": 0.32,
+  "description": "Regenerate SNAP work rules with source metadata",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        73,
+        74
+      ],
+      [
+        109,
+        109
+      ],
+      [
+        126,
+        126
+      ],
+      [
+        129,
+        129
+      ],
+      [
+        145,
+        146
+      ],
+      [
+        148,
+        153
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        13,
+        13
+      ],
+      [
+        25,
+        25
+      ],
+      [
+        29,
+        29
+      ],
+      [
+        41,
+        41
+      ],
+      [
+        46,
+        46
+      ],
+      [
+        62,
+        62
+      ],
+      [
+        68,
+        68
+      ],
+      [
+        80,
+        81
+      ],
+      [
+        84,
+        84
+      ],
+      [
+        90,
+        90
+      ],
+      [
+        103,
+        103
+      ],
+      [
+        109,
+        109
+      ],
+      [
+        120,
+        123
+      ],
+      [
+        125,
+        125
+      ],
+      [
+        131,
+        131
+      ],
+      [
+        142,
+        145
+      ],
+      [
+        148,
+        152
+      ],
+      [
+        158,
+        158
+      ],
+      [
+        166,
+        169
+      ],
+      [
+        173,
+        174
+      ],
+      [
+        176,
+        180
+      ],
+      [
+        186,
+        186
+      ],
+      [
+        200,
+        200
+      ],
+      [
+        206,
+        206
+      ]
+    ],
+    "rule_names": [
+      "nonpermanent_ineligibility_period_years"
+    ],
+    "rule_path": "rules[nonpermanent_ineligibility_period_years].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "4a5c22e1059ec39b3ca22d873e4f143907fcb5b72ae6f71a6b404fe89ac0f391",
+  "post_fix_artifact_sha256": "57f7a9d6360797a8d6400f2c74bf1e8d898a8caab66ed9fe7b189ba21f9d93b1",
+  "provision_sha256": "0367aadc0da0040d18379f92662c3e13593f3bfd919982c713a6729fc6e82541",
+  "provision_chars": 62672,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/7/2015",
+    "provision_file": "data/corpus/provisions/us/statute/2026-05-10-snap-sections.jsonl",
+    "provision_file_sha256": "b07364b31e32416d4a0fdc978c2f0f4b9a258eb355f06d064c7b461e11da42e0",
+    "line_number": 3,
+    "record_id": "f5fc1ae5-f6d5-5770-b454-041a57f23e1a",
+    "stored_body_sha256": "0367aadc0da0040d18379f92662c3e13593f3bfd919982c713a6729fc6e82541",
+    "resolved_text_sha256": "0367aadc0da0040d18379f92662c3e13593f3bfd919982c713a6729fc6e82541",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2025-12-03",
+    "source_as_of": "2025-12-03",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us/statute/7/2015",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/7/2015'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/7/2015'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/7/2015'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/7/2015'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "unclear",
+    "pre_fix_wrong_because": "unclear: the pre-fix formula returned 0 whenever permanent_ineligibility_applies and otherwise tested the two-year tier before the one-year tier, while the post-fix formula tests one-year first, two-year second, and has no permanent gate; 7 USC 2015(b)(1) sets tiers (i) 1 year, (ii) 2 years, (iii) permanent without stating precedence, so neither ordering is clearly the source's, and on overlapping triggers the post-fix version arguably reads worse (a first determination that is also the first controlled-substance trading finding now yields 1 year although clause (ii)(II) specifies 2 years, and a permanently disqualified person can now report a non-zero 'nonpermanent' period).",
+    "triage_notes": "This is the only substantive formula change in the entire commit (verified by YAML-parsing every changed module pre and post and comparing rules modulo whitespace). Pre: 'if permanent_ineligibility_applies: 0 else: if two_year_ineligibility_applies: two_year_ineligibility_period_years else: if one_year_ineligibility_applies: one_year_ineligibility_period_years else: 0'. Post: 'if one_year_ineligibility_applies: one_year_ineligibility_period_years else: if two_year_ineligibility_applies: two_year_ineligibility_period_years else: 0'. Everything else in this module is cosmetic: per-rule source strings, blank-line separators, parenthesis reindentation in two_year_ineligibility_applies and permanent_ineligibility_applies (semantically identical), and one added proof atom (kind: parameter) on this rule. Commit body is empty and prep_commit found no PR (pr: null), so no maintainer statement explains the reorder; the subject frames the commit as a metadata regeneration, which suggests encoder churn rather than a deliberate fidelity fix. Provision read through the pinned corpus release (us/statute/7/2015): tiers (i)/(ii)/(iii) are listed in that textual order with no precedence rule. Companion test statutes/7/2015/b/1.test.yaml was edited but its cases do not discriminate between the two encodings (no case has two tiers firing at once); its edits flip household_would_receive_increased_benefits inputs and rename two cases. Follow-up: commit b3801ee4e ('Regenerate validated US RuleSpec encodings') later deleted nonpermanent_ineligibility_period_years entirely, replacing it with a Judgment rule permanently_ineligible, so the post-fix state here was itself superseded. Recommend a reviewer treat this as candidate churn/possible regression rather than a confirmed fidelity correction.",
+    "verifier_verdict": "not_a_defect",
+    "verifier_defect_kind": "none",
+    "verifier_confidence": 0.68,
+    "verifier_justification": "The only meaning-bearing edit in the module is the `nonpermanent_ineligibility_period_years` branch structure; every other change is the trimmed summary heading, added `source:` strings, an added proof atom, blank lines, and re-indent/re-parenthesization of formulas whose operands are byte-identical (same 10 rules, same entities, dtypes, periods, effective dates, inputs and outputs). For this to be a fidelity correction the post-fix ordering would have to be the source's ordering, but 7 USC 2015(b)(1) as resolved through the pinned release (us-rulespec-2026-07-13) states tiers (i) 1 year, (ii) 2 years, (iii) permanently with no precedence rule, and the one overlap it does settle cuts the other way: (ii)(II) assigns 2 years to \"the first occasion of a finding ... of the trading of a controlled substance ... for benefits\", which the post-fix now answers with 1 year whenever that finding is also the first determination, while the pre-fix answered 2. Dropping the permanent gate likewise makes a rule named \"nonpermanent\" report 1 or 2 years during a permanent disqualification, which is not closer to the source either. The commit message is a bare regeneration subject (\"Regenerate SNAP work rules with source metadata\", empty body, no PR), and all four companion tests evaluate identically under the pre- and post-fix formulas, so nothing in the record treats the old branch order as wrong — this reads as regeneration drift, not a corrected defect.",
+    "verifier_quote": "-          if permanent_ineligibility_applies:\n-              0\n+          if one_year_ineligibility_applies:\n+            one_year_ineligibility_period_years",
+    "verifier_notes": "Refutes the first reader's \"polarity_or_logic / unclear\" in the direction of not_a_defect rather than confirmed. Key checks: (1) `two_year_ineligibility_applies` keeps its second disjunct `federal_state_or_local_court_first_found_trading_controlled_substance_for_benefits` unconditioned on an IPV determination (only reflowed in this diff), so it genuinely overlaps `one_year_ineligibility_applies` = `intentional_program_violation_determination and first_occasion_of_any_such_determination`; on that overlap pre gave 2, post gives 1, against (ii)(II). (2) The companion test file changed only test names and two household-rule inputs/expectations (an input flip, not a formula change); no test covers an overlapping-trigger case, and the permanent test has both one-year and two-year not_holds so it yields 0 under either formula. This is why it cannot be graded mechanical either: the formula's semantics did move, it just did not move toward the source. If a reviewer wants to keep it in the corpus at all, the defensible framing would be a regression introduced by regeneration, not a defect corrected by it. Sources read: diff 002.diff; full pre d66e787a76:statutes/7/2015/b/1.yaml and post c36a7900e0:statutes/7/2015/b/1.yaml; statute text via resolve_provision.py citation us/statute/7/2015, corpus commit 612d20ca43, text sha256 0367aadc0d.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "This is the only substantive formula change in the entire commit (verified by YAML-parsing every changed module pre and post and comparing rules modulo whitespace). Pre: 'if permanent_ineligibility_applies: 0 else: if two_year_ineligibility_applies: two_year_ineligibility_period_years else: if one_year_ineligibility_applies: one_year_ineligibility_period_years else: 0'. Post: 'if one_year_ineligibility_applies: one_year_ineligibility_period_years else: if two_year_ineligibility_applies: two_year_ineligibility_period_years else: 0'. Everything else in this module is cosmetic: per-rule source strings, blank-line separators, parenthesis reindentation in two_year_ineligibility_applies and permanent_ineligibility_applies (semantically identical), and one added proof atom (kind: parameter) on this rule. Commit body is empty and prep_commit found no PR (pr: null), so no maintainer statement explains the reorder; the subject frames the commit as a metadata regeneration, which suggests encoder churn rather than a deliberate fidelity fix. Provision read through the pinned corpus release (us/statute/7/2015): tiers (i)/(ii)/(iii) are listed in that textual order with no precedence rule. Companion test statutes/7/2015/b/1.test.yaml was edited but its cases do not discriminate between the two encodings (no case has two tiers firing at once); its edits flip household_would_receive_increased_benefits inputs and rename two cases. Follow-up: commit b3801ee4e ('Regenerate validated US RuleSpec encodings') later deleted nonpermanent_ineligibility_period_years entirely, replacing it with a Judgment rule permanently_ineligible, so the post-fix state here was itself superseded. Recommend a reviewer treat this as candidate churn/possible regression rather than a confirmed fidelity correction. | verifier said not_a_defect at 0.68 (below 0.7); kept as unclear",
+  "family_id": "us-c36a7900-972c79896101",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

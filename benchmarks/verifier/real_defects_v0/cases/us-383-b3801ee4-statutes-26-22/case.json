@@ -1,0 +1,540 @@
+{
+  "id": "us-383-b3801ee4-statutes-26-22",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "b3801ee4eb82f8fc2c753d809c8b36d9ae6c42c2",
+  "parent_commit": "2175d5239a22bce42aa7a3b2f5a7c4af4c6940ea",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Wholesale regeneration with semantic corrections to existing modules: 24(d) phase-in threshold 2500 to 3000 and SS-excess gated on 3+ children, 1411 effective_from 2026 to 2013 and estate/trust base, CDCC/22/32/6401/2017(a)/273.10 formulas rewritten.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/25",
+  "module_path": "statutes/26/22.yaml",
+  "corpus_citation_path": "us/statute/26/22",
+  "corpus_citation_paths_all": [
+    "us/statute/26/22"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.6,
+  "description": "source: IRS Schedule 3 ordering for nonrefundable credits",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        3,
+        9
+      ],
+      [
+        12,
+        22
+      ],
+      [
+        24,
+        24
+      ],
+      [
+        34,
+        34
+      ],
+      [
+        41,
+        41
+      ],
+      [
+        48,
+        48
+      ],
+      [
+        56,
+        56
+      ],
+      [
+        64,
+        64
+      ],
+      [
+        72,
+        72
+      ],
+      [
+        80,
+        80
+      ],
+      [
+        88,
+        88
+      ],
+      [
+        96,
+        96
+      ],
+      [
+        103,
+        104
+      ],
+      [
+        112,
+        112
+      ],
+      [
+        129,
+        129
+      ],
+      [
+        149,
+        150
+      ],
+      [
+        161,
+        161
+      ],
+      [
+        170,
+        170
+      ],
+      [
+        179,
+        179
+      ],
+      [
+        186,
+        186
+      ],
+      [
+        190,
+        194
+      ],
+      [
+        205,
+        206
+      ],
+      [
+        208,
+        209
+      ],
+      [
+        211,
+        213
+      ],
+      [
+        225,
+        229
+      ],
+      [
+        236,
+        236
+      ],
+      [
+        239,
+        239
+      ],
+      [
+        252,
+        263
+      ],
+      [
+        274,
+        274
+      ],
+      [
+        285,
+        290
+      ],
+      [
+        300,
+        300
+      ],
+      [
+        310,
+        310
+      ],
+      [
+        317,
+        337
+      ],
+      [
+        341,
+        358
+      ],
+      [
+        366,
+        366
+      ],
+      [
+        372,
+        372
+      ],
+      [
+        376,
+        377
+      ],
+      [
+        385,
+        385
+      ],
+      [
+        390,
+        390
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        2,
+        3
+      ],
+      [
+        5,
+        6
+      ],
+      [
+        9,
+        15
+      ],
+      [
+        17,
+        26
+      ],
+      [
+        29,
+        29
+      ],
+      [
+        31,
+        34
+      ],
+      [
+        39,
+        45
+      ],
+      [
+        48,
+        50
+      ],
+      [
+        55,
+        61
+      ],
+      [
+        64,
+        66
+      ],
+      [
+        71,
+        77
+      ],
+      [
+        80,
+        82
+      ],
+      [
+        88,
+        94
+      ],
+      [
+        97,
+        99
+      ],
+      [
+        105,
+        111
+      ],
+      [
+        114,
+        116
+      ],
+      [
+        122,
+        128
+      ],
+      [
+        131,
+        133
+      ],
+      [
+        139,
+        145
+      ],
+      [
+        148,
+        150
+      ],
+      [
+        156,
+        162
+      ],
+      [
+        165,
+        167
+      ],
+      [
+        173,
+        179
+      ],
+      [
+        182,
+        184
+      ],
+      [
+        189,
+        195
+      ],
+      [
+        198,
+        201
+      ],
+      [
+        207,
+        219
+      ],
+      [
+        222,
+        224
+      ],
+      [
+        231,
+        243
+      ],
+      [
+        254,
+        255
+      ],
+      [
+        261,
+        267
+      ],
+      [
+        273,
+        273
+      ],
+      [
+        280,
+        286
+      ],
+      [
+        290,
+        292
+      ],
+      [
+        299,
+        305
+      ],
+      [
+        310,
+        311
+      ],
+      [
+        318,
+        324
+      ],
+      [
+        327,
+        329
+      ],
+      [
+        336,
+        342
+      ],
+      [
+        345,
+        347
+      ],
+      [
+        354,
+        361
+      ],
+      [
+        365,
+        366
+      ],
+      [
+        374,
+        380
+      ],
+      [
+        384,
+        385
+      ],
+      [
+        387,
+        388
+      ],
+      [
+        390,
+        390
+      ],
+      [
+        392,
+        394
+      ],
+      [
+        402,
+        408
+      ],
+      [
+        412,
+        422
+      ],
+      [
+        429,
+        436
+      ],
+      [
+        439,
+        462
+      ],
+      [
+        470,
+        482
+      ],
+      [
+        488,
+        493
+      ],
+      [
+        495,
+        495
+      ],
+      [
+        503,
+        509
+      ],
+      [
+        512,
+        514
+      ],
+      [
+        522,
+        528
+      ],
+      [
+        532,
+        539
+      ],
+      [
+        547,
+        553
+      ],
+      [
+        556,
+        558
+      ],
+      [
+        566,
+        572
+      ],
+      [
+        575,
+        577
+      ],
+      [
+        584,
+        591
+      ],
+      [
+        595,
+        597
+      ],
+      [
+        603,
+        613
+      ],
+      [
+        616,
+        620
+      ],
+      [
+        626,
+        637
+      ],
+      [
+        641,
+        642
+      ],
+      [
+        644,
+        644
+      ],
+      [
+        651,
+        658
+      ],
+      [
+        663,
+        663
+      ]
+    ],
+    "rule_names": [
+      "elderly_disabled_credit",
+      "elderly_disabled_preceding_credits",
+      "elderly_disabled_credit_credit_limit",
+      "section_22_nontaxable_pension_benefit_reduction",
+      "section_22_initial_amount_cap",
+      "section_22_married_filing_requirement_satisfied"
+    ],
+    "rule_path": "rules[elderly_disabled_credit].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "20182e27b153a3a48aad21a7321215bf9a581fcd69e4a87d815d8ade8a2cccff",
+  "post_fix_artifact_sha256": "407c4e1169f24d2fcea5107b420dded94504438ef60e2c5ed73ed65988ab54fd",
+  "provision_sha256": "01c0c8460ca5ced9b50ef2a6fb27bd620761cf3430738f4b918de7bb8001defa",
+  "provision_chars": 4976,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/22",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "1b0b185ca3335eb06c4fe10af488a8984bdd2cedd4087badf78583c267af7b7b",
+    "line_number": 11,
+    "record_id": "c29ea54a-3d50-5132-b2c0-a8a60365011d",
+    "stored_body_sha256": "01c0c8460ca5ced9b50ef2a6fb27bd620761cf3430738f4b918de7bb8001defa",
+    "resolved_text_sha256": "01c0c8460ca5ced9b50ef2a6fb27bd620761cf3430738f4b918de7bb8001defa",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us/statute/26/22",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/22'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/22'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/22'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/22'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module capped the section 22 credit with two rules (`elderly_disabled_preceding_credits`, a hand-listed sum of foreign tax credit, CDCC, AOTC, LLC, saver's, and two residential energy credits, and `elderly_disabled_credit_credit_limit`) whose own `source` fields cite IRS Schedule 3 credit ordering rather than anything in 26 USC 22, so the encoding carried a limitation branch with no basis in the cited provision.",
+    "triage_notes": "The quote is the removed `source:` line on `elderly_disabled_preceding_credits`; the companion removed rule carried `source: Credit against tax imposed by this chapter; IRS Schedule 3 ordering`. Both rules are deleted and the post-fix output is simply `section_22_amount * section_22_credit_rate` when eligible. Two further fidelity gains in the same diff that a reviewer could prefer as the headline: (a) the 22(c)(3)(A) reduction was rewritten from three generic received-minus-taxable differences to the statute's enumerated categories (title II Social Security Act, Railroad Retirement Act of 1974, VA-administered, any other non-title exclusion) and now adds the 22(c)(3)(B) workmen's-compensation clause ('any amount treated as a social security benefit under section 86(d)(3)'), which was entirely absent pre-fix — that part is unrepresented_clause; (b) `section_22_initial_amount_cap` was rewritten from `aged_count * 5000 + under_65_disability_income` to the actual 22(c)(2)(B) structure (no cap when all qualified individuals are 65+, $5,000 + the under-65 spouse's disability income on a joint return with one aged spouse, otherwise the disability-income cap). Also the aggregation relation changed from an unconstrained `elderly_disabled_member_of_tax_unit` to `taxpayer_or_spouse_of_tax_unit`, which narrows a scope the pre-fix module had only asserted in a prose comment. Provision text for 26 USC 22 was read only through the module's added verbatim summary, not a separate resolver call.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "untraceable_branch",
+    "verifier_confidence": 0.82,
+    "verifier_justification": "The pre-fix module capped the credit with `min(elderly_disabled_credit_credit_limit, elderly_disabled_credit_potential)`, where the limit was `max(0, income_tax_before_credits - elderly_disabled_preceding_credits)` over a hand-listed set (foreign tax credit, CDCC, AOTC, LLC, saver's, and two residential energy credits) whose own `source` fields say \"IRS Schedule 3 ordering\" rather than anything in the module's cited provision. I read 26 USC 22 (a)-(f) through the pinned corpus release (us-rulespec-2026-07-13, body sha256 01c0c846...): it contains no credit-ordering rule, no tax-liability cap, and no reference to any of those seven credits, so the pre-fix encoding carried a limitation branch with no basis in the cited source. The fix deletes both rules and re-grounds `elderly_disabled_credit` on 22(a) as `section_22_amount * section_22_credit_rate`, and the companion test drops the `income_tax_before_credits`/seven-credit inputs and the `elderly_disabled_credit_credit_limit: 5000` assertion, so the removal was deliberate, not incidental reformatting. The section 26(a) limitation it was imitating already lives in its own module (`statutes/26/26.yaml`, rule `income_tax_capped_non_refundable_credits`, present at both parent and fix commits), which makes the 22-module branch both ungrounded and duplicative — squarely \"a formula grounded on the wrong provision.\"",
+    "verifier_quote": "-    source: IRS Schedule 3 ordering for nonrefundable credits\n...\n-              min(elderly_disabled_credit_credit_limit, elderly_disabled_credit_potential)\n+              section_22_amount * section_22_credit_rate",
+    "verifier_notes": "Refutation attempts that failed: (1) \"It is a scope reduction, not a correction\" — the kind definition explicitly covers a branch the fix removes or re-grounds, and the branch's own source field concedes it came from a form's line ordering, not from 26 USC 22; section 26(a) limits the aggregate of subpart A credits but never prescribes this ordering, and the foreign tax credit (sec. 27, subpart B) is not even a subpart A credit, so the ordering is pure Form 1040 Schedule 3 mechanics. (2) \"It is incidental to a wholesale regeneration\" — the test file change independently confirms intent. (3) \"A different kind fits better\" — untraceable_branch fits the flagged rule_path best. Caveat for the reviewer: this module diff carries at least two other independent fidelity deltas that a single label will not capture, so if the corpus wants one case per defect it may be worth splitting. Those are (a) `section_22_married_filing_requirement_satisfied`, pre `filing_status != 2 or spouses_lived_apart_all_year` vs post `not married_at_close_of_taxable_year or filing_status == 1 or spouses_lived_apart_all_year` — the pre-fix gate let a married-but-not-joint filer in any status other than MFS take the credit, which 22(e)(1) forbids (unrepresented_clause / polarity_or_logic); and (b) `section_22_nontaxable_pension_benefit_reduction`, re-grounded from generic received-minus-taxable terms onto the enumerated 22(c)(3)(A) sources plus the previously absent 22(c)(3)(B) section 86(d)(3) workers-compensation clause (unrepresented_clause). The `section_22_initial_amount_cap` rewrite, by contrast, is behaviorally near-equivalent to the pre-fix `(aged_count * 5000) + under_65_disability_income` and should not be counted as a separate defect. The commit body is empty and the PR (#25) is about 26 USC 63(c), so the commit/PR text gives no independent corroboration; all weight here is on the diff, the test diff, and the pinned source text.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "The quote is the removed `source:` line on `elderly_disabled_preceding_credits`; the companion removed rule carried `source: Credit against tax imposed by this chapter; IRS Schedule 3 ordering`. Both rules are deleted and the post-fix output is simply `section_22_amount * section_22_credit_rate` when eligible. Two further fidelity gains in the same diff that a reviewer could prefer as the headline: (a) the 22(c)(3)(A) reduction was rewritten from three generic received-minus-taxable differences to the statute's enumerated categories (title II Social Security Act, Railroad Retirement Act of 1974, VA-administered, any other non-title exclusion) and now adds the 22(c)(3)(B) workmen's-compensation clause ('any amount treated as a social security benefit under section 86(d)(3)'), which was entirely absent pre-fix — that part is unrepresented_clause; (b) `section_22_initial_amount_cap` was rewritten from `aged_count * 5000 + under_65_disability_income` to the actual 22(c)(2)(B) structure (no cap when all qualified individuals are 65+, $5,000 + the under-65 spouse's disability income on a joint return with one aged spouse, otherwise the disability-income cap). Also the aggregation relation changed from an unconstrained `elderly_disabled_member_of_tax_unit` to `taxpayer_or_spouse_of_tax_unit`, which narrows a scope the pre-fix module had only asserted in a prose comment. Provision text for 26 USC 22 was read only through the module's added verbatim summary, not a separate resolver call. | verifier confirmed at 0.82",
+  "family_id": "us-b3801ee4-0f630300c0d8",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}
