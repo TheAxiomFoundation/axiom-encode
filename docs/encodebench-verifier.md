@@ -365,6 +365,68 @@ as the record of which cases it scored.
   which is fine for the artifacts being judged but is not the pinned UK
   release; the UK synthetic set follows the encoder track's outputs.
 
-## First board
+## First board (2026-09-18)
 
-_Filled in below once the runs complete._
+Suite `EncodeBench verifier synthetic US v1`, digest `5b228af3d17c`: 180
+pairs (30 per kind) planted by mutator 1.0.1 in `gpt-5.5` `apply_applied`
+generations from `encodings.db` with US citations, provision window 24,000
+characters. Every judge scored all 360 cases with no errors. The board, its
+JSON and CSV, and the suite manifest are committed under
+`benchmarks/verifier/boards/synthetic_us_v1/`; full suite texts and per-run
+rows live in `_axiom-runs/encodebench-verifier-2026-09-17/`.
+
+| judge | model | native FAR | native det | mean kind AUC | verdict AUC | localize | median s | cost/case | total |
+|---|---|---|---|---|---|---|---|---|---|
+| jev | jev-1.13.0 | 72% | 95% | 0.908 | 0.779 | blank by construction | 0.19 | $0.00013 | $0.048 |
+| sonnet | claude-sonnet-4-5 | 38% | 76% | 0.738 ‡ | 0.726 | 68% | 5.24 | no price on file | 1.19M in, 115k out tokens |
+| opus | claude-opus-4-6 | 63% | 86% | 0.705 ‡ | 0.752 | 80% | 11.11 | $0.02800 | $10.08 |
+| haiku | claude-haiku-4-5-20251001 | 72% | 89% | 0.680 ‡ | 0.639 | 69% | 3.88 | $0.00514 | $1.85 |
+
+Per-kind kind-channel AUC (Jev / Sonnet / Opus / Haiku): amount 0.998 /
+0.983 / 0.950 / 0.983; boundary 0.924 / 0.800 / 0.783 / 0.700; conjunct
+0.753 / 0.650 / 0.583 / 0.467; polarity 0.979 / 0.800 / 0.717 / 0.683;
+date or period 0.853 / 0.622 ‡ / 0.642 ‡ / 0.659 ‡; entity 0.942 / 0.570 ‡ /
+0.557 ‡ / 0.588 ‡.
+
+How to read it:
+
+- **Nobody ranks.** All four judges flag more than 25 percent of the clean
+  controls at their native verdict (Sonnet the fewest at 38 percent), so the
+  headline gate excludes them all. That is the pilot's finding reproduced on
+  180 pairs and four judges: as a pass/flag gate, none of these is usable
+  yet. The judges also agree with each other on the controls (in the
+  superseded 1.0.0 run, Haiku and Jev both flagged 114 of 180), and sampled
+  Haiku findings on controls are plausible fidelity complaints, so part of
+  that rate is real defects the compile and CI gates cannot see; native FAR
+  is an upper bound.
+- **On the kind channel Jev separates defective from control far better
+  than any referee configuration**, at roughly one two-hundredth of Opus's
+  cost and one fortieth of Haiku's, and fifty times faster. Its weakest kinds
+  are dropped conjuncts (0.753) and wrong dates or periods (0.853), the same
+  shape as the pilot.
+- **The referee's kind channel is binary**, so its per-kind AUC is a balanced
+  accuracy and its detection at the ceiling is often zero: when it names a
+  kind on more than a quarter of the controls, the channel has no operating
+  point under the ceiling. Its two ‡ kinds fall back to the verdict score.
+- **Sonnet, not Opus, is the best referee on the kind channel** (0.738
+  against 0.705), and it has the lowest native false-alarm rate; Opus
+  localizes best (80 percent of its defective-case findings name the
+  mutated rule or token) and has the best verdict-channel AUC among the
+  referees (0.752).
+- **No coerced verdicts.** With the structured-output schema, no referee
+  answer was a raw pass with findings, so the coercion question the review
+  raised did not arise in this run.
+- **Self-agreement.** Twenty-nine texts were judged twice: once in a
+  superseded 1.0.0 build and once here, identical provision and artifact
+  bytes. Jev repeated its verdict on 28 of 29 (median change in P(flag)
+  0.03, maximum 0.07); Haiku repeated its verdict on 23 of 29 and produced
+  the same set of finding kinds on only 8 of 29. That join was computed from
+  the superseded run's suite texts because its rows predate the content
+  digests; `verifier.py agreement` does the same for any two current runs.
+- **Sonnet's cost is blank** because the claude-api skill's model table
+  consulted on 2026-09-17 carries no Sonnet 4.5 price; the board never
+  quotes a price from memory.
+
+What this board does not say: nothing about the UK release (the suite is US
+generations from the run log), nothing about real repair rounds (the real
+corpus folds into its own board), and nothing about multi-edit defects.
