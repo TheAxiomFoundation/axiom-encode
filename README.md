@@ -57,6 +57,11 @@ then `pip install -e ".[dev]"`.
 
 ## Usage
 
+For contributor enrollment development, the [producer-lineage diagnostics](docs/producer-lineage-preflight.md)
+check repository write eligibility and authenticated lineage under explicit
+public trust inputs. They do not enroll a runtime or grant admission; the
+current RuleSpec manifest guard remains in force.
+
 ```bash
 axiom-encode encode "26 USC 32(a)(1)" \
   --corpus-path ~/TheAxiomFoundation/axiom-corpus \
