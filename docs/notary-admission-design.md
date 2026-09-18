@@ -7,7 +7,8 @@ diff-coverage delta, under the build decision recorded on both issues
 passed round 32, the independent cross-family review leg of the charter's
 gate. Version 33 records Max's named §11 sign-off of 2026-09-18, which
 closes every §11 decision (custodian names are an input to the §8 ceremony
-record), and adds the four per-draw producer-declared fields to §2.2.
+record; the transition-initialized carrier is v34 work, §11), and adds the
+four per-draw producer-declared fields to §2.2.
 Nothing admission-capable merges until the §9 preconditions are satisfied.
 
 ## 1. Claim and threat model
@@ -58,8 +59,10 @@ sanctioned path, with no record of the edit's origin. Two walls stop the
 *undeclared* hand edit — declared corrections are intentionally
 admissible, loudly. The capability wall: the notary key never enters any
 runner; an external typed signer validates an independently authenticated
-job identity, and generation surfaces hold only the non-authorizing
-producer key. The coverage wall: coverage is a recomputed invariant — the
+job identity, and generation surfaces hold only non-authorizing lineage
+keys — the producer key and, under §11's custody model, the actor key —
+and no key that validates, approves, or signs the notary domain. The
+coverage wall: coverage is a recomputed invariant — the
 trusted side re-derives it from git data and lineage records, so neither a
 hand edit nor a forged report can pass it.
 
@@ -93,7 +96,7 @@ field, missing field, wrong type, or duplicate key is a parse refusal.
 | Ed25519 signature | `signature_base64`: standard base64 with padding (RFC 4648 §4) |
 | `signer_spki_sha256` | SHA-256 of the DER-encoded SubjectPublicKeyInfo, hex as above |
 | `run_id`, `run_attempt`, `check_run_id`, `approve_check_run_id`, `artifact_id` | JSON strings, canonical decimal, no leading zeros, never numbers |
-| `temperature`, `seed` (generation-event `sampling`) | canonical-decimal JSON strings, never numbers; `seed` is `null` when the runtime exposes no seed |
+| `temperature`, `seed` (generation-event `sampling`) | canonical-decimal JSON strings, never numbers: optional `-`, an integer part with no leading zeros (`0` alone permitted), an optional fraction with at least one digit and no trailing zeros, no exponent, no `+`, no bare `.`; `seed` is integer-form, or `null` when the runtime exposes no seed |
 | `chain_predecessor_kind` | exactly one of `"genesis"`, `"receipt"`, `"transition"` |
 | `tier` (profile only) | exactly one of `"public"`, `"restricted"`, `"ci-attested"` — never a report or receipt field; consumers read tiers from the profile the receipt binds |
 | `ref` | the fully qualified Git ref string (`refs/...`) |
@@ -202,8 +205,8 @@ producer-declared, non-authorizing metadata: authentication establishes the
 declarant and the exact declared values, and nothing else. None is a field
 of the notary receipt candidate, the receipt, or the finalization marker.
 Well-formedness is enforced by the §2.1 closed-world parse like every other
-member: a body missing or malforming any of them is a malformed newly
-introduced record and ineligible (§2.6, §3.2). It is the declared values
+member: a body missing or malforming any of them is `malformed-record`
+and ineligible (§2.6, §3.2). It is the declared values
 that never affect lineage eligibility, coverage, replay, gates, or merge
 authorization. The research store reuses this exact body for a draw that
 never merges; its envelope is specified there, not here (§12).
@@ -446,7 +449,12 @@ sorted by `gate_id` and **strictly unique per gate_id**, each
 `{gate_id, acceptable_outcomes, tier}` where `acceptable_outcomes` is a
 sorted string array, and `oracle_policy`
 exactly one of `"fail-closed"` or `"reduced-tier"` — so `profile_sha256`
-has exactly one preimage. Every committed policy body (`path-policy`,
+has exactly one preimage. `oracle_policy` governs `acceptable_outcomes`:
+under `"fail-closed"` no gate lists `"oracle-unavailable"` (a profile that
+does is `policy-invalid`); under `"reduced-tier"` a gate lists it or not,
+and a gate that omits it fails closed for that gate; a declared
+`"oracle-unavailable"` outside a gate's acceptable set is
+`gate-unacceptable` (the §11 oracle decision). Every committed policy body (`path-policy`,
 `transition-path-policy`, `profile`) carries `schema` and `lane` like
 any other body.
 
@@ -685,7 +693,8 @@ report and receipt. It defines the required gate set, each gate's
 acceptable outcomes, and the oracle policy. Against the current apply
 path: non-mutating (no repairs; repairable-but-unrepaired refuses);
 oracles on (a licensed-out or unavailable oracle yields the visibly
-reduced tier §11 decided, never silence); reviewers means
+reduced tier under the pilot's `reduced-tier` policy and refuses under
+`fail-closed`, never silence; §2.4 gives the rule); reviewers means
 deterministic checks plus protected-environment human approval (the
 validator pipeline's LLM reviewers are QA outside the admission path);
 no caller switches (skip flags and caller-disableable guards have no
@@ -1054,7 +1063,8 @@ until finalized (§7), exactly like receipts. For merge gating, a pending
 transition plays the pending receipt's role for its own subject (§7): it
 is the merge-authorizing artifact for exactly its enumerated delta.
 Ordinary admission resumes from the finalized transition's recorded
-state.
+state. A transition whose delta newly protects any path is not admissible
+before the v34 `initialized_entries` revision (§11).
 
 ## 7. Two-phase publication and the canonical chain
 
@@ -1613,7 +1623,9 @@ policy, profile, or registry preimage on the branch failing
 reconstruction; genesis or activation containing a 100755 protected
 entry refused; cross-receipt correction
 with a null predecessor and the amended record named in reason
-accepted (positive control); noncanonical decimal id ("01") refused; invalid
+accepted (positive control); noncanonical decimal id ("01") refused;
+noncanonical `temperature` ("0.70", ".7", "1e-1") or `seed` ("01")
+classified `malformed-record`; invalid
 RFC 3339 emitted_at refused; registry notary entry differing from the
 consumer pin refused; waiver bytes disagreeing with the base toolchain
 pin refused; equal-manifest transition carrying a forged nonempty
@@ -1696,7 +1708,7 @@ late structural failure carrying the resolved base prefix (positive
 control); reconciliation rejecting an omitted or spurious
 ineligible_records occurrence, or an omitted or extra applicable
 reason;
-reusable verify job refused; duplicate prompt_sha256s refused; empty
+reusable verify job refused; empty
 or wrong pinned artifact_name refused; review/admin-approver SPKI
 collision refused (a member of the total suite); policy
 protecting .axiom/lineage or .axiom/notary refused as policy-invalid; intermediate replay projection with a path both
@@ -1714,11 +1726,12 @@ array (acceptable_outcomes, eligible_records, unused_eligible_records,
 ineligible_records, reasons, prompt_sha256s, oracles, reference_data);
 protected-path mode change refused (charter wall, pilot);
 `oracle-unavailable` declared for a gate whose profile entry does not
-list it refused (gate-unacceptable); a generation event with a missing
+list it refused (gate-unacceptable); profile committing `fail-closed`
+while listing `oracle-unavailable` refused as policy-invalid; a generation event with a missing
 or empty `draw_set_id`, an unknown key in `sampling`, an `independence`
 value outside its enum, `oracles` or `reference_data` unsorted or
 duplicate by `name`, or a malformed non-null `content_sha256` classified
-as a malformed newly introduced record and ineligible; publisher token request from a revoked or rerun
+as `malformed-record` and ineligible; publisher token request from a revoked or rerun
 workflow identity vended nothing; well-typed but
 invalid path-policy action or profile oracle_policy refused; Actions
 artifact_id mismatch refused; multi-fault ineligible record carrying
@@ -1736,11 +1749,11 @@ Nathan Storey's four requirements posted 2026-09-04).
   generated guard with the `programs` root excluded
   (`guard-programs-root: false`).
 - **Licensed or unavailable oracles:** a visibly reduced-tier receipt. The
-  pilot profile commits `oracle_policy: "reduced-tier"`; a lane may commit
-  `"fail-closed"` only through a §6.4 profile transition. Under
-  `"reduced-tier"`, an oracle-backed gate whose oracle is licensed-out or
-  unavailable declares the outcome `"oracle-unavailable"`, which the profile
-  lists in that gate's `acceptable_outcomes`; the reduction is visible
+  pilot lane's genesis profile commits `oracle_policy: "reduced-tier"`;
+  changing it is a §6.4 profile transition. Under `"reduced-tier"`, an
+  oracle-backed gate whose oracle is licensed-out or unavailable declares the
+  outcome `"oracle-unavailable"`, which the profile lists in that gate's
+  `acceptable_outcomes` (§2.4 states the rule); the reduction is visible
   because the receipt binds the gates array and the profile digest, and it
   stays a declaration under §1. This is no exemption from gate declaration:
   `gate-missing` still refuses, and diff-coverage (§3) remains the
