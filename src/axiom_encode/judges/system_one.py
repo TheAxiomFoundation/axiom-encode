@@ -1,7 +1,7 @@
 """TypeSafe System One client for the statutory-fidelity screen.
 
 System One (TypeSafe's ``jev-*`` models) answers typed questions about a JSON
-state with calibrated probabilities: a ``Choice`` returns a label with a
+state with typed probabilities: a ``Choice`` returns a label with a
 probability per label, a ``Noul`` returns a single probability in [0, 1]. It
 returns no prose, no clause reference and no artifact locus, so it cannot fill
 a fidelity :class:`~axiom_encode.judges.run_log.Finding` on its own. The screen
@@ -186,8 +186,8 @@ class SystemOneClient:
             else _env_int("AXIOM_JUDGE_SCREEN_MAX_RETRIES", DEFAULT_MAX_RETRIES)
         )
 
-        if self.timeout <= 0:
-            raise ValueError("screen timeout must be positive")
+        if not math.isfinite(self.timeout) or self.timeout <= 0:
+            raise ValueError("screen timeout must be a positive finite number")
         if self.max_retries < 0:
             raise ValueError("screen max_retries must not be negative")
         if self.provision_chars <= 0:
@@ -317,6 +317,29 @@ class SystemOneClient:
         latency_ms = int((time.perf_counter() - started) * 1000)
         _close_quietly(sdk_client)
 
+        # Everything the server sent is untrusted. Parsing it sits inside the
+        # same funnel as the request: an unexpected shape becomes a class-name
+        # only error, never an exception carrying response text.
+        try:
+            return self._parse_response(response, questions, latency_ms)
+        except Exception as exc:  # noqa: BLE001 - normalized, by class name only
+            return failed(
+                _class_only_error(exc, phase="response"), latency_ms=latency_ms
+            )
+
+    def _parse_response(
+        self, response: Any, questions: Mapping[str, Question], latency_ms: int
+    ) -> SystemOneCall:
+        def failed(error: JudgeError, **kwargs: Any) -> SystemOneCall:
+            return SystemOneCall(
+                answers=None,
+                model=kwargs.get("model"),
+                family=kwargs.get("family"),
+                tokens=kwargs.get("tokens", TokenCounts()),
+                latency_ms=latency_ms,
+                error=error,
+            )
+
         model_id = getattr(response, "model", None)
         model_id = str(model_id) if model_id else None
         family = model_family(model_id or "")
@@ -332,17 +355,10 @@ class SystemOneClient:
                 model=model_id,
                 family=family,
                 tokens=tokens,
-                latency_ms=latency_ms,
             )
         answers, error = _map_answers(getattr(response, "answers", None), questions)
         if error is not None:
-            return failed(
-                error,
-                model=model_id,
-                family=family,
-                tokens=tokens,
-                latency_ms=latency_ms,
-            )
+            return failed(error, model=model_id, family=family, tokens=tokens)
         return SystemOneCall(
             answers=answers,
             model=model_id,

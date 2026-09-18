@@ -932,7 +932,7 @@ As of 2026-04-10:
 ### 2026-09-17: TypeSafe System One pre-screen ahead of the statutory-fidelity referee
 
 - Hypothesis:
-  - A calibrated typed-probability model can screen generations for the two fidelity defect kinds it detects reliably (changed amounts, flipped boundaries) in under a second and for a fraction of a cent, so the LLM referee can be requested selectively once a verifier-track threshold exists.
+  - A typed-probability model can screen generations for the two fidelity defect kinds it detects reliably (changed amounts, flipped boundaries) in under a second and for a fraction of a cent, so the LLM referee can be requested selectively once a verifier-track threshold exists.
 - Effect:
   - Added the `statutory_fidelity_screen` judge stage and the `judges/system_one.py` client (TypeSafe System One, family `typesafe`), wired as `judge-fidelity --screen` and `judge-fidelity-screen`. Advisory by default; `AXIOM_JUDGE_SCREEN_MODE=cascade` lets a below-threshold screen skip the referee, and an errored screen always requests it.
   - Findings carry a kind and a probability with empty locators; the screen never produces `needs-review`.

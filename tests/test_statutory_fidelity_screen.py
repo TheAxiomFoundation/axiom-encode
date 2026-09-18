@@ -522,6 +522,44 @@ def test_a_pinned_non_typesafe_model_is_guarded_before_any_spend(monkeypatch):
     assert seen["calls"] == []
 
 
+class _HostileModel:
+    def __str__(self):
+        raise RuntimeError(LEAKY_TEXT)
+
+
+def _hostile_usage_response():
+    answers = recorded_response(RECORDED_ORIGINAL).answers
+    return _Response("jev-1.13.0", _Usage(LEAKY_TEXT, 1), answers)
+
+
+def _hostile_model_response():
+    answers = recorded_response(RECORDED_ORIGINAL).answers
+    return _Response(_HostileModel(), _Usage(5, 1), answers)
+
+
+@pytest.mark.parametrize(
+    ("make_response", "expected_type"),
+    [
+        (_hostile_usage_response, "ValueError"),
+        (_hostile_model_response, "RuntimeError"),
+    ],
+)
+def test_malformed_non_answer_response_fields_never_escape_or_leak(
+    monkeypatch, make_response, expected_type
+):
+    seen = install_fake_typesafe(monkeypatch, [make_response()])
+    call = _client().call(
+        state={}, questions=statutory_fidelity_screen.build_questions()
+    )
+    assert not call.ok
+    assert call.answers is None
+    assert call.error.type == expected_type
+    assert "response raised" in call.error.message
+    for forbidden in (SECRET, "Authorization", "Bearer", "x-api-key", "api.typesafe"):
+        assert forbidden not in call.error.message
+    assert seen["closed"] == 1
+
+
 def test_client_repr_and_call_result_never_carry_the_key(monkeypatch):
     install_fake_typesafe(monkeypatch, [recorded_response(RECORDED_ORIGINAL)])
     client = _client()
@@ -631,6 +669,8 @@ def test_client_failure_is_an_error_event_never_a_pass(monkeypatch):
     [
         ("AXIOM_JUDGE_SCREEN_TIMEOUT_SECONDS", "soon"),
         ("AXIOM_JUDGE_SCREEN_TIMEOUT_SECONDS", "0"),
+        ("AXIOM_JUDGE_SCREEN_TIMEOUT_SECONDS", "inf"),
+        ("AXIOM_JUDGE_SCREEN_TIMEOUT_SECONDS", "nan"),
         ("AXIOM_JUDGE_SCREEN_MAX_RETRIES", "-1"),
         ("AXIOM_JUDGE_PROVISION_CHARS", "lots"),
     ],
@@ -652,6 +692,33 @@ def test_malformed_client_configuration_fails_closed(monkeypatch, name, value):
         "reason": "screen_error",
         "triggered": [],
     }
+    assert validate_event_dict(event.to_dict()) == []
+
+
+@pytest.mark.parametrize(
+    "environ",
+    [
+        {"AXIOM_JUDGE_SCREEN_MODE": "gate"},
+        {"AXIOM_JUDGE_SCREEN_THRESHOLD": "abc"},
+        {"AXIOM_JUDGE_SCREEN_THRESHOLD_AMOUNT_MISMATCH": "1.5"},
+    ],
+)
+def test_malformed_policy_configuration_fails_closed_through_run(monkeypatch, environ):
+    for name, value in environ.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("TYPESAFE_API_KEY", SECRET)
+    seen = install_fake_typesafe(monkeypatch, [recorded_response(RECORDED_ORIGINAL)])
+    # Default path: no policy and no client passed, exactly as an external caller
+    # of the public run() would do it.
+    event = statutory_fidelity_screen.run("prov", "rule", citation="c")
+    assert event.verdict == Verdict.ERROR
+    assert event.judge_error.type == "invalid_configuration"
+    for value in environ.values():
+        if value.isalpha():
+            assert value not in event.judge_error.message
+    assert seen["calls"] == []
+    assert event.extra["screen"]["cascade"]["request_referee"] is True
+    assert event.extra["screen"]["cascade"]["reason"] == "screen_error"
     assert validate_event_dict(event.to_dict()) == []
 
 
@@ -873,11 +940,13 @@ def test_no_key_or_authorization_header_can_reach_a_run_log(monkeypatch, tmp_pat
             recorded_response(RECORDED_PLANTED_AMOUNT),
             TypeSafeAuthenticationError(LEAKY_TEXT),
             TypeSafeAPIConnectionError(LEAKY_TEXT),
+            _hostile_usage_response(),
+            _hostile_model_response(),
         ],
     )
     writer = RunLogWriter("run-secrets", log_dir=tmp_path)
     serialized = []
-    for _ in range(3):
+    for _ in range(5):
         # Default client: the key comes from the environment, as in production.
         event = statutory_fidelity_screen.run(
             "prov", "rule", citation="c", run_id="run-secrets"
@@ -887,7 +956,7 @@ def test_no_key_or_authorization_header_can_reach_a_run_log(monkeypatch, tmp_pat
         serialized.append(repr(event))
     serialized.append((tmp_path / "run-secrets.jsonl").read_text(encoding="utf-8"))
 
-    assert len(list(iter_events(tmp_path / "run-secrets.jsonl"))) == 3
+    assert len(list(iter_events(tmp_path / "run-secrets.jsonl"))) == 5
     for text in serialized:
         for forbidden in (SECRET, "Authorization", "Bearer", "x-api-key"):
             assert forbidden not in text
@@ -1016,6 +1085,19 @@ def test_cascade_screen_below_threshold_skips_the_referee(
     assert payload["referee"] is None
     assert payload["cascade"]["request_referee"] is False
     assert payload["cascade"]["reason"] == "below_threshold"
+    assert cli["referee_calls"] == 0
+    events = list(iter_events(tmp_path / "logs" / "run-cli.jsonl"))
+    assert [e.attrs["judge_stage"] for e in events] == ["statutory_fidelity_screen"]
+
+
+def test_cascade_skip_text_output_says_why(cli, tmp_path, capsys):
+    cli["row"] = {**RECORDED_ORIGINAL, "verdict": "flag", "p_flag": 0.9}
+    args = _cli_args(tmp_path, json=False, screen_mode="cascade")
+    assert cli_commands.cmd_judge_fidelity(args) == 0
+    out = capsys.readouterr().out
+    assert "verdict=flag" in out
+    assert "referee skipped: every configured kind is below its threshold" in out
+    assert "the choice verdict does not trigger the cascade" in out
     assert cli["referee_calls"] == 0
     events = list(iter_events(tmp_path / "logs" / "run-cli.jsonl"))
     assert [e.attrs["judge_stage"] for e in events] == ["statutory_fidelity_screen"]

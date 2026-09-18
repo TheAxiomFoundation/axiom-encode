@@ -35,14 +35,15 @@ DEFAULT_JUDGE_SCREEN_MODE = JUDGE_SCREEN_MODE_ADVISORY
 
 # PLACEHOLDER THRESHOLD. The 2026-09-17 planted-defect pilot (30 pairs per
 # kind, synthetic single-edit defects in known-good artifacts) is the only
-# evidence behind this value: at 0.25 every planted amount change and 29 of 30
-# flipped boundaries crossed it while 32 of 90 clean originals did, so a
-# cascade would still send about a third of clean artifacts to the referee.
-# It is deliberately low because a skipped referee on a real defect costs far
-# more than a referee call. The calibration harness's apply/blocked labels
-# cannot validate a fidelity judge, so the verifier track under
-# ``benchmarks/verifier/`` is the authority for setting the real threshold;
-# override with ``AXIOM_JUDGE_SCREEN_THRESHOLD`` (or per kind with
+# evidence behind this value: at 0.25 the cascade rule (amount or boundary
+# probability at or above the threshold) sent every planted amount change and
+# every flipped boundary to the referee while 32 of 90 clean originals crossed
+# it, so a cascade would still send about a third of clean artifacts on. It is
+# deliberately low because a skipped referee on a real defect costs far more
+# than a referee call. The calibration harness's apply/blocked labels cannot
+# validate a fidelity judge, so the verifier track (axiom-encode#1657, landing
+# under ``benchmarks/verifier/``) is the authority for setting the real
+# threshold; override with ``AXIOM_JUDGE_SCREEN_THRESHOLD`` (or per kind with
 # ``AXIOM_JUDGE_SCREEN_THRESHOLD_<KIND>``) until it does.
 DEFAULT_JUDGE_SCREEN_THRESHOLD = 0.25
 

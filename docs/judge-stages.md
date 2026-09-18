@@ -25,8 +25,9 @@ The cross-family rule (`model_family` and `cross_family_problem` in
 `judges/client.py`) refuses a judge whose model family matches the generator's
 and refuses any model whose family it cannot classify. Families are
 `anthropic`, `openai`, `google` and, for the screen, `typesafe` (model ids
-starting with `jev`). Every emitted event records the judge model, the
-generator model and token spend.
+starting with `jev`). Every successful event records the judge model, the
+generator model and token spend. An error event always records its cause and
+records the model only when one responded.
 
 ## Statutory-fidelity screen
 
@@ -61,7 +62,9 @@ The event carries `judge_stage = statutory_fidelity_screen`, `advisory =
 true` (hard-wired; the screen has no promoted form), the responding model id
 (`jev-1.13.0` in the pilot), `judge_model_family = typesafe`, token usage, and
 under `attrs.screen`: the policy mode and thresholds, every probability,
-latency in milliseconds, and the cascade decision.
+latency in milliseconds, and the cascade decision. On an error the event
+carries the policy, the questions version, latency and the cascade decision,
+but no probabilities and, unless a model responded, no model id.
 
 Findings carry a kind and a probability and nothing else. System One returns
 no clause reference, no rule path and no explanation, so both locators are
@@ -147,26 +150,31 @@ and scored the original and mutated artifact against the same provision:
 | Boundary flipped (`>=` to `>`, `<=` to `<`) | 30 of 30 | +0.41 | 0.953 |
 | One `and` conjunct dropped | 21 of 30 | +0.09 | 0.603 |
 
-Operating points read off the same 180 calls (the 90 originals are clean
-artifacts; a clean artifact is "sent to the referee" when its amount or
-boundary probability reaches the threshold):
+Operating points read off the same 180 calls. The cascade rule sends an
+artifact to the referee when its amount or boundary probability reaches the
+threshold; the 90 originals are clean artifacts. The last column applies the
+boundary probability alone, to show what the boundary question by itself sees.
 
-| Threshold | Clean sent to referee | Planted amounts caught | Planted boundaries caught |
-|---|---|---|---|
-| 0.20 | 43 of 90 | 30 of 30 | 29 of 30 |
-| 0.25 | 32 of 90 | 30 of 30 | 29 of 30 |
-| 0.30 | 25 of 90 | 30 of 30 | 28 of 30 |
-| 0.50 | 10 of 90 | 30 of 30 | 22 of 30 |
+| Threshold | Clean sent to referee | Planted amounts caught by the cascade | Planted boundaries caught by the cascade | Boundary probability alone |
+|---|---|---|---|---|
+| 0.20 | 43 of 90 | 30 of 30 | 30 of 30 | 29 of 30 |
+| 0.25 | 32 of 90 | 30 of 30 | 30 of 30 | 29 of 30 |
+| 0.30 | 25 of 90 | 30 of 30 | 28 of 30 | 28 of 30 |
+| 0.50 | 10 of 90 | 30 of 30 | 22 of 30 | 22 of 30 |
 
 0.25 is the lowest value at which the cascade still skips most clean artifacts
-while missing one planted boundary flip (scored 0.16). It is deliberately low
-because a skipped referee on a real defect costs far more than a referee call.
+while sending every planted amount and boundary defect to the referee. The
+boundary probability alone misses one flip (scored 0.16); the cascade still
+sends that artifact on its amount probability (0.29). The value is
+deliberately low because a skipped referee on a real defect costs far more
+than a referee call.
 
 The calibration harness in `judges/calibration.py` cannot set this value: its
 labels are apply and blocked outcomes of the compile and CI gates, which a
 reader of provision plus artifact cannot see, and both the screen and the
-referee were near chance on them (Jev AUC 0.546). The verifier track under
-`benchmarks/verifier/` is the authority for the real threshold.
+referee were near chance on them (Jev AUC 0.546). The verifier track
+(TheAxiomFoundation/axiom-encode#1657, landing under `benchmarks/verifier/`)
+is the authority for the real threshold.
 
 ### Live check on real generations
 

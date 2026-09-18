@@ -628,6 +628,6 @@ changes and current evidence.
   their hypotheses, and the evidence path to justify them later.
 - `docs/judge-stages.md` documents the judge stages, including the TypeSafe
   System One pre-screen ahead of the statutory-fidelity referee and the
-  placeholder threshold the verifier track must replace.
+  placeholder threshold the verifier track (#1657) must replace.
 - `docs/rulespec-proof-validation.md` defines the proof-tree contract that keeps
   immutable corpus evidence and executable RuleSpec separated.

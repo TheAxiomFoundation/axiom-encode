@@ -389,7 +389,11 @@ def cmd_judge_fidelity(args: argparse.Namespace) -> int:
                     )
                 )
             else:
-                print("referee skipped: screen below threshold in cascade mode")
+                print(
+                    "referee skipped: every configured kind is below its "
+                    "threshold in cascade mode (the choice verdict does not "
+                    "trigger the cascade)"
+                )
             return 0
 
     event = sf.run(
