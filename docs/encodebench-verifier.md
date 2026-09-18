@@ -283,6 +283,26 @@ same under different names, and any incomplete run without `--allow-partial`.
   price the payload names; a row whose usage the provider did not report is
   unpriced and counted as such, never charged zero.
 
+## Self-agreement (test and retest)
+
+A judge that changes its verdict on the same text between two calls is noisy
+in a way no detection AUC shows. Two runs of one judge are compared on cases
+whose provision and artifact digests are identical (joined on content, never
+on case ids, so runs over different suites still compare where they share
+text):
+
+```bash
+uv run python benchmarks/verifier/verifier.py agreement \
+  _axiom-runs/encodebench-verifier/runs/haiku _axiom-runs/encodebench-verifier/runs/haiku-retest
+```
+
+It reports the number of identical texts judged in both runs, verdict
+agreement, identical finding-kind sets (for judges that return findings), and
+the median and maximum absolute change in verdict score and in each kind
+score. It refuses to compare two different judges, and says so when the two
+runs' identities differ (a different prompt or window is a comparison of two
+configurations, not a retest).
+
 ## Adding a judge
 
 Implement the `JudgeRunner` protocol in `judges/` (a `name`, `family`,

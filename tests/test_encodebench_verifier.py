@@ -2008,3 +2008,76 @@ def test_cli_exit_codes_for_bad_inputs_and_retry_budget_mapping(tmp_path, monkey
         == 2
     )
     assert captured["max_retries"] == 0 and captured["max_attempts"] == 1
+
+
+def test_agreement_joins_on_identical_text_and_refuses_different_judges(tmp_path):
+    from encodebench_verifier.agreement import AgreementError, compare_runs
+
+    # Distinct artifact text per pair, so content digests do not collide.
+    distinct = [
+        KnownGoodArtifact(
+            key=a.key,
+            citation=a.citation,
+            provision_text=a.provision_text,
+            artifact_text=a.artifact_text.replace("Two lines.", f"Variant {i}."),
+            origin=a.origin,
+        )
+        for i, a in enumerate(_artifacts(14))
+    ]
+    suite, _ = build_synthetic_suite(
+        distinct,
+        name="agreement unit",
+        source_kind="test",
+        source_identity={},
+        provision_chars=24_000,
+        truncate=truncate_provision,
+        per_kind=2,
+        seed=3,
+    )
+    first = ReplayRunner(_replay_file(tmp_path, suite, "t1"), name="t1")
+    run_suite(suite, first, tmp_path / "t1", price=None)
+    # Second run: same judge, verdict flipped on one case, findings changed on another.
+    responses = json.loads((tmp_path / "t1.json").read_text())
+    flipped, changed = suite.cases[0].case_id, suite.cases[1].case_id
+    responses["responses"][flipped]["verdict"] = (
+        "pass" if responses["responses"][flipped]["verdict"] == "flag" else "flag"
+    )
+    responses["responses"][flipped]["verdict_score"] = 0.5
+    responses["responses"][changed]["findings"] = [
+        {
+            "kind": "boundary_direction",
+            "rule_path": "x",
+            "clause_ref": "c",
+            "explanation": "e",
+        }
+    ]
+    path = tmp_path / "t2.json"
+    path.write_text(json.dumps(responses))
+    run_suite(suite, ReplayRunner(path, name="t2"), tmp_path / "t2", price=None)
+    report = compare_runs(tmp_path / "t1", tmp_path / "t2")
+    n = len(suite.cases)
+    assert report.joined == n
+    assert report.verdict_agreements == n - 1
+    assert report.same_identity is False  # the response file name is part of identity
+    assert report.max_abs_verdict_score_delta == pytest.approx(0.4)
+    assert "identical texts judged in both runs" in report.render()
+    # A different model is not a self-agreement comparison.
+    other = json.loads(path.read_text())
+    other["model"] = "another-model"
+    (tmp_path / "t3.json").write_text(json.dumps(other))
+    run_suite(
+        suite,
+        ReplayRunner(tmp_path / "t3.json", name="t3"),
+        tmp_path / "t3",
+        price=None,
+    )
+    with pytest.raises(AgreementError, match="one judge"):
+        compare_runs(tmp_path / "t1", tmp_path / "t3")
+    assert (
+        verifier_cli.main(["agreement", str(tmp_path / "t1"), str(tmp_path / "t2")])
+        == 0
+    )
+    assert (
+        verifier_cli.main(["agreement", str(tmp_path / "t1"), str(tmp_path / "t3")])
+        == 2
+    )

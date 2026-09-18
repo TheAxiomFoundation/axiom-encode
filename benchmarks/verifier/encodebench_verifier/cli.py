@@ -13,6 +13,7 @@ from typing import Optional
 from axiom_encode.judges.client import DEFAULT_PROVISION_CHARS, truncate_provision
 
 from . import DEFECT_KINDS
+from .agreement import AgreementError, compare_runs
 from .board import (
     DEFAULT_FALSE_ALARM_CEILING,
     VerifierBoardError,
@@ -254,6 +255,19 @@ def cmd_board(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_agreement(args: argparse.Namespace) -> int:
+    try:
+        report = compare_runs(Path(args.run_a), Path(args.run_b))
+    except AgreementError as exc:
+        _eprint(f"error: {exc}")
+        return 2
+    print(report.render())
+    if args.json_out:
+        Path(args.json_out).write_text(json.dumps(report.to_dict(), indent=1))
+        _eprint(f"wrote {args.json_out}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="verifier",
@@ -330,6 +344,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--pricing", default=None)
     p.add_argument("--quiet", action="store_true")
     p.set_defaults(func=cmd_run)
+
+    p = sub.add_parser(
+        "agreement",
+        help="run-to-run self-agreement of one judge on identical case text",
+    )
+    p.add_argument("run_a")
+    p.add_argument("run_b")
+    p.add_argument("--json-out", default=None)
+    p.set_defaults(func=cmd_agreement)
 
     p = sub.add_parser("board", help="fold results into a leaderboard")
     p.add_argument("inputs", nargs="+")
