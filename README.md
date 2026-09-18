@@ -35,14 +35,17 @@ pipeline produces. The chartered admission model — where generation runs,
 what gets signed, and what CI is allowed to do — is
 [axiom-encode#1192](https://github.com/TheAxiomFoundation/axiom-encode/issues/1192).
 
-**Local contributions:** supervised generation using a personal Codex
-subscription is supported, but the current US admission path cannot accept
-that draft without a trusted apply manifest. Matching the pinned encoder
-version and passing local validation are not sufficient to satisfy the PR
-manifest guard. See the [local contribution admission proposal](docs/local-contribution-admission.md)
-for the reproduced failure, the proposed contributor experience, and the
-decisions and implementation work still required. This proposal does not
-enable local-draft admission or change the current signing policy.
+**Local contributions:** personal Codex generation works, but a locally
+validated draft alone does not satisfy the current US apply-manifest guard.
+The selected contributor path is **enrolled producers**: generation runs on
+an authenticated supervised runtime, whose host-held producer key signs
+generation evidence; the notary verifies that evidence and signs acceptance
+under the approved [v33 design](docs/notary-admission-design.md).
+Repository write access and a verification-only supervisor do not enroll a
+producer. See the [local contribution admission work plan](docs/local-contribution-admission.md)
+for enrollment, host custody, revocation, and the deployment prerequisites.
+These documents do not enable admission; the existing US guard remains in
+force until the notary is implemented and activated for that repository.
 
 If you are not running the supervised pipeline, you generally do not need
 this repo:
