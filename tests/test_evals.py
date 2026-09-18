@@ -846,18 +846,527 @@ def test_retry_candidate_formatter_explicitly_handles_missing_tests():
     )
 
     assert "No companion test file was present" in section
-    assert "complete replacement RuleSpec and companion test files" in section
+    assert "you may omit unchanged named inputs, named rules" in section
+    assert "input removal is accepted only after no repaired rule" in section
+    assert "`repair_remove: true`" in section
+
+
+def test_main_normalizer_lifts_inputs_misnested_under_module(tmp_path):
+    normalized = evals_module._normalize_main_eval_content(
+        """format: rulespec/v1
+module:
+  description: generated module
+  inputs:
+    - name: battery_is_recognized_by_uscis
+      entity: Person
+      dtype: Boolean
+      period: Month
+rules: []
+""",
+        target_path=tmp_path / "section.yaml",
+        single_amount_table_slice=False,
+    )
+
+    payload = yaml.safe_load(normalized)
+    assert "inputs" not in payload["module"]
+    assert payload["inputs"] == [
+        {
+            "name": "battery_is_recognized_by_uscis",
+            "entity": "Person",
+            "dtype": "Boolean",
+            "period": "Month",
+        }
+    ]
+
+
+def test_main_normalizer_merges_module_inputs_with_root_contract(tmp_path):
+    normalized = evals_module._normalize_main_eval_content(
+        """format: rulespec/v1
+module:
+  inputs:
+    - name: battery_is_recognized_by_uscis
+      entity: Person
+      dtype: Boolean
+      period: Month
+inputs:
+  - name: battery_is_recognized_by_court
+    entity: Person
+    dtype: Boolean
+    period: Month
+rules: []
+""",
+        target_path=tmp_path / "section.yaml",
+        single_amount_table_slice=False,
+    )
+
+    payload = yaml.safe_load(normalized)
+    assert "inputs" not in payload["module"]
+    assert [item["name"] for item in payload["inputs"]] == [
+        "battery_is_recognized_by_court",
+        "battery_is_recognized_by_uscis",
+    ]
+
+
+def test_repair_candidate_overlay_restores_omitted_named_items(tmp_path):
+    artifact_root = tmp_path / "generated"
+    rulespec_file = artifact_root / "regulations" / "section.yaml"
+    rulespec_file.parent.mkdir(parents=True)
+    rulespec_file.write_text(
+        "format: rulespec/v1\n"
+        "module:\n"
+        "  deferred_outputs:\n"
+        "    - output: us:section#new_deferred\n"
+        "      reason: new\n"
+        "imports:\n"
+        "  - us:source#new\n"
+        "inputs:\n"
+        "  - name: existing_changed_input\n"
+        "    entity: Person\n"
+        "    dtype: Boolean\n"
+        "    period: Month\n"
+        "  - name: added_input\n"
+        "    entity: Person\n"
+        "    dtype: Boolean\n"
+        "    period: Month\n"
+        "rules:\n"
+        "  - name: existing_changed\n"
+        "    kind: parameter\n"
+        "    dtype: Count\n"
+        "    versions: [{effective_from: '2026-01-01', formula: 2}]\n"
+        "  - name: added\n"
+        "    kind: parameter\n"
+        "    dtype: Count\n"
+        "    versions: [{effective_from: '2026-01-01', formula: 3}]\n",
+        encoding="utf-8",
+    )
+    rulespec_file.with_suffix(".test.yaml").write_text(
+        "- name: added_case\n  period: 2026-01\n  input: {}\n  output: {}\n",
+        encoding="utf-8",
+    )
+    candidate = ValidationRetryCandidate(
+        rulespec=(
+            "format: rulespec/v1\n"
+            "module:\n"
+            "  deferred_outputs:\n"
+            "    - output: us:section#preserved_deferred\n"
+            "      reason: preserved\n"
+            "    - output: us:section#added\n"
+            "      reason: replaced by the generated rule\n"
+            "imports:\n"
+            "  - us:source#preserved\n"
+            "inputs:\n"
+            "  - name: existing_changed_input\n"
+            "    entity: Person\n"
+            "    dtype: Boolean\n"
+            "    period: Year\n"
+            "  - name: omitted_input\n"
+            "    entity: Person\n"
+            "    dtype: Integer\n"
+            "    period: Month\n"
+            "rules:\n"
+            "  - name: existing_changed\n"
+            "    kind: parameter\n"
+            "    dtype: Count\n"
+            "    versions: [{effective_from: '2026-01-01', formula: 1}]\n"
+            "  - name: omitted\n"
+            "    kind: parameter\n"
+            "    dtype: Count\n"
+            "    versions: [{effective_from: '2026-01-01', formula: 4}]\n"
+        ),
+        tests=(
+            "- name: preserved_case\n  period: 2026-01\n  input: {}\n  output: {}\n"
+        ),
+    )
+
+    repairs = evals_module._overlay_validation_retry_candidate(
+        rulespec_file,
+        artifact_root=artifact_root,
+        candidate=candidate,
+    )
+
+    payload = yaml.safe_load(rulespec_file.read_text(encoding="utf-8"))
+    rules = {rule["name"]: rule for rule in payload["rules"]}
+    assert rules["existing_changed"]["versions"][0]["formula"] == 2
+    assert set(rules) == {"existing_changed", "added", "omitted"}
+    inputs = {item["name"]: item for item in payload["inputs"]}
+    assert set(inputs) == {
+        "existing_changed_input",
+        "added_input",
+        "omitted_input",
+    }
+    assert inputs["existing_changed_input"]["period"] == "Month"
+    assert payload["imports"] == ["us:source#new", "us:source#preserved"]
+    assert {item["output"] for item in payload["module"]["deferred_outputs"]} == {
+        "us:section#new_deferred",
+        "us:section#preserved_deferred",
+    }
+    tests = yaml.safe_load(
+        rulespec_file.with_suffix(".test.yaml").read_text(encoding="utf-8")
+    )
+    assert {case["name"] for case in tests} == {"added_case", "preserved_case"}
+    assert "rule:omitted" in repairs
+    assert "input:omitted_input" in repairs
+    assert "test:preserved_case" in repairs
+    assert "resolved_deferred_output:us:section#added" in repairs
+
+
+def test_repair_candidate_overlay_removes_unreferenced_input(tmp_path):
+    artifact_root = tmp_path / "generated"
+    rulespec_file = artifact_root / "regulations" / "section.yaml"
+    rulespec_file.parent.mkdir(parents=True)
+    rulespec_file.write_text(
+        "format: rulespec/v1\n"
+        "inputs:\n"
+        "  - name: required_fact\n"
+        "    repair_remove: true\n"
+        "rules: []\n",
+        encoding="utf-8",
+    )
+    candidate = ValidationRetryCandidate(
+        rulespec=(
+            "format: rulespec/v1\n"
+            "inputs:\n"
+            "  - name: required_fact\n"
+            "    entity: Person\n"
+            "    dtype: Boolean\n"
+            "    period: Month\n"
+            "rules: []\n"
+        )
+    )
+
+    repairs = evals_module._overlay_validation_retry_candidate(
+        rulespec_file,
+        artifact_root=artifact_root,
+        candidate=candidate,
+    )
+
+    payload = yaml.safe_load(rulespec_file.read_text(encoding="utf-8"))
+    assert "inputs" not in payload
+    assert repairs == ("removed_input:required_fact",)
+
+
+@pytest.mark.parametrize("reference_location", ["rule", "test", "new_test"])
+def test_repair_candidate_overlay_rejects_referenced_input_removal(
+    tmp_path, reference_location
+):
+    artifact_root = tmp_path / "generated"
+    rulespec_file = artifact_root / "regulations" / "section.yaml"
+    rulespec_file.parent.mkdir(parents=True)
+    rule_formula = "required_fact" if reference_location == "rule" else "true"
+    rulespec_file.write_text(
+        "format: rulespec/v1\n"
+        "inputs:\n"
+        "  - name: required_fact\n"
+        "    repair_remove: true\n"
+        "rules:\n"
+        "  - name: result\n"
+        "    kind: derived\n"
+        "    entity: Person\n"
+        "    dtype: Judgment\n"
+        "    period: Month\n"
+        "    versions:\n"
+        "      - effective_from: '2026-01-01'\n"
+        f"        formula: {rule_formula}\n",
+        encoding="utf-8",
+    )
+    generated_test = (
+        "- name: result_case\n"
+        "  period: 2026-01\n"
+        "  input:\n"
+        "    us:regulations/section#input.required_fact: true\n"
+        "  output:\n"
+        "    us:regulations/section#result: holds\n"
+        if reference_location in {"test", "new_test"}
+        else "[]\n"
+    )
+    rulespec_file.with_suffix(".test.yaml").write_text(
+        generated_test,
+        encoding="utf-8",
+    )
+    candidate = ValidationRetryCandidate(
+        rulespec=(
+            "format: rulespec/v1\n"
+            "inputs:\n"
+            "  - name: required_fact\n"
+            "    entity: Person\n"
+            "    dtype: Boolean\n"
+            "    period: Month\n"
+            "rules: []\n"
+        ),
+        tests=None if reference_location == "new_test" else "[]\n",
+    )
+
+    with pytest.raises(ValueError, match="remain referenced: `required_fact`"):
+        evals_module._overlay_validation_retry_candidate(
+            rulespec_file,
+            artifact_root=artifact_root,
+            candidate=candidate,
+        )
+
+
+def test_repair_candidate_overlay_removes_explicit_named_tombstones(tmp_path):
+    artifact_root = tmp_path / "generated"
+    rulespec_file = artifact_root / "regulations" / "section.yaml"
+    rulespec_file.parent.mkdir(parents=True)
+    rulespec_file.write_text(
+        "format: rulespec/v1\n"
+        "rules:\n"
+        "  - name: obsolete\n"
+        "    repair_remove: true\n"
+        "  - name: retained\n"
+        "    kind: parameter\n"
+        "    dtype: Count\n"
+        "    versions: [{effective_from: '2026-01-01', formula: 2}]\n",
+        encoding="utf-8",
+    )
+    rulespec_file.with_suffix(".test.yaml").write_text(
+        "- name: obsolete_case\n  repair_remove: true\n"
+        "- name: retained_case\n  period: 2026-01\n  input: {}\n  output: {}\n",
+        encoding="utf-8",
+    )
+    candidate = ValidationRetryCandidate(
+        rulespec=(
+            "format: rulespec/v1\n"
+            "rules:\n"
+            "  - name: obsolete\n"
+            "    kind: parameter\n"
+            "    dtype: Count\n"
+            "    versions: [{effective_from: '2026-01-01', formula: 1}]\n"
+            "  - name: retained\n"
+            "    kind: parameter\n"
+            "    dtype: Count\n"
+            "    versions: [{effective_from: '2026-01-01', formula: 1}]\n"
+        ),
+        tests=(
+            "- name: obsolete_case\n  period: 2026-01\n  input: {}\n  output: {}\n"
+            "- name: retained_case\n  period: 2026-01\n  input: {}\n  output: {}\n"
+        ),
+    )
+
+    repairs = evals_module._overlay_validation_retry_candidate(
+        rulespec_file,
+        artifact_root=artifact_root,
+        candidate=candidate,
+    )
+
+    payload = yaml.safe_load(rulespec_file.read_text(encoding="utf-8"))
+    assert [rule["name"] for rule in payload["rules"]] == ["retained"]
+    assert "repair_remove" not in rulespec_file.read_text(encoding="utf-8")
+    tests = yaml.safe_load(
+        rulespec_file.with_suffix(".test.yaml").read_text(encoding="utf-8")
+    )
+    assert [case["name"] for case in tests] == ["retained_case"]
+    assert "removed_rule:obsolete" in repairs
+    assert "removed_test:obsolete_case" in repairs
+
+
+def test_repair_candidate_overlay_accepts_idempotent_named_tombstones(tmp_path):
+    artifact_root = tmp_path / "generated"
+    rulespec_file = artifact_root / "section.yaml"
+    artifact_root.mkdir()
+    rulespec_file.write_text(
+        "format: rulespec/v1\nrules:\n  - name: obsolete\n    repair_remove: true\n",
+        encoding="utf-8",
+    )
+    rulespec_file.with_suffix(".test.yaml").write_text(
+        "- name: obsolete_case\n  repair_remove: true\n",
+        encoding="utf-8",
+    )
+    candidate = ValidationRetryCandidate(
+        rulespec="format: rulespec/v1\nrules: []\n",
+        tests="[]\n",
+        allowed_missing_rule_removals=("obsolete",),
+        allowed_missing_test_removals=("obsolete_case",),
+    )
+
+    repairs = evals_module._overlay_validation_retry_candidate(
+        rulespec_file,
+        artifact_root=artifact_root,
+        candidate=candidate,
+    )
+
+    assert yaml.safe_load(rulespec_file.read_text(encoding="utf-8"))["rules"] == []
+    assert (
+        yaml.safe_load(
+            rulespec_file.with_suffix(".test.yaml").read_text(encoding="utf-8")
+        )
+        == []
+    )
+    assert repairs == ("removed_rule:obsolete", "removed_test:obsolete_case")
+
+
+def test_repair_tombstone_survives_materialization_before_overlay(tmp_path):
+    artifact_root = tmp_path / "generated"
+    rulespec_file = artifact_root / "regulations" / "section.yaml"
+    candidate = ValidationRetryCandidate(
+        rulespec=(
+            "format: rulespec/v1\n"
+            "rules:\n"
+            "  - name: obsolete\n"
+            "    kind: parameter\n"
+            "    dtype: Count\n"
+            "    versions: [{effective_from: '2026-01-01', formula: 1}]\n"
+        ),
+        tests=("- name: obsolete_case\n  period: 2026-01\n  input: {}\n  output: {}\n"),
+    )
+    response = (
+        "=== FILE: section.yaml ===\n"
+        "format: rulespec/v1\n"
+        "rules:\n"
+        "  - name: obsolete\n"
+        "    repair_remove: true\n"
+        "=== FILE: section.test.yaml ===\n"
+        "- name: obsolete_case\n"
+        "  repair_remove: true\n"
+    )
+
+    assert evals_module._materialize_eval_artifact(
+        response,
+        rulespec_file,
+        artifact_root=artifact_root,
+    )
+    assert "repair_remove: true" in rulespec_file.read_text(encoding="utf-8")
+    test_file = rulespec_file.with_suffix(".test.yaml")
+    assert yaml.safe_load(test_file.read_text(encoding="utf-8")) == [
+        {"name": "obsolete_case", "repair_remove": True}
+    ]
+
+    repairs = evals_module._overlay_validation_retry_candidate(
+        rulespec_file,
+        artifact_root=artifact_root,
+        candidate=candidate,
+    )
+
+    assert yaml.safe_load(rulespec_file.read_text(encoding="utf-8"))["rules"] == []
+    assert yaml.safe_load(test_file.read_text(encoding="utf-8")) == []
+    assert repairs == ("removed_rule:obsolete", "removed_test:obsolete_case")
+
+
+def test_single_amount_test_normalizer_preserves_exact_repair_tombstone():
+    normalized = evals_module._normalize_single_amount_row_test_content(
+        "- name: alternate_branch_case\n  repair_remove: true\n",
+        rulespec_content=(
+            "format: rulespec/v1\n"
+            "period: Year\n"
+            "rules:\n"
+            "  - name: amount\n"
+            "    kind: parameter\n"
+            "    dtype: Money\n"
+            "    versions: [{effective_from: '2026-01-01', formula: 1}]\n"
+        ),
+    )
+
+    assert yaml.safe_load(normalized) == [
+        {"name": "alternate_branch_case", "repair_remove": True}
+    ]
+
+
+@pytest.mark.parametrize(
+    "marker,match",
+    [
+        ({"name": "obsolete", "repair_remove": False}, "repair_remove: true"),
+        (
+            {"name": "obsolete", "repair_remove": True, "kind": "derived"},
+            "only name and repair_remove",
+        ),
+        ({"name": "unknown", "repair_remove": True}, "no preserved item"),
+    ],
+)
+def test_repair_candidate_overlay_rejects_invalid_tombstones(tmp_path, marker, match):
+    artifact_root = tmp_path / "generated"
+    rulespec_file = artifact_root / "section.yaml"
+    artifact_root.mkdir()
+    rulespec_file.write_text(
+        yaml.safe_dump({"format": "rulespec/v1", "rules": [marker]}),
+        encoding="utf-8",
+    )
+    candidate = ValidationRetryCandidate(
+        rulespec=(
+            "format: rulespec/v1\n"
+            "rules:\n"
+            "  - name: obsolete\n"
+            "    kind: parameter\n"
+            "    dtype: Count\n"
+            "    versions: [{effective_from: '2026-01-01', formula: 1}]\n"
+        )
+    )
+
+    with pytest.raises(ValueError, match=match):
+        evals_module._overlay_validation_retry_candidate(
+            rulespec_file,
+            artifact_root=artifact_root,
+            candidate=candidate,
+        )
+
+
+def test_repair_candidate_overlay_normalizes_destination_root_deferrals(tmp_path):
+    artifact_root = tmp_path / "generated"
+    rulespec_file = artifact_root / "regulations" / "7-cfr" / "273" / "4.yaml"
+    rulespec_file.parent.mkdir(parents=True)
+    rulespec_file.write_text(
+        "format: rulespec/v1\n"
+        "module:\n"
+        "  source_verification:\n"
+        "    corpus_citation_path: us/regulation/7/273/4\n"
+        "  deferred_outputs:\n"
+        "    - output: us:regulations/7-cfr/273/4/a/6/ii/h#generated\n"
+        "      reason: generated\n"
+        "rules: []\n",
+        encoding="utf-8",
+    )
+    candidate = ValidationRetryCandidate(
+        rulespec=(
+            "format: rulespec/v1\n"
+            "module:\n"
+            "  source_verification:\n"
+            "    corpus_citation_path: us/regulation/7/273/4\n"
+            "  deferred_outputs:\n"
+            "    - output: us:regulations/7-cfr/273/4/a/6/ii/h#generated\n"
+            "      reason: preserved duplicate\n"
+            "    - output: us:regulations/7-cfr/273/4/c/1#preserved\n"
+            "      reason: preserved\n"
+            "    - output: us:statutes/8/1641/b#external_dependency\n"
+            "      reason: external\n"
+            "rules: []\n"
+        ),
+    )
+
+    repairs = evals_module._overlay_validation_retry_candidate(
+        rulespec_file,
+        artifact_root=artifact_root,
+        candidate=candidate,
+    )
+
+    payload = yaml.safe_load(rulespec_file.read_text(encoding="utf-8"))
+    deferred = payload["module"]["deferred_outputs"]
+    assert deferred == [
+        {
+            "output": "us:regulations/7/273/4/a/6/ii/h#generated",
+            "reason": "generated",
+        },
+        {
+            "output": "us:regulations/7/273/4/c/1#preserved",
+            "reason": "preserved",
+        },
+        {
+            "output": "us:statutes/8/1641/b#external_dependency",
+            "reason": "external",
+        },
+    ]
+    assert not any("7-cfr" in item["output"] for item in deferred)
+    assert any(repair.startswith("deferred_output_source_root:") for repair in repairs)
 
 
 def test_run_model_eval_appends_repair_parameters_after_existing_public_parameters():
     parameters = list(inspect.signature(run_model_eval).parameters)
 
-    assert parameters[-5:] == [
+    assert parameters[-6:] == [
         "required_import_targets",
         "legacy_replacement",
         "replacement_overlay_scope",
         "validation_retry_candidate",
         "repair_candidate_tests_only",
+        "accept_valid_retry_candidate",
     ]
 
 
@@ -1042,6 +1551,69 @@ def test_provision_inherits_document_identifiers_for_de_amendment_discovery(tmp_
         provision.amendment_documents[0].metadata["source_note"].startswith("Official")
     )
     assert provision.amendment_documents == document.amendment_documents
+
+
+@pytest.mark.parametrize(
+    ("amendment_metadata", "select_amendment_scope", "expected"),
+    [
+        ({"amendment_targets": ["de/statute/bgb"]}, True, True),
+        ({"amendment_targets": ["de/statute/bgb/1591"]}, True, True),
+        ({"amendment_targets": ["de/statute/bgbeg"]}, True, False),
+        ({"amends": "Bürgerliches Gesetzbuch"}, True, False),
+        ({"amendment_targets": ["de/statute/bgb"]}, False, False),
+    ],
+)
+def test_explicit_amendment_targets_cross_only_selected_release_scopes(
+    tmp_path, amendment_metadata, select_amendment_scope, expected
+):
+    target = "de/statute/bgb/1591"
+    amendment = "de/statute/kindrg/document-1"
+    target_scope = ("de", "statute", "civil-capture")
+    amendment_scope = ("de", "statute", "historical-capture")
+    release = _write_test_corpus_release(
+        tmp_path,
+        [
+            {
+                "citation_path": "de/statute/bgb",
+                "body": "Bürgerliches Gesetzbuch",
+                "heading": "Bürgerliches Gesetzbuch",
+                "source_path": "sources/de/bgb.xml",
+                "version": target_scope[2],
+            },
+            {
+                "citation_path": target,
+                "body": "Mutter eines Kindes ist die Frau, die es geboren hat.",
+                "source_path": "sources/de/bgb.xml",
+                "version": target_scope[2],
+            },
+            {
+                "citation_path": amendment,
+                "body": "Dieses Gesetz tritt am 1. Juli 1998 in Kraft.",
+                "source_path": "sources/de/kindrg.pdf",
+                "version": amendment_scope[2],
+                "metadata": {
+                    "document_type": "amendment act",
+                    **amendment_metadata,
+                },
+            },
+        ],
+        selected_scopes=(
+            [target_scope, amendment_scope]
+            if select_amendment_scope
+            else [target_scope]
+        ),
+    )
+
+    source = resolve_corpus_source_unit(target, release)
+
+    assert [item.citation_path for item in source.amendment_documents] == (
+        [amendment] if expected else []
+    )
+    if expected:
+        assert source.amendment_documents[0].match_tier == "structured"
+        assert source.amendment_documents[0].body == (
+            "Dieses Gesetz tritt am 1. Juli 1998 in Kraft."
+        )
 
 
 def test_dk_full_parity_structured_amendment_timelines_are_exhaustive(tmp_path):
@@ -8435,6 +9007,158 @@ rules: []
         assert metrics.generalist_review_score is None
         assert metrics.generalist_review_issues == []
 
+    def test_evaluate_artifact_skips_reviewer_after_deterministic_rejection(
+        self, tmp_path
+    ):
+        rulespec_file = _generated_rulespec_file_path(tmp_path, "statutes/24/a.yaml")
+        rulespec_file.write_text(
+            "format: rulespec/v1\n"
+            "module:\n"
+            "  summary: Source text says the amount is $1,000.\n"
+            "rules:\n"
+            "  - name: ctc_amount\n"
+            "    kind: parameter\n"
+            "    dtype: Money\n"
+            "    unit: USD\n"
+            "    versions:\n"
+            "      - effective_from: '2018-01-01'\n"
+            "        formula: 1000\n"
+        )
+        ci_issue = "Ungrounded generated numeric literal: 7455.7"
+
+        with (
+            patch.object(
+                ValidatorPipeline,
+                "_run_compile_check",
+                return_value=ValidationResult("compile", passed=True),
+            ),
+            patch.object(
+                ValidatorPipeline,
+                "_run_ci",
+                return_value=ValidationResult("ci", passed=False, issues=[ci_issue]),
+            ),
+            patch.object(ValidatorPipeline, "_run_reviewer") as mock_reviewer,
+        ):
+            metrics = evaluate_artifact(
+                local_corpus_release=_write_test_corpus_provision(
+                    tmp_path / "bound-release"
+                ),
+                rulespec_file=rulespec_file,
+                policy_repo_root=_canonical_rulespec_content_root(tmp_path, "us"),
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
+                source_text="Source text says the amount is $1,000.",
+                reviewers_require_deterministic_pass=True,
+            )
+
+        mock_reviewer.assert_not_called()
+        assert not metrics.ci_pass
+        assert ci_issue in metrics.ci_issues
+        assert metrics.generalist_review_score is None
+
+    def test_evaluate_artifact_reviews_rejected_candidates_by_default(self, tmp_path):
+        rulespec_file = _generated_rulespec_file_path(tmp_path, "statutes/24/a.yaml")
+        rulespec_file.write_text(
+            "format: rulespec/v1\n"
+            "module:\n"
+            "  summary: Source text says the amount is $1,000.\n"
+            "rules:\n"
+            "  - name: ctc_amount\n"
+            "    kind: parameter\n"
+            "    dtype: Money\n"
+            "    unit: USD\n"
+            "    versions:\n"
+            "      - effective_from: '2018-01-01'\n"
+            "        formula: 1000\n"
+        )
+
+        with (
+            patch.object(
+                ValidatorPipeline,
+                "_run_compile_check",
+                return_value=ValidationResult("compile", passed=True),
+            ),
+            patch.object(
+                ValidatorPipeline,
+                "_run_ci",
+                return_value=ValidationResult(
+                    "ci", passed=False, issues=["Ungrounded literal"]
+                ),
+            ),
+            patch.object(
+                ValidatorPipeline,
+                "_run_reviewer",
+                return_value=ValidationResult(
+                    "generalist-reviewer",
+                    passed=False,
+                    score=3.0,
+                    issues=["magic number"],
+                ),
+            ) as mock_reviewer,
+        ):
+            metrics = evaluate_artifact(
+                local_corpus_release=_write_test_corpus_provision(
+                    tmp_path / "bound-release"
+                ),
+                rulespec_file=rulespec_file,
+                policy_repo_root=_canonical_rulespec_content_root(tmp_path, "us"),
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
+                source_text="Source text says the amount is $1,000.",
+            )
+
+        mock_reviewer.assert_called_once()
+        assert metrics.generalist_review_score == 3.0
+        assert metrics.generalist_review_issues == ["magic number"]
+
+    def test_evaluate_artifact_reviews_when_deterministic_checks_pass(self, tmp_path):
+        rulespec_file = _generated_rulespec_file_path(tmp_path, "statutes/24/a.yaml")
+        rulespec_file.write_text(
+            "format: rulespec/v1\n"
+            "module:\n"
+            "  summary: Source text says the amount is $1,000.\n"
+            "rules:\n"
+            "  - name: ctc_amount\n"
+            "    kind: parameter\n"
+            "    dtype: Money\n"
+            "    unit: USD\n"
+            "    versions:\n"
+            "      - effective_from: '2018-01-01'\n"
+            "        formula: 1000\n"
+        )
+
+        with (
+            patch.object(
+                ValidatorPipeline,
+                "_run_compile_check",
+                return_value=ValidationResult("compile", passed=True),
+            ),
+            patch.object(
+                ValidatorPipeline,
+                "_run_ci",
+                return_value=ValidationResult("ci", passed=True),
+            ),
+            patch.object(
+                ValidatorPipeline,
+                "_run_reviewer",
+                return_value=ValidationResult(
+                    "generalist-reviewer", passed=True, score=9.0
+                ),
+            ) as mock_reviewer,
+        ):
+            metrics = evaluate_artifact(
+                local_corpus_release=_write_test_corpus_provision(
+                    tmp_path / "bound-release"
+                ),
+                rulespec_file=rulespec_file,
+                policy_repo_root=_canonical_rulespec_content_root(tmp_path, "us"),
+                axiom_rules_path=Path("/tmp/axiom-rules-engine"),
+                source_text="Source text says the amount is $1,000.",
+                reviewers_require_deterministic_pass=True,
+            )
+
+        mock_reviewer.assert_called_once()
+        assert metrics.generalist_review_pass
+        assert metrics.generalist_review_score == 9.0
+
     def test_generated_eval_revalidation_keeps_attached_amendments(self, tmp_path):
         amendment = CorpusAmendmentDocument(
             citation_path=(
@@ -8481,6 +9205,86 @@ rules: []
             call.kwargs["protected_review_excerpts"] == protected_review_excerpts
             for call in mock_repair.call_args_list
         )
+
+    def test_generated_eval_repair_rounds_are_bounded(self, tmp_path):
+        rulespec_file = tmp_path / "artifact.yaml"
+        rulespec_file.write_text("initial\n")
+        metrics = SimpleNamespace(ci_issues=["repairable"])
+        repair_round = 0
+
+        def change_artifact(**_kwargs):
+            nonlocal repair_round
+            repair_round += 1
+            rulespec_file.write_text(f"repair-{repair_round}\n")
+            return ["companion-test-repair"]
+
+        with (
+            patch(
+                "axiom_encode.harness.evals.evaluate_artifact",
+                return_value=metrics,
+            ) as mock_evaluate,
+            patch(
+                "axiom_encode.harness.evals._apply_generated_eval_repairs",
+                side_effect=change_artifact,
+            ) as mock_repair,
+            patch.object(evals_module, "_GENERATED_EVAL_REPAIR_LIMIT", 3),
+        ):
+            result = _evaluate_generated_artifact_with_repairs(
+                rulespec_file=rulespec_file,
+                policy_repo_root=tmp_path / "rulespec-us",
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+                source_text="Source body",
+                local_corpus_release=object(),
+            )
+
+        assert result is metrics
+        assert mock_evaluate.call_count == 4
+        assert mock_repair.call_count == 3
+
+    def test_generated_eval_repair_expands_fail_fast_coverage_issues(self, tmp_path):
+        repo_path = _canonical_rulespec_content_root(tmp_path, "us")
+        rulespec_file = repo_path / "statutes" / "7" / "2015" / "f.yaml"
+        test_file = rulespec_file.with_name("f.test.yaml")
+        rulespec_file.parent.mkdir(parents=True)
+        rulespec_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: refugee_wait_years
+    kind: derived
+    dtype: Integer
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0
+  - name: asylee_wait_years
+    kind: derived
+    dtype: Integer
+    versions:
+      - effective_from: '2026-01-01'
+        formula: 0
+"""
+        )
+        test_file.write_text("[]\n")
+
+        repairs = evals_module._apply_generated_eval_repairs(
+            rulespec_file=rulespec_file,
+            policy_repo_root=repo_path,
+            axiom_rules_path=tmp_path / "axiom-rules-engine",
+            issues=[
+                "Derived rule missing companion output coverage: "
+                "`us:statutes/7/2015/f#refugee_wait_years` is not asserted "
+                "by the companion `.test.yaml` file."
+            ],
+            local_corpus_release=object(),
+        )
+
+        assert repairs == [
+            "derived_output:auto_output_refugee_wait_years",
+            "derived_output:auto_output_asylee_wait_years",
+        ]
+        assert [case["name"] for case in yaml.safe_load(test_file.read_text())] == [
+            "auto_output_refugee_wait_years",
+            "auto_output_asylee_wait_years",
+        ]
 
     def test_generated_eval_can_disable_post_materialization_repairs(self, tmp_path):
         metrics = SimpleNamespace(ci_issues=["repairable"])
@@ -9178,7 +9982,10 @@ rules:
             for case in repaired_tests
         )
 
-    def test_test_input_assignment_ignores_formula_builtins(self):
+    @pytest.mark.parametrize(
+        "date_function", ["date_add_days", "date_add_months", "date_add_years"]
+    )
+    def test_test_input_assignment_ignores_formula_builtins(self, date_function):
         content = """format: rulespec/v1
 module:
   proof_validation:
@@ -9207,9 +10014,11 @@ rules:
       - effective_from: '2025-01-01'
         formula: days_between(period_start, period_end)
 """
+        content = content.replace("date_add_days", date_function)
         test_cases = [
             {
                 "name": "deadline case",
+                "period": "2026-01",
                 "input": {"#input.application_date": "2026-01-01"},
                 "output": {
                     "#deadline": "2026-01-08",
@@ -9219,6 +10028,10 @@ rules:
         ]
 
         assert find_test_input_assignment_issues(content, test_cases) == []
+        test_cases[0]["input"] = {"#input.unrelated_fact": True}
+        issues = find_test_input_assignment_issues(content, test_cases)
+        assert any("application_date" in str(issue) for issue in issues)
+        assert all(date_function not in str(issue) for issue in issues)
 
     def test_numeric_occurrence_check_uses_embedded_operating_excerpt(self, tmp_path):
         source_text = (
@@ -11902,6 +12715,97 @@ class TestGeneratedBundleCleaning:
         assert "required-witness" in output_file.with_suffix(".test.yaml").read_text()
         assert materialized == {output_file, output_file.with_suffix(".test.yaml")}
 
+    def test_materialize_tests_only_repair_appends_exact_contract_fragment(
+        self, tmp_path
+    ):
+        output_file = tmp_path / "regulation/7/273/4.yaml"
+        rulespec = "format: rulespec/v1\nrules: []\n"
+        original_tests = (
+            "- name: existing\n"
+            "  period: 2025-06\n"
+            "  input: {}\n"
+            "  output:\n    result: holds\n"
+        )
+        candidate = ValidationRetryCandidate(rulespec, original_tests)
+        contracts = (
+            {
+                "name": "before",
+                "period": "2025-07-03",
+                "input": {"refugee": True},
+                "required_output": {"eligible": "holds"},
+            },
+            {
+                "name": "after",
+                "period": "2025-07-04",
+                "input": {"refugee": True},
+                "required_output": {"eligible": "not_holds"},
+            },
+        )
+        response = (
+            "=== FILE: 4.test.yaml ===\n"
+            "- name: before\n"
+            "  period: '2025-07-03'\n"
+            "  input: &refugee\n    refugee: true\n"
+            "  output:\n    eligible: holds\n"
+            "- name: after\n"
+            "  period: '2025-07-04'\n"
+            "  input: *refugee\n"
+            "  output:\n    eligible: not_holds\n"
+        )
+
+        assert _materialize_eval_artifact(
+            response,
+            output_file,
+            artifact_root=tmp_path,
+            repair_candidate=candidate,
+            required_test_case_contracts=contracts,
+        )
+        assert output_file.read_text() == rulespec
+        combined = output_file.with_suffix(".test.yaml").read_text()
+        assert combined.startswith(original_tests)
+        assert [case["name"] for case in yaml.safe_load(combined)] == [
+            "existing",
+            "before",
+            "after",
+        ]
+
+    @pytest.mark.parametrize(
+        "fragment",
+        [
+            "- name: unsigned\n  period: 2025-07\n  input: {}\n  output: {}\n",
+            "- name: required\n  period: 2025-07\n  input: {}\n"
+            "  output:\n    result: not_holds\n",
+            "- name: existing\n  period: 2025-06\n  input: {}\n"
+            "  output:\n    result: not_holds\n",
+            "- name: required\n  period: 2025-07\n  input: {}\n"
+            "  output:\n    result: holds\n    extra: holds\n",
+        ],
+    )
+    def test_materialize_tests_only_repair_rejects_bad_fragment(
+        self, tmp_path, fragment
+    ):
+        output_file = tmp_path / "regulation/7/273/4.yaml"
+        candidate = ValidationRetryCandidate(
+            "format: rulespec/v1\nrules: []\n",
+            "- name: existing\n  period: 2025-06\n  input: {}\n"
+            "  output:\n    result: holds\n",
+        )
+        contract = {
+            "name": "required",
+            "period": "2025-07",
+            "input": {},
+            "required_output": {"result": "holds"},
+        }
+
+        assert not _materialize_eval_artifact(
+            "=== FILE: 4.test.yaml ===\n" + fragment,
+            output_file,
+            artifact_root=tmp_path,
+            repair_candidate=candidate,
+            required_test_case_contracts=(contract,),
+        )
+        assert not output_file.exists()
+
     def test_materialize_tests_only_repair_preserves_cases_wrapper(self, tmp_path):
         output_file = tmp_path / "regulation/7/273/4.yaml"
         rulespec = "format: rulespec/v1\nrules: []\n"
@@ -12433,6 +13337,51 @@ rules:
 
     def test_normalize_test_case_value_preserves_invalid_numeric_expression(self):
         assert _normalize_test_case_value("30 / 0") == "30 / 0"
+
+    @pytest.mark.parametrize(
+        "literal", ("2024-12-31", "1990-11-30", "2025-01-01", "2024-02-30")
+    )
+    def test_normalize_test_case_value_preserves_date_facts(self, literal):
+        assert _normalize_test_case_value(literal) == literal
+        wrapped = {"entity": "person", "value": literal}
+        assert _normalize_test_case_value(wrapped) == wrapped
+        assert _normalize_test_case_value({"values": {"2025": literal}}) == literal
+        assert _normalize_test_case_value([literal]) == [literal]
+
+    def test_normalize_test_case_value_keeps_explicit_subtraction(self):
+        assert _normalize_test_case_value("2024 - 12 - 31") == 1981
+
+    def test_materialize_eval_artifact_preserves_quoted_date_facts(self, tmp_path):
+        output_file = tmp_path / "source" / "receipt.yaml"
+        response = """=== FILE: receipt.yaml ===
+format: rulespec/v1
+module:
+  summary: Compare a recorded receipt date with the end of the query month.
+inputs:
+  - name: receipt_date
+    entity: Person
+    dtype: Date
+    period: Month
+rules:
+  - name: receipt_cutoff_reached
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2025-01-01'
+        formula: receipt_date <= period_end
+=== FILE: receipt.test.yaml ===
+- name: prior_year_receipt
+  period: 2025-01
+  input:
+    receipt_date: '2024-12-31'
+  output:
+    receipt_cutoff_reached: holds
+"""
+        assert _materialize_eval_artifact(response, output_file)
+        cases = yaml.safe_load(output_file.with_suffix(".test.yaml").read_text())
+        assert cases[0]["input"]["receipt_date"] == "2024-12-31"
 
     @pytest.mark.parametrize(
         "literal",

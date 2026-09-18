@@ -1,0 +1,1 @@
+A feminine amount noun is known in its plural and possessed plural ("משכורותיו", "עלויות", "ריביות"), the tax noun in every possessive ("מסם"), and an ordinal after the noun it agrees with stays an ordinal before a definite noun that begins the next phrase ("בדרגה חמישית השכר גבוה יותר" is a fifth grade; "חמישית השכר" is a fifth of the wage).

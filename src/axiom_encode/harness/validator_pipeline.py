@@ -15,6 +15,7 @@ Uses Claude Code CLI (subprocess) for reviewer agents - cheaper than direct API.
 """
 
 import ast
+import bisect
 import contextlib
 import copy
 import functools
@@ -40,7 +41,7 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Any, Iterable, Iterator, Mapping, Optional, Sequence
+from typing import Any, Callable, Iterable, Iterator, Mapping, Optional, Sequence
 
 import yaml
 from axiom_oracles.bridges.adapters import (
@@ -75,6 +76,14 @@ from axiom_encode.corpus_resolver import (
     require_canonical_corpus_citation_path,
     resolve_local_corpus_source,
 )
+from axiom_encode.engine_binding import (
+    ENGINE_PIN_FIELD,
+    EnginePin,
+    load_declared_engine_pin,
+    require_engine_ref_sha,
+    resolve_pinned_engine_binary,
+)
+from axiom_encode.numeric_equality import rulespec_numeric_values_equal
 from axiom_encode.repo_routing import (
     _path_identity_fingerprint,
     _path_mutation_stamp,
@@ -113,7 +122,14 @@ from .policyengine_runtime import (
     policyengine_subprocess_environment,
 )
 from .proof_validator import (
+    BIDI_MARKS_FRAGMENT,
+    HEBREW_MAQAF_WRAP_SPACE_PATTERN,
+    HORIZONTAL_SPACE_FRAGMENT,
+    LINE_END_FRAGMENT,
+    WRAP_SPACE_FRAGMENT,
     _bounded_source_evidence_match,
+    bind_maqaf_space,
+    collapse_evidence_whitespace,
     find_plural_corpus_citation_path_issues,
     find_rulespec_proof_issues,
     validate_rulespec_proofs,
@@ -1493,6 +1509,28 @@ _CONTEXTUAL_ASCII_FRACTION_PATTERN = re.compile(
     r"(?=\s*(?:times?\b|\(\s*Class\b|for\s+(?:property|RIIP|ZEV|Class)\b))",
     re.IGNORECASE,
 )
+# The Unicode fraction slash (U+2044) exists only to typeset vulgar fractions,
+# so unlike the ASCII "/" above it needs no context guard: Israeli statutory
+# text prints "1<U+2044>4 credit points" in Income Tax Ordinance section 36,
+# and a date or a ratio is never written with it.
+# A run is a fraction only at whole-token boundaries: a digit, a decimal or
+# grouping mark, or another slash on either side means the numerator or
+# denominator would be a substring of some other number ("1.5⁄2" is not five
+# halves), and the run is left to the passes that read decimals. A unary minus
+# set against the numerator (or the whole number of a mixed number) belongs to
+# the value.
+# A hyphen after a Hebrew letter joins a prefix to the fraction ("כ-1⁄4")
+# and is no sign; only a sign that no Hebrew letter precedes negates. The
+# whole number of a mixed number stands on the fraction's own line: "10
+# 1⁄4" is ten and a quarter, "10\n\n1⁄4" is ten, then a quarter, and so
+# is "10\u20291⁄4"; only a space of some width joins them.
+_FRACTION_SLASH_PATTERN = re.compile(
+    "(?<![\\d\u2044.,])"
+    "(?:(?<![\u05d0-\u05ea])(?P<sign>[-\u2212]))?"
+    "(?:(?P<whole>(?:\\d{1,3}(?:,\\d{3})+|\\d+))[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]+)?"
+    "(?P<numerator>\\d+)\\s*\u2044\\s*(?P<denominator>\\d+)"
+    "(?![\\d\u2044])(?![.,]\\d)"
+)
 _SMALL_MONTH_RANGE_PATTERN = re.compile(
     r"\b(?P<start>\d{1,2})\s+(?:through|to)\s+"
     r"(?P<end>\d{1,2})\s+months?\b",
@@ -1502,6 +1540,19 @@ _FORM_IMPLIED_CENTS_PATTERN = re.compile(
     r"(?m)^[ \t]*(?P<dollars>\d{1,3}(?:[ ,]\d{3})*)[ \t]+"
     r"(?P<cents>\d{2})[ \t]*$"
     r"(?=(?:[ \t]*\r?\n){1,3}[ \t]*=)",
+)
+# Flattened PDF forms (Revenu Québec work charts, for example) print the
+# cents of an amount as a separate column with no decimal separator and no
+# line breaks between cells: "0 00 7,455 70 17,571 30". A cell only counts
+# when it sits in a run of adjacent cells or its dollars are comma-grouped,
+# so prose such as "196 50 people" is never joined. These only feed literal
+# grounding; the inventory keeps seeing the unjoined tokens.
+_INLINE_FORM_IMPLIED_CENTS_CELL = r"(?:\d{1,3}(?:,\d{3})+|\d{1,3}) \d{2}"
+_INLINE_FORM_IMPLIED_CENTS_RUN_PATTERN = re.compile(
+    rf"(?<![\d,.]){_INLINE_FORM_IMPLIED_CENTS_CELL}(?: {_INLINE_FORM_IMPLIED_CENTS_CELL})*(?![\d,.%:])"
+)
+_INLINE_FORM_IMPLIED_CENTS_CELL_PATTERN = re.compile(
+    r"(?P<dollars>\d{1,3}(?:,\d{3})+|\d{1,3}) (?P<cents>\d{2})"
 )
 _TABLE_ROW_LABEL_PATTERN = re.compile(
     r"\b(?:size|household size|unit size)\s+\d+(?:\s+or\s+more)?(?=\s*:)",
@@ -1751,6 +1802,5558 @@ _DUTCH_CARDINAL_PHRASE_PATTERN = re.compile(
     + r")\b",
     re.IGNORECASE,
 )
+# Israeli statutes name a number with a word far more often than with a digit.
+# National Insurance Law section 68(b) sets one rate for the fourth child and
+# another for the fifth, and section 68(c) a supplement for a parent entitled
+# for three children or more, without printing 3, 4 or 5 anywhere; Income Tax
+# Ordinance section 34 grants two credit points and prints no 2. The words are
+# spelled out here the way the French and Dutch tables above spell theirs.
+_HEBREW_NUMBER_WORD_VALUES = {
+    # Ordinals, masculine and feminine.
+    "ראשון": 1.0,
+    "ראשונה": 1.0,
+    "שני": 2.0,
+    "שנייה": 2.0,
+    "שניה": 2.0,
+    "שלישי": 3.0,
+    "שלישית": 3.0,
+    "רביעי": 4.0,
+    "רביעית": 4.0,
+    "חמישי": 5.0,
+    "חמישית": 5.0,
+    "שישי": 6.0,
+    "שישית": 6.0,
+    "שביעי": 7.0,
+    "שביעית": 7.0,
+    "שמיני": 8.0,
+    "שמינית": 8.0,
+    "תשיעי": 9.0,
+    "תשיעית": 9.0,
+    "עשירי": 10.0,
+    "עשירית": 10.0,
+    # Cardinals, including the construct forms a statute uses before a noun.
+    # Zero, which a list of rates or a floor states ("אפס, 10 ו־20 אחוזים").
+    "אפס": 0.0,
+    "אחד": 1.0,
+    "אחת": 1.0,
+    "שניים": 2.0,
+    "שניית": 2.0,
+    "שתיים": 2.0,
+    "שתים": 2.0,
+    "שתי": 2.0,
+    "שלוש": 3.0,
+    "שלש": 3.0,
+    "שלושה": 3.0,
+    "שלשה": 3.0,
+    "שלושת": 3.0,
+    "ארבע": 4.0,
+    "ארבעה": 4.0,
+    "ארבעת": 4.0,
+    "חמש": 5.0,
+    "חמישה": 5.0,
+    "חמשה": 5.0,
+    "חמשת": 5.0,
+    "שש": 6.0,
+    "שישה": 6.0,
+    "ששה": 6.0,
+    "ששת": 6.0,
+    "שבע": 7.0,
+    "שבעה": 7.0,
+    "שבעת": 7.0,
+    "שמונה": 8.0,
+    "שמונת": 8.0,
+    "תשע": 9.0,
+    "תשעה": 9.0,
+    "תשעת": 9.0,
+    "עשר": 10.0,
+    "עשרה": 10.0,
+    "עשרת": 10.0,
+}
+# One-letter Hebrew prefixes bind to the following word: the definite article
+# he, the conjunction vav, and the prepositions bet, kaf, lamed, mem and shin.
+# Two of them can stack ("and the fourth"), and a maqaf may sit between the
+# prefix and the word, as may an ASCII hyphen.
+_HEBREW_PREFIX_SEPARATOR = "[\u05be-]?"
+_HEBREW_WORD_PREFIX_PATTERN = (
+    "(?:[\u05d5\u05d4\u05d1\u05db\u05dc\u05de\u05e9]"
+    + _HEBREW_PREFIX_SEPARATOR
+    + "){0,2}"
+)
+# The same binding for the patterns that read a noun, a label or a marker
+# under a prefix: the prepositions alone, the prepositions or the article,
+# and the article alone, each across the same separator.
+_HEBREW_PREPOSITION_PREFIXES = (
+    "(?:[\u05d1\u05db\u05dc\u05de\u05d5\u05e9]" + _HEBREW_PREFIX_SEPARATOR + "){0,2}"
+)
+_HEBREW_PREPOSITION_OR_ARTICLE_PREFIXES = (
+    "(?:[\u05d1\u05db\u05dc\u05de\u05d5\u05e9\u05d4]"
+    + _HEBREW_PREFIX_SEPARATOR
+    + "){0,2}"
+)
+_HEBREW_OPTIONAL_ARTICLE = "(?:\u05d4" + _HEBREW_PREFIX_SEPARATOR + ")?"
+# The alternation is longest-first so that a longer form is never shadowed by a
+# shorter one it contains, and the boundaries refuse a match that sits inside a
+# longer Hebrew word.
+_HEBREW_NUMBER_WORD_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])"
+    + _HEBREW_WORD_PREFIX_PATTERN
+    + "(?P<word>"
+    + "|".join(
+        re.escape(word)
+        for word in sorted(_HEBREW_NUMBER_WORD_VALUES, key=len, reverse=True)
+    )
+    + ")"
+    "(?![\u0590-\u05ff])"
+)
+# Hebrew builds eleven through nineteen as two words, unit then ten, and the
+# unit half is not always a standalone numeral: Income Tax Ordinance section
+# 33A divides the credit point by twelve and writes that as two words whose
+# first, on its own, is the plural of "year". Only the pair carries the value.
+_HEBREW_TEEN_UNIT_VALUES = {
+    "אחד": 1.0,
+    "אחת": 1.0,
+    "שנים": 2.0,
+    "שניים": 2.0,
+    "שתים": 2.0,
+    "שתיים": 2.0,
+    "שלוש": 3.0,
+    "שלש": 3.0,
+    "שלושה": 3.0,
+    "שלשה": 3.0,
+    "ארבע": 4.0,
+    "ארבעה": 4.0,
+    "חמש": 5.0,
+    "חמישה": 5.0,
+    "חמשה": 5.0,
+    "שש": 6.0,
+    "שישה": 6.0,
+    "ששה": 6.0,
+    "שבע": 7.0,
+    "שבעה": 7.0,
+    "שמונה": 8.0,
+    "תשע": 9.0,
+    "תשעה": 9.0,
+}
+_HEBREW_TEEN_TENS_WORDS = ("עשר", "עשרה")
+# The two halves are joined by a space, an ASCII hyphen, or a maqaf (U+05BE,
+# the Hebrew hyphen), and the captured Income Tax Ordinance Wikisource
+# snapshot prints the same number both ways within a few lines of itself:
+# section 35's "twelve months" appears as unit-space-ten and as
+# unit-maqaf-ten. The maqaf is inside the Hebrew block that the word
+# boundaries below refuse, so without this the hyphenated spellings match
+# nothing at all; with an ASCII hyphen they matched the two halves separately
+# and grounded 3 and 10 instead of 13.
+# A blank line, a form feed or a Unicode line or paragraph separator ends a
+# paragraph; number words never compose across one ("שלושה\n\nעשר" is
+# three, then ten), while a single line wrap joins them.
+# A line ends in "\r\n", "\r" or "\n" (a Windows, a classic Mac or a Unix
+# source, or one that mixes them), so a bare carriage return is a line end
+# to the readers that run before the cleaner normalizes it. A bare carriage
+# return is one only when no newline follows, so a CRLF is one line end to
+# a pattern that backtracks, never a CR and an LF that make a blank line.
+_LINE_END_FRAGMENT = LINE_END_FRAGMENT
+_PARAGRAPH_GAP_FRAGMENT = (
+    "(?:[\\u2028\\u2029\\x0b\\x0c\\x85]|"
+    + _LINE_END_FRAGMENT
+    + "[^\\S\\r\\n]*"
+    + _LINE_END_FRAGMENT
+    + ")"
+)
+_PARAGRAPH_GAP_PATTERN = re.compile(_PARAGRAPH_GAP_FRAGMENT)
+_HORIZONTAL_SPACE_FRAGMENT = HORIZONTAL_SPACE_FRAGMENT
+# A printed number in the Hebrew readers: grouped or plain digits with an
+# optional decimal part, or a decimal part alone (".5 אחוזים" is half a
+# percent); the readers' lookbehinds keep ".5" out of "3.5".
+# Whitespace a number may run across: spaces of any width and a single line
+# wrap, never a blank line or a paragraph separator ("10 וחצי מיליון" and
+# "10\nוחצי מיליון" are one amount; "10\n\nוחצי מיליון" is ten, then half a
+# million).
+_WRAP_SPACE_FRAGMENT = WRAP_SPACE_FRAGMENT
+_HEBREW_TEEN_SEPARATOR_PATTERN = (
+    "(?:(?!\\s*" + _PARAGRAPH_GAP_FRAGMENT + ")\\s+|\\s*[-\\u05be]\\s*)"
+)
+_HEBREW_TEEN_PATTERN = re.compile(
+    "(?<![\\u0590-\\u05ff])"
+    + _HEBREW_WORD_PREFIX_PATTERN
+    + "(?P<unit>"
+    + "|".join(
+        re.escape(word)
+        for word in sorted(_HEBREW_TEEN_UNIT_VALUES, key=len, reverse=True)
+    )
+    + ")"
+    + _HEBREW_TEEN_SEPARATOR_PATTERN
+    + "(?:"
+    + "|".join(re.escape(word) for word in _HEBREW_TEEN_TENS_WORDS)
+    + ")"
+    "(?![\\u0590-\\u05ff])"
+)
+# Hebrew builds twenty-three as "twenty and three" -- the ten, the
+# conjunction vav bound to the unit -- and a hundred or a thousand as a word
+# of its own or as a unit before the plural ("three hundreds"). The compound is
+# one number the statute states: reading the unit alone grounded 3 for
+# "twenty-three days" and demanded it back as a value of its own.
+_HEBREW_TENS_VALUES = {
+    "עשרים": 20.0,
+    "שלושים": 30.0,
+    "שלשים": 30.0,
+    "ארבעים": 40.0,
+    "חמישים": 50.0,
+    "חמשים": 50.0,
+    "שישים": 60.0,
+    "ששים": 60.0,
+    "שבעים": 70.0,
+    "שמונים": 80.0,
+    "תשעים": 90.0,
+}
+_HEBREW_ORDINAL_WORDS = frozenset(
+    {
+        "ראשון",
+        "ראשונה",
+        "שני",
+        "שנייה",
+        "שניה",
+        "שלישי",
+        "שלישית",
+        "רביעי",
+        "רביעית",
+        "חמישי",
+        "חמישית",
+        "שישי",
+        "שישית",
+        "שביעי",
+        "שביעית",
+        "שמיני",
+        "שמינית",
+        "תשיעי",
+        "תשיעית",
+        "עשירי",
+        "עשירית",
+    }
+)
+_HEBREW_UNIT_VALUES = {
+    word: value
+    for word, value in _HEBREW_NUMBER_WORD_VALUES.items()
+    if value <= 10.0 and word not in _HEBREW_ORDINAL_WORDS
+}
+_HEBREW_HUNDRED_WORDS = {"מאה": 100.0, "מאתיים": 200.0, "מאתים": 200.0}
+_HEBREW_THOUSAND_WORDS = {"אלף": 1000.0, "אלפיים": 2000.0}
+# Absolute, plural and construct forms ("שלושה מיליוני שקלים").
+_HEBREW_MILLION_WORDS = {
+    "מיליון": 1_000_000.0,
+    "מיליונים": 1_000_000.0,
+    "מיליוני": 1_000_000.0,
+}
+_HEBREW_BILLION_WORDS = {
+    "מיליארד": 1_000_000_000.0,
+    "מיליארדים": 1_000_000_000.0,
+    "מיליארדי": 1_000_000_000.0,
+}
+# The scale tiers of the spoken grammar, largest first: the scale words a
+# count precedes, the values a bare scale word stands for on its own, and
+# the kind recorded. "אלפיים" is a bare two thousand and counts nothing.
+_HEBREW_SCALE_KINDS = frozenset({"thousand", "million", "billion"})
+_HEBREW_PERCENT_NOUN_WORDS = frozenset({"אחוז", "אחוזים", "אחוזי"})
+
+
+def _hebrew_is_percent_noun(word: str) -> bool:
+    """Whether ``word`` is a percent noun, with or without the article."""
+    return word in _HEBREW_PERCENT_NOUN_WORDS or (
+        word.startswith("\u05d4")
+        and word[1:].lstrip("\u05be-") in _HEBREW_PERCENT_NOUN_WORDS
+    )
+
+
+_HEBREW_SCALE_TIERS: tuple[tuple[dict[str, float], dict[str, float], str], ...] = (
+    (_HEBREW_BILLION_WORDS, {"מיליארד": 1_000_000_000.0}, "billion"),
+    (_HEBREW_MILLION_WORDS, {"מיליון": 1_000_000.0}, "million"),
+    (
+        {"אלף": 1000.0, "אלפים": 1000.0, "אלפי": 1000.0},
+        {"אלף": 1000.0, "אלפיים": 2000.0},
+        "thousand",
+    ),
+)
+
+
+def _hebrew_alternation(words: Iterable[str]) -> str:
+    return "|".join(re.escape(word) for word in sorted(words, key=len, reverse=True))
+
+
+_HEBREW_SCALE_VALUES = {
+    "מאות": 100.0,
+    "אלפים": 1000.0,
+    "אלפי": 1000.0,
+    "אלף": 1000.0,
+    **_HEBREW_MILLION_WORDS,
+    **_HEBREW_BILLION_WORDS,
+}
+_HEBREW_TEEN_TENS = frozenset(_HEBREW_TEEN_TENS_WORDS)
+_HEBREW_MIXED_FRACTION_VALUES = {
+    "חצי": 0.5,
+    "מחצית": 0.5,
+    "שליש": 1.0 / 3.0,
+    "שלישית": 1.0 / 3.0,
+    "רבע": 0.25,
+    "רביעית": 0.25,
+    "חמישית": 0.2,
+    "שישית": 1.0 / 6.0,
+    "שביעית": 1.0 / 7.0,
+    "שמינית": 0.125,
+    "תשיעית": 1.0 / 9.0,
+    "עשירית": 0.1,
+}
+# The plural and construct fraction nouns a count precedes inside a mixed
+# number: "אחד ושני שלישים" is one and two thirds.
+_HEBREW_COUNTED_FRACTION_VALUES = {
+    "שלישים": 1.0 / 3.0,
+    "שלישיות": 1.0 / 3.0,
+    "שלישי": 1.0 / 3.0,
+    "רבעים": 0.25,
+    "רביעיות": 0.25,
+    "רבעי": 0.25,
+    "חמישיות": 0.2,
+    "שישיות": 1.0 / 6.0,
+    "שביעיות": 1.0 / 7.0,
+    "שמיניות": 0.125,
+    "תשיעיות": 1.0 / 9.0,
+    "עשיריות": 0.1,
+}
+_HEBREW_NUMBER_PREFIX_LETTERS = "\u05d5\u05d4\u05d1\u05db\u05dc\u05de\u05e9"
+# A maqaf (U+05BE) joins words the way a hyphen does, so it is not a word
+# character here: "שנים־עשר" is two tokens, joined the way "שנים-עשר" is.
+# A maqaf or hyphen after a one-letter prefix binds it to its word ("ו־חצי",
+# "ל־מיליון"), so the token carries it and the prefix readers strip both.
+_HEBREW_WORD_TOKEN_PATTERN = re.compile(
+    "(?:[\u05d5\u05d1\u05dc\u05de\u05db\u05e9\u05d4][\u05be-])?[\u0590-\u05bd\u05bf-\u05ff]+"
+)
+_HEBREW_TEEN_JOIN_PATTERN = re.compile("^\\s*[-\u05be]\\s*$")
+_HEBREW_PERCENT_WORD_PATTERN = re.compile(
+    _WRAP_SPACE_FRAGMENT + "+(?:\u05d4[\u05be-]?)?אחוז(?:ים|י)?(?![\u0590-\u05ff])"
+)
+_HEBREW_PERCENT_SIGN_AFTER_PATTERN = re.compile(_WRAP_SPACE_FRAGMENT + "*%")
+# The percent noun may precede its count -- "אחוז אחד" is one percent.
+_HEBREW_PERCENT_NOUN_BEFORE_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])"
+    + _HEBREW_PREPOSITION_PREFIXES
+    + _HEBREW_OPTIONAL_ARTICLE
+    + "אחוז(?:ים)?"
+    + _WRAP_SPACE_FRAGMENT
+    + "+$"
+)
+
+
+# A printed number followed by the percent word: "23 אחוזים" is 0.23 the way
+# "23%" is. The lookbehind keeps a fraction's denominator ("16 1⁄2 אחוזים")
+# for the fraction pass, which reads the percent word itself.
+# A hyphen after a Hebrew letter joins a prefix to the number ("ל-3", "ב-5")
+# and is no sign; only a sign that no Hebrew letter precedes negates, and a
+# maqaf is no letter ("ב־−2" is minus two under the prefix).
+_ASCII_SLASH_BEFORE_NUMBER_PATTERN = re.compile("/\\s*$")
+_SLASH_BEFORE_NUMBER_PATTERN = re.compile("[/\u2044]\\s*$")
+
+
+def _strip_hebrew_number_prefix(word: str, vocabulary: "Iterable[str]") -> str | None:
+    """Return the number word inside a prefixed token, or None."""
+    known = set(vocabulary)
+    candidate = word
+    for _ in range(3):
+        if candidate in known:
+            return candidate
+        if len(candidate) > 2 and candidate[0] in _HEBREW_NUMBER_PREFIX_LETTERS:
+            candidate = candidate[1:].lstrip("\u05be-")
+            continue
+        return None
+    return candidate if candidate in known else None
+
+
+_HEBREW_NUMBER_VOCABULARY = (
+    set(_HEBREW_UNIT_VALUES)
+    | set(_HEBREW_TENS_VALUES)
+    | set(_HEBREW_HUNDRED_WORDS)
+    | set(_HEBREW_THOUSAND_WORDS)
+    | set(_HEBREW_SCALE_VALUES)
+    | set(_HEBREW_TEEN_TENS)
+    | set(_HEBREW_MIXED_FRACTION_VALUES)
+)
+_HEBREW_RUN_START_VOCABULARY = frozenset(
+    _HEBREW_NUMBER_VOCABULARY | set(_HEBREW_TEEN_UNIT_VALUES) | {"שני", "שתי"}
+)
+_HEBREW_TEEN_ONLY_WORDS = frozenset(
+    set(_HEBREW_TEEN_UNIT_VALUES) - set(_HEBREW_UNIT_VALUES)
+)
+
+
+def _parse_hebrew_number_run(
+    words: "Sequence[str]",
+    start: int = 0,
+    money_context: bool | None = None,
+    text_separate_after: "Callable[[int], bool] | None" = None,
+) -> tuple[int, float, set[str]] | None:
+    """Parse the longest number a run of Hebrew words spells from its start.
+
+    Returns (words consumed, value, kinds seen). The grammar is the spoken
+    one: an optional thousands part (anything below a thousand, then אלף or
+    אלפים; or אלף, אלפיים alone), an optional hundreds part (מאה, מאתיים, or
+    a unit and מאות), then a teen, tens with a vav-bound unit, or a unit,
+    then a vav-bound fraction. The conjunction vav may sit on any word after
+    the first; the first may carry the ordinary one-letter prefixes.
+    """
+    units = {**_HEBREW_UNIT_VALUES, **_HEBREW_TEEN_UNIT_VALUES}
+    # The construct forms that count a following noun -- "שני אלפים", "שתי
+    # מאות", "עשרים ושני הימים" -- are written like the ordinal "second";
+    # they are units in front of a scale word and inside a compound after a
+    # ten or a hundred, never at the start of a run on their own.
+    scale_counts = {**units, "שני": 2.0, "שתי": 2.0}
+    construct_units = {"שני": 2.0, "שתי": 2.0}
+    # "שנים" and "שתים" count only inside a teen ("שנים עשר"); on their own
+    # they are the plural of "year" and the like, not a two.
+    teen_only = _HEBREW_TEEN_ONLY_WORDS
+    vocabulary = (
+        _HEBREW_NUMBER_VOCABULARY
+        | set(_HEBREW_TEEN_UNIT_VALUES)
+        | set(_HEBREW_TEEN_TENS)
+        | {"שני", "שתי"}
+    )
+
+    def word_at(position: int) -> str | None:
+        if position >= len(words):
+            return None
+        raw = words[position]
+        if position == start:
+            return _strip_hebrew_number_prefix(raw, vocabulary)
+        if raw in vocabulary:
+            return raw
+        if raw.startswith("\u05d5"):
+            # The conjunction's separator ("ו־שלושה") goes with it.
+            bound = raw[1:].lstrip("\u05be-")
+            if bound in vocabulary:
+                return bound
+        return None
+
+    def has_vav(position: int) -> bool:
+        return position < len(words) and words[position].startswith("\u05d5")
+
+    def fraction_noun_follows(position: int) -> bool:
+        return (
+            position + 1 < len(words)
+            and words[position + 1] in _HEBREW_COUNTED_FRACTION_VALUES
+        )
+
+    def opens_a_separate_amount(position: int, teens: bool = True) -> bool:
+        """Whether the count at ``position`` opens counted hundreds or a teen of its own.
+
+        "שלושים וארבע מאות" is thirty and four hundred, "עשרים ושלושה עשר"
+        twenty and thirteen: coordinated amounts, not compounds. A teen
+        after hundreds composes ("מאה ואחד עשר" is 111), so ``teens``
+        is off there; a malformed teen ("שתי עשרה") is no teen at all.
+        """
+        after = word_at(position + 1)
+        if after == "מאות":
+            return True
+        word = word_at(position)
+        return (
+            teens
+            and after in _HEBREW_TEEN_TENS
+            and not has_vav(position + 1)
+            and word in units
+            and word not in construct_units
+        )
+
+    def parse_small(position: int) -> tuple[int, float, str] | None:
+        word = word_at(position)
+        if word is None:
+            return None
+        if word in _HEBREW_TENS_VALUES:
+            total = _HEBREW_TENS_VALUES[word]
+            following = word_at(position + 1)
+            if (
+                following in scale_counts
+                and following not in _HEBREW_TEEN_TENS
+                and has_vav(position + 1)
+                and not fraction_noun_follows(position + 1)
+                and not opens_a_separate_amount(position + 1)
+            ):
+                return position + 2, total + scale_counts[following], "compound"
+            return position + 1, total, "tens"
+        if word in _HEBREW_TEEN_TENS:
+            return position + 1, 10.0, "unit"
+        if word in units or (word in construct_units and position > start):
+            following = word_at(position + 1)
+            if following in _HEBREW_TEEN_TENS and not has_vav(position + 1):
+                if word not in units:
+                    # "שני עשר" is no teen ("שנים עשר" is); the run is not a
+                    # number here, and imperfect source text never raises.
+                    return None
+                return position + 2, 10.0 + units[word], "teen"
+            if word in teen_only:
+                return None
+            if fraction_noun_follows(position):
+                # "שלושה רבעים" is three quarters, a fractional tail or a
+                # counted fraction, never a three.
+                return None
+            return position + 1, scale_counts[word], "unit"
+        return None
+
+    def parse_hundreds(position: int) -> tuple[int, float] | None:
+        word = word_at(position)
+        if word in _HEBREW_HUNDRED_WORDS:
+            return position + 1, _HEBREW_HUNDRED_WORDS[word]
+        if word in scale_counts and word_at(position + 1) == "מאות":
+            return position + 2, scale_counts[word] * 100.0
+        return None
+
+    def parse_below_thousand(position: int) -> tuple[int, float, set[str]] | None:
+        value = 0.0
+        kinds: set[str] = set()
+        cursor = position
+        hundreds = parse_hundreds(cursor)
+        if hundreds is not None:
+            cursor, amount = hundreds
+            value += amount
+            kinds.add("hundred")
+        small = parse_small(cursor)
+        if small is not None:
+            next_cursor, amount, kind = small
+            if (
+                hundreds is not None
+                and word_at(cursor) in scale_counts
+                and opens_a_separate_amount(cursor, teens=False)
+            ):
+                # "מאתיים ושלוש מאות": the three opens the next counted
+                # hundreds, a coordinated amount, not a remainder of the
+                # two hundred.
+                return cursor, value, kinds
+            cursor = next_cursor
+            value += amount
+            kinds.add(kind)
+        if cursor == position:
+            return None
+        return cursor, value, kinds
+
+    value = 0.0
+    kinds: set[str] = set()
+    cursor = start
+    scaled_tail = False
+    separate_after = False
+    if money_context is None:
+        # Callers with the text pass the context in; a bare run reads it
+        # from the words of its own clause before its start.
+        clause = start
+        while clause > 0 and not any(
+            character in _HEBREW_CLAUSE_STOP_CHARACTERS
+            for character in words[clause - 1]
+        ):
+            clause -= 1
+        money_context = (
+            _HEBREW_MONEY_CONTEXT_PATTERN.search(" ".join(words[clause:start]) + " ")
+            is not None
+        )
+    if (
+        money_context
+        and start < len(words)
+        and words[start].startswith("\u05dc")
+        and _strip_hebrew_number_prefix(words[start], _HEBREW_RUN_START_VOCABULARY)
+        != words[start]
+    ):
+        # A dative ל on the number ("תקציב המיועד לשלושה אלפים ומאתיים
+        # עובדים") names whom the amount is for; the amount noun does not
+        # govern it.
+        money_context = False
+
+    def separate_quantity_at(position: int) -> bool:
+        """Whether a quantity apart from a money amount begins at ``position``.
+
+        The word there is a unit or count noun, or -- through the caller's
+        text-level probe -- a printed continuation ("ו־500") leads to one:
+        "שלושה מיליון ושני אלפים ו־500 עובדים" counts 2,500 workers.
+        """
+        if not money_context:
+            return False
+        if (
+            position < len(words)
+            and words[position] in _HEBREW_SEPARATE_QUANTITY_WORD_FORMS
+        ):
+            return True
+        return text_separate_after is not None and text_separate_after(position)
+
+    def fraction_names_own_operand(position: int) -> bool:
+        """Whether the word at ``position`` gives the fraction before it its own operand.
+
+        A lower scale word ("וחצי אלף" is five hundred) or a partitive
+        ("וחמישית מההכנסה", "של"): the fraction is then no tail of the
+        scale before it.
+        """
+        if position >= len(words):
+            return False
+        if word_at(position) in _HEBREW_SCALE_VALUES or _hebrew_is_percent_noun(
+            words[position]
+        ):
+            return True
+        probe = " " + " ".join(words[position : position + 2])
+        return _HEBREW_FRACTION_OPERAND_AFTER_PATTERN.match(probe) is not None
+
+    def rate_count_follows(position: int) -> bool:
+        """Whether the words from ``position`` count a rate.
+
+        A percent noun right there ("ועשרים אחוזים"), or a fractional tail
+        and then the noun ("ושלושה וחצי אחוזים", "ושלושה ושלושה רבעים
+        אחוזים"): the count belongs to the rate, not to the amount before.
+        """
+        if position >= len(words):
+            return False
+        if _hebrew_is_percent_noun(words[position]):
+            return True
+        if not has_vav(position):
+            return False
+        tail = words[position][1:].lstrip("\u05be-")
+        if (
+            tail in _HEBREW_MIXED_FRACTION_VALUES
+            and position + 1 < len(words)
+            and _hebrew_is_percent_noun(words[position + 1])
+        ):
+            return True
+        return (
+            tail in _HEBREW_FRACTION_COUNT_VALUES
+            and position + 2 < len(words)
+            and words[position + 1] in _HEBREW_COUNTED_FRACTION_VALUES
+            and _hebrew_is_percent_noun(words[position + 2])
+        )
+
+    def parse_scale_part(
+        position: int,
+        scale_words: dict[str, float],
+        bare_values: dict[str, float],
+    ) -> tuple[int, float, bool] | None:
+        """A count and a scale word, or a bare scale word, at ``position``.
+
+        Returns (next position, amount, whether a fractional tail was
+        read). The tail right after the scale word scales with it: "מיליון
+        וחצי" is 1,500,000, "אלף וחצי" 1,500. Words are read through
+        ``word_at``, so a prefix ("בכמיליון") never reaches the tables.
+        """
+        word = word_at(position)
+        if word in bare_values:
+            # A bare scale word's tail scales by the tier's unit: "אלפיים
+            # וחצי" is 2,500, as "שני אלפים וחצי" is, not 3,000.
+            amount, scale, following = (
+                bare_values[word],
+                min(scale_words.values()),
+                position + 1,
+            )
+        elif (
+            word in _HEBREW_FRACTION_COUNT_VALUES
+            and position + 1 < len(words)
+            and words[position + 1] in _HEBREW_COUNTED_FRACTION_VALUES
+            and word_at(position + 2) in scale_words
+        ):
+            # A counted fractional multiplier: "שלושת רבעי מיליון" is 750,000.
+            scale = scale_words[word_at(position + 2)]
+            amount, following = (
+                _HEBREW_FRACTION_COUNT_VALUES[word]
+                * _HEBREW_COUNTED_FRACTION_VALUES[words[position + 1]]
+                * scale,
+                position + 3,
+            )
+        else:
+            count = parse_below_thousand(position)
+            if (
+                count is None
+                and word in scale_counts
+                and word_at(position + 1) in scale_words
+            ):
+                count = (position + 1, scale_counts[word], {"unit"})
+            if count is None and word in _HEBREW_MIXED_FRACTION_VALUES:
+                # A fractional multiplier: "חצי מיליון" is 500,000.
+                count = (
+                    position + 1,
+                    _HEBREW_MIXED_FRACTION_VALUES[word],
+                    {"fraction"},
+                )
+            elif (
+                count is not None
+                and has_vav(count[0])
+                and words[count[0]][1:].lstrip("\u05be-")
+                in _HEBREW_MIXED_FRACTION_VALUES
+                and word_at(count[0] + 1) in scale_words
+            ):
+                # A mixed multiplier: "שלושה וחצי מיליון" is 3,500,000.
+                count = (
+                    count[0] + 1,
+                    count[1]
+                    + _HEBREW_MIXED_FRACTION_VALUES[
+                        words[count[0]][1:].lstrip("\u05be-")
+                    ],
+                    count[2] | {"fraction"},
+                )
+            elif (
+                count is not None
+                and has_vav(count[0])
+                and words[count[0]][1:].lstrip("\u05be-")
+                in _HEBREW_FRACTION_COUNT_VALUES
+                and count[0] + 1 < len(words)
+                and words[count[0] + 1] in _HEBREW_COUNTED_FRACTION_VALUES
+                and word_at(count[0] + 2) in scale_words
+            ):
+                # A mixed multiplier with a counted fraction: "שלושה ושלושה
+                # רבעים מיליון" is 3,750,000.
+                count = (
+                    count[0] + 2,
+                    count[1]
+                    + _HEBREW_FRACTION_COUNT_VALUES[
+                        words[count[0]][1:].lstrip("\u05be-")
+                    ]
+                    * _HEBREW_COUNTED_FRACTION_VALUES[words[count[0] + 1]],
+                    count[2] | {"fraction"},
+                )
+            scale_word = word_at(count[0]) if count is not None else None
+            if count is None or scale_word not in scale_words:
+                return None
+            scale = scale_words[scale_word]
+            amount, following = count[1] * scale, count[0] + 1
+        tail = False
+        if (
+            following < len(words)
+            and has_vav(following)
+            and words[following][1:].lstrip("\u05be-") in _HEBREW_MIXED_FRACTION_VALUES
+            and not fraction_names_own_operand(following + 1)
+            and not separate_quantity_at(following + 1)
+        ):
+            amount += (
+                _HEBREW_MIXED_FRACTION_VALUES[words[following][1:].lstrip("\u05be-")]
+                * scale
+            )
+            following += 1
+            tail = True
+        elif (
+            following + 1 < len(words)
+            and has_vav(following)
+            and words[following][1:].lstrip("\u05be-") in _HEBREW_FRACTION_COUNT_VALUES
+            and words[following + 1] in _HEBREW_COUNTED_FRACTION_VALUES
+            and not fraction_names_own_operand(following + 2)
+            and not separate_quantity_at(following + 2)
+        ):
+            # A counted fractional tail scales with the scale word too:
+            # "מיליון ושני שלישים" is 1,666,666.67.
+            amount += (
+                _HEBREW_FRACTION_COUNT_VALUES[words[following][1:].lstrip("\u05be-")]
+                * _HEBREW_COUNTED_FRACTION_VALUES[words[following + 1]]
+                * scale
+            )
+            following += 2
+            tail = True
+        return following, amount, tail
+
+    for scale_words, bare_values, kind in _HEBREW_SCALE_TIERS:
+        if scaled_tail:
+            break
+        part = parse_scale_part(cursor, scale_words, bare_values)
+        if part is None:
+            continue
+        if kinds & _HEBREW_SCALE_KINDS and money_context:
+            # The whole lower-scale candidate -- "ושני אלפים וחמש מאות" --
+            # and the word after it: "שלושה מיליון ושני אלפים וחמש מאות
+            # עובדים" counts 2,500 workers, a separate quantity, not the
+            # million's lower scale; the number ends here.
+            candidate = _parse_hebrew_number_run(words, cursor, False)
+            candidate_end = cursor + candidate[0] if candidate is not None else part[0]
+            if separate_quantity_at(candidate_end):
+                separate_after = True
+                break
+        cursor, amount, tail = part
+        value += amount
+        kinds.add(kind)
+        if tail:
+            kinds.add("fraction")
+            scaled_tail = True
+    rest = None if scaled_tail or separate_after else parse_below_thousand(cursor)
+    if rest is not None and kinds & _HEBREW_SCALE_KINDS:
+        # The whole candidate remainder, fractional tail included, and the
+        # word after it.
+        candidate_end = rest[0]
+        if candidate_end < len(words) and has_vav(candidate_end):
+            after_tail = words[candidate_end][1:].lstrip("\u05be-")
+            if after_tail in _HEBREW_MIXED_FRACTION_VALUES:
+                candidate_end += 1
+            elif (
+                after_tail in _HEBREW_FRACTION_COUNT_VALUES
+                and candidate_end + 1 < len(words)
+                and words[candidate_end + 1] in _HEBREW_COUNTED_FRACTION_VALUES
+            ):
+                candidate_end += 2
+        if rate_count_follows(rest[0]) or separate_quantity_at(candidate_end):
+            # "שלושה מיליון ועשרים אחוזים", "שלושה מיליון ושלושה וחצי
+            # אחוזים": the count belongs to the rate; "קנס של שלושה מיליון
+            # ושלוש וחצי שנות מאסר": the three and a half count years, a
+            # separate quantity. Neither is the million's remainder.
+            rest = None
+    if rest is not None:
+        cursor, amount, rest_kinds = rest
+        value += amount
+        kinds |= rest_kinds
+    # A vav-bound fractional tail: "וחצי", or a counted fraction "ושני
+    # שלישים", "ושלושה רבעים".
+    if (
+        not scaled_tail
+        and not separate_after
+        and start < cursor < len(words)
+        and has_vav(cursor)
+    ):
+        tail = words[cursor][1:].lstrip("\u05be-")
+        tail_value: float | None = None
+        tail_end = cursor
+        if tail in _HEBREW_MIXED_FRACTION_VALUES:
+            tail_value = _HEBREW_MIXED_FRACTION_VALUES[tail]
+            tail_end = cursor + 1
+        elif (
+            tail in _HEBREW_FRACTION_COUNT_VALUES
+            and cursor + 1 < len(words)
+            and words[cursor + 1] in _HEBREW_COUNTED_FRACTION_VALUES
+        ):
+            tail_value = (
+                _HEBREW_FRACTION_COUNT_VALUES[tail]
+                * _HEBREW_COUNTED_FRACTION_VALUES[words[cursor + 1]]
+            )
+            tail_end = cursor + 2
+        # After a scale word, a fraction that names its own operand -- the
+        # word after the whole fraction, counted or not -- is no tail.
+        if tail_value is not None and not (
+            kinds & {"thousand", "million", "billion"}
+            and (fraction_names_own_operand(tail_end) or separate_quantity_at(tail_end))
+        ):
+            value += tail_value
+            kinds.add("fraction")
+            cursor = tail_end
+    if cursor == start:
+        return None
+    return cursor - start, value, kinds
+
+
+# The word before a fraction word that says a fraction follows: a copula, a
+# quantity word, or a verb of paying, receiving, deducting or granting --
+# "ישלם חמישית ההכנסה" pays a fifth of the income; "דרגה חמישית המקנה" is a
+# fifth grade, and "דרגה" is none of these.
+# The verbs that pay, give, deduct, allocate or return an amount to
+# someone: the ones whose recipient may stand between them and the amount.
+_HEBREW_PAYING_VERBS = frozenset(
+    "ישלם תשלם ישלמו תשלמנה ישולם תשולם ישולמו משלם משלמת משלמים משלמות שילם שילמה "
+    "שילמו שולם שולמה שולמו נתן נתנה נתנו יתן תיתן ייתן יתנו נותן נותנת נותנים יינתן "
+    "תינתן ינתן ניתן ניתנת ניתנים יעביר תעביר יעבירו מעביר מעבירה העביר העבירה העבירו "
+    "יועבר תועבר הועבר הועברה ינכה תנכה ינכו מנכה מנכים מנכות ניכה ניכתה ניכו ינוכה "
+    "תנוכה ינוכו נוכה יופחת תופחת יופחתו הופחת הופחתה הפחית הפחיתה הפחיתו מפחית "
+    "מפחיתה יקזז תקזז מקזז מקזזת קיזז קיזזה קיזזו יקוזז תקוזז קוזז קוזזה יחזיר תחזיר "
+    "מחזיר מחזירה החזיר החזירה החזירו יוחזר תוחזר הוחזר הוחזרה ישיב תשיב משיב משיבה "
+    "יפריש תפריש מפריש מפרישה הפריש הפרישה הפרישו יפקיד תפקיד מפקיד מפקידה יקצה תקצה "
+    "מקצה הקצה הקצתה הקצו יוקצה תוקצה הוקצה הוקצתה יזוכה תזוכה יזכה תזכה זיכה זיכתה "
+    "לשלם לתת ליתן להעביר לנכות להפחית לקזז להחזיר להשיב להפריש להפקיד להקצות לזכות"
+    " ניתנה ניתנו נותנת הפקיד הפקידה הפקידו הופקד הופקדה מופקד מופקדת העניק העניקה"
+    " העניקו יעניק תעניק יעניקו מעניק מעניקה הוענק הוענקה מוענק מוענקת להעניק משולם"
+    " משולמת משולמים מועבר מועברת מנוכה מנוכית מופחת מופחתת מוקצה מוקצית מוחזר"
+    " מוחזרת מקוזז מקוזזת מזוכה שולמו".split()
+)
+# The other words of a clause that say a fraction follows: a copula, a
+# quantity word, a deduction noun, a verb of receiving, including or
+# constituting. They govern the word right after them only.
+_HEBREW_OTHER_FRACTION_CONTEXT_WORDS = frozenset(
+    "יהיה יהא תהיה תהא הוא היא הם הן של בשיעור בגובה בסך סכום היה הייתה היתה היו "
+    "מהווה מהוות מהווים יהווה תהווה יהוו תהוונה היווה היוותה היוו כולל כוללת כוללים "
+    "כוללות יכלול תכלול יכללו כלל כללה כללו מכיל מכילה מכילים יהיו תהיינה כדי עד "
+    "לפחות ניכוי הפחתה הנחה קיזוז הפרשה החזר תוספת הקצאה יקבל תקבל יקבלו מקבל מקבלת "
+    "קיבל קיבלה קיבלו יוגדל תוגדל גבה גבתה גבו נשא נשאה נשאו זכה זכתה זכו קבע קבעה "
+    "קבעו נקבע נקבעה נקבעו זכאי זכאית זכאים לקבל להגדיל לגבות לשאת ישא יישא תישא "
+    "יגבה תגבה יגבו".split()
+) | {"לכל היותר"}
+_HEBREW_FRACTION_CONTEXT_WORDS = (
+    "(?:"
+    + "|".join(
+        re.escape(word).replace("\\ ", "\\s+")
+        for word in sorted(
+            _HEBREW_PAYING_VERBS | _HEBREW_OTHER_FRACTION_CONTEXT_WORDS,
+            key=len,
+            reverse=True,
+        )
+    )
+    + ")"
+)
+_HEBREW_FRACTION_COPULA_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])(?:[\u05d5\u05e9][\u05be-]?){0,2}"
+    + _HEBREW_FRACTION_CONTEXT_WORDS
+    + "\\s+$"
+)
+# The same words anywhere earlier in the clause: a recipient may stand
+# between the verb and the fraction ("שילם לעובדת החדשה חמישית השכר").
+_HEBREW_FRACTION_CONTEXT_IN_CLAUSE_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])(?:[\u05d5\u05e9][\u05be-]?){0,2}"
+    + _HEBREW_FRACTION_CONTEXT_WORDS
+    + "(?![\u0590-\u05ff])"
+)
+# A partitive or a construct that names the amount a fraction is taken of:
+# "משכרו" (of his wage), "מהכנסתה" (of her income), "משכר העובד" (of the
+# worker's wage), "חמישית השכר" (a fifth of the wage). The noun says fraction
+# whatever precedes -- "המעביד ישלם חמישית משכרו" and "על המעביד לשלם
+# חמישית השכר" pay a fifth -- while "לידה שלישית מזכה" keeps its ordinal,
+# because "זכה" names no amount.
+_HEBREW_AMOUNT_NOUN_STEMS = (
+    "שכר|משכורת|הכנס|קצב|גמל|גימל|סכום|תשלום|שווי|ערך|מחיר|רווח|הון|תמור|מענק|"
+    "עלות|פיצוי|פנסי|הפרש|קרן|ריבית|דמי|נכס|מס|"
+    "תקציב|הוצא|מחזור|חוב|הלווא|השקע|נזק|תרומ|עמל|דיבידנד|תגמול|אגר|קנס|"
+    "היטל|ארנונ|פרמי|מלג|תמיכ|סיוע|סובסידי|כספ|יתר|הטב|תקבול|פדיון|תמלוג|מקדמ|"
+    "פיקדון|פקדון|החזר|גמול|בונוס|תשר|קופ"
+)
+_HEBREW_FINAL_TO_MEDIAL = {
+    "\u05dd": "\u05de",  # ם → מ
+    "\u05df": "\u05e0",  # ן → נ
+    "\u05e5": "\u05e6",  # ץ → צ
+    "\u05e3": "\u05e4",  # ף → פ
+    "\u05da": "\u05db",  # ך → כ
+}
+
+
+def _hebrew_stems_with_medial_finals(stems: str) -> str:
+    """A stem alternation over the bases a noun's inflections build on.
+
+    A suffix moves a stem's final letter to its medial form: "תשלום" is
+    "תשלומים" in the plural and "תשלומיו" with a possessive, "סכום" is
+    "סכומים"; each stem ending in a final letter matches either form. A
+    feminine stem in ת drops it before the plural: "משכורת" is
+    "משכורות" and "משכורותיו", "ריבית" is "ריביות", "עלות" is "עלויות".
+    """
+    bases: list[str] = []
+    for stem in stems.split("|"):
+        if not stem:
+            continue
+        if stem.endswith("\u05d9\u05ea"):  # ־ית: ריבית, ריביות
+            bases.append(stem[:-2] + "\u05d9(?:\u05ea|\u05d5\u05ea)")
+        elif stem.endswith("\u05d5\u05ea"):  # ־ות: עלות, עלויות
+            bases.append(stem[:-2] + "\u05d5(?:\u05ea|\u05d9\u05d5\u05ea)")
+        elif stem.endswith("\u05ea"):  # ־ת: משכורת, משכורות
+            bases.append(stem[:-1] + "(?:\u05ea|\u05d5\u05ea)")
+        elif stem[-1] in _HEBREW_FINAL_TO_MEDIAL:
+            bases.append(
+                stem[:-1] + "[" + stem[-1] + _HEBREW_FINAL_TO_MEDIAL[stem[-1]] + "]"
+            )
+        else:
+            bases.append(stem)
+    return "|".join(bases)
+
+
+# The inflections a noun takes: a feminine or plural ending, then a
+# possessive suffix -- "הכנסה", "הכנסות", "הכנסתו", "קצבאות", "תשלומיו",
+# "ערכו". A possessive never follows the article ("הערכנו" is a verb, we
+# assessed, not "the our value"), so the possessed form is read only where
+# no article precedes the stem. "מס" takes its own forms alone: "מסים",
+# "מסי", "מסו", "מסיו"; "המסומנת" and "המספיקה" name no tax.
+_HEBREW_NOUN_NUMBER_SUFFIX = (
+    "(?:\u05d4|\u05ea|\u05d0?\u05d5\u05ea|\u05d9?\u05d9\u05dd|\u05d9)?"
+)
+_HEBREW_NOUN_POSSESSIVE_SUFFIX = (
+    "(?:\u05d9\u05d5|\u05d9\u05d4\u05dd|\u05d9\u05d4\u05df|\u05d9\u05d4|\u05d9\u05e0\u05d5"
+    "|\u05d9\u05db\u05dd|\u05d9\u05db\u05df|\u05d9\u05da|\u05d9\u05d9|\u05e0\u05d5"
+    "|\u05db\u05dd|\u05db\u05df|\u05d9|\u05da|\u05d5|\u05d4|\u05dd|\u05df)"
+)
+_HEBREW_MONEY_NOUN_STEMS_INFLECTED = _hebrew_stems_with_medial_finals(
+    _HEBREW_AMOUNT_NOUN_STEMS.replace("|מס|", "|")
+)
+_HEBREW_MONEY_NOUN = (
+    "(?:(?<!\u05d4)(?:"
+    + _HEBREW_MONEY_NOUN_STEMS_INFLECTED
+    + ")"
+    + _HEBREW_NOUN_NUMBER_SUFFIX
+    + _HEBREW_NOUN_POSSESSIVE_SUFFIX
+    + "|(?:"
+    + _HEBREW_MONEY_NOUN_STEMS_INFLECTED
+    + ")"
+    + _HEBREW_NOUN_NUMBER_SUFFIX
+    + "|(?<!\u05d4)מס(?:\u05d9?(?:\u05d5|\u05d4|\u05d4\u05dd|\u05d4\u05df|\u05e0\u05d5|\u05db\u05dd|\u05db\u05df|\u05da|\u05dd|\u05df)|\u05d9\u05d9)"
+    "|מס(?:ים|י)?)"
+)
+# The base is an amount noun in any of its inflections and no other word:
+# "מס" takes only its plural and construct ("מסים", "מסי"), so "המסומנת"
+# and "המספיקה" name no tax.
+_HEBREW_FRACTION_BASE_AMOUNT_PATTERN = re.compile(
+    # A partitive the pattern names ("מהשכר", "משכרו", "מן השכר", "של השכר"),
+    # an article ("השכר"), or nothing ("שכרו", "שכר המינימום"): the amount
+    # noun the fraction is taken of, in any of its inflections.
+    _WRAP_SPACE_FRAGMENT
+    + "+(?:(?P<partitive>\u05de[\u05be-]?(?:\u05d4[\u05be-]?)?|(?:מן|מתוך|של)"
+    + _WRAP_SPACE_FRAGMENT
+    + "+(?:\u05d4[\u05be-]?)?)|\u05d4[\u05be-]?|)"
+    + _HEBREW_MONEY_NOUN
+    + "(?![\u0590-\u05ff])"
+)
+# A money context: an amount noun ("קנס", "סכום", "מחזור", "שכר") shortly
+# before a scaled number says the number is money, so a unit or count noun
+# after its remainder names a separate quantity ("קנס של 3 מיליון ו־30 ימי
+# מאסר"). Without one, a trailing unit describes the whole compound ("מרחק
+# של שלושה אלפים ומאתיים מטרים" is 3,200 metres).
+# The two-letter stem "מס" (tax) takes only its own inflections here, or it
+# would read "מספר" (number) as money.
+# The words that may stand between the amount noun and the number it
+# governs: "קנס של", "מחזור שנתי של", "הקנס לא יעלה על", "סכום בסך", "השכר
+# יהיה". A verb or a noun of its own between them ("המענק יינתן למפעל
+# המעסיק לפחות") means the noun governs something else.
+_HEBREW_MONEY_CONTEXT_CONNECTORS = (
+    "של|בסך|בסכום|בגובה|בשיעור|בשווי|עד|לפחות|על|לא|יעלה|תעלה|יעלו|תעלינה|"
+    "עולה|עולים|עולות|העולה|העולים|העולות|יפחתו|תפחתנה|"
+    "יפחת|תפחת|פחות|הפחות|שלא|שאינו|שאינה|לכל|היותר|שנתי|שנתית|"
+    "חודשי|חודשית|בסיסי|בסיסית|מרבי|מרבית|מזערי|מזערית|מינימלי|מינימלית|"
+    "מקסימלי|מקסימלית|ממוצע|ממוצעת|הממוצע|יהיה|יהא|תהיה|תהא|הוא|היא|הם|הן|"
+    # A dative ל is not among them: "תקציב ל־3 אלפים עובדים" and "תקציב
+    # המיועד ל־3 אלפים עובדים" name whom the budget is for, not its amount.
+    "בין|מ|ב|כ"
+)
+# Present participles that open a relative clause after a noun: employing,
+# holding, operating, paying, receiving, granting, supplying, producing,
+# selling, buying, managing, carrying out, owing, entitled.
+_HEBREW_RELATIVE_PARTICIPLES = (
+    "מעסיק|מעסיקה|מעסיקים|מחזיק|מחזיקה|מחזיקים|מפעיל|מפעילה|מפעילים|"
+    "משלם|משלמת|משלמים|מקבל|מקבלת|מקבלים|מעניק|מעניקה|מעניקים|מספק|מספקת|"
+    "מספקים|מייצר|מייצרת|מייצרים|מוכר|מוכרת|מוכרים|קונה|קונים|רוכש|רוכשת|"
+    "רוכשים|מנהל|מנהלת|מנהלים|מבצע|מבצעת|מבצעים|חייב|חייבת|חייבים|זכאי|"
+    "זכאית|זכאים|עוסק|עוסקת|עוסקים|מחייב|מחייבת"
+)
+# After a possessor, the way on to the number carries no bare preposition:
+# "של", a threshold phrase read as a unit ("לא יעלה על", "יפחת מ־", "לכל
+# היותר"), a copula, an articled adjective. A bare "בין", "ב", "כ", "מ" or
+# "על" after the possessor -- however many modifiers intervene ("המחולקת
+# לכל היותר בין") -- complements a participle, and the amount noun governs
+# nothing past it.
+_HEBREW_MONEY_POSSESSOR_CONNECTORS = (
+    "של|בסך|בסכום|בגובה|בשיעור|בשווי|עד|לפחות|לא|שלא|שאינו|שאינה|לכל|היותר|"
+    "הפחות|"
+    "יעלה\\s+על|תעלה\\s+על|יעלו\\s+על|תעלינה\\s+על|עולה\\s+על|עולים\\s+על|"
+    "עולות\\s+על|העולה\\s+על|העולים\\s+על|העולות\\s+על|"
+    "יפחת\\s+\u05de[\u05be-]?|תפחת\\s+\u05de[\u05be-]?|יפחתו\\s+\u05de[\u05be-]?|"
+    "תפחתנה\\s+\u05de[\u05be-]?|פחות\\s+\u05de[\u05be-]?|"
+    "יותר\\s+\u05de[\u05be-]?|למעלה\\s+\u05de[\u05be-]?|"
+    "יהיה|יהא|תהיה|תהא|יהיו|תהיינה|הוא|היא|הם|הן|"
+    "\u05d4[\u05be-]?(?:שנתי|שנתית|חודשי|חודשית|בסיסי|בסיסית|מרבי|מרבית|"
+    "מזערי|מזערית|מינימלי|מינימלית|מקסימלי|מקסימלית|ממוצע|ממוצעת|"
+    "שנתיים|שנתיות|חודשיים|חודשיות|כוללים|כוללות|מרביים|מרביות|ממוצעים|ממוצעות)"
+)
+# A printed multiplier may stand between the noun and the scale word the
+# caller asks about ("קנס של 3 מיליון", asked at "מיליון").
+_HEBREW_MONEY_PRINTED_TAIL = (
+    "(?:\\s*(?<![\\d.,])[-\u2212]?(?:(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?|\\.\\d+)"
+    "(?:\\s+\\d+\\s*[/\u2044]\\s*\\d+)?)?\\s*$"
+)
+# Two grammars lead from an amount noun to the number it governs.
+#
+# A construct chain: the amount noun in the construct state -- no article
+# of its own -- and one articled possessor ("סכום המענק", "הכנסת המפעל",
+# "מחזור העסקאות", "שכר העובד"), then preposition-free connectors alone. An
+# articled amount noun followed by an articled word is attribution, not
+# possession ("המענק המממן", "הקצבה המחולקת", "התקציב המכסה"): the word
+# opens a clause of its own, whatever it is, and binds nothing.
+#
+# The bare noun, with or without the article, and the connectors, with the
+# article or not ("המחזור השנתי הכולל", "הקנס יהיה לכל היותר בין").
+# "כולל" is the adjective "total" only where "של", a copula or another
+# adjective follows ("המחזור הכולל של", "התקציב הכולל שלא יעלה על"); before
+# a number, a threshold word or a noun it is the verb "includes", and what
+# it includes is a count of its own ("הסיוע כולל 3 אלפים ו־200 מיטות",
+# "התקציב הכולל לפחות 3 אלפים ו־200 עובדים").
+_HEBREW_MONEY_TOTAL_ADJECTIVE = (
+    "(?:\u05d4[\u05be-]?)?כולל(?:ת|ים|ות)?(?=\\s+(?:של|(?:שלא|לא)\\s+"
+    "(?:יעלה|תעלה|יעלו|תעלינה|יפחת|תפחת|יפחתו|תפחתנה)|שאינו|שאינה|שאינם|שאינן|"
+    "יהיה|יהא|תהיה|תהא|הוא|היא|הם|הן|"
+    "\u05d4[\u05be-]?(?:שנתי|שנתית|חודשי|חודשית|בסיסי|בסיסית|מרבי|מרבית|מזערי|מזערית|"
+    "מינימלי|מינימלית|מקסימלי|מקסימלית|ממוצע|ממוצעת))(?![\u0590-\u05ff]))"
+)
+_HEBREW_MONEY_CONTEXT_CONNECTORS = (
+    _HEBREW_MONEY_TOTAL_ADJECTIVE + "|" + _HEBREW_MONEY_CONTEXT_CONNECTORS
+)
+_HEBREW_MONEY_POSSESSOR_CONNECTORS = (
+    _HEBREW_MONEY_TOTAL_ADJECTIVE + "|" + _HEBREW_MONEY_POSSESSOR_CONNECTORS
+)
+_HEBREW_MONEY_CONTEXT_PATTERN = re.compile(
+    "(?:"
+    "(?<![\u0590-\u05ff])"
+    + _HEBREW_PREPOSITION_PREFIXES
+    + _HEBREW_MONEY_NOUN
+    + "(?![\u0590-\u05ff])"
+    "\\s+(?!\u05d4[\u05be-]?(?:"
+    + _HEBREW_RELATIVE_PARTICIPLES
+    + ")(?![\u0590-\u05ff]))\u05d4[\u05be-]?[\u0590-\u05ff]{2,}(?:\\s+(?:"
+    + _HEBREW_MONEY_POSSESSOR_CONNECTORS
+    + ")(?![\u0590-\u05ff]))*"
+    + _HEBREW_MONEY_PRINTED_TAIL
+    + "|"
+    "(?<![\u0590-\u05ff])"
+    + _HEBREW_PREPOSITION_OR_ARTICLE_PREFIXES
+    + _HEBREW_MONEY_NOUN
+    + "(?![\u0590-\u05ff])"
+    "(?:\\s+(?:\u05d4[\u05be-]?)?(?:"
+    + _HEBREW_MONEY_CONTEXT_CONNECTORS
+    + ")[\u05be-]?)*"
+    + _HEBREW_MONEY_PRINTED_TAIL
+    + ")"
+)
+
+
+def _hebrew_money_context_before(text: str, position: int) -> bool:
+    """Whether an amount noun governs the number at ``position``.
+
+    The noun stands in the same sentence before it, with only connectors
+    between ("קנס של", "מחזור שנתי של", "הקנס לא יעלה על"), however the
+    text is spaced or wrapped.
+    """
+    return (
+        _HEBREW_MONEY_CONTEXT_PATTERN.search(
+            text,
+            _hebrew_clause_start_before(
+                text, position, _HEBREW_SENTENCE_STOP_ONLY_CHARACTERS
+            ),
+            position,
+        )
+        is not None
+    )
+
+
+# What follows a fraction word and gives it its own operand, so that the
+# fraction is no tail of a scale word before it: a lower scale word ("וחצי
+# אלף" is five hundred), "של"/"מן"/"מתוך", or a partitive or construct that
+# names an amount ("מההכנסה", "ההכנסה", "משכר העובד"). A verb that begins
+# with מ ("משולם", is paid) names no operand, and "3 מיליון וחצי משולם"
+# stays three and a half million.
+_HEBREW_FRACTION_OPERAND_AFTER_PATTERN = re.compile(
+    "(?:\\s+(?:"
+    + _hebrew_alternation(set(_HEBREW_SCALE_VALUES) | {"של", "מן", "מתוך"})
+    + ")(?![\u0590-\u05ff])|"
+    + _HEBREW_FRACTION_BASE_AMOUNT_PATTERN.pattern
+    # A percent noun or sign: "3 מיליון וחצי אחוז" is three million, and
+    # half a percent.
+    + "|"
+    + _WRAP_SPACE_FRAGMENT
+    + "+(?:\u05d4[\u05be-]?)?אחוז(?:ים|י)?(?![\u0590-\u05ff])|"
+    + _WRAP_SPACE_FRAGMENT
+    + "*%"
+    + ")"
+)
+
+
+def _iter_hebrew_compound_number_matches(
+    text: str,
+) -> list[tuple[tuple[int, int], float]]:
+    """Numbers a Hebrew statute spells with more than one word, or with a scale word."""
+    matches: list[tuple[tuple[int, int], float]] = []
+    tokens = [
+        (m.start(), m.end(), m.group(0))
+        for m in _HEBREW_WORD_TOKEN_PATTERN.finditer(text)
+    ]
+    # Runs of adjacent words are cut once, in one pass; a hyphen or maqaf
+    # joins a unit to its ten ("שנים-עשר", "שנים־עשר") and whitespace joins
+    # anything short of a paragraph boundary. Each run is then parsed from
+    # every start index without
+    # copying, and a start that is not a number word is skipped at once.
+    runs: list[tuple[int, int]] = []
+    run_start = 0
+    # A word a percent sign marks ("ועשרים%") counts a rate: a scaled
+    # amount before it ends before it, whatever the parser would compose.
+    percent_marked = {
+        index
+        for index, token in enumerate(tokens)
+        if _HEBREW_PERCENT_SIGN_AFTER_PATTERN.match(text, token[1])
+    }
+    for index in range(1, len(tokens) + 1):
+        if index < len(tokens):
+            gap = text[tokens[index - 1][1] : tokens[index][0]]
+            if _PARAGRAPH_GAP_PATTERN.search(gap) is None and (
+                gap.strip() == ""
+                or (
+                    _HEBREW_TEEN_JOIN_PATTERN.match(gap)
+                    and tokens[index][2] in _HEBREW_TEEN_TENS
+                )
+            ):
+                continue
+        runs.append((run_start, index))
+        run_start = index
+    for start, end in runs:
+        words = [token[2] for token in tokens[start:end]]
+
+        def text_separate_after(position: int, start: int = start) -> bool:
+            # The candidate ends before words[position]; its printed
+            # continuation, if any, starts after words[position - 1].
+            if position <= 0 or start + position - 1 >= len(tokens):
+                return False
+            text_end = tokens[start + position - 1][1]
+            chain_end = _hebrew_printed_continuation_end(text, text_end)
+            return chain_end != text_end and (
+                _HEBREW_SEPARATE_QUANTITY_AFTER_PATTERN.match(text, chain_end)
+                is not None
+                or _HEBREW_PERCENT_WORD_PATTERN.match(text, chain_end) is not None
+                or _HEBREW_PERCENT_SIGN_AFTER_PATTERN.match(text, chain_end) is not None
+            )
+
+        index = 0
+        while index < len(words):
+            head = _strip_hebrew_number_prefix(
+                words[index], _HEBREW_RUN_START_VOCABULARY
+            )
+            if head is None or (
+                head in _HEBREW_TEEN_ONLY_WORDS
+                and (
+                    index + 1 >= len(words) or words[index + 1] not in _HEBREW_TEEN_TENS
+                )
+            ):
+                index += 1
+                continue
+            run_money_context = _hebrew_money_context_before(
+                text, tokens[start + index][0]
+            )
+            parsed = _parse_hebrew_number_run(
+                words, index, run_money_context, text_separate_after
+            )
+            # Under a money amount the words up to a percent-marked word
+            # count a rate of their own; without one the whole scaled count
+            # is the rate ("שלושת אלפים וחמש מאות%" is 3,500 percent).
+            if (
+                parsed is not None
+                and parsed[2] & _HEBREW_SCALE_KINDS
+                and run_money_context
+            ):
+                marked = next(
+                    (
+                        offset
+                        for offset in range(index + 1, index + parsed[0])
+                        if start + offset in percent_marked
+                    ),
+                    None,
+                )
+                if marked is not None:
+                    # The rate's count is the longest number ending at the
+                    # marked word ("ועשרים וחמישה%" is twenty-five percent);
+                    # the amount ends before all of it.
+                    cut = marked
+                    for offset in range(index + 1, marked + 1):
+                        rate_words = words[offset : marked + 1]
+                        rate = _parse_hebrew_number_run(rate_words)
+                        if (
+                            rate is not None
+                            and rate[0] == len(rate_words)
+                            and not rate[2] & _HEBREW_SCALE_KINDS
+                        ) or _hebrew_fractional_count(rate_words) is not None:
+                            cut = offset
+                            break
+                    parsed = _parse_hebrew_number_run(
+                        words[:cut],
+                        index,
+                        _hebrew_money_context_before(text, tokens[start + index][0]),
+                        text_separate_after,
+                    )
+            if parsed is not None:
+                consumed, value, kinds = parsed
+                if consumed >= 2 or kinds & {
+                    "tens",
+                    "hundred",
+                    "thousand",
+                    "million",
+                    "billion",
+                    "compound",
+                }:
+                    matches.append(
+                        (
+                            (
+                                tokens[start + index][0],
+                                tokens[start + index + consumed - 1][1],
+                            ),
+                            value,
+                        )
+                    )
+                    index += consumed
+                    continue
+            index += 1
+    return matches
+
+
+# A fraction the statute names with a word: a half of the average wage, a fifth
+# of the income, two thirds. The feminine ordinal doubles as the fraction noun
+# ("חמישית" is both "fifth" and "a fifth"), so that reading is claimed only where
+# the grammar says fraction -- a count before it ("שתי חמישיות"), or no article
+# and a partitive after it ("חמישית מההכנסה") -- and "the fourth schedule" keeps
+# its ordinal. Half, third and quarter have nouns of their own and are always
+# fractions.
+_HEBREW_FRACTION_VALUES = {
+    "מחצית": 0.5,
+    "חצי": 0.5,
+    "שליש": 1.0 / 3.0,
+    "שלישים": 1.0 / 3.0,
+    "שלישית": 1.0 / 3.0,
+    "שלישיות": 1.0 / 3.0,
+    "רבע": 0.25,
+    "רבעים": 0.25,
+    "רביעית": 0.25,
+    "רביעיות": 0.25,
+    "חמישית": 0.2,
+    "חמישיות": 0.2,
+    "שישית": 1.0 / 6.0,
+    "שישיות": 1.0 / 6.0,
+    "שביעית": 1.0 / 7.0,
+    "שביעיות": 1.0 / 7.0,
+    "שמינית": 0.125,
+    "שמיניות": 0.125,
+    "תשיעית": 1.0 / 9.0,
+    "תשיעיות": 1.0 / 9.0,
+    "עשירית": 0.1,
+    "עשיריות": 0.1,
+}
+_HEBREW_UNAMBIGUOUS_FRACTION_WORDS = frozenset(
+    {"מחצית", "חצי", "שליש", "רבע"}
+) | frozenset(word for word in _HEBREW_FRACTION_VALUES if word.endswith(("ים", "יות")))
+_HEBREW_FRACTION_COUNT_VALUES = {
+    "שלשת": 3.0,
+    "עשר": 10.0,
+    "עשרה": 10.0,
+    "עשרת": 10.0,
+    "שלש": 3.0,
+    "חמשה": 5.0,
+    "שני": 2.0,
+    "שתי": 2.0,
+    "שלושה": 3.0,
+    "שלשה": 3.0,
+    "שלוש": 3.0,
+    "שלושת": 3.0,
+    "ארבעה": 4.0,
+    "ארבע": 4.0,
+    "ארבעת": 4.0,
+    "חמישה": 5.0,
+    "חמש": 5.0,
+    "חמשת": 5.0,
+    "שישה": 6.0,
+    "ששה": 6.0,
+    "שש": 6.0,
+    "ששת": 6.0,
+    "שבעה": 7.0,
+    "שבע": 7.0,
+    "שבעת": 7.0,
+    "שמונה": 8.0,
+    "שמונת": 8.0,
+    "תשעה": 9.0,
+    "תשע": 9.0,
+    "תשעת": 9.0,
+}
+
+# Defined after the fraction vocabularies its tail lookahead names.
+_HEBREW_DIGIT_PERCENT_PATTERN = re.compile(
+    "(?<![\\d.,\u2044/])(?:(?<![\u05d0-\u05ea])(?P<sign>[-\u2212]))?"
+    "(?:(?P<whole>(?:\\d{1,3}(?:,\\d{3})+|\\d+))[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]+(?=\\d+\\s*/))?"
+    "(?P<number>(?:(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?|\\.\\d+))"
+    "(?:\\s*/\\s*(?P<denominator>\\d+))?"
+    # The percent noun; the sign after a fraction ("1/2%", "3 1 / 2%"); or
+    # the sign before a Hebrew fractional tail ("3% וחצי" is three and a
+    # half percent). A bare number before a bare sign is the general digit
+    # pass's.
+    "(?:"
+    + _WRAP_SPACE_FRAGMENT
+    + "+אחוז(?:ים|י)?(?![\u0590-\u05ff])|(?(denominator)"
+    + _WRAP_SPACE_FRAGMENT
+    + "*%|"
+    + _WRAP_SPACE_FRAGMENT
+    + "*%(?="
+    + _WRAP_SPACE_FRAGMENT
+    + "+\u05d5[\u05be-]?(?:"
+    + "|".join(
+        re.escape(w)
+        for w in sorted(_HEBREW_MIXED_FRACTION_VALUES, key=len, reverse=True)
+    )
+    + "|(?:"
+    + "|".join(
+        re.escape(w)
+        for w in sorted(_HEBREW_FRACTION_COUNT_VALUES, key=len, reverse=True)
+    )
+    + ")"
+    + _WRAP_SPACE_FRAGMENT
+    + "+(?:"
+    + "|".join(
+        re.escape(w)
+        for w in sorted(_HEBREW_COUNTED_FRACTION_VALUES, key=len, reverse=True)
+    )
+    + "))(?![\u0590-\u05ff]))))"
+)
+# Construct plurals ("רבעי השכר", "שלישי ההכנסה") are fractions only after a
+# count, because "שלישי" alone is the ordinal "third".
+_HEBREW_FRACTION_CONSTRUCT_VALUES = {
+    "רבעי": 0.25,
+    "שלישי": 1.0 / 3.0,
+    "חמישיות": 0.2,
+    "שישיות": 1.0 / 6.0,
+    "שמיניות": 0.125,
+    "עשיריות": 0.1,
+}
+# Words that begin with מה but are no partitive: "מהווה" constitutes, "מהות"
+# is essence, "מהיר" is fast. "דרגה חמישית מהווה תנאי" is a fifth grade that
+# constitutes a condition, not a fifth of anything.
+_HEBREW_NOT_A_PARTITIVE_LOOKAHEAD = (
+    "(?!(?:מהווה|מהוות|מהווים|מהוה|מהות|מהותי|מהותית|מהותיים|מהיר|מהירה|מהירים|"
+    "מהירות|מהימן|מהימנה|מהימנות|מהנדס|מהנדסת|מהלך|מהלכי|מהלכים|מהיכן|מהדורה|"
+    "מהדורת|מהפך|מהפכה|מהר|מהרה)(?![֐-׿]))"
+)
+_HEBREW_FRACTION_WORD_PATTERN = re.compile(
+    "(?<![֐-׿])"
+    "(?P<prefix>(?:[ובכלמש][־-]?){0,2})"
+    # A count word, joined to the fraction word across spaces or one line
+    # wrap, never a blank line; the reader extends it to the whole number
+    # the numeral grammar reads before the fraction word ("אחת עשרה
+    # עשיריות").
+    "(?:(?P<count>"
+    + _hebrew_alternation(_HEBREW_FRACTION_COUNT_VALUES)
+    + ")"
+    + _WRAP_SPACE_FRAGMENT
+    + "+)?"
+    "(?P<article>(?:ה[־-]?)?)"
+    "(?P<fraction>"
+    + _hebrew_alternation(
+        set(_HEBREW_FRACTION_VALUES) | set(_HEBREW_FRACTION_CONSTRUCT_VALUES)
+    )
+    + ")"
+    "(?![֐-׿])"
+    "(?P<partitive>"
+    + _WRAP_SPACE_FRAGMENT
+    + "+(?:"
+    + _HEBREW_NOT_A_PARTITIVE_LOOKAHEAD
+    + "מה[֐-׿]|מן(?![֐-׿])"
+    "|ה?אחוז(?:ים|י)?(?![֐-׿]))"
+    # The percent marker serves the fraction as the percent word does:
+    # "חמישית%" is a fifth of a percent.
+    "|" + _WRAP_SPACE_FRAGMENT + "*%)?"
+    "(?P<loose_partitive>"
+    + _WRAP_SPACE_FRAGMENT
+    + "+(?:של(?![֐-׿])|"
+    + _HEBREW_NOT_A_PARTITIVE_LOOKAHEAD
+    + "(?:מ|ה)[֐-׿]{2,}))?"
+)
+# The partitive that follows a bare percent noun said to be one percent:
+# "תוספת של אחוז מההכנסה" is a supplement of one percent of the income.
+_HEBREW_PARTITIVE_AFTER_PATTERN = re.compile(
+    _WRAP_SPACE_FRAGMENT
+    + "+(?:"
+    + _HEBREW_NOT_A_PARTITIVE_LOOKAHEAD
+    + "מה[֐-׿]|מן(?![֐-׿])|של(?![֐-׿]))"
+)
+# The partitive words that may stand between a fraction and its whole:
+# "שלוש עשיריות של האחוז", "חצי מן האחוז", "רבע מתוך השכר".
+_HEBREW_FRACTION_PARTITIVE_WORDS = frozenset({"של", "מן", "מתוך"})
+
+
+def _search_before(
+    pattern: "re.Pattern[str]", text: str, end: int, window: int = 64
+) -> "re.Match[str] | None":
+    """Search a pattern anchored at its end in the window before ``end``.
+
+    The patterns this serves read one or two words before a position; a
+    search over everything before each of thousands of positions is
+    quadratic. A lookbehind at the window's start still sees the text
+    before it, and ``$`` matches at ``end``. The window is measured before
+    the whitespace that ends at ``end``, so a line wrap and the indentation
+    after it ("10,\n            20") cost it nothing; a paragraph gap in
+    that whitespace is a boundary the window does not cross.
+    """
+    trimmed = end
+    while trimmed > 0 and text[trimmed - 1].isspace():
+        trimmed -= 1
+    if trimmed < end:
+        gap = _PARAGRAPH_GAP_PATTERN.search(text, trimmed, end)
+        if gap is not None:
+            return pattern.search(text, gap.end(), end)
+    return pattern.search(text, max(0, trimmed - window), end)
+
+
+_HEBREW_CLAUSE_BOUNDARY_CHARACTERS = frozenset(",;:.()[]\"'\u05f3\u05f4-\u2013\u2014\n")
+
+
+def _hebrew_fraction_context_in_clause(text: str, start: int) -> bool:
+    """Whether a word that says a fraction follows governs the word at ``start``.
+
+    A verb of paying governs across its recipient and no further: a phrase
+    in ל ("לעובדת החדשה", "לעובדת חדשה", "לעובדת בשם שירה", "לעובדת של
+    החברה") with whatever modifies the recipient, its name and its
+    possessor included, up to the next preposition, relative clause or
+    predicate. Any other context word governs the word right after it
+    only, so a receiving verb's object keeps its ordinal ("קיבלה לוחית
+    חמישית", a fifth plate); and a bare noun after a paying verb ("שילם
+    עבור בדיקה חמישית") or a relative marker takes the fraction word for
+    its own.
+    """
+    clause_start = _hebrew_clause_start_before(text, start)
+    matches = list(
+        _HEBREW_FRACTION_CONTEXT_IN_CLAUSE_PATTERN.finditer(text, clause_start, start)
+    )
+    # The nearest context word first; a nearer one that is no paying verb
+    # ("של" in "לעובדת של החברה") does not hide the paying verb before it.
+    for match in reversed(matches):
+        tokens = [
+            token
+            for token in (
+                token_match.group(0).strip(",;:()")
+                for token_match in _NON_SPACE_TOKEN_PATTERN.finditer(
+                    text, match.end(), start
+                )
+            )
+            if token
+        ]
+        if not tokens:
+            return True
+        verb = match.group(0).strip()
+        while (
+            verb[:1] in "\u05d5\u05e9"
+            and verb[1:].lstrip("\u05be-") in _HEBREW_PAYING_VERBS
+        ):
+            verb = verb[1:].lstrip("\u05be-")
+        if verb not in _HEBREW_PAYING_VERBS:
+            continue
+        if _hebrew_recipient_phrase(tokens):
+            return True
+    return False
+
+
+def _hebrew_recipient_phrase(tokens: list[str]) -> bool:
+    """Whether ``tokens`` are a recipient in ל with its modifiers and nothing more."""
+    first = (
+        tokens[0][1:].lstrip("\u05be-") if tokens[0].startswith("\u05d5") else tokens[0]
+    )
+    if not first.startswith("\u05dc") or _hebrew_word_is_an_amount_noun(first):
+        return False
+    skip_next = False
+    for token in tokens[1:]:
+        bare = token[1:].lstrip("\u05be-") if token.startswith("\u05d5") else token
+        if skip_next:
+            skip_next = False
+            continue
+        if bare in ("בשם", "של"):
+            # The recipient's name or possessor: the word after is theirs.
+            skip_next = True
+            continue
+        if bare in _HEBREW_RATE_NEUTRAL_WORDS:
+            continue
+        if (
+            bare in _HEBREW_RATE_PREPOSITIONS
+            or bare == "אשר"
+            or bare.startswith("\u05e9\u05d4")
+            or bare in _HEBREW_CONSEQUENT_VERBS
+            or bare in _HEBREW_RATE_COPULAS
+            or bare in _HEBREW_RATE_PARTICIPLES
+        ):
+            return False
+    return True
+
+
+def _hebrew_fraction_context_before(text: str, start: int) -> bool:
+    """Whether the clause before ``start`` says a fraction follows.
+
+    A copula, a quantity word or a verb of paying, receiving or deducting
+    right before it does; so does a clause start -- the beginning of the
+    text or a punctuation mark -- where "חמישית מההכנסה" opens a clause. A
+    noun there ("לידה", "דרגה") leaves an ordinal-shaped word an ordinal.
+    """
+    if _search_before(_HEBREW_FRACTION_COPULA_PATTERN, text, start) is not None:
+        return True
+    before = text[:start].rstrip()
+    return not before or before[-1] in _HEBREW_CLAUSE_BOUNDARY_CHARACTERS
+
+
+def _hebrew_fraction_count_before(
+    text: str, match: "re.Match[str]", tokens: "_HebrewWordTokens"
+) -> tuple[float, int] | None:
+    """The count before a fraction word, as the numeral grammar reads it.
+
+    "שלוש עשיריות" is three tenths, "אחת עשרה עשיריות" eleven tenths and
+    "אלף עשיריות" a hundred: the longest run of words flush before the
+    fraction word that the grammar reads whole is the count, and so is a
+    printed number there ("3 עשיריות"). A count word the grammar does not
+    read on its own ("שני", "שתי") stays the pattern's. Returns (count,
+    start of the count) or None.
+    """
+    fraction = match.group("fraction")
+    # A counted fraction is plural or construct ("שלוש עשיריות", "שלושת
+    # רבעי"); a number before a singular fraction word is not its count
+    # ("בסעיף 3 חמישית ההכנסה").
+    if fraction not in _HEBREW_COUNTED_FRACTION_VALUES:
+        return None
+    position = match.start("article")
+    run = _hebrew_word_run_before(text, position, tokens=tokens)
+    for width in range(len(run), 0, -1):
+        words = [token.group(0) for token in run[-width:]]
+        # Words the grammar reads with the fraction word as one number are
+        # a mixed number ("עשרים ושלוש עשיריות" is twenty and three
+        # tenths), which the compound pass reads whole; "מאה ועשרים
+        # עשיריות" it does not, and the hundred and twenty is the count.
+        mixed = _parse_hebrew_number_run([*words, fraction])
+        if mixed is not None and mixed[0] == width + 1:
+            continue
+        parsed = _parse_hebrew_number_run(words)
+        if parsed is not None and parsed[0] == width:
+            return parsed[1], run[-width].start()
+    if not run:
+        # A printed count flush before the word: "3 עשיריות" is three
+        # tenths, "ל־3 רבעי השכר" three quarters of the wage.
+        return _hebrew_printed_count_before(text, position)
+    # A printed whole and a spelled tail before the word: "3 וחצי עשיריות"
+    # is three and a half tenths.
+    return _hebrew_printed_mixed_count(text, run)
+
+
+def _hebrew_printed_count_before(text: str, position: int) -> tuple[float, int] | None:
+    """A printed number flush before ``position``, across wrap space only.
+
+    Returns (value, start of the number) or None.
+    """
+    printed = _search_before(_HEBREW_DIGITS_BEFORE_PATTERN, text, position, 32)
+    if printed is None or _PARAGRAPH_GAP_PATTERN.search(text[printed.end() : position]):
+        return None
+    value = _hebrew_printed_endpoint_value(printed)
+    if value is None:
+        return None
+    return value, printed.start()
+
+
+def _iter_hebrew_fraction_word_readings(
+    text: str,
+) -> list[tuple[tuple[int, int], float, bool]]:
+    """Fraction words with their values, flagged when a count precedes them."""
+    matches: list[tuple[tuple[int, int], float, bool]] = []
+    tokens: "_HebrewWordTokens | None" = None
+    for match in _HEBREW_FRACTION_WORD_PATTERN.finditer(text):
+        word = match.group("fraction")
+        count = match.group("count")
+        # The match begins at the fraction word's own prefix ("וחצי"), or
+        # at its count's ("ושלוש עשיריות").
+        start = match.start()
+        if count and word not in _HEBREW_COUNTED_FRACTION_VALUES:
+            # "שלוש חמישית": a counted fraction is plural or construct, so
+            # the number before a singular fraction word is not its count,
+            # and the prefix before that number is the number's.
+            count = None
+            start = match.start("article")
+        if tokens is None:
+            tokens = _HebrewWordTokens(text)
+        # The count the grammar reads before the word ("עשרים רבעי השכר")
+        # counts a construct form as a listed count word does.
+        counted = _hebrew_fraction_count_before(text, match, tokens)
+        if (
+            word in _HEBREW_FRACTION_CONSTRUCT_VALUES
+            and word not in _HEBREW_FRACTION_VALUES
+        ):
+            if not count and counted is None:
+                continue
+            value = _HEBREW_FRACTION_CONSTRUCT_VALUES[word]
+        else:
+            if word not in _HEBREW_UNAMBIGUOUS_FRACTION_WORDS:
+                if match.group("article"):
+                    continue
+                # "חמישית משכרו" is a fifth of his wage and "חמישית ההכנסה" a
+                # fifth of the income after "יהיה"; "לידה שלישית מזכה" is a
+                # third birth that qualifies and "דרגה חמישית המקנה" a fifth
+                # grade that confers. A bare מ- or ה-word after the fraction
+                # word counts only when a copula or a quantity word precedes.
+                # After a feminine noun the ordinal agrees with ("בדרגה
+                # חמישית", "בבדיקה חמישית", "בעיר חמישית") a bare definite
+                # amount noun begins the next phrase ("השכר גבוה יותר"), not
+                # the fraction's operand; only an explicit partitive
+                # ("מהשכר", "משכרו") makes the word a fraction there. A copula
+                # before it ("תהיה חמישית השכר") is clause context, read below.
+                base = _HEBREW_FRACTION_BASE_AMOUNT_PATTERN.match(
+                    text, match.end("fraction")
+                )
+                names_an_amount = (
+                    base is not None
+                    and not (
+                        base.group("partitive") is None
+                        and not _hebrew_fraction_context_before(text, match.start())
+                        and not _hebrew_fraction_context_in_clause(text, match.start())
+                        and _hebrew_word_before_can_be_feminine_singular(
+                            text, match.start("fraction")
+                        )
+                    )
+                    # "עשירית שקל" is a tenth of a shekel, "עשירית שנייה" a
+                    # tenth of a second: a unit after the word says fraction.
+                    or _hebrew_fraction_unit_after(
+                        text, match.end("fraction"), match.start()
+                    )
+                    == "fraction"
+                    # An ambiguous case reads as the fraction here only where
+                    # that is its primary reading; the integration records
+                    # both readings as alternatives either way.
+                    or (
+                        _hebrew_fraction_unit_after(
+                            text, match.end("fraction"), match.start()
+                        )
+                        == "ambiguous"
+                        and _hebrew_ambiguous_reading_prefers_duration(
+                            text, match.end("fraction")
+                        )
+                    )
+                )
+                loose = bool(match.group("loose_partitive")) and (
+                    _hebrew_fraction_context_before(text, match.start())
+                    or names_an_amount
+                )
+                # "מה" before a word is the partitive "of the" or the
+                # preposition מ before a noun that begins with ה: "לידה חמישית
+                # מהיריון נפרד" is a fifth birth from a separate pregnancy.
+                # It says fraction where the clause does (a copula, a verb of
+                # paying, a clause start) or where the noun names an amount
+                # ("מההכנסה"); "מן" and the percent noun always do.
+                partitive = match.group("partitive") or ""
+                strict = bool(partitive) and (
+                    not partitive.lstrip().startswith("\u05de\u05d4")
+                    or names_an_amount
+                    or _hebrew_fraction_context_before(text, match.start())
+                )
+                # "מן" after an ordinal a feminine noun carries, with no clause
+                # context saying a fraction follows, names a kind or a source
+                # ("בדיקה חמישית מן הסוג הזה", "פנייה חמישית מן הציבור"), not
+                # a whole, unless what follows names an amount ("מן השכר").
+                # A paying verb's reach across its recipient licenses a fraction
+                # of an amount only: "שילם לעובדת חמישית מן העובדות הזכאיות"
+                # pays a fifth employee among the eligible ones.
+                if (
+                    strict
+                    and partitive.lstrip().startswith("מן")
+                    and not names_an_amount
+                    and not _hebrew_fraction_context_before(text, match.start())
+                    and _hebrew_word_before_can_be_feminine_singular(
+                        text, match.start("fraction")
+                    )
+                ):
+                    strict = False
+                if not count and not strict and not loose and not names_an_amount:
+                    continue
+            value = _HEBREW_FRACTION_VALUES[word]
+        if counted is not None and (not count or counted[1] < start):
+            value *= counted[0]
+            start = counted[1]
+        elif count:
+            value *= _HEBREW_FRACTION_COUNT_VALUES[count]
+        matches.append(
+            ((start, match.end("fraction")), value, bool(count) or counted is not None)
+        )
+    # A vav-bound fraction word that is the tail of a rate before it ("שלושה%
+    # וחצי") is read with the rate by the percent passes; one inside a
+    # counted fraction's count ("וחצי" of "3 וחצי עשיריות") is that count's.
+    counted_spans = sorted(span for span, _, is_counted in matches if is_counted)
+    counted_starts = [span[0] for span in counted_spans]
+
+    def inside_a_count(span: tuple[int, int]) -> bool:
+        index = bisect_right(counted_starts, span[0]) - 1
+        while index >= 0 and counted_spans[index][1] > span[0]:
+            if counted_spans[index] != span and counted_spans[index][1] >= span[1]:
+                return True
+            index -= 1
+        return False
+
+    return [
+        (span, value, counted)
+        for span, value, counted in matches
+        if not _hebrew_fraction_word_is_percent_tail(text, span)
+        and not inside_a_count(span)
+    ]
+
+
+def _iter_hebrew_fraction_word_matches(
+    text: str,
+) -> list[tuple[tuple[int, int], float]]:
+    return [
+        (span, value) for span, value, _ in _iter_hebrew_fraction_word_readings(text)
+    ]
+
+
+# A percentage phrase: an optional count, the percent noun, an optional
+# vav-bound fractional tail -- "אחוז וחצי" is one and a half percent, "שני
+# אחוזים וחצי" two and a half. Read whole, before the word passes see any of
+# its words.
+_HEBREW_PERCENT_PHRASE_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff\\d.,])"
+    "(?:(?P<digits>(?:(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?|\\.\\d+))"
+    + _WRAP_SPACE_FRAGMENT
+    + "+"
+    "|(?:(?P<glyph_whole>(?:\\d{1,3}(?:,\\d{3})+|\\d+))[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]*)?(?P<glyph>[\u00bc-\u00be\u2150-\u215e])"
+    + _WRAP_SPACE_FRAGMENT
+    + "+"
+    "|(?:(?P<whole>(?:\\d{1,3}(?:,\\d{3})+|\\d+))[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]+)?(?P<numerator>\\d+)\\s*[/\u2044]\\s*(?P<denominator>\\d+)"
+    + _WRAP_SPACE_FRAGMENT
+    + "+)?"
+    "(?P<noun_prefix>(?:[\u05d1\u05db\u05dc\u05de\u05d5\u05e9][\u05be-]?){0,2})"
+    "(?P<noun>(?:\u05d4[\u05be-]?)?אחוז(?:ים)?)"
+    "(?:"
+    + _WRAP_SPACE_FRAGMENT
+    + "+\u05d5[\u05be-]?(?:(?P<tail>"
+    + "|".join(
+        re.escape(w)
+        for w in sorted(_HEBREW_MIXED_FRACTION_VALUES, key=len, reverse=True)
+    )
+    + ")|(?P<tail_count>"
+    + "|".join(
+        re.escape(w)
+        for w in sorted(_HEBREW_FRACTION_COUNT_VALUES, key=len, reverse=True)
+    )
+    + ")"
+    + _WRAP_SPACE_FRAGMENT
+    + "+(?P<tail_fraction>"
+    + "|".join(
+        re.escape(w)
+        for w in sorted(_HEBREW_COUNTED_FRACTION_VALUES, key=len, reverse=True)
+    )
+    + ")))?(?![\u0590-\u05ff])"
+)
+
+
+class _HebrewWordTokens:
+    """A text's Hebrew word tokens, cut once, with their ends for bisecting."""
+
+    __slots__ = ("matches", "ends")
+
+    def __init__(self, text: str) -> None:
+        self.matches = list(_HEBREW_WORD_TOKEN_PATTERN.finditer(text))
+        self.ends = [match.end() for match in self.matches]
+
+
+def _hebrew_word_run_before(
+    text: str,
+    end: int,
+    limit: int = 16,
+    tokens: _HebrewWordTokens | None = None,
+) -> list["re.Match[str]"]:
+    """The last run of joined Hebrew words ending flush at ``end``, newest last.
+
+    ``tokens`` is the text tokenized once by the caller: a source with
+    thousands of percentages must not be tokenized again before each one.
+    Only the run is walked, and it is bounded by ``limit``.
+    """
+    if tokens is None:
+        tokens = _HebrewWordTokens(text)
+    last = bisect_right(tokens.ends, end) - 1
+    if last < 0:
+        return []
+    final_gap = text[tokens.ends[last] : end]
+    if final_gap.strip() != "" or _PARAGRAPH_GAP_PATTERN.search(final_gap):
+        return []
+    run = [tokens.matches[last]]
+    for index in range(last - 1, -1, -1):
+        token = tokens.matches[index]
+        gap = text[token.end() : run[0].start()]
+        # A paragraph boundary ends the run ("שלושה\n\nעשר אחוזים" is
+        # three, then ten percent).
+        joined = _PARAGRAPH_GAP_PATTERN.search(gap) is None and (
+            gap.strip() == ""
+            or (
+                _HEBREW_TEEN_JOIN_PATTERN.match(gap)
+                and run[0].group(0) in _HEBREW_TEEN_TENS
+            )
+        )
+        if not joined or len(run) >= limit:
+            break
+        run.insert(0, token)
+    return run
+
+
+def _hebrew_definite_ordinal(word: str, bare: str) -> bool:
+    """Whether ``word`` is the ordinal ``bare`` under the definite article.
+
+    "השני" is "the second", never a count of two: the construct count is
+    written without the article ("שני אחוזים"), and the article on an
+    ordinal-shaped word makes it the ordinal.
+    """
+    if bare not in _HEBREW_ORDINAL_WORDS or not word.endswith(bare):
+        return False
+    return word[: len(word) - len(bare)].rstrip("\u05be-").endswith("\u05d4")
+
+
+def _hebrew_unary_sign_at(text: str, index: int) -> bool:
+    """Whether ``text[index]`` is a minus sign, not a prefix's hyphen ("ל-3")."""
+    if index < 0 or text[index] not in "-\u2212":
+        return False
+    # A letter before the hyphen makes it a prefix's ("ל-3"); a maqaf does
+    # not ("ב־−2" is minus two under the prefix).
+    return index == 0 or not ("\u05d0" <= text[index - 1] <= "\u05ea")
+
+
+def _hebrew_vav_fraction_tail(words: "Sequence[str]") -> float | None:
+    """The value of a vav-bound fractional tail: "וחצי", "ושלושה רבעים"."""
+    if not words or not words[0].startswith("\u05d5"):
+        return None
+    head = words[0][1:].lstrip("\u05be-")
+    if len(words) == 1 and head in _HEBREW_MIXED_FRACTION_VALUES:
+        return _HEBREW_MIXED_FRACTION_VALUES[head]
+    if (
+        len(words) == 2
+        and head in _HEBREW_FRACTION_COUNT_VALUES
+        and words[1] in _HEBREW_COUNTED_FRACTION_VALUES
+    ):
+        return (
+            _HEBREW_FRACTION_COUNT_VALUES[head]
+            * _HEBREW_COUNTED_FRACTION_VALUES[words[1]]
+        )
+    return None
+
+
+def _hebrew_printed_mixed_count(
+    text: str, run: "Sequence[re.Match[str]]"
+) -> tuple[float, int] | None:
+    """A printed whole and a spelled fractional tail before the percent noun.
+
+    "3 וחצי אחוזים" is three and a half percent: the run before the noun is
+    the tail alone, and the whole is the printed number flush before it.
+    Returns (count, start of the count) or None.
+    """
+    tail = _hebrew_vav_fraction_tail([token.group(0) for token in run])
+    if tail is None:
+        return None
+    printed = _search_before(_HEBREW_DIGITS_BEFORE_PATTERN, text, run[0].start(), 32)
+    if printed is None:
+        return None
+    whole = _hebrew_printed_endpoint_value(printed)
+    if whole is None:
+        return None
+    magnitude = abs(whole) + tail
+    return (-magnitude if printed.group("sign") else magnitude), printed.start()
+
+
+def _hebrew_fractional_count(words: "Sequence[str]") -> float | None:
+    """A count of the percent noun that is itself a fraction, or None.
+
+    "חצי אחוז" is half a percent, "שלושה רבעים אחוז" three quarters of a
+    percent; the numeral grammar reads neither, because a fraction word is
+    not a number on its own there. A partitive between the fraction and
+    the noun binds them the same: "שלוש עשיריות של האחוז", "חצי מן האחוז".
+    """
+    if len(words) >= 2 and words[-1] in _HEBREW_FRACTION_PARTITIVE_WORDS:
+        return _hebrew_fractional_count(words[:-1])
+    if len(words) == 1:
+        bare = _strip_hebrew_number_prefix(
+            words[0],
+            set(_HEBREW_MIXED_FRACTION_VALUES) | set(_HEBREW_FRACTION_COUNT_VALUES),
+        )
+        if bare is None or _hebrew_definite_ordinal(words[0], bare):
+            return None
+        if bare in _HEBREW_MIXED_FRACTION_VALUES:
+            return _HEBREW_MIXED_FRACTION_VALUES[bare]
+        return _HEBREW_FRACTION_COUNT_VALUES[bare]
+    if len(words) == 2:
+        bare = _strip_hebrew_number_prefix(words[0], set(_HEBREW_FRACTION_COUNT_VALUES))
+        if (
+            bare is not None
+            and words[1] in _HEBREW_COUNTED_FRACTION_VALUES
+            and not _hebrew_definite_ordinal(words[0], bare)
+        ):
+            return (
+                _HEBREW_FRACTION_COUNT_VALUES[bare]
+                * _HEBREW_COUNTED_FRACTION_VALUES[words[1]]
+            )
+    if len(words) >= 2 and words[-1] in _HEBREW_COUNTED_FRACTION_VALUES:
+        # Words the grammar reads with the fraction word as one number are
+        # a mixed number ("מיליון ושלושה רבעים"), the grammar's to read.
+        mixed = _parse_hebrew_number_run(words)
+        if mixed is not None and mixed[0] == len(words):
+            return None
+        # The count is whatever number the grammar reads whole: "אחת עשרה
+        # עשיריות האחוז" is eleven tenths of a percent, "מאה ועשרים
+        # עשיריות האחוז" a hundred and twenty.
+        parsed = _parse_hebrew_number_run(words[:-1])
+        if parsed is not None and parsed[0] == len(words) - 1:
+            return parsed[1] * _HEBREW_COUNTED_FRACTION_VALUES[words[-1]]
+    return None
+
+
+def _hebrew_printed_fraction_count(
+    text: str, run: "Sequence[re.Match[str]]"
+) -> tuple[float, int] | None:
+    """A printed count and a fraction word before the percent noun.
+
+    "3 עשיריות האחוז" is three tenths of a percent, "3 עשיריות של האחוז"
+    too, and "3 וחצי עשיריות האחוז" three and a half tenths: the run
+    before the noun is the fraction word, then any partitive, and the
+    printed count -- with its spelled tail, if any -- sits flush before
+    it. Returns (count, start of the count) or None.
+    """
+    if not run:
+        return None
+    end = len(run)
+    while end > 1 and run[end - 1].group(0) in _HEBREW_FRACTION_PARTITIVE_WORDS:
+        end -= 1
+    word = run[end - 1].group(0)
+    if word not in _HEBREW_COUNTED_FRACTION_VALUES:
+        return None
+    # The count is the printed number flush before the fraction word, or
+    # a printed whole and its spelled tail ("3 וחצי עשיריות האחוז").
+    printed = (
+        _hebrew_printed_count_before(text, run[0].start())
+        if end == 1
+        else _hebrew_printed_mixed_count(text, run[: end - 1])
+    )
+    if printed is None:
+        return None
+    return printed[0] * _HEBREW_COUNTED_FRACTION_VALUES[word], printed[1]
+
+
+def _iter_hebrew_percent_phrase_matches(
+    text: str,
+) -> list[tuple[tuple[int, int], float]]:
+    """Percentage phrases with a spelled or printed count and/or a fractional tail, as rates."""
+    matches: list[tuple[tuple[int, int], float]] = []
+    tokens: _HebrewWordTokens | None = None
+    for match in _HEBREW_PERCENT_PHRASE_PATTERN.finditer(text):
+        tail = match.group("tail")
+        tail_count = match.group("tail_count")
+        end = match.end()
+        if (tail or tail_count) and _HEBREW_UNIT_AFTER_PATTERN.match(text, end):
+            # "שני אחוזים וחצי שקל": the half is the shekel's, not the rate's.
+            tail = tail_count = None
+            end = match.end("noun")
+        count_value: float | None = None
+        run: list["re.Match[str]"] = []
+        mixed: tuple[float, int] | None = None
+        count_head: "re.Match[str] | None" = None
+        count_start = match.start()
+        negative = False
+        continues_amount = False
+        if match.group("numerator"):
+            # A printed fraction with a spelled tail ("1/2 אחוז וחצי" is one
+            # percent) is read whole here; without a tail the fraction passes
+            # read it, printed figures and all.
+            if tail is None and tail_count is None:
+                continue
+            denominator = float(match.group("denominator"))
+            if denominator == 0:
+                continue
+            count_value = float(match.group("numerator")) / denominator + float(
+                (match.group("whole") or "0").replace(",", "")
+            )
+            count_start = match.start("whole" if match.group("whole") else "numerator")
+            # "שלושת אלפים ו־200 1/2 אחוזים": the fraction continues the
+            # scaled amount; the printed pass reads the whole rate.
+            if tokens is None:
+                tokens = _HebrewWordTokens(text)
+            if _hebrew_digits_continue_printed_scale_amount(text, count_start, tokens):
+                continue
+            if _hebrew_unary_sign_at(text, count_start - 1):
+                negative = True
+                count_start -= 1
+        elif match.group("glyph"):
+            # A vulgar-fraction glyph, alone or after a whole ("½ אחוז", "2½
+            # אחוזים"), is the count as printed.
+            count_value = unicodedata.numeric(match.group("glyph")) + float(
+                (match.group("glyph_whole") or "0").replace(",", "")
+            )
+            count_start = match.start(
+                "glyph_whole" if match.group("glyph_whole") else "glyph"
+            )
+            if _hebrew_unary_sign_at(text, count_start - 1):
+                negative = True
+                count_start -= 1
+        elif match.group("digits"):
+            # A denominator ("16 1/2 אחוזים", "1⁄ 4 אחוזים") belongs to the
+            # fraction passes, which read the whole fraction as the rate.
+            if _search_before(
+                _SLASH_BEFORE_NUMBER_PATTERN, text, match.start("digits")
+            ):
+                continue
+            # A remainder of a printed scale amount before it ("3 אלפים
+            # ו־200 אחוזים" is 3,200 percent) is the printed pass's, unless
+            # a money amount makes the digits a rate of their own.
+            if tokens is None:
+                tokens = _HebrewWordTokens(text)
+            if _hebrew_digits_continue_printed_scale_amount(
+                text, match.start("digits"), tokens
+            ) or _hebrew_endpoint_continues_an_amount(text, match.start("digits")):
+                continue
+            count_value = float(match.group("digits").replace(",", ""))
+            digits_start = match.start("digits")
+            if _hebrew_unary_sign_at(text, digits_start - 1):
+                negative = True
+                count_start = digits_start - 1
+        else:
+            # The count: the longest run of joined words before the noun that
+            # the numeral grammar reads whole, a fractional count ("חצי
+            # אחוז", "שלושה רבעים אחוז"), or a single (possibly prefixed)
+            # count word. An ordinal under the article ("הילד השני אחוז
+            # וחצי") is the noun phrase before the rate, not its count.
+            if tokens is None:
+                tokens = _HebrewWordTokens(text)
+            run = _hebrew_word_run_before(text, match.start(), tokens=tokens)
+            if (
+                run
+                and run[0].group(0).startswith("\u05d5")
+                and any(token.group(0) in _HEBREW_PRINTED_SCALE_VALUES for token in run)
+                and _search_before(
+                    _HEBREW_DIGITS_BEFORE_PATTERN, text, run[0].start(), 32
+                )
+                is not None
+            ):
+                # "4 וחצי אלפים אחוזים": the tail and the scale word continue
+                # a printed multiplier; the printed pass reads the whole rate.
+                continue
+            mixed = _hebrew_printed_mixed_count(text, run)
+            if mixed is None:
+                mixed = _hebrew_printed_fraction_count(text, run)
+            if mixed is not None:
+                count_value, count_start = mixed
+                if count_value < 0:
+                    # "-3 וחצי אחוזים וחצי" is minus four percent: the sign
+                    # belongs to the whole, tail after the noun included.
+                    negative = True
+                    count_value = -count_value
+            # A scaled count is the rate's own ("שלושת אלפים אחוזים" is
+            # 3,000 percent) unless a money amount governs the run: "סכום
+            # של 3 מיליון ועשרים אחוזים" and "סכום של שלושה מיליון ועשרים
+            # אחוזים" are three million, and twenty percent, never a
+            # million-and-twenty percent. Read once at the run's start, so
+            # a shorter run beginning at the scale word cannot escape it.
+            number_start = next(
+                (
+                    run[-width].start()
+                    for width in range(len(run) if mixed is None else 0, 0, -1)
+                    if (
+                        (
+                            parsed := _parse_hebrew_number_run(
+                                [token.group(0) for token in run[-width:]]
+                            )
+                        )
+                        is not None
+                        and parsed[0] == width
+                    )
+                ),
+                None,
+            )
+            run_after_money = number_start is not None and _hebrew_money_context_before(
+                text, number_start
+            )
+            # A run that opens a scaled amount's continuation -- its first
+            # vav-bound number word walks back to the scale word -- is that
+            # amount's when the walk crosses a printed component ("3 אלפים
+            # ו־100 ועשרים אחוזים") or the continuation carries a scale word
+            # of its own ("סכום של 3 מיליון ושני אלפים וחמש מאות אחוזים"):
+            # the printed pass reads the whole rate. A plain spelled
+            # continuation ("סכום של 3 מיליון ועשרים אחוזים") is read here
+            # as well, to the same rate.
+            continues_amount = False
+            if mixed is None:
+                for offset, token in enumerate(run):
+                    if not token.group(0).startswith("\u05d5"):
+                        continue
+                    # The token opens a numeral run ("ושני" of "ושני אלפים"
+                    # parses only with its noun).
+                    words = [item.group(0) for item in run[offset:]]
+                    parsed = _parse_hebrew_number_run(words)
+                    if (
+                        parsed is None
+                        or parsed[0] < 1
+                        or not _hebrew_endpoint_continues_an_amount(text, token.start())
+                    ):
+                        continue
+                    continues_amount = _hebrew_endpoint_continues_an_amount(
+                        text, token.start(), crossing_printed=True
+                    ) or (
+                        parsed[0] == len(words)
+                        and bool(parsed[2] & _HEBREW_SCALE_KINDS)
+                    )
+                    break
+            for width in range(
+                len(run) if mixed is None and not continues_amount else 0, 0, -1
+            ):
+                words = [token.group(0) for token in run[-width:]]
+                parsed = _parse_hebrew_number_run(words)
+                if (
+                    parsed is not None
+                    and parsed[0] == len(words)
+                    and not (parsed[2] & _HEBREW_SCALE_KINDS and run_after_money)
+                ):
+                    count_value = parsed[1]
+                    count_head = run[-width]
+                    count_start = count_head.start()
+                    break
+                fractional = _hebrew_fractional_count(words)
+                if fractional is not None:
+                    count_value = fractional
+                    count_head = run[-width]
+                    count_start = count_head.start()
+                    break
+            if count_value is not None and _hebrew_unary_sign_at(text, count_start - 1):
+                # "−חצי אחוז", "−שלושה אחוזים": the sign before a spelled
+                # count signs the rate as it signs a printed one.
+                negative = True
+                count_start -= 1
+        if continues_amount:
+            continue
+        if (
+            count_value is None
+            and mixed is None
+            and run
+            and run[-1].group(0) in _HEBREW_SCALE_VALUES
+        ):
+            # A scale word left unread before the noun carries a printed
+            # multiplier ("3 אלפים אחוזים וחצי"): the printed pass reads
+            # the whole rate, tail included; a count of one is not it.
+            continue
+        if mixed is not None and (
+            _hebrew_digits_continue_printed_scale_amount(text, count_start, tokens)
+            or _hebrew_endpoint_continues_an_amount(text, count_start)
+        ):
+            # "3 אלפים ו־200 וחצי אחוזים": the mixed count continues the
+            # scaled amount; the printed pass reads the whole rate.
+            continue
+        if count_value is not None and mixed is None and count_head is not None:
+            # A count that begins with a scale word a printed multiplier
+            # precedes ("1.5 מיליון אחוזים"), or that continues such an
+            # amount ("3 אלפים וחמש מאות אחוזים"), is that multiplier's,
+            # remainder and all: the printed pass reads the whole rate.
+            # Under a money amount the remainder counts a rate of its own
+            # ("סכום של 3 מיליון ועשרים אחוזים"). The count's own head
+            # decides, not the run's: "2 אלפים עד שלושת אלפים ומאה אחוזים"
+            # keeps its upper endpoint.
+            head_word = count_head.group(0)
+            multiplied = (
+                head_word in _HEBREW_SCALE_VALUES
+                and _search_before(
+                    _HEBREW_DIGITS_BEFORE_PATTERN, text, count_head.start(), 32
+                )
+                is not None
+            ) or (
+                head_word.startswith("\u05d5")
+                and _hebrew_endpoint_continues_an_amount(text, count_head.start())
+            )
+            if multiplied and not _hebrew_money_context_before(
+                text, count_head.start()
+            ):
+                continue
+        if count_value is None and tail is None and tail_count is None:
+            # The bare singular noun in a quantity slot is one percent:
+            # "תוספת של אחוז מההכנסה" -- a quantity word before it and a
+            # partitive after it. "האחוז שנקבע" and "אחוז מסוים" name no
+            # rate and are left alone.
+            if (
+                match.group("noun") != "אחוז"
+                or _search_before(_HEBREW_FRACTION_COPULA_PATTERN, text, match.start())
+                is None
+                or _HEBREW_PARTITIVE_AFTER_PATTERN.match(text, match.end()) is None
+            ):
+                continue
+        value = count_value if count_value is not None else 1.0
+        if tail:
+            value += _HEBREW_MIXED_FRACTION_VALUES[tail]
+        elif tail_count:
+            value += (
+                _HEBREW_FRACTION_COUNT_VALUES[tail_count]
+                * _HEBREW_COUNTED_FRACTION_VALUES[match.group("tail_fraction")]
+            )
+        # The sign belongs to the whole mixed quantity, tail included.
+        if negative:
+            value = -value
+        matches.append(((count_start, end), value / 100))
+    return matches
+
+
+# A printed number and a Hebrew scale word are one amount: "3.5 מיליון" is
+# 3,500,000, "2 אלף" 2,000, "3 וחצי מיליון" 3,500,000. Read before the
+# digit passes, which would otherwise take the multiplier as a value of
+# its own and the scale word as another.
+_HEBREW_PRINTED_SCALE_FRACTIONS = "|".join(
+    re.escape(w) for w in sorted(_HEBREW_MIXED_FRACTION_VALUES, key=len, reverse=True)
+)
+_HEBREW_PRINTED_SCALE_COUNTS = "|".join(
+    re.escape(w) for w in sorted(_HEBREW_FRACTION_COUNT_VALUES, key=len, reverse=True)
+)
+_HEBREW_PRINTED_SCALE_COUNTED = "|".join(
+    re.escape(w) for w in sorted(_HEBREW_COUNTED_FRACTION_VALUES, key=len, reverse=True)
+)
+_HEBREW_PRINTED_SCALE_WORDS = _hebrew_alternation(
+    set(_HEBREW_BILLION_WORDS) | set(_HEBREW_MILLION_WORDS) | {"אלף", "אלפים", "אלפי"}
+)
+_HEBREW_PRINTED_SCALE_PATTERN = re.compile(
+    "(?<![\\d.,/\u2044])(?:(?<![\u05d0-\u05ea])(?P<sign>[-\u2212]))?"
+    # A printed fraction, mixed ("2 1⁄2") or bare ("1⁄2", "1⁄ 2"), or a
+    # decimal; each is a complete multiplier.
+    "(?:(?:(?P<whole>(?:\\d{1,3}(?:,\\d{3})+|\\d+))[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]+)?(?P<numerator>\\d+)\\s*[/\u2044]\\s*(?P<denominator>\\d+)"
+    "|(?P<number>(?:(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?|\\.\\d+))"
+    "|(?:(?P<glyph_whole>(?:\\d{1,3}(?:,\\d{3})+|\\d+))[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]*)?(?P<glyph>[\u00bc-\u00be\u2150-\u215e]))"
+    # A vav-bound fractional tail before the scale word: one fraction word
+    # ("3 וחצי מיליון") or a counted fraction ("3 ושלושה רבעים מיליון").
+    "(?:"
+    + _WRAP_SPACE_FRAGMENT
+    + "+\u05d5[\u05be-]?(?:(?P<tail>"
+    + _HEBREW_PRINTED_SCALE_FRACTIONS
+    + ")(?![\u0590-\u05ff])|(?P<tail_count>"
+    + _HEBREW_PRINTED_SCALE_COUNTS
+    + ")"
+    + _WRAP_SPACE_FRAGMENT
+    + "+(?P<tail_fraction>"
+    + _HEBREW_PRINTED_SCALE_COUNTED
+    + ")(?![\u0590-\u05ff])))?"
+    ""
+    + _WRAP_SPACE_FRAGMENT
+    + "+(?P<scale>"
+    + _HEBREW_PRINTED_SCALE_WORDS
+    + ")(?![\u0590-\u05ff])"
+    # A scaled tail after the scale word: a whole fraction word that does
+    # not name its own operand (a lower scale word, a partitive, a
+    # construct with an amount noun).
+    "(?:"
+    + _WRAP_SPACE_FRAGMENT
+    + "+\u05d5[\u05be-]?(?:(?P<after_tail>"
+    + _HEBREW_PRINTED_SCALE_FRACTIONS
+    + ")(?![\u0590-\u05ff])|(?P<after_count>"
+    + _HEBREW_PRINTED_SCALE_COUNTS
+    + ")"
+    + _WRAP_SPACE_FRAGMENT
+    + "+(?P<after_fraction>"
+    + _HEBREW_PRINTED_SCALE_COUNTED
+    + ")(?![\u0590-\u05ff]))(?!"
+    + _HEBREW_FRACTION_OPERAND_AFTER_PATTERN.pattern
+    + "))?"
+)
+# The conjunction before a printed lower-scale remainder: "3 מיליון ו־200
+# אלף", "ו-200", "ו 200".
+_HEBREW_PRINTED_REMAINDER_JOIN_PATTERN = re.compile(
+    "" + _WRAP_SPACE_FRAGMENT + "+\u05d5[\u05be-]?" + _WRAP_SPACE_FRAGMENT + "*"
+)
+# The most characters a join between a spelled amount and a printed part spans.
+_HEBREW_PRINTED_JOIN_WIDTH = 12
+_HEBREW_PRINTED_REMAINDER_JOIN_BEFORE_PATTERN = re.compile(
+    "" + _WRAP_SPACE_FRAGMENT + "+\u05d5[\u05be-]?" + _WRAP_SPACE_FRAGMENT + "*$"
+)
+
+
+def _hebrew_digits_continue_printed_scale_amount(
+    text: str, position: int, tokens: "_HebrewWordTokens | None" = None
+) -> bool:
+    """Whether the digits at ``position`` are a remainder of a printed scale amount.
+
+    "3 אלפים ו־200": the 200 continues the 3,000, and whatever unit follows
+    belongs to the whole. Under a money amount the digits count a rate or a
+    quantity of their own instead.
+    """
+    join = _search_before(
+        _HEBREW_PRINTED_REMAINDER_JOIN_BEFORE_PATTERN, text, position, 6
+    )
+    if join is None:
+        return False
+    scale_end = _end_before_space(text, join.start())
+    scale_word = _search_before(_HEBREW_SCALE_WORD_BEFORE_PATTERN, text, scale_end, 24)
+    if scale_word is None:
+        return False
+    multiplier_end = _end_before_space(text, scale_word.start())
+    if (
+        _search_before(_HEBREW_DIGITS_BEFORE_PATTERN, text, multiplier_end, 32)
+        is not None
+    ):
+        # A printed multiplier: "3 אלפים ו־200".
+        return not _hebrew_money_context_before(text, scale_word.start())
+    # A spelled scaled amount: "שלושת אלפים ו־200". The longest spelled number
+    # ending at the scale word carries a scale kind.
+    run = _hebrew_word_run_before(
+        text,
+        scale_end,
+        tokens=tokens if tokens is not None else _HebrewWordTokens(text),
+    )
+    for width in range(len(run), 0, -1):
+        words = [token.group(0) for token in run[-width:]]
+        parsed = _parse_hebrew_number_run(words)
+        if parsed is not None and parsed[0] == len(words):
+            return bool(
+                parsed[2] & _HEBREW_SCALE_KINDS
+            ) and not _hebrew_money_context_before(text, run[-width].start())
+    return False
+
+
+_HEBREW_SCALE_WORD_BEFORE_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])(?:" + _HEBREW_PRINTED_SCALE_WORDS + ")\\s*$"
+)
+# A printed remainder below every scale: "3 מיליון ו־200 שקלים" is
+# 3,000,200. Not a rate ("ו־20 אחוזים", "ו־20%"), not another multiplier.
+_HEBREW_PRINTED_PLAIN_REMAINDER_PATTERN = re.compile(
+    # A number, or a bare fraction with any spacing around its slash ("1/2",
+    # "1 / 2", "1 ⁄ 2"), read atomically.
+    ""
+    + _WRAP_SPACE_FRAGMENT
+    + "+\u05d5[\u05be-]?"
+    + _WRAP_SPACE_FRAGMENT
+    + "*(?>(?:(?P<number>(?:(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?|\\.\\d+))"
+    "(?:\\s*[/\u2044]\\s*(?P<bare_denominator>\\d+))?"
+    # A glyph after the number ("ו־2½ שקלים") is the remainder's fraction,
+    # and a bare glyph ("ו־½ שקלים") is the remainder.
+    "(?:[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]*(?P<remainder_glyph>[\u00bc-\u00be\u2150-\u215e]))?"
+    "|(?P<bare_remainder_glyph>[\u00bc-\u00be\u2150-\u215e])))"
+    # The whole mixed number, read atomically so a tail once read is never
+    # given back: a printed fraction ("3 1/2", "3 1⁄2", "3 1 / 2") or a
+    # spelled tail ("3 וחצי", "3 ושלושה רבעים").
+    "(?>(?:"
+    + _HORIZONTAL_SPACE_FRAGMENT
+    + "+(?P<numerator>\\d+)\\s*[/\u2044]\\s*(?P<denominator>\\d+))?)"
+    "(?>(?:"
+    + _WRAP_SPACE_FRAGMENT
+    + "+\u05d5[\u05be-]?(?:(?P<tail>"
+    + _HEBREW_PRINTED_SCALE_FRACTIONS
+    + ")|(?P<tail_count>"
+    + _HEBREW_PRINTED_SCALE_COUNTS
+    + ")"
+    + _WRAP_SPACE_FRAGMENT
+    + "+(?P<tail_fraction>"
+    + _HEBREW_PRINTED_SCALE_COUNTED
+    + "))(?![\u0590-\u05ff]))?)"
+    # Then neither a rate marker nor a scale word: "ו־3 1/2 אחוזים" and
+    # "ו־3 וחצי%" count a rate, "ו־200 אלף" is a lower scale.
+    "(?![\\d.,/\u2044%])(?!\\s*[/\u2044%])(?!\\s+(?:"
+    + _HEBREW_PRINTED_SCALE_WORDS
+    + "|אחוז)[\u0590-\u05ff]*)"
+)
+
+
+# Outside a money context a percent unit after the remainder makes the whole
+# a rate ("3 אלפים ו־200 אחוזים" is 3,200 percent), so the remainder is read
+# without the percent lookaheads and the unit is read after it.
+_HEBREW_PRINTED_PLAIN_REMAINDER_ANY_PATTERN = re.compile(
+    _HEBREW_PRINTED_PLAIN_REMAINDER_PATTERN.pattern.replace(
+        "(?![\\d.,/\u2044%])(?!\\s*[/\u2044%])", "(?![\\d.,/\u2044])(?!\\s*[/\u2044])"
+    ).replace("|אחוז)[\u0590-\u05ff]*)", ")[\u0590-\u05ff]*)")
+)
+
+
+def _hebrew_printed_plain_remainder_pattern(money_context: bool) -> "re.Pattern[str]":
+    return (
+        _HEBREW_PRINTED_PLAIN_REMAINDER_PATTERN
+        if money_context
+        else _HEBREW_PRINTED_PLAIN_REMAINDER_ANY_PATTERN
+    )
+
+
+def _hebrew_printed_plain_remainder_value(match: "re.Match[str]") -> float | None:
+    """The value a plain printed remainder states, fraction and tail included."""
+    if match.groupdict().get("bare_remainder_glyph"):
+        value = unicodedata.numeric(match.group("bare_remainder_glyph"))
+    else:
+        value = float(match.group("number").replace(",", ""))
+    if match.group("bare_denominator"):
+        denominator = float(match.group("bare_denominator"))
+        if denominator == 0:
+            return None
+        value /= denominator
+    if match.groupdict().get("remainder_glyph"):
+        value += unicodedata.numeric(match.group("remainder_glyph"))
+    if match.group("numerator"):
+        denominator = float(match.group("denominator"))
+        if denominator == 0:
+            return None
+        value += float(match.group("numerator")) / denominator
+    if match.group("tail"):
+        value += _HEBREW_MIXED_FRACTION_VALUES[match.group("tail")]
+    elif match.group("tail_count"):
+        value += (
+            _HEBREW_FRACTION_COUNT_VALUES[match.group("tail_count")]
+            * _HEBREW_COUNTED_FRACTION_VALUES[match.group("tail_fraction")]
+        )
+    return value
+
+
+# A range whose endpoints share one trailing scale word: "בין 3 ל־5 מיליון"
+# runs from three million to five million, "שלושה עד חמישה מיליון" too, and
+# "עשרים ושלושה עד שלושים מיליון" from twenty-three million. "בין 3 למיליון"
+# has a scale word for its upper endpoint alone and stays apart.
+_HEBREW_SHARED_SCALE_WORD_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])(?P<scale>"
+    + _HEBREW_PRINTED_SCALE_WORDS
+    + ")(?![\u0590-\u05ff])"
+)
+# "ו־" closes a list that shares the scale word ("1, 2 ו־3 מיליון"); a
+# continuation's vav never stands before a bare small number the lower
+# endpoint rules admit, so the two do not meet.
+# A comma joins a list too ("1, 2, 3 מיליון"); the reference, label and
+# complete-amount guards on the lower endpoint keep "סעיף 5, 3 מיליון" apart.
+# A comma never joins: it separates clauses as often as it lists ("על הכנסה
+# עד 500, 3 מיליון" states a threshold), and nothing in the text tells the
+# two apart. A list closed by a conjunction shares from the joined pair on.
+# A vav never joins either: a vav-paired list ("2 ו־3 מיליון, בהתאמה") does
+# not occur in the statute text these passes serve, and the same vav joins
+# clauses ("ההכנסה עומדת על 500 ו־2 ו־3 מיליון ישולמו"), which nothing in
+# the text tells apart. "או" alternatives and bounded ranges remain.
+# Nor does "או": an "או"-joined amount list ("1 או 2 מיליון") does not occur
+# in the statute text these passes serve, and the same "או" sets one amount
+# beside another ("הקנס הוא 500 או 3 מיליון"), which nothing in the text
+# tells apart. Bounded and explicit ranges remain.
+_HEBREW_SHARED_SCALE_JOIN_BEFORE_PATTERN = re.compile(
+    "(?:(?<![\u0590-\u05ff])(?P<join>לבין|ובין|ועד|עד|או|ל|\u05d5)(?:[\u05be-]\\s*|\\s+)"
+    "|(?P<comma>,\\s*))$"
+)
+# A noun that numbers the lower endpoint rather than counting it: "תוספת 2
+# עד מאה ועשרים אלף" is supplement 2, up to 120,000, and shares nothing.
+_HEBREW_SHARED_SCALE_LABEL_BEFORE_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])" + _HEBREW_PREPOSITION_OR_ARTICLE_PREFIXES + "(?:"
+    "תוספת|תוספות|סעיף|סעיפים|פסקה|פסקאות|תקנה|תקנות|פרט|פרטים|לוח|טור|שורה|"
+    "חלק|פרק|סימן|נספח|טופס|דרגה|שלב|קבוצה|רמה|סוג|מספר|מס'"
+    ")\\s+$"
+)
+
+
+def _hebrew_scale_floor(value: float) -> float:
+    """The largest place (a billion down to a ten) that divides ``value``.
+
+    A remainder must lie below the place the amount so far ends at: after
+    "3 אלפים ומאה" (3,100) a printed "ו־20" is a remainder, after "3 אלפים
+    ומאה ועשרים" (3,120) only units are.
+    """
+    for scale in (1_000_000_000.0, 1_000_000.0, 1000.0, 100.0, 10.0):
+        if value >= scale and value % scale == 0:
+            return scale
+    return 1.0
+
+
+# Construct counts ("שלושת אלפים", "חמשת אלפים") bind to the noun after
+# them and read as one number; a range lower bound before one shares
+# nothing with it ("2 עד שלושת אלפים" runs from 2 to 3,000).
+_HEBREW_CONSTRUCT_COUNT_WORDS = frozenset(
+    {"שני", "שתי", "שלושת", "ארבעת", "חמשת", "ששת", "שבעת", "שמונת", "תשעת", "עשרת"}
+)
+
+
+def _hebrew_spelled_endpoint_before(
+    text: str, end: int, tokens: "_HebrewWordTokens"
+) -> tuple[int, float] | None:
+    """The longest spelled number ending flush at ``end`` with no scale word of its own."""
+    run = _hebrew_word_run_before(text, end, tokens=tokens)
+    if run and run[-1].group(0) in _HEBREW_CONSTRUCT_COUNT_WORDS:
+        return None
+    # A printed whole with a spelled tail ("2 וחצי") is one endpoint.
+    mixed = _hebrew_printed_mixed_count(text, run)
+    if mixed is not None:
+        return mixed[1], mixed[0]
+    # A printed count with a fraction word ("2 עשיריות") is one endpoint
+    # too: "בין 2 עשיריות לבין 3 אלפים אחוזים" runs from two tenths of it.
+    counted = _hebrew_printed_fraction_count(text, run)
+    if counted is not None:
+        return counted[1], counted[0]
+    for width in range(len(run), 0, -1):
+        words = [token.group(0) for token in run[-width:]]
+        parsed = _parse_hebrew_number_run(words)
+        if (
+            parsed is not None
+            and parsed[0] == len(words)
+            and not parsed[2] & _HEBREW_SCALE_KINDS
+        ):
+            return run[-width].start(), parsed[1]
+        # A fraction is an endpoint too: "בין חצי ל־3 מיליון", "בין שלושה
+        # רבעים ל־3 מיליון".
+        fractional = _hebrew_fractional_count(words)
+        if fractional is not None:
+            return run[-width].start(), fractional
+    return None
+
+
+# A vav join flush before a position: "ו־" before "100" in "3 אלפים ו־100".
+_HEBREW_VAV_JOIN_BEFORE_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])\u05d5(?:\u05be|-)?\\s*$"
+)
+
+
+# The Hebrew word flush before a position, prefix and all.
+_HEBREW_WORD_FLUSH_BEFORE_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])[\u0590-\u05ff][\u0590-\u05ff\u05f3\u05f4']*\\s*$"
+)
+
+
+def _hebrew_endpoint_continues_an_amount(
+    text: str, start: int, crossing_printed: bool = False
+) -> bool:
+    """Whether the number at ``start`` is a vav-bound remainder of a scaled amount before it.
+
+    The walk back crosses every vav-bound component, printed or spelled,
+    one word or several ("וחמש מאות"), to the scale word: "3 אלפים וחמש
+    מאות ו־20" continues at the 20 and at the hundreds alike. A range's
+    lower endpoint that continues an amount is that amount's, complete on
+    its own ("בין 3 אלפים ומאה ל־4 אלפים" runs from 3,100), and a percent
+    phrase's count that does is the printed pass's rate ("סכום של 3 מיליון
+    ועשרים אחוזים"). With ``crossing_printed`` only a walk that crosses a
+    printed component counts, the case where the count is not the whole
+    continuation ("3 אלפים ו־100 ועשרים אחוזים").
+    """
+    position = start
+    crossed_printed = False
+    for _ in range(16):
+        if (
+            text.startswith("\u05d5", position)
+            and position > 0
+            and text[position - 1].isspace()
+        ):
+            join_start = position
+        else:
+            join = _search_before(_HEBREW_VAV_JOIN_BEFORE_PATTERN, text, position, 4)
+            if join is None:
+                return False
+            join_start = join.start()
+        if (
+            _search_before(_HEBREW_SCALE_WORD_BEFORE_PATTERN, text, join_start, 24)
+            is not None
+        ):
+            return crossed_printed or not crossing_printed
+        before = _end_before_space(text, join_start)
+        previous = _search_before(_HEBREW_DIGITS_BEFORE_PATTERN, text, before, 32)
+        if previous is not None:
+            if previous.start() >= position:
+                return False
+            position = previous.start()
+            crossed_printed = True
+            continue
+        # The spelled component before the join, one word or several
+        # ("וחמש מאות"): back to its vav-bound first word, the words one
+        # numeral run.
+        words: list[str] = []
+        cursor = before
+        component_start: int | None = None
+        for _ in range(8):
+            word = _search_before(_HEBREW_WORD_FLUSH_BEFORE_PATTERN, text, cursor, 24)
+            if word is None:
+                break
+            token = word.group(0).rstrip()
+            words.insert(0, token)
+            if token.startswith("\u05d5"):
+                component_start = word.start()
+                break
+            cursor = _end_before_space(text, word.start())
+        if component_start is None or component_start >= position:
+            return False
+        parsed = _parse_hebrew_number_run(words)
+        if parsed is None or parsed[0] != len(words):
+            return False
+        position = component_start
+    return False
+
+
+def _iter_hebrew_shared_scale_range_matches(
+    text: str,
+    structural_spans: "Sequence[tuple[int, int]]" = (),
+) -> list[tuple[tuple[int, int], float, bool]]:
+    """The lower endpoint of a range whose scale word both endpoints share.
+
+    Each endpoint is printed (sign and fraction included) or spelled, one
+    word or several; the upper endpoint stands flush before the scale word
+    and the join (ל־, עד, ועד, או, לבין) flush before it. ``structural_spans``
+    are the reference spans the structural pass found: "תוספת 2 עד שלושת
+    אלפים" names a supplement, not a range's lower bound.
+    """
+    matches: list[tuple[tuple[int, int], float, bool]] = []
+    tokens: _HebrewWordTokens | None = None
+    for scale_match in _HEBREW_SHARED_SCALE_WORD_PATTERN.finditer(text):
+        scale = _HEBREW_PRINTED_SCALE_VALUES[scale_match.group("scale")]
+        upper_end = _end_before_space(text, scale_match.start())
+        if upper_end == scale_match.start():
+            continue
+        if tokens is None:
+            tokens = _HebrewWordTokens(text)
+        printed_upper = _search_before(
+            _HEBREW_DIGITS_BEFORE_PATTERN, text, upper_end, 32
+        )
+        if printed_upper is not None:
+            upper_value = _hebrew_printed_endpoint_value(printed_upper)
+            if upper_value is None:
+                continue
+            upper_start = printed_upper.start()
+        else:
+            spelled_upper = _hebrew_spelled_endpoint_before(text, upper_end, tokens)
+            if spelled_upper is None:
+                continue
+            upper_start = spelled_upper[0]
+            upper_value = spelled_upper[1]
+        # The unit is read after the whole upper endpoint, remainder
+        # included: "בין 2 ל־3 אלפים ומאתיים אחוזים" runs from twenty. A
+        # unit word after it -- a currency word or a percent noun --
+        # distributes over "או"; a bare scale word does not.
+        upper_tail = _hebrew_continuation_after(
+            text, scale_match.end(), scale, False, judge=False
+        )
+        upper_end_whole = upper_tail[1] if upper_tail is not None else scale_match.end()
+        is_rate = _hebrew_percent_unit_after(text, upper_end_whole) is not None
+        unit_word_after = _hebrew_unit_word_after(text, upper_end_whole)
+        if _hebrew_unary_sign_at(text, upper_start - 1):
+            # "−שלושה עד −שניים אלפים": the upper endpoint's sign is its
+            # own; the join stands before it.
+            upper_start -= 1
+        join = _search_before(
+            _HEBREW_SHARED_SCALE_JOIN_BEFORE_PATTERN, text, upper_start, 12
+        )
+        needs_bound = False
+        vav_join = False
+        comma_join = False
+        if join is not None:
+            lower_end = _end_before_space(text, join.start())
+            comma_join = join.group("comma") is not None
+            if lower_end == join.start() and not comma_join:
+                continue
+            vav_join = join.group("join") == "\u05d5"
+        else:
+            # A ל prefix on a spelled upper endpoint joins under "בין" or
+            # "מ־" before the lower endpoint: "בין שלושה לחמישה מיליון".
+            upper_word = _HEBREW_WORD_TOKEN_PATTERN.match(text, upper_start)
+            if printed_upper is not None or upper_word is None:
+                continue
+            head = upper_word.group(0)
+            if (
+                head[:1] not in ("\u05dc", "\u05d5")
+                or _strip_hebrew_number_prefix(
+                    head[1:].lstrip("\u05be-"), _HEBREW_RUN_START_VOCABULARY
+                )
+                is None
+            ):
+                continue
+            lower_end = _end_before_space(text, upper_start)
+            if lower_end == upper_start:
+                continue
+            vav_join = head.startswith("\u05d5")
+            needs_bound = not vav_join
+        printed_lower = _search_before(
+            _HEBREW_DIGITS_BEFORE_PATTERN, text, lower_end, 32
+        )
+        lower_complete = False
+        if printed_lower is not None:
+            lower_value = _hebrew_printed_endpoint_value(printed_lower)
+            if lower_value is None:
+                continue
+            # "בין 2,000 ל־3 אלפים", "בין 1500 ל־3 מיליון": a grouped or
+            # thousand-plus number is a complete amount, not a multiplier
+            # that omits its scale -- unless a verified heading lists
+            # multipliers ("הסכומים הם 900, 1000 ו־1100 מיליון").
+            lower_complete = "," in printed_lower.group(0) or abs(lower_value) >= 1000
+            lower_span = (printed_lower.start(), lower_end)
+        else:
+            spelled_lower = _hebrew_spelled_endpoint_before(text, lower_end, tokens)
+            if spelled_lower is None:
+                continue
+            lower_span = (spelled_lower[0], lower_end)
+            lower_value = spelled_lower[1]
+            if _hebrew_unary_sign_at(text, lower_span[0] - 1):
+                # "בין −חצי ל־3 מיליון": the sign is the endpoint's, span
+                # and value alike.
+                lower_value = -lower_value
+                lower_span = (lower_span[0] - 1, lower_end)
+        if _hebrew_endpoint_continues_an_amount(text, lower_span[0]):
+            continue
+        if _hebrew_operand_is_denominated(text, lower_span[0], lower_span[1]):
+            # "בין ₪ 500 ל־3 מיליון": a denominated amount shares no scale.
+            continue
+        if needs_bound and (
+            _search_before(_HEBREW_RANGE_LOWER_BOUND_PATTERN, text, lower_span[0], 16)
+            is None
+        ):
+            # A מ prefix attached to a spelled lower endpoint is the bound:
+            # "משלושה לחמישה מיליון", "מחצי לשלושה מיליון".
+            lower_word = _HEBREW_WORD_TOKEN_PATTERN.match(text, lower_span[0])
+            if (
+                printed_lower is not None
+                or lower_word is None
+                or not lower_word.group(0).startswith("\u05de")
+                or _strip_hebrew_number_prefix(
+                    lower_word.group(0)[1:].lstrip("\u05be-"),
+                    _HEBREW_RUN_START_VOCABULARY,
+                )
+                is None
+            ):
+                continue
+        if (
+            _span_overlaps(lower_span, structural_spans)
+            or _search_before(
+                _HEBREW_SHARED_SCALE_LABEL_BEFORE_PATTERN, text, lower_span[0], 24
+            )
+            is not None
+            or _search_before(_HEBREW_RANGE_WALK_STOP_PATTERN, text, lower_span[0], 24)
+            is not None
+        ):
+            continue
+        # "2 עד 3 אלפים אחוזים": the shared scale word carries a percent unit
+        # too, and both endpoints are rates.
+        heading_end = _hebrew_list_heading_end(text, lower_span[0], is_rate)
+        headed = heading_end is not None
+        if lower_complete and not headed:
+            continue
+        list_coordinated = vav_join or comma_join
+        if list_coordinated and not headed:
+            # "הסכומים הם 2 ו־3 מיליון שקלים, בהתאמה" shares; "ההכנסה עומדת על
+            # 500 ו־2 ו־3 מיליון ישולמו" joins clauses.
+            continue
+        if (
+            join is not None
+            and join.group("join") == "או"
+            and not unit_word_after
+            and not headed
+        ):
+            # "הקנס הוא 500 או 3 מיליון.", "סכום של 500 או 3 מיליון": a bare
+            # scale word does not distribute; "2 או 3 מיליון שקלים" and "1
+            # או 2 או 3 אלפים אחוזים" share.
+            continue
+        if (
+            (join is None or join.group("join") != "או")
+            and not list_coordinated
+            and lower_value >= upper_value
+            and _search_before(_HEBREW_BETWEEN_BEFORE_PATTERN, text, lower_span[0], 16)
+            is not None
+            # A range of rates under a rate word shares whatever its order:
+            # "שיעור המס יהיה בין 7 ובין 5 אלפים אחוזים" runs from seven
+            # thousand percent.
+            and not (is_rate and _hebrew_rate_word_before(text, lower_span[0]))
+        ):
+            # A "בין" range of amounts ascends: "בין 500 ל־3 מיליון" runs from
+            # 500 shekels; "יופחת מ־5 ל־3 מיליון" decreases and shares.
+            continue
+        matches.append(
+            (
+                lower_span,
+                lower_value * scale / 100 if is_rate else lower_value * scale,
+                is_rate,
+            )
+        )
+        if not headed and (join is None or join.group("join") != "או"):
+            continue
+        # Earlier alternatives share the unit too: "1 או 2 או 3 מיליון
+        # שקלים". The walk back stops at a reference, a label noun, a
+        # complete amount, a denominated amount and a bare start.
+        # The walk runs to the list's grammatical boundary, however many
+        # members the list has; only a step that fails to move it earlier
+        # ends it.
+        cursor = lower_span[0]
+        while True:
+            earlier_join = _search_before(
+                _HEBREW_RANGE_WALK_JOIN_PATTERN, text, cursor, 12
+            )
+            if earlier_join is not None:
+                earlier_flush = _end_before_space(text, earlier_join.start())
+                coordinated_crossing = (
+                    earlier_join.group("vav") is not None
+                    or earlier_join.group("comma") is not None
+                )
+            elif (
+                headed
+                and cursor > 0
+                and text[cursor] == "\u05d5"
+                and text[cursor - 1].isspace()
+            ):
+                earlier_flush = _end_before_space(text, cursor)
+                coordinated_crossing = True
+            else:
+                break
+            if not headed and (
+                coordinated_crossing
+                or not earlier_join.group(0).lstrip().startswith("או")
+            ):
+                break
+            earlier_printed = _search_before(
+                _HEBREW_DIGITS_BEFORE_PATTERN, text, earlier_flush, 32
+            )
+            if earlier_printed is not None:
+                earlier_value = _hebrew_printed_endpoint_value(earlier_printed)
+                if earlier_value is None or (
+                    not headed
+                    and ("," in earlier_printed.group(0) or abs(earlier_value) >= 1000)
+                ):
+                    break
+                earlier_span = (earlier_printed.start(), earlier_flush)
+            else:
+                earlier_spelled = _hebrew_spelled_endpoint_before(
+                    text, earlier_flush, tokens
+                )
+                if earlier_spelled is None:
+                    break
+                earlier_span = (earlier_spelled[0], earlier_flush)
+                earlier_value = earlier_spelled[1]
+                if _hebrew_unary_sign_at(text, earlier_span[0] - 1):
+                    earlier_value = -earlier_value
+                    earlier_span = (earlier_span[0] - 1, earlier_flush)
+            if (
+                _span_overlaps(earlier_span, structural_spans)
+                or _hebrew_endpoint_continues_an_amount(text, earlier_span[0])
+                or _search_before(
+                    _HEBREW_SHARED_SCALE_LABEL_BEFORE_PATTERN, text, earlier_span[0], 24
+                )
+                is not None
+                or _search_before(
+                    _HEBREW_RANGE_WALK_STOP_PATTERN, text, earlier_span[0], 24
+                )
+                is not None
+                or _hebrew_operand_is_denominated(
+                    text, earlier_span[0], earlier_span[1]
+                )
+            ):
+                break
+            if headed and earlier_span[0] < heading_end:
+                # The heading bounds the list: an item before it is no item.
+                break
+            matches.append(
+                (
+                    earlier_span,
+                    earlier_value * scale / 100 if is_rate else earlier_value * scale,
+                    is_rate,
+                )
+            )
+            if earlier_span[0] >= cursor:
+                break
+            cursor = earlier_span[0]
+    return matches
+
+
+# The whitespace before a vav-bound spelled remainder    return matches
+
+
+# The whitespace before a vav-bound spelled remainder ("3 מיליון ומאתיים אלף").
+_HEBREW_SPELLED_REMAINDER_GAP_PATTERN = re.compile(
+    "\\s+(?=\u05d5[\u05be-]?[\u0590-\u05ff])"
+)
+_HEBREW_PRINTED_SCALE_VALUES = {
+    **_HEBREW_BILLION_WORDS,
+    **_HEBREW_MILLION_WORDS,
+    "אלף": 1000.0,
+    "אלפים": 1000.0,
+    "אלפי": 1000.0,
+}
+
+
+def _hebrew_spelled_remainder_after(
+    text: str, end: int, scale: float, money_context: bool = False, judge: bool = True
+) -> tuple[int, float] | None:
+    """A vav-bound spelled amount below ``scale`` right after ``end``.
+
+    "3 מיליון ומאתיים אלף" continues a printed multiplier with the next
+    scales down. Returns (its end, its value) or None. With ``judge`` the
+    amount is refused under a money context when a rate or a separate
+    quantity follows the continuation; a caller reading the whole
+    continuation judges it once, at its end.
+    """
+    gap = _HEBREW_SPELLED_REMAINDER_GAP_PATTERN.match(text, end)
+    if gap is None:
+        return None
+    tokens: list[tuple[int, int, str]] = []
+    for match in _HEBREW_WORD_TOKEN_PATTERN.finditer(text, gap.end()):
+        if not tokens and match.start() != gap.end():
+            return None
+        if tokens and text[tokens[-1][1] : match.start()].strip() != "":
+            break
+        tokens.append((match.start(), match.end(), match.group(0)))
+        if len(tokens) >= 16:
+            break
+    if not tokens:
+        return None
+    parsed = _parse_hebrew_number_run([token[2] for token in tokens], 0)
+    if parsed is None:
+        return None
+    consumed, value, _kinds = parsed
+    if not 0 < value < scale:
+        return None
+    if (
+        consumed < len(tokens)
+        and tokens[consumed][2] in _HEBREW_COUNTED_FRACTION_VALUES
+    ):
+        # "ושני שלישים" is two thirds, a fraction with its own reading, not
+        # a remainder of two.
+        return None
+    if judge and money_context:
+        # "סכום של 3 מיליון ועשרים אחוזים": the twenty counts a rate, not
+        # the million's remainder, and so does the whole continuation it
+        # opens ("ומאתיים ו־20 אחוזים"). "קנס של 3 מיליון ושלושים ימי
+        # מאסר", "מחזור של 3 מיליון ושני אלפים ו־500 עובדים": a separate
+        # quantity. Without a money amount the whole is the rate: "3 אלפים
+        # וחמש מאות אחוזים" is 3,500 percent.
+        continuation_end = _hebrew_printed_continuation_end(
+            text, tokens[consumed - 1][1]
+        )
+        if (
+            _HEBREW_PERCENT_WORD_PATTERN.match(text, continuation_end) is not None
+            or _HEBREW_PERCENT_SIGN_AFTER_PATTERN.match(text, continuation_end)
+            or _HEBREW_SEPARATE_QUANTITY_AFTER_PATTERN.match(text, continuation_end)
+        ):
+            return None
+    return tokens[consumed - 1][1], value
+
+
+# The conjunction may carry a maqaf or a hyphen ("% ו־חצי"), as the
+# fraction-word suppression allows.
+_HEBREW_PERCENT_TAIL_AFTER_PATTERN = re.compile(
+    ""
+    + _WRAP_SPACE_FRAGMENT
+    + "+\u05d5(?:[\u05be-]"
+    + _WRAP_SPACE_FRAGMENT
+    + "*)?(?:(?P<tail>"
+    + "|".join(
+        re.escape(w)
+        for w in sorted(_HEBREW_MIXED_FRACTION_VALUES, key=len, reverse=True)
+    )
+    + ")|(?P<tail_count>"
+    + "|".join(
+        re.escape(w)
+        for w in sorted(_HEBREW_FRACTION_COUNT_VALUES, key=len, reverse=True)
+    )
+    + ")"
+    + _WRAP_SPACE_FRAGMENT
+    + "+(?P<tail_fraction>"
+    + "|".join(
+        re.escape(w)
+        for w in sorted(_HEBREW_COUNTED_FRACTION_VALUES, key=len, reverse=True)
+    )
+    + "))(?![\u0590-\u05ff])"
+)
+
+
+_HEBREW_PERCENT_MARKER_BEFORE_TAIL_PATTERN = re.compile(
+    "(?:%|(?<![\u0590-\u05ff])(?:\u05d4[\u05be-]?)?אחוז(?:ים|י)?)"
+    + _WRAP_SPACE_FRAGMENT
+    + "+$"
+)
+
+
+def _hebrew_fraction_word_is_percent_tail(text: str, span: tuple[int, int]) -> bool:
+    """Whether a vav-bound fraction word is the tail of a rate before it.
+
+    "שלושה% וחצי", "3% ושלושה רבעים": the percent passes read the tail
+    with the rate. A unit of its own after the word ("אחוזים וחצי שקל")
+    keeps the word a quantity of that unit.
+    """
+    return (
+        text[span[0] : span[0] + 1] == "\u05d5"
+        and _search_before(
+            _HEBREW_PERCENT_MARKER_BEFORE_TAIL_PATTERN, text, span[0], 12
+        )
+        is not None
+        and _HEBREW_UNIT_AFTER_PATTERN.match(text, span[1]) is None
+    )
+
+
+def _hebrew_percent_unit_after(text: str, end: int) -> tuple[int, float] | None:
+    """A percent noun or sign right after ``end``, with its fractional tail.
+
+    Returns (where the unit and its tail end, the tail's value in percent):
+    "אחוזים וחצי" adds half a percent, "אחוזים ושלושה רבעים" three quarters.
+    """
+    unit = _HEBREW_PERCENT_WORD_PATTERN.match(text, end)
+    if unit is None:
+        unit = _HEBREW_PERCENT_SIGN_AFTER_PATTERN.match(text, end)
+    if unit is None:
+        return None
+    tail = _HEBREW_PERCENT_TAIL_AFTER_PATTERN.match(text, unit.end())
+    if tail is None or _HEBREW_UNIT_AFTER_PATTERN.match(text, tail.end()):
+        # "אחוזים וחצי שקל": the half is the shekel's, not the rate's.
+        return unit.end(), 0.0
+    if tail.group("tail"):
+        return tail.end(), _HEBREW_MIXED_FRACTION_VALUES[tail.group("tail")]
+    return tail.end(), (
+        _HEBREW_FRACTION_COUNT_VALUES[tail.group("tail_count")]
+        * _HEBREW_COUNTED_FRACTION_VALUES[tail.group("tail_fraction")]
+    )
+
+
+def _hebrew_printed_scale_part(
+    match: "re.Match[str]",
+) -> tuple[float, float, bool] | None:
+    """The amount a printed-multiplier match states before any tail after its scale word.
+
+    Returns (value, the scale, whether signed), or None for a malformed
+    fraction.
+    """
+    scale = _HEBREW_PRINTED_SCALE_VALUES[match.group("scale")]
+    if match.group("numerator"):
+        denominator = float(match.group("denominator"))
+        if denominator == 0:
+            return None
+        value = float((match.group("whole") or "0").replace(",", "")) + float(
+            match.group("numerator")
+        ) / (denominator)
+    elif match.group("glyph"):
+        value = unicodedata.numeric(match.group("glyph")) + float(
+            (match.group("glyph_whole") or "0").replace(",", "")
+        )
+    else:
+        value = float(match.group("number").replace(",", ""))
+    if match.group("tail"):
+        value += _HEBREW_MIXED_FRACTION_VALUES[match.group("tail")]
+    elif match.group("tail_count"):
+        value += (
+            _HEBREW_FRACTION_COUNT_VALUES[match.group("tail_count")]
+            * _HEBREW_COUNTED_FRACTION_VALUES[match.group("tail_fraction")]
+        )
+    return value * scale, scale, bool(match.group("sign"))
+
+
+def _hebrew_printed_after_tail(match: "re.Match[str]", scale: float) -> float:
+    """The scaled fraction after the scale word ("3 מיליון וחצי"), or zero."""
+    if match.group("after_tail"):
+        return _HEBREW_MIXED_FRACTION_VALUES[match.group("after_tail")] * scale
+    if match.group("after_count"):
+        return (
+            _HEBREW_FRACTION_COUNT_VALUES[match.group("after_count")]
+            * _HEBREW_COUNTED_FRACTION_VALUES[match.group("after_fraction")]
+            * scale
+        )
+    return 0.0
+
+
+def _hebrew_continuation_after(
+    text: str, end: int, floor: float, money_context: bool, judge: bool = True
+) -> tuple[int, int, float, str, bool] | None:
+    """The descending continuation after ``end``, read whole before it is judged.
+
+    Printed lower scales ("ו־200 אלף"), printed plain remainders ("ו־20")
+    and spelled remainders ("ומאתיים אלף", "וחמש מאות") follow one another
+    in any order, each below the place the amount so far ends at: "3
+    מיליון ו־200 אלף ו־100 ועשרים ו־3" continues three million to
+    3,200,123. Returns (where the continuation starts, where it ends, its
+    value, its verdict, whether it opens with a printed component) or
+    None when nothing continues.
+
+    The verdict is "remainder" unless ``judge`` finds, under a money
+    context, a percent unit after the whole continuation ("סכום של 3
+    מיליון ו־2 אלף אחוזים" states 2,000 percent after the amount; "סכום של
+    3 אלפים ו־100 ועשרים אחוזים" 120 percent) or a separate quantity
+    ("קנס של 3 אלפים ו־100 ועשרים ימי מאסר" counts 120 days of prison):
+    "rate" and "separate". Either is the caller's to read whole, as a
+    rate or a quantity of its own.
+    """
+    total = 0.0
+    start: int | None = None
+    printed_first = False
+    position, current_floor = end, floor
+    while current_floor > 1:
+        join = _HEBREW_PRINTED_REMAINDER_JOIN_PATTERN.match(text, position)
+        if join is not None:
+            part_match = _HEBREW_PRINTED_SCALE_PATTERN.match(text, join.end())
+            if part_match is not None:
+                part = _hebrew_printed_scale_part(part_match)
+                if part is None:
+                    break
+                part_value, part_scale, negative = part
+                part_value += _hebrew_printed_after_tail(part_match, part_scale)
+                if negative or not 0 < part_value < current_floor:
+                    break
+                if start is None:
+                    start, printed_first = part_match.start(), True
+                total += part_value
+                position, current_floor = part_match.end(), part_scale
+                continue
+        plain = _HEBREW_PRINTED_PLAIN_REMAINDER_ANY_PATTERN.match(text, position)
+        if plain is not None:
+            plain_value = _hebrew_printed_plain_remainder_value(plain)
+            if plain_value is not None and 0 < plain_value < current_floor:
+                if start is None:
+                    start, printed_first = plain.start("number"), True
+                total += plain_value
+                position = plain.end()
+                current_floor = _hebrew_scale_floor(plain_value)
+                continue
+        spelled = _hebrew_spelled_remainder_after(
+            text, position, current_floor, money_context, judge=False
+        )
+        if spelled is not None:
+            if start is None:
+                gap = _HEBREW_SPELLED_REMAINDER_GAP_PATTERN.match(text, position)
+                start = gap.end() if gap is not None else position
+            position, spelled_value = spelled
+            total += spelled_value
+            current_floor = _hebrew_scale_floor(spelled_value)
+            continue
+        break
+    if start is None:
+        return None
+    verdict = "remainder"
+    if judge and money_context:
+        if (
+            _HEBREW_PERCENT_WORD_PATTERN.match(text, position) is not None
+            or _HEBREW_PERCENT_SIGN_AFTER_PATTERN.match(text, position) is not None
+        ):
+            verdict = "rate"
+        elif _HEBREW_SEPARATE_QUANTITY_AFTER_PATTERN.match(text, position) is not None:
+            verdict = "separate"
+    return start, position, total, verdict, printed_first
+
+
+def _hebrew_printed_continuation_end(
+    text: str, end: int, money_context: bool = True
+) -> int:
+    """Where an amount's continuation ends: lower scales and remainders, printed or spelled."""
+    tail = _hebrew_continuation_after(
+        text, end, float("inf"), money_context, judge=False
+    )
+    return tail[1] if tail is not None else end
+
+
+def _iter_hebrew_printed_scale_matches(
+    text: str,
+) -> list[tuple[tuple[int, int], float, bool]]:
+    """Printed multipliers with a Hebrew scale word, as one amount each.
+
+    A percent noun or sign right after the amount makes it a rate, read
+    with its unit before the span is reserved: "3 אלפים אחוזים" is 30, as
+    "שלושת אלפים אחוזים" is.
+
+    A scale word carrying a prefix is not a multiplier's scale: "בין 3
+    למיליון" runs between 3 and a million, and each endpoint stands on its
+    own. A fractional tail after the scale word scales with it ("3 מיליון
+    וחצי", "3 מיליון ושני שלישים") unless it names its own operand. The
+    continuation after an amount -- lower scales and remainders, printed
+    or spelled, in any order -- is read whole before any of it is judged
+    or composed, and a spelled leading amount before a printed part
+    ("שלושה מיליון ו־200 אלף") is composed the same way. A continuation
+    that a money context judges a rate or a separate quantity is read
+    whole as one of its own: "סכום של 3 מיליון ו־2 אלף אחוזים" is three
+    million and 2,000 percent, "קנס של 3 אלפים ו־100 ועשרים ימי מאסר" a
+    fine and 120 days.
+    """
+    parts: list[tuple[int, int, float, float, bool]] = []
+    for match in _HEBREW_PRINTED_SCALE_PATTERN.finditer(text):
+        part = _hebrew_printed_scale_part(match)
+        if part is None:
+            # A malformed fraction is no multiplier; the digit passes read
+            # its parts as they stand.
+            continue
+        value, scale, negative = part
+        end = match.end()
+        if (
+            (match.group("after_tail") or match.group("after_count"))
+            and _hebrew_money_context_before(text, match.start())
+            and _HEBREW_SEPARATE_QUANTITY_AFTER_PATTERN.match(text, end)
+        ):
+            # "קנס של 3 מיליון וחצי שנת מאסר": the half counts a year, a
+            # separate quantity; the amount ends at its scale word.
+            end = match.end("scale")
+        else:
+            value += _hebrew_printed_after_tail(match, scale)
+        parts.append((match.start(), end, value, scale, negative))
+    # A spelled leading amount before a printed part: "שלושה מיליון ו־200
+    # אלף". Keyed by where the spelled amount ends.
+    spelled_before = {
+        span[1]: (span[0], value, _hebrew_scale_floor(value))
+        for span, value in _iter_hebrew_compound_number_matches(text)
+        if value > 0
+    }
+    matches: list[tuple[tuple[int, int], float, bool]] = []
+    # Continuations judged a quantity or a rate of their own, read whole.
+    own: list[tuple[tuple[int, int], float, bool]] = []
+    # Parts arrive in text order and never overlap one another, so whether a
+    # spelled span overlaps any part is one bisection, and the spelled amount
+    # a join binds to a part ends within the join's width before it.
+    part_starts = [part[0] for part in parts]
+
+    def overlaps_a_part(span_start: int, span_end: int) -> bool:
+        index = bisect.bisect_right(part_starts, span_end - 1)
+        return index > 0 and parts[index - 1][1] > span_start
+
+    # Every span composed here, in text order: a spelled amount inside one
+    # ("מאה" of "3 אלפים ומאה ו־20") is no leading amount of its own.
+    composed: list[tuple[int, int]] = []
+
+    def emit(start: int, end: int, value: float, negative: bool) -> None:
+        unit = _hebrew_percent_unit_after(text, end)
+        if unit is not None:
+            unit_end, unit_tail = unit
+            rate = (value + unit_tail) / 100
+            matches.append(((start, unit_end), -rate if negative else rate, True))
+            composed.append((start, unit_end))
+        else:
+            matches.append(((start, end), -value if negative else value, False))
+            composed.append((start, end))
+
+    def emit_led(spelled_start: int, end: int, value: float) -> None:
+        # "−שלושה מיליון ו־200 אלף", "−אלפיים ו־300": the leading spelled
+        # amount's sign is the whole's, span and value alike.
+        negative = _hebrew_unary_sign_at(text, spelled_start - 1)
+        emit(spelled_start - 1 if negative else spelled_start, end, value, negative)
+
+    def emit_own(start: int, end: int, value: float, verdict: str) -> None:
+        if verdict == "separate":
+            own.append(((start, end), value, False))
+            composed.append((start, end))
+            return
+        unit = _hebrew_percent_unit_after(text, end)
+        if unit is not None:
+            unit_end, unit_tail = unit
+            own.append(((start, unit_end), (value + unit_tail) / 100, True))
+            composed.append((start, unit_end))
+
+    consumed: set[int] = set()
+
+    def consume_from(index: int, end: int) -> None:
+        while index < len(parts) and parts[index][0] < end:
+            consumed.add(index)
+            index += 1
+
+    merged_spelled: set[int] = set()
+    for index, (start, end, value, floor, negative) in enumerate(parts):
+        if index in consumed:
+            continue
+        money_context = _hebrew_money_context_before(text, start)
+        led = False
+        if not negative:
+            for spelled_end in range(max(0, start - _HEBREW_PRINTED_JOIN_WIDTH), start):
+                entry = spelled_before.get(spelled_end)
+                if entry is None:
+                    continue
+                spelled_start, spelled_value, spelled_floor = entry
+                if not (
+                    floor < spelled_floor
+                    and not overlaps_a_part(spelled_start, spelled_end)
+                    and _HEBREW_PRINTED_REMAINDER_JOIN_PATTERN.fullmatch(
+                        text, spelled_end, start
+                    )
+                    is not None
+                ):
+                    continue
+                # The spelled amount leads: its whole continuation, this part
+                # included, is read before any of it is composed. "מחזור של
+                # שלושה מיליון ו־2 אלף ו־500 עובדים" counts 2,500 workers, a
+                # quantity of its own, and the spelled amount stays its own.
+                spelled_context = _hebrew_money_context_before(text, spelled_start)
+                tail = _hebrew_continuation_after(
+                    text, spelled_end, spelled_floor, spelled_context
+                )
+                if tail is None:
+                    break
+                tail_start, tail_end, tail_value, verdict, _printed_first = tail
+                consume_from(index, tail_end)
+                merged_spelled.add(spelled_end)
+                if verdict == "remainder":
+                    emit_led(spelled_start, tail_end, spelled_value + tail_value)
+                else:
+                    emit_own(tail_start, tail_end, tail_value, verdict)
+                led = True
+                break
+        if led:
+            continue
+        tail = _hebrew_continuation_after(text, end, floor, money_context)
+        if tail is not None:
+            tail_start, tail_end, tail_value, verdict, _printed_first = tail
+            consume_from(index + 1, tail_end)
+            if verdict == "remainder":
+                end, value = tail_end, value + tail_value
+            else:
+                emit_own(tail_start, tail_end, tail_value, verdict)
+        emit(start, end, value, negative)
+    # A spelled amount and a printed continuation with no printed multiplier
+    # right after it: "שלושה מיליון ו־200 שקלים". A continuation that opens
+    # spelled composes with the spelled amount in the compound pass, and is
+    # read here only when judged a rate or a quantity of its own.
+    composed.sort()
+    composed_starts = [span[0] for span in composed]
+
+    def inside_a_composed_span(span_start: int, span_end: int) -> bool:
+        index = bisect.bisect_right(composed_starts, span_start) - 1
+        return index >= 0 and composed[index][1] >= span_end
+
+    for spelled_end, (
+        spelled_start,
+        spelled_value,
+        spelled_floor,
+    ) in spelled_before.items():
+        if (
+            spelled_end in merged_spelled
+            or spelled_floor <= 1
+            or overlaps_a_part(spelled_start, spelled_end)
+            or inside_a_composed_span(spelled_start, spelled_end)
+        ):
+            continue
+        spelled_money = _hebrew_money_context_before(text, spelled_start)
+        tail = _hebrew_continuation_after(
+            text, spelled_end, spelled_floor, spelled_money
+        )
+        if tail is None:
+            continue
+        tail_start, end, tail_value, verdict, printed_first = tail
+        if verdict != "remainder":
+            emit_own(tail_start, end, tail_value, verdict)
+        elif printed_first:
+            emit_led(spelled_start, end, spelled_value + tail_value)
+    matches.extend(own)
+    return sorted(set(matches))
+
+
+# A printed whole and a vav-bound spelled fractional tail are one number
+# wherever they stand: "3 וחצי נקודות זיכוי" is three and a half credit
+# points, "2 ושלושה רבעים" two and three quarters. Before a percent noun the
+# phrase pass reads the same words as a rate first.
+_HEBREW_PRINTED_MIXED_NUMBER_PATTERN = re.compile(
+    "(?<![\\d.,/\u2044])(?:(?<![\u05d0-\u05ea])(?P<sign>[-\u2212]))?"
+    "(?P<whole>(?:\\d{1,3}(?:,\\d{3})+|\\d+))(?![.,]\\d)"
+    ""
+    + _WRAP_SPACE_FRAGMENT
+    + "+\u05d5[\u05be-]?(?:(?P<tail>"
+    + "|".join(
+        re.escape(w)
+        for w in sorted(_HEBREW_MIXED_FRACTION_VALUES, key=len, reverse=True)
+    )
+    + ")|(?P<tail_count>"
+    + "|".join(
+        re.escape(w)
+        for w in sorted(_HEBREW_FRACTION_COUNT_VALUES, key=len, reverse=True)
+    )
+    + ")"
+    + _WRAP_SPACE_FRAGMENT
+    + "+(?P<tail_fraction>"
+    + "|".join(
+        re.escape(w)
+        for w in sorted(_HEBREW_COUNTED_FRACTION_VALUES, key=len, reverse=True)
+    )
+    + "))(?![\u0590-\u05ff])"
+)
+
+
+# A counted fraction word after a number makes the number its count: "3 וחצי
+# עשיריות" is three and a half tenths, read by the fraction reader.
+_HEBREW_COUNTED_FRACTION_AFTER_PATTERN = re.compile(
+    _WRAP_SPACE_FRAGMENT
+    + "+(?:"
+    + _hebrew_alternation(_HEBREW_COUNTED_FRACTION_VALUES)
+    + ")(?![\u0590-\u05ff])"
+)
+
+
+def _iter_hebrew_printed_mixed_number_matches(
+    text: str,
+) -> list[tuple[tuple[int, int], float, bool]]:
+    """Printed wholes with spelled fractional tails: (span, value, is a rate).
+
+    A percent marker right after the tail ("3 וחצי%") makes the number a
+    rate, marker included in the span. A counted fraction word after the
+    tail makes the number a count ("3 וחצי עשיריות"), the fraction
+    reader's to read.
+    """
+    matches: list[tuple[tuple[int, int], float, bool]] = []
+    for match in _HEBREW_PRINTED_MIXED_NUMBER_PATTERN.finditer(text):
+        if _HEBREW_COUNTED_FRACTION_AFTER_PATTERN.match(text, match.end()):
+            continue
+        value = float(match.group("whole").replace(",", ""))
+        if match.group("tail"):
+            value += _HEBREW_MIXED_FRACTION_VALUES[match.group("tail")]
+        else:
+            value += (
+                _HEBREW_FRACTION_COUNT_VALUES[match.group("tail_count")]
+                * _HEBREW_COUNTED_FRACTION_VALUES[match.group("tail_fraction")]
+            )
+        marker = _PERCENT_MARKER_AFTER_NUMBER_WRAP_PATTERN.match(text, match.end())
+        if marker is not None:
+            # The tail after the marker is the rate's too, unless a unit of
+            # its own follows: "3 וחצי% וחצי" is four percent.
+            end = marker.end()
+            tail = _HEBREW_PERCENT_TAIL_AFTER_PATTERN.match(text, end)
+            if tail is not None and not _HEBREW_UNIT_AFTER_PATTERN.match(
+                text, tail.end()
+            ):
+                if tail.group("tail"):
+                    value += _HEBREW_MIXED_FRACTION_VALUES[tail.group("tail")]
+                else:
+                    value += (
+                        _HEBREW_FRACTION_COUNT_VALUES[tail.group("tail_count")]
+                        * _HEBREW_COUNTED_FRACTION_VALUES[tail.group("tail_fraction")]
+                    )
+                end = tail.end()
+            if match.group("sign"):
+                value = -value
+            matches.append(((match.start(), end), value, True))
+        else:
+            if match.group("sign"):
+                value = -value
+            matches.append((match.span(), value, False))
+    return matches
+
+
+# A range of rates shares its percent noun: "בין 2 ל־3 אחוזים", "בין שניים
+# לשלושה אחוזים", "2 עד 3 אחוזים", "מ־2 עד 3 אחוזים". The passes above read
+# the upper endpoint with the noun; this reads the lower one as a rate too.
+_HEBREW_PERCENT_NOUN_ANYWHERE_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])"
+    + _HEBREW_PREPOSITION_PREFIXES
+    + _HEBREW_OPTIONAL_ARTICLE
+    + "אחוז(?:ים)?"
+    "(?![\u0590-\u05ff])"
+    # The marker shares its rate across a range as the noun does ("בין 2
+    # ל־3%").
+    "|%"
+)
+# A printed endpoint flush before a position: a signed number, or a signed
+# fraction with an optional whole ("-2", "1/2", "16 1⁄2"). A number after a
+# slash is a denominator, never an endpoint of its own.
+_HEBREW_DIGITS_BEFORE_PATTERN = re.compile(
+    "(?<![\\d.,/\u2044])(?:(?<![\u05d0-\u05ea])(?P<sign>[-\u2212]))?"
+    "(?:(?:(?P<whole>(?:\\d{1,3}(?:,\\d{3})+|\\d+))[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]+)?(?P<numerator>\\d+)\\s*[/\u2044]\\s*(?P<denominator>\\d+)"
+    "|(?P<number>(?:(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?|\\.\\d+))"
+    # A vulgar-fraction glyph, alone or after a whole ("½", "2½", "2 ½").
+    "|(?:(?P<glyph_whole>(?:\\d{1,3}(?:,\\d{3})+|\\d+))[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]*)?"
+    "(?P<glyph>[\u00bc-\u00be\u2150-\u215e]))\\s*$"
+)
+
+
+def _hebrew_printed_endpoint_value(match: "re.Match[str]") -> float | None:
+    """The value a printed endpoint match states, sign, fraction and glyph included."""
+    groups = match.groupdict()
+    if groups.get("glyph"):
+        value = unicodedata.numeric(groups["glyph"]) + float(
+            (groups.get("glyph_whole") or "0").replace(",", "")
+        )
+        return -value if groups.get("sign") else value
+    if match.group("numerator"):
+        denominator = float(match.group("denominator"))
+        if denominator == 0:
+            return None
+        value = float(match.group("numerator")) / denominator + float(
+            (match.group("whole") or "0").replace(",", "")
+        )
+    else:
+        value = float(match.group("number").replace(",", ""))
+    return -value if match.group("sign") else value
+
+
+# The join between the endpoints. "עד", "ועד", "לבין" and "או" make a range
+# or a pair of rates on their own; "ל־", a ל prefix on a spelled endpoint
+# and "ו־" do so only under "בין" or "מ־" before the lower endpoint. A
+# spaced dash is no join: in a tax schedule row ("על כל שקל חדש מ־84,120 –
+# 10%") it separates a threshold from its rate.
+# The cleaner detaches a maqaf into a space, so "ל־3" arrives here as "ל 3".
+# A comma never joins, here or in the walk back: it separates clauses as often
+# as it lists ("על הכנסה עד 500, 10% מס" states a threshold), and nothing in
+# the text tells the two apart. A list closed by a conjunction shares from the
+# joined pair on ("1, 2 או 3 אחוזים" shares the two and the three).
+# A vav never joins either, here or in the walk back: a vav-paired list ("2
+# ו־3 אחוזים, בהתאמה") does not occur in the statute text these passes serve,
+# and the same vav joins clauses ("ההכנסה עומדת על 500 ו־2 ו־3% ממנה ינוכו"),
+# which nothing in the text tells apart. "או" alternatives and bounded ranges
+# remain.
+_HEBREW_RANGE_JOIN_BEFORE_PATTERN = re.compile(
+    "(?:(?<![\u0590-\u05ff])(?P<free>עד|ועד|לבין|ובין|או)\\s+"
+    "|(?<![\u0590-\u05ff])(?P<bound>[\u05dc\u05d5])(?:\u05be|[-\u2013]|\\s)\\s*"
+    # A comma joins within a headed list only ("השיעורים הם 10, 20 ו־30
+    # אחוזים").
+    "|(?P<comma>,\\s*))$"
+)
+_HEBREW_RANGE_WALK_JOIN_PATTERN = re.compile(
+    "(?:(?<![\u0590-\u05ff])(?:עד|ועד|או)\\s+"
+    "|(?<![\u0590-\u05ff])(?P<vav>\u05d5)(?:\u05be|-)?\\s*"
+    "|(?P<comma>,\\s*))$"
+)
+# An earlier number the walk must not scale: an age, a year, a form number,
+# a grade ("לילד עד גיל 5, 2 או 3 אחוזים"). A reference ("לפי סעיף קטן 5, 2
+# או 3 אחוזים") is stopped at by its structural span.
+_HEBREW_RANGE_WALK_STOP_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])"
+    + _HEBREW_PREPOSITION_PREFIXES
+    + _HEBREW_OPTIONAL_ARTICLE
+    + "(?:גיל|בן|בת|שנת|מספר|מס'|טופס|עמוד|שורה|דרגה|קטגוריה|סוג|רמה)"
+    # A possessive suffix on the label ("שגילו 5", "גילה 5") is the same label.
+    "(?:[\u05d5\u05d4\u05dd\u05df\u05d9\u05da]|כם|כן|נו)?\\s*$"
+)
+_HEBREW_BETWEEN_BEFORE_PATTERN = re.compile("(?<![\u0590-\u05ff])בין\\s*$")
+_HEBREW_RANGE_LOWER_BOUND_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])(?:בין|\u05de(?:\u05be|-)?|החל \u05de(?:\u05be|-)?)\\s*$"
+)
+
+
+def _hebrew_spelled_span_carries_a_scale(text: str, start: int, end: int) -> bool:
+    """Whether the spelled number in ``text[start:end]`` carries a scale.
+
+    The parser's classification decides ("אלפיים" is two thousand, a scaled
+    numeral with no scale word), with the scale vocabulary as the fallback
+    for a run the parser reads only with its prefix stripped.
+    """
+    words = text[start:end].split()
+    if not words:
+        return False
+    parsed = _parse_hebrew_number_run(words)
+    if parsed is None and words[0][:1] in "\u05dc\u05de\u05d1\u05db":
+        parsed = _parse_hebrew_number_run([words[0][1:].lstrip("\u05be-")] + words[1:])
+    if parsed is not None and parsed[2] & _HEBREW_SCALE_KINDS:
+        return True
+    return any(
+        word in _HEBREW_PRINTED_SCALE_VALUES or word in _HEBREW_SCALE_VALUES
+        for word in words
+    )
+
+
+# A currency mark on an operand: a sign before it ("$500", "₪ 500") or a
+# currency word or sign after it ("500 ש"ח", "500 שקלים", "500 ₪").
+# Whitespace and bidirectional formatting between a currency mark and its
+# amount ("₪\u200f 500", "₪" and any run of spaces).
+_HEBREW_BIDI_MARKS = frozenset(
+    "\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069\u061c"
+)
+
+
+def _hebrew_currency_gap_character(character: str) -> bool:
+    """Whitespace of any kind, a newline included, or a bidirectional control."""
+    return character.isspace() or character in _HEBREW_BIDI_MARKS
+
+
+# A unit word distributes over "או"; a sign or a bare scale word does not.
+# "125 או 150 אחוזים" and "2 או 3 מיליון שקלים" share their unit, "50 או 2%"
+# and "500 או 3 מיליון" set one quantity beside another -- the reading every
+# reviewed case takes, and the one the text itself carries. An explicit rate
+# word in the same clause before the pair ("בשיעור של 2 או 3%") makes a
+# signed pair share too.
+_HEBREW_RATE_WORD_BEFORE_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])(?P<rate>(?:[\u05d1\u05d4\u05d5\u05dc\u05e9][\u05be-]?){0,2}שיעור(?:ים|י)?|אחוז(?:ים)?|(?:ה[\u05be-]?)?ריבית)"
+    # Any modifiers may stand between the rate word and the pair ("הריבית
+    # השנתית החלה על יתרת ההלוואה הכוללת תהיה 10 או 30%"); a clause stop
+    # ends the scope.
+    "(?:\\s+[^\\s.;:,\\n]+)*\\s*$"
+)
+_HEBREW_CLAUSE_STOP_CHARACTERS = frozenset(".;:,\n")
+_HEBREW_SENTENCE_STOP_ONLY_CHARACTERS = frozenset(".;:")
+
+
+def _hebrew_clause_start_before(
+    text: str, start: int, stops: frozenset[str] = _HEBREW_CLAUSE_STOP_CHARACTERS
+) -> int:
+    """Where the clause holding ``start`` begins.
+
+    A stop character ends it, and so does a blank line or a paragraph
+    separator; a newline on its own is a line wrap inside the clause
+    ("הריבית תהיה\n    10 או 30%") and is whitespace.
+    """
+    position = start
+    while position > 0:
+        character = text[position - 1]
+        if character == "\n":
+            # A newline preceded, across horizontal space, by another is a
+            # blank line and ends the clause; alone it is a wrap.
+            gap_start = position - 1
+            while gap_start > 0 and _is_horizontal_space(text[gap_start - 1]):
+                gap_start -= 1
+            if gap_start > 0 and text[gap_start - 1] == "\n":
+                break
+            position -= 1
+            continue
+        if character in stops or character in "\u2028\u2029\x0b\x0c\x85":
+            break
+        position -= 1
+    return position
+
+
+_NON_SPACE_TOKEN_PATTERN = re.compile(r"\S+")
+_HEBREW_MONEY_NOUN_WORD_PATTERN: "re.Pattern[str] | None" = None
+
+
+_HEBREW_BARE_MONEY_NOUN_PATTERN: "re.Pattern[str] | None" = None
+
+
+def _hebrew_word_is_an_amount_noun(word: str) -> bool:
+    """Whether ``word`` is an amount noun by its own letters, article or not.
+
+    "מענק" and "שכר" begin with letters that are also prefixes; read as a
+    word they are the grant and the wage, not "from" or "that" anything.
+    "מהשכר" is not: a preposition precedes its noun.
+    """
+    global _HEBREW_BARE_MONEY_NOUN_PATTERN
+    if _HEBREW_BARE_MONEY_NOUN_PATTERN is None:
+        _HEBREW_BARE_MONEY_NOUN_PATTERN = re.compile(
+            _HEBREW_OPTIONAL_ARTICLE + _HEBREW_MONEY_NOUN + "$"
+        )
+    return _HEBREW_BARE_MONEY_NOUN_PATTERN.match(word) is not None
+
+
+def _hebrew_word_governs_an_amount(word: str) -> bool:
+    """Whether ``word`` is an amount noun, under a prefix or not ("קנס", "הסכום")."""
+    global _HEBREW_MONEY_NOUN_WORD_PATTERN
+    if _HEBREW_MONEY_NOUN_WORD_PATTERN is None:
+        _HEBREW_MONEY_NOUN_WORD_PATTERN = re.compile(
+            _HEBREW_PREPOSITION_OR_ARTICLE_PREFIXES + _HEBREW_MONEY_NOUN + "$"
+        )
+    return _HEBREW_MONEY_NOUN_WORD_PATTERN.match(word) is not None
+
+
+# The words of a rate expression between its rate word and its pair. The
+# copulas and the participles that predicate an amount, beside the listed
+# future verbs; the prepositions that open a phrase; the comparatives and
+# limits that connect a predicate to its pair; and the negations and
+# adverbs that stand anywhere.
+_HEBREW_RATE_COPULAS = frozenset(
+    {
+        "הוא",
+        "היא",
+        "הם",
+        "הן",
+        "הינו",
+        "הינה",
+        "הינם",
+        "הינן",
+        "היה",
+        "הייתה",
+        "היתה",
+        "היו",
+    }
+)
+_HEBREW_RATE_PARTICIPLES = frozenset(
+    {
+        "עומד",
+        "עומדת",
+        "עומדים",
+        "עומדות",
+        "מסתכם",
+        "מסתכמת",
+        "מסתכמים",
+        "מסתכמות",
+        "נקבע",
+        "נקבעת",
+        "נקבעים",
+        "נקבעות",
+        "מגיע",
+        "מגיעה",
+        "מגיעים",
+        "מגיעות",
+        "מהווה",
+        "מהווים",
+        "מהוות",
+        "עולה",
+        "עולים",
+        "עולות",
+        "עלה",
+        "עלתה",
+    }
+)
+_HEBREW_RATE_PREPOSITIONS = frozenset(
+    {
+        "על",
+        "של",
+        "לפי",
+        "עבור",
+        "מן",
+        "בעד",
+        "בשל",
+        "לגבי",
+        "אצל",
+        "תחת",
+        "בין",
+        "עד",
+        "ועד",
+        "כלפי",
+        "אל",
+        "אחרי",
+        "לפני",
+        "בתוך",
+        "מתוך",
+        "לעניין",
+        "בהתאם",
+        "כאמור",
+        "כמפורט",
+        "כנגד",
+        "לרבות",
+        "למעט",
+        "בגין",
+        "בגובה",
+        "בסך",
+        "בסכום",
+        "בשיעור",
+        "בשווי",
+        "כדי",
+        "מעל",
+        "מתחת",
+        "במקום",
+        "ליד",
+    }
+)
+_HEBREW_RATE_COMPARATIVES = frozenset(
+    {
+        "גבוהה",
+        "גבוה",
+        "גבוהים",
+        "גבוהות",
+        "נמוכה",
+        "נמוך",
+        "נמוכים",
+        "נמוכות",
+        "שווה",
+        "שווים",
+        "שוות",
+        "קטן",
+        "קטנה",
+        "גדול",
+        "גדולה",
+        "לפחות",
+        "לכל",
+        "היותר",
+        "הפחות",
+        "פחות",
+        "יותר",
+    }
+)
+# Nouns whose first letter is a root ה, not the article: "הסכם" (an
+# agreement) is indefinite and heads a construct ("הסכם ההלוואה"), where
+# "המותר" (the permitted) is definite and closes its phrase. The stems
+# cover the plural, the construct and the suffixed forms.
+_HEBREW_HE_INITIAL_NOUN_STEMS = (
+    "הסכם",
+    "הלווא",
+    "הכנס",
+    "הורא",
+    "הודע",
+    "החלט",
+    "הצע",
+    "הסדר",
+    "הטב",
+    "הפרש",
+    "הכשר",
+    "השקע",
+    "הוצא",
+    "הנח",
+    "העבר",
+    "הגש",
+    "הרשא",
+    "הצהר",
+    "הפחת",
+    "העלא",
+    "הקצב",
+    "הקצא",
+    "הכר",
+    "הבטח",
+    "הגבל",
+    "הגדר",
+    "הוכח",
+    "המחא",
+    "המלצ",
+    "הנפק",
+    "הסמכ",
+    "הסכמ",
+    "העדפ",
+    "הערכ",
+    "הפסק",
+    "הפקד",
+    "הקל",
+    "הרחב",
+    "השלמ",
+    "השתתפ",
+    "התאמ",
+    "התחייב",
+    "התקשר",
+    "היטל",
+    "הון",
+    "הכשר",
+    "הליך",
+    "הצמד",
+    "הבהר",
+    "הרש",
+    "החזר",
+)
+
+
+def _hebrew_word_is_definite(word: str) -> bool:
+    """Whether ``word`` carries the article: a leading ה that is no root letter."""
+    return word.startswith("\u05d4") and not word.startswith(
+        _HEBREW_HE_INITIAL_NOUN_STEMS
+    )
+
+
+_HEBREW_RATE_NEUTRAL_WORDS = frozenset(
+    {"לא", "אינה", "אינו", "אינם", "אינן", "גם", "רק", "אף", "כן", "בלבד", "אך"}
+)
+# Clause adverbs and conjunctions: they hold no phrase of their own and
+# close the phrase before them ("מהמותר בחוק אז הקנס").
+_HEBREW_RATE_CLAUSE_ADVERBS = frozenset(
+    {"אז", "לכן", "לפיכך", "אולם", "אבל", "אלא", "כי", "וכן", "ואז", "ולכן", "ולפיכך"}
+)
+
+
+_HEBREW_RATE_WORD_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])(?P<rate>(?:[\u05d1\u05d4\u05d5\u05dc\u05e9][\u05be-]?){0,2}שיעור(?:ים|י)?|אחוז(?:ים)?|(?:ה[\u05be-]?)?ריבית)"
+    "(?![\u0590-\u05ff])"
+)
+
+
+def _hebrew_rate_expression_governs(words: list[str], construct: bool) -> bool:
+    """Whether the words after a rate word, up to the pair, keep the pair the rate's.
+
+    The main predicate is the last listed verb, copula or participle
+    before the pair: every predicate before it belongs to a relative
+    clause in the subject ("שהבנק יקבע תהיה", "שבנק ישראל יקבע תהיה",
+    "שהבנק עומד לגבות היא"), whatever opened the clause. After the main
+    predicate only its connectors may stand -- prepositions and their
+    objects, comparatives and limits, prefixed phrases, attributives
+    ("תעמוד על", "תהיה לפחות", "תהיה בשיעור של"): an amount noun ("תהיה
+    לפי הקנס של") or any other content word ("יוטל קנס", "יוטל עונש")
+    takes the pair away. Before the main predicate, the subject's head is
+    the word its attributives, prefixed phrases and prepositional phrases
+    modify ("הקנס המרבי", "הקנס הקבוע בחוק"); a definite amount noun there
+    that no phrase holds is a new subject and takes the pair ("אז הקנס
+    יהיה", "מן המותר הקנס יהיה"), while one a preposition or a construct
+    holds ("על ההלוואה", "יתרת ההלוואה", "הסכם ההלוואה") is the rate's own
+    modifier. An amount noun right before the pair or before its "של"
+    takes the pair whatever precedes ("קנס של 50 או 2%").
+    """
+
+    def _known_predicate(word: str) -> bool:
+        return (
+            word in _HEBREW_CONSEQUENT_VERBS
+            or word in _HEBREW_RATE_COPULAS
+            or word in _HEBREW_RATE_PARTICIPLES
+        )
+
+    def _prefixed(word: str) -> bool:
+        return word[:1] in "\u05d1\u05dc\u05de\u05db"
+
+    def _attributive(word: str) -> bool:
+        return (
+            _hebrew_word_is_definite(word) and not _hebrew_word_governs_an_amount(word)
+        ) or word.startswith("\u05e9")
+
+    bares = [
+        word[1:].lstrip("\u05be-")
+        if word.startswith("\u05d5") and len(word) > 1
+        else word
+        for word in words
+    ]
+    main = max(
+        (
+            index
+            for index, bare in enumerate(bares)
+            if bare not in _HEBREW_RATE_NEUTRAL_WORDS and _known_predicate(bare)
+        ),
+        default=None,
+    )
+    # After the main predicate: its connectors only.
+    if main is not None:
+        expect_object = False
+        for bare in bares[main + 1 :]:
+            if (
+                bare in _HEBREW_RATE_NEUTRAL_WORDS
+                or bare in _HEBREW_RATE_CLAUSE_ADVERBS
+            ):
+                continue
+            if bare in _HEBREW_RATE_PREPOSITIONS:
+                expect_object = True
+                continue
+            if _hebrew_word_governs_an_amount(bare):
+                return False
+            if expect_object:
+                expect_object = False
+                continue
+            if (
+                bare in _HEBREW_RATE_COMPARATIVES
+                or _prefixed(bare)
+                or _attributive(bare)
+            ):
+                continue
+            return False
+    # Before it: which words a phrase holds. A phrase is a preposition with
+    # its object and the construct and attributives after it, a prefixed
+    # word, a relative clause up to its verb, a known predicate of a
+    # relative clause, or an attributive of the noun before it. The last
+    # word no phrase holds begins the noun phrase the main predicate is
+    # predicated of; when an amount noun heads it, the pair is that
+    # amount's ("אז הקנס יהיה", "מן המותר הקנס יהיה", "הקנס לפי הוראת בנק
+    # ישראל יהיה", "קנס הפיגורים יהיה", "הקנס שבנק ישראל יקבע יהיה").
+    subject = bares[:main] if main is not None else bares
+    held: list[bool] = []
+    in_phrase = False
+    expect_object = construct
+    last_definite = False
+    relative = False
+    # A bare noun no phrase holds heads a construct: the bare words after
+    # it are its complements ("קנס פיגורים").
+    construct_head = False
+    for bare in subject:
+        if bare in _HEBREW_RATE_NEUTRAL_WORDS:
+            held.append(True)
+            continue
+        if bare in _HEBREW_RATE_CLAUSE_ADVERBS:
+            held.append(True)
+            in_phrase = False
+            last_definite = False
+            construct_head = False
+            relative = False
+            continue
+        if not (
+            (
+                bare[:1] not in "\u05d1\u05dc\u05de\u05db\u05d4\u05e9"
+                or (
+                    _hebrew_word_is_an_amount_noun(bare)
+                    and not _hebrew_word_is_definite(bare)
+                )
+            )
+            and bare not in _HEBREW_RATE_PREPOSITIONS
+            and not _known_predicate(bare)
+            and bare != "אשר"
+            and not relative
+            and not expect_object
+        ):
+            construct_head = False
+        if _known_predicate(bare):
+            held.append(True)
+            relative = False
+            continue
+        amount_noun = _hebrew_word_is_an_amount_noun(bare)
+        if not amount_noun and (bare == "אשר" or bare.startswith("\u05e9")):
+            # A clause whose verb is inside its opening word ("שנקבעה", ש
+            # before a verb's first letter) is complete; one whose subject
+            # is ("שהבנק", "שבנק ישראל", "אשר הבנק") runs to its verb.
+            held.append(True)
+            relative = bare == "אשר" or bare[1:2] not in "\u05d9\u05ea\u05e0\u05d0"
+            continue
+        if relative:
+            held.append(True)
+            if not (
+                bare in _HEBREW_RATE_PREPOSITIONS
+                or _prefixed(bare)
+                or bare.startswith("\u05d4")
+            ):
+                relative = False
+            continue
+        if bare in _HEBREW_RATE_PREPOSITIONS:
+            in_phrase = True
+            expect_object = True
+            last_definite = False
+            held.append(True)
+            continue
+        if expect_object:
+            expect_object = False
+            last_definite = _hebrew_word_is_definite(bare)
+            held.append(True)
+            continue
+        if _prefixed(bare) and not amount_noun:
+            # The object inside the word keeps its article ("מהמותר",
+            # "מהתקרה") or lacks it ("בחוק", "בהסכם").
+            in_phrase = True
+            last_definite = _hebrew_word_is_definite(bare[1:].lstrip("\u05be-"))
+            held.append(True)
+            continue
+        if bare.startswith("\u05d4") or (
+            amount_noun and _hebrew_word_is_definite(bare)
+        ):
+            if not _hebrew_word_governs_an_amount(bare):
+                # An attributive of the noun before it.
+                held.append(True)
+            else:
+                # A definite noun after a definite object is a new phrase;
+                # after a bare object it is the construct's complement.
+                held.append(in_phrase and not last_definite)
+            last_definite = _hebrew_word_is_definite(bare)
+            continue
+        # A bare word after a definite object ends the phrase ("מן המותר אז").
+        if last_definite:
+            in_phrase = False
+        last_definite = False
+        if construct_head:
+            held.append(True)
+            continue
+        held.append(in_phrase)
+        construct_head = not in_phrase
+        continue
+    start_index = max(
+        (index for index, flag in enumerate(held) if not flag), default=None
+    )
+    if (
+        start_index is not None
+        and not (construct and start_index == 0)
+        and _hebrew_word_governs_an_amount(subject[start_index])
+    ):
+        return False
+    if words and _hebrew_word_governs_an_amount(words[-1]):
+        return False
+    return not (
+        len(words) >= 2
+        and words[-1] == "של"
+        and _hebrew_word_governs_an_amount(words[-2])
+    )
+
+
+def _hebrew_rate_word_before(text: str, start: int) -> bool:
+    """An explicit rate word before ``start`` whose expression governs the pair there.
+
+    Every rate word in the clause is a candidate, the earliest first; an
+    expression that ends before the pair ("הריבית תבוטל והקנס יהיה בשיעור
+    של 10 או 30%") yields to the next rate word. Numbers, joins and number
+    words between a rate word and the pair -- a reference, a member read
+    earlier -- are passed over.
+    """
+    clause_start = _hebrew_clause_start_before(text, start)
+    for rate in _HEBREW_RATE_WORD_PATTERN.finditer(text, clause_start, start):
+        words: list[str] = []
+        for token_match in _NON_SPACE_TOKEN_PATTERN.finditer(text, rate.end(), start):
+            token = token_match.group(0).strip(",;:()")
+            if (
+                not token
+                or any(character.isdigit() for character in token)
+                or "%" in token
+                or token in _HEBREW_LIST_JOIN_WORDS
+                or _strip_hebrew_number_prefix(token, _HEBREW_RUN_START_VOCABULARY)
+                is not None
+            ):
+                continue
+            words.append(token)
+        if _hebrew_rate_expression_governs(
+            words, not rate.group("rate").startswith("\u05d4")
+        ):
+            return True
+    return False
+
+
+# A plural noun naming the kind of quantity the unit gives, as the subject of
+# the copula or construct right before the list, heads a coordinated list:
+# "שיעורי המס הם 2 ו־3 אחוזים", "השיעורים יהיו 1, 2 ו־3 אחוזים", "הסכומים הם
+# 2 ו־3 מיליון שקלים", "בסכומים של 1, 2 ו־3 מיליון". The list runs from the
+# heading to the unit, commas and vavs within it joining; a noun that governs
+# another predicate ("שיעורי המס יחולו על הכנסה של 500 ו־2 ו־3%") heads
+# nothing, a bare plural copula ("ההכנסות הן 500 ו־2 ו־3%") is no such noun,
+# and a conditional clause ("אם התשלומים הם 500, 2 או 3%") states a condition.
+_HEBREW_LIST_COPULAS = "הם|הן|יהיו|תהיינה|הינם|הינן|של|כדלקמן:?|הבאים:?|הבאות:?"
+# Before a true copula the whole subject phrase stands between the plural
+# noun and the copula -- a construct chain ("שיעורי מס ערך מוסף הם", "סכומי
+# שכר העבודה הם"), a relative clause ("השיעורים שנקבעו בצו שר האוצר הם")
+# -- since no predicate can; any words, numbers and parentheticals ("הקנסות
+# שהוטלו על 5 עובדים הם", "השיעורים לפי סעיף 2(א) הם", "בצו (להלן הצו) הם"),
+# to the copula within the clause. Before the genitive "של"
+# a predicate can intervene ("הקנסות ייגזרו מתשלום של", "השיעורים יחולו על
+# ההכנסה של"), so only a nominal chain may stand there: definite nouns
+# ("סכומי הקנס של") and the construct nouns of the unit's kind ("שיעורי מס
+# הכנסה של").
+_HEBREW_HEADING_CONSTRUCT_NOUNS = (
+    "מס|מסי|הכנסה|הכנסת|ביטוח|לאומי|בריאות|דמי|תשלומי|מענקי|סכומי|שיעורי|ריבית|היטל"
+)
+_HEBREW_HEADING_NOMINAL_COMPLEMENT = (
+    "(?:\\s+(?:\u05d4[\u05be-]?[\u0590-\u05ff]+|"
+    + _HEBREW_HEADING_CONSTRUCT_NOUNS
+    + ")){0,3}"
+)
+_HEBREW_HEADING_SUBJECT_COMPLEMENT = (
+    '(?:\\s+(?:[\u0590-\u05ff]+(?:[\u05f4"-][\u0590-\u05ff]+)?'
+    "|\\d[\\d.,]*(?:\\([^()\\n]{1,8}\\))*|\\([^()\\n]{1,80}\\)))*"
+)
+_HEBREW_LIST_TRUE_COPULAS = "הם|הן|יהיו|תהיינה|הינם|הינן|כדלקמן:?|הבאים:?|הבאות:?"
+_HEBREW_HEADING_TAIL = (
+    "(?:"
+    + _HEBREW_HEADING_SUBJECT_COMPLEMENT
+    + "\\s+(?:"
+    + _HEBREW_LIST_TRUE_COPULAS
+    + ")|"
+    + _HEBREW_HEADING_NOMINAL_COMPLEMENT
+    + "\\s+של)(?![\u0590-\u05ff])"
+)
+# A heading noun may carry the conjunction and the relative or conditional
+# stack ("והשיעורים הם", "ששיעורי המס הם", "כשהתשלומים הם"); a "כש" in the
+# stack opens the condition the marker search below would otherwise find
+# before the noun.
+_HEBREW_HEADING_NOUN_STACK = "(?P<stack>\u05d5?(?:\u05db\u05e9|\u05e9)?)"
+_HEBREW_PLURAL_RATE_HEADING_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])"
+    + _HEBREW_HEADING_NOUN_STACK
+    + "(?:ה[\u05be-]?שיעורים|שיעורי|ב[\u05be-]?שיעורים|שיעורים"
+    "|ה[\u05be-]?ריביות|ריביות)" + _HEBREW_HEADING_TAIL
+)
+_HEBREW_PLURAL_AMOUNT_HEADING_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])"
+    + _HEBREW_HEADING_NOUN_STACK
+    + "(?:ה[\u05be-]?סכומים|סכומי|ב[\u05be-]?סכומים|סכומים"
+    "|ה[\u05be-]?תשלומים|תשלומי|תשלומים|ה[\u05be-]?מענקים|מענקי"
+    "|ה[\u05be-]?קנסות|קנסות|ה[\u05be-]?קצבאות|קצבאות)" + _HEBREW_HEADING_TAIL
+)
+# A conditional marker in the heading's own comma segment, after a preamble
+# ("לעניין זה, כאשר התשלומים הם") or with a vav ("וכאשר"), opens a
+# condition; "כש" is a prefix on the next word. A condition completed before
+# the segment ("אם ההכנסה נמוכה, השיעורים הם 10, 20 ו־30 אחוזים") leaves the
+# list headed. Within a condition the list is headed when it lies wholly
+# inside it -- a comma, a stop or a list tail such as "בהתאמה" follows the
+# unit ("אם השיעורים הם 10, 20 ו־30 אחוזים בהתאמה, תחול ההוראה") -- and
+# heads nothing when the clause runs on past the unit into the consequent
+# ("כאשר התשלומים הם 500, 2 או 3 מיליון שקלים ישולמו כמענק").
+_HEBREW_CONDITIONAL_CLAUSE_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])(?:\u05d5[\u05be-]?)?(?:אם|כאשר|אילו|לכשיהיה)(?![\u0590-\u05ff])"
+    # "ככל ש", "במקרה ש" and "כש" end in the relative ש, a prefix on the
+    # word that follows ("ככל שהתשלומים הם"): the marker ends inside that
+    # word, which the caller allows when the word is the heading noun.
+    "|(?<![\u0590-\u05ff])(?:\u05d5[\u05be-]?)?(?:ככל|במקרה)\\s+ש(?=[\u0590-\u05ff])"
+    "|(?<![\u0590-\u05ff])(?:\u05d5[\u05be-]?)?כש(?=[\u0590-\u05ff])"
+)
+_HEBREW_SENTENCE_STOP_CHARACTERS = frozenset(".;:\n")
+_HEBREW_LIST_TAIL_PATTERN = re.compile(
+    "[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]*(?:(?<![\u0590-\u05ff])(?:בהתאמה|לפחות|בלבד|ומעלה|לכל\\s+היותר"
+    "|לפי\\s+העניין|בקירוב)[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]*)?(?:[,.;:\\n)]|$)"
+)
+# A line wrap inside a list -- after a comma, a join or the heading's copula
+# ("הסכומים הם 1,\n2 ו־3 מיליון", "הסכומים הם\n1, 2 ו־3 מיליון") -- is
+# whitespace; any other newline, a blank line included, ends the clause, so
+# table rows and numbered paragraphs stay apart.
+_HEBREW_SOFT_WRAP_BEFORE_PATTERN = re.compile(
+    "(?:,|\u05d5[\u05be-]|(?<![\u0590-\u05ff])(?:או|עד|ועד|לבין|ובין|"
+    "הם|הן|יהיו|תהיינה|הינם|הינן|של|כדלקמן:?|הבאים:?|הבאות:?)|:)[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]*$"
+)
+
+
+_HEBREW_LIST_JOIN_WORDS = frozenset({"או", "עד", "ועד", "\u05d5"})
+_HEBREW_LIST_INTRODUCERS = ("כדלקמן", "הבאים", "הבאות")
+
+
+# The colon that introduces the list ("השיעורים הם: 10, 20 ו־30") is body too.
+_HEBREW_LIST_BODY_FILLER_PATTERN = re.compile(
+    "[\\s\\d.,:%/\u2044\u05be\\-\u2013\u2212$\u20ac\u00a3\u20aa\u20b9\u00a5"
+    "\u00bc-\u00be\u2150-\u215e\u200e\u200f\u202a-\u202e\u2066-\u2069]*"
+)
+
+
+def _hebrew_list_body_only(text: str, start: int, end: int) -> bool:
+    """Whether ``text[start:end]`` holds list items and joins alone.
+
+    Numbers, number words, scale words, percent nouns, currency words,
+    joins, commas and signs: "10, 20 ו־" is a list body, "10% ו־20%, הקנס
+    יהיה" is not, and nor is prose in any other script.
+    """
+    position = start
+    while position < end:
+        filler = _HEBREW_LIST_BODY_FILLER_PATTERN.match(text, position, end)
+        position = filler.end()
+        if position >= end:
+            return True
+        word_match = _HEBREW_WORD_TOKEN_PATTERN.match(text, position, end)
+        if word_match is None:
+            return False
+        word = word_match.group(0).rstrip("\u05be-")
+        bare = (
+            word[1:].lstrip("\u05be-")
+            if len(word) > 1 and word.startswith("\u05d5")
+            else word
+        )
+        if not (
+            word in _HEBREW_LIST_JOIN_WORDS
+            or _strip_hebrew_number_prefix(word, _HEBREW_RUN_START_VOCABULARY)
+            is not None
+            or word in _HEBREW_PRINTED_SCALE_VALUES
+            or bare in _HEBREW_PRINTED_SCALE_VALUES
+            or _hebrew_is_percent_noun(word)
+            or _hebrew_is_percent_noun(bare)
+            or word in _HEBREW_CURRENCY_WORDS
+            or bare in _HEBREW_CURRENCY_WORDS
+            or word in _HEBREW_MIXED_FRACTION_VALUES
+            or bare in _HEBREW_MIXED_FRACTION_VALUES
+            or word in _HEBREW_COUNTED_FRACTION_VALUES
+            or bare in _HEBREW_COUNTED_FRACTION_VALUES
+            or word in _HEBREW_FRACTION_COUNT_VALUES
+        ):
+            return False
+        position = word_match.end()
+    return True
+
+
+def _hebrew_list_body_end(text: str, start: int) -> int:
+    """Where the list body running from ``start`` ends.
+
+    The end of its last number, join, scale word, percent noun or currency
+    word: "10, 20 ו־30 אחוזים בהתאמה" ends after the noun.
+    """
+    position = start
+    end = start
+    limit = len(text)
+    while position < limit:
+        filler = _HEBREW_LIST_BODY_FILLER_PATTERN.match(text, position, limit)
+        consumed = text[position : filler.end()].rstrip(" \t\n,.;:")
+        if consumed:
+            end = position + len(consumed)
+        position = filler.end()
+        if position >= limit:
+            break
+        word_match = _HEBREW_WORD_TOKEN_PATTERN.match(text, position, limit)
+        if word_match is None:
+            break
+        word = word_match.group(0).rstrip("\u05be-")
+        bare = (
+            word[1:].lstrip("\u05be-")
+            if len(word) > 1 and word.startswith("\u05d5")
+            else word
+        )
+        if not (
+            word in _HEBREW_LIST_JOIN_WORDS
+            or _strip_hebrew_number_prefix(word, _HEBREW_RUN_START_VOCABULARY)
+            is not None
+            or word in _HEBREW_PRINTED_SCALE_VALUES
+            or bare in _HEBREW_PRINTED_SCALE_VALUES
+            or _hebrew_is_percent_noun(word)
+            or _hebrew_is_percent_noun(bare)
+            or word in _HEBREW_CURRENCY_WORDS
+            or bare in _HEBREW_CURRENCY_WORDS
+            or word in _HEBREW_MIXED_FRACTION_VALUES
+            or bare in _HEBREW_MIXED_FRACTION_VALUES
+            or word in _HEBREW_COUNTED_FRACTION_VALUES
+            or bare in _HEBREW_COUNTED_FRACTION_VALUES
+            or word in _HEBREW_FRACTION_COUNT_VALUES
+        ):
+            break
+        end = word_match.end()
+        position = end
+    return end
+
+
+# Within a condition the comma before the consequent is the one after the
+# condition, so a headed list inside the condition is followed by that
+# comma, a clause separator or a list tail, with at most modifiers of the
+# unit between ("אחוזים מהכנסה נמוכה, תחול ההוראה", "אחוזים מערך יבולו,
+# תחול ההוראה", "שקלים מסוימים, ישולם מענק"); a list the consequent
+# swallowed runs on to the sentence end with words between and no comma
+# ("שקלים משולמים כמענק.") or shows the consequent's verb before the comma
+# ("שקלים ישולמו כמענק, והיתרה תוחזר", "שקלים יקבל העובד, והיתרה תוחזר").
+# No shape tells "ישלם" from "יחיד", nor "ישולמו" from the possessive
+# "יבולו": the verb is known by word alone. A statute writes its
+# consequents in the third-person future of a closed list of verbs, in
+# the singular ("ישלם", "תשלם", "ישולם", "תחול", "יינתן", "יקבל",
+# "יוענק") and the plural ("ישולמו", "יחולו", "יקבלו"); any other word
+# after the unit modifies it. A relative clause carries its own verb --
+# "אשר", or ש before the article ("שהמעסיק"), a preposition with its
+# suffix ("שעליה", "שבגינה", "שממנה"), a verb-shaped word ("שנקבע") or a
+# past plural ("ששולמו"), the lexical ש-words (שכיר, שוטף, שנתי)
+# excepted. A relative clause on any subject, definite or not ("ששופט
+# יקבע", "שבית דין אזורי לעבודה יקבע"), shows itself by its own verb
+# within a few words. A Hebrew word almost never begins in ו, so ש before
+# ו is a root letter ("שותפה", "שוכרת", "שווי", "שומה"), never the relative
+# prefix, the ועדה family excepted ("שועדת הערר תקבע", "שוועדת הערר
+# תקבע"). Before another letter the lexical ש-nouns a statute uses
+# (שליח, שכן, שמאי) are listed; every other ש-word is the prefix.
+# The ש-initial words a statute uses that open no relative clause.
+_HEBREW_LEXICAL_SHIN_STEMS = (
+    "של",
+    "שכיר",
+    "שכירה",
+    "שכירים",
+    "שוטף",
+    "שוטפת",
+    "שוטפים",
+    "שנתי",
+    "שנתית",
+    "שנתיים",
+    "שקל",
+    "שקלים",
+    "שיעור",
+    "שיעורי",
+    "שיעורים",
+    "שכר",
+    "שלם",
+    "שלמה",
+    "שלמים",
+    "שנה",
+    "שנת",
+    "שני",
+    "שתי",
+    "שלושה",
+    "שלוש",
+    "שבעה",
+    "שבע",
+    "שמונה",
+    "שישה",
+    "שש",
+    "שירות",
+    "שירותי",
+    "שווי",
+    "שוק",
+    "שער",
+    "שערי",
+    "שטח",
+    "שטחי",
+    "שם",
+    "שמות",
+    "שלב",
+    "שלבי",
+    "שעה",
+    "שעות",
+    "שיטה",
+    "שיטת",
+    "שינוי",
+    "שינויים",
+    "שימוש",
+    "שאלה",
+    "שבוע",
+    "שבועות",
+    "שאר",
+    "שומה",
+    "שומת",
+    "שומות",
+    "שיפוי",
+    "שיקום",
+    "שיקול",
+    "שיקולים",
+    "שיפור",
+    "שילוב",
+    "שיתוף",
+    "שליטה",
+    "שלטון",
+    "שמירה",
+    "שטר",
+    "שטרות",
+    "שיווק",
+    "שדה",
+    "שדות",
+    "שבח",
+    "שגיאה",
+    "שאירים",
+    "שאיר",
+    "שביתה",
+    "שהות",
+    "שעבוד",
+    "שיעבוד",
+    "שותף",
+    "שותפה",
+    "שותפת",
+    "שותפות",
+    "שותפים",
+    "שליח",
+    "שליחה",
+    "שליחי",
+    "שלוח",
+    "שלוחה",
+    "שלוחות",
+    "שכן",
+    "שכנה",
+    "שכנים",
+    "שמאי",
+    "שמאים",
+    "שמאות",
+    "שוכר",
+    "שוכרת",
+    "שוכרים",
+    "שולח",
+    "שולחת",
+    "שולחים",
+    "שמש",
+    "שוער",
+    "שגריר",
+    "שגרירות",
+    "שחקן",
+    "שדרן",
+    "שרת",
+    "שלט",
+    "שלטים",
+    "שלד",
+    "שריפה",
+    "שרשרת",
+    "שביל",
+    "שבוי",
+    "שגרה",
+    "שיר",
+    "שירה",
+    "שדרה",
+    "שעון",
+    "שפה",
+    "שפע",
+    "שקט",
+    "שקע",
+    "שכונה",
+    "שכונת",
+    "שמחה",
+    "שאלות",
+    "שאילתה",
+    "שדרות",
+    "שלוחת",
+    "שליטת",
+    "שמות",
+    "שמי",
+    "שמו",
+    "שמה",
+    "שמם",
+    "שרה",
+    "שרון",
+    "שמעון",
+    "שאול",
+    "שלומית",
+    "שולה",
+)
+_HEBREW_LEXICAL_SHIN_WORDS = "(?:" + "|".join(_HEBREW_LEXICAL_SHIN_STEMS) + ")"
+_HEBREW_RELATIVE_MARKER_PATTERN = re.compile(
+    "[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]*(?:אשר|(?!"
+    + _HEBREW_LEXICAL_SHIN_WORDS
+    + "(?![\u0590-\u05ff]))"
+    "\u05e9[\u05be-]?(?:\u05d4[\u05be-]?[\u0590-\u05ff]+"
+    "|(?:\u05d5[\u05be-]?)?\u05d5(?:עדה|עדת|עד|תק|תיק|תיקה)"
+    "|(?:על|ב|בגינ|ממנ|מ|ממ|לגבי|בשל|בעד|כנגד|כלפי|אל|אצל|תחת|לפי|בתוכ|מתוכ)"
+    "(?:ו|ה|הם|הן|ם|ן|נו|יו|יה|יהם|יהן)"
+    "|[\u05d9\u05ea\u05e0\u05d0][\u0590-\u05ff]{2,}"
+    "|(?!\u05d5)[\u0590-\u05ff]{2,}\u05d5))(?![\u0590-\u05ff])"
+)
+_HEBREW_WORD_AFTER_PATTERN = re.compile(
+    "[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]*(?:\u05d5[\u05be-]?)?(?P<word>[\u0590-\u05ff]{2,})(?![\u0590-\u05ff])"
+)
+# The third-person singular future forms a statute writes its consequents
+# in, masculine and feminine; the plural is derived from the masculine. A
+# form that is also a noun (תושב, תורה, תעלה, יוסף, תוסף) is left out.
+_HEBREW_CONSEQUENT_VERB_STEMS = (
+    "ישלם תשלם ישולם תשולם ינכה תנכה ינוכה תנוכה יחול תחול יהיה תהיה ייתן תיתן "
+    "יינתן תינתן ינתן תנתן ישית תשית יטיל תטיל יוטל תוטל יחייב תחייב יחויב תחויב "
+    "יזכה תזכה יזוכה תזוכה יראה תראה ייראה תיראה יחשב תחשב ייחשב תיחשב יחושב תחושב "
+    "יפחית תפחית יופחת תופחת יחזיר תחזיר יוחזר תוחזר יקבע תקבע ייקבע תיקבע יאשר "
+    "תאשר יאושר תאושר יישא תישא ישא תשא יגבה תגבה ייגבה תיגבה יקזז תקזז יקוזז תקוזז "
+    "יעביר תעביר יועבר תועבר ישמש תשמש ימסור תמסור יימסר תימסר ידחה תדחה יידחה "
+    "תידחה יקטן תקטן יגדל תגדל יעלה יירד תרד ייזקף תיזקף יזקוף תזקוף יצורף "
+    "תצורף יצרף תצרף יוסיף תוסיף ייווסף תיווסף יחלט תחלט יחולט תחולט "
+    "יורה יחליט תחליט יוחלט תוחלט יפרע תפרע ייפרע תיפרע יעמוד תעמוד יעמיד "
+    "תעמיד יועמד תועמד יקבל תקבל יתקבל תתקבל יוענק תוענק יעניק תעניק יגרע תגרע "
+    "ייגרע תיגרע ייעשה תיעשה יעשה תעשה יבוצע תבוצע יתבצע תתבצע יורשה תורשה יאפשר "
+    "תאפשר יימנע תימנע יופסק תופסק יבוטל תבוטל יחודש תחודש יוארך תוארך "
+    "יושלם תושלם יימחק תימחק יוגש תוגש יגיש תגיש ישולב תשולב יוכר תוכר יכיר תכיר "
+    "יוקצה תוקצה יוסדר תוסדר יפצה תפצה יפוצה תפוצה ישפה תשפה ישופה תשופה יימשך "
+    "תימשך ימשיך תמשיך יחדל תחדל יפסיק תפסיק תוצא יוציא תוציא יביא תביא יובא "
+    "תובא ייכלל תיכלל יכלול תכלול יחיל תחיל יוחל תוחל ישמור תשמור יישמר תישמר "
+    "יפקיד תפקיד יופקד תופקד ישחרר תשחרר ישוחרר תשוחרר יעכב תעכב יעוכב תעוכב ינהג "
+    "תנהג ינהל תנהל ינוהל תנוהל יפעל תפעל יופעל תופעל יתחייב תתחייב יתווסף תתווסף "
+    "יגיע תגיע יובהר תובהר יראו ישלח תשלח יישלח תישלח יודיע תודיע יוזמן תוזמן "
+    "יעריך תעריך יוערך תוערך יחשוב תחשוב יחסיר תחסיר יופחתו יעודכן תעודכן יעדכן "
+    "תעדכן יצמיד תצמיד יוצמד תוצמד ישונה תשונה תשנה"
+).split()
+
+
+_HEBREW_MEDIAL_FORMS = str.maketrans("ךםןףץ", "כמנפצ")
+
+
+def _hebrew_plural_future(stem: str) -> str:
+    """The third-person plural of a masculine singular future form.
+
+    The ו suffix moves a final letter to its medial form ("ישולם" becomes
+    "ישולמו"), and replaces a final ה ("יזכה" becomes "יזכו").
+    """
+    if stem.endswith("\u05d4"):
+        return stem[:-1] + "\u05d5"
+    return stem[:-1] + stem[-1].translate(_HEBREW_MEDIAL_FORMS) + "\u05d5"
+
+
+_HEBREW_CONSEQUENT_VERBS = frozenset(_HEBREW_CONSEQUENT_VERB_STEMS) | frozenset(
+    _hebrew_plural_future(stem)
+    for stem in _HEBREW_CONSEQUENT_VERB_STEMS
+    if stem.startswith("\u05d9")
+)
+_HEBREW_LIST_TAIL_WORD_PATTERN = re.compile(
+    "[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]*(?<![\u0590-\u05ff])(?:בהתאמה|לפחות|בלבד|ומעלה|לכל\\s+היותר"
+    "|לפי\\s+העניין|בקירוב)(?![\u0590-\u05ff])"
+)
+_HEBREW_CLAUSE_SEPARATOR_PATTERN = re.compile(
+    "[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]*[,;:\\n)]"
+)
+_HEBREW_SENTENCE_END_PATTERN = re.compile(
+    "[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]*(?:[.!?]|"
+    + _PARAGRAPH_GAP_FRAGMENT
+    + "|$)"
+)
+_HEBREW_UNIT_MODIFIER_PATTERN = re.compile(
+    "[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]*(?:(?:של|על|לפי|לכל|בעד|לגבי|מן)[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]+[\u0590-\u05ff]+"
+    "|[\u0590-\u05ff]+)(?![\u0590-\u05ff])"
+)
+
+
+# The inflections of a listed ש-noun ("שליחים", "שליחיו", "שליחי") are the
+# noun too; a suffix moves the stem's final letter to its medial form
+# ("שכן" becomes "שכנו", "שחקן" becomes "שחקניו").
+# An entry that is itself an inflection, a numeral or a name ("שמם", "שמות",
+# "שליחי", "שלושה", "שרון") inflects no further, so "שממנו" stays the
+# preposition it is; a base noun ("שם", "שכן", "שוכר") inflects.
+_HEBREW_LEXICAL_SHIN_FIXED_FORMS = frozenset(
+    "של שכירה שכירים שוטפת שוטפים שנתית שנתיים שקלים שיעורי שיעורים שלמה שלמים "
+    "שנת שני שתי שלושה שלוש שבעה שבע שמונה שישה שש שירותי שערי שטחי שמות שלבי "
+    "שעות שיטת שינויים שבועות שאר שומת שומות שיקולים שטרות שדות שאירים שיעבוד "
+    "שותפה שותפת שותפות שותפים שליחה שליחי שלוחה שלוחות שכנה שכנים שמאים שמאות "
+    "שוכרת שוכרים שולחת שולחים שגרירות שלטים שירה שכונת שאלות שדרות שלוחת שליטת "
+    "שמי שמו שמה שמם שרה שרון שמעון שאול שלומית שולה".split()
+)
+_HEBREW_SHIN_SUFFIXES = "(?:ים|ות|יו|יה|יהם|יהן|נו|י|ו|ה|ם|ן|ת|ך|כם|כן)"
+# The possessives a plural stem takes ("שאלותיו", "שכניו", "שליחותיהם").
+_HEBREW_SHIN_PLURAL_SUFFIXES = "(?:יו|יה|יהם|יהן|ינו|יך|יכם|יכן|י)"
+
+
+def _hebrew_lexical_shin_variants(stem: str) -> str:
+    """The stem and the inflections it takes: a plural on its plural stem
+    ("שאלות" gives "שאלותיו", "שכנים" gives "שכניו"), a feminine on its ת
+    construct stem and its plural ("שאלה" gives "שאלתו" and "שאלותיו"), a
+    fixed form none, any other on its medial final letter ("שכן" gives
+    "שכנו")."""
+    if stem.endswith("ות"):
+        return stem + "|" + stem + _HEBREW_SHIN_PLURAL_SUFFIXES
+    if stem.endswith("ים"):
+        return stem + "|" + stem[:-2] + "\u05d9" + _HEBREW_SHIN_SUFFIXES
+    if stem.endswith("\u05d4"):
+        return (
+            stem
+            + "|"
+            + stem[:-1]
+            + "\u05ea"
+            + _HEBREW_SHIN_SUFFIXES
+            + "|"
+            + stem[:-1]
+            + "ות"
+            + _HEBREW_SHIN_PLURAL_SUFFIXES
+        )
+    if stem in _HEBREW_LEXICAL_SHIN_FIXED_FORMS:
+        return stem
+    return (
+        stem
+        + "|"
+        + stem[:-1]
+        + stem[-1].translate(_HEBREW_MEDIAL_FORMS)
+        + _HEBREW_SHIN_SUFFIXES
+    )
+
+
+_HEBREW_LEXICAL_SHIN_WORD_PATTERN = re.compile(
+    "(?:"
+    + "|".join(
+        _hebrew_lexical_shin_variants(stem) for stem in _HEBREW_LEXICAL_SHIN_STEMS
+    )
+    + ")$"
+)
+
+
+# The markers whose form is unmistakable: ש before the article, a suffixed
+# preposition ("שממנו", "שעליה") or the ועדה family. They are read before
+# the lexical nouns, which are read before the generic markers.
+_HEBREW_SPECIFIC_RELATIVE_MARKER_PATTERN = re.compile(
+    "[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]*(?:אשר|\u05e9[\u05be-]?(?:\u05d4[\u05be-]?[\u0590-\u05ff]+"
+    "|(?:\u05d5[\u05be-]?)?\u05d5(?:עדה|עדת|עד|תק|תיק|תיקה)"
+    "|(?:על|ב|בגינ|ממנ|מ|ממ|לגבי|בשל|בעד|כנגד|כלפי|אל|אצל|תחת|לפי|בתוכ|מתוכ)"
+    "(?:ו|ה|הם|הן|ם|ן|נו|יו|יה|יהם|יהן)))(?![\u0590-\u05ff])"
+)
+
+
+def _hebrew_opens_relative_clause(text: str, position: int) -> bool:
+    """Whether a relative marker opens a clause at ``position``.
+
+    "אשר", ש before the article, a suffixed preposition ("שממנו") or the
+    ועדה family are markers whatever the lexicon says; then a listed ש-noun
+    in any inflection ("שליחים ישלמו", "שכנו ישלם") is no marker, and
+    neither is a possessive on a ש-root ("שוכריו ישלמו"), ש before ו being a
+    root letter; then a verb-shaped word or a past plural is one.
+    """
+    word = _HEBREW_WORD_AFTER_PATTERN.match(text, position)
+    lexical = word is not None and (
+        _HEBREW_LEXICAL_SHIN_WORD_PATTERN.match(word.group(0).strip()) is not None
+    )
+    if _HEBREW_SPECIFIC_RELATIVE_MARKER_PATTERN.match(text, position) is not None:
+        # "שמו" is "his name" as much as "that from him": a word both marker
+        # and noun decides nothing, and the caller reports the ambiguity.
+        return not lexical
+    if lexical:
+        return False
+    return _HEBREW_RELATIVE_MARKER_PATTERN.match(text, position) is not None
+
+
+# Ambiguity is explicit. A bare word after the unit that no class of
+# evidence decides -- no preposition, article or vav prefix, no plural
+# ending, outside the lexicons and the closed sets -- may be the consequent's
+# verb or a modifier of the unit ("מהכנסה נמוכה", "מהכנסת יחיד", "ממס ישיר").
+# So may a bare ש-word that is neither a relative marker nor a listed
+# ש-noun ("ששופט יקבע", "שבית דין יקבע"): the relative prefix on a subject
+# with its own verb, or a noun before the consequent's verb. Unless a lexicon
+# verb or the sentence end decides later -- and after such a ש-word the verb
+# decides nothing, since it may be the relative clause's own -- the list is
+# AMBIGUOUS: it grounds as today, unscaled, and the source reports the
+# shared-unit reading as a candidate a reviewed assertion may select.
+# Exhausted input and a token that is no word are ambiguous, never a
+# consequent. ש before ו is a root letter ("שותפה", "שוכרת", "שווי"), never
+# the prefix, the ועדה family excepted.
+HEBREW_HEADED_LIST_IN_CONDITION = "hebrew-headed-list-in-condition"
+_HEBREW_AMBIGUOUS_AS_HEADED: "ContextVar[bool]" = ContextVar(
+    "_HEBREW_AMBIGUOUS_AS_HEADED", default=False
+)
+_HEBREW_AMBIGUOUS_HEADINGS: "ContextVar[list[tuple[int, int, int, bool]] | None]" = (
+    ContextVar("_HEBREW_AMBIGUOUS_HEADINGS", default=None)
+)
+_HEBREW_DECIDED_MODIFIER_WORDS = frozenset(
+    "נטו ברוטו נומינלי נומינלית נומינליים אלו אלה אותם אותן אותו אותה חדשים חדש "
+    "ישראל ירושלים יהודה יחד יחדיו יותר נוסף נוספת אחר אחרת אחד אחת או את אם אף "
+    "אך אל אפילו אילו איפוא אולי תוך תחת נגד".split()
+)
+
+
+def _hebrew_word_is_undecided(token: str) -> bool:
+    """Whether no class of evidence tells ``token`` for a modifier or a verb."""
+    if token in _HEBREW_DECIDED_MODIFIER_WORDS:
+        return False
+    if token[0] == "\u05e9":
+        if _HEBREW_SPECIFIC_RELATIVE_MARKER_PATTERN.match(token) is not None:
+            # Reached only when the word is a lexical noun too ("שמו").
+            return True
+        if len(token) > 1 and token[1] == "\u05d5":
+            return False
+        return _HEBREW_LEXICAL_SHIN_WORD_PATTERN.match(token) is None
+    if token[0] in "בלמכהו" and len(token) >= 3:
+        return False
+    if token.endswith(("ים", "ות")):
+        return False
+    return True
+
+
+def _hebrew_list_end_state(text: str, body_end: int) -> str:
+    """How the list ends inside its condition: closed, consequent or ambiguous.
+
+    A comma, a clause separator or a list tail after the unit, however
+    many decided modifiers between, closes it ("אחוזים מההכנסה החייבת, תחול
+    ההוראה"); the consequent's verb, known by word ("שקלים ישולמו כמענק",
+    "שקלים יקבל העובד"), or the sentence ending with words between and no
+    comma ("שקלים משולמים כמענק.") is the clause running on; an undecided
+    word before the comma ("מהכנסה נמוכה,") leaves the list ambiguous, and
+    after an undecided ש-word ("ששופט יקבע,") so does the verb.
+    """
+    position = body_end
+    relative = False
+    ambiguous = False
+    shin_ambiguous = False
+    # The walk runs to the boundary that decides the list; a word that no
+    # pattern reads ends it undecided.
+    while True:
+        if _HEBREW_LIST_TAIL_WORD_PATTERN.match(text, position) is not None:
+            return "ambiguous" if ambiguous else "closed"
+        if _HEBREW_CLAUSE_SEPARATOR_PATTERN.match(text, position) is not None:
+            return "ambiguous" if ambiguous else "closed"
+        if _HEBREW_SENTENCE_END_PATTERN.match(text, position) is not None:
+            if position == body_end:
+                return "closed"
+            return "ambiguous" if ambiguous else "consequent"
+        if _hebrew_opens_relative_clause(text, position):
+            relative = True
+        elif not relative:
+            word = _HEBREW_WORD_AFTER_PATTERN.match(text, position)
+            if word is not None:
+                token = word.group(0).strip()
+                if word.group("word") in _HEBREW_CONSEQUENT_VERBS:
+                    if not shin_ambiguous:
+                        return "consequent"
+                elif _hebrew_word_is_undecided(token):
+                    ambiguous = True
+                    if token[0] == "\u05e9":
+                        shin_ambiguous = True
+        modifier = _HEBREW_UNIT_MODIFIER_PATTERN.match(text, position)
+        if modifier is None or modifier.end() <= position:
+            return "ambiguous"
+        position = modifier.end()
+
+
+_HEBREW_LIST_COLON_WORDS = (
+    "כדלקמן",
+    "הבאים",
+    "הבאות",
+    "הם",
+    "הן",
+    "יהיו",
+    "תהיינה",
+    "הינם",
+    "הינן",
+)
+
+
+def _hebrew_member_starts_at(text: str, index: int) -> bool:
+    """Whether a list member -- a digit, a number word, a fraction glyph, or
+    a sign before one of them -- starts at ``index``."""
+    if index >= len(text):
+        return False
+    character = text[index]
+    if character in "-\u2212":
+        return (
+            _hebrew_member_starts_at(text, index + 1)
+            and text[index + 1] not in "-\u2212"
+        )
+    return (
+        character.isdigit()
+        or "\u0590" <= character <= "\u05ff"
+        or "\u00bc" <= character <= "\u00be"
+        or "\u2150" <= character <= "\u215e"
+    )
+
+
+def _is_horizontal_space(character: str) -> bool:
+    """A space of any width that is no line break (U+00A0, U+2003 included)."""
+    return character.isspace() and character not in "\n\r\x0b\x0c\x85\u2028\u2029"
+
+
+def _end_before_space(text: str, end: int) -> int:
+    """The end of the text before ``end`` with its trailing whitespace
+    dropped, found in place: ``len(text[:end].rstrip())`` without the copy."""
+    while end > 0 and text[end - 1].isspace():
+        end -= 1
+    return end
+
+
+def _hebrew_list_heading_end(text: str, start: int, rate: bool) -> int | None:
+    """Where the heading of the list the number at ``start`` belongs to ends, or None.
+
+    The clause runs back to a sentence stop, except the colon that
+    introduces a list ("כדלקמן:"); the last plural noun of the unit's kind
+    with its copula heads the list, and only list items may stand between it
+    and the number; within a condition the list must end before the clause
+    runs on.
+    """
+    clause_start = start
+    depth = 0
+    while clause_start > 0:
+        character = text[clause_start - 1]
+        if character == ")":
+            depth += 1
+        elif character == "(" and depth > 0:
+            depth -= 1
+        elif character in _HEBREW_SENTENCE_STOP_CHARACTERS and depth == 0:
+            # A stop inside a parenthetical ("(להלן: הצו)") is none.
+            if character == "\n":
+                resumed = clause_start
+                while resumed < len(text) and _is_horizontal_space(text[resumed]):
+                    resumed += 1
+                if (
+                    resumed < len(text)
+                    and _hebrew_member_starts_at(text, resumed)
+                    and _search_before(
+                        _HEBREW_SOFT_WRAP_BEFORE_PATTERN, text, clause_start - 1, 24
+                    )
+                    is not None
+                ):
+                    # A soft wrap inside the list, indented or not, a
+                    # signed number or number word after it or not ("1,\n2
+                    # ו־3", "הם\n  1, 2", "10,\n  -20 ו־30", "10,\n  -עשרים").
+                    clause_start -= 1
+                    continue
+            if (
+                character == "."
+                and clause_start >= 2
+                and clause_start < len(text)
+                and text[clause_start - 2].isdigit()
+                and text[clause_start].isdigit()
+            ):
+                # A decimal point ("10.5, 20 ו־30") is no stop.
+                clause_start -= 1
+                continue
+            if character == ":" and text.endswith(
+                _HEBREW_LIST_COLON_WORDS, 0, _end_before_space(text, clause_start - 1)
+            ):
+                # The colon that introduces a list ("כדלקמן:", "הם:").
+                clause_start -= 1
+                continue
+            break
+        clause_start -= 1
+    pattern = (
+        _HEBREW_PLURAL_RATE_HEADING_PATTERN
+        if rate
+        else _HEBREW_PLURAL_AMOUNT_HEADING_PATTERN
+    )
+    heading: "re.Match[str] | None" = None
+    for match in pattern.finditer(text, clause_start, start):
+        heading = match
+    if heading is None or not _hebrew_list_body_only(text, heading.end(), start):
+        return None
+    segment_start = text.rfind(",", clause_start, heading.start()) + 1
+    # The marker may end inside the heading's own stack ("ככל שהתשלומים",
+    # "כשהתשלומים"); one further in, in the subject phrase, is no marker.
+    stack_end = heading.start() + len(heading.group("stack"))
+    marker = _HEBREW_CONDITIONAL_CLAUSE_PATTERN.search(
+        text, max(clause_start, segment_start), heading.end()
+    )
+    if marker is not None and marker.end() <= stack_end:
+        state = _hebrew_list_end_state(text, _hebrew_list_body_end(text, start))
+        if state == "consequent":
+            return None
+        if state == "ambiguous":
+            headings = _HEBREW_AMBIGUOUS_HEADINGS.get()
+            if headings is not None:
+                headings.append((heading.start(), heading.end(), start, rate))
+            if not _HEBREW_AMBIGUOUS_AS_HEADED.get():
+                return None
+    return heading.end()
+
+
+def _hebrew_percent_tail_after(text: str, end: int) -> tuple[float, int] | None:
+    """The fractional tail after a percent marker ("% וחצי") and where it
+    ends, or None when there is none or a unit of its own follows it."""
+    tail = _HEBREW_PERCENT_TAIL_AFTER_PATTERN.match(text, end)
+    if tail is None or _HEBREW_UNIT_AFTER_PATTERN.match(text, tail.end()):
+        return None
+    if tail.group("tail"):
+        return _HEBREW_MIXED_FRACTION_VALUES[tail.group("tail")], tail.end()
+    return (
+        _HEBREW_FRACTION_COUNT_VALUES[tail.group("tail_count")]
+        * _HEBREW_COUNTED_FRACTION_VALUES[tail.group("tail_fraction")],
+        tail.end(),
+    )
+
+
+def _hebrew_vav_pair_is_coordinated(text: str, start: int, rate: bool) -> bool:
+    return _hebrew_list_heading_end(text, start, rate) is not None
+
+
+@dataclass(frozen=True)
+class AmbiguousReadingMember:
+    """One member of an ambiguous list: its text, the reading that grounds
+    and the shared-unit reading a reviewed assertion may select."""
+
+    span: tuple[int, int]
+    text: str
+    unscaled: float
+    scaled: float
+
+
+@dataclass(frozen=True)
+class AmbiguousReadingGroup:
+    """A list the source leaves ambiguous, with both candidate readings."""
+
+    label: str
+    heading: str
+    span: tuple[int, int]
+    text: str
+    members: tuple[AmbiguousReadingMember, ...]
+
+
+# A printed mixed number with an ASCII slash in Hebrew text ("2 1/2, 10
+# ו־30 אחוזים") is one number, as it is with the fraction slash; a Hebrew
+# letter or a list mark must follow, so a date or a ratio never joins.
+_HEBREW_ASCII_MIXED_FRACTION_PATTERN = re.compile(
+    "(?<![\\d.,/])(?:(?<![\u05d0-\u05ea])(?P<sign>[-\u2212]))?"
+    "(?:(?P<whole>(?:\\d{1,3}(?:,\\d{3})+|\\d+))[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]+)?(?P<numerator>\\d+)\\s*/\\s*(?P<denominator>\\d+)"
+    "(?![\\d/])(?=\\s*(?:[\u0590-\u05ff,;.]|$))"
+)
+# A vulgar-fraction glyph in Hebrew text, bare or after a whole, signed or
+# not ("½", "-½", "2½, 10 ו־30 אחוזים"), is one number, a rate when a
+# percent marker follows ("2½%"); read before the general glyph reader.
+_HEBREW_GLYPH_NUMBER_PATTERN = re.compile(
+    "(?<![\\d.,/])(?:(?<![\u05d0-\u05ea])(?P<sign>[-\u2212]))?"
+    "(?:(?P<whole>(?:\\d{1,3}(?:,\\d{3})+|\\d+))[ \\t\\u00a0\\u1680\\u2000-\\u200a\\u202f\\u205f\\u3000]*)?(?P<glyph>[\u00bc-\u00be\u2150-\u215e])(?![\\d])"
+)
+
+
+def _hebrew_member_unscaled_value(
+    cleaned: str,
+    span: tuple[int, int],
+    grounded: "Sequence[NumericOccurrence]",
+) -> float | None:
+    """The value the member at ``span`` grounds as, read as the source reads it.
+
+    The normal extraction over the cleaned text already reads signs,
+    printed and mixed fractions and number words; the occurrence whose
+    span the member covers gives the value.
+    """
+    raw = cleaned[span[0] : span[1]]
+    piece = raw.strip()
+    piece_start = span[0] + (len(raw) - len(raw.lstrip()))
+    piece_end = piece_start + len(piece)
+    for occurrence in grounded:
+        if occurrence.start == piece_start and occurrence.end == piece_end:
+            return occurrence.value
+    # A member no occurrence spans grounds as nothing the report may claim.
+    return None
+
+
+def hebrew_ambiguous_reading_groups(text: str) -> list[AmbiguousReadingGroup]:
+    """The lists a Hebrew source leaves ambiguous, with both readings.
+
+    A headed list inside a condition whose end no evidence decides grounds
+    unscaled; this reports, per such list, the members with the reading
+    that grounds and the shared-unit reading, so an encoder sees why the
+    latter is ungrounded and a reviewer sees what an assertion would select.
+    Spans and text are in the cleaned source the numeric passes read.
+    """
+    cleaned_tracked = _clean_source_text_for_numeric_extraction_tracked(text)
+    _schedule, cleaned = _iter_collapsed_schedule_row_occurrences(cleaned_tracked.text)
+    structural = _structural_numeric_component_spans(cleaned)
+
+    def run() -> dict[tuple[int, int], float]:
+        found: dict[tuple[int, int], float] = {}
+        for span, rate in _iter_hebrew_percent_range_lower_matches(cleaned, structural):
+            found.setdefault(span, rate)
+        for span, value, _is_rate in _iter_hebrew_shared_scale_range_matches(
+            cleaned, structural
+        ):
+            found.setdefault(span, value)
+        return found
+
+    base = run()
+    headings: list[tuple[int, int, int, bool]] = []
+    as_headed_token = _HEBREW_AMBIGUOUS_AS_HEADED.set(True)
+    headings_token = _HEBREW_AMBIGUOUS_HEADINGS.set(headings)
+    try:
+        widened = run()
+    finally:
+        _HEBREW_AMBIGUOUS_AS_HEADED.reset(as_headed_token)
+        _HEBREW_AMBIGUOUS_HEADINGS.reset(headings_token)
+    candidates = {span: value for span, value in widened.items() if span not in base}
+    if not candidates:
+        return []
+    grounded = _tokenize_numeric_occurrences_from_text(cleaned).grounding
+    anchors = sorted({(hs, he) for hs, he, _start, _rate in headings})
+    groups: list[AmbiguousReadingGroup] = []
+    for index, (heading_start, heading_end) in enumerate(anchors):
+        limit = anchors[index + 1][0] if index + 1 < len(anchors) else len(cleaned)
+        members: list[AmbiguousReadingMember] = []
+        for span in sorted(candidates):
+            if span[0] < heading_end or span[0] >= limit:
+                continue
+            unscaled = _hebrew_member_unscaled_value(cleaned, span, grounded)
+            if unscaled is None:
+                continue
+            members.append(
+                AmbiguousReadingMember(
+                    span, cleaned[span[0] : span[1]], unscaled, candidates[span]
+                )
+            )
+        if not members:
+            continue
+        group_end = max(member.span[1] for member in members)
+        unit_end = _hebrew_list_body_end(cleaned, group_end)
+        groups.append(
+            AmbiguousReadingGroup(
+                HEBREW_HEADED_LIST_IN_CONDITION,
+                cleaned[heading_start:heading_end],
+                (heading_start, unit_end),
+                cleaned[heading_start:unit_end],
+                tuple(members),
+            )
+        )
+    return groups
+
+
+def _ambiguous_reading_ungrounded_literal_hint(
+    source_text: str | None, value: float
+) -> str:
+    """Name the ambiguous list whose shared-unit reading ``value`` matches."""
+    if not source_text or re.search("[\u0590-\u05ff]", source_text) is None:
+        return ""
+    for group in hebrew_ambiguous_reading_groups(source_text):
+        if not any(
+            math.isclose(
+                value, member.scaled, rel_tol=0, abs_tol=NUMERIC_GROUNDING_ABS_TOLERANCE
+            )
+            for member in group.members
+        ):
+            continue
+        unscaled = ", ".join(f"{member.unscaled:g}" for member in group.members)
+        scaled = ", ".join(f"{member.scaled:g}" for member in group.members)
+        return (
+            f" Ambiguous reading ({group.label}): \u00ab{group.text}\u00bb may share "
+            f"its unit across the list; its members ground as {unscaled} here and "
+            f"would read {scaled} under the shared unit. The shared-unit reading "
+            "is not grounded until a reviewed reading assertion selects it."
+        )
+    return ""
+
+
+# A colon-terminated currency heading ("הסכומים בשקלים:") denominates the
+# bare numbers of the clauses after it: "הקנס יהיה 50 או 2 אחוזים" under it
+# keeps 50, while a rate word in the clause still makes a pair rates.
+_HEBREW_CURRENCY_HEADING_PATTERN = re.compile(
+    '(?<![\u0590-\u05ff])(?:כל\\s+)?(?:ה[\u05be-]?)?סכומים\\s+ב[\u05be-]?(?:שקלים(?:\\s+חדשים)?|ש"ח|ש״ח|דולרים|דולר|יורו|אירו|לירות)\\s*:'
+)
+
+
+@functools.lru_cache(maxsize=32)
+def _hebrew_paragraph_and_heading_index(
+    text: str,
+) -> tuple[tuple[int, ...], tuple[tuple[int, int], ...]]:
+    """Where each paragraph gap ends and where each currency heading lies.
+
+    Computed once per text and looked up by bisection, so a clause deep in
+    a long text costs no more than one at its head.
+    """
+    gaps = tuple(match.end() for match in _PARAGRAPH_GAP_PATTERN.finditer(text))
+    headings = tuple(
+        match.span() for match in _HEBREW_CURRENCY_HEADING_PATTERN.finditer(text)
+    )
+    return gaps, headings
+
+
+def _hebrew_paragraph_start(text: str, start: int) -> int:
+    """Where the paragraph holding ``start`` begins: after the last blank
+    line, form feed or Unicode line or paragraph separator before it."""
+    gaps, _ = _hebrew_paragraph_and_heading_index(text)
+    index = bisect.bisect_right(gaps, start)
+    return gaps[index - 1] if index else 0
+
+
+def _hebrew_currency_heading_before(text: str, start: int) -> bool:
+    """Whether a colon-terminated currency heading governs the clause at ``start``.
+
+    The heading denominates the clauses after it to the end of its
+    paragraph, however long: a blank line ends its reach, a distance does
+    not.
+    """
+    _, headings = _hebrew_paragraph_and_heading_index(text)
+    index = bisect.bisect_right(headings, (start, start))
+    if index == 0:
+        return False
+    heading_start, heading_end = headings[index - 1]
+    return heading_end <= start and heading_start >= _hebrew_paragraph_start(
+        text, start
+    )
+
+
+def _hebrew_unit_word_after(text: str, end: int) -> bool:
+    """A currency word or a percent noun right after ``end``: a unit that distributes over "או"."""
+    after = end
+    while after < len(text) and _hebrew_currency_gap_character(text[after]):
+        after += 1
+    word = _HEBREW_WORD_TOKEN_PATTERN.match(text, after)
+    if word is None:
+        return False
+    token = word.group(0)
+    return token in _HEBREW_CURRENCY_WORDS or _hebrew_is_percent_noun(token)
+
+
+def _hebrew_operand_is_denominated(text: str, start: int, end: int) -> bool:
+    """Whether the operand in ``text[start:end]`` carries a currency mark of its own.
+
+    "$500 או 2% מהמחזור", "בין ₪ 500 ל־3 מיליון", "CAD 500", "500 EUR",
+    "500 שקלים": a denominated amount is an amount, whatever join or
+    shared scale word follows it. The markers are the pipeline's own,
+    with the shekel sign and the Hebrew currency words; whitespace and
+    bidirectional formatting between the mark and the amount are skipped,
+    however long the run.
+    """
+    before = start
+    while before > 0 and _hebrew_currency_gap_character(text[before - 1]):
+        before -= 1
+    if (
+        _search_before(_HEBREW_CURRENCY_MARK_BEFORE_PATTERN, text, before, 40)
+        is not None
+    ):
+        return True
+    after = end
+    while after < len(text) and _hebrew_currency_gap_character(text[after]):
+        after += 1
+    if _HEBREW_CURRENCY_MARK_AFTER_PATTERN.match(text, after) is not None:
+        return True
+    word = _HEBREW_WORD_TOKEN_PATTERN.match(text, after)
+    return word is not None and word.group(0) in _HEBREW_CURRENCY_WORDS
+
+
+def _hebrew_endpoint_words(text: str, start: int, end: int) -> list[str]:
+    """The words of a range endpoint, less a partitive after them ("של האחוז")."""
+    words = text[start:end].split()
+    while len(words) > 1 and words[-1] in _HEBREW_FRACTION_PARTITIVE_WORDS:
+        words.pop()
+    return words
+
+
+def _hebrew_endpoint_is_a_mixed_number(words: "Sequence[str]") -> bool:
+    """Whether a fraction word ends the endpoint as a mixed number's tail.
+
+    "2 וחצי" and "3 ושלושה רבעים" are mixed numbers: the vav-bound tail
+    belongs to the number before it. "3 עשיריות", "שלושה רבעים" and "2
+    וחצי עשיריות" (a mixed count of tenths) are not.
+    """
+    return len(words) >= 2 and (
+        _hebrew_vav_fraction_tail(words[-1:]) is not None
+        or (len(words) >= 3 and _hebrew_vav_fraction_tail(words[-2:]) is not None)
+    )
+
+
+def _hebrew_endpoint_fraction_unit(text: str, start: int, end: int) -> float | None:
+    """The fraction word's value where the endpoint is a count of it, else None.
+
+    "3 עשיריות", "אלף עשיריות", "2 וחצי עשיריות" and "שלוש עשיריות של"
+    count a fraction word, which a bare endpoint before them shares. A
+    fraction word that is a mixed number's tail ("3 ושלושה רבעים") is the
+    number's own, and "3", "אלף" and "2 וחצי" count none.
+    """
+    words = _hebrew_endpoint_words(text, start, end)
+    if not words or _hebrew_endpoint_is_a_mixed_number(words):
+        return None
+    return _HEBREW_COUNTED_FRACTION_VALUES.get(words[-1])
+
+
+_HEBREW_ENDPOINT_FRACTION_WORDS = frozenset(
+    set(_HEBREW_FRACTION_VALUES)
+    | set(_HEBREW_MIXED_FRACTION_VALUES)
+    | set(_HEBREW_COUNTED_FRACTION_VALUES)
+    | set(_HEBREW_FRACTION_CONSTRUCT_VALUES)
+)
+
+
+def _hebrew_endpoint_is_a_fraction(text: str, start: int, end: int) -> bool:
+    """Whether the endpoint is a fraction of its own, which shares no fraction word.
+
+    "חצי", "מחצי", "−חצי", "רבע", "שלושה רבעים", "3 עשיריות" and the
+    printed "½", "1/2" and "1⁄2" are complete; "2", "שתיים", "−2" and the
+    mixed "2 וחצי" and "2½" take the fraction word of the counted fraction
+    after them ("בין 2 וחצי ל־3 עשיריות האחוז").
+    """
+    words = _hebrew_endpoint_words(text, start, end)
+    if not words or _hebrew_endpoint_is_a_mixed_number(words):
+        return False
+    # A unary sign is the endpoint's, not its first word's.
+    words[0] = words[0].lstrip("-\u2212")
+    printed = _HEBREW_DIGITS_BEFORE_PATTERN.fullmatch(" ".join(words))
+    if printed is not None:
+        return bool(
+            (printed.group("glyph") and not printed.group("glyph_whole"))
+            or (printed.group("numerator") and not printed.group("whole"))
+        )
+    return (
+        _strip_hebrew_number_prefix(words[-1], _HEBREW_ENDPOINT_FRACTION_WORDS)
+        is not None
+    )
+
+
+def _hebrew_number_run_ending_at(
+    text: str,
+    end: int,
+    tokens: "_HebrewWordTokens",
+    allow_scale: bool = False,
+) -> tuple[int, float, str] | None:
+    """The longest spelled number ending flush at ``end``: (start, value, first word)."""
+    run = _hebrew_word_run_before(text, end, tokens=tokens)
+    # A printed whole with a spelled tail ("2 וחצי") is one endpoint; its
+    # first word is the tail, which carries no range prefix of its own.
+    mixed = _hebrew_printed_mixed_count(text, run)
+    if mixed is not None:
+        return mixed[1], mixed[0], ""
+    # A printed count with a fraction word ("3 עשיריות", "3 וחצי עשיריות")
+    # is one endpoint the same way: "בין 2 עשיריות ל־3 עשיריות האחוז".
+    counted = _hebrew_printed_fraction_count(text, run)
+    if counted is not None:
+        return counted[1], counted[0], ""
+    for width in range(len(run), 0, -1):
+        words = [token.group(0) for token in run[-width:]]
+        parsed = _parse_hebrew_number_run(words)
+        if (
+            parsed is not None
+            and parsed[0] == len(words)
+            and (allow_scale or not parsed[2] & _HEBREW_SCALE_KINDS)
+        ):
+            return run[-width].start(), parsed[1], words[0]
+        # A fraction word is an endpoint too: "בין חצי לשלושה אחוזים", "רבע
+        # עד חצי אחוז".
+        fractional = _hebrew_fractional_count(words)
+        if fractional is not None:
+            return run[-width].start(), fractional, words[0]
+    return None
+
+
+def _iter_hebrew_percent_range_lower_matches(
+    text: str,
+    structural_spans: "Sequence[tuple[int, int]]" = (),
+) -> list[tuple[tuple[int, int], float]]:
+    """The lower endpoint of a range of rates, as a rate, with its span.
+
+    ``structural_spans`` are the reference spans the structural pass found;
+    the walk back over earlier alternatives stops at one ("לפי סעיף קטן 5, 2
+    או 3 אחוזים" keeps subsection 5), while a supplement's amounts are no
+    reference and share the noun ("תוספת 1, 2 או 3 אחוזים").
+    """
+    matches: list[tuple[tuple[int, int], float]] = []
+    tokens: _HebrewWordTokens | None = None
+    # The printed-scale pass's complete amounts ("3 אלפים", "3 וחצי אלפים",
+    # "3 אלפים ומאה"), keyed by where they end, and its rates' spans: an
+    # endpoint is read whole. Built once, at the first noun.
+    printed_amounts: dict[int, tuple[int, float]] = {}
+    printed_rates: list[tuple[int, int]] = []
+    printed_rate_values: dict[int, float] = {}
+    rate_starts: list[int] = []
+    for noun in _HEBREW_PERCENT_NOUN_ANYWHERE_PATTERN.finditer(text):
+        if tokens is None:
+            tokens = _HebrewWordTokens(text)
+            for span, value, is_rate in _iter_hebrew_printed_scale_matches(text):
+                if is_rate:
+                    printed_rates.append(span)
+                    printed_rate_values[span[0]] = value * 100
+                elif span[1] not in printed_amounts and any(
+                    word in _HEBREW_PRINTED_SCALE_VALUES
+                    for word in text[span[0] : span[1]].split()
+                ):
+                    # Matches arrive sorted, so the longest amount ending
+                    # at a position is the first. Only an amount with a
+                    # scale word is an endpoint here; a spelled lead with a
+                    # plain printed remainder ("חמש מאות ו־2") is not.
+                    printed_amounts[span[1]] = (span[0], value)
+            rate_starts = [span[0] for span in printed_rates]
+        # The upper endpoint, printed or spelled, right before the noun -- a
+        # printed multiplier with its scale word ("4 אלפים אחוזים", "4 וחצי
+        # אלפים אחוזים") is one endpoint, the printed-scale pass's rate.
+        upper_first: str | None = None
+        upper_scaled = False
+        rate_index = bisect.bisect_right(rate_starts, noun.start()) - 1
+        digits = _search_before(_HEBREW_DIGITS_BEFORE_PATTERN, text, noun.start(), 32)
+        upper_percent: float | None = None
+        if rate_index >= 0 and printed_rates[rate_index][1] > noun.start():
+            upper_start = printed_rates[rate_index][0]
+            upper_scaled = True
+            upper_percent = printed_rate_values.get(upper_start)
+        elif digits is not None:
+            upper_start = digits.start()
+            upper_percent = _hebrew_printed_endpoint_value(digits)
+        else:
+            spelled = _hebrew_number_run_ending_at(text, noun.start(), tokens, True)
+            if spelled is None:
+                continue
+            upper_start, upper_percent, upper_first = spelled
+            # A spelled endpoint with a scale of its own ("לשלושת אלפים
+            # ומאתיים אחוזים", "אלפיים") is scaled as a printed one is.
+            upper_scaled = _hebrew_spelled_span_carries_a_scale(
+                text, upper_start, noun.start()
+            )
+        # A counted fraction's fraction word is shared by a bare endpoint
+        # before it ("בין שתיים לשלוש עשיריות האחוז" runs from two tenths of
+        # a percent), and a scale word inside its count ("אלף עשיריות") is
+        # the count's alone, not a scale the lower endpoint shares.
+        upper_fraction = _hebrew_endpoint_fraction_unit(text, upper_start, noun.start())
+        if upper_fraction is not None:
+            upper_scaled = False
+        # A unary sign on the upper endpoint ("−שלושה או −חצי אחוז") is the
+        # endpoint's; the join stands before the sign.
+        if _hebrew_unary_sign_at(text, upper_start - 1):
+            upper_start -= 1
+        # The join before it.
+        join = _search_before(_HEBREW_RANGE_JOIN_BEFORE_PATTERN, text, upper_start, 12)
+        vav_join = False
+        comma_join = False
+        if join is not None:
+            lower_end = join.start()
+            # "ל־" needs "בין" or "מ־" before the lower endpoint; "ו־" joins
+            # a coordinated pair only ("שיעורי המס הם 2 ו־3 אחוזים, בהתאמה").
+            vav_join = join.group("bound") == "\u05d5"
+            comma_join = join.group("comma") is not None
+            needs_bound = join.group("free") is None and not vav_join and not comma_join
+        elif (
+            upper_first is not None
+            and upper_first[:1] in ("\u05dc", "\u05d5")
+            and _strip_hebrew_number_prefix(
+                upper_first[1:].lstrip("\u05be-"), _HEBREW_RUN_START_VOCABULARY
+            )
+            is not None
+        ):
+            # The whitespace before the upper endpoint stays, so a printed
+            # lower endpoint ("בין 2 לשלושה אחוזים") ends flush before it. A
+            # vav prefix joins a coordinated pair only ("שניים ושלושה
+            # אחוזים, בהתאמה").
+            lower_end = upper_start
+            vav_join = upper_first.startswith("\u05d5")
+            needs_bound = not vav_join
+        else:
+            continue
+        # The lower endpoint, printed or spelled, right before the join.
+        lower_digits = _search_before(
+            _HEBREW_DIGITS_BEFORE_PATTERN, text, lower_end, 32
+        )
+        lower_flush = _end_before_space(text, lower_end)
+        lower_amount = printed_amounts.get(lower_flush)
+        spelled_lower = (
+            None
+            if lower_amount is not None or lower_digits is not None
+            else _hebrew_number_run_ending_at(text, lower_end, tokens, True)
+        )
+        # A lower endpoint carries a scale of its own when it is a printed
+        # amount or its spelled words include a scale word, remainder and
+        # all ("שלושת אלפים ומאה").
+        # A lower endpoint is complete on its own when it is a printed
+        # amount, a spelled number with a scale, or a grouped or
+        # thousand-plus printed number ("בין 2,000 ל־3 אלפים אחוזים"); only
+        # a small bare number omits the upper endpoint's scale. Under a
+        # heading every printed member shares the scale ("השיעורים הם 900,
+        # 1000 ו־1100 אלפים אחוזים"), and the shared-scale pass reads it.
+        # A fraction before a scaled upper endpoint, counted or not ("בין
+        # חצי לבין 3 אלפים אחוזים", "בין שלושה רבעים לבין 3 אלפים אחוזים"),
+        # takes the scale, which the shared-scale pass reads; a counted
+        # fraction's own scale word ("אלף עשיריות") is no shared scale, so
+        # a counted upper endpoint is never scaled here.
+        lower_scaled = (
+            lower_amount is not None
+            or (
+                spelled_lower is not None
+                and _hebrew_spelled_span_carries_a_scale(
+                    text, spelled_lower[0], lower_flush
+                )
+            )
+            or (
+                lower_digits is not None
+                and (
+                    "," in lower_digits.group(0)
+                    or abs(_hebrew_printed_endpoint_value(lower_digits) or 0) >= 1000
+                )
+                and not (
+                    upper_scaled
+                    and _hebrew_vav_pair_is_coordinated(
+                        text, lower_digits.start(), True
+                    )
+                )
+            )
+        )
+        if upper_scaled and not lower_scaled:
+            # The upper endpoint's scale word is shared with a scale-less
+            # lower endpoint ("2 עד 3 אלפים אחוזים"); the shared-scale pass
+            # reads that pair. Here both endpoints carry a scale of their
+            # own.
+            continue
+        if lower_amount is not None:
+            # "בין 3 אלפים ל־4 אלפים אחוזים", "בין 3 וחצי אלפים ל־4 אלפים
+            # אחוזים", "בין 3 אלפים ומאה ל־4 אלפים אחוזים": the lower
+            # endpoint is the whole printed amount.
+            lower_span = (lower_amount[0], lower_flush)
+            lower_value = lower_amount[1]
+            lower_first = None
+        elif lower_digits is not None:
+            lower_value = _hebrew_printed_endpoint_value(lower_digits)
+            if lower_value is None:
+                continue
+            lower_span = (lower_digits.start(), _end_before_space(text, lower_end))
+            lower_first = None
+        else:
+            if spelled_lower is None:
+                continue
+            lower_span = (spelled_lower[0], lower_flush)
+            lower_value = spelled_lower[1]
+            lower_first = spelled_lower[2]
+            if _hebrew_unary_sign_at(text, lower_span[0] - 1):
+                # "−שלושה עד שלושה אחוזים", "בין −חצי ל־3 אחוזים": the sign
+                # is the endpoint's, span and value alike, and the bound is
+                # read before it.
+                lower_value = -lower_value
+                lower_span = (lower_span[0] - 1, lower_flush)
+        if upper_fraction is not None and not _hebrew_endpoint_is_a_fraction(
+            text, lower_span[0], lower_span[1]
+        ):
+            lower_value *= upper_fraction
+        if _hebrew_operand_is_denominated(text, lower_span[0], lower_span[1]):
+            # "$500 או 2% מהמחזור": a denominated amount shares no unit.
+            continue
+        heading_end = _hebrew_list_heading_end(text, lower_span[0], True)
+        headed = heading_end is not None
+        list_coordinated = vav_join or comma_join
+        if list_coordinated and not headed:
+            continue
+        if (
+            join is not None
+            and join.group("free") == "או"
+            and not headed
+            and (
+                "%" in noun.group(0)
+                or _hebrew_currency_heading_before(text, lower_span[0])
+            )
+            and not _hebrew_rate_word_before(text, lower_span[0])
+        ):
+            # "קנס של 50 או 2% מהמחזור", "הקנס יהיה 50 או 2%": a sign does not
+            # distribute, so the number before "או" keeps its value unless a
+            # rate word in the clause makes the pair rates ("בשיעור של 2 או
+            # 3%"). The noun distributes: "תשלום של 125 או 150 אחוזים".
+            continue
+        if (
+            (join is None or join.group("free") != "או")
+            and not list_coordinated
+            and upper_percent is not None
+            and lower_value >= upper_percent
+            and _search_before(_HEBREW_BETWEEN_BEFORE_PATTERN, text, lower_span[0], 16)
+            is not None
+            # A fraction of its own before the noun is a rate whatever the
+            # order: "בין ½ ל־3 עשיריות האחוז" and "בין חצי לבין שלוש
+            # עשיריות האחוז" run from half a percent.
+            and not _hebrew_endpoint_is_a_fraction(text, lower_span[0], lower_span[1])
+            # So is any number where a rate word governs the clause, whatever
+            # its size: "שיעור המס יהיה בין 5 ל־3 אחוזים" runs from five
+            # percent, "בין 3½ ל־2½ אחוזים" from three and a half, and
+            # "שיעור הזיכוי יהיה בין 150 ל־125 אחוזים" from a hundred and
+            # fifty.
+            and not _hebrew_rate_word_before(text, lower_span[0])
+        ):
+            # With no rate word, a "בין" range of bare numbers ascends: "הקנס
+            # יהיה בין 500 ל־3 אחוזים" is no range of rates; "יופחת מ־5 ל־3
+            # אחוזים" decreases and is one.
+            continue
+        if (
+            needs_bound
+            and not (
+                _search_before(
+                    _HEBREW_RANGE_LOWER_BOUND_PATTERN, text, lower_span[0], 16
+                )
+                is not None
+                # "משניים לשלושה אחוזים": the bound is the מ prefix on the
+                # spelled lower endpoint itself.
+                or (
+                    lower_first is not None
+                    and lower_first.startswith("\u05de")
+                    and _strip_hebrew_number_prefix(
+                        lower_first[1:].lstrip("\u05be-"), _HEBREW_RUN_START_VOCABULARY
+                    )
+                    is not None
+                )
+            )
+        ):
+            continue
+        # An explicit range -- "עד", "ועד", "לבין", "או", or "בין"/"מ־" before
+        # the lower endpoint -- scales a thousand-plus endpoint as a rate:
+        # "בין 1,000 ל־2,000 אחוזים" runs from ten. Without one, a scale
+        # word or a thousand-plus amount before the join is an amount of
+        # its own: "3 מיליון ו־20 אחוזים" is three million, and twenty
+        # percent.
+        explicit_range = (
+            (join is not None and join.group("free") is not None)
+            or _search_before(
+                _HEBREW_RANGE_LOWER_BOUND_PATTERN, text, lower_span[0], 16
+            )
+            is not None
+            or (
+                lower_first is not None
+                and lower_first.startswith("\u05de")
+                and _strip_hebrew_number_prefix(
+                    lower_first[1:].lstrip("\u05be-"), _HEBREW_RUN_START_VOCABULARY
+                )
+                is not None
+            )
+        )
+        if lower_value >= 1000 and not explicit_range and not headed:
+            continue
+        matches.append((lower_span, lower_value / 100))
+        # Earlier alternatives share the noun too: "1 או 2 או 3 אחוזים", "1, 2
+        # או 3 אחוזים". Walk back over free joins and commas.
+        # The walk runs to the list's grammatical boundary, however many
+        # members the list has; only a step that fails to move it earlier
+        # ends it.
+        cursor = lower_span[0]
+        while True:
+            earlier_join = _search_before(
+                _HEBREW_RANGE_WALK_JOIN_PATTERN, text, cursor, 12
+            )
+            if earlier_join is not None:
+                earlier_end = earlier_join.start()
+                coordinated_crossing = (
+                    earlier_join.group("vav") is not None
+                    or earlier_join.group("comma") is not None
+                )
+            elif (
+                headed
+                and cursor > 0
+                and text[cursor] == "\u05d5"
+                and text[cursor - 1].isspace()
+            ):
+                # A vav on the endpoint itself ("אחד ושניים ושלושה אחוזים").
+                earlier_end = cursor
+                coordinated_crossing = True
+            else:
+                break
+            if not headed and coordinated_crossing:
+                # An unheaded list joins by "או" alone; a headed list by any
+                # connector within its body.
+                break
+            earlier_digits = _search_before(
+                _HEBREW_DIGITS_BEFORE_PATTERN, text, earlier_end, 32
+            )
+            earlier_flush = _end_before_space(text, earlier_end)
+            earlier_amount = printed_amounts.get(earlier_flush)
+            if earlier_amount is not None:
+                earlier_span = (earlier_amount[0], earlier_flush)
+                earlier_value = earlier_amount[1]
+            elif earlier_digits is not None:
+                earlier_value = _hebrew_printed_endpoint_value(earlier_digits)
+                if earlier_value is None:
+                    break
+                earlier_span = (
+                    earlier_digits.start(),
+                    _end_before_space(text, earlier_end),
+                )
+            else:
+                earlier = _hebrew_number_run_ending_at(text, earlier_end, tokens, True)
+                if earlier is None:
+                    break
+                earlier_span = (earlier[0], _end_before_space(text, earlier_end))
+                earlier_value = earlier[1]
+                if _hebrew_unary_sign_at(text, earlier_span[0] - 1):
+                    earlier_value = -earlier_value
+                    earlier_span = (earlier_span[0] - 1, earlier_span[1])
+            if upper_fraction is not None and not _hebrew_endpoint_is_a_fraction(
+                text, earlier_span[0], earlier_span[1]
+            ):
+                earlier_value *= upper_fraction
+            if (
+                _span_overlaps(earlier_span, structural_spans)
+                or _search_before(
+                    _HEBREW_RANGE_WALK_STOP_PATTERN, text, earlier_span[0], 24
+                )
+                is not None
+            ):
+                break
+            if earlier_value >= 1000 and not explicit_range and not headed:
+                break
+            if _hebrew_operand_is_denominated(text, earlier_span[0], earlier_span[1]):
+                break
+            if (
+                not headed
+                and earlier_join is not None
+                and earlier_join.group(0).lstrip().startswith("או")
+                and (
+                    "%" in noun.group(0)
+                    or _hebrew_currency_heading_before(text, earlier_span[0])
+                )
+                and not _hebrew_rate_word_before(text, earlier_span[0])
+            ):
+                break
+            if headed and earlier_span[0] < heading_end:
+                # The heading bounds the list: an item before it is no item.
+                break
+            matches.append((earlier_span, earlier_value / 100))
+            if earlier_span[0] >= cursor:
+                break
+            cursor = earlier_span[0]
+    return matches
+
+
 _EUROPEAN_RAW_NUMBER = r"-?(?:\d{1,3}(?:[.\u00a0\u202f ]\d{3})+|\d+)(?:\s*[,.]\d{1,4})?"
 _RANGE_ENDPOINT_RAW_NUMBER = (
     r"-?(?:\d{1,3}(?:[.\u00a0\u202f]\d{3})+|\d+)(?:[,.]\d{1,4})?"
@@ -1758,7 +7361,7 @@ _RANGE_ENDPOINT_RAW_NUMBER = (
 _PERCENTAGE_RAW_NUMBER = (
     r"-?(?:\d{1,3}(?:[.\u00a0\u202f ]\d{3})+|\d+)"
     r"(?:\s*[,.]\d{1,4})?"
-    r"|-?\d+\.\d+"
+    r"|-?\d+\.\d+|(?<!\d)-?\.\d+"
 )
 _BELGIAN_NUMERIC_RANGE_PATTERN = re.compile(
     rf"\b(?P<start>{_RANGE_ENDPOINT_RAW_NUMBER})\s*(?:à|tot|t/m)\s*"
@@ -1770,12 +7373,37 @@ _EUROPEAN_MONEY_AMOUNT_PATTERN = re.compile(
     r"(?:\s*\]\s*\d+)?\s*(?:euro|euros|eur\b|€)",
     re.IGNORECASE,
 )
+# A hyphen after a Hebrew letter joins a prefix to the number ("ל-3%") and
+# is no sign; a sign no letter precedes still negates ("-3%").
+# A bidirectional formatting mark inside a numeric token ("−\u200f.5%",
+# "3\u200f%") is nothing to the reader.
+_BIDI_MARKS_FRAGMENT = BIDI_MARKS_FRAGMENT
+# A comma-grouped number keeps its groups and its decimal part ("1,234.5",
+# "1,234,567"), read whole before the plainer shapes, so no suffix of it
+# is a number of its own.
+_PERCENTAGE_RAW_NUMBER_UNSIGNED = (
+    r"\d{1,3}(?:,\d{3})+(?:\.\d+)?"
+    r"|(?:\d{1,3}(?:[.\u00a0\u202f ]\d{3})+|\d+)(?:\s*[,.]\d{1,4})?|\d+\.\d+|(?<!\d)\.\d+"
+)
+_BIDI_MARKS_PATTERN = re.compile(_BIDI_MARKS_FRAGMENT)
+_GROUPED_THOUSANDS_DECIMAL_PATTERN = re.compile(
+    r"-?\d{1,3}(?:,\d{3})+(?P<decimal>\.\d+)?"
+)
+_HEBREW_LETTER_PATTERN = re.compile("[\u0590-\u05ff]")
 _DIRECT_PERCENTAGE_PATTERN = re.compile(
-    rf"(?P<number>{_PERCENTAGE_RAW_NUMBER})\s*(?:%|\bp\.?\s*c\.?\b)",
+    rf"(?P<number>(?:(?<![\u05d0-\u05ea\d.,])[-\u2212]{_BIDI_MARKS_FRAGMENT}*)?(?<![\d.,])(?:{_PERCENTAGE_RAW_NUMBER_UNSIGNED}){_BIDI_MARKS_FRAGMENT}*)"
+    r"\s*(?:%|\bp\.?\s*c\.?\b)",
     re.IGNORECASE,
 )
 _PERCENT_MARKER_AFTER_NUMBER_PATTERN = re.compile(
     r"\s*(?:%|\bp\.?\s*c\.?\b)",
+    re.IGNORECASE,
+)
+# The same marker across wrap space only: a blank line or a paragraph
+# separator between a figure and "%" leaves the figure a figure ("3 וחצי"
+# before a blank line and a sign is three and a half, not a rate).
+_PERCENT_MARKER_AFTER_NUMBER_WRAP_PATTERN = re.compile(
+    _WRAP_SPACE_FRAGMENT + r"*(?:%|\bp\.?\s*c\.?\b)",
     re.IGNORECASE,
 )
 _LOCAL_RATE_CONTEXT_AFTER_NUMBER_PATTERN = re.compile(
@@ -1914,6 +7542,1078 @@ _ENGLISH_STRUCTURAL_DIGIT_LABEL_PATTERN = re.compile(
     r"\b(?:2nd|3rd)\s+digit\b",
     re.IGNORECASE,
 )
+# A Hebrew structural noun -- chapter, schedule, part, sign, section,
+# paragraph, table, column, item, regulation -- followed by the ordinal or
+# the number that names the unit: "בפרק השני", "בתוספת הרביעית", "לפי סעיף
+# 121ב". The ordinal or number identifies a place in the instrument, not a
+# quantity the instrument sets, so it is no recall obligation; "the fourth
+# child" carries no such noun and stays substantive.
+_HEBREW_STRUCTURAL_ORDINALS = _hebrew_alternation(
+    {
+        "ראשונה",
+        "ראשון",
+        "שנייה",
+        "שניה",
+        "שני",
+        "שלישית",
+        "שלישי",
+        "רביעית",
+        "רביעי",
+        "חמישית",
+        "חמישי",
+        "שישית",
+        "שישי",
+        "שביעית",
+        "שביעי",
+        "שמינית",
+        "שמיני",
+        "תשיעית",
+        "תשיעי",
+        "עשירית",
+        "עשירי",
+    }
+)
+_HEBREW_STRUCTURAL_UNITS = _hebrew_alternation(
+    (set(_HEBREW_NUMBER_WORD_VALUES) | set(_HEBREW_TEEN_UNIT_VALUES))
+    - {
+        "ראשונה",
+        "ראשון",
+        "שנייה",
+        "שניה",
+        "שני",
+        "שלישית",
+        "שלישי",
+        "רביעית",
+        "רביעי",
+        "חמישית",
+        "חמישי",
+        "שישית",
+        "שישי",
+        "שביעית",
+        "שביעי",
+        "שמינית",
+        "שמיני",
+        "תשיעית",
+        "תשיעי",
+        "עשירית",
+        "עשירי",
+    }
+)
+_HEBREW_STRUCTURAL_TENS = "עשרים|שלושים|ארבעים|חמישים|שישים|שבעים|שמונים|תשעים"
+# One number of the grammar after a structural noun, no more: a teen ("השתיים
+# עשרה"), thousands and hundreds with a vav-bound remainder ("אלף ומאתיים",
+# "מאה ועשרים"), tens with a vav-bound unit or ordinal ("העשרים ואחד"), or a
+# lone ordinal or unit. A count that follows without a vav ("התוספת השנייה
+# שלושה ילדים") is the statute's own quantity and stays substantive.
+_HEBREW_STRUCTURAL_TEEN = (
+    "(?:" + _HEBREW_STRUCTURAL_UNITS + ")[\\s\u05be-]+(?:עשר|עשרה)"
+)
+_HEBREW_STRUCTURAL_REMAINDER = (
+    "(?:"
+    + _HEBREW_STRUCTURAL_TEEN
+    + "|(?:"
+    + _HEBREW_STRUCTURAL_TENS
+    + ")(?:\\s+\u05d5[\u05be-]?(?:\u05d4[\u05be-]?)?(?:"
+    + _HEBREW_STRUCTURAL_UNITS
+    + "|"
+    + _HEBREW_STRUCTURAL_ORDINALS
+    + "))?"
+    + "|"
+    + _HEBREW_STRUCTURAL_UNITS
+    + "|"
+    + _HEBREW_STRUCTURAL_ORDINALS
+    + ")"
+)
+# One number of the grammar after a structural noun, no more: thousands and
+# hundreds with a vav-bound remainder ("אלף ומאתיים", "מאה ואחד עשר"), a
+# teen, tens with a vav-bound unit or ordinal, a lone unit ("סעיף שלוש") or
+# ordinal. A count that follows without a vav ("התוספת השנייה שלושה ילדים")
+# is the statute's own quantity and stays substantive.
+_HEBREW_STRUCTURAL_NUMBER_WORD_BODY = (
+    "(?:"
+    "(?:אלף|אלפיים|(?:" + _HEBREW_STRUCTURAL_UNITS + ")\\s+אלפים)"
+    "(?:\\s+(?:\u05d5[\u05be-]?)?(?:מאה|מאתיים|(?:"
+    + _HEBREW_STRUCTURAL_UNITS
+    + ")\\s+מאות))?"
+    "(?:\\s+(?:\u05d5[\u05be-]?)?" + _HEBREW_STRUCTURAL_REMAINDER + ")?"
+    "|(?:מאה|מאתיים|(?:" + _HEBREW_STRUCTURAL_UNITS + ")\\s+מאות)"
+    "(?:\\s+(?:\u05d5[\u05be-]?)?" + _HEBREW_STRUCTURAL_REMAINDER + ")?"
+    "|" + _HEBREW_STRUCTURAL_REMAINDER + ")"
+)
+_HEBREW_STRUCTURAL_NUMBER_WORD = (
+    _HEBREW_OPTIONAL_ARTICLE + _HEBREW_STRUCTURAL_NUMBER_WORD_BODY
+)
+# A plural noun may head a list of definite spelled references ("התוספות
+# השנייה, השלישית והרביעית"); every item after the first carries the
+# article, which a count never does, so "ושלושה ילדים" after a list stays
+# substantive.
+_HEBREW_STRUCTURAL_NUMBER_WORD_LIST_TAIL = (
+    "(?:\\s*,\\s*\u05d4[\u05be-]?"
+    + _HEBREW_STRUCTURAL_NUMBER_WORD_BODY
+    + ")*"
+    + "(?:\\s+(?:\u05d5[\u05be-]?|או\\s+)\u05d4[\u05be-]?"
+    + _HEBREW_STRUCTURAL_NUMBER_WORD_BODY
+    + ")?"
+)
+_HEBREW_STRUCTURAL_NUMBER_WORD_LIST = (
+    _HEBREW_STRUCTURAL_NUMBER_WORD + _HEBREW_STRUCTURAL_NUMBER_WORD_LIST_TAIL
+)
+# A reference label: digits, an optional letter, and any parenthesized
+# labels ("1", "1א", "1(א)", "2(ב)(3)"). The digits are a whole number: the
+# "1" of "1,500" and the "2" of "2,500" are no labels, so "1, 2, 4, 1,500 עד
+# 2,500 דולר" ends its list at 4; nor is the numerator of "1⁄2".
+_HEBREW_STRUCTURAL_DIGIT = (
+    "\\d+(?![,.]\\d)(?!\\s*[/\u2044]\\s*\\d)[\u05d0-\u05ea]?"
+    "(?:\\((?:\\d+[\u05d0-\u05ea]?|[\u05d0-\u05ea]{1,2})\\))*"
+)
+# The unit nouns a quantity carries: money, time, rates, measures, weights,
+# volumes, energy, and counts of people and things. A number before one of
+# these is a quantity, never a reference label. An abbreviation is written
+# with an ASCII quote or with gershayim (ק"ג, ק״ג); both are matched.
+# Units of measure: money, time, rates, lengths, areas, weights, volumes,
+# energy. A fraction word before one of these is a fraction ("עשירית שקל").
+_HEBREW_MEASURE_UNIT_WORDS = (
+    "שקלים חדשים",
+    "שקלים",
+    "שקל",
+    'ש"ח',
+    "₪",
+    "%",
+    "דולר",
+    "דולרים",
+    "יורו",
+    "אירו",
+    'ליש"ט',
+    "לירות",
+    "אגורות",
+    "ימים",
+    "ימי",
+    "יום",
+    "חודשים",
+    "חודשי",
+    "חודש",
+    "שנים",
+    "שנות",
+    "שנה",
+    "שבועות",
+    "שבוע",
+    "שעות",
+    "שעת",
+    "שעה",
+    "דקות",
+    "דקה",
+    "שניות",
+    "רבעונים",
+    "רבעון",
+    "תקופות",
+    "נקודות",
+    "נקודת",
+    "אחוז",
+    "אחוזים",
+    "מטרים רבועים",
+    "מטרים",
+    "מטר",
+    'ס"מ',
+    "סנטימטרים",
+    "סנטימטר",
+    'מ"מ',
+    "מילימטרים",
+    "מילימטר",
+    'ק"מ',
+    "קילומטרים",
+    "קילומטר",
+    'מ"ר',
+    'מ"ק',
+    "דונמים",
+    "דונם",
+    'ק"ג',
+    "קילוגרמים",
+    "קילוגרם",
+    "גרמים",
+    "גרם",
+    "טונות",
+    "טון",
+    "ליטרים",
+    "ליטר",
+    'מ"ל',
+    "מיליליטר",
+    'קוט"ש',
+    "קילוואט",
+    "וואט",
+    'כ"ס',
+    "מעלות",
+    "אגורה",
+    "נקודה",
+    "לירה",
+    "שנייה",
+    "שניה",
+)
+# Count nouns: people and things. A number before one is a quantity, but
+# several double as predicates ("זכאית", "מקבלת"), so a fraction word
+# before one keeps its ordinal reading ("דרגה חמישית זכאית").
+_HEBREW_COUNT_NOUN_WORDS = (
+    "יחידות",
+    "יחידה",
+    "פעמים",
+    "נפשות",
+    "נפש",
+    "בני אדם",
+    "אנשים",
+    "נשים",
+    "גברים",
+    "עובדים",
+    "עובדות",
+    "מועסקים",
+    "מועסקות",
+    "תלמידים",
+    "תלמידות",
+    "סטודנטים",
+    "סטודנטיות",
+    "תושבים",
+    "תושבות",
+    "חיילים",
+    "חיילות",
+    "קשישים",
+    "קשישות",
+    "מקומות",
+    "חדרים",
+    "קומות",
+    "דירות",
+    "רכבים",
+    "כלי רכב",
+    "ילדים",
+    "ילדות",
+    "ילד",
+    "ילדה",
+    "בנים",
+    "בנות",
+    "הורים",
+    "אימהות",
+    "אמהות",
+    "אבות",
+    "משפחות",
+    "משקי בית",
+    "יחידים",
+    "זוגות",
+    "מבוטחים",
+    "מבוטחות",
+    "זכאים",
+    "זכאיות",
+    "מקבלים",
+    "מקבלות",
+    "נהנים",
+    "נכים",
+    "נכות",
+    "עיוורים",
+    "עיוורות",
+    "חולים",
+    "חולות",
+    "גמלאים",
+    "גמלאיות",
+    "פנסיונרים",
+    "מובטלים",
+    "מובטלות",
+    "עצמאים",
+    "עצמאיות",
+    "שכירים",
+    "שכירות",
+    "מעסיקים",
+    "מעבידים",
+    "ספקים",
+    "לקוחות",
+    "תאגידים",
+    "עסקים",
+    "מפעלים",
+    "יישובים",
+    "רשויות",
+    "מוסדות",
+    "בתי ספר",
+    "כיתות",
+    "מיטות",
+    "מטופלים",
+    "מטופלות",
+    "יתומים",
+    "אלמנות",
+    "אלמנים",
+    "משפחה",
+    "משק בית",
+    "עובד",
+    "עובדת",
+    "מבוטח",
+    "מבוטחת",
+    "תלמיד",
+    "תלמידה",
+    "תושב",
+    "תושבת",
+    "אדם",
+    "איש",
+    "אישה",
+    "הורה",
+    "זכאי",
+    "זכאית",
+    "נכה",
+    "גמלאי",
+    "גמלאית",
+    "עצמאי",
+    "עצמאית",
+    "שכיר",
+    "שכירה",
+    "מעסיק",
+    "מעביד",
+    "מקבל",
+    "מקבלת",
+    "רכב",
+    "דירה",
+    "חדר",
+    "קומה",
+    "מקום",
+    "פעם",
+    "מיטה",
+    "כיתה",
+    "מוסד",
+    "עסק",
+    "מפעל",
+    "יישוב",
+    "רשות",
+    "תאגיד",
+    "ספק",
+    "לקוח",
+    "לקוחה",
+    "חייל",
+    "חיילת",
+    "קשיש",
+    "קשישה",
+    "סטודנט",
+    "סטודנטית",
+    "מטופל",
+    "מטופלת",
+    "יתום",
+    "יתומה",
+    "אלמן",
+    "אלמנה",
+    "חולה",
+    "עיוור",
+    "עיוורת",
+    "מובטל",
+    "מובטלת",
+    "פנסיונר",
+    "פנסיונרית",
+    "בן",
+    "בת",
+    "אם",
+    "אב",
+    "זוג",
+    "יחיד",
+)
+_HEBREW_STRUCTURAL_UNIT_NOUN_WORDS = (
+    _HEBREW_MEASURE_UNIT_WORDS + _HEBREW_COUNT_NOUN_WORDS
+)
+
+
+def _hebrew_unit_alternation(units: "Iterable[str]") -> str:
+    """The units as a regex alternation.
+
+    An abbreviation's quote is ASCII or gershayim, and a masculine plural
+    brings its construct form ("מקבלים" and "מקבלי קצבאות", "עובדים" and
+    "עובדי המפעל").
+    """
+    forms: set[str] = set()
+    for unit in units:
+        forms.add(unit)
+        if unit.endswith("ים") and len(unit) > 3:
+            forms.add(unit[:-2] + "י")
+    return "|".join(
+        re.escape(unit).replace('"', '["\u05f4]')
+        for unit in sorted(forms, key=len, reverse=True)
+    )
+
+
+_HEBREW_STRUCTURAL_UNIT_NOUNS = _hebrew_unit_alternation(
+    _HEBREW_STRUCTURAL_UNIT_NOUN_WORDS
+)
+# A unit right after a position: the fractional tail before it belongs to
+# the unit's quantity, not to a rate before the tail.
+_HEBREW_UNIT_AFTER_PATTERN = re.compile(
+    _WRAP_SPACE_FRAGMENT
+    + "+(?:"
+    + _HEBREW_STRUCTURAL_UNIT_NOUNS
+    + ")(?![\u0590-\u05ff])"
+)
+# The unit that says fraction after an ordinal-shaped word: a unit of
+# measure only. A count noun there may be a predicate ("דרגה חמישית זכאית",
+# "דירה חמישית בת שלושה חדרים"), and the word keeps its ordinal reading.
+# ... and not one that opens a temporal phrase: "לידה חמישית שנה לאחר
+# הלידה הקודמת" is a fifth birth a year after the previous one, not a fifth
+# of a year.
+# A bound after the unit ("עשירית שקל לפחות") is no such phrase.
+_HEBREW_FRACTION_UNIT_AFTER_PATTERN = re.compile(
+    _WRAP_SPACE_FRAGMENT
+    + "+(?:"
+    + _hebrew_unit_alternation(_HEBREW_MEASURE_UNIT_WORDS)
+    + ")(?![\u0590-\u05ff])"
+)
+_HEBREW_TIME_UNIT_WORDS = (
+    "ימים",
+    "ימי",
+    "יום",
+    "חודשים",
+    "חודשי",
+    "חודש",
+    "שנים",
+    "שנות",
+    "שנה",
+    "שבועות",
+    "שבוע",
+    "שעות",
+    "שעת",
+    "שעה",
+    "דקות",
+    "דקה",
+    "שניות",
+    "שנייה",
+    "שניה",
+    "רבעונים",
+    "רבעון",
+    "תקופות",
+)
+_HEBREW_TIME_UNIT_AFTER_PATTERN = re.compile(
+    "\\s+(?:"
+    + _hebrew_unit_alternation(_HEBREW_TIME_UNIT_WORDS)
+    + ")(?![\u0590-\u05ff])"
+)
+# The money units a scaled amount and its remainder share ("3 מיליון ו־200
+# שקלים"). Any other unit or count noun after a remainder names a separate
+# quantity: "3 מיליון ו־30 ימי מאסר" is a fine of three million, and thirty
+# days; "3 מיליון ו־20 עובדים" a turnover, and twenty workers.
+_HEBREW_CURRENCY_WORDS = frozenset(
+    {
+        "שקלים חדשים",
+        "שקלים",
+        "שקל",
+        'ש"ח',
+        "₪",
+        "דולר",
+        "דולרים",
+        "יורו",
+        "אירו",
+        'ליש"ט',
+        "לירות",
+        "לירה",
+        "אגורות",
+        "אגורה",
+    }
+)
+_HEBREW_SEPARATE_QUANTITY_WORDS = (
+    frozenset(
+        set(_HEBREW_MEASURE_UNIT_WORDS)
+        | set(_HEBREW_COUNT_NOUN_WORDS)
+        | set(_HEBREW_TIME_UNIT_WORDS)
+        # Construct singulars the unit lists lack: "שנת מאסר", "יום עבודה".
+        | {"שנת", "שבוע", "יום"}
+    )
+    - _HEBREW_CURRENCY_WORDS
+    - {"%", "אחוז", "אחוזים"}
+)
+_HEBREW_SEPARATE_QUANTITY_AFTER_PATTERN = re.compile(
+    "\\s+(?:"
+    + _hebrew_unit_alternation(_HEBREW_SEPARATE_QUANTITY_WORDS)
+    + ")(?![\u0590-\u05ff])"
+)
+
+
+def _hebrew_separate_quantity_word_forms() -> frozenset[str]:
+    """The first word of every separate-quantity unit, construct plurals included."""
+    forms: set[str] = set()
+    for unit in _HEBREW_SEPARATE_QUANTITY_WORDS:
+        head = unit.split()[0]
+        forms.add(head)
+        if head.endswith("ים") and len(head) > 3:
+            forms.add(head[:-2] + "\u05d9")
+    return frozenset(forms)
+
+
+_HEBREW_SEPARATE_QUANTITY_WORD_FORMS = _hebrew_separate_quantity_word_forms()
+# The feminine nouns a feminine ordinal modifies: the evidence that
+# "חמישית" after one of them is "fifth".
+_HEBREW_ORDINAL_CONTEXT_NOUN_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])"
+    + _HEBREW_PREPOSITION_PREFIXES
+    + _HEBREW_OPTIONAL_ARTICLE
+    + "(?:לידה|דירה|דרגה|פעם|שנה|קומה|כיתה|רמה|קטגוריה|מדרגה|שכבה|סדרה|תקופה|עונה|"
+    "מנה|יחידה|ילדה|בת|אישה|עובדת|מבוטחת|תלמידה|תוספת|פסקה|תקנה|הוראה|נקודה|שורה|"
+    "מהדורה|גרסה|קבוצה|רשימה|הודעה|בקשה|תביעה|החלטה|ישיבה|שנת|מיטה|מכונה|מדינה|"
+    "משמרת|משפחה|מחלה|מלגה|מקדמה|מדידה|מכירה|מסירה|ירושה|יצירה)\\s+$"
+)
+# Any feminine noun the ordinal may modify: one of the nouns above, or a
+# word ending in ה or ת ("בדיקה", "משמרת"); a verb ("יופעל", "ישולם") ends
+# in neither, and the copulas that do ("יהיה", "תהיה") are clause context.
+# A present participle ("ממתינה") begins with מ and a future verb ("ישהה")
+# with י; neither is a noun candidate here. The nouns that begin with those
+# letters ("ילדה", "יחידה", "מדרגה", "מיטה") are listed above.
+# A small unit of time after an ordinal-shaped fraction word makes a
+# fractional duration ("עשירית שנייה", "חמישית דקה"); a large one after a
+# noun makes an ordinal with a time adverbial ("מרפאה חמישית שנה לאחר").
+_HEBREW_WORD_BEFORE_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])(?P<word>[\u0590-\u05ff]{2,})\\s+$"
+)
+# Feminine singular nouns that end in neither ה nor ת: a fund, a city, a
+# land, a road, a stone, a wind, a soul, a cup, a fire, the sun, an eye, a
+# hand, a foot, an ear, a belly, a shoulder, a knee, a tooth, a tongue, a
+# bone, a bird, a square, a well, a vine, an arm, a yard, a wing, a time,
+# a finger, a palm.
+_HEBREW_IRREGULAR_FEMININE_NOUNS = frozenset(
+    {
+        "קרן",
+        "עיר",
+        "ארץ",
+        "דרך",
+        "אבן",
+        "רוח",
+        "נפש",
+        "כוס",
+        "אש",
+        "שמש",
+        "עין",
+        "יד",
+        "רגל",
+        "אוזן",
+        "בטן",
+        "כתף",
+        "ברך",
+        "שן",
+        "לשון",
+        "עצם",
+        "ציפור",
+        "צפור",
+        "כיכר",
+        "באר",
+        "גפן",
+        "זרוע",
+        "חצר",
+        "כנף",
+        "פעם",
+        "אצבע",
+        "כף",
+    }
+)
+_HEBREW_NOUN_PREFIX_LETTERS = frozenset("הבלמושכ")
+
+
+def _hebrew_word_before_can_be_feminine_singular(text: str, start: int) -> bool:
+    """Whether the word before ``start`` can be a feminine singular noun.
+
+    The regular shape ends in ה or ת; the irregular nouns are listed, and
+    read through up to two clitic prefixes ("הקרן", "בעיר", "ולדרך").
+    Without a word before it, nothing can carry the ordinal.
+    """
+    match = _search_before(_HEBREW_WORD_BEFORE_PATTERN, text, start)
+    if match is None:
+        return False
+    word = match.group("word")
+    if word[-1] in "\u05d4\u05ea":
+        return True
+    return any(
+        word[cut:] in _HEBREW_IRREGULAR_FEMININE_NOUNS
+        and all(letter in _HEBREW_NOUN_PREFIX_LETTERS for letter in word[:cut])
+        for cut in range(3)
+    )
+
+
+_HEBREW_SMALL_TIME_UNIT_AFTER_PATTERN = re.compile(
+    "\\s+(?:שנייה|שניה|שניות|דקה|דקות|שעה|שעות|שעת)(?![\u0590-\u05ff])"
+)
+# The verbs that govern a duration ("ממתינה עשירית שנייה", "תשהה עשירית
+# שנייה", "יופעל", "יידחה"): a word before the fraction word that is one of
+# these is a verb whatever its ending, and what follows is a duration.
+_HEBREW_DURATION_VERB_BEFORE_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])(?:\u05d5|\u05e9|כש|וכש)?(?:"
+    "ממתין|ממתינה|ממתינים|ממתינות|המתין|המתינה|המתינו|ימתין|תמתין|ימתינו|להמתין|"
+    "שוהה|שוהים|שוהות|שהה|שהתה|שהו|ישהה|תשהה|ישהו|לשהות|"
+    "מופעל|מופעלת|הופעל|הופעלה|יופעל|תופעל|יופעלו|"
+    "נדחה|נדחתה|נדחו|יידחה|תידחה|יידחו|דוחה|"
+    "מתעכב|מתעכבת|התעכב|התעכבה|יתעכב|תתעכב|יעוכב|תעוכב|"
+    "מתבצע|מתבצעת|בוצע|בוצעה|יבוצע|תבוצע|יתבצע|תתבצע|"
+    "מסתיים|מסתיימת|הסתיים|הסתיימה|יסתיים|תסתיים|"
+    "נפסק|נפסקת|נפסקה|ייפסק|תיפסק|נמשך|נמשכת|נמשכה|יימשך|תימשך|"
+    "מתחיל|מתחילה|החל|החלה|יחל|תחל|יתחיל|תתחיל|"
+    "נכנס|נכנסת|נכנסה|ייכנס|תיכנס|חל|חלה|יחול|תחול|"
+    "פועל|פועלת|פעל|פעלה|פעלו|יפעל|תפעל|יפעלו|"
+    "ישולם|תשולם|שולם|שולמה|ישלם|תשלם|יינתן|תינתן|ניתן|ניתנה|יועבר|תועבר)\\s+$"
+)
+
+
+def _hebrew_ordinal_context(text: str, start: int, unit_position: int) -> str:
+    """How an ordinal-shaped fraction word before a time unit and a temporal phrase reads.
+
+    "ordinal" where a listed noun the ordinal modifies stands right before
+    it ("לידה חמישית שנה לאחר"); "duration" where a verb that governs a
+    duration does, with or without a conjunction prefix ("והמתינה עשירית
+    שנייה לאחר"); "ambiguous" otherwise -- "מרפאה חמישית שנה לאחר" and
+    "נעדר חמישית שנה לאחר" are both grammatical, and no lexicon settles
+    them. The ambiguous case is recorded with both readings, so an
+    encoding may state either.
+    """
+    if _search_before(_HEBREW_ORDINAL_CONTEXT_NOUN_PATTERN, text, start) is not None:
+        return "ordinal"
+    if _search_before(_HEBREW_DURATION_VERB_BEFORE_PATTERN, text, start) is not None:
+        return "duration"
+    # Agreement: a feminine singular ordinal modifies a feminine singular
+    # noun -- the regular shape ends in ה or ת, and the irregular nouns
+    # ("קרן", "עיר") are listed. A word before it that can be neither, a
+    # plural ("העובדים נעדרו") or a masculine singular ("העובד נעדר"),
+    # cannot carry the ordinal, and the fraction word reads as a duration.
+    if not _hebrew_word_before_can_be_feminine_singular(text, start):
+        return "duration"
+    return "ambiguous"
+
+
+def _hebrew_ambiguous_reading_prefers_duration(text: str, unit_position: int) -> bool:
+    """The primary reading of an ambiguous case: a fraction of a second, minute or hour reads as a duration first."""
+    return _HEBREW_SMALL_TIME_UNIT_AFTER_PATTERN.match(text, unit_position) is not None
+
+
+_HEBREW_TEMPORAL_AFTER_UNIT_PATTERN = re.compile(
+    "\\s+(?:לאחר|אחרי|לפני|מיום|ממועד|מתום|מאז|קודם)(?![\u0590-\u05ff])"
+)
+
+
+def _hebrew_fraction_unit_after(text: str, position: int, start: int) -> str:
+    """Whether a unit of measure after ``position`` says the word before is a fraction.
+
+    "fraction", "no", or "ambiguous". A unit that opens a temporal phrase
+    ("שנה לאחר") says fraction only where the clause before the word says
+    a quantity follows or a duration verb governs it; a listed noun before
+    the word says ordinal; anything else is ambiguous.
+    """
+    unit = _HEBREW_FRACTION_UNIT_AFTER_PATTERN.match(text, position)
+    if unit is None:
+        return "no"
+    # Only a unit of time opens a temporal phrase; "עשירית שקל לאחר הגשת
+    # הבקשה" is a tenth of a shekel whatever follows.
+    if _HEBREW_TIME_UNIT_AFTER_PATTERN.match(text, position) is None:
+        return "fraction"
+    if _HEBREW_TEMPORAL_AFTER_UNIT_PATTERN.match(text, unit.end()) is None:
+        return "fraction"
+    if _hebrew_fraction_context_before(text, start):
+        return "fraction"
+    context = _hebrew_ordinal_context(text, start, position)
+    if context == "duration":
+        return "fraction"
+    if context == "ordinal":
+        return "no"
+    return "ambiguous"
+
+
+def _iter_hebrew_ambiguous_ordinal_fraction_matches(
+    text: str,
+) -> list[tuple[tuple[int, int], float, float]]:
+    """Ordinal-shaped fraction words read both ways: (span, primary, alternative).
+
+    "מרפאה חמישית שנה לאחר" is a fifth clinic a year after, or a fifth of
+    a year after; both are grammatical and nothing in the text settles it.
+    The primary reading is the duration for a fraction of a second, a
+    minute or an hour, the ordinal otherwise; the other is recorded as an
+    alternative the encoding may state instead.
+    """
+    matches: list[tuple[tuple[int, int], float, float]] = []
+    for match in _HEBREW_FRACTION_WORD_PATTERN.finditer(text):
+        word = match.group("fraction")
+        if (
+            match.group("count")
+            or match.group("article")
+            or word in _HEBREW_UNAMBIGUOUS_FRACTION_WORDS
+            or word not in _HEBREW_FRACTION_VALUES
+            or word not in _HEBREW_ORDINAL_WORDS
+        ):
+            continue
+        if (
+            _hebrew_fraction_unit_after(text, match.end("fraction"), match.start())
+            != "ambiguous"
+        ):
+            continue
+        fraction = _HEBREW_FRACTION_VALUES[word]
+        ordinal = round(1.0 / fraction)
+        span = (match.start(), match.end("fraction"))
+        if _hebrew_ambiguous_reading_prefers_duration(text, match.end("fraction")):
+            matches.append((span, fraction, float(ordinal)))
+        else:
+            matches.append((span, float(ordinal), fraction))
+    return matches
+
+
+# Every word the numeric grammar reads, for the guards below.
+_HEBREW_STRUCTURAL_NUMBER_WORD_ANY = _hebrew_alternation(
+    _HEBREW_NUMBER_VOCABULARY
+    | set(_HEBREW_MILLION_WORDS)
+    | set(_HEBREW_BILLION_WORDS)
+    | set(_HEBREW_TEEN_UNIT_VALUES)
+    | set(_HEBREW_COUNTED_FRACTION_VALUES)
+    | set(_HEBREW_FRACTION_COUNT_VALUES)
+    | {"שני", "שתי", "שניים", "שתיים"}
+)
+# A quantity, not a further reference: a number followed by a unit noun,
+# with the rest of the number ("3 1⁄2", "3 וחצי") between: a printed
+# fraction or vav-bound number words. A bare number word after a reference
+# ("התוספת השנייה שלושה ילדים") is the statute's own count, not a tail.
+_HEBREW_STRUCTURAL_QUANTITY_TAIL = (
+    "(?:\\s+\\d+\\s*[/\u2044]\\s*\\d+|\\s+\u05d5[\u05be-]?(?:"
+    + _HEBREW_STRUCTURAL_NUMBER_WORD_ANY
+    + ")){0,16}"
+)
+_HEBREW_STRUCTURAL_NOT_A_QUANTITY_TAILED = (
+    "(?!"
+    + _HEBREW_STRUCTURAL_QUANTITY_TAIL
+    + "\\s*(?:"
+    + _HEBREW_STRUCTURAL_UNIT_NOUNS
+    + "))"
+)
+# The words that name a statute, absolute and construct: what a schedule
+# or a section is "of" or "to" ("של החוק", "של פקודת מס הכנסה", "של הוראת
+# השעה", "לחוק").
+_HEBREW_STATUTE_NAME_WORDS = "(?:חוק|חוקי|חוקת|פקודה|פקודת|תקנות|תקנה|תקנת|צו|צווי|הוראה|הוראת|הוראות|כללים|כללי|תכנית|תוכנית|תכניות|תוכניות|החלטה|החלטת|החלטות|הסכם|הסכמי|הסכמים|אמנה|אמנת)"
+# After a spelled reference the number is complete, and a vav-bound word is
+# the conjunction ("התוספות השנייה ושלושה ילדים"): the unit must follow at once.
+# Nor is a spelled reference one when a partitive names the amount it is
+# a fraction of: "תוספת חמישית מהשכר" is a supplement of a fifth of the
+# wage, an amount to encode, where "התוספת החמישית לחוק" is a schedule.
+_HEBREW_STRUCTURAL_NOT_A_QUANTITY = (
+    "(?!\\s*(?:" + _HEBREW_STRUCTURAL_UNIT_NOUNS + "))"
+    # A fraction-shaped ordinal before a partitive is a fraction, not a
+    # reference ("תוספת חמישית מן התקבולים", "תוספת חמישית מהשכר"), unless
+    # the partitive names the statute itself ("התוספת השנייה של החוק"); a
+    # number that is no fraction word ("השנייה") and a verb after it
+    # ("מגדירה") leave the reference a reference.
+    "(?!(?:(?<=שלישית)|(?<=רביעית)|(?<=חמישית)|(?<=שישית)|(?<=שביעית)|(?<=שמינית)"
+    "|(?<=תשיעית)|(?<=עשירית)|(?<=מחצית))\\s+(?:(?:מן|מתוך|של)\\s+"
+    "(?!(?:\u05d4[\u05be-]?)?" + _HEBREW_STATUTE_NAME_WORDS + "(?![\u0590-\u05ff]))"
+    "(?:\u05d4[\u05be-]?)?[\u0590-\u05ff]{2,}"
+    # An attached מ before an amount noun ("משכרו") is the partitive; any
+    # other reading of an attached מ is the fraction reader's to make.
+    "|\u05de[\u05be-]?(?:\u05d4[\u05be-]?)?"
+    + _HEBREW_MONEY_NOUN
+    + "(?![\u0590-\u05ff])))"
+)
+_HEBREW_STRUCTURAL_LIST_JOIN = "(?:\u05d5[\u05be-]?|או)"
+_HEBREW_STRUCTURAL_RANGE_JOIN = "(?:עד|[-\u2013\u2014])"
+# Nor the first half of a coordinated quantity or a range of amounts,
+# printed or spelled: in "1, 2, 4, 100 או 200 דולר", "1, 2, 4, 100 עד 200
+# דולר" and "תוספת שתיים עד שלוש נקודות" the number before the join is an
+# amount with the one after it.
+# The endpoint after the join is anything the numeric grammar reads: a
+# printed number with an optional printed fraction ("3 1⁄2") or spelled tail
+# ("3 וחצי"), or a run of up to sixteen number words ("שלושים ואחד אלף
+# מאתיים ושלושים וחמישה"), before the unit.
+# The guards below read an endpoint with the numeral grammar inside an atomic
+# group: "עשרים ואחד" is twenty-one, and once read it is never re-partitioned
+# into twenty and a conjoined one when no unit follows. A vav-bound word the
+# grammar does not admit ("שתיים ושלוש") is a conjunction, joining a new
+# endpoint. Nested ambiguous repetition here once backtracked exponentially.
+_HEBREW_STRUCTURAL_FRACTION_TAIL = (
+    "(?:"
+    + _hebrew_alternation(_HEBREW_MIXED_FRACTION_VALUES)
+    + "|(?:"
+    + _hebrew_alternation(_HEBREW_FRACTION_COUNT_VALUES)
+    + ")\\s+(?:"
+    + _hebrew_alternation(_HEBREW_COUNTED_FRACTION_VALUES)
+    + "))"
+)
+_HEBREW_STRUCTURAL_PRINTED_ENDPOINT = (
+    "(?>(?:[\u05db\u05de\u05d1\u05dc](?:\u05be|-)?)?(?:(?<![\u05d0-\u05ea])[-\u2212])?"
+    "(?:(?:\\d+\\s+)?\\d+\\s*[/\u2044]\\s*\\d+"
+    "|(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:[.,]\\d+)?)"
+    "(?:\\s+\\d+\\s*[/\u2044]\\s*\\d+)?"
+    "(?:\\s+\u05d5" + _HEBREW_STRUCTURAL_FRACTION_TAIL + ")?)"
+)
+# A spelled amount: an optional thousands part (a count below a thousand and
+# אלף, or אלף, אלפיים, a unit and אלפים), an optional hundreds part, a
+# remainder (a teen, tens with a vav-bound unit, a unit), and a vav-bound
+# fractional tail. The first word may carry a vav.
+_HEBREW_STRUCTURAL_BELOW_THOUSAND = (
+    "(?:(?:מאה|מאתיים|(?:" + _HEBREW_STRUCTURAL_UNITS + ")\\s+מאות)"
+    "(?:\\s+(?:\u05d5[\u05be-]?)?" + _HEBREW_STRUCTURAL_REMAINDER + ")?"
+    "|" + _HEBREW_STRUCTURAL_REMAINDER + ")"
+)
+# A spelled amount: a counted fraction ("שלושה רבעים", read before the bare
+# count could claim its first word), or a number below a million -- an
+# optional multiplier below a thousand and אלף, then an optional part below
+# a thousand -- and a vav-bound fractional tail. The first word may carry a
+# vav.
+_HEBREW_STRUCTURAL_SPELLED_ENDPOINT = (
+    "(?>(?:[\u05d5\u05db\u05de\u05d1\u05dc\u05e9][\u05be-]?){0,2}(?:"
+    + _HEBREW_STRUCTURAL_FRACTION_TAIL
+    + "|(?:"
+    + _HEBREW_STRUCTURAL_BELOW_THOUSAND
+    + "\\s+)?(?:אלף|אלפיים|אלפים)"
+    "(?:\\s+(?:\u05d5[\u05be-]?)?" + _HEBREW_STRUCTURAL_BELOW_THOUSAND + ")?"
+    "|"
+    + _HEBREW_STRUCTURAL_BELOW_THOUSAND
+    + ")(?:\\s+\u05d5[\u05be-]?"
+    + _HEBREW_STRUCTURAL_FRACTION_TAIL
+    + ")?)"
+)
+_HEBREW_STRUCTURAL_COORDINATED_ENDPOINT = (
+    "(?:"
+    + _HEBREW_STRUCTURAL_PRINTED_ENDPOINT
+    + "|"
+    + _HEBREW_STRUCTURAL_SPELLED_ENDPOINT
+    + ")"
+)
+# A conjunction: "או", "עד", "ועד", "לבין", "ובין", a dash, a vav before a
+# printed number, or the whitespace before a vav-bound word the endpoint
+# grammar left unread.
+_HEBREW_STRUCTURAL_CONJUNCTION = (
+    "(?:\\s*(?:או|עד|ועד|לבין|ובין)\\s+|\\s*\u05d5[\u05be-]?\\s*(?=\\d)|\\s*[-\u2013]\\s*"
+    "|\\s+(?=\u05d5[\u05be-]?[\u0590-\u05ff]))"
+)
+# One or more endpoints after a conjunction, then the unit ("1 או 2 או 3
+# שקלים", "שתיים ושלוש נקודות"). A comma is no join here: after a closed
+# reference list the sentence goes on ("סעיפים 1 ו־2, 100 דולר").
+_HEBREW_STRUCTURAL_COORDINATED_QUANTITY = (
+    "(?>(?:"
+    + _HEBREW_STRUCTURAL_CONJUNCTION
+    + _HEBREW_STRUCTURAL_COORDINATED_ENDPOINT
+    + ")+)\\s*(?:"
+    + _HEBREW_STRUCTURAL_UNIT_NOUNS
+    + ")(?![\u0590-\u05ff])"
+)
+_HEBREW_STRUCTURAL_NOT_A_COORDINATED_QUANTITY = (
+    "(?!" + _HEBREW_STRUCTURAL_COORDINATED_QUANTITY + ")"
+)
+# After a supplement noun a comma may open a list of amounts ("תוספת 1, 2 או
+# 3 שקלים") as long as a conjunction closes it before the unit; "סעיף 1, 100
+# שקלים" has no conjunction and keeps its reference.
+_HEBREW_STRUCTURAL_LIST_OF_AMOUNTS = (
+    "(?>(?:\\s*,\\s*"
+    + _HEBREW_STRUCTURAL_COORDINATED_ENDPOINT
+    + ")*)(?>(?:"
+    + _HEBREW_STRUCTURAL_CONJUNCTION
+    + _HEBREW_STRUCTURAL_COORDINATED_ENDPOINT
+    + ")+)\\s*(?:"
+    + _HEBREW_STRUCTURAL_UNIT_NOUNS
+    + ")(?![\u0590-\u05ff])"
+)
+_HEBREW_STRUCTURAL_NOT_A_LIST_OF_AMOUNTS = (
+    "(?!" + _HEBREW_STRUCTURAL_LIST_OF_AMOUNTS + ")"
+)
+_HEBREW_COORDINATED_UNIT_AFTER_PATTERN = re.compile(
+    _HEBREW_STRUCTURAL_COORDINATED_QUANTITY
+)
+_HEBREW_LIST_OF_AMOUNTS_AFTER_PATTERN = re.compile(_HEBREW_STRUCTURAL_LIST_OF_AMOUNTS)
+# One item of a list: a reference, or a range of two ("1 עד 3", "1–3").
+_HEBREW_STRUCTURAL_DIGIT_ITEM = (
+    _HEBREW_STRUCTURAL_DIGIT
+    + "(?:\\s*"
+    + _HEBREW_STRUCTURAL_RANGE_JOIN
+    + "\\s*"
+    + _HEBREW_STRUCTURAL_DIGIT
+    + _HEBREW_STRUCTURAL_NOT_A_QUANTITY_TAILED
+    + ")?"
+)
+_HEBREW_STRUCTURAL_PLURAL_NOUNS = (
+    "פרקים|תוספות|חלקים|סימנים|סעיפים קטנים|סעיפים|פסקאות|לוחות|טורים|פרטים|תקנות"
+)
+# "תוספת" is a schedule and a supplement; the other singular nouns are only
+# ever structural, so only "תוספת" takes the comma-allowed list-of-amounts
+# guard ("תוספת 1, 2 או 3 שקלים"); "סעיף 5, 2 או 3 אחוזים" keeps section 5.
+_HEBREW_STRUCTURAL_SUPPLEMENT_NOUN = "תוספת"
+_HEBREW_CITATION_BEFORE_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])(?:(?:לפי|על\\s+פי|מכוח)\\s+|בהתאם\\s+ל|(?:כאמור|האמור|כמפורט|המפורט|הקבוע|הקבועה|המנויה)\\s+ב)$"
+)
+_HEBREW_STRUCTURAL_SINGULAR_NOUNS = (
+    "פרק|תוספת|חלק|סימן|סעיף קטן|סעיף|פסקת משנה|פסקה|לוח|טור|פרט|תקנה"
+)
+_HEBREW_STRUCTURAL_STRICT_SINGULAR_NOUNS = (
+    "פרק|חלק|סימן|סעיף קטן|סעיף|פסקת משנה|פסקה|לוח|טור|פרט|תקנה"
+)
+_HEBREW_STRUCTURAL_NOUN_PREFIX = _HEBREW_PREPOSITION_PREFIXES + _HEBREW_OPTIONAL_ARTICLE
+_HEBREW_STRUCTURAL_REFERENCE_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])" + _HEBREW_STRUCTURAL_NOUN_PREFIX + "(?:"
+    # A cited "תוספת" -- "לפי תוספת 5", "בהתאם לתוספת 5", "כאמור בתוספת 5",
+    # with any whitespace after the citation word -- is a schedule; the
+    # citation word joins the span.
+    "(?:(?:לפי|על\\s+פי|מכוח)\\s+|(?:בהתאם|כאמור|האמור|כמפורט|המפורט|הקבוע|הקבועה|המנויה)"
+    "\\s+)"
+    + _HEBREW_STRUCTURAL_NOUN_PREFIX
+    + _HEBREW_STRUCTURAL_SUPPLEMENT_NOUN
+    + "\\s+(?:"
+    + _HEBREW_STRUCTURAL_DIGIT_ITEM
+    + _HEBREW_STRUCTURAL_NOT_A_QUANTITY_TAILED
+    + "(?:\\s*"
+    + _HEBREW_STRUCTURAL_LIST_JOIN
+    + "\\s*"
+    + _HEBREW_STRUCTURAL_DIGIT_ITEM
+    + _HEBREW_STRUCTURAL_NOT_A_QUANTITY_TAILED
+    + ")?"
+    "|" + _HEBREW_STRUCTURAL_NUMBER_WORD + _HEBREW_STRUCTURAL_NOT_A_QUANTITY + ")"
+    "|"
+    # A plural noun heads a list of items -- each a reference or a range --
+    # joined by commas and closed by at most one conjunction ("1, 2, 4",
+    # "1, 2 או 3", "1 עד 3 ו־5"); after the closing join the sentence goes
+    # on, whatever follows ("1 ו־2, 100 או 200 דולר"), and a comma-joined
+    # item is never a quantity nor the first half of one.
+    "(?:" + _HEBREW_STRUCTURAL_PLURAL_NOUNS + ")\\s+"
+    "(?:"
+    + _HEBREW_STRUCTURAL_DIGIT_ITEM
+    + _HEBREW_STRUCTURAL_NOT_A_QUANTITY_TAILED
+    + _HEBREW_STRUCTURAL_NOT_A_COORDINATED_QUANTITY
+    + "(?:\\s*,\\s*"
+    + _HEBREW_STRUCTURAL_DIGIT_ITEM
+    + _HEBREW_STRUCTURAL_NOT_A_QUANTITY_TAILED
+    + _HEBREW_STRUCTURAL_NOT_A_COORDINATED_QUANTITY
+    + ")*"
+    + "(?:\\s*"
+    + _HEBREW_STRUCTURAL_LIST_JOIN
+    + "\\s*"
+    + _HEBREW_STRUCTURAL_DIGIT_ITEM
+    + _HEBREW_STRUCTURAL_NOT_A_QUANTITY_TAILED
+    + ")?"
+    # A spelled reference under the article is a reference whatever follows
+    # ("התוספות השנייה ושלושה ילדים" keeps its three children substantive); a
+    # bare one may be the first half of a quantity ("תוספות שתיים עד שלוש
+    # נקודות").
+    "|\u05d4[\u05be-]?"
+    + _HEBREW_STRUCTURAL_NUMBER_WORD_BODY
+    + _HEBREW_STRUCTURAL_NUMBER_WORD_LIST_TAIL
+    + _HEBREW_STRUCTURAL_NOT_A_QUANTITY
+    + "|"
+    + _HEBREW_STRUCTURAL_NUMBER_WORD_BODY
+    + _HEBREW_STRUCTURAL_NUMBER_WORD_LIST_TAIL
+    + _HEBREW_STRUCTURAL_NOT_A_QUANTITY
+    + _HEBREW_STRUCTURAL_NOT_A_COORDINATED_QUANTITY
+    + ")"
+    # A singular noun takes one item, or a pair joined by a conjunction --
+    # never a comma, which ends the reference ("סעיף 1, 100 שקלים").
+    # A supplement: "תוספת" with or without a prefix ("הקצבה תוגדל בתוספת 1, 2
+    # או 3 אחוזים"). A cited one is taken by the citation branch first, which
+    # the scan reaches earlier.
+    "|" + _HEBREW_STRUCTURAL_SUPPLEMENT_NOUN + "\\s+"
+    "(?:"
+    + _HEBREW_STRUCTURAL_DIGIT_ITEM
+    + _HEBREW_STRUCTURAL_NOT_A_QUANTITY_TAILED
+    + _HEBREW_STRUCTURAL_NOT_A_LIST_OF_AMOUNTS
+    + "(?:\\s*"
+    + _HEBREW_STRUCTURAL_LIST_JOIN
+    + "\\s*"
+    + _HEBREW_STRUCTURAL_DIGIT_ITEM
+    + _HEBREW_STRUCTURAL_NOT_A_QUANTITY_TAILED
+    + ")?"
+    "|\u05d4[\u05be-]?"
+    + _HEBREW_STRUCTURAL_NUMBER_WORD_BODY
+    + _HEBREW_STRUCTURAL_NOT_A_QUANTITY
+    + "|"
+    + _HEBREW_STRUCTURAL_NUMBER_WORD_BODY
+    + _HEBREW_STRUCTURAL_NOT_A_QUANTITY
+    + _HEBREW_STRUCTURAL_NOT_A_LIST_OF_AMOUNTS
+    + ")"
+    "|(?:"
+    + _HEBREW_STRUCTURAL_STRICT_SINGULAR_NOUNS
+    # A definite "תוספת" ("התוספת השנייה"), or one followed by a number and
+    # "לחוק"/"לפקודה", is a schedule; a cited one is matched with its citation
+    # word below.
+    + "|(?:(?<=\\u05d4)|(?<=\\u05d4[\\u05be-]))"
+    + _HEBREW_STRUCTURAL_SUPPLEMENT_NOUN
+    + "|"
+    + _HEBREW_STRUCTURAL_SUPPLEMENT_NOUN
+    + "(?=\\s+\\d+[\\u05d0-\\u05ea]?\\s+ל[\\u05be-]?(?:חוק|פקודה|תקנות|צו)(?![\\u0590-\\u05ff]))"
+    + ")\\s+"
+    "(?:"
+    + _HEBREW_STRUCTURAL_DIGIT_ITEM
+    + _HEBREW_STRUCTURAL_NOT_A_QUANTITY_TAILED
+    + _HEBREW_STRUCTURAL_NOT_A_COORDINATED_QUANTITY
+    + "(?:\\s*"
+    + _HEBREW_STRUCTURAL_LIST_JOIN
+    + "\\s*"
+    + _HEBREW_STRUCTURAL_DIGIT_ITEM
+    + _HEBREW_STRUCTURAL_NOT_A_QUANTITY_TAILED
+    + ")?"
+    "|\u05d4[\u05be-]?"
+    + _HEBREW_STRUCTURAL_NUMBER_WORD_BODY
+    + _HEBREW_STRUCTURAL_NOT_A_QUANTITY
+    + "|"
+    + _HEBREW_STRUCTURAL_NUMBER_WORD_BODY
+    + _HEBREW_STRUCTURAL_NOT_A_QUANTITY
+    + _HEBREW_STRUCTURAL_NOT_A_COORDINATED_QUANTITY
+    + ")"
+    ")"
+    "(?![\u0590-\u05ff\\d])"
+)
+# A structural noun followed by a Hebrew word: the start of a reference
+# whose number is spelled.
+_HEBREW_STRUCTURAL_NOUN_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])"
+    + _HEBREW_STRUCTURAL_NOUN_PREFIX
+    + "(?:(?P<plural>"
+    + _HEBREW_STRUCTURAL_PLURAL_NOUNS
+    + ")|(?P<singular>"
+    + _HEBREW_STRUCTURAL_SINGULAR_NOUNS
+    + "))\\s+(?=[\u0590-\u05ff])"
+)
+
+
+def _hebrew_structural_word_reference_spans(text: str) -> list[tuple[int, int]]:
+    """References whose spelled number the numeral grammar reads whole.
+
+    The pattern above reads ordinals and one bounded cardinal after the
+    noun. This reads the same grammar the number passes do -- "סעיף שני
+    אלפים" is section 2,000, "פרק שנים עשר אלף" chapter 12,000 -- so a
+    reference never leaves the rest of its own number substantive. The
+    grammar reads no ordinal, so "התוספת השנייה שלושה ילדים" is left to the
+    pattern, which stops at the ordinal and keeps the three children.
+    """
+    spans: list[tuple[int, int]] = _SpanList()
+    for match in _HEBREW_STRUCTURAL_NOUN_PATTERN.finditer(text):
+        tokens: list["re.Match[str]"] = []
+        for token in _HEBREW_WORD_TOKEN_PATTERN.finditer(text, match.end()):
+            if tokens:
+                gap = text[tokens[-1].end() : token.start()]
+                if not (
+                    gap.strip() == ""
+                    or (
+                        _HEBREW_TEEN_JOIN_PATTERN.match(gap)
+                        and token.group(0) in _HEBREW_TEEN_TENS
+                    )
+                ):
+                    break
+            elif token.start() != match.end():
+                break
+            tokens.append(token)
+            if len(tokens) >= 16:
+                break
+        if not tokens:
+            continue
+        parsed = _parse_hebrew_number_run([token.group(0) for token in tokens])
+        if parsed is None:
+            continue
+        end = tokens[parsed[0] - 1].end()
+        if end < len(text) and text[end].isdigit():
+            continue
+        # "תוספת שתי נקודות זיכוי" is a supplement of two credit points and
+        # "תוספת שתיים עד שלוש נקודות" two to three: a number with a unit
+        # after it, or coordinated with one, is a quantity whatever noun
+        # precedes.
+        coordinated = (
+            _HEBREW_LIST_OF_AMOUNTS_AFTER_PATTERN
+            if match.group("singular") == _HEBREW_STRUCTURAL_SUPPLEMENT_NOUN
+            and _search_before(_HEBREW_CITATION_BEFORE_PATTERN, text, match.start())
+            is None
+            else _HEBREW_COORDINATED_UNIT_AFTER_PATTERN
+        )
+        if _HEBREW_UNIT_AFTER_PATTERN.match(text, end) is not None or (
+            not tokens[0].group(0).startswith("\u05d4")
+            and coordinated.match(text, end) is not None
+        ):
+            continue
+        spans.append((match.start(), end))
+    return spans
+
+
+# A weekday is the word "day" and a bare ordinal -- "יום שני" is Monday --
+# and names a date, not a count; "ביום השני" (on the second day) carries the
+# article and stays an ordinal the statute may be counting with.
+_HEBREW_WEEKDAY_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])[\u05d1\u05dc\u05de]?יום\\s+"
+    "(?:ראשון|שני|שלישי|רביעי|חמישי|שישי)(?![\u0590-\u05ff])"
+)
 _STRUCTURAL_LINE_MARKER_PATTERN = re.compile(
     r"(?m)^[ \t]*(?:"
     r"\(\d+[a-z]?\)(?:[ \t]+bis[ \t]+\(\d+[a-z]?\))?"
@@ -1936,6 +8636,17 @@ _CURRENCY_MARKER_BEFORE_NUMBER_PATTERN = re.compile(
 _CURRENCY_MARKER_AFTER_NUMBER_PATTERN = re.compile(
     rf"^\s*{_CURRENCY_MARKER_FRAGMENT}",
     re.IGNORECASE,
+)
+# The same markers, with the shekel sign and the codes Hebrew sources add,
+# flush before or after an operand the Hebrew range passes weigh.
+_HEBREW_CURRENCY_MARK_FRAGMENT = (
+    rf"(?:{_CURRENCY_MARKER_FRAGMENT}|\u20aa|(?<![A-Za-z])(?:ils|nis|jpy)(?![A-Za-z]))"
+)
+_HEBREW_CURRENCY_MARK_BEFORE_PATTERN = re.compile(
+    rf"{_HEBREW_CURRENCY_MARK_FRAGMENT}$", re.IGNORECASE
+)
+_HEBREW_CURRENCY_MARK_AFTER_PATTERN = re.compile(
+    _HEBREW_CURRENCY_MARK_FRAGMENT, re.IGNORECASE
 )
 _DANISH_CURRENCY_MARKER_PATTERN = re.compile(
     r"(?:\bkr(?:\.(?!\w)|(?![\w.]))|\bkroner\b|\børe\b)",
@@ -3162,11 +9873,19 @@ def _source_evidence_fragment_is_body_bound(
     evidence_text: str,
     source_text: str,
 ) -> bool:
-    normalized_evidence = _collapse_source_sentence_text(evidence_text).casefold()
-    normalized_source = _collapse_source_sentence_text(source_text).casefold()
-    return bool(
-        normalized_evidence
-        and _bounded_source_evidence_match(normalized_evidence, normalized_source)
+    # Whitespace collapses as the proof check collapses it: every paragraph
+    # gap kept, so an excerpt quotes a blank line as a blank line.
+    normalized_evidence = collapse_evidence_whitespace(evidence_text).casefold()
+    normalized_source = collapse_evidence_whitespace(source_text).casefold()
+    if not normalized_evidence:
+        return False
+    if _bounded_source_evidence_match(normalized_evidence, normalized_source):
+        return True
+    # The proof check reads "ל־ 1⁄2" and "ל־1⁄2" as one text; numeric evidence
+    # is bound the same way, across wrap space and never a paragraph gap.
+    return "\u05be" in source_text and _bounded_source_evidence_match(
+        collapse_evidence_whitespace(bind_maqaf_space(evidence_text)).casefold(),
+        collapse_evidence_whitespace(bind_maqaf_space(source_text)).casefold(),
     )
 
 
@@ -3200,7 +9919,10 @@ def _rule_verified_source_excerpt_pairs_by_path(
         ]
         if not resolved_text:
             continue
-        normalized_source = _collapse_source_sentence_text(resolved_text).lower()
+        normalized_source = collapse_evidence_whitespace(resolved_text).lower()
+        maqaf_source = collapse_evidence_whitespace(
+            bind_maqaf_space(resolved_text)
+        ).lower()
         selected_excerpts = [excerpt for excerpt in excerpts if excerpt]
         if not selected_excerpts:
             table = source.get("table")
@@ -3212,8 +9934,12 @@ def _rule_verified_source_excerpt_pairs_by_path(
             by_path.setdefault(path, []).append((None, resolved_text))
             continue
         for excerpt in selected_excerpts:
-            normalized_excerpt = _collapse_source_sentence_text(excerpt).lower()
-            if normalized_excerpt and normalized_excerpt in normalized_source:
+            normalized_excerpt = collapse_evidence_whitespace(excerpt).lower()
+            if normalized_excerpt and (
+                normalized_excerpt in normalized_source
+                or collapse_evidence_whitespace(bind_maqaf_space(excerpt)).lower()
+                in maqaf_source
+            ):
                 by_path.setdefault(path, []).append((excerpt, resolved_text))
     return {path: tuple(pairs) for path, pairs in by_path.items()}
 
@@ -4142,15 +10868,17 @@ def _call_body_contains_any(
 def _extract_legacy_grounding_values(text: str) -> set[float]:
     """Extract numeric values from embedded statute text."""
     implied_cents_matches = _iter_form_implied_cents_matches(text)
-    original_text = _FORM_IMPLIED_CENTS_PATTERN.sub(
-        lambda match: " " * len(match.group(0)),
-        text,
+    original_text = _bind_hebrew_source_text(
+        _FORM_IMPLIED_CENTS_PATTERN.sub(
+            lambda match: " " * len(match.group(0)),
+            text,
+        )
     )
     two_line_table_occurrences = _extract_two_line_table_value_occurrences(text)
     text = _clean_source_text_for_numeric_extraction(original_text)
     schedule_occurrences, text = _extract_collapsed_schedule_row_occurrences(text)
     numbers = set()
-    occupied_spans: list[tuple[int, int]] = []
+    occupied_spans: list[tuple[int, int]] = _SpanList()
     numbers.update(two_line_table_occurrences)
     numbers.update(schedule_occurrences)
 
@@ -4537,6 +11265,7 @@ def _iter_cardinal_word_number_matches(
     text: str,
     *,
     compound_only: bool = False,
+    split_adjacent_labels: bool = True,
 ) -> list[tuple[tuple[int, int], float]]:
     """Return English cardinal number phrases such as "five hundred thousand"."""
     matches: list[tuple[tuple[int, int], float]] = []
@@ -4550,11 +11279,54 @@ def _iter_cardinal_word_number_matches(
         if split_values is not None:
             matches.extend(split_values)
             continue
+        adjacent_values = (
+            _split_adjacent_cardinal_labels(phrase, offset=match.start())
+            if split_adjacent_labels
+            else None
+        )
+        if adjacent_values is not None:
+            matches.extend(adjacent_values)
+            continue
         value = _parse_cardinal_number_words(phrase)
         if value is None:
             continue
         matches.append((match.span(), value))
     return matches
+
+
+def _split_adjacent_cardinal_labels(
+    phrase: str, *, offset: int = 0
+) -> list[tuple[tuple[int, int], float]] | None:
+    """Keep flattened unscaled labels ("One Two Three") as separate numbers.
+
+    A valid compound such as "twenty one" remains one value. Scaled and
+    coordinated phrases retain their existing parsers; this only separates
+    adjacent bare cardinals that cannot form a conventional English number.
+    """
+    words = list(re.finditer(r"[A-Za-z]+", phrase))
+    if len(words) < 2 or any(
+        word.group().lower() not in _CARDINAL_WORD_VALUES for word in words
+    ):
+        return None
+    if _parse_strict_cardinal_number_words(phrase) is not None:
+        return None
+    values: list[tuple[tuple[int, int], float]] = []
+    index = 0
+    while index < len(words):
+        first = last = words[index]
+        value = _CARDINAL_WORD_VALUES[first.group().lower()]
+        if index + 1 < len(words):
+            following = words[index + 1]
+            compound = _parse_strict_cardinal_number_words(
+                phrase[first.start() : following.end()]
+            )
+            if compound is not None:
+                value = compound
+                last = following
+                index += 1
+        values.append(((offset + first.start(), offset + last.end()), value))
+        index += 1
+    return values
 
 
 def _iter_digit_scale_number_matches(
@@ -4612,6 +11384,99 @@ def _iter_dutch_cardinal_phrase_matches(
             continue
         matches.append((match.span(1), value))
     return matches
+
+
+def _iter_hebrew_number_word_matches(
+    text: str,
+) -> list[tuple[tuple[int, int], float]]:
+    """Return Hebrew ordinal and cardinal number words with their values."""
+    matches: list[tuple[tuple[int, int], float]] = []
+    # Longest spans first: the caller drops a match whose span overlaps one
+    # already taken, so a compound ("twenty and three"), a counted fraction
+    # ("two fifths") and a teen (unit then ten) each claim their words before
+    # the single-word pass would read a constituent on its own. A compound
+    # that lies inside a counted fraction is its count ("אחת עשרה עשיריות"
+    # is eleven tenths, not eleven); one that reaches past it is a mixed
+    # number whose tail the fraction is ("שלושה ושני שלישים").
+    fractions = _iter_hebrew_fraction_word_readings(text)
+    counted = sorted(span for span, _, is_counted in fractions if is_counted)
+    counted_starts = [span[0] for span in counted]
+
+    def inside_a_counted_fraction(span: tuple[int, int]) -> bool:
+        index = bisect_right(counted_starts, span[0]) - 1
+        while index >= 0 and counted[index][1] > span[0]:
+            if counted[index][1] >= span[1]:
+                return True
+            index -= 1
+        return False
+
+    matches.extend(
+        match
+        for match in _iter_hebrew_compound_number_matches(text)
+        if not inside_a_counted_fraction(match[0])
+    )
+    matches.extend((span, value) for span, value, _ in fractions)
+    for match in _HEBREW_TEEN_PATTERN.finditer(text):
+        unit = _HEBREW_TEEN_UNIT_VALUES.get(match.group("unit"))
+        if unit is None:
+            continue
+        matches.append((match.span(), 10.0 + unit))
+    for match in _HEBREW_NUMBER_WORD_PATTERN.finditer(text):
+        value = _HEBREW_NUMBER_WORD_VALUES.get(match.group("word"))
+        if value is None:
+            continue
+        if match.group("word") in _HEBREW_SECOND_WORDS and _hebrew_measured_second(
+            text, match
+        ):
+            continue
+        matches.append((match.span(), value))
+    return matches
+
+
+# "שנייה" is the ordinal "second" ("לידה שנייה", "הפעם השנייה") and the
+# unit of time ("חצי שנייה", "מחצית השנייה", "שנייה אחת", "בכל שנייה"); the
+# construct "שניית" ("שניית המתנה") is only ever the unit.
+_HEBREW_SECOND_WORDS = frozenset({"שנייה", "שניה", "שניית"})
+_HEBREW_FRACTION_BEFORE_SECOND_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])"
+    + _HEBREW_PREPOSITION_PREFIXES
+    + "(?:"
+    + "|".join(
+        re.escape(w)
+        for w in sorted(
+            set(_HEBREW_FRACTION_VALUES) | {"אלפית", "מאית"}, key=len, reverse=True
+        )
+    )
+    + ")\\s+$"
+)
+_HEBREW_MEASURED_SECOND_BEFORE_PATTERN = re.compile(
+    "(?:\\d|(?<![\u0590-\u05ff])(?:כל|בכל|תוך|בתוך|למשך|במשך|מדי|לאחר|אחרי|כעבור|"
+    "בחלוף|מקץ|לפני|עד|על|מעל|לפחות))\\s+$"
+)
+_HEBREW_MEASURED_SECOND_AFTER_PATTERN = re.compile("\\s+אח[תד](?![\u0590-\u05ff])")
+
+
+def _hebrew_measured_second(text: str, match: "re.Match[str]") -> bool:
+    """Whether this "שנייה" is the unit of time rather than the ordinal.
+
+    A fraction word before it says unit even under the article ("מחצית
+    השנייה" is half a second); otherwise the article says ordinal ("הפעם
+    השנייה"). A digit or "כל"/"תוך"/"למשך" before it says unit, and a
+    following "אחת" does only where the clause before it says a quantity
+    follows ("יהיה שנייה אחת"), not after a noun ("דירה שנייה אחת").
+    """
+    if match.group("word") == "שניית":
+        return True
+    start = match.start()
+    if _search_before(_HEBREW_FRACTION_BEFORE_SECOND_PATTERN, text, start) is not None:
+        return True
+    if "\u05d4" in text[start : match.start("word")]:
+        return False
+    if _search_before(_HEBREW_MEASURED_SECOND_BEFORE_PATTERN, text, start) is not None:
+        return True
+    return _HEBREW_MEASURED_SECOND_AFTER_PATTERN.match(
+        text, match.end()
+    ) is not None and _hebrew_fraction_context_before(text, start)
 
 
 def _parse_belgian_numeric_phrase(raw: str) -> float | None:
@@ -4683,8 +11548,50 @@ def _iter_direct_percentage_rate_matches(
     text: str,
 ) -> list[tuple[tuple[int, int], float]]:
     values: list[tuple[tuple[int, int], float]] = []
+    tokens: _HebrewWordTokens | None = None
+    hebrew_text = _HEBREW_LETTER_PATTERN.search(text) is not None
     for match in _DIRECT_PERCENTAGE_PATTERN.finditer(text):
-        for value in _iter_percentage_numeric_phrase_values(match.group("number")):
+        # The denominator of a fraction before the sign ("1/2%", "1 ⁄ 2%")
+        # is no rate of its own; the fraction is read whole elsewhere. Nor
+        # is a remainder of a Hebrew printed scale amount ("3 אלפים ו־200%"
+        # is 3,200 percent).
+        if _search_before(_SLASH_BEFORE_NUMBER_PATTERN, text, match.start("number"), 8):
+            continue
+        # A Hebrew fractional tail after the sign belongs to the rate ("3%
+        # וחצי" is 3.5 percent): the Hebrew digit pass reads it whole.
+        tail = _HEBREW_PERCENT_TAIL_AFTER_PATTERN.match(text, match.end())
+        if tail is not None and not _HEBREW_UNIT_AFTER_PATTERN.match(text, tail.end()):
+            continue
+        # The join is read before the wrap space, whatever its width, as
+        # the continuation check reads it: "ו־" eight spaces before "250"
+        # joins as "ו־250" does.
+        if _search_before(
+            _HEBREW_PRINTED_REMAINDER_JOIN_BEFORE_PATTERN,
+            text,
+            match.start("number"),
+            6,
+        ):
+            if tokens is None:
+                tokens = _HebrewWordTokens(text)
+            if _hebrew_digits_continue_printed_scale_amount(
+                text, match.start("number"), tokens
+            ):
+                continue
+        # A Unicode minus signs the rate as the ASCII hyphen does ("−.5%",
+        # "−3.5%"), and a formatting mark inside the token is nothing; the
+        # span keeps them both.
+        raw = _BIDI_MARKS_PATTERN.sub("", match.group("number")).replace("\u2212", "-")
+        # A comma-grouped number with a decimal part ("1,234.5") or more
+        # than one group ("1,234,567") is grouped thousands in any script;
+        # one group without a decimal part is so in Hebrew text ("1,234%"
+        # is 1,234 percent), where the comma never marks a decimal.
+        grouped = _GROUPED_THOUSANDS_DECIMAL_PATTERN.fullmatch(raw)
+        if grouped is not None and (
+            grouped.group("decimal") or hebrew_text or raw.count(",") > 1
+        ):
+            values.append((match.span("number"), float(raw.replace(",", "")) / 100))
+            continue
+        for value in _iter_percentage_numeric_phrase_values(raw):
             values.append((match.span("number"), value / 100))
     return values
 
@@ -4748,7 +11655,7 @@ def _extract_form_arithmetic_operand_values(text: str) -> list[float]:
     """Extract operands printed in official form calculation cells."""
 
     values: list[float] = []
-    fraction_spans: list[tuple[int, int]] = []
+    fraction_spans: list[tuple[int, int]] = _SpanList()
     for match in (
         *_FORM_ARITHMETIC_FRACTION_PATTERN.finditer(text),
         *_STANDALONE_FORM_FRACTION_PATTERN.finditer(text),
@@ -4772,7 +11679,7 @@ def _extract_contextual_ascii_fraction_values(text: str) -> list[float]:
     values: list[float] = []
     for match in _CONTEXTUAL_ASCII_FRACTION_PATTERN.finditer(text):
         with contextlib.suppress(ValueError, ZeroDivisionError):
-            whole = float(match.group("whole") or 0)
+            whole = float((match.group("whole") or "0").replace(",", ""))
             numerator = float(match.group("numerator"))
             denominator = float(match.group("denominator"))
             values.append(whole + numerator / denominator)
@@ -4812,6 +11719,25 @@ def _iter_form_implied_cents_matches(
             dollars = float(match.group("dollars").replace(",", "").replace(" ", ""))
             cents = float(match.group("cents"))
             matches.append((match.span(), dollars + cents / 100))
+    return matches
+
+
+def _iter_inline_form_implied_cents_matches(
+    text: str,
+) -> list[tuple[tuple[int, int], float]]:
+    """Match inline "dollars cents" form cells whose decimal separator is omitted."""
+
+    matches: list[tuple[tuple[int, int], float]] = []
+    for run in _INLINE_FORM_IMPLIED_CENTS_RUN_PATTERN.finditer(text):
+        cells = list(_INLINE_FORM_IMPLIED_CENTS_CELL_PATTERN.finditer(run.group(0)))
+        for cell in cells:
+            if len(cells) < 2 and "," not in cell.group("dollars"):
+                continue
+            with contextlib.suppress(ValueError):
+                dollars = float(cell.group("dollars").replace(",", ""))
+                cents = float(cell.group("cents"))
+                span = (run.start() + cell.start(), run.start() + cell.end())
+                matches.append((span, dollars + cents / 100))
     return matches
 
 
@@ -5069,9 +11995,48 @@ def _extract_percentage_context_values(text: str) -> set[float]:
     return values
 
 
+class _SpanList(list[tuple[int, int]]):
+    """A list of taken spans with a coverage mask beside it.
+
+    A pass takes spans one candidate at a time and asks, for each, whether
+    a taken span overlaps it; over a list of thousands of members the
+    question was answered by scanning every taken span, so the pass cost
+    the square of its size. The mask answers it in the candidate's own
+    length. The list itself is unchanged for every reader of it.
+    """
+
+    __slots__ = ("_mask",)
+
+    def __init__(self, spans: "Iterable[tuple[int, int]]" = ()) -> None:
+        super().__init__()
+        self._mask = bytearray()
+        for span in spans:
+            self.append(span)
+
+    def append(self, span: tuple[int, int]) -> None:
+        super().append(span)
+        start, end = max(span[0], 0), span[1]
+        if end > len(self._mask):
+            self._mask.extend(bytes(end - len(self._mask)))
+        if start < end:
+            self._mask[start:end] = b"\x01" * (end - start)
+
+    def extend(self, spans: "Iterable[tuple[int, int]]") -> None:
+        for span in spans:
+            self.append(span)
+
+    def overlaps(self, span: tuple[int, int]) -> bool:
+        start, end = max(span[0], 0), span[1]
+        if start >= end:
+            return any(not (end <= s or start >= e) for s, e in self)
+        return 1 in self._mask[start:end]
+
+
 def _span_overlaps(
-    span: tuple[int, int], occupied_spans: list[tuple[int, int]]
+    span: tuple[int, int], occupied_spans: "Sequence[tuple[int, int]]"
 ) -> bool:
+    if isinstance(occupied_spans, _SpanList):
+        return occupied_spans.overlaps(span)
     return any(
         not (span[1] <= start or span[0] >= end) for start, end in occupied_spans
     )
@@ -5442,7 +12407,7 @@ def _danish_equal_length_numeric_mask(text: str) -> _EqualLengthNumericMask:
     add_matches((_SOURCE_URL_PATTERN,))
     current = masked_text()
     for match in re.finditer(r"\[[^\]]*\d[^\]]*\]", current):
-        if _strip_superseded_bracketed_numeric_text(match) == " ":
+        if _strip_superseded_bracketed_numeric_text(match) != match.group(0):
             mask_spans.append(match.span())
     add_matches(
         (
@@ -5503,16 +12468,291 @@ def _danish_equal_length_numeric_mask(text: str) -> _EqualLengthNumericMask:
     return _apply_equal_length_numeric_mask(text, snapped_spans)
 
 
+@dataclass
+class _TrackedText:
+    """A text under edit, with each character's offset in the text it came from.
+
+    Every cleaning edit goes through :meth:`sub`, which carries offsets across
+    the edit instead of reconstructing them afterwards: a replacement of the
+    same width keeps its offsets in place, a replacement that merely appends
+    to or prepends to the matched text keeps the matched characters' offsets
+    and gives the inserted ones none, and anything else maps to none. Provenance
+    is then a fact about how the text was edited, not a guess about how two
+    strings might line up.
+    """
+
+    text: str
+    offsets: list[int | None]
+
+    @classmethod
+    def identity(cls, text: str) -> "_TrackedText":
+        return cls(text, list(range(len(text))))
+
+    def sub(
+        self,
+        pattern: "re.Pattern[str]",
+        repl: "str | Callable[[re.Match[str]], str]",
+        count: int = 0,
+    ) -> "_TrackedText":
+        pieces: list[str] = []
+        offsets: list[int | None] = []
+        last = 0
+        for index, match in enumerate(pattern.finditer(self.text)):
+            if count and index >= count:
+                break
+            start, end = match.span()
+            pieces.append(self.text[last:start])
+            offsets.extend(self.offsets[last:start])
+            replacement = repl(match) if callable(repl) else match.expand(repl)
+            matched = match.group(0)
+            pieces.append(replacement)
+            # A replacement character keeps the matched character's offset
+            # only where it is that character, in that position: a blank, an
+            # inserted space or a rewritten word has no source of its own.
+            for position, character in enumerate(replacement):
+                if position < len(matched) and character == matched[position]:
+                    offsets.append(self.offsets[start + position])
+                else:
+                    offsets.append(None)
+            last = end
+        pieces.append(self.text[last:])
+        offsets.extend(self.offsets[last:])
+        return _TrackedText("".join(pieces), offsets)
+
+    def rewrite(self, pattern: "re.Pattern[str]", repl: str) -> "_TrackedText":
+        """Replace each match with text of the same width, offsets kept in place.
+
+        For a character standing in for another (a hyphen typed for a maqaf)
+        the replacement keeps the matched character's offset, since it is
+        that character the source set there.
+        """
+        pieces: list[str] = []
+        offsets: list[int | None] = []
+        last = 0
+        for match in pattern.finditer(self.text):
+            start, end = match.span()
+            replacement = match.expand(repl)
+            if len(replacement) != end - start:
+                raise ValueError("Rewrite changed the width of the text")
+            pieces.append(self.text[last:start])
+            offsets.extend(self.offsets[last:start])
+            pieces.append(replacement)
+            offsets.extend(self.offsets[start:end])
+            last = end
+        pieces.append(self.text[last:])
+        offsets.extend(self.offsets[last:])
+        return _TrackedText("".join(pieces), offsets)
+
+    def rewrite_mapped(
+        self,
+        pattern: "re.Pattern[str]",
+        repl: "Callable[[re.Match[str]], Sequence[tuple[str, int | None]]]",
+    ) -> "_TrackedText":
+        """Replace each match with characters that carry their own offsets.
+
+        ``repl`` returns the replacement as (character, offset in this text)
+        pairs of the matched width, for an edit that moves a character
+        rather than rewriting it in place: the character keeps its source.
+        """
+        pieces: list[str] = []
+        offsets: list[int | None] = []
+        last = 0
+        for match in pattern.finditer(self.text):
+            start, end = match.span()
+            replacement = list(repl(match))
+            if len(replacement) != end - start:
+                raise ValueError("Rewrite changed the width of the text")
+            pieces.append(self.text[last:start])
+            offsets.extend(self.offsets[last:start])
+            pieces.append("".join(character for character, _ in replacement))
+            offsets.extend(
+                None if position is None else self.offsets[position]
+                for _, position in replacement
+            )
+            last = end
+        pieces.append(self.text[last:])
+        offsets.extend(self.offsets[last:])
+        return _TrackedText("".join(pieces), offsets)
+
+    def blank(self, start: int, end: int) -> "_TrackedText":
+        """Replace a span with spaces of the same width, offsets kept in place."""
+        return _TrackedText(
+            self.text[:start] + " " * (end - start) + self.text[end:],
+            list(self.offsets),
+        )
+
+    def lines(self) -> list["_TrackedText"]:
+        """Split into lines, each keeping its own terminator and offsets."""
+        result: list[_TrackedText] = []
+        position = 0
+        for line in self.text.splitlines(keepends=True):
+            result.append(
+                _TrackedText(line, list(self.offsets[position : position + len(line)]))
+            )
+            position += len(line)
+        return result
+
+    @staticmethod
+    def concat(parts: "Sequence[_TrackedText]") -> "_TrackedText":
+        text = "".join(part.text for part in parts)
+        offsets: list[int | None] = []
+        for part in parts:
+            offsets.extend(part.offsets)
+        return _TrackedText(text, offsets)
+
+
+# A stack of one-letter prefixes in the order the grammar allows: the
+# conjunction, then the relative ש or כש, then a preposition (מ may carry
+# the article), or the article alone -- "ו", "כש", "וכש", "מה", "וכשב",
+# "כשה" -- and not the two- and three-letter words that the same letters
+# spell ("של", "שב", "כשל"), which no writer binds with a maqaf.
+_HEBREW_PREFIX_STACK_FRAGMENT = (
+    "(?!(?:\u05e9\u05dc|\u05e9\u05d1|\u05d5\u05e9\u05d1|\u05d5\u05e9\u05dc|\u05db\u05e9\u05dc)[\u05be-])"
+    "(?=[\u0590-\u05ff])"
+    "(\u05d5?(?:\u05db\u05e9|\u05e9)?(?:[\u05d1\u05db\u05dc]|\u05de\u05d4?|\u05d4)?)"
+)
+_HEBREW_PREFIX_MAQAF_BEFORE_WORD_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff])" + _HEBREW_PREFIX_STACK_FRAGMENT + "\u05be(?=[\u0590-\u05ff])"
+)
+# A maqaf before the stack ("ו־כ-שלושה") is no letter: a chained prefix's
+# hyphen is a maqaf as a first prefix's is.
+_HEBREW_PREFIX_HYPHEN_PATTERN = re.compile(
+    "(?<![\u0590-\u05bd\u05bf-\u05ff])"
+    + _HEBREW_PREFIX_STACK_FRAGMENT
+    + "-(?=[\u0590-\u05ff\\d\u00bc-\u00be\u2150-\u215e])"
+)
+# A Hebrew word -- a prefix stack or a word of a compound -- its maqaf, then
+# wrap space -- spaces or one line wrap, never a blank line -- before the
+# word or the number it binds ("ו־ שלושה", "ו־\nשלושה", "ל־ 1⁄2", "מ־ 301,201",
+# "שלושה־ רבעים"): a typesetting artifact the readers must not see as a
+# boundary, since "עשרים ו־ שלושה" is twenty-three, not twenty and three. A
+# paragraph gap after the maqaf stays a boundary. The pattern is the proof
+# validator's, so evidence matching binds exactly what the readers bind.
+_HEBREW_MAQAF_WRAP_SPACE_PATTERN = HEBREW_MAQAF_WRAP_SPACE_PATTERN
+
+
+def _hebrew_close_maqaf_wrap_space(
+    match: "re.Match[str]",
+) -> list[tuple[str, int | None]]:
+    """Move the wrap space after a maqaf ahead of the word, or the chain: "ו־ שלושה" becomes " ו־שלושה", "מאה־ ו־ כ־ שלושה" "   מאה־ו־כ־שלושה"."""
+    cluster_start, maqaf_start = match.start(1), match.start(2)
+    cluster = [
+        (character, cluster_start + index)
+        for index, character in enumerate(match.group(1))
+        if not character.isspace()
+    ]
+    spaces = len(match.group(3)) + len(match.group(1)) - len(cluster)
+    return [(" ", None)] * spaces + cluster + [(match.group(2), maqaf_start)]
+
+
+_CARRIAGE_RETURN_PATTERN = re.compile("\r\n?")
+
+
+def _normalize_line_end(match: "re.Match[str]") -> str:
+    """A CRLF becomes a space and a newline, keeping its width; a bare CR the newline it is."""
+    return " \n" if match.group(0) == "\r\n" else "\n"
+
+
+def _bind_hebrew_source_text_tracked(tracked: _TrackedText) -> _TrackedText:
+    """Read line ends and the wrap space after a maqaf as the cleaner reads them.
+
+    The readers that run on the raw text -- the direct-percentage and money
+    matchers, the structural reference passes -- see a bare carriage return
+    as the line end it is and a prefix's maqaf bound to the token after it
+    across wrap space, as every reader of the cleaned text does, so no
+    spelling of the space after a maqaf changes what a text states, and a
+    hyphen typed for that maqaf is the maqaf first. Each character keeps
+    its offset.
+    """
+    tracked = tracked.sub(_CARRIAGE_RETURN_PATTERN, _normalize_line_end)
+    # A hyphen typed for a prefix's maqaf becomes the maqaf before the close,
+    # in the cleaner's order, so a chain closes the same under either.
+    tracked = tracked.rewrite(_HEBREW_PREFIX_HYPHEN_PATTERN, "\\1\u05be")
+    return tracked.rewrite_mapped(
+        _HEBREW_MAQAF_WRAP_SPACE_PATTERN, _hebrew_close_maqaf_wrap_space
+    )
+
+
+def _bind_hebrew_source_text(text: str) -> str:
+    return _bind_hebrew_source_text_tracked(_TrackedText.identity(text)).text
+
+
+def _hebrew_attach_prefix_cluster(
+    match: "re.Match[str]",
+) -> list[tuple[str, int | None]]:
+    """Move a prefix cluster across its maqaf: "ו־עד" becomes " ועד"."""
+    start = match.start(1)
+    return [(" ", None)] + [
+        (character, start + index) for index, character in enumerate(match.group(1))
+    ]
+
+
+# A sign, then formatting marks, then a number ("−\u200f.5"); and a number
+# or a fraction glyph, then formatting marks, then a percent sign ("½\u200f%").
+_HEBREW_SIGN_MARKS_BEFORE_NUMBER_PATTERN = re.compile(
+    "(?P<sign>[-\u2212])(?P<marks>[\u200e\u200f\u202a-\u202e\u2066-\u2069\u061c]+)"
+    "(?=\\d|\\.\\d)"
+)
+_HEBREW_MARKS_BEFORE_PERCENT_SIGN_PATTERN = re.compile(
+    "(?<=[\\d\u00bc-\u00be\u2150-\u215e])"
+    "(?P<marks>[\u200e\u200f\u202a-\u202e\u2066-\u2069\u061c]+)(?P<unit>%)"
+)
+
+
+def _hebrew_move_sign_across_marks(
+    match: "re.Match[str]",
+) -> list[tuple[str, int | None]]:
+    """Move a sign across the marks after it: "−\u200f.5" becomes " −.5"."""
+    return [(" ", None)] * len(match.group("marks")) + [
+        (match.group("sign"), match.start("sign"))
+    ]
+
+
+def _hebrew_move_percent_across_marks(
+    match: "re.Match[str]",
+) -> list[tuple[str, int | None]]:
+    """Move a percent sign across the marks before it: "½\u200f%" becomes "½% "."""
+    return [(match.group("unit"), match.start("unit"))] + [(" ", None)] * len(
+        match.group("marks")
+    )
+
+
 def _clean_source_text_for_numeric_extraction(
     text: str,
     *,
     profile: str = "legacy",
 ) -> str:
     """Strip structural source scaffolding before numeric extraction."""
+    return _clean_source_text_for_numeric_extraction_tracked(text, profile=profile).text
+
+
+def _clean_source_text_for_numeric_extraction_tracked(
+    text: str,
+    *,
+    profile: str = "legacy",
+) -> _TrackedText:
+    """Strip structural source scaffolding, carrying each character's source offset.
+
+    Edits that remove text blank it in place; the few that insert (a space
+    after a currency glyph glued to its amount) mark only the inserted
+    character as having no source. Line terminators are kept, so a CRLF
+    or a trailing newline moves nothing.
+    """
     if profile == "da-DK":
-        return _danish_equal_length_numeric_mask(text).text
-    text = re.sub(r"\\r\\n|\\n|\\r", "\n", text)
-    text = text.replace(r"\t", "\t")
+        masked = _danish_equal_length_numeric_mask(text).text
+        return _TrackedText(masked, list(range(len(masked))))
+    tracked = _TrackedText.identity(text)
+    # A carriage return before a newline becomes a space of its own, so a CRLF
+    # line ends in "\n" and keeps its width; one that ends a line by itself
+    # (a classic Mac or a mixed-terminator source) becomes the newline it is,
+    # so the line-level cleaners see the same lines as the author. The
+    # escaped literals a JSON-embedded source carries ("\\r\\n", "\\t") become
+    # their character right-aligned in their slot.
+    tracked = tracked.sub(_CARRIAGE_RETURN_PATTERN, _normalize_line_end)
+    tracked = tracked.sub(
+        re.compile(r"\\r\\n|\\n|\\r"), lambda m: " " * (len(m.group(0)) - 1) + "\n"
+    )
+    tracked = tracked.sub(re.compile(r"\\t"), " \t")
     # Detach the Ghana cedi symbol (and other cent/currency glyphs) glued to a
     # following amount so grouped-thousands parsing sees a clean boundary:
     # "GH¢5,880" -> "GH¢ 5,880". Without the space the digit run starts right
@@ -5521,20 +12761,57 @@ def _clean_source_text_for_numeric_extraction(
     # when the glyph precedes a digit, so cent-suffixed values ("50¢") are left
     # untouched. Covers the cent sign, cedi sign, fullwidth cent sign, and
     # naira sign.
-    text = re.sub(r"([¢₵￠₦])(?=\d)", r"\1 ", text)
+    # A bidirectional formatting mark before a digit ("₪\u200f500", a
+    # right-to-left mark a Hebrew source sets before a number) carries no
+    # content and hides the digit run from the boundary the matchers need:
+    # it becomes the space it stands for, one character for one.
+    # A mark inside a numeric token carries no content and no boundary. A
+    # mark between a sign and its number ("−\u200f.5%", "−\u200f.5 אחוזים")
+    # and one between a number or a fraction glyph and its percent sign
+    # ("−.5\u200f%", "½\u200f%") would split the token if it became a
+    # space, so the sign or the percent sign moves across the mark first,
+    # each keeping its own offset, and the mark's slot becomes the space
+    # outside the token. A mark after a last digit before a space
+    # ("3\u200f אחוזים") and a mark before a digit become the space they
+    # stand for below, so two digit runs never merge.
+    tracked = tracked.rewrite_mapped(
+        _HEBREW_SIGN_MARKS_BEFORE_NUMBER_PATTERN, _hebrew_move_sign_across_marks
+    )
+    tracked = tracked.rewrite_mapped(
+        _HEBREW_MARKS_BEFORE_PERCENT_SIGN_PATTERN, _hebrew_move_percent_across_marks
+    )
+    # A leading decimal ("\u200f.5", "₪.5") is a number as a digit run is.
+    tracked = tracked.sub(
+        re.compile("[\u200e\u200f\u202a-\u202e\u2066-\u2069\u061c](?=\\d|\\.\\d)"),
+        " ",
+    )
+    # A mark after a number's last digit or fraction glyph, before the space
+    # that follows it ("3\u200f אחוזים"), becomes that space too, so the
+    # noun after it is the number's.
+    tracked = tracked.sub(
+        re.compile(
+            "(?<=[\\d\u00bc-\u00be\u2150-\u215e])"
+            "[\u200e\u200f\u202a-\u202e\u2066-\u2069\u061c]+(?=\\s|$)"
+        ),
+        _blank_match,
+    )
+    # The shekel sign glued to its amount ("₪500") is detached the same way.
+    tracked = tracked.sub(re.compile(r"([¢₵￠₦₪])(?=\d|\.\d)"), r"\1 ")
     # Nigerian gazette prints denominate naira with an ASCII "N" glued to the
     # amount ("N800,000" in the Nigeria Tax Act 2025 Fourth Schedule). Detach
     # it the same way, but only when the N is a standalone prefix (not part
     # of a longer token) and the amount is comma-grouped, so identifiers like
     # "N95" or gazette references like "N26" stay untouched.
-    text = re.sub(r"(?<![A-Za-z0-9])N(?=\d{1,3},\d{3})", "N ", text)
+    tracked = tracked.sub(re.compile(r"(?<![A-Za-z0-9])N(?=\d{1,3},\d{3})"), "N ")
     # Zambian prints denominate kwacha with an ASCII "K" (or lowercase "k")
     # glued to the amount ("K452", "K2.34/ltr", "k0.25/ltr" in the Customs
     # and Excise amendment schedules). Detach it the same way; the alnum
     # lookbehind keeps mid-token letters ("4K", "HK5") untouched, and
     # over-detaching a rare non-currency "K2" only adds a harmless
     # candidate value to numeric extraction.
-    text = re.sub(r"(?<![A-Za-z0-9])[Kk](?=\d)", lambda m: m.group(0) + " ", text)
+    tracked = tracked.sub(
+        re.compile(r"(?<![A-Za-z0-9])[Kk](?=\d)"), lambda m: m.group(0) + " "
+    )
     # OCR'd schedule tables render band ranges with the hyphen glued to
     # the upper bound ("0 -2,000 0%" in the Ethiopia Proclamation
     # 1395/2025 scan), so the bound parses as a negative amount. A
@@ -5542,101 +12819,187 @@ def _clean_source_text_for_numeric_extraction(
     # range separator, not a minus - detach it. True negative amounts
     # ("a loss of -2,000") lose the sign only when directly preceded by
     # a spaced digit, which statutory prose does not produce.
-    text = re.sub(r"(?<=\d )-(?=\d)", "- ", text)
+    tracked = tracked.sub(re.compile(r"(?<=\d )-(?=\d)"), "- ")
     # Ugandan prints denominate shillings with a "/=" (or plain "=") suffix
     # glued to the amount ("200,000/=" and "200,000=" in the Local
     # Governments (Amendment) (No. 2) Act 2008 local-service-tax tables).
     # Strip the glued suffix so grouped-thousands parsing sees a clean
     # boundary; a spaced "=" (a real equation, "x = 5") is left untouched.
-    text = re.sub(r"(?<=\d)/?=(?=\s|$)", "", text)
-    cleaned_lines: list[str] = []
+    tracked = tracked.sub(re.compile(r"(?<=\d)/?=(?=\s|$)"), _blank_match)
+    # A hyphen after a prefix stack at a word start ("ו-מאתיים", "ה-תקציב",
+    # "מ-הכנסה", "ל-3", "וה-שני", "וכש-המתינה") is the maqaf an
+    # editor's keyboard lacks: the source prints the prefix bound to its word
+    # either way, and every reader below was taught the maqaf. The hyphen
+    # becomes the maqaf in place, one character for one, keeping its offset,
+    # before the maqaf before a digit is detached below, so the two spellings
+    # are one text to every pattern. A hyphen between two words of two or
+    # more letters is a range or a compound and is left as it is.
+    tracked = tracked.rewrite(_HEBREW_PREFIX_HYPHEN_PATTERN, "\\1\u05be")
+    # The space a source sets after a prefix's maqaf ("ו־ שלושה", "ל־ 1⁄2")
+    # moves ahead of the prefix, each character keeping its offset, so the
+    # spaced and the bound spellings are one text to every reader below.
+    tracked = tracked.rewrite_mapped(
+        _HEBREW_MAQAF_WRAP_SPACE_PATTERN, _hebrew_close_maqaf_wrap_space
+    )
+    # A maqaf after a prefix stack before a Hebrew letter ("ו־עד",
+    # "ו־המתינה", "ה־שיעורים", "וכש־המתינה") binds the prefix to the word the
+    # way attachment does: the source means "ועד" whichever way it set the
+    # prefix. The cluster moves up to the word and the maqaf's slot becomes
+    # the space before it, one character for one, each letter keeping its
+    # own offset, so the attached, maqaf and hyphen spellings are one text
+    # to every reader. Only a prefix stack moves: a word the same letters
+    # spell ("כל־", "של־") stays where it is.
+    tracked = tracked.rewrite_mapped(
+        _HEBREW_PREFIX_MAQAF_BEFORE_WORD_PATTERN, _hebrew_attach_prefix_cluster
+    )
+    # Hebrew prose attaches the one-letter prefix preposition to a following
+    # numeral with a maqaf, the Hebrew hyphen (U+05BE): mem-maqaf-84,120
+    # ("from 84,120") in Income Tax Ordinance section 121, bet-maqaf-2.24
+    # ("times 2.24") in National Insurance Law section 68(b). The maqaf is in
+    # no digit-boundary character class, so the grouped-thousands matcher's
+    # lookbehind never fires: the first is misread as the trailing "120" and
+    # the second is dropped outright. Detach it the way the currency glyphs
+    # above are detached; an ASCII hyphen in the same position already parses
+    # correctly. The lookahead fires only before a digit, a fraction glyph or
+    # a decimal point that digits follow ("ב־.5"), so a maqaf between two
+    # Hebrew words is left untouched.
+    tracked = tracked.sub(
+        re.compile("\u05be(?=[\\d\u00bc-\u00be\u2150-\u215e]|\\.\\d)"), " "
+    )
+    cleaned_lines: list[_TrackedText] = []
     preserve_split_schedule_value = False
-    for line in text.splitlines():
+    for tracked_line in tracked.lines():
+        ending = tracked_line.text[len(tracked_line.text.rstrip("\n")) :]
+        content = _TrackedText(
+            tracked_line.text[: len(tracked_line.text) - len(ending)],
+            tracked_line.offsets[: len(tracked_line.text) - len(ending)],
+        )
+        terminator = _TrackedText(ending, tracked_line.offsets[len(content.text) :])
+        line = content.text
         stripped = line.strip()
         structural_stripped = stripped.strip(_STRUCTURAL_SOURCE_QUOTE_CHARS)
         if preserve_split_schedule_value and _SCHEDULE_SPLIT_VALUE_PATTERN.fullmatch(
             structural_stripped
         ):
-            cleaned_lines.append(line)
+            cleaned_lines.append(_TrackedText.concat([content, terminator]))
             preserve_split_schedule_value = False
             continue
         preserve_split_schedule_value = False
         if _SCHEDULE_SPLIT_ROW_KEY_PATTERN.fullmatch(structural_stripped):
-            cleaned_lines.append(line)
+            cleaned_lines.append(_TrackedText.concat([content, terminator]))
             preserve_split_schedule_value = True
             continue
         if _STRUCTURAL_SOURCE_LINE_PATTERN.match(structural_stripped):
+            cleaned_lines.append(
+                _TrackedText.concat([content.blank(0, len(line)), terminator])
+            )
             continue
         if _STRUCTURAL_SOURCE_HEADING_PATTERN.match(structural_stripped):
+            cleaned_lines.append(
+                _TrackedText.concat([content.blank(0, len(line)), terminator])
+            )
             continue
         if _STRUCTURAL_SOURCE_CITATION_PATTERN.match(structural_stripped):
+            cleaned_lines.append(
+                _TrackedText.concat([content.blank(0, len(line)), terminator])
+            )
             continue
         if _TABLE_HEADING_PATTERN.match(structural_stripped):
+            cleaned_lines.append(
+                _TrackedText.concat([content.blank(0, len(line)), terminator])
+            )
             continue
         if _SYNTHETIC_MODELING_INSTRUCTION_PATTERN.match(structural_stripped):
+            cleaned_lines.append(
+                _TrackedText.concat([content.blank(0, len(line)), terminator])
+            )
             continue
         if _SYNTHETIC_STATEWIDE_ALLOWANCE_RESTATEMENT_PATTERN.match(
             structural_stripped
         ):
+            cleaned_lines.append(
+                _TrackedText.concat([content.blank(0, len(line)), terminator])
+            )
             continue
 
-        normalized_line = line.lstrip(_STRUCTURAL_SOURCE_QUOTE_CHARS)
-        normalized_line = _STRUCTURAL_SOURCE_CITATION_PREFIX_PATTERN.sub(
-            "", normalized_line, count=1
+        normalized = content.blank(
+            0, len(line) - len(line.lstrip(_STRUCTURAL_SOURCE_QUOTE_CHARS))
         )
-        value_row_match = _VALUE_BEARING_TABLE_ROW_PATTERN.match(normalized_line)
+        normalized = normalized.sub(
+            _STRUCTURAL_SOURCE_CITATION_PREFIX_PATTERN, _blank_match, count=1
+        )
+        value_row_match = _VALUE_BEARING_TABLE_ROW_PATTERN.match(normalized.text)
         schedule_row_match = (
-            _SCHEDULE_SIZE_ROW_PATTERN.fullmatch(normalized_line)
-            or _SCHEDULE_PIPE_ROW_PATTERN.fullmatch(normalized_line)
-            or _SCHEDULE_ARROW_ROW_PATTERN.fullmatch(normalized_line)
-            or _SCHEDULE_BARE_ARROW_ROW_PATTERN.fullmatch(normalized_line)
+            _SCHEDULE_SIZE_ROW_PATTERN.fullmatch(normalized.text)
+            or _SCHEDULE_PIPE_ROW_PATTERN.fullmatch(normalized.text)
+            or _SCHEDULE_ARROW_ROW_PATTERN.fullmatch(normalized.text)
+            or _SCHEDULE_BARE_ARROW_ROW_PATTERN.fullmatch(normalized.text)
         )
         if value_row_match and not schedule_row_match:
-            normalized_line = value_row_match.group(1)
-        normalized_line = _TABLE_ROW_LABEL_PATTERN.sub("size", normalized_line)
-        normalized_line = _STRUCTURAL_SOURCE_PREFIX_PATTERN.sub(
-            "",
-            normalized_line,
+            start, end = value_row_match.span(1)
+            normalized = normalized.blank(0, start).blank(end, len(normalized.text))
+        normalized = normalized.sub(
+            _TABLE_ROW_LABEL_PATTERN, lambda m: "size".ljust(len(m.group(0)))
         )
-        cleaned_lines.append(normalized_line)
+        normalized = normalized.sub(_STRUCTURAL_SOURCE_PREFIX_PATTERN, _blank_match)
+        cleaned_lines.append(_TrackedText.concat([normalized, terminator]))
 
-    cleaned = "\n".join(cleaned_lines)
-    cleaned = _SOURCE_URL_PATTERN.sub(" ", cleaned)
-    cleaned = re.sub(
-        r"\[[^\]]*\d[^\]]*\]",
+    tracked = _TrackedText.concat(cleaned_lines)
+    tracked = tracked.sub(_SOURCE_URL_PATTERN, _blank_match)
+    tracked = tracked.sub(
+        re.compile(r"\[[^\]]*\d[^\]]*\]"),
         _strip_superseded_bracketed_numeric_text,
-        cleaned,
     )
-    cleaned = _STRUCTURAL_SOURCE_MANUAL_NUMBER_PATTERN.sub(" ", cleaned)
-    cleaned = _STRUCTURAL_SOURCE_MANUAL_VOLUME_PATTERN.sub(" ", cleaned)
-    cleaned = _STRUCTURAL_SOURCE_POLICY_LABEL_PATTERN.sub(" ", cleaned)
-    cleaned = _STRUCTURAL_SOURCE_BULLETIN_NUMBER_PATTERN.sub(" ", cleaned)
-    cleaned = _STRUCTURAL_SOURCE_REVISION_PATTERN.sub(" ", cleaned)
-    cleaned = _STRUCTURAL_SOURCE_REVISION_CODE_PATTERN.sub(" ", cleaned)
-    cleaned = _STRUCTURAL_SOURCE_HANDBOOK_SECTION_PATTERN.sub(" ", cleaned)
-    cleaned = _STRUCTURAL_SOURCE_FORM_NUMBER_PATTERN.sub(" ", cleaned)
-    cleaned = _STRUCTURAL_SOURCE_FORM_LINE_PATTERN.sub(" ", cleaned)
-    cleaned = _STRUCTURAL_SOURCE_CODE_CITATION_PATTERN.sub(" ", cleaned)
-    cleaned = _STRUCTURAL_SOURCE_LEGAL_EDITION_PATTERN.sub(" ", cleaned)
-    cleaned = _STRUCTURAL_SOURCE_STATE_CODE_CITATION_PATTERN.sub(" ", cleaned)
-    cleaned = _STRUCTURAL_SOURCE_BARE_DOTTED_REFERENCE_PATTERN.sub(" ", cleaned)
-    cleaned = _STRUCTURAL_SOURCE_SECTION_PATTERN.sub(" ", cleaned)
-    cleaned = GROUNDING_DATE_PATTERN.sub(" ", cleaned)
-    cleaned = GROUNDING_MONTH_PERIOD_PATTERN.sub(" ", cleaned)
-    cleaned = _DOTTED_DATE_PATTERN.sub(" ", cleaned)
-    cleaned = _MONTH_NAME_DATE_PATTERN.sub(" ", cleaned)
-    cleaned = _SLASH_DATE_PATTERN.sub(" ", cleaned)
-    cleaned = _MONTH_NAME_DAY_PATTERN.sub(" ", cleaned)
-    cleaned = _MONTH_DAY_OF_MONTH_PATTERN.sub(" ", cleaned)
-    cleaned = _STRUCTURAL_SOURCE_SUBDIVISION_MARKER_PATTERN.sub(" ", cleaned)
-    cleaned = _SCHEDULE_SIZE_CAP_RESTATEMENT_PATTERN.sub(
-        lambda match: f"above {match.group(1)} use the capped household rate",
-        cleaned,
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_MANUAL_NUMBER_PATTERN, _blank_match)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_MANUAL_VOLUME_PATTERN, _blank_match)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_POLICY_LABEL_PATTERN, _blank_match)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_BULLETIN_NUMBER_PATTERN, _blank_match)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_REVISION_PATTERN, _blank_match)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_REVISION_CODE_PATTERN, _blank_match)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_HANDBOOK_SECTION_PATTERN, _blank_match)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_FORM_NUMBER_PATTERN, _blank_match)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_FORM_LINE_PATTERN, _blank_match)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_CODE_CITATION_PATTERN, _blank_match)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_LEGAL_EDITION_PATTERN, _blank_match)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_STATE_CODE_CITATION_PATTERN, _blank_match)
+    tracked = tracked.sub(
+        _STRUCTURAL_SOURCE_BARE_DOTTED_REFERENCE_PATTERN, _blank_match
     )
-    cleaned = _TABLE_KEY_ASSIGNMENT_PATTERN.sub(" ", cleaned)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_SECTION_PATTERN, _blank_match)
+    tracked = tracked.sub(GROUNDING_DATE_PATTERN, _blank_match)
+    tracked = tracked.sub(GROUNDING_MONTH_PERIOD_PATTERN, _blank_match)
+    tracked = tracked.sub(_DOTTED_DATE_PATTERN, _blank_match)
+    tracked = tracked.sub(_MONTH_NAME_DATE_PATTERN, _blank_match)
+    tracked = tracked.sub(_SLASH_DATE_PATTERN, _blank_match)
+    tracked = tracked.sub(_MONTH_NAME_DAY_PATTERN, _blank_match)
+    tracked = tracked.sub(_MONTH_DAY_OF_MONTH_PATTERN, _blank_match)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_SUBDIVISION_MARKER_PATTERN, _blank_match)
+    tracked = tracked.sub(
+        _SCHEDULE_SIZE_CAP_RESTATEMENT_PATTERN,
+        _restate_schedule_size_cap_in_place,
+    )
+    tracked = tracked.sub(_TABLE_KEY_ASSIGNMENT_PATTERN, _blank_match)
     for pattern in _SOURCE_REFERENCE_PATTERNS:
-        cleaned = pattern.sub(" ", cleaned)
-    return cleaned
+        tracked = tracked.sub(pattern, _blank_match)
+    return tracked
+
+
+def _restate_schedule_size_cap_in_place(match: re.Match[str]) -> str:
+    """Rewrite a size-cap restatement in its own width, the size digit in place."""
+    matched = match.group(0)
+    digit_start = match.start(1) - match.start()
+    digit_end = match.end(1) - match.start()
+    tail = " use the capped household rate"
+    return (
+        matched[:digit_start]
+        + matched[digit_start:digit_end]
+        + tail[: len(matched) - digit_end].ljust(len(matched) - digit_end)
+    )
+
+
+def _blank_match(match: re.Match[str]) -> str:
+    """Replace a match with spaces of its own width, so offsets stay put."""
+    return " " * len(match.group(0))
 
 
 def _strip_superseded_bracketed_numeric_text(match: re.Match[str]) -> str:
@@ -5647,7 +13010,7 @@ def _strip_superseded_bracketed_numeric_text(match: re.Match[str]) -> str:
         return bracketed
     if re.search(r"[+\-−*/]", inner) or re.search(r"[A-Za-z_]", inner):
         return bracketed
-    return " "
+    return " " * len(bracketed)
 
 
 def _iter_collapsed_schedule_row_occurrences(
@@ -5690,6 +13053,7 @@ def _iter_collapsed_schedule_row_occurrences(
                         last_value_by_block[pending_split_block_key] = value
                         seen_values.add(value)
                 pending_split_block_key = None
+                retained_lines.append(" " * len(line) + line_with_ending[len(line) :])
                 line_offset += len(line_with_ending)
                 continue
             pending_split_block_key = None
@@ -5697,7 +13061,7 @@ def _iter_collapsed_schedule_row_occurrences(
         if _SCHEDULE_BLOCK_HEADING_PATTERN.fullmatch(stripped):
             current_heading = stripped
             current_ungrouped_block = None
-            retained_lines.append(line)
+            retained_lines.append(line_with_ending)
             line_offset += len(line_with_ending)
             continue
 
@@ -5724,6 +13088,7 @@ def _iter_collapsed_schedule_row_occurrences(
                     ungrouped_block += 1
                     current_ungrouped_block = f"__ungrouped_{ungrouped_block}"
                 pending_split_block_key = current_ungrouped_block
+            retained_lines.append(" " * len(line) + line_with_ending[len(line) :])
             line_offset += len(line_with_ending)
             continue
 
@@ -5759,16 +13124,17 @@ def _iter_collapsed_schedule_row_occurrences(
                     )
                     last_value_by_block[block_key] = value
                     seen_values.add(value)
+            retained_lines.append(" " * len(line) + line_with_ending[len(line) :])
             line_offset += len(line_with_ending)
             continue
 
         if stripped:
             current_heading = None
             current_ungrouped_block = None
-        retained_lines.append(line)
+        retained_lines.append(line_with_ending)
         line_offset += len(line_with_ending)
 
-    return occurrences, "\n".join(retained_lines)
+    return occurrences, "".join(retained_lines)
 
 
 def _extract_collapsed_schedule_row_occurrences(
@@ -5844,9 +13210,11 @@ def _extract_two_line_table_value_occurrences(text: str) -> list[float]:
 def _extract_legacy_inventory_values(text: str) -> list[float]:
     """Extract substantive numeric occurrences from source text, preserving repeats."""
     implied_cents_matches = _iter_form_implied_cents_matches(text)
-    raw_text = _FORM_IMPLIED_CENTS_PATTERN.sub(
-        lambda match: " " * len(match.group(0)),
-        text,
+    raw_text = _bind_hebrew_source_text(
+        _FORM_IMPLIED_CENTS_PATTERN.sub(
+            lambda match: " " * len(match.group(0)),
+            text,
+        )
     )
     two_line_table_occurrences = _extract_two_line_table_value_occurrences(text)
     cleaned = _clean_source_text_for_numeric_extraction(raw_text)
@@ -5857,7 +13225,7 @@ def _extract_legacy_inventory_values(text: str) -> list[float]:
     occurrences: list[float] = list(two_line_table_occurrences)
     occurrences.extend(collapsed_schedule_occurrences)
     occurrences.extend(value for _, value in implied_cents_matches)
-    spans: list[tuple[int, int]] = []
+    spans: list[tuple[int, int]] = _SpanList()
     cleaned_money_values: list[float] = []
     for span, value in _iter_belgian_numeric_range_endpoint_matches(cleaned):
         occurrences.append(value)
@@ -5899,7 +13267,9 @@ def _extract_legacy_inventory_values(text: str) -> list[float]:
         spans.append(span)
 
     for span, value in _iter_standalone_fraction_word_matches(cleaned):
-        if _span_overlaps(span, spans):
+        if _span_overlaps(span, spans) or _hebrew_fraction_word_is_percent_tail(
+            cleaned, span
+        ):
             continue
         occurrences.append(value)
         spans.append(span)
@@ -6518,9 +13888,11 @@ def _fallback_numeric_occurrence(text: str, value: float) -> NumericOccurrence:
 
 def _legacy_surface_numeric_occurrences(text: str) -> list[NumericOccurrence]:
     """Return exact-span surface candidates used to type legacy numeric values."""
-    raw_text = _FORM_IMPLIED_CENTS_PATTERN.sub(
-        lambda match: " " * len(match.group(0)),
-        text,
+    raw_text = _bind_hebrew_source_text(
+        _FORM_IMPLIED_CENTS_PATTERN.sub(
+            lambda match: " " * len(match.group(0)),
+            text,
+        )
     )
     cleaned = _clean_source_text_for_numeric_extraction(raw_text)
     _, cleaned = _extract_collapsed_schedule_row_occurrences(cleaned)
@@ -6568,6 +13940,8 @@ def _legacy_surface_numeric_occurrences(text: str) -> list[NumericOccurrence]:
             )
         )
     for span, value in _iter_standalone_fraction_word_matches(cleaned):
+        if _hebrew_fraction_word_is_percent_tail(cleaned, span):
+            continue
         occurrences.append(
             _numeric_occurrence_from_parsed_span(text, cleaned, span, value)
         )
@@ -6719,6 +14093,11 @@ class _NumericTextView:
                 offsets[index] = source_start + index - parsed_start
         return cls(source, parsed, tuple(offsets))
 
+    @classmethod
+    def tracked(cls, source: str, edited: "_TrackedText") -> "_NumericTextView":
+        """A view whose provenance was carried through the edits that made it."""
+        return cls(source, edited.text, tuple(edited.offsets))
+
     def source_span(
         self,
         span: tuple[int, int],
@@ -6788,15 +14167,27 @@ class _LegacyNumericCollector:
     structural_component_spans: tuple[tuple[int, int], ...] = field(init=False)
     structural_component_span_starts: tuple[int, ...] = field(init=False)
     structural_component_prefix_max_ends: tuple[int, ...] = field(init=False)
+    context_text: str = field(init=False)
     context_boundaries: _NumericContextBoundaries = field(init=False)
     money_spans: tuple[tuple[int, int], ...] = field(init=False)
 
     def __post_init__(self) -> None:
+        # Context is classified on the text with its line ends and the wrap
+        # space after a prefix's maqaf as the cleaner reads them -- the same
+        # width, so every span is a span in the source -- so a schedule
+        # ordinal after "ה־ " is the reference it is after "ה־", and a rate
+        # or currency marker across a spaced maqaf is seen. The raw slice of
+        # an occurrence stays the source's own.
+        self.context_text = (
+            self.source
+            if self.profile == "da-DK"
+            else _bind_hebrew_source_text(self.source)
+        )
         self.rate_table_cell_spans = (
             ()
             if self.profile == "da-DK"
             else _pipe_table_rate_cell_spans(
-                self.source,
+                self.context_text,
                 profile=self.profile,
             )
         )
@@ -6804,9 +14195,11 @@ class _LegacyNumericCollector:
             self.rate_table_cell_span_starts,
             self.rate_table_cell_prefix_max_ends,
         ) = _span_containment_index(self.rate_table_cell_spans)
-        self.temporal_component_spans = _temporal_numeric_component_spans(self.source)
+        self.temporal_component_spans = _temporal_numeric_component_spans(
+            self.context_text
+        )
         self.structural_component_spans = _structural_numeric_component_spans(
-            self.source,
+            self.context_text,
             profile=self.profile,
         )
         (
@@ -6820,23 +14213,25 @@ class _LegacyNumericCollector:
         )
         money_spans = {
             span
-            for span, _value in _iter_raw_european_money_value_matches(self.source)
+            for span, _value in _iter_raw_european_money_value_matches(
+                self.context_text
+            )
             if self.profile != "da-DK"
             or _currency_marker_before_number(
-                self.source,
+                self.context_text,
                 span[0],
                 profile=self.profile,
                 boundaries=self.context_boundaries,
             )
             or _currency_marker_after_number(
-                self.source,
+                self.context_text,
                 span[1],
                 profile=self.profile,
                 boundaries=self.context_boundaries,
             )
         }
         shared_rate_spans: set[tuple[int, int]] = set()
-        for match in _TEMPORAL_YEAR_RANGE_PATTERN.finditer(self.source):
+        for match in _TEMPORAL_YEAR_RANGE_PATTERN.finditer(self.context_text):
             endpoint_spans = (match.span("start"), match.span("end"))
             has_money_context = (
                 any(
@@ -6846,7 +14241,7 @@ class _LegacyNumericCollector:
                 )
                 or bool(
                     _currency_marker_before_number(
-                        self.source,
+                        self.context_text,
                         match.start(),
                         profile=self.profile,
                         boundaries=self.context_boundaries,
@@ -6854,7 +14249,7 @@ class _LegacyNumericCollector:
                 )
                 or bool(
                     _currency_marker_after_number(
-                        self.source,
+                        self.context_text,
                         match.end(),
                         profile=self.profile,
                         boundaries=self.context_boundaries,
@@ -6864,7 +14259,7 @@ class _LegacyNumericCollector:
             if has_money_context:
                 money_spans.update(endpoint_spans)
             if _local_rate_context_after_number(
-                self.source,
+                self.context_text,
                 match.end(),
                 profile=self.profile,
                 boundaries=self.context_boundaries,
@@ -6900,7 +14295,7 @@ class _LegacyNumericCollector:
         has_rate_context = (
             force_rate_context
             or _local_rate_context_after_number(
-                self.source,
+                self.context_text,
                 end,
                 profile=self.profile,
                 boundaries=self.context_boundaries,
@@ -6918,7 +14313,7 @@ class _LegacyNumericCollector:
             )
             or bool(
                 _currency_marker_before_number(
-                    self.source,
+                    self.context_text,
                     start,
                     profile=self.profile,
                     boundaries=self.context_boundaries,
@@ -6926,7 +14321,7 @@ class _LegacyNumericCollector:
             )
             or bool(
                 _currency_marker_after_number(
-                    self.source,
+                    self.context_text,
                     end,
                     profile=self.profile,
                     boundaries=self.context_boundaries,
@@ -7848,6 +15243,25 @@ def _temporal_numeric_component_spans(
     return tuple(sorted(spans))
 
 
+_HEBREW_FRACTION_IN_REFERENCE_AFTER_PATTERN = re.compile(
+    "\\s+(?:ל[\u05be-]?|(?:של|מן|מתוך)\\s+(?:ה[\u05be-]?)?|מ[\u05be-]?(?:ה[\u05be-]?)?)"
+    + _HEBREW_STATUTE_NAME_WORDS
+    + "(?![\u0590-\u05ff])"
+)
+
+
+def _hebrew_fraction_is_an_ordinal_in_a_reference(
+    text: str, span: tuple[int, int]
+) -> bool:
+    """Whether a fraction-shaped word the reader took is a schedule's ordinal.
+
+    The reader takes "חמישית" as a fraction on its own evidence; "התוספת
+    החמישית לחוק" and "תוספת חמישית של הפקודה" name a schedule whatever the
+    word's shape, and stay labels.
+    """
+    return _HEBREW_FRACTION_IN_REFERENCE_AFTER_PATTERN.match(text, span[1]) is not None
+
+
 def _structural_numeric_component_spans(
     text: str,
     *,
@@ -7859,6 +15273,8 @@ def _structural_numeric_component_spans(
         _GERMAN_STRUCTURAL_REFERENCE_PATTERN,
         _ENGLISH_STRUCTURAL_REFERENCE_PATTERN,
         _ENGLISH_STRUCTURAL_DIGIT_LABEL_PATTERN,
+        _HEBREW_STRUCTURAL_REFERENCE_PATTERN,
+        _HEBREW_WEEKDAY_PATTERN,
         _STRUCTURAL_SOURCE_STATE_CODE_CITATION_PATTERN,
         _STRUCTURAL_SOURCE_NJ_TITLE_54A_HEADING_PATTERN,
         _STRUCTURAL_LINE_MARKER_PATTERN,
@@ -7873,6 +15289,22 @@ def _structural_numeric_component_spans(
             ),
         )
     spans = {match.span() for pattern in patterns for match in pattern.finditer(text)}
+    spans.update(_hebrew_structural_word_reference_spans(text))
+    # A spelled reference the fraction reader reads as a fraction, in its
+    # own clause context ("תוספת חמישית מהתקבולים תשולם", "הקצבה כוללת
+    # חמישית מן התקבולים"), is an amount and no label: the structural span
+    # yields to the reading actually made, not to a guess at one.
+    fraction_spans = [
+        span
+        for span, _value in _iter_hebrew_fraction_word_matches(text)
+        if not _hebrew_fraction_is_an_ordinal_in_a_reference(text, span)
+    ]
+    if fraction_spans:
+        spans = {
+            span
+            for span in spans
+            if not any(_span_overlaps(span, [fraction]) for fraction in fraction_spans)
+        }
     if profile == "da-DK":
         spans.update(danish_spans)
     spans.update(
@@ -8047,6 +15479,9 @@ def _english_word_number_occurrences(
     for span, value in _iter_cardinal_word_number_matches(
         cleaned,
         compound_only=True,
+        # The explicit English profile rejects malformed phrases as a whole;
+        # do not turn their individual tokens into new grounding evidence.
+        split_adjacent_labels=False,
     ):
         strict_value = _parse_strict_cardinal_number_words(cleaned[slice(*span)])
         if strict_value is None or not math.isclose(strict_value, value):
@@ -8174,8 +15609,11 @@ def _tokenize_profiled_numeric_occurrences(
         masked_context_spans = numeric_mask.spans
         numeric_boundaries = None
     else:
-        cleaned = _clean_source_text_for_numeric_extraction(text, profile=profile)
-        view = _NumericTextView.aligned(text, cleaned)
+        cleaned_tracked = _clean_source_text_for_numeric_extraction_tracked(
+            text, profile=profile
+        )
+        cleaned = cleaned_tracked.text
+        view = _NumericTextView.tracked(text, cleaned_tracked)
         masked_context_spans = ()
         numeric_boundaries = None
         ordinal_range_internal_index = None
@@ -8253,6 +15691,11 @@ def _occurrence_value_matches(left: float, right: float) -> bool:
     )
 
 
+# Complete-source-unit analysis re-tokenizes the same branch texts once per
+# formula rule they are matched against; on one module ~95% of calls repeat
+# an already-seen text. The result is a tuple of frozen occurrences, so it
+# is safe to share.
+@functools.lru_cache(maxsize=4096)
 def _tokenize_numeric_occurrences_from_text(
     text: str,
     *,
@@ -8267,25 +15710,35 @@ def _tokenize_numeric_occurrences_from_text(
     collector = _LegacyNumericCollector(text)
     source_view = _NumericTextView.identity(text)
     implied_cents_matches = _iter_form_implied_cents_matches(text)
-    raw_text = _FORM_IMPLIED_CENTS_PATTERN.sub(
-        lambda match: " " * len(match.group(0)),
-        text,
+    raw_tracked = _bind_hebrew_source_text_tracked(
+        _TrackedText.identity(text).sub(
+            _FORM_IMPLIED_CENTS_PATTERN,
+            lambda match: " " * len(match.group(0)),
+        )
     )
-    raw_view = _NumericTextView.aligned(text, raw_text)
+    raw_text = raw_tracked.text
+    raw_view = _NumericTextView.tracked(text, raw_tracked)
     two_line_table_matches = _iter_two_line_table_value_occurrences(text)
-    cleaned_before_schedule = _clean_source_text_for_numeric_extraction(raw_text)
-    cleaned_before_schedule_view = _NumericTextView.aligned(
-        text,
-        cleaned_before_schedule,
+    # raw_text is text with implied-cents runs blanked in place and its line
+    # ends and maqaf wrap space read as the cleaner reads them, each
+    # character carrying its offset into text; offsets carried through the
+    # cleaning of raw_text are offsets into raw_text, composed here.
+    cleaned_tracked = _clean_source_text_for_numeric_extraction_tracked(raw_text)
+    cleaned_tracked = _TrackedText(
+        cleaned_tracked.text,
+        [
+            None if offset is None else raw_tracked.offsets[offset]
+            for offset in cleaned_tracked.offsets
+        ],
     )
+    cleaned_before_schedule = cleaned_tracked.text
+    cleaned_before_schedule_view = _NumericTextView.tracked(text, cleaned_tracked)
     schedule_matches, cleaned = _iter_collapsed_schedule_row_occurrences(
         cleaned_before_schedule
     )
-    cleaned_view = (
-        cleaned_before_schedule_view
-        if cleaned == cleaned_before_schedule
-        else _NumericTextView.aligned(text, cleaned)
-    )
+    # Collapsing schedule rows blanks their lines in place, so the offsets
+    # carried this far still hold.
+    cleaned_view = _NumericTextView(text, cleaned, tuple(cleaned_tracked.offsets))
 
     def add_both(
         view: _NumericTextView,
@@ -8312,9 +15765,11 @@ def _tokenize_numeric_occurrences_from_text(
         add_both(cleaned_before_schedule_view, span, value)
     for span, value in implied_cents_matches:
         add_both(source_view, span, value)
+    for span, value in _iter_inline_form_implied_cents_matches(text):
+        collector.add_grounding(source_view, span, value)
 
-    grounding_spans: list[tuple[int, int]] = []
-    inventory_spans: list[tuple[int, int]] = []
+    grounding_spans: list[tuple[int, int]] = _SpanList()
+    inventory_spans: list[tuple[int, int]] = _SpanList()
 
     range_matches = _iter_belgian_numeric_range_endpoint_matches(cleaned)
     for span, value in range_matches:
@@ -8360,7 +15815,17 @@ def _tokenize_numeric_occurrences_from_text(
             continue
         collector.add_inventory(raw_view, span, value)
 
-    direct_percentage_rate_matches = _iter_direct_percentage_rate_matches(raw_text)
+    # A fraction that a percent sign follows ("16 1⁄2%", "1⁄4%") is one rate,
+    # read by the fraction pass below; the plain percentage matcher would
+    # otherwise take its denominator ("2%") as a second one.
+    fraction_raw_spans = [
+        match.span() for match in _FRACTION_SLASH_PATTERN.finditer(raw_text)
+    ]
+    direct_percentage_rate_matches = [
+        (span, value)
+        for span, value in _iter_direct_percentage_rate_matches(raw_text)
+        if not _span_overlaps(span, fraction_raw_spans)
+    ]
     for span, value in direct_percentage_rate_matches:
         collector.add_grounding(
             raw_view,
@@ -8408,7 +15873,7 @@ def _tokenize_numeric_occurrences_from_text(
     if annual_match:
         collector.add_grounding(raw_view, annual_match.span(), 12.0)
 
-    form_fraction_spans: list[tuple[int, int]] = []
+    form_fraction_spans: list[tuple[int, int]] = _SpanList()
     for match in (
         *_FORM_ARITHMETIC_FRACTION_PATTERN.finditer(raw_text),
         *_STANDALONE_FORM_FRACTION_PATTERN.finditer(raw_text),
@@ -8439,7 +15904,7 @@ def _tokenize_numeric_occurrences_from_text(
 
     for match in _CONTEXTUAL_ASCII_FRACTION_PATTERN.finditer(raw_text):
         with contextlib.suppress(ValueError, ZeroDivisionError):
-            whole = float(match.group("whole") or 0)
+            whole = float((match.group("whole") or "0").replace(",", ""))
             numerator = float(match.group("numerator"))
             denominator = float(match.group("denominator"))
             add_both(
@@ -8447,6 +15912,285 @@ def _tokenize_numeric_occurrences_from_text(
                 match.span(),
                 whole + numerator / denominator,
             )
+
+    # A fraction-slash run is read as written. A mixed number reaches this
+    # pass as the whole number, a space and the fraction ("2 1⁄2", the form
+    # the corpus keeps for OpenLaw's superscript-over-subscript typesetting);
+    # a digit run glued to the slash ("21⁄2") is twenty-one halves and nothing
+    # here guesses otherwise -- the boundary is the corpus adapter's to keep.
+    # The pass reads the cleaned buffer so the run's span sits in the same
+    # coordinates as the general digit passes below, which then leave the
+    # numerator, the denominator and the whole number alone: the fraction is
+    # one value the source states, atomic for recall, and an encoding that
+    # states a quarter of a credit point as 0.25 has recalled it in full. The
+    # printed numerator and denominator stay available to grounding, because
+    # an encoding may also state them as the explicit pair the statute prints.
+    # A fraction-slash run is read by the fraction pass below, percent word
+    # and all; the digit matcher must not read its denominator ("1⁄ 2 אחוזים")
+    # as a second rate.
+    fraction_cleaned_spans = [
+        match.span() for match in _FRACTION_SLASH_PATTERN.finditer(cleaned)
+    ]
+    for span, rate in _iter_hebrew_percent_phrase_matches(cleaned):
+        if _span_overlaps(span, grounding_spans) or _span_overlaps(
+            span, inventory_spans
+        ):
+            continue
+        add_both(
+            cleaned_view,
+            span,
+            rate,
+            source_value=rate * 100,
+            force_rate_context=True,
+            requires_rate_context=True,
+        )
+        grounding_spans.append(span)
+        inventory_spans.append(span)
+
+    for span, rate in _iter_hebrew_percent_range_lower_matches(
+        cleaned, _structural_numeric_component_spans(cleaned)
+    ):
+        if _span_overlaps(span, grounding_spans) or _span_overlaps(
+            span, inventory_spans
+        ):
+            continue
+        add_both(
+            cleaned_view,
+            span,
+            rate,
+            source_value=rate * 100,
+            force_rate_context=True,
+            requires_rate_context=True,
+        )
+        grounding_spans.append(span)
+        inventory_spans.append(span)
+
+    for span, value, is_rate in _iter_hebrew_shared_scale_range_matches(
+        cleaned, _structural_numeric_component_spans(cleaned)
+    ):
+        if _span_overlaps(span, grounding_spans) or _span_overlaps(
+            span, inventory_spans
+        ):
+            continue
+        if is_rate:
+            add_both(
+                cleaned_view,
+                span,
+                value,
+                source_value=value * 100,
+                force_rate_context=True,
+                requires_rate_context=True,
+            )
+        else:
+            add_both(cleaned_view, span, value)
+        grounding_spans.append(span)
+        inventory_spans.append(span)
+
+    for span, value, is_rate in _iter_hebrew_printed_scale_matches(cleaned):
+        if _span_overlaps(span, grounding_spans) or _span_overlaps(
+            span, inventory_spans
+        ):
+            continue
+        if is_rate:
+            add_both(
+                cleaned_view,
+                span,
+                value,
+                source_value=value * 100,
+                force_rate_context=True,
+                requires_rate_context=True,
+            )
+        else:
+            add_both(cleaned_view, span, value)
+        grounding_spans.append(span)
+        inventory_spans.append(span)
+
+    for span, value, is_rate in _iter_hebrew_printed_mixed_number_matches(cleaned):
+        if _span_overlaps(span, grounding_spans) or _span_overlaps(
+            span, inventory_spans
+        ):
+            continue
+        if is_rate:
+            add_both(
+                cleaned_view,
+                span,
+                value / 100,
+                source_value=value,
+                force_rate_context=True,
+                requires_rate_context=True,
+            )
+        else:
+            add_both(cleaned_view, span, value)
+        grounding_spans.append(span)
+        inventory_spans.append(span)
+
+    for match in _HEBREW_DIGIT_PERCENT_PATTERN.finditer(cleaned):
+        if _span_overlaps(match.span("number"), fraction_cleaned_spans):
+            continue
+        if _span_overlaps(match.span(), inventory_spans):
+            continue
+        # A number that is the denominator of an ASCII fraction ("1/ 4 אחוזים")
+        # is read with its numerator by the branch below, never on its own.
+        if _search_before(
+            _ASCII_SLASH_BEFORE_NUMBER_PATTERN, cleaned, match.start("number")
+        ):
+            continue
+        with contextlib.suppress(ValueError, ZeroDivisionError):
+            value = float(match.group("number").replace(",", ""))
+            if match.group("denominator"):
+                value = value / float(match.group("denominator"))
+                if match.group("whole"):
+                    value += float(match.group("whole").replace(",", ""))
+            # A fractional tail after the marker is the rate's, unless a
+            # unit of its own follows ("3% וחצי" is 3.5 percent; "3 אחוזים
+            # וחצי שקל" is three percent, and half a shekel).
+            span = match.span()
+            tail = _HEBREW_PERCENT_TAIL_AFTER_PATTERN.match(cleaned, match.end())
+            if tail is not None and not _HEBREW_UNIT_AFTER_PATTERN.match(
+                cleaned, tail.end()
+            ):
+                if tail.group("tail"):
+                    value += _HEBREW_MIXED_FRACTION_VALUES[tail.group("tail")]
+                else:
+                    value += (
+                        _HEBREW_FRACTION_COUNT_VALUES[tail.group("tail_count")]
+                        * _HEBREW_COUNTED_FRACTION_VALUES[tail.group("tail_fraction")]
+                    )
+                span = (match.start(), tail.end())
+            if match.group("sign"):
+                value = -value
+            add_both(
+                cleaned_view,
+                span,
+                value / 100,
+                source_value=value,
+                force_rate_context=True,
+                requires_rate_context=True,
+            )
+            grounding_spans.append(span)
+            inventory_spans.append(span)
+
+    hebrew_text = re.search("[\u0590-\u05ff]", cleaned) is not None
+    hebrew_ascii_mixed = (
+        list(_HEBREW_ASCII_MIXED_FRACTION_PATTERN.finditer(cleaned))
+        if hebrew_text
+        else []
+    )
+    # A printed figure a counted fraction word follows is that word's count
+    # ("3½ עשיריות", "3 1/2 עשיריות", "3 1⁄2 עשיריות"): the fraction reader
+    # reads them together, and no pass before it reads the figure or its
+    # pieces on its own.
+    counted_figure_spans: list[tuple[int, int]] = []
+    if hebrew_text:
+        for pattern in (
+            _HEBREW_GLYPH_NUMBER_PATTERN,
+            _HEBREW_ASCII_MIXED_FRACTION_PATTERN,
+            _FRACTION_SLASH_PATTERN,
+        ):
+            for match in pattern.finditer(cleaned):
+                if _HEBREW_COUNTED_FRACTION_AFTER_PATTERN.match(cleaned, match.end()):
+                    counted_figure_spans.append(match.span())
+    if hebrew_text:
+        for match in _HEBREW_GLYPH_NUMBER_PATTERN.finditer(cleaned):
+            if _span_overlaps(match.span(), inventory_spans) or _span_overlaps(
+                match.span(), grounding_spans
+            ):
+                continue
+            if _span_overlaps(match.span(), counted_figure_spans):
+                continue
+            value = unicodedata.numeric(match.group("glyph")) + float(
+                (match.group("whole") or "0").replace(",", "")
+            )
+            if match.group("sign"):
+                value = -value
+            span = match.span()
+            marker = _PERCENT_MARKER_AFTER_NUMBER_WRAP_PATTERN.match(
+                cleaned, match.end()
+            ) or _HEBREW_PERCENT_WORD_PATTERN.match(cleaned, match.end())
+            if marker is not None:
+                # "2½%" is the rate 0.025, the way "2.5%" is, and "2½% וחצי"
+                # 0.03: the tail after the marker is the rate's too, unless a
+                # unit of its own follows. The printed figure grounds as well.
+                end = marker.end()
+                tail = _hebrew_percent_tail_after(cleaned, end)
+                if tail is not None:
+                    tail_value, end = tail
+                    value += -tail_value if match.group("sign") else tail_value
+                span = (match.start(), end)
+                collector.add_grounding(cleaned_view, span, value)
+                add_both(
+                    cleaned_view,
+                    span,
+                    value / 100,
+                    source_value=value,
+                    force_rate_context=True,
+                    requires_rate_context=True,
+                )
+            else:
+                add_both(cleaned_view, span, value)
+            grounding_spans.append(span)
+            inventory_spans.append(span)
+    for match in (*hebrew_ascii_mixed, *_FRACTION_SLASH_PATTERN.finditer(cleaned)):
+        if _span_overlaps(match.span(), counted_figure_spans):
+            continue
+        with contextlib.suppress(ValueError, ZeroDivisionError):
+            whole = float((match.group("whole") or "0").replace(",", ""))
+            numerator = float(match.group("numerator"))
+            denominator = float(match.group("denominator"))
+            value = whole + numerator / denominator
+            if match.group("sign"):
+                value = -value
+            if _span_overlaps(match.span(), inventory_spans):
+                # A percentage phrase read the fraction with its spelled tail
+                # ("1/2 אחוז וחצי" is 0.01); the printed figures still ground.
+                collector.add_grounding(cleaned_view, match.span(), value)
+                collector.add_grounding(
+                    cleaned_view, match.span("numerator"), numerator
+                )
+                collector.add_grounding(
+                    cleaned_view, match.span("denominator"), denominator
+                )
+                grounding_spans.append(match.span())
+                continue
+            if (
+                _PERCENT_MARKER_AFTER_NUMBER_WRAP_PATTERN.match(cleaned, match.end())
+                or _LOCAL_RATE_CONTEXT_AFTER_NUMBER_PATTERN.match(cleaned, match.end())
+                or _HEBREW_PERCENT_WORD_PATTERN.match(cleaned, match.end())
+            ):
+                # "16 1⁄2%" and "10 1⁄4 percent" are the rates 0.165 and
+                # 0.1025: one value to recall, the way "16.5%" is, and "2 1⁄2%
+                # וחצי" 0.03, the tail after the marker being the rate's. The
+                # printed figure grounds as well, for an encoding that states
+                # the percentage and divides itself.
+                span = match.span()
+                marker = _PERCENT_MARKER_AFTER_NUMBER_WRAP_PATTERN.match(
+                    cleaned, match.end()
+                ) or _HEBREW_PERCENT_WORD_PATTERN.match(cleaned, match.end())
+                if marker is not None:
+                    tail = _hebrew_percent_tail_after(cleaned, marker.end())
+                    if tail is not None:
+                        tail_value, end = tail
+                        value += -tail_value if match.group("sign") else tail_value
+                        span = (match.start(), end)
+                collector.add_grounding(cleaned_view, span, value)
+                add_both(
+                    cleaned_view,
+                    span,
+                    value / 100,
+                    source_value=value,
+                    force_rate_context=True,
+                    requires_rate_context=True,
+                )
+                grounding_spans.append(span)
+                inventory_spans.append(span)
+            else:
+                add_both(cleaned_view, match.span(), value)
+            collector.add_grounding(cleaned_view, match.span("numerator"), numerator)
+            collector.add_grounding(
+                cleaned_view, match.span("denominator"), denominator
+            )
+            grounding_spans.append(match.span())
+            inventory_spans.append(match.span())
 
     month_range_matches: list[tuple[tuple[int, int], float]] = []
     for match in _SMALL_MONTH_RANGE_PATTERN.finditer(raw_text):
@@ -8510,6 +16254,8 @@ def _tokenize_numeric_occurrences_from_text(
         re.IGNORECASE,
     )
     for span, value in special_matches:
+        if _span_overlaps(span, counted_figure_spans):
+            continue
         raw = cleaned[span[0] : span[1]]
         is_rate = bool(rate_marker_pattern.search(raw))
         kwargs = {
@@ -8564,8 +16310,10 @@ def _tokenize_numeric_occurrences_from_text(
                     requires_rate_context=True,
                 )
 
+    # A comma after a digit is a group separator, not a boundary: "234,567"
+    # is no number of its own inside "1,234,567%".
     for match in re.finditer(
-        r"(?:^|(?<=[\s(\[,+\-−*/\"'`“”‘’]))"
+        r"(?:^|(?<=[\s(\[+\-−*/\"'`“”‘’])|(?<=(?<!\d),))"
         r"(-?(?:\d{1,3}(?:[.\u00a0\u202f ]\d{3})+|\d+),\d{1,4})"
         r"\s*(?:%|\bp\.?\s*c\.?\b|\b(?:percent|per\s*cent(?:um)?)\b)",
         cleaned,
@@ -8649,6 +16397,125 @@ def _tokenize_numeric_occurrences_from_text(
 
     standalone_fraction_matches = list(_iter_standalone_fraction_word_matches(cleaned))
     for span, value in standalone_fraction_matches:
+        if not _span_overlaps(span, grounding_spans):
+            collector.add_grounding(cleaned_view, span, value)
+            grounding_spans.append(span)
+        if not _span_overlaps(span, inventory_spans):
+            collector.add_inventory(cleaned_view, span, value)
+            inventory_spans.append(span)
+
+    # A number a Hebrew statute writes as a word is as much a value the source
+    # states as a digit is, so it joins the recall inventory as well as the
+    # grounding set: an encoding that omits the "three" of "three children or
+    # more" is as incomplete as one that omits a printed 3. Teens arrive as one
+    # span ahead of their halves, and the overlap test keeps them atomic here
+    # as it does for grounding.
+    # An ordinal-shaped fraction word the text leaves ambiguous ("מרפאה
+    # חמישית שנה לאחר") is recorded with both readings: either grounds, and
+    # the recall obligation is met by either.
+    for span, primary, alternative in _iter_hebrew_ambiguous_ordinal_fraction_matches(
+        cleaned
+    ):
+        if _span_overlaps(span, grounding_spans) or _span_overlaps(
+            span, inventory_spans
+        ):
+            continue
+        collector.add_grounding(
+            cleaned_view, span, primary, alternative_values=(alternative,)
+        )
+        collector.add_grounding(
+            cleaned_view, span, alternative, alternative_values=(primary,)
+        )
+        collector.add_inventory(
+            cleaned_view, span, primary, alternative_values=(alternative,)
+        )
+        grounding_spans.append(span)
+        inventory_spans.append(span)
+
+    hebrew_word_matches = _iter_hebrew_number_word_matches(cleaned)
+    for span, value in hebrew_word_matches:
+        # "twenty-three percent" is the rate 0.23, grounded and recalled the
+        # way "23%" is: the percent word joins the span and the number word's
+        # own value is not a second obligation. The noun may also precede its
+        # count ("אחוז אחד"). An ordinal under the article before the noun
+        # ("הילד השני אחוז וחצי") is the noun phrase the rate is paid for, not
+        # its count, and stays the ordinal it is.
+        raw_word = cleaned[span[0] : span[1]]
+        bare_word = _strip_hebrew_number_prefix(raw_word, _HEBREW_ORDINAL_WORDS)
+        definite_ordinal = bare_word is not None and _hebrew_definite_ordinal(
+            raw_word, bare_word
+        )
+        percent = (
+            None
+            if definite_ordinal
+            else (
+                _HEBREW_PERCENT_WORD_PATTERN.match(cleaned, span[1])
+                # The marker serves a spelled number as it serves a printed
+                # one: "שלושה וחצי%" is 0.035. Across wrap space only: a
+                # blank line or a paragraph separator before the sign leaves
+                # "דרגה חמישית" a fifth grade.
+                or _HEBREW_PERCENT_SIGN_AFTER_PATTERN.match(cleaned, span[1])
+            )
+        )
+        # "−שלושה%", "−חצי%", "−שלושה מיליון שקלים": the sign before a
+        # spelled number signs it, tail included, as it signs a printed one.
+        negative = _hebrew_unary_sign_at(cleaned, span[0] - 1)
+        noun_before = None
+        if (
+            percent is None
+            and not definite_ordinal
+            and not raw_word.startswith("\u05d5")
+        ):
+            # "אחוז אחד" is one percent; "שלושה אחוזים וחמישה שקלים" is three
+            # percent and five shekels: a vav-bound count is a new quantity,
+            # and a noun a phrase already read owns no further count.
+            noun_before = _search_before(
+                _HEBREW_PERCENT_NOUN_BEFORE_PATTERN, cleaned, span[0]
+            )
+            if noun_before is not None and _span_overlaps(
+                noun_before.span(), inventory_spans
+            ):
+                noun_before = None
+        if percent is not None or noun_before is not None:
+            if percent is not None:
+                # The fractional tail after the marker is the rate's too,
+                # unless a unit of its own follows: "שלושת אלפים% וחצי" is
+                # 3,000.5 percent, "אחוזים וחצי שקל" 30 and half a shekel.
+                unit = _hebrew_percent_unit_after(cleaned, span[1])
+                if unit is not None:
+                    span = (span[0], unit[0])
+                    value += unit[1]
+                else:
+                    span = (span[0], percent.end())
+                if negative:
+                    value = -value
+                    span = (span[0] - 1, span[1])
+            else:
+                span = (noun_before.start(), span[1])
+            if not _span_overlaps(span, grounding_spans):
+                collector.add_grounding(
+                    cleaned_view,
+                    span,
+                    value / 100,
+                    source_value=value,
+                    force_rate_context=True,
+                    requires_rate_context=True,
+                )
+                grounding_spans.append(span)
+            if not _span_overlaps(span, inventory_spans):
+                collector.add_inventory(
+                    cleaned_view,
+                    span,
+                    value / 100,
+                    source_value=value,
+                    force_rate_context=True,
+                    requires_rate_context=True,
+                )
+                inventory_spans.append(span)
+            continue
+        if negative:
+            value = -value
+            span = (span[0] - 1, span[1])
         if not _span_overlaps(span, grounding_spans):
             collector.add_grounding(cleaned_view, span, value)
             grounding_spans.append(span)
@@ -8838,7 +16705,13 @@ def _tokenize_numeric_occurrences_from_text(
     for glyph, value in _UNICODE_FRACTION_VALUES.items():
         for match in re.finditer(re.escape(glyph), cleaned):
             collector.add_grounding(cleaned_view, match.span(), value)
+            if _span_overlaps(match.span(), inventory_spans):
+                # A list member read with its shared unit ("½, 10 ו־30
+                # אחוזים") is the rate the Hebrew pass recorded; the glyph
+                # still grounds as the fraction it prints.
+                continue
             collector.add_inventory(cleaned_view, match.span(), value)
+            inventory_spans.append(match.span())
 
     for span, value in compound_cardinal_matches:
         if _span_overlaps(span, inventory_spans):
@@ -9201,9 +17074,11 @@ def _ungrounded_from_values(
         ):
             continue
         display = raw if raw == f"{value:g}" else f"{raw} ({value:g})"
+        ambiguous_hint = _ambiguous_reading_ungrounded_literal_hint(source, value)
         issues.append(
             "Ungrounded generated numeric literal: "
             f"{display} does not appear as a substantive numeric value in the source text."
+            f"{ambiguous_hint}"
         )
     return issues
 
@@ -9361,10 +17236,11 @@ def find_ungrounded_numeric_issues(
             value,
             amendment_source_texts,
         )
+        ambiguous_hint = _ambiguous_reading_ungrounded_literal_hint(source, value)
         issues.append(
             "Ungrounded generated numeric literal: "
             f"{display} does not appear as a substantive numeric value in the source text."
-            f"{hint}{amendment_hint}"
+            f"{hint}{amendment_hint}{ambiguous_hint}"
         )
     return issues
 
@@ -9630,10 +17506,13 @@ def find_ungrounded_numeric_issues_scoped(
             value,
             amendment_source_texts,
         )
+        ambiguous_hint = _ambiguous_reading_ungrounded_literal_hint(
+            module_source, value
+        )
         issue = (
             "Ungrounded generated numeric literal: "
             f"{display} does not appear as a substantive numeric value in the source text."
-            f"{stated_conversion_hint}{amendment_hint}"
+            f"{stated_conversion_hint}{amendment_hint}{ambiguous_hint}"
         )
         if issue not in seen:
             seen.add(issue)
@@ -14511,9 +22390,9 @@ _TAXPAYER_TAX_UNIT_SOURCE_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 _PERSON_SCOPE_SOURCE_PATTERN = re.compile(
-    r"\b(?:no|any|each|every|all|a|an|the|that|such)\s+"
+    r"\b(?:no|any|each|every|all|a|an|the|that|such|certain)\s+"
     r"(?:(?:resident|nonresident|qualifying|qualified|eligible)\s+)?"
-    r"(?:individual|person|(?:household\s+|family\s+)?member|claimant|child|"
+    r"(?:individual|person|(?:household\s+|family\s+)?members?|claimant|child|"
     r"(?:sponsored\s+)?alien|qualified\s+alien|applicant|recipient|"
     r"participant|client|case\s+member)\b"
     r"[\s\S]{0,180}\b(?:eligible|ineligible|disqualif|excluded?|participat|"
@@ -14539,13 +22418,13 @@ _HEAD_OF_HOUSEHOLD_FILING_STATUS_PATTERN = re.compile(
     r"(?:\s+|\s*[-‐‑‒–—―−]\s*)household\b",
     flags=re.IGNORECASE,
 )
-_HOUSEHOLD_UNIT_SOURCE_TOKEN = r"\bhousehold\b(?!\s+member\b)"
+_HOUSEHOLD_UNIT_SOURCE_TOKEN = r"\bhousehold\b(?!\s+members?\b)"
 _UNIT_SCOPE_SOURCE_PATTERN = re.compile(
     r"(?:"
     + _HOUSEHOLD_UNIT_SOURCE_TOKEN
     + r"|\bsnap\s+unit|\bfood\s+assistance\s+unit|"
     r"\bassistance\s+unit|\btax\s+unit|\bfiling\s+unit|"
-    r"\bfamily\b(?!\s+member\b)|\bspm\s+unit\b)"
+    r"\bfamily\b(?!\s+members?\b)|\bspm\s+unit\b)"
     r"[\s\S]{0,180}\b"
     r"(?:eligible|eligibility|test|requirement|resources?|income|standard|"
     r"benefit|allotment)\b",
@@ -14561,7 +22440,7 @@ _UNIT_SOURCE_ENTITY_PATTERNS = (
         re.compile(r"\b(?:snap|food\s+assistance)\s+unit\b", flags=re.IGNORECASE),
     ),
     ("taxunit", re.compile(r"\b(?:tax|filing)\s+unit\b", flags=re.IGNORECASE)),
-    ("family", re.compile(r"\bfamily\b(?!\s+member\b)", flags=re.IGNORECASE)),
+    ("family", re.compile(r"\bfamily\b(?!\s+members?\b)", flags=re.IGNORECASE)),
     ("spmunit", re.compile(r"\bspm\s+unit\b", flags=re.IGNORECASE)),
 )
 _FEDERAL_TAX_HOUSEHOLD_INCOME_TAXUNIT_CONTEXT_PATTERN = re.compile(
@@ -14675,7 +22554,7 @@ _SHARED_STATUTORY_RATE_SECTION_PREFIX_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 _HOUSEHOLD_MEMBER_MIXED_SCOPE_PATTERN = re.compile(
-    r"\bhousehold\b(?!\s+member\b)[\s\S]{0,180}"
+    r"\bhousehold\b(?!\s+members?\b)[\s\S]{0,180}"
     r"\b(?:each|every|all|no)\s+(?:household\s+)?member\b"
     r"|"
     r"\b(?:individuals?|persons?|clients?|participants?|recipients?)\b"
@@ -26258,6 +34137,8 @@ _RULESPEC_FORMULA_BUILTINS = {
     "count",
     "count_where",
     "date_add_days",
+    "date_add_months",
+    "date_add_years",
     "days_between",
     "elif",
     "else",
@@ -26639,9 +34520,25 @@ class ValidatorPipeline:
         rulespec_dependency_roots: Iterable[Path] = (),
         validation_staging_root: Path | None = None,
         existing_target_oracle_contract: ExistingTargetOracleContract | None = None,
+        axiom_rules_engine_ref: str | None = None,
     ):
         self.policy_repo_path = Path(policy_repo_path)
         self.axiom_rules_path = Path(axiom_rules_path)
+        self._axiom_rules_engine_pin_override = (
+            EnginePin(
+                sha=require_engine_ref_sha(
+                    axiom_rules_engine_ref,
+                    description="axiom_rules_engine_ref",
+                ),
+                source=Path("<constructor>"),
+            )
+            if axiom_rules_engine_ref is not None
+            else None
+        )
+        self._axiom_rules_engine_pin_loaded = False
+        self._axiom_rules_engine_pin: EnginePin | None = None
+        self._axiom_rules_binary_path: Path | None = None
+        self._axiom_rules_binary_stat: tuple[int, int, int, int] | None = None
         self.validation_staging_root = (
             Path(validation_staging_root).resolve()
             if validation_staging_root is not None
@@ -27017,6 +34914,7 @@ class ValidatorPipeline:
             numeric_value_is_grounded=numeric_value_is_grounded,
             artifact_numeric_values=artifact_numeric_values,
             artifact_numeric_bindings=artifact_numeric_bindings,
+            imported_symbol_contents=imported_symbol_contents,
             authenticated_same_act_aliases=(
                 _authenticated_same_act_aliases_from_metadata(self.source_metadata)
             ),
@@ -27320,20 +35218,89 @@ class ValidatorPipeline:
         """Return the companion RuleSpec test file path."""
         return rules_file.with_name(f"{rules_file.stem}.test.yaml")
 
+    def _declared_engine_pin(self) -> EnginePin | None:
+        """Load the declared engine pin once per pipeline instance."""
+        if not self._axiom_rules_engine_pin_loaded:
+            if self._axiom_rules_engine_pin_override is not None:
+                pin = self._axiom_rules_engine_pin_override
+            else:
+                pin = load_declared_engine_pin(self.policy_repo_path)
+            self._axiom_rules_engine_pin = pin
+            self._axiom_rules_engine_pin_loaded = True
+        return self._axiom_rules_engine_pin
+
     def _axiom_rules_binary(self) -> Path:
-        """Resolve the local Axiom rules engine CLI binary."""
+        """Resolve the local Axiom rules engine CLI binary.
+
+        A declared axiom_rules_engine_ref pin binds deterministically (receipt
+        or clean pinned checkout plus build-on-demand); unpinned checkouts fall
+        back to a release-first candidate scan with an unverified-binding event.
+        The memoized binding holds only while the binary's bytes are unchanged
+        on disk (stat identity); a swapped or rebuilt binary re-resolves.
+        """
+        if self._axiom_rules_binary_path is not None:
+            if self._axiom_rules_binary_stat is not None and (
+                self._binary_stat_signature(self._axiom_rules_binary_path)
+                == self._axiom_rules_binary_stat
+            ):
+                return self._axiom_rules_binary_path
+            self._axiom_rules_binary_path = None
+            self._axiom_rules_binary_stat = None
+        pin = self._declared_engine_pin()
+        if pin is not None:
+            binary = resolve_pinned_engine_binary(self.axiom_rules_path, pin)
+        else:
+            binary = self._unverified_axiom_rules_binary()
+        self._axiom_rules_binary_path = binary
+        self._axiom_rules_binary_stat = self._binary_stat_signature(binary)
+        return binary
+
+    @staticmethod
+    def _binary_stat_signature(binary: Path) -> tuple[int, int, int, int] | None:
+        """Return a cheap on-disk identity for the bound engine binary."""
+        try:
+            stat = os.stat(binary)
+        except OSError:
+            return None
+        return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
+
+    def _unverified_axiom_rules_binary(self) -> Path:
+        """Resolve without a declared pin: prefer release, then debug, then bare."""
         candidates = [
-            self.axiom_rules_path / "target" / "debug" / "axiom-rules-engine",
             self.axiom_rules_path / "target" / "release" / "axiom-rules-engine",
+            self.axiom_rules_path / "target" / "debug" / "axiom-rules-engine",
             self.axiom_rules_path / "axiom-rules-engine",
         ]
-        for candidate in candidates:
-            if candidate.exists():
-                return candidate
-        raise FileNotFoundError(
-            "axiom-rules-engine binary not found in the explicitly declared "
-            f"checkout: {self.axiom_rules_path}"
+        existing = [candidate for candidate in candidates if candidate.exists()]
+        if not existing:
+            raise FileNotFoundError(
+                "axiom-rules-engine binary not found in the explicitly declared "
+                f"checkout: {self.axiom_rules_path}"
+            )
+        binary = existing[0]
+        # _log_event is a no-op without an encoding_db session, so also warn
+        # through the module logger for plain CLI invocations.
+        logger.warning(
+            "Bound %s without a declared %s engine pin; binary provenance is "
+            "unverified (other existing candidates: %s)",
+            binary,
+            ENGINE_PIN_FIELD,
+            ", ".join(str(candidate) for candidate in existing[1:]) or "none",
         )
+        self._log_event(
+            "engine_binding_unverified",
+            f"Bound {binary} without a declared {ENGINE_PIN_FIELD} engine pin; "
+            "binary provenance is unverified",
+            {
+                "binary": str(binary),
+                "other_existing_candidates": [
+                    str(candidate) for candidate in existing[1:]
+                ],
+                "engine_checkout": str(self.axiom_rules_path),
+                "declared_engine_pin": None,
+            },
+        )
+        return binary
 
     def _compile_rulespec_to_artifact(
         self,
@@ -27915,7 +35882,12 @@ class ValidatorPipeline:
         if actual_kind in numeric and expected_kind in numeric:
             actual_decimal = self._rulespec_decimal(actual.get("value"))
             expected_decimal = self._rulespec_decimal(expected.get("value"))
-            return abs(actual_decimal - expected_decimal) <= Decimal("1e-18")
+            return rulespec_numeric_values_equal(
+                actual_decimal,
+                expected_decimal,
+                actual_kind=str(actual_kind),
+                expected_kind=str(expected_kind),
+            )
         if actual_kind == "bool" and expected_kind == "bool":
             return bool(actual.get("value")) == bool(expected.get("value"))
         if actual_kind != expected_kind:

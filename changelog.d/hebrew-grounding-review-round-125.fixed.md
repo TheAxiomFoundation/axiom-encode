@@ -1,0 +1,1 @@
+A possessive on a ש-root ("שוכריו ישלמו", "שולחיו ישלמו") is no relative marker, ש before ו being a root letter, so "אם התשלומים הם 500, 2 או 3 מיליון שקלים שוכריו ישלמו, והיתרה תוחזר" keeps 500; and the traditional tens "שלשים", "חמשים" and "ששים" read as thirty, fifty and sixty.

@@ -1,0 +1,1 @@
+A ש-word that is both a relative marker and a listed noun ("שמו", his name or that from him) decides nothing and the list is reported ambiguous; only base stems inflect, so "שממנו" stays the preposition it is; and the ambiguity report reads each member as the source does, sign and fraction included ("10, -עשרים" grounds as 10, -20; "1⁄2" as 0.5).

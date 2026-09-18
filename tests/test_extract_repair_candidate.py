@@ -18,30 +18,37 @@ from scripts.extract_repair_candidate import (
 )
 
 
-def _archive(tmp_path: Path, *, candidate: bytes | None = None) -> tuple[Path, dict]:
+def _archive(
+    tmp_path: Path,
+    *,
+    candidate: bytes | None = None,
+    citation: str = "us/statute/42/1437c\u20131",
+    module: str = "statutes/42/1437c-1.yaml",
+    replace_rulespec_path: str | None = "us/statutes/42/1437c-1.yaml",
+) -> tuple[Path, dict]:
     candidate = candidate or b"format: rulespec/v1\nrules: []\n"
     tests = b"[]\n"
     repair = json.dumps(
         {
             "schema_version": "axiom-encode/repair-manifest/v1",
-            "citation": "us/statute/42/1437c\u20131",
+            "citation": citation,
             "runner": "openai-gpt-5.6-sol",
         }
     ).encode()
     payloads = {
-        "target/openai-gpt-5.6-sol/statutes/42/1437c-1.yaml": candidate,
-        "target/openai-gpt-5.6-sol/statutes/42/1437c-1.test.yaml": tests,
-        "target/openai-gpt-5.6-sol/statutes/42/1437c-1.repair.json": repair,
+        f"target/openai-gpt-5.6-sol/{module}": candidate,
+        f"target/openai-gpt-5.6-sol/{module.removesuffix('.yaml')}.test.yaml": tests,
+        f"target/openai-gpt-5.6-sol/{module.removesuffix('.yaml')}.repair.json": repair,
     }
     metadata = {
         "schema": "axiom-encode/failed-reencode-diagnostics/v1",
-        "citation": "us/statute/42/1437c\u20131",
+        "citation": citation,
         "country": "us",
         "encoder_commit": "a" * 40,
         "corpus_ref": "b" * 40,
         "rules_engine_ref": "c" * 40,
         "rulespec_ref": "d" * 40,
-        "replace_rulespec_path": "us/statutes/42/1437c-1.yaml",
+        "replace_rulespec_path": replace_rulespec_path,
         "workflow_run_id": "1234",
         "workflow_run_attempt": 1,
         "failed_steps": ["encode_apply"],
@@ -68,6 +75,62 @@ def _archive(tmp_path: Path, *, candidate: bytes | None = None) -> tuple[Path, d
     return archive, metadata
 
 
+def _add_retained_candidate(
+    source_archive: Path,
+    destination: Path,
+    metadata: dict,
+    *,
+    candidate: bytes,
+    tests: bytes = b"[]\n",
+    citation: str = "us/statute/42/1437c\u20131",
+    module: str = "statutes/42/1437c-1.yaml",
+) -> Path:
+    root = "target/final-rejected-candidate"
+    issues = json.dumps(
+        {
+            "schema": "axiom-encode/failed-encode-candidate/v1",
+            "citation": citation,
+            "path": module,
+            "issues": ["best candidate still needs one repair"],
+            "rulespec_sha256": hashlib.sha256(candidate).hexdigest(),
+            "tests_sha256": hashlib.sha256(tests).hexdigest(),
+            "encoder_version": "0.2.1713",
+            "attempt_count": 4,
+        }
+    ).encode()
+    payloads = {
+        f"{root}/issues.json": issues,
+        f"{root}/{module}": candidate,
+        f"{root}/{module.removesuffix('.yaml')}.test.yaml": tests,
+    }
+    metadata["files"].extend(
+        {
+            "path": path,
+            "size": len(body),
+            "sha256": hashlib.sha256(body).hexdigest(),
+        }
+        for path, body in sorted(payloads.items())
+    )
+    metadata["files"].sort(key=lambda entry: entry["path"])
+    with (
+        tarfile.open(source_archive, "r") as source,
+        tarfile.open(destination, "w") as target,
+    ):
+        for member in source.getmembers():
+            extracted = source.extractfile(member)
+            assert extracted is not None
+            body = extracted.read()
+            if member.name == "metadata.json":
+                body = json.dumps(metadata).encode()
+                member.size = len(body)
+            target.addfile(member, io.BytesIO(body))
+        for path, body in payloads.items():
+            info = tarfile.TarInfo(f"generated/{path}")
+            info.size = len(body)
+            target.addfile(info, io.BytesIO(body))
+    return destination
+
+
 def _rewrite_metadata(
     source_archive: Path,
     destination: Path,
@@ -88,6 +151,73 @@ def _rewrite_metadata(
     return destination
 
 
+def _rewrite_as_dependent_candidate(
+    source_archive: Path,
+    destination: Path,
+    metadata: dict,
+) -> Path:
+    metadata.pop("source_bundle_input")
+    metadata["atomic_source_input"] = "[]"
+    metadata["citation"] = "us/guidance/primary/source"
+    metadata["replace_rulespec_path"] = "us/guidance/primary/source.yaml"
+    metadata["dependent_citation"] = "us/statute/42/1437c\u20131"
+    metadata["generated_lanes"] = ["dependent", "target"]
+    metadata["files"] = [
+        {**entry, "path": entry["path"].replace("target/", "dependent/", 1)}
+        for entry in metadata["files"]
+    ]
+    with (
+        tarfile.open(source_archive, "r") as source,
+        tarfile.open(destination, "w") as target,
+    ):
+        for member in source.getmembers():
+            extracted = source.extractfile(member)
+            assert extracted is not None
+            body = extracted.read()
+            if member.name == "metadata.json":
+                body = json.dumps(metadata).encode()
+            name = member.name.replace("generated/target/", "generated/dependent/", 1)
+            info = tarfile.TarInfo(name)
+            info.size = len(body)
+            target.addfile(info, io.BytesIO(body))
+    return destination
+
+
+def _add_generated_payloads(
+    source_archive: Path,
+    destination: Path,
+    metadata: dict,
+    payloads: dict[str, bytes],
+) -> Path:
+    metadata["files"].extend(
+        {
+            "path": path,
+            "size": len(body),
+            "sha256": hashlib.sha256(body).hexdigest(),
+        }
+        for path, body in sorted(payloads.items())
+    )
+    metadata["files"].sort(key=lambda entry: entry["path"])
+    with (
+        tarfile.open(source_archive, "r") as source,
+        tarfile.open(destination, "w") as target,
+    ):
+        for member in source.getmembers():
+            extracted = source.extractfile(member)
+            assert extracted is not None
+            body = extracted.read()
+            if member.name == "metadata.json":
+                body = json.dumps(metadata).encode()
+            info = tarfile.TarInfo(member.name)
+            info.size = len(body)
+            target.addfile(info, io.BytesIO(body))
+        for path, body in payloads.items():
+            info = tarfile.TarInfo(f"generated/{path}")
+            info.size = len(body)
+            target.addfile(info, io.BytesIO(body))
+    return destination
+
+
 def _args(tmp_path: Path, archive: Path, **overrides) -> Namespace:
     values = {
         "archive": archive,
@@ -99,6 +229,8 @@ def _args(tmp_path: Path, archive: Path, **overrides) -> Namespace:
         "rules_engine_ref": "c" * 40,
         "rulespec_ref": "d" * 40,
         "allow_rulespec_base_advance": False,
+        "atomic_source_json": "[]",
+        "existing_signed_imports_json": "[]",
         "replace_rulespec_path": "us/statutes/42/1437c-1.yaml",
         "workflow_run_id": "1234",
     }
@@ -116,6 +248,138 @@ def test_extracts_checksum_bound_final_candidate(tmp_path):
     assert result["source_rulespec_ref"] == "d" * 40
     assert (root / result["path"]).read_text() == "format: rulespec/v1\nrules: []\n"
     assert (root / "statutes/42/1437c-1.test.yaml").read_text() == "[]\n"
+
+
+def test_extracts_candidate_with_exact_artifact_bound_signed_imports(tmp_path):
+    archive, metadata = _archive(tmp_path)
+    imports = '["us/statutes/7/2015/f.yaml"]'
+    metadata["existing_signed_imports_input"] = imports
+    replacement = _rewrite_metadata(
+        archive,
+        tmp_path / "signed-imports.tar",
+        metadata,
+    )
+
+    result = extract_candidate(
+        _args(
+            tmp_path,
+            replacement,
+            existing_signed_imports_json=imports,
+        )
+    )
+
+    assert result["runner"] == "openai-gpt-5.6-sol"
+
+
+def test_rejects_candidate_when_signed_imports_change_between_runs(tmp_path):
+    archive, metadata = _archive(tmp_path)
+    metadata["existing_signed_imports_input"] = '["us/statutes/7/2015/f.yaml"]'
+    replacement = _rewrite_metadata(
+        archive,
+        tmp_path / "changed-signed-imports.tar",
+        metadata,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="compatible single-target run: existing_signed_imports_input",
+    ):
+        extract_candidate(
+            _args(
+                tmp_path,
+                replacement,
+                existing_signed_imports_json=('["us/statutes/7/2015/different.yaml"]'),
+            )
+        )
+
+
+def test_prefers_integrity_bound_retained_best_candidate(tmp_path):
+    archive, metadata = _archive(tmp_path, candidate=b"final regression\n")
+    retained = b"strongest retained candidate\n"
+    replacement = _add_retained_candidate(
+        archive,
+        tmp_path / "retained.tar",
+        metadata,
+        candidate=retained,
+    )
+
+    result = extract_candidate(_args(tmp_path, replacement))
+
+    root = Path(result["root"])
+    assert result["runner"] == "retained-best"
+    assert (root / result["path"]).read_bytes() == retained
+
+
+def test_extracts_dependent_candidate_for_atomic_repair(tmp_path):
+    archive, metadata = _archive(tmp_path)
+    replacement = _rewrite_as_dependent_candidate(
+        archive,
+        tmp_path / "dependent.tar",
+        metadata,
+    )
+
+    result = extract_candidate(
+        _args(
+            tmp_path,
+            replacement,
+            repair_lane="dependent",
+            transaction_citation="us/guidance/primary/source",
+            transaction_rulespec_path="us/guidance/primary/source.yaml",
+        )
+    )
+
+    assert result["runner"] == "openai-gpt-5.6-sol"
+    assert result["path"] == "statutes/42/1437c-1.yaml"
+
+
+def test_rejects_dependent_candidate_with_different_citation(tmp_path):
+    archive, metadata = _archive(tmp_path)
+    replacement = _rewrite_as_dependent_candidate(
+        archive,
+        tmp_path / "dependent.tar",
+        metadata,
+    )
+    metadata["dependent_citation"] = "us/statute/42/different"
+    mismatch = _rewrite_metadata(
+        replacement,
+        tmp_path / "dependent-mismatch.tar",
+        metadata,
+    )
+
+    with pytest.raises(ValueError, match="single-target run: dependent_citation"):
+        extract_candidate(
+            _args(
+                tmp_path,
+                mismatch,
+                repair_lane="dependent",
+                transaction_citation="us/guidance/primary/source",
+                transaction_rulespec_path="us/guidance/primary/source.yaml",
+            )
+        )
+
+
+def test_rejects_tampered_retained_best_candidate(tmp_path):
+    archive, metadata = _archive(tmp_path)
+    replacement = _add_retained_candidate(
+        archive,
+        tmp_path / "retained.tar",
+        metadata,
+        candidate=b"strongest retained candidate\n",
+    )
+    candidate_entry = next(
+        entry
+        for entry in metadata["files"]
+        if entry["path"].endswith("final-rejected-candidate/statutes/42/1437c-1.yaml")
+    )
+    candidate_entry["sha256"] = "0" * 64
+    tampered = _rewrite_metadata(
+        replacement,
+        tmp_path / "tampered-retained.tar",
+        metadata,
+    )
+
+    with pytest.raises(ValueError, match="digest mismatch"):
+        extract_candidate(_args(tmp_path, tampered))
 
 
 def test_state_rulespec_path_maps_to_lane_relative_candidate_path():
@@ -176,6 +440,423 @@ def test_extracts_new_atomic_source_metadata(tmp_path, atomic_source_input):
     assert result["source_rulespec_ref"] == "d" * 40
 
 
+def _rewrite_as_source_preflight(
+    source_archive: Path,
+    destination: Path,
+    metadata: dict,
+    atomic_source_input: str,
+) -> Path:
+    metadata.pop("source_bundle_input")
+    metadata["atomic_source_input"] = atomic_source_input
+    metadata["generated_lanes"] = ["target-preflight"]
+    metadata["files"] = [
+        {**entry, "path": entry["path"].replace("target/", "target-preflight/", 1)}
+        for entry in metadata["files"]
+    ]
+    with (
+        tarfile.open(source_archive, "r") as source,
+        tarfile.open(destination, "w") as target,
+    ):
+        for member in source.getmembers():
+            extracted = source.extractfile(member)
+            assert extracted is not None
+            body = extracted.read()
+            if member.name == "metadata.json":
+                body = json.dumps(metadata).encode()
+            name = member.name.replace(
+                "generated/target/", "generated/target-preflight/", 1
+            )
+            info = tarfile.TarInfo(name)
+            info.size = len(body)
+            target.addfile(info, io.BytesIO(body))
+    return destination
+
+
+def test_extracts_exactly_bound_source_preflight_candidate(tmp_path):
+    atomic_source_input = json.dumps(
+        {
+            "schema": "axiom-encode/atomic-source-transaction/v2",
+            "source_bundle": ["us/statute/7/2015/f"],
+            "canonical_refresh_bundle": [],
+            "primary_required_test_cases": [],
+        }
+    )
+    archive, metadata = _archive(tmp_path)
+    replacement = _rewrite_as_source_preflight(
+        archive, tmp_path / "source-preflight.tar", metadata, atomic_source_input
+    )
+
+    result = extract_candidate(
+        _args(tmp_path, replacement, atomic_source_json=atomic_source_input)
+    )
+
+    assert result["runner"] == "openai-gpt-5.6-sol"
+
+
+def test_extracts_exactly_bound_final_composed_target_candidate(tmp_path):
+    atomic_source_input = json.dumps(
+        {
+            "schema": "axiom-encode/atomic-source-transaction/v2",
+            "source_bundle": [
+                "us/statute/7/2015/f",
+                "us/guidance/usda/fns/snap-obbb-alien-eligibility-implementation-memo",
+            ],
+            "canonical_refresh_bundle": [],
+            "primary_required_test_cases": [],
+        }
+    )
+    archive, metadata = _archive(tmp_path)
+    del metadata["source_bundle_input"]
+    metadata["atomic_source_input"] = atomic_source_input
+    metadata["generated_lanes"] = [
+        "source-01",
+        "source-02",
+        "target",
+        "target-preflight",
+    ]
+    replacement = _rewrite_metadata(
+        archive,
+        tmp_path / "final-composed-target.tar",
+        metadata,
+    )
+
+    result = extract_candidate(
+        _args(tmp_path, replacement, atomic_source_json=atomic_source_input)
+    )
+
+    assert result["runner"] == "openai-gpt-5.6-sol"
+
+
+def test_extracts_replayed_final_composition_without_redundant_preflight(tmp_path):
+    atomic_source_input = json.dumps(
+        {
+            "schema": "axiom-encode/atomic-source-transaction/v2",
+            "source_bundle": [
+                "us/statute/7/2015/f",
+                "us/guidance/usda/fns/snap-obbb-alien-eligibility-implementation-memo",
+            ],
+            "canonical_refresh_bundle": [],
+            "primary_required_test_cases": [],
+        }
+    )
+    archive, metadata = _archive(tmp_path)
+    del metadata["source_bundle_input"]
+    metadata["atomic_source_input"] = atomic_source_input
+    metadata["generated_lanes"] = ["source-01", "source-02", "target"]
+    replacement = _rewrite_metadata(
+        archive,
+        tmp_path / "replayed-final-composed-target.tar",
+        metadata,
+    )
+
+    result = extract_candidate(
+        _args(tmp_path, replacement, atomic_source_json=atomic_source_input)
+    )
+
+    assert result["runner"] == "openai-gpt-5.6-sol"
+
+
+def test_extracts_digest_bound_source_candidates_from_final_composition(tmp_path):
+    source_citations = [
+        "us/statute/7/2015/f",
+        "us/guidance/usda/fns/snap-obbb-alien-eligibility-implementation-memo",
+    ]
+    source_paths = [
+        "us/statutes/7/2015/f.yaml",
+        "us/policies/usda/fns/snap-obbb-alien-eligibility-implementation-memo.yaml",
+    ]
+    atomic_source_input = json.dumps(
+        {
+            "schema": "axiom-encode/atomic-source-transaction/v2",
+            "source_bundle": source_citations,
+            "canonical_refresh_bundle": [],
+            "primary_required_test_cases": [],
+        }
+    )
+    archive, metadata = _archive(tmp_path)
+    del metadata["source_bundle_input"]
+    metadata["atomic_source_input"] = atomic_source_input
+    metadata["generated_lanes"] = [
+        "source-01",
+        "source-02",
+        "target",
+        "target-preflight",
+    ]
+    source_one = b"format: rulespec/v1\n# final statute source\nrules: []\n"
+    source_two = b"format: rulespec/v1\n# final guidance source\nrules: []\n"
+    payloads = {
+        "source-01/openai-gpt-5.6-terra/statutes/7/2015/f.yaml": b"older\n",
+        "source-01/openai-gpt-5.6-terra/statutes/7/2015/f.test.yaml": b"[]\n",
+        "source-01/openai-gpt-5.6-sol/statutes/7/2015/f.yaml": source_one,
+        "source-01/openai-gpt-5.6-sol/statutes/7/2015/f.test.yaml": b"[]\n",
+        "source-02/openai-gpt-5.6-sol/policies/usda/fns/snap-obbb-alien-eligibility-implementation-memo.yaml": source_two,
+        "source-02/openai-gpt-5.6-sol/policies/usda/fns/snap-obbb-alien-eligibility-implementation-memo.test.yaml": b"[]\n",
+    }
+    replacement = _add_generated_payloads(
+        archive,
+        tmp_path / "composed-with-sources.tar",
+        metadata,
+        payloads,
+    )
+
+    result = extract_candidate(
+        _args(
+            tmp_path,
+            replacement,
+            atomic_source_json=atomic_source_input,
+            source_rulespec_paths_json=json.dumps(source_paths),
+        )
+    )
+
+    assert [candidate["citation"] for candidate in result["source_candidates"]] == (
+        source_citations
+    )
+    first, second = result["source_candidates"]
+    assert first["runner"] == "openai-gpt-5.6-sol"
+    assert (Path(first["root"]) / first["path"]).read_bytes() == source_one
+    assert (Path(second["root"]) / second["path"]).read_bytes() == source_two
+
+
+def test_extracts_partial_source_repair_after_successful_target_preflight(tmp_path):
+    source_citation = "us/guidance/example/source"
+    source_path = "us/guidance/example/source.yaml"
+    atomic_source_input = json.dumps(
+        {
+            "schema": "axiom-encode/atomic-source-transaction/v2",
+            "source_bundle": [source_citation],
+            "canonical_refresh_bundle": [],
+            "primary_required_test_cases": [],
+        }
+    )
+    _, metadata = _archive(tmp_path)
+    metadata.pop("source_bundle_input")
+    metadata["atomic_source_input"] = atomic_source_input
+    metadata["generated_lanes"] = ["source-01", "target-preflight"]
+    target_candidate = b"format: rulespec/v1\n# successful preflight\nrules: []\n"
+    source_candidate = b"format: rulespec/v1\n# source needs repair\nrules: []\n"
+    payloads = {
+        "target-preflight/openai-gpt-5.6-terra/statutes/42/1437c-1.yaml": (
+            target_candidate
+        ),
+        "target-preflight/openai-gpt-5.6-terra/statutes/42/1437c-1.test.yaml": (
+            b"[]\n"
+        ),
+        f"source-01/openai-gpt-5.6-sol/{source_path.removeprefix('us/')}": (
+            source_candidate
+        ),
+        f"source-01/openai-gpt-5.6-sol/"
+        f"{source_path.removeprefix('us/').removesuffix('.yaml')}.test.yaml": (b"[]\n"),
+    }
+    metadata["files"] = [
+        {
+            "path": path,
+            "size": len(body),
+            "sha256": hashlib.sha256(body).hexdigest(),
+        }
+        for path, body in sorted(payloads.items())
+    ]
+    archive = tmp_path / "partial-source-repair.tar"
+    with tarfile.open(archive, "w") as bundle:
+        members = {"metadata.json": json.dumps(metadata).encode()}
+        members.update({f"generated/{path}": body for path, body in payloads.items()})
+        for name, body in members.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(body)
+            bundle.addfile(info, io.BytesIO(body))
+
+    result = extract_candidate(
+        _args(
+            tmp_path,
+            archive,
+            atomic_source_json=atomic_source_input,
+            destination=tmp_path / "partial-extracted",
+            source_rulespec_paths_json=json.dumps([source_path]),
+        )
+    )
+
+    assert result["lane"] == "target-preflight"
+    assert result["runner"] == "openai-gpt-5.6-terra"
+    assert (Path(result["root"]) / result["path"]).read_bytes() == target_candidate
+    assert len(result["source_candidates"]) == 1
+    source = result["source_candidates"][0]
+    assert source["citation"] == source_citation
+    assert (Path(source["root"]) / source["path"]).read_bytes() == source_candidate
+
+
+def test_extracts_source_only_continuation_after_replayed_preflight(tmp_path):
+    source_citation = "us/guidance/example/source"
+    source_path = "us/guidance/example/source.yaml"
+    atomic_source_input = json.dumps(
+        {
+            "schema": "axiom-encode/atomic-source-transaction/v2",
+            "source_bundle": [source_citation],
+            "canonical_refresh_bundle": [],
+            "primary_required_test_cases": [],
+        }
+    )
+    _, metadata = _archive(tmp_path)
+    metadata.pop("source_bundle_input")
+    metadata["atomic_source_input"] = atomic_source_input
+    metadata["generated_lanes"] = ["source-01"]
+    source_candidate = b"format: rulespec/v1\n# improved source repair\nrules: []\n"
+    module = source_path.removeprefix("us/")
+    payloads = {
+        f"source-01/openai-gpt-5.6-sol/{module}": source_candidate,
+        f"source-01/openai-gpt-5.6-sol/"
+        f"{module.removesuffix('.yaml')}.test.yaml": b"[]\n",
+    }
+    metadata["files"] = [
+        {
+            "path": path,
+            "size": len(body),
+            "sha256": hashlib.sha256(body).hexdigest(),
+        }
+        for path, body in sorted(payloads.items())
+    ]
+    archive = tmp_path / "source-only-repair.tar"
+    with tarfile.open(archive, "w") as bundle:
+        members = {"metadata.json": json.dumps(metadata).encode()}
+        members.update({f"generated/{path}": body for path, body in payloads.items()})
+        for name, body in members.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(body)
+            bundle.addfile(info, io.BytesIO(body))
+
+    identity = extract_candidate(
+        _args(
+            tmp_path,
+            archive,
+            atomic_source_json=atomic_source_input,
+            destination=tmp_path / "source-only-identity",
+        )
+    )
+    result = extract_candidate(
+        _args(
+            tmp_path,
+            archive,
+            atomic_source_json=atomic_source_input,
+            destination=tmp_path / "source-only-extracted",
+            source_rulespec_paths_json=json.dumps([source_path]),
+        )
+    )
+
+    assert identity["lane"] == "source-only"
+    assert identity["root"] == ""
+    assert identity["source_candidates"] == []
+    assert result["lane"] == "source-only"
+    assert len(result["source_candidates"]) == 1
+    source = result["source_candidates"][0]
+    assert (Path(source["root"]) / source["path"]).read_bytes() == source_candidate
+
+
+def test_rejects_source_candidates_without_final_composed_target(tmp_path):
+    atomic_source_input = json.dumps(
+        {
+            "schema": "axiom-encode/atomic-source-transaction/v2",
+            "source_bundle": ["us/statute/7/2015/f"],
+            "canonical_refresh_bundle": [],
+            "primary_required_test_cases": [],
+        }
+    )
+    archive, metadata = _archive(tmp_path)
+    replacement = _rewrite_as_source_preflight(
+        archive, tmp_path / "source-preflight.tar", metadata, atomic_source_input
+    )
+
+    with pytest.raises(ValueError, match="final composed target artifact"):
+        extract_candidate(
+            _args(
+                tmp_path,
+                replacement,
+                atomic_source_json=atomic_source_input,
+                source_rulespec_paths_json=json.dumps(["us/statutes/7/2015/f.yaml"]),
+            )
+        )
+
+
+def test_rejects_final_composed_target_with_incomplete_source_lanes(tmp_path):
+    atomic_source_input = json.dumps(
+        {
+            "schema": "axiom-encode/atomic-source-transaction/v2",
+            "source_bundle": [
+                "us/statute/7/2015/f",
+                "us/guidance/usda/fns/snap-obbb-alien-eligibility-implementation-memo",
+            ],
+            "canonical_refresh_bundle": [],
+            "primary_required_test_cases": [],
+        }
+    )
+    archive, metadata = _archive(tmp_path)
+    del metadata["source_bundle_input"]
+    metadata["atomic_source_input"] = atomic_source_input
+    metadata["generated_lanes"] = [
+        "source-01",
+        "target",
+        "target-preflight",
+    ]
+    replacement = _rewrite_metadata(
+        archive,
+        tmp_path / "incomplete-final-composed-target.tar",
+        metadata,
+    )
+
+    with pytest.raises(ValueError, match="generated lanes do not bind"):
+        extract_candidate(
+            _args(tmp_path, replacement, atomic_source_json=atomic_source_input)
+        )
+
+
+def test_rejects_source_preflight_candidate_for_different_bundle(tmp_path):
+    atomic_source_input = json.dumps(
+        {
+            "schema": "axiom-encode/atomic-source-transaction/v2",
+            "source_bundle": ["us/statute/7/2015/f"],
+            "canonical_refresh_bundle": [],
+            "primary_required_test_cases": [],
+        }
+    )
+    archive, metadata = _archive(tmp_path)
+    replacement = _rewrite_as_source_preflight(
+        archive, tmp_path / "source-preflight.tar", metadata, atomic_source_input
+    )
+
+    with pytest.raises(ValueError, match="metadata mismatch: atomic_source_input"):
+        extract_candidate(
+            _args(
+                tmp_path,
+                replacement,
+                atomic_source_json=json.dumps(
+                    {
+                        "schema": "axiom-encode/atomic-source-transaction/v2",
+                        "source_bundle": ["us/guidance/different"],
+                        "canonical_refresh_bundle": [],
+                        "primary_required_test_cases": [],
+                    }
+                ),
+            )
+        )
+
+
+def test_rejects_source_preflight_lane_without_expected_source(tmp_path):
+    archive, metadata = _archive(tmp_path)
+    replacement = _rewrite_as_source_preflight(
+        archive,
+        tmp_path / "source-preflight.tar",
+        metadata,
+        json.dumps(
+            {
+                "schema": "axiom-encode/atomic-source-transaction/v2",
+                "source_bundle": [],
+                "canonical_refresh_bundle": [],
+                "primary_required_test_cases": [],
+            }
+        ),
+    )
+
+    with pytest.raises(ValueError, match="only the target lane"):
+        extract_candidate(_args(tmp_path, replacement))
+
+
 def test_rejects_metadata_identity_mismatch(tmp_path):
     archive, _ = _archive(tmp_path)
 
@@ -196,6 +877,90 @@ def test_allows_explicit_rulespec_base_advance_for_later_workflow_proof(tmp_path
     )
 
     assert result["source_rulespec_ref"] == "d" * 40
+
+
+def test_extracts_new_source_repair_without_replace_path(tmp_path):
+    archive, metadata = _archive(
+        tmp_path,
+        citation="us/guidance/example/new-source",
+        module="policies/example/new-source.yaml",
+        replace_rulespec_path=None,
+    )
+    candidate = b"format: rulespec/v1\nrules: []\n"
+    replacement = _add_retained_candidate(
+        archive,
+        tmp_path / "new-source-repair.tar",
+        metadata,
+        candidate=candidate,
+        citation="us/guidance/example/new-source",
+        module="policies/example/new-source.yaml",
+    )
+
+    result = extract_candidate(
+        _args(
+            tmp_path,
+            replacement,
+            citation="us/guidance/example/new-source",
+            replace_rulespec_path="",
+        )
+    )
+
+    assert result["path"] == "policies/example/new-source.yaml"
+    assert (Path(result["root"]) / result["path"]).read_bytes() == candidate
+
+
+def test_extracts_new_source_repair_with_empty_cli_transaction_path(tmp_path):
+    archive, metadata = _archive(
+        tmp_path,
+        citation="us/guidance/example/new-source",
+        module="policies/example/new-source.yaml",
+        replace_rulespec_path=None,
+    )
+    replacement = _add_retained_candidate(
+        archive,
+        tmp_path / "new-source-cli-repair.tar",
+        metadata,
+        candidate=b"format: rulespec/v1\nrules: []\n",
+        citation="us/guidance/example/new-source",
+        module="policies/example/new-source.yaml",
+    )
+    args = _args(
+        tmp_path,
+        replacement,
+        citation="us/guidance/example/new-source",
+        replace_rulespec_path="",
+    )
+    args.transaction_rulespec_path = ""
+
+    result = extract_candidate(args)
+
+    assert result["path"] == "policies/example/new-source.yaml"
+
+
+@pytest.mark.parametrize(
+    "citation",
+    [
+        "us/guidance/example/new-source/",
+        "us//guidance/example/new-source",
+    ],
+)
+def test_rejects_noncanonical_new_source_citation(tmp_path, citation):
+    archive, _ = _archive(
+        tmp_path,
+        citation=citation,
+        module="policies/example/new-source.yaml",
+        replace_rulespec_path=None,
+    )
+
+    with pytest.raises(ValueError, match="exact canonical"):
+        extract_candidate(
+            _args(
+                tmp_path,
+                archive,
+                citation=citation,
+                replace_rulespec_path="",
+            )
+        )
 
 
 def test_rejects_malformed_source_rulespec_ref_during_base_advance(tmp_path):
@@ -293,14 +1058,27 @@ def test_rejects_incompatible_prior_run_mode(tmp_path, field, value):
 
 
 @pytest.mark.parametrize(
-    ("field", "value"),
+    ("field", "value", "message"),
     [
-        ("source_bundle_input", '["us/statute/42/source"]'),
-        ("canonical_refresh_bundle_input", '[{"citation":"x"}]'),
-        ("atomic_source_input", '["us/statute/42/source"]'),
+        (
+            "source_bundle_input",
+            '["us/statute/42/source"]',
+            "single-target run: source_bundle_input",
+        ),
+        (
+            "canonical_refresh_bundle_input",
+            '[{"citation":"x"}]',
+            "single-target run: canonical_refresh_bundle_input",
+        ),
+        (
+            "atomic_source_input",
+            '["us/statute/42/source"]',
+            "metadata mismatch: atomic_source_input",
+        ),
         (
             "atomic_source_input",
             '{"canonical_refresh_bundle":[{"citation":"x"}]}',
+            "metadata mismatch: atomic_source_input",
         ),
         (
             "atomic_source_input",
@@ -323,10 +1101,13 @@ def test_rejects_incompatible_prior_run_mode(tmp_path, field, value):
                     ],
                 }
             ),
+            "metadata mismatch: atomic_source_input",
         ),
     ],
 )
-def test_rejects_nonempty_atomic_source_metadata(tmp_path, field, value):
+def test_rejects_unbound_nonempty_atomic_source_metadata(
+    tmp_path, field, value, message
+):
     archive, metadata = _archive(tmp_path)
     if field == "atomic_source_input":
         del metadata["source_bundle_input"]
@@ -337,8 +1118,59 @@ def test_rejects_nonempty_atomic_source_metadata(tmp_path, field, value):
         metadata,
     )
 
-    with pytest.raises(ValueError, match=f"single-target run: {field}"):
+    with pytest.raises(ValueError, match=message):
         extract_candidate(_args(tmp_path, replacement))
+
+
+def test_rejects_expected_canonical_refresh_bundle(tmp_path):
+    archive, _ = _archive(tmp_path)
+
+    with pytest.raises(ValueError, match="does not support canonical refresh"):
+        extract_candidate(
+            _args(
+                tmp_path,
+                archive,
+                atomic_source_json=json.dumps(
+                    {
+                        "schema": "axiom-encode/atomic-source-transaction/v2",
+                        "source_bundle": [],
+                        "canonical_refresh_bundle": [{"citation": "x"}],
+                        "primary_required_test_cases": [],
+                    }
+                ),
+            )
+        )
+
+
+def test_rejects_expected_source_bundle_mixed_with_required_tests(tmp_path):
+    archive, _ = _archive(tmp_path)
+
+    with pytest.raises(ValueError, match="expected atomic source input is invalid"):
+        extract_candidate(
+            _args(
+                tmp_path,
+                archive,
+                atomic_source_json=json.dumps(
+                    {
+                        "schema": "axiom-encode/atomic-source-transaction/v2",
+                        "source_bundle": ["us/statute/7/2015/f"],
+                        "canonical_refresh_bundle": [],
+                        "primary_required_test_cases": [
+                            {
+                                "name": "control",
+                                "period": {
+                                    "period_kind": "tax_year",
+                                    "start": "2025-01-01",
+                                    "end": "2025-12-31",
+                                },
+                                "input": {"us:test#input": True},
+                                "required_output": {"us:test#output": 1},
+                            }
+                        ],
+                    }
+                ),
+            )
+        )
 
 
 def test_rejects_missing_legacy_and_atomic_source_metadata(tmp_path):

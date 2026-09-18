@@ -1,0 +1,1 @@
+A multiword rate before a percent sign leaves the scaled amount before it whole ("שלושה מיליון ועשרים וחמישה%" is 3,000,000 and twenty-five percent; "3 מיליון ושלושה רבעים%" 3,000,000 and three quarters of a percent), and a shared-scale range reads a fractional lower endpoint ("בין חצי ל־3 מיליון" runs from 500,000).

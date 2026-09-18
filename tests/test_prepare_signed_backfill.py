@@ -20,7 +20,7 @@ from scripts.prepare_signed_backfill import (
     MAX_CANONICAL_REFRESH_BUNDLE_CITATIONS,
     MAX_DEFERRED_OUTPUT_REVIEW_CONTRACT_JSON_BYTES,
     MAX_SOURCE_BUNDLE_JSON_BYTES,
-    REVIEWED_RULESPEC_PR_BASE_BRANCHES,
+    REVIEWED_RULESPEC_PR_BASES,
     REVIEWED_RULESPEC_REFS,
     _normalize_required_test_cases,
     _retired_manifest_inventory_without_entry,
@@ -182,6 +182,7 @@ def test_split_atomic_source_input_preserves_legacy_source_array() -> None:
     assert split_atomic_source_input('["us-ri/statute/44-30-1"]') == {
         "canonical_refresh_bundle": [],
         "primary_required_test_cases": [],
+        "require_complete_source_unit": True,
         "source_bundle": ["us-ri/statute/44-30-1"],
     }
 
@@ -197,6 +198,7 @@ def test_split_atomic_source_input_selects_canonical_refresh_mode() -> None:
     ) == {
         "canonical_refresh_bundle": [addition],
         "primary_required_test_cases": [],
+        "require_complete_source_unit": True,
         "source_bundle": [],
     }
 
@@ -222,6 +224,56 @@ def test_split_atomic_source_input_selects_v2_structured_refresh_mode() -> None:
     assert split_atomic_source_input(json.dumps(payload)) == {
         "canonical_refresh_bundle": [],
         "primary_required_test_cases": [required_case],
+        "require_complete_source_unit": True,
+        "source_bundle": [],
+    }
+
+
+def test_split_atomic_source_input_selects_v3_scoped_validation() -> None:
+    payload = {
+        "schema": "axiom-encode/atomic-source-transaction/v3",
+        "source_bundle": ["us/regulation/7/273/4"],
+        "canonical_refresh_bundle": [],
+        "primary_required_test_cases": [],
+        "require_complete_source_unit": False,
+    }
+
+    assert split_atomic_source_input(json.dumps(payload)) == {
+        "canonical_refresh_bundle": [],
+        "primary_required_test_cases": [],
+        "require_complete_source_unit": False,
+        "source_bundle": ["us/regulation/7/273/4"],
+    }
+
+
+def test_split_atomic_source_input_rejects_nonboolean_v3_scope() -> None:
+    payload = {
+        "schema": "axiom-encode/atomic-source-transaction/v3",
+        "source_bundle": [],
+        "canonical_refresh_bundle": [],
+        "primary_required_test_cases": [],
+        "require_complete_source_unit": "false",
+    }
+
+    with pytest.raises(ValueError, match="must be a boolean"):
+        split_atomic_source_input(json.dumps(payload))
+
+
+def test_split_atomic_source_input_selects_v4_manifest_only_refresh() -> None:
+    payload = {
+        "schema": "axiom-encode/atomic-source-transaction/v4",
+        "source_bundle": [],
+        "canonical_refresh_bundle": [],
+        "primary_required_test_cases": [],
+        "require_complete_source_unit": True,
+        "manifest_only_refresh": True,
+    }
+
+    assert split_atomic_source_input(json.dumps(payload)) == {
+        "canonical_refresh_bundle": [],
+        "manifest_only_refresh": True,
+        "primary_required_test_cases": [],
+        "require_complete_source_unit": True,
         "source_bundle": [],
     }
 
@@ -282,6 +334,7 @@ def test_split_atomic_source_input_cli_emits_normalized_object(
 
     assert capsys.readouterr().out == (
         '{"canonical_refresh_bundle":[],"primary_required_test_cases":[],'
+        '"require_complete_source_unit":true,'
         '"source_bundle":["us-ri/statute/44-30-1"]}\n'
     )
 
@@ -1166,12 +1219,19 @@ def _retired_inventory_replacement_repo(
     tmp_path: Path,
     *,
     inventory_text: str | None = None,
+    target_path: str = "us/policies/income_tax/schedule.yaml",
 ) -> tuple[Path, Path, Path, Path]:
     repo = _repo(tmp_path)
-    target = repo / "us/policies/income_tax/schedule.yaml"
+    country_repo = tmp_path / f"rulespec-{Path(target_path).parts[0]}"
+    if repo != country_repo:
+        repo.rename(country_repo)
+        repo = country_repo
+    target = repo / target_path
     target.parent.mkdir(parents=True)
     target.write_text("format: rulespec/v1\nrules: []\n", encoding="utf-8")
-    manifest = repo / ".axiom/encoding-manifests/us/policies/income_tax/schedule.json"
+    manifest = (
+        repo / ".axiom/encoding-manifests" / Path(target_path).with_suffix(".json")
+    )
     manifest.parent.mkdir(parents=True)
     manifest.write_text(
         json.dumps({"schema_version": "axiom-encode/applied-rulespec/v1"}) + "\n",
@@ -1221,6 +1281,98 @@ def _retired_inventory_replacement_repo(
         encoding="utf-8",
     )
     return repo, target, manifest, inventory
+
+
+def _replacement_without_inventory(tmp_path: Path):
+    repo, target, manifest, inventory = _retired_inventory_replacement_repo(
+        tmp_path, target_path="de/statutes/estg/66.yaml"
+    )
+    _git(repo, "rm", inventory.relative_to(repo).as_posix())
+    _git(repo, "commit", "-m", "remove optional retired inventory")
+    return repo, target, manifest, inventory
+
+
+@pytest.mark.parametrize("remove_parent", [False, True])
+def test_reconcile_inventory_missing_from_repository(
+    tmp_path: Path, remove_parent: bool
+):
+    repo, target, _manifest, inventory = _replacement_without_inventory(tmp_path)
+    inventory.parent.mkdir(exist_ok=True)
+    if remove_parent:
+        inventory.parent.rmdir()
+    assert (
+        reconcile_retired_manifest_inventory(repo, target.relative_to(repo).as_posix())
+        is None
+    )
+
+
+@pytest.mark.parametrize("kind", ["untracked", "ignored", "dangling", "parent_symlink"])
+def test_reconcile_absent_head_inventory_rejects_live_paths(tmp_path: Path, kind: str):
+    repo, target, _manifest, inventory = _replacement_without_inventory(tmp_path)
+    inventory.parent.mkdir(exist_ok=True)
+    if kind == "parent_symlink":
+        inventory.parent.rmdir()
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        inventory.parent.symlink_to(outside, target_is_directory=True)
+    elif kind == "dangling":
+        inventory.symlink_to("missing")
+    else:
+        inventory.write_text("unexpected inventory\n", encoding="utf-8")
+    if kind in {"ignored", "dangling", "parent_symlink"}:
+        (repo / ".git/info/exclude").write_text("/tests\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="retired manifest inventory"):
+        reconcile_retired_manifest_inventory(repo, target.relative_to(repo).as_posix())
+
+
+def test_reconcile_inventory_rejects_tracked_deletion(tmp_path: Path):
+    repo, target, _manifest, inventory = _retired_inventory_replacement_repo(tmp_path)
+    inventory.unlink()
+    with pytest.raises(ValueError, match="changed before exact reconciliation"):
+        reconcile_retired_manifest_inventory(repo, target.relative_to(repo).as_posix())
+
+
+def test_reconcile_absent_inventory_still_validates_manifest(tmp_path: Path):
+    repo, target, manifest, _inventory = _replacement_without_inventory(tmp_path)
+    manifest.write_text("{}\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="not an exact signed-v5 model apply"):
+        reconcile_retired_manifest_inventory(repo, target.relative_to(repo).as_posix())
+
+
+def test_reconcile_absent_inventory_rejects_symlinked_repo_root(tmp_path: Path):
+    repo, target, _manifest, _inventory = _replacement_without_inventory(tmp_path)
+    target_relative = target.relative_to(repo).as_posix()
+    actual = repo.with_name("actual-checkout")
+    repo.rename(actual)
+    repo.symlink_to(actual, target_is_directory=True)
+    with pytest.raises(ValueError, match="unsafe repository root"):
+        reconcile_retired_manifest_inventory(repo, target_relative)
+
+
+def test_reconcile_inventory_rejects_nonregular_head_entry(tmp_path: Path):
+    repo, target, _manifest, inventory = _retired_inventory_replacement_repo(tmp_path)
+    inventory.unlink()
+    inventory.symlink_to("missing")
+    _git(repo, "add", inventory.relative_to(repo).as_posix())
+    _git(repo, "commit", "-m", "inventory symlink")
+    with pytest.raises(ValueError, match="not a regular HEAD file"):
+        reconcile_retired_manifest_inventory(repo, target.relative_to(repo).as_posix())
+
+
+def test_reconcile_inventory_git_failure_is_not_absence(tmp_path: Path, monkeypatch):
+    import scripts.prepare_signed_backfill as implementation
+
+    repo, target, _manifest, _inventory = _replacement_without_inventory(tmp_path)
+    original_git = implementation._git
+
+    def failing_git(repo, *args):
+        if args[0] == "ls-tree":
+            raise subprocess.CalledProcessError(128, ["git", *args])
+        return original_git(repo, *args)
+
+    monkeypatch.setattr(implementation, "_git", failing_git)
+    with pytest.raises(subprocess.CalledProcessError):
+        reconcile_retired_manifest_inventory(repo, target.relative_to(repo).as_posix())
 
 
 def test_reconcile_retired_manifest_inventory_is_end_to_end_authorized(
@@ -1333,6 +1485,29 @@ def test_reconcile_retired_manifest_inventory_is_noop_when_absent(
     }
 
 
+def test_reconcile_retired_manifest_inventory_is_noop_without_inventory_symbol(
+    tmp_path: Path,
+) -> None:
+    repo, target, manifest, inventory = _retired_inventory_replacement_repo(
+        tmp_path,
+        inventory_text="KNOWN_ORPHANED_ENCODING_MANIFESTS: list[str] = []\n",
+    )
+    before = inventory.read_bytes()
+
+    assert (
+        reconcile_retired_manifest_inventory(
+            repo,
+            target.relative_to(repo).as_posix(),
+        )
+        is None
+    )
+    assert inventory.read_bytes() == before
+    assert authorized_changed_paths(repo) == {
+        PurePosixPath(target.relative_to(repo).as_posix()),
+        PurePosixPath(manifest.relative_to(repo).as_posix()),
+    }
+
+
 @pytest.mark.parametrize(
     ("inventory_text", "message"),
     [
@@ -1349,10 +1524,26 @@ def test_reconcile_retired_manifest_inventory_is_noop_when_absent(
             "present outside an exact entry",
         ),
         (
+            "# .axiom/encoding-manifests/us/policies/income_tax/schedule.json\n",
+            "present without an inventory",
+        ),
+        (
             "KNOWN_RETIRED_SCHEMA_MANIFESTS = {\n"
             "    '.axiom/encoding-manifests/us/policies/income_tax/schedule.json',\n"
             "}\n",
             "assignment is not canonical",
+        ),
+        (
+            "from retired_inventory import KNOWN_RETIRED_SCHEMA_MANIFESTS\n",
+            "lacks one canonical top-level assignment",
+        ),
+        (
+            "import retired_inventory as KNOWN_RETIRED_SCHEMA_MANIFESTS\n",
+            "lacks one canonical top-level assignment",
+        ),
+        (
+            "def KNOWN_RETIRED_SCHEMA_MANIFESTS():\n    return frozenset()\n",
+            "lacks one canonical top-level assignment",
         ),
         (
             "KNOWN_RETIRED_SCHEMA_MANIFESTS: frozenset[str] = frozenset({\n"
@@ -3614,6 +3805,69 @@ def test_validate_dependent_cascade_rejects_incomplete_direct_dependents(
         )
 
 
+def test_validate_dependent_cascade_accepts_exact_proof_import_subset(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    _write_module(repo, "policies/usda/snap/maximum.yaml")
+    pinned = _write_module(
+        repo,
+        "statutes/7/2017/a.yaml",
+        imports=("us:policies/usda/snap/maximum",),
+    )
+    pinned.write_text(
+        pinned.read_text().replace(
+            "rules: []",
+            """rules:
+  - name: allotment
+    metadata:
+      proof:
+        atoms:
+          - kind: import
+            import:
+              target: us:policies/usda/snap/maximum#maximum
+              hash: sha256:deadbeef""",
+        )
+    )
+    _write_module(
+        repo,
+        "regulations/7-cfr/273/10.yaml",
+        imports=("us:policies/usda/snap/maximum",),
+    )
+
+    assert validate_dependent_cascade(
+        repo,
+        "us/policy/usda/snap/maximum",
+        "us/statute/7/2017/a",
+        allow_proof_import_subset=True,
+    ) == (pinned.relative_to(repo / "us"),)
+
+
+def test_validate_dependent_cascade_rejects_nonproof_subset_even_when_allowed(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    _write_module(repo, "policies/usda/snap/maximum.yaml")
+    _write_module(
+        repo,
+        "statutes/7/2017/a.yaml",
+        imports=("us:policies/usda/snap/maximum",),
+    )
+    _write_module(
+        repo,
+        "regulations/7-cfr/273/10.yaml",
+        imports=("us:policies/usda/snap/maximum",),
+    )
+
+    with pytest.raises(ValueError, match="does not exactly match"):
+        validate_dependent_cascade(
+            repo,
+            "us/policy/usda/snap/maximum",
+            "us/statute/7/2017/a",
+            allow_proof_import_subset=True,
+        )
+
+
 def test_validate_rulespec_base_accepts_main_ancestor(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     base = _add_origin_main(repo)
@@ -3674,6 +3928,10 @@ def test_validate_rulespec_base_rejects_stale_main_pr_base(
         ("us", "dc87ef6212accbc4ff67b81f97b6ddf0cf3b5a5c"),
         ("us", "2a503a5c9a2227c363aceaece6c547429c3c0878"),
         ("us", "6535019ce780d9e78f10509f2fe7a2607fb2bdc4"),
+        ("us", "c482ef6506c50b54236354926bbce1bcd6434132"),
+        ("us", "297aec1691edf7b3a21781c8a825690db1e7c988"),
+        ("us", "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683"),
+        ("us", "79ffd74fe3d3c83665335ec64feb7458d9cc877a"),
         ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
     ],
 )
@@ -3699,11 +3957,41 @@ def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
             ("us", "dc87ef6212accbc4ff67b81f97b6ddf0cf3b5a5c"),
             ("us", "2a503a5c9a2227c363aceaece6c547429c3c0878"),
             ("us", "6535019ce780d9e78f10509f2fe7a2607fb2bdc4"),
+            ("us", "c482ef6506c50b54236354926bbce1bcd6434132"),
+            ("us", "297aec1691edf7b3a21781c8a825690db1e7c988"),
+            ("us", "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683"),
+            ("us", "79ffd74fe3d3c83665335ec64feb7458d9cc877a"),
             ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
         }
     )
-    assert REVIEWED_RULESPEC_PR_BASE_BRANCHES == frozenset(
-        {("dk", "pin/dk-rulespec-2026-08-07"), ("us", "hard-cut/canonical-layout-us")}
+    assert REVIEWED_RULESPEC_PR_BASES == frozenset(
+        {
+            (
+                "dk",
+                "06489d04e7d4b8d424d1711d99df883c6411248a",
+                "pin/dk-rulespec-2026-08-07",
+            ),
+            (
+                "us",
+                "2a503a5c9a2227c363aceaece6c547429c3c0878",
+                "hard-cut/canonical-layout-us",
+            ),
+            (
+                "us",
+                "297aec1691edf7b3a21781c8a825690db1e7c988",
+                "axiom/signed-backfill-us-35001504609-1",
+            ),
+            (
+                "us",
+                "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683",
+                "axiom/signed-backfill-us-35145159769-1",
+            ),
+            (
+                "us",
+                "79ffd74fe3d3c83665335ec64feb7458d9cc877a",
+                "axiom/signed-backfill-us-35160240952-1",
+            ),
+        }
     )
     monkeypatch.setattr(
         "scripts.prepare_signed_backfill._git",
@@ -3757,15 +4045,134 @@ def test_validate_rulespec_base_accepts_exact_reviewed_protected_branch_tip(
     ) in git_calls
 
 
+@pytest.mark.parametrize(
+    ("reviewed_ref", "branch"),
+    [
+        (
+            "297aec1691edf7b3a21781c8a825690db1e7c988",
+            "axiom/signed-backfill-us-35001504609-1",
+        ),
+        (
+            "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683",
+            "axiom/signed-backfill-us-35145159769-1",
+        ),
+        (
+            "79ffd74fe3d3c83665335ec64feb7458d9cc877a",
+            "axiom/signed-backfill-us-35160240952-1",
+        ),
+    ],
+)
+def test_validate_rulespec_base_accepts_reviewed_immigration_repair_branch_tip(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    reviewed_ref: str,
+    branch: str,
+) -> None:
+    repo = tmp_path / "rulespec-us"
+
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill._git",
+        lambda _repo, *_args: f"{reviewed_ref}\n".encode(),
+    )
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill.subprocess.run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+    )
+
+    assert (
+        validate_rulespec_base(
+            repo,
+            "us",
+            reviewed_ref,
+            open_pr=True,
+            pr_base_branch=branch,
+        )
+        == "reviewed-head-pr"
+    )
+
+
+@pytest.mark.parametrize(
+    ("reviewed_ref", "branch"),
+    [
+        (
+            "297aec1691edf7b3a21781c8a825690db1e7c988",
+            "hard-cut/canonical-layout-us",
+        ),
+        (
+            "2a503a5c9a2227c363aceaece6c547429c3c0878",
+            "axiom/signed-backfill-us-35001504609-1",
+        ),
+        (
+            "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683",
+            "axiom/signed-backfill-us-35001504609-1",
+        ),
+        (
+            "297aec1691edf7b3a21781c8a825690db1e7c988",
+            "axiom/signed-backfill-us-35145159769-1",
+        ),
+        (
+            "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683",
+            "axiom/signed-backfill-us-35160240952-1",
+        ),
+        (
+            "79ffd74fe3d3c83665335ec64feb7458d9cc877a",
+            "axiom/signed-backfill-us-35145159769-1",
+        ),
+    ],
+)
+def test_validate_rulespec_base_rejects_reviewed_head_branch_cross_pairs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    reviewed_ref: str,
+    branch: str,
+) -> None:
+    repo = tmp_path / "rulespec-us"
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill._git",
+        lambda _repo, *_args: f"{reviewed_ref}\n".encode(),
+    )
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill.subprocess.run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+    )
+
+    with pytest.raises(ValueError, match="artifact-only"):
+        validate_rulespec_base(
+            repo,
+            "us",
+            reviewed_ref,
+            open_pr=True,
+            pr_base_branch=branch,
+        )
+
+
+@pytest.mark.parametrize(
+    ("reviewed_ref", "branch"),
+    [
+        (
+            "2a503a5c9a2227c363aceaece6c547429c3c0878",
+            "hard-cut/canonical-layout-us",
+        ),
+        (
+            "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683",
+            "axiom/signed-backfill-us-35145159769-1",
+        ),
+        (
+            "79ffd74fe3d3c83665335ec64feb7458d9cc877a",
+            "axiom/signed-backfill-us-35160240952-1",
+        ),
+    ],
+)
 def test_validate_rulespec_base_rejects_stale_reviewed_protected_branch_tip(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    reviewed_ref: str,
+    branch: str,
 ) -> None:
     repo = tmp_path / "rulespec-us"
-    reviewed_ref = "b1a6e07af093d62f613f83afe26fcb4dd87de491"
 
     def fake_git(_repo: Path, *args: str) -> bytes:
-        if args[-1] == "refs/remotes/origin/hard-cut/canonical-layout-us":
+        if args[-1] == f"refs/remotes/origin/{branch}":
             return f"{'f' * 40}\n".encode()
         return f"{reviewed_ref}\n".encode()
 
@@ -3781,7 +4188,7 @@ def test_validate_rulespec_base_rejects_stale_reviewed_protected_branch_tip(
             "us",
             reviewed_ref,
             open_pr=True,
-            pr_base_branch="hard-cut/canonical-layout-us",
+            pr_base_branch=branch,
         )
 
 

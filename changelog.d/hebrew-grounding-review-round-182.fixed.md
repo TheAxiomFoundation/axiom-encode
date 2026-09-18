@@ -1,0 +1,1 @@
+A rate word governing the clause makes a descending "בין" pair a range of rates whatever the size of the endpoints ("שיעור הזיכוי יהיה בין 100 ל־90 אחוזים" runs from 1, "בין 150 ל־125 אחוזים" from 1.5), and the reviewed "השיעור הוא בין 500 ל־3 אחוזים" reads the same way; with no rate word the ascending guard keeps a bare number off the noun.

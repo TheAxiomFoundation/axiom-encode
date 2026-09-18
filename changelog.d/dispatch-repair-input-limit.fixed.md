@@ -1,0 +1,1 @@
+Restore the targeted signed re-encode workflow to GitHub’s 25-input limit by deriving the repair lane and canonical dependent path from the existing transaction, while preserving prior-run identity and base-advance checks.

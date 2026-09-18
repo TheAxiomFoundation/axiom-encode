@@ -1,0 +1,1 @@
+"בין … ובין …" joins a shared-scale range as "לבין" does ("הסכום יהיה בין 5 ובין 7 מיליון שקלים" runs from five million, "בין 5 ובין 7 אלפים אחוזים" from 50), across a line wrap after the join too; and the cleaner detaches a maqaf before a decimal point that digits follow, so "הקצבה תוכפל ב־.5" reads 0.5 with its source span.

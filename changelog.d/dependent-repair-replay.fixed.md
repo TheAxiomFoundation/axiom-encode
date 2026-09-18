@@ -1,0 +1,1 @@
+Allow a checksum-bound candidate from a failed direct-dependent lane to be replayed as the immutable dependent baseline of the same atomic signed transaction, so a successful prerequisite can be regenerated without discarding dependent repair progress.

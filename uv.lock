@@ -53,7 +53,7 @@ wheels = [
 
 [[package]]
 name = "axiom-encode"
-version = "0.2.1694"
+version = "0.2.2006"
 source = { editable = "." }
 dependencies = [
     { name = "axiom-oracles" },
@@ -113,7 +113,7 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'dev'" },
     { name = "pytest-cov", marker = "extra == 'dev'" },
     { name = "pyyaml", specifier = ">=6.0" },
-    { name = "receipt", specifier = "==0.5.1" },
+    { name = "receipt", specifier = "==0.6.1" },
     { name = "requests", specifier = ">=2.28" },
     { name = "ruff", marker = "extra == 'dev'" },
     { name = "sqlite-utils", specifier = ">=3.30" },
@@ -1425,14 +1425,14 @@ wheels = [
 
 [[package]]
 name = "receipt"
-version = "0.5.1"
+version = "0.6.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cryptography" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c1/86/d57c13d77a8357d2cebb59365587867324186bd5751a902a338eb74baed6/receipt-0.5.1.tar.gz", hash = "sha256:17f8eaec43aab450193a9d793c92f75364c6055fbd634ee5ab4ea69bbe4ba958", size = 1173686, upload-time = "2026-08-17T19:08:01.001Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/9f/7d/b9eed2dda28a097b24f4b65aad207e72684a8c63bb8991012d3940f51443/receipt-0.6.1.tar.gz", hash = "sha256:7ad8f4b5f4ee609235c3d4d2c026aaad4c9043f763efd109e8be8dbda9cf9148", size = 1615783, upload-time = "2026-09-06T13:44:06.686Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c0/06/e455ce392677130b7d55272a7ff486fa4825f43cea2c242eb1fbfc7752af/receipt-0.5.1-py3-none-any.whl", hash = "sha256:baacd750659773c84fe6a0da3ece9f50804ce3e8ccd23e21bced7440b7dee350", size = 78025, upload-time = "2026-08-17T19:07:59.633Z" },
+    { url = "https://files.pythonhosted.org/packages/d2/6f/a8eaff1613da88561af4af8c05f7d1ec0758b3df62c92b3824b116602060/receipt-0.6.1-py3-none-any.whl", hash = "sha256:ef846067c5b3da958969607c63af17a49dbe6d9fb10edfe704b638101499626e", size = 234311, upload-time = "2026-09-06T13:44:04.799Z" },
 ]
 
 [[package]]

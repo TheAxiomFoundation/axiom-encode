@@ -1,0 +1,1 @@
+A condition whose relative ש binds the heading noun ("ככל שהתשלומים הם", "במקרה שהשיעורים הם") opens the condition as "כאשר" before the noun does, so the list splits at a consequent verb and closes at a tail under every marker and every spelling of the prefix.

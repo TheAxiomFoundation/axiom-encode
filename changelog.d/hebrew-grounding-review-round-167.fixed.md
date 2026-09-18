@@ -1,0 +1,1 @@
+A verb of paying governs a fraction word across its recipient and no further: a phrase in ל with whatever modifies the recipient ("שילם לעובדת חדשה חמישית השכר", "לעובדת בשם דנה" are fifths of the wage), while a bare noun after the verb ("קיבל בקשה חמישית") keeps its ordinal; and a schedule's statute is named in every construct form ("של הוראת השעה", "של החלטת הממשלה").

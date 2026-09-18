@@ -1,0 +1,1 @@
+An amount noun is read by its own letters before any prefix is seen in them ("מענק הפיצוי יהיה 50 או 2%", "שכר העובד יהיה" are fifty shekels, not "from" or "that" anything), and a preposition attached to its object keeps the object's article ("גבוהה מהמותר הקנס יהיה" reads as "מן המותר" does).

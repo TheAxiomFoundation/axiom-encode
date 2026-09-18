@@ -14,6 +14,11 @@ attempt_budget job's own condition skips them so the guard can never
 stall a tranche. The ``queue_id`` report-only branch below survives as
 defense in depth for odd dispatch paths and local use.
 
+Repair replays are report-only here. Their prior-run identity and preserved
+candidate are authenticated by the protected resolver before any model call,
+so they must be able to reach that resolver even when fresh attempts are
+exhausted.
+
 The guard is a cost damper, not a security gate: if the GitHub API cannot
 be reached it fails open with a loud warning. Stdlib-only because it runs
 on a bare runner before any toolchain setup.
@@ -52,6 +57,7 @@ RUNS_PER_PAGE = 100
 # guard itself blocked conclude "failure" with the encode job skipped and
 # must not feed back into the streak.
 ENCODE_JOB_NAME = "Queue protected signed RuleSpec re-encode"
+ENCODE_STEP_NAME = "Encode, review, validate, and apply"
 # At most this many per-run jobs lookups per evaluation; beyond the cap a
 # failure is counted without verification (conservative toward blocking).
 MAX_JOB_LOOKUPS = 10
@@ -145,12 +151,15 @@ def make_encode_job_checker(
     *,
     max_lookups: int = MAX_JOB_LOOKUPS,
     encode_job_name: str = ENCODE_JOB_NAME,
+    encode_step_name: str = ENCODE_STEP_NAME,
 ) -> Callable[[dict], bool]:
     """Build a ``spent_model_tokens`` classifier backed by the jobs API.
 
-    A run counts as model-spending only when its encode job exists with a
-    non-skipped conclusion. Past ``max_lookups`` (or on lookup errors)
-    the classification is conservative toward blocking in both
+    A run counts as model-spending only when its encode job contains the
+    actual encode step with a non-skipped conclusion. Looking only at the
+    enclosing job is insufficient: trusted-repair and other preflight steps
+    can fail that job before the model runs. Past ``max_lookups`` (or on
+    lookup errors) the classification is conservative toward blocking in both
     directions: unverified failures count against the budget and
     unverified successes stay neutral rather than resetting the streak.
     Bounded so a long history cannot stall the guard.
@@ -177,7 +186,13 @@ def make_encode_job_checker(
         ]
         if not encode_jobs:
             return False
-        return any(job.get("conclusion") != "skipped" for job in encode_jobs)
+        encode_steps = [
+            step
+            for job in encode_jobs
+            for step in (job.get("steps") or [])
+            if isinstance(step, dict) and step.get("name") == encode_step_name
+        ]
+        return any(step.get("conclusion") != "skipped" for step in encode_steps)
 
     return spent_model_tokens
 
@@ -258,6 +273,33 @@ def _append_summary(lines: list[str]) -> None:
         fh.write("\n".join(lines) + "\n")
 
 
+def configured_citation_budget(
+    raw: str, *, citation: str, fallback: int, now: datetime
+) -> int:
+    """Resolve an expiring exact-citation limit without disabling enforcement."""
+    if not raw.strip():
+        return fallback
+    configuration = json.loads(raw)
+    if not isinstance(configuration, dict):
+        raise ValueError("citation budget configuration must be an object")
+    if citation not in configuration:
+        return fallback
+    entry = configuration[citation]
+    if not isinstance(entry, dict) or set(entry) != {"budget", "expires_at", "reason"}:
+        raise ValueError("citation budget requires budget, expires_at and reason")
+    budget = entry["budget"]
+    if type(budget) is not int or budget < 1:
+        raise ValueError("citation budget must be a positive integer")
+    if not isinstance(entry["reason"], str) or not entry["reason"].strip():
+        raise ValueError("citation budget requires a triage reason")
+    if not isinstance(entry["expires_at"], str):
+        raise ValueError("citation budget expiration must be an ISO datetime")
+    expiration = datetime.fromisoformat(entry["expires_at"])
+    if expiration.tzinfo is None or expiration.utcoffset() is None:
+        raise ValueError("citation budget expiration must include a timezone")
+    return budget if expiration > now else fallback
+
+
 def _render_summary(
     decision: Decision, *, citation: str, enforced: bool, blocked: bool
 ) -> list[str]:
@@ -276,12 +318,17 @@ def _render_summary(
             "- **Blocked before the signing environment and any model call.** "
             "Triage the failing gate first (see axiom-encode#1494 for why "
             "regeneration alone rarely fixes these). To proceed anyway, set "
-            "the repository variable `ATTEMPT_BUDGET_OVERRIDE` to `true` (or "
-            "raise `ATTEMPT_BUDGET`), re-dispatch, and unset it after triage."
+            "an expiring exact-citation limit in repository variable "
+            "`ATTEMPT_BUDGET_BY_CITATION_JSON` (see "
+            "`docs/targeted-reencode-attempt-budget.md`). This retains the "
+            "other citations' limits. The repository-wide alternatives are "
+            "`ATTEMPT_BUDGET_OVERRIDE=true` or raising `ATTEMPT_BUDGET`; "
+            "remove temporary settings after the reviewed retry."
         )
     elif not enforced:
         lines.append(
-            "- Report-only: queue-driven dispatch, or override was set; not blocking."
+            "- Report-only: queue dispatch, authenticated repair path, or override; "
+            "not blocking."
         )
     return lines
 
@@ -292,6 +339,7 @@ def main() -> int:
     token = os.environ.get("GH_TOKEN", "")
     workflow_file = os.environ.get("WORKFLOW_FILE", "targeted-signed-reencode.yml")
     queue_id = os.environ.get("QUEUE_ID", "").strip()
+    repair_run_id = os.environ.get("REPAIR_RUN_ID", "").strip()
     override = os.environ.get("ATTEMPT_BUDGET_OVERRIDE", "").strip().lower()
     try:
         budget = int(os.environ.get("ATTEMPT_BUDGET", str(DEFAULT_BUDGET)))
@@ -299,6 +347,19 @@ def main() -> int:
         budget = DEFAULT_BUDGET
     if budget < 1:
         budget = DEFAULT_BUDGET
+    try:
+        budget = configured_citation_budget(
+            os.environ.get("ATTEMPT_BUDGET_BY_CITATION_JSON", ""),
+            citation=citation,
+            fallback=budget,
+            now=datetime.now(timezone.utc),
+        )
+    except (ValueError, TypeError):
+        print(
+            "attempt-budget: invalid citation budget configuration; "
+            "retaining the repository-wide budget.",
+            file=sys.stderr,
+        )
     try:
         lookback_days = int(os.environ.get("LOOKBACK_DAYS", str(DEFAULT_LOOKBACK_DAYS)))
     except ValueError:
@@ -339,7 +400,7 @@ def main() -> int:
             lambda run_id: _fetch_run_jobs(repo=repo, token=token, run_id=run_id)
         ),
     )
-    enforced = queue_id == "" and override != "true"
+    enforced = queue_id == "" and repair_run_id == "" and override != "true"
     blocked = enforced and decision.exhausted
     print(
         f"attempt-budget: citation={citation} streak={decision.streak} "
@@ -353,6 +414,11 @@ def main() -> int:
         )
     if override == "true":
         print("attempt-budget: override set by dispatcher; not blocking.")
+    if repair_run_id:
+        print(
+            "attempt-budget: repair replay is authenticated by the protected "
+            "resolver; not blocking."
+        )
     return 1 if blocked else 0
 
 

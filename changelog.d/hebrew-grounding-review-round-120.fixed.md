@@ -1,0 +1,1 @@
+Within a condition a ש-word the verb follows at once is a one-word subject and no relative prefix ("אם התשלומים הם 500, 2 או 3 מיליון שקלים שותפה תשלם, והיתרה תוחזר" keeps 500), while a relative subject of two words or more shows its own verb within six words ("אחוזים מההכנסה שבית דין אזורי לעבודה יקבע, תחול ההוראה" reads three rates).

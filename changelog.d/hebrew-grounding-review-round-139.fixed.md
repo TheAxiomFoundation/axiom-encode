@@ -1,0 +1,1 @@
+An ASCII hyphen after a one-letter Hebrew prefix is the maqaf it stands for: the numeric text view rewrites it in place before any pattern runs, so every reader sees "ו־מאתיים", "מ־הכנסה", "ה־תקציב" and "ו־חצי" whether the source set a maqaf or a hyphen, and the two spellings ground, recall and extract the same values everywhere.

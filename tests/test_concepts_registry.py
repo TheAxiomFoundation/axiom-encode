@@ -174,6 +174,58 @@ def test_validator_flags_uppercase_path_anchored_ref_to_blocked_synonym(
     assert any(v.name == "snap_monthly_household_income" for v in violations)
 
 
+def test_validator_allows_external_legacy_input_for_current_candidate(
+    tmp_path: Path,
+):
+    registry = load_concept_registry()
+    drift = _write(
+        tmp_path,
+        "drift.test.yaml",
+        """
+        - name: allotment_uses_imported_net_income
+          input:
+            us:statutes/7/2014/e/6/A#input.snap_monthly_household_income: 1000
+          output:
+            us:statutes/7/2017/a#snap_net_income_for_allotment: 1000
+        """,
+    )
+
+    violations = validate_generated_against_registry(
+        [drift],
+        registry,
+        apply_anchor="us:statutes/7/2017/a",
+    )
+
+    assert not any(
+        violation.name == "snap_monthly_household_income" for violation in violations
+    )
+
+
+def test_validator_rejects_candidate_owned_legacy_input(tmp_path: Path):
+    registry = load_concept_registry()
+    drift = _write(
+        tmp_path,
+        "drift.test.yaml",
+        """
+        - name: local_input_uses_blocked_synonym
+          input:
+            us:statutes/7/2017/a#input.snap_monthly_household_income: 1000
+        """,
+    )
+
+    violations = validate_generated_against_registry(
+        [drift],
+        registry,
+        apply_anchor="us:statutes/7/2017/a",
+    )
+
+    assert any(
+        violation.kind == "blocked_synonym"
+        and violation.name == "snap_monthly_household_income"
+        for violation in violations
+    )
+
+
 def test_validator_passes_canonical_only_yaml(tmp_path: Path):
     registry = load_concept_registry()
     good = _write(

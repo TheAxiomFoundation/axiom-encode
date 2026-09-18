@@ -44,9 +44,28 @@ def test_known_models_resolve_via_public_api():
     terra = get_model_pricing("gpt-5.6-terra")
     sol = get_model_pricing("gpt-5.6-sol")
     base_alias = get_model_pricing("gpt-5.6")
-    assert terra == ModelPricing(2.0, 12.0, 0.20, 2.50, 272000)
-    assert sol == ModelPricing(5.0, 30.0, 0.50, 6.25, 272000)
+    assert (
+        terra.input_per_million,
+        terra.output_per_million,
+        terra.cache_read_per_million,
+        terra.cache_create_per_million,
+        terra.max_input_tokens,
+    ) == (2.0, 12.0, 0.20, 2.50, 272000)
+    assert (
+        sol.input_per_million,
+        sol.output_per_million,
+        sol.cache_read_per_million,
+        sol.cache_create_per_million,
+        sol.max_input_tokens,
+    ) == (4.0, 20.0, 0.40, 5.0, 272000)
     assert base_alias == sol
+    # Every GPT-5.6 rate traces to the vendor page it was read from, on a date.
+    for pricing in (terra, sol):
+        assert pricing.source_url and pricing.source_url.startswith(
+            "https://developers.openai.com/"
+        )
+        assert pricing.captured_at == "2026-09-10"
+    assert sol.promotional_until == "2026-11-21"
     assert get_model_pricing("gpt-5.6-luna") is None
 
 

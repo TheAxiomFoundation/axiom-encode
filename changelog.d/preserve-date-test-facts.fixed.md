@@ -1,0 +1,1 @@
+Preserve ISO date strings in generated companion test facts instead of evaluating dates such as 2024-12-31 as subtraction. Invalid date-shaped strings also remain available for typed validation; explicit arithmetic with spaces still normalizes.

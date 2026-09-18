@@ -2,6 +2,41 @@
 
 All notable changes to Axiom Encode will be documented here.
 
+- Accept an additive companion-test fragment during protected tests-only repair
+  only when every new case exactly matches the required case contract. The
+  encoder appends it to retained tests, preserves all existing cases, and keeps
+  the signed RuleSpec body byte-identical.
+
+- Permit a tests-only signed revision of the exact reviewed SNAP OBBB memo
+  RuleSpec head. The protected workflow binds the immutable source SHA and
+  target path, rejects dirty or untracked candidate files, and keeps the
+  encoder's unchanged-rule-body contract in force.
+
+- Remove a generated `module.source_verification.values` mapping only after the
+  rules engine identifies that exact unknown field and its complete accepted
+  schema, preserving all other RuleSpec bytes and revalidating the overlay.
+
+- Create each targeted output lane before validating its durable rejected-
+  candidate destination, so signed re-encodes reach generation while retaining
+  the destination's fresh-directory safety contract.
+
+- Export the strongest validator-rejected candidate from targeted signed
+  re-encodes and prefer its integrity-bound three-file artifact during repair
+  replay, while retaining compatibility with older failure artifacts.
+
+- Retain the validator-rejected RuleSpec candidate with the fewest full
+  validation findings across model retries, keep its bounded feedback attached
+  to that exact candidate, and emit the same best candidate for cross-run
+  repair instead of allowing a later regression to overwrite stronger work.
+
+- Keep parenthetical source conditions bounded to their closing parenthesis so
+  later descriptive conjunctions cannot be misclassified as additional legal
+  eligibility gates.
+
+- Bound proof-owned parent chapeaux at their first structural child so a colon-
+  terminated eligibility list does not make every alternative satisfy the
+  first child branch's factual gates.
+
 - Carry bounded, source-specific review findings through each canonical-refresh
   lane and bind their exact content in signed context evidence. Louisiana
   external-dependency validation now recognizes narrowly scoped executable

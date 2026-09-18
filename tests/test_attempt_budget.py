@@ -2,17 +2,22 @@
 
 from __future__ import annotations
 
+import json
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 import scripts.enforce_attempt_budget as budget_mod
 from scripts.enforce_attempt_budget import (
     ENCODE_JOB_NAME,
+    ENCODE_STEP_NAME,
     evaluate_attempt_budget,
     make_encode_job_checker,
     run_citation,
 )
 
 CITATION = "us-ky/statute/krs/141.020/document-1"
+DE_CITATION = "de/statute/estg/78"
 
 
 def _run(
@@ -180,8 +185,8 @@ class TestEncodeJobChecker:
         # encode job skipped. Only run 1 actually reached the model.
         fetch, _ = self._jobs_fixture(
             {
-                1: [{"name": ENCODE_JOB_NAME, "conclusion": "failure"}],
-                2: [{"name": ENCODE_JOB_NAME, "conclusion": "skipped"}],
+                1: [self._encode_job("failure")],
+                2: [self._encode_job("skipped")],
                 3: [{"name": "Enforce failed-attempt budget", "conclusion": "failure"}],
             }
         )
@@ -200,12 +205,47 @@ class TestEncodeJobChecker:
         assert decision.streak == 1
         assert not decision.exhausted
 
-    def test_real_failures_still_count(self) -> None:
+    @staticmethod
+    def _encode_job(step_conclusion: str, *, job_conclusion: str = "failure") -> dict:
+        return {
+            "name": ENCODE_JOB_NAME,
+            "conclusion": job_conclusion,
+            "steps": [
+                {"name": ENCODE_STEP_NAME, "conclusion": step_conclusion},
+            ],
+        }
+
+    def test_preflight_failure_inside_encode_job_is_neutral(self) -> None:
         fetch, _ = self._jobs_fixture(
             {
-                run_id: [{"name": ENCODE_JOB_NAME, "conclusion": "failure"}]
-                for run_id in (1, 2, 3)
+                1: [
+                    {
+                        "name": ENCODE_JOB_NAME,
+                        "conclusion": "failure",
+                        "steps": [
+                            {
+                                "name": "Resolve trusted prior-run repair candidate",
+                                "conclusion": "failure",
+                            },
+                            {"name": ENCODE_STEP_NAME, "conclusion": "skipped"},
+                        ],
+                    }
+                ]
             }
+        )
+        decision = evaluate_attempt_budget(
+            [_run(1, "2026-08-12T01:00:00Z", "failure")],
+            citation=CITATION,
+            budget=1,
+            current_run_id=99,
+            spent_model_tokens=make_encode_job_checker(fetch),
+        )
+        assert decision.streak == 0
+        assert not decision.exhausted
+
+    def test_real_failures_still_count(self) -> None:
+        fetch, _ = self._jobs_fixture(
+            {run_id: [self._encode_job("failure")] for run_id in (1, 2, 3)}
         )
         runs = [
             _run(1, "2026-08-12T01:00:00Z", "failure"),
@@ -225,7 +265,7 @@ class TestEncodeJobChecker:
     def test_lookup_cap_counts_conservatively(self) -> None:
         fetch, calls = self._jobs_fixture(
             {
-                run_id: [{"name": ENCODE_JOB_NAME, "conclusion": "skipped"}]
+                run_id: [self._encode_job("skipped", job_conclusion="skipped")]
                 for run_id in range(1, 6)
             }
         )
@@ -264,7 +304,7 @@ class TestEncodeJobChecker:
         # cap; an unverifiable phantom success below them must not reset
         # the streak fed by genuine failures further down.
         jobs_by_run: dict[int, list[dict]] = {
-            run_id: [{"name": ENCODE_JOB_NAME, "conclusion": "skipped"}]
+            run_id: [self._encode_job("skipped", job_conclusion="skipped")]
             for run_id in range(5, 15)
         }
         fetch, calls = self._jobs_fixture(jobs_by_run)
@@ -302,10 +342,10 @@ class TestEncodeJobChecker:
         # without any encode having succeeded. It must not lift the block.
         fetch, _ = self._jobs_fixture(
             {
-                1: [{"name": ENCODE_JOB_NAME, "conclusion": "failure"}],
-                2: [{"name": ENCODE_JOB_NAME, "conclusion": "failure"}],
-                3: [{"name": ENCODE_JOB_NAME, "conclusion": "skipped"}],
-                4: [{"name": ENCODE_JOB_NAME, "conclusion": "failure"}],
+                1: [self._encode_job("failure")],
+                2: [self._encode_job("failure")],
+                3: [self._encode_job("skipped", job_conclusion="skipped")],
+                4: [self._encode_job("failure")],
             }
         )
         runs = [
@@ -327,9 +367,9 @@ class TestEncodeJobChecker:
     def test_real_success_still_resets_streak(self) -> None:
         fetch, _ = self._jobs_fixture(
             {
-                1: [{"name": ENCODE_JOB_NAME, "conclusion": "failure"}],
-                2: [{"name": ENCODE_JOB_NAME, "conclusion": "success"}],
-                3: [{"name": ENCODE_JOB_NAME, "conclusion": "failure"}],
+                1: [self._encode_job("failure")],
+                2: [self._encode_job("success", job_conclusion="success")],
+                3: [self._encode_job("failure")],
             }
         )
         runs = [
@@ -360,6 +400,7 @@ class TestMainExitContract:
         monkeypatch: pytest.MonkeyPatch,
         *,
         queue_id: str = "",
+        repair_run_id: str = "",
         override: str = "",
         budget: str = "",
     ) -> None:
@@ -368,8 +409,10 @@ class TestMainExitContract:
         monkeypatch.setenv("GH_TOKEN", "test-token")
         monkeypatch.setenv("GITHUB_RUN_ID", "99")
         monkeypatch.setenv("QUEUE_ID", queue_id)
+        monkeypatch.setenv("REPAIR_RUN_ID", repair_run_id)
         monkeypatch.setenv("ATTEMPT_BUDGET_OVERRIDE", override)
         monkeypatch.setenv("ATTEMPT_BUDGET", budget)
+        monkeypatch.delenv("ATTEMPT_BUDGET_BY_CITATION_JSON", raising=False)
         monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
 
     def _stub_api(
@@ -385,7 +428,7 @@ class TestMainExitContract:
             lambda **kwargs: (
                 jobs
                 if jobs is not None
-                else [{"name": ENCODE_JOB_NAME, "conclusion": "failure"}]
+                else [TestEncodeJobChecker._encode_job("failure")]
             ),
         )
 
@@ -399,10 +442,55 @@ class TestMainExitContract:
         self._stub_api(monkeypatch, self.FAILING_HISTORY)
         assert budget_mod.main() == 0
 
+    def test_repair_replay_reports_only(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._set_env(monkeypatch, repair_run_id="32201076681")
+        self._stub_api(monkeypatch, self.FAILING_HISTORY)
+        assert budget_mod.main() == 0
+
     def test_override_passes(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._set_env(monkeypatch, override="true")
         self._stub_api(monkeypatch, self.FAILING_HISTORY)
         assert budget_mod.main() == 0
+
+    def test_scoped_limit_keeps_us_blocked_and_blocks_fourth_de_failure(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._set_env(monkeypatch)
+        monkeypatch.setenv(
+            "ATTEMPT_BUDGET_BY_CITATION_JSON",
+            json.dumps(
+                {
+                    DE_CITATION: {
+                        "budget": 4,
+                        "expires_at": (
+                            datetime.now(timezone.utc) + timedelta(days=1)
+                        ).isoformat(),
+                        "reason": "Reviewed dependency-link fix before one additional retry",
+                    }
+                }
+            ),
+        )
+        de_history = [
+            _run(i, f"2026-08-12T{i:02d}:00:00Z", "failure", citation=DE_CITATION)
+            for i in (11, 12, 13)
+        ]
+        self._stub_api(monkeypatch, self.FAILING_HISTORY + de_history)
+        assert budget_mod.main() == 1  # US remains at three, with enforcement on.
+        monkeypatch.setenv("CITATION", DE_CITATION)
+        assert budget_mod.main() == 0
+        de_history.append(
+            _run(14, "2026-08-12T14:00:00Z", "failure", citation=DE_CITATION)
+        )
+        self._stub_api(monkeypatch, self.FAILING_HISTORY + de_history)
+        assert budget_mod.main() == 1  # A numeric limit, never report-only.
+
+    def test_invalid_scoped_configuration_keeps_guard_enforced(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._set_env(monkeypatch)
+        monkeypatch.setenv("ATTEMPT_BUDGET_BY_CITATION_JSON", "{broken")
+        self._stub_api(monkeypatch, self.FAILING_HISTORY)
+        assert budget_mod.main() == 1
 
     def test_under_budget_passes(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._set_env(monkeypatch)
@@ -429,8 +517,76 @@ class TestMainExitContract:
             "GITHUB_REPOSITORY",
             "GH_TOKEN",
             "QUEUE_ID",
+            "REPAIR_RUN_ID",
             "ATTEMPT_BUDGET",
             "ATTEMPT_BUDGET_OVERRIDE",
+            "ATTEMPT_BUDGET_BY_CITATION_JSON",
         ):
             monkeypatch.delenv(name, raising=False)
         assert budget_mod.main() == 0
+
+
+class TestConfiguredCitationBudget:
+    NOW = datetime(2026, 9, 9, tzinfo=timezone.utc)
+    ENTRY = {
+        "budget": 4,
+        "expires_at": "2026-09-10T00:00:00Z",
+        "reason": "Triage complete",
+    }
+
+    @pytest.mark.parametrize(
+        "citation", [CITATION, DE_CITATION + "/child", "DE/statute/estg/78"]
+    )
+    def test_only_exact_citation_matches(self, citation: str) -> None:
+        assert (
+            budget_mod.configured_citation_budget(
+                json.dumps({DE_CITATION: self.ENTRY}),
+                citation=citation,
+                fallback=3,
+                now=self.NOW,
+            )
+            == 3
+        )
+
+    @pytest.mark.parametrize(
+        "expires_at",
+        ["2026-09-08T23:59:59Z", "2026-09-09T00:00:00Z", "2026-09-09T02:00:00+02:00"],
+    )
+    def test_expired_entry_restores_existing_limit(self, expires_at: str) -> None:
+        entry = {**self.ENTRY, "expires_at": expires_at}
+        assert (
+            budget_mod.configured_citation_budget(
+                json.dumps({DE_CITATION: entry}),
+                citation=DE_CITATION,
+                fallback=2,
+                now=self.NOW,
+            )
+            == 2
+        )
+
+    @pytest.mark.parametrize(
+        "field,value",
+        [
+            ("budget", True),
+            ("budget", 0),
+            ("budget", -1),
+            ("budget", 4.0),
+            ("budget", "4"),
+            ("reason", " "),
+            ("reason", None),
+            ("expires_at", "2026-09-10"),
+            ("expires_at", None),
+            ("expires_at", "tomorrow"),
+            ("extra", "typo"),
+        ],
+    )
+    def test_invalid_selected_entry_is_rejected(
+        self, field: str, value: object
+    ) -> None:
+        with pytest.raises(ValueError):
+            budget_mod.configured_citation_budget(
+                json.dumps({DE_CITATION: {**self.ENTRY, field: value}}),
+                citation=DE_CITATION,
+                fallback=3,
+                now=self.NOW,
+            )

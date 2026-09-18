@@ -1,0 +1,1 @@
+A shared-scale list whose conjunctions are attached to the spelled amounts is scaled throughout ("אחד ושניים ושלושה מיליון" is one, two and three million; "אחד ושניים ושלושה אלפים אחוזים" ten, twenty and thirty percent), the walk back reading a vav on the endpoint itself as the percent-range walk does.

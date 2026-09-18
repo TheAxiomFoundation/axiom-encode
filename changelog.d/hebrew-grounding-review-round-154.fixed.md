@@ -1,0 +1,1 @@
+The subject a predicate is predicated of is the last noun phrase no earlier phrase holds, its modifiers of any length held with it ("הקנס לפי הוראת בנק ישראל יהיה 50 או 2%", "הקנס שבנק ישראל יקבע יהיה", "קנס הפיגורים יהיה" are fifty shekels each), so a rate word reaches only a pair whose subject is its own.

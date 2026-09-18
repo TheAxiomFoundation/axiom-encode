@@ -1,0 +1,1 @@
+Pin `receipt` at 0.6.1. The release refuses non-integer keyring thresholds at construction and adds an `allow_legacy` switch to `verify_any_generation`; the encoder's apply-manifest check builds a 1-of-1 keyring with an integer threshold and calls `verify_threshold` with `allow_legacy=False`, so its verdicts and issue strings are unchanged.

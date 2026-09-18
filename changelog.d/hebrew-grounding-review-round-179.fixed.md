@@ -1,0 +1,1 @@
+A printed fraction ("½", "1/2", "1⁄2") and a signed fraction word ("−חצי") are fractions of their own at a range endpoint, so "בין ½ לשלושה רבעים האחוז" runs from 0.005; a signed bare number and a printed mixed number ("2½") still take the counted fraction's word.

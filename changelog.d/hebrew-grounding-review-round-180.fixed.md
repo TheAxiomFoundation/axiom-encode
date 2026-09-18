@@ -1,0 +1,1 @@
+A fraction of its own before the percent noun is a rate whatever the order ("בין ½ ל־3 עשיריות האחוז" and "בין חצי לבין שלוש עשיריות האחוז" run from 0.005), while the ascending guard on a "בין" range of bare numbers now holds for an attached connector too ("בין 500 לשלושה אחוזים" is no range of rates).

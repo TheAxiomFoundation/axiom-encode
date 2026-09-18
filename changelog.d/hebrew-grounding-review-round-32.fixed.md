@@ -1,0 +1,1 @@
+A numerator is no reference label and a standalone fraction is a coordinated endpoint, so "תוספת 1 או 1⁄2 נקודת זיכוי" and "תוספת 2 עד 7⁄2 שקלים" keep both amounts; and a measure noun that opens a temporal phrase is no unit of a fraction ("לידה חמישית שנה לאחר הלידה הקודמת" keeps its fifth birth, "תקופה של חמישית שנה" stays a fifth of a year).

@@ -116,6 +116,7 @@ from .policyengine_runtime import (
 )
 from .pricing import estimate_usage_cost_usd
 from .source_completeness import (
+    _rulespec_target_base,
     collect_artifact_numeric_values,
 )
 from .validator_pipeline import (
@@ -139,6 +140,8 @@ from .validator_pipeline import (
     extract_numeric_occurrences_from_text,
     extract_typed_numeric_inventory_occurrences_from_text,
     find_deferred_output_issues,
+    find_judgment_positive_companion_output_issues,
+    find_missing_derived_companion_output_issues,
     find_ungrounded_numeric_issues_scoped,
     find_unused_import_issues,
     find_unused_modifier_parameter_issues,
@@ -159,12 +162,18 @@ EvalOracleMode = Literal["none", "policyengine"]
 EvalFailureKind = Literal["timeout", "validation", "error"]
 
 
+class _PreservedRepairOverlayError(ValueError):
+    """The retained retry candidate cannot serve as an overlay base."""
+
+
 @dataclass(frozen=True)
 class ValidationRetryCandidate:
     """One rejected generated pair retained as bounded retry-edit context."""
 
     rulespec: str
     tests: str | None = None
+    allowed_missing_rule_removals: tuple[str, ...] = ()
+    allowed_missing_test_removals: tuple[str, ...] = ()
     rulespec_sha256: str = field(init=False)
     tests_sha256: str | None = field(init=False)
 
@@ -173,6 +182,18 @@ class ValidationRetryCandidate:
             raise ValueError("Validation retry candidate RuleSpec must be non-empty")
         if self.tests is not None and not isinstance(self.tests, str):
             raise TypeError("Validation retry candidate tests must be text or None")
+        for label, names in (
+            ("rule", self.allowed_missing_rule_removals),
+            ("companion test", self.allowed_missing_test_removals),
+        ):
+            if (
+                not isinstance(names, tuple)
+                or any(not isinstance(name, str) or not name for name in names)
+                or len(set(names)) != len(names)
+            ):
+                raise ValueError(
+                    f"Allowed missing {label} removals must be unique non-empty names"
+                )
         rulespec_bytes = self.rulespec.encode("utf-8")
         tests_bytes = self.tests.encode("utf-8") if self.tests is not None else b""
         if len(rulespec_bytes) > VALIDATION_RETRY_CANDIDATE_MAX_FILE_BYTES:
@@ -1545,6 +1566,7 @@ def run_model_eval(
     extra_context_paths: list[Path] | None = None,
     include_tests: bool = False,
     skip_reviewers: bool = False,
+    reviewers_require_deterministic_pass: bool = False,
     oracle: EvalOracleMode = "none",
     policyengine_runtime: PolicyEngineRuntime | None = None,
     policyengine_rule_hint: str | None = None,
@@ -1560,6 +1582,7 @@ def run_model_eval(
     replacement_overlay_scope: bool = False,
     validation_retry_candidate: ValidationRetryCandidate | None = None,
     repair_candidate_tests_only: bool = False,
+    accept_valid_retry_candidate: bool = False,
 ) -> list[EvalResult]:
     """Run a deterministic comparison over one or more citations."""
     _validate_eval_oracle_runtime(oracle, policyengine_runtime, policy_path)
@@ -1575,6 +1598,22 @@ def run_model_eval(
         raise ValueError("Tests-only repair requires a validation retry candidate")
     if repair_candidate_tests_only and validation_retry_candidate.tests is None:
         raise ValueError("Tests-only repair requires preserved companion tests")
+    if accept_valid_retry_candidate and validation_retry_candidate is None:
+        raise ValueError(
+            "Retained-candidate preflight requires a validation retry candidate"
+        )
+    if (
+        accept_valid_retry_candidate
+        and validation_retry_candidate is not None
+        and validation_retry_candidate.tests is None
+    ):
+        raise ValueError(
+            "Retained-candidate preflight requires preserved companion tests"
+        )
+    if accept_valid_retry_candidate and repair_candidate_tests_only:
+        raise ValueError(
+            "Retained-candidate preflight is incompatible with tests-only repair"
+        )
     include_tests = (
         include_tests or require_complete_source_unit or repair_candidate_tests_only
     )
@@ -1600,6 +1639,9 @@ def run_model_eval(
                         extra_context_paths=extra_context_paths or [],
                         include_tests=include_tests,
                         skip_reviewers=skip_reviewers,
+                        reviewers_require_deterministic_pass=(
+                            reviewers_require_deterministic_pass
+                        ),
                         oracle=oracle,
                         policyengine_runtime=policyengine_runtime,
                         policyengine_rule_hint=policyengine_rule_hint,
@@ -1615,6 +1657,7 @@ def run_model_eval(
                         required_test_case_contracts=required_test_case_contracts,
                         validation_retry_candidate=validation_retry_candidate,
                         repair_candidate_tests_only=repair_candidate_tests_only,
+                        accept_valid_retry_candidate=accept_valid_retry_candidate,
                         required_import_targets=required_import_targets,
                         legacy_replacement=legacy_replacement,
                         replacement_overlay_scope=replacement_overlay_scope,
@@ -1637,6 +1680,7 @@ def run_source_eval(
     policyengine_runtime: PolicyEngineRuntime | None = None,
     policyengine_rule_hint: str | None = None,
     skip_reviewers: bool = False,
+    reviewers_require_deterministic_pass: bool = False,
     rulespec_dependency_roots: Sequence[Path] = (),
     review_findings_paths: list[Path] | None = None,
     require_complete_source_unit: bool = False,
@@ -1674,6 +1718,9 @@ def run_source_eval(
                     policyengine_runtime=policyengine_runtime,
                     policyengine_rule_hint=policyengine_rule_hint,
                     skip_reviewers=skip_reviewers,
+                    reviewers_require_deterministic_pass=(
+                        reviewers_require_deterministic_pass
+                    ),
                     local_corpus_release=local_corpus_release,
                     rulespec_dependency_roots=rulespec_dependency_roots,
                     review_findings_paths=review_findings_paths or [],
@@ -2152,11 +2199,8 @@ def _discover_amendment_documents(
         tuple[_corpus_resolver.ActiveCorpusBodyRow, Literal["structured", "name"]]
     ] = []
     for row in rows:
-        if (
-            row.row.version != version
-            or (row.row.source_path or row.row.citation_path) == target_document_key
-            or not _is_amendment_row(row)
-        ):
+        row_document_key = row.row.source_path or row.row.citation_path
+        if row_document_key == target_document_key or not _is_amendment_row(row):
             continue
         structured_match = _amendment_has_structured_document_target(
             row,
@@ -2164,7 +2208,13 @@ def _discover_amendment_documents(
         )
         if structured_match:
             marked_rows.append((row, "structured"))
-        elif _amendment_relates_to_target(row, target_identifiers):
+        # Rows already belong to the verified release. Explicit canonical
+        # targets can cross its capture scopes; scope versions are not legal
+        # applicability dates. Keep fuzzy name matching within the target's
+        # scope so this does not broaden heuristic discovery.
+        elif row.row.version == version and _amendment_relates_to_target(
+            row, target_identifiers
+        ):
             marked_rows.append((row, "name"))
 
     roots_by_document: dict[str, _corpus_resolver.ActiveCorpusBodyRow] = {}
@@ -7225,6 +7275,7 @@ def evaluate_artifact(
     policyengine_runtime: PolicyEngineRuntime | None = None,
     policyengine_rule_hint: str | None = None,
     skip_reviewers: bool = False,
+    reviewers_require_deterministic_pass: bool = False,
     source_metadata: dict[str, object] | None = None,
     source_citation_path: str | None = None,
     rulespec_dependency_roots: Sequence[Path] = (),
@@ -7257,6 +7308,7 @@ def evaluate_artifact(
             policyengine_runtime=policyengine_runtime,
             policyengine_rule_hint=policyengine_rule_hint,
             skip_reviewers=skip_reviewers,
+            reviewers_require_deterministic_pass=reviewers_require_deterministic_pass,
             source_metadata=source_metadata,
             local_corpus_release=local_corpus_release,
             source_citation_path=source_citation_path,
@@ -7401,6 +7453,7 @@ def _evaluate_artifact_in_scope(
     policyengine_runtime: PolicyEngineRuntime | None = None,
     policyengine_rule_hint: str | None = None,
     skip_reviewers: bool = False,
+    reviewers_require_deterministic_pass: bool = False,
     source_metadata: dict[str, object] | None = None,
     source_citation_path: str | None = None,
     rulespec_dependency_roots: Sequence[Path] = (),
@@ -7508,7 +7561,13 @@ def _evaluate_artifact_in_scope(
                 "so a boolean day-predicate helper on `period: Day`, plus explicit trigger preconditions from the source text, "
                 "is an acceptable representation."
             )
-        if skip_reviewers:
+        # The encode retry loop feeds only compile/CI findings back to the
+        # model and never gates apply on the reviewer, so in that lane a
+        # reviewer call on an already-rejected candidate is pure latency.
+        deterministic_rejected = not compile_result.passed or not ci_result.passed
+        if skip_reviewers or (
+            reviewers_require_deterministic_pass and deterministic_rejected
+        ):
             generalist_review_result = ValidationResult(
                 validator_name="generalist-reviewer",
                 passed=True,
@@ -7786,6 +7845,9 @@ def _evaluate_artifact_in_scope(
     )
 
 
+_GENERATED_EVAL_REPAIR_LIMIT = 50
+
+
 def _evaluate_generated_artifact_with_repairs(
     rulespec_file: Path,
     policy_repo_root: Path,
@@ -7796,6 +7858,7 @@ def _evaluate_generated_artifact_with_repairs(
     policyengine_runtime: PolicyEngineRuntime | None = None,
     policyengine_rule_hint: str | None = None,
     skip_reviewers: bool = False,
+    reviewers_require_deterministic_pass: bool = False,
     source_metadata: dict[str, object] | None = None,
     source_citation_path: str | None = None,
     rulespec_dependency_roots: Sequence[Path] = (),
@@ -7807,7 +7870,7 @@ def _evaluate_generated_artifact_with_repairs(
     allow_artifact_repairs: bool = True,
 ) -> EvalArtifactMetrics | None:
     evaluated_states: set[tuple[bytes | None, bytes | None]] = set()
-    while True:
+    for _repair_round in range(_GENERATED_EVAL_REPAIR_LIMIT + 1):
         test_file = _rulespec_test_path(rulespec_file)
         artifact_state = tuple(
             path.read_bytes() if path.exists() else None
@@ -7822,6 +7885,7 @@ def _evaluate_generated_artifact_with_repairs(
             policyengine_runtime=policyengine_runtime,
             policyengine_rule_hint=policyengine_rule_hint,
             skip_reviewers=skip_reviewers,
+            reviewers_require_deterministic_pass=reviewers_require_deterministic_pass,
             source_metadata=source_metadata,
             local_corpus_release=local_corpus_release,
             source_citation_path=source_citation_path,
@@ -7837,6 +7901,8 @@ def _evaluate_generated_artifact_with_repairs(
             return metrics
         if artifact_state in evaluated_states:
             return metrics
+        if _repair_round == _GENERATED_EVAL_REPAIR_LIMIT:
+            return metrics
         evaluated_states.add(artifact_state)
         repairs = _apply_generated_eval_repairs(
             rulespec_file=rulespec_file,
@@ -7849,6 +7915,106 @@ def _evaluate_generated_artifact_with_repairs(
         )
         if not repairs:
             return metrics
+
+
+def _rebind_retained_candidate_proof_import_hashes(
+    *,
+    rulespec_file: Path,
+    relative_output: Path,
+    policy_repo_path: Path,
+    metrics: EvalArtifactMetrics | None,
+) -> list[str]:
+    """Refresh only stale dependency hashes on an otherwise retained candidate."""
+
+    if (
+        metrics is None
+        or not metrics.compile_pass
+        or metrics.ci_pass
+        or not metrics.ci_issues
+        or any(
+            "Proof import hash mismatch:" not in str(issue)
+            for issue in metrics.ci_issues
+        )
+    ):
+        return []
+
+    # Import lazily to avoid the startup cycle: cli imports this module.
+    from axiom_encode import cli as cli_helpers
+
+    original = rulespec_file.read_text()
+    target_base = (
+        f"{cli_helpers._repo_jurisdiction_prefix(policy_repo_path)}:"
+        f"{cli_helpers._relative_rulespec_import_target(relative_output)}"
+    )
+    repaired, repair_count = cli_helpers._repair_proof_import_hashes(
+        original,
+        target_base=target_base,
+        rules_file=rulespec_file,
+        repo_path=policy_repo_path,
+    )
+    if (
+        repair_count <= 0
+        or repaired == original
+        or not _only_proof_import_hashes_changed(
+            original,
+            repaired,
+            expected_change_count=repair_count,
+        )
+    ):
+        return []
+    rulespec_file.write_text(repaired)
+    return [f"hash[{index}]" for index in range(repair_count)]
+
+
+def _only_proof_import_hashes_changed(
+    original: str,
+    repaired: str,
+    *,
+    expected_change_count: int,
+) -> bool:
+    """Verify a retained-candidate rewrite changed only proof import hashes."""
+
+    try:
+        before = yaml.safe_load(original)
+        after = yaml.safe_load(repaired)
+    except (TypeError, ValueError, yaml.YAMLError):
+        return False
+    changed = 0
+
+    def compare(left: object, right: object, path: tuple[object, ...]) -> bool:
+        nonlocal changed
+        if type(left) is not type(right):
+            return False
+        if isinstance(left, dict):
+            if left.keys() != right.keys():
+                return False
+            return all(compare(left[key], right[key], (*path, key)) for key in left)
+        if isinstance(left, list):
+            if len(left) != len(right):
+                return False
+            return all(
+                compare(left_item, right_item, (*path, index))
+                for index, (left_item, right_item) in enumerate(
+                    zip(left, right, strict=True)
+                )
+            )
+        if left == right:
+            return True
+        if not (
+            len(path) >= 6
+            and path[-6] == "metadata"
+            and path[-5] == "proof"
+            and path[-4] == "atoms"
+            and isinstance(path[-3], int)
+            and path[-2:] == ("import", "hash")
+            and isinstance(right, str)
+            and re.fullmatch(r"sha256:(?:local|[0-9a-f]{64})", right)
+        ):
+            return False
+        changed += 1
+        return True
+
+    return compare(before, after, ()) and changed == expected_change_count
 
 
 _EVAL_COMPANION_REPAIR_MARKERS = (
@@ -7917,6 +8083,32 @@ def _apply_generated_eval_repairs(
     test_file = _rulespec_test_path(rulespec_file)
     if relative_output is None or not test_file.exists():
         return repairs
+
+    try:
+        rules_content = rulespec_file.read_text()
+        test_cases = yaml.safe_load(test_file.read_text()) or []
+    except (OSError, ValueError, yaml.YAMLError):
+        return repairs
+    if isinstance(test_cases, list):
+        exhaustive_coverage_issues = [
+            *find_missing_derived_companion_output_issues(
+                rules_content,
+                test_cases,
+                rules_file=rulespec_file,
+                policy_repo_path=policy_repo_root,
+            ),
+            *find_judgment_positive_companion_output_issues(
+                rules_content,
+                test_cases,
+                rules_file=rulespec_file,
+                policy_repo_path=policy_repo_root,
+            ),
+        ]
+        companion_issues.extend(
+            issue
+            for issue in exhaustive_coverage_issues
+            if issue not in companion_issues
+        )
 
     # Reuse the CLI's deterministic companion-test repair helpers lazily to
     # avoid an import cycle: cli imports this module during startup.
@@ -8704,6 +8896,7 @@ def _run_single_eval(
     extra_context_paths: list[Path],
     include_tests: bool = False,
     skip_reviewers: bool = False,
+    reviewers_require_deterministic_pass: bool = False,
     oracle: EvalOracleMode = "none",
     policyengine_runtime: PolicyEngineRuntime | None = None,
     policyengine_rule_hint: str | None = None,
@@ -8720,6 +8913,7 @@ def _run_single_eval(
     replacement_overlay_scope: bool = False,
     validation_retry_candidate: ValidationRetryCandidate | None = None,
     repair_candidate_tests_only: bool = False,
+    accept_valid_retry_candidate: bool = False,
 ) -> EvalResult:
     include_tests = include_tests or require_complete_source_unit
     if source_unit is None:
@@ -8799,23 +8993,220 @@ def _run_single_eval(
     output_file = _contained_eval_output_file(output_root, runner.name, relative_output)
     artifact_root = Path(output_root).resolve()
     _clear_eval_target_artifacts(output_file, artifact_root)
-    response, wrote_artifact, retry_count, materialized_paths = (
-        _run_prompt_eval_with_empty_artifact_retry(
-            runner=runner,
-            workspace=workspace,
-            prompt=prompt,
-            output_file=output_file,
-            source_text=source_text,
-            target_file_name=relative_output.name,
-            include_tests=include_tests,
-            policyengine_rule_hint=policyengine_rule_hint,
-            artifact_root=artifact_root,
-            repair_candidate=(
-                validation_retry_candidate if repair_candidate_tests_only else None
-            ),
-            required_test_case_contracts=required_test_case_contracts,
+    retained_candidate_metrics: EvalArtifactMetrics | None = None
+    retained_candidate_accepted = False
+    if accept_valid_retry_candidate:
+        assert validation_retry_candidate is not None
+        assert validation_retry_candidate.tests is not None
+        preflight_started = time.monotonic()
+        _write_eval_artifact_text(
+            output_file,
+            validation_retry_candidate.rulespec,
+            artifact_root,
         )
-    )
+        materialized_paths = {output_file}
+        test_file = _rulespec_test_path(output_file)
+        _write_eval_artifact_text(
+            test_file,
+            validation_retry_candidate.tests,
+            artifact_root,
+        )
+        materialized_paths.add(test_file)
+        protected_paths = [relative_output]
+        if _rulespec_test_path(output_file) in materialized_paths:
+            protected_paths.append(_rulespec_test_path(relative_output))
+        _hydrate_eval_root(
+            Path(output_root) / runner.name,
+            workspace,
+            protected_paths=protected_paths,
+        )
+        retained_candidate_metrics = _evaluate_generated_artifact_with_repairs(
+            rulespec_file=output_file,
+            policy_repo_root=policy_path,
+            axiom_rules_path=runtime_axiom_rules_path,
+            source_text=source_text,
+            oracle=oracle,
+            policyengine_runtime=policyengine_runtime,
+            policyengine_rule_hint=policyengine_rule_hint,
+            skip_reviewers=True,
+            reviewers_require_deterministic_pass=reviewers_require_deterministic_pass,
+            source_metadata=source_metadata_payload,
+            local_corpus_release=corpus_release,
+            source_citation_path=_source_metadata_citation_path(
+                source_metadata_payload
+            ),
+            rulespec_dependency_roots=rulespec_dependency_roots,
+            require_complete_source_unit=require_complete_source_unit,
+            amendment_documents=workspace.amendment_documents,
+            protected_review_excerpts=_workspace_quoted_review_finding_excerpts(
+                workspace
+            ),
+            legacy_replacement=legacy_replacement,
+            replacement_overlay_scope=replacement_overlay_scope,
+            allow_artifact_repairs=False,
+        )
+        rebound_hashes = _rebind_retained_candidate_proof_import_hashes(
+            rulespec_file=output_file,
+            relative_output=relative_output,
+            policy_repo_path=policy_path,
+            metrics=retained_candidate_metrics,
+        )
+        if rebound_hashes:
+            print(
+                "  retained_candidate_preflight=auto_repaired_proof_import_hashes:"
+                + ",".join(rebound_hashes)
+            )
+            retained_candidate_metrics = _evaluate_generated_artifact_with_repairs(
+                rulespec_file=output_file,
+                policy_repo_root=policy_path,
+                axiom_rules_path=runtime_axiom_rules_path,
+                source_text=source_text,
+                oracle=oracle,
+                policyengine_runtime=policyengine_runtime,
+                policyengine_rule_hint=policyengine_rule_hint,
+                skip_reviewers=True,
+                reviewers_require_deterministic_pass=reviewers_require_deterministic_pass,
+                source_metadata=source_metadata_payload,
+                local_corpus_release=corpus_release,
+                source_citation_path=_source_metadata_citation_path(
+                    source_metadata_payload
+                ),
+                rulespec_dependency_roots=rulespec_dependency_roots,
+                require_complete_source_unit=require_complete_source_unit,
+                amendment_documents=workspace.amendment_documents,
+                protected_review_excerpts=_workspace_quoted_review_finding_excerpts(
+                    workspace
+                ),
+                legacy_replacement=legacy_replacement,
+                replacement_overlay_scope=replacement_overlay_scope,
+                allow_artifact_repairs=False,
+            )
+        retained_candidate_accepted = (
+            retained_candidate_metrics is not None
+            and _eval_artifact_validation_error(
+                retained_candidate_metrics,
+                require_policyengine=oracle == "policyengine",
+            )
+            is None
+        )
+        if retained_candidate_accepted:
+            duration_ms = max(
+                int((time.monotonic() - preflight_started) * 1000),
+                0,
+            )
+            response = EvalPromptResponse(
+                text=output_file.read_bytes().decode("utf-8"),
+                duration_ms=duration_ms,
+                trace={
+                    "schema": "axiom-encode/retained-candidate-preflight/v1",
+                    "accepted": True,
+                    "rulespec_sha256": _eval_artifact_sha256(
+                        output_file,
+                        output_root=output_root,
+                        label="retained candidate RuleSpec",
+                        max_bytes=32 * 1024 * 1024,
+                    ),
+                    "tests_sha256": _eval_artifact_sha256(
+                        test_file,
+                        output_root=output_root,
+                        label="retained candidate companion tests",
+                        max_bytes=32 * 1024 * 1024,
+                    ),
+                    "rebound_proof_import_hashes": rebound_hashes,
+                },
+            )
+            wrote_artifact = True
+            retry_count = 0
+            materialized_paths = frozenset(materialized_paths)
+            print("  retained_candidate_preflight=accepted")
+        else:
+            print("  retained_candidate_preflight=rejected")
+            _clear_eval_target_artifacts(output_file, artifact_root)
+
+    if not retained_candidate_accepted:
+        response, wrote_artifact, retry_count, materialized_paths = (
+            _run_prompt_eval_with_empty_artifact_retry(
+                runner=runner,
+                workspace=workspace,
+                prompt=prompt,
+                output_file=output_file,
+                source_text=source_text,
+                target_file_name=relative_output.name,
+                include_tests=include_tests,
+                policyengine_rule_hint=policyengine_rule_hint,
+                artifact_root=artifact_root,
+                repair_candidate=(
+                    validation_retry_candidate if repair_candidate_tests_only else None
+                ),
+                required_test_case_contracts=required_test_case_contracts,
+            )
+        )
+    overlay_validation_issue: str | None = None
+    if (
+        wrote_artifact
+        and validation_retry_candidate is not None
+        and not repair_candidate_tests_only
+        and not retained_candidate_accepted
+    ):
+        try:
+            overlay_repairs = _overlay_validation_retry_candidate(
+                output_file,
+                artifact_root=artifact_root,
+                candidate=validation_retry_candidate,
+            )
+        except _PreservedRepairOverlayError as exc:
+            # Do not restore an unusable base, but also do not accept this
+            # attempt: repair prompts may emit partial artifacts. Retaining the
+            # new output lets the next bounded attempt recover from a parseable
+            # base, while the explicit feedback requires a complete replacement.
+            overlay_validation_issue = (
+                "Retained repair candidate is unusable; emit a complete "
+                f"replacement: {exc}"
+            )
+            print(f"  repair_candidate_overlay_base_skipped:{exc}")
+        except ValueError as exc:
+            # An overlay failure is an ordinary validator rejection, not an
+            # encoder crash. Restore the retained candidate before validation
+            # so malformed or duplicate partial output cannot replace the
+            # healthier candidate used by later bounded attempts.
+            overlay_validation_issue = f"Repair candidate overlay failed: {exc}"
+            print(f"  repair_candidate_overlay_skipped:{exc}")
+            _clear_eval_target_artifacts(output_file, artifact_root)
+            _write_eval_artifact_text(
+                output_file,
+                validation_retry_candidate.rulespec,
+                artifact_root,
+            )
+            restored_paths = {output_file}
+            if validation_retry_candidate.tests is not None:
+                restored_test_file = _rulespec_test_path(output_file)
+                _write_eval_artifact_text(
+                    restored_test_file,
+                    validation_retry_candidate.tests,
+                    artifact_root,
+                )
+                restored_paths.add(restored_test_file)
+            materialized_paths = frozenset(
+                (
+                    set(materialized_paths)
+                    - {output_file, _rulespec_test_path(output_file)}
+                )
+                | restored_paths
+            )
+        else:
+            if overlay_repairs:
+                print("  repair_candidate_overlay:" + ",".join(overlay_repairs))
+            materialized_paths = frozenset(
+                set(materialized_paths)
+                | {
+                    output_file,
+                    *(
+                        {_rulespec_test_path(output_file)}
+                        if validation_retry_candidate.tests is not None
+                        else set()
+                    ),
+                }
+            )
     wrote_artifact = wrote_artifact and output_file in materialized_paths
     if wrote_artifact:
         eval_root = Path(output_root) / runner.name
@@ -8832,8 +9223,8 @@ def _run_single_eval(
         json.dumps(response.trace or {}, indent=2, sort_keys=True).encode("utf-8"),
     )
 
-    metrics = None
-    if wrote_artifact:
+    metrics = retained_candidate_metrics if retained_candidate_accepted else None
+    if wrote_artifact and not retained_candidate_accepted:
         metrics = _evaluate_generated_artifact_with_repairs(
             rulespec_file=output_file,
             policy_repo_root=policy_path,
@@ -8843,6 +9234,7 @@ def _run_single_eval(
             policyengine_runtime=policyengine_runtime,
             policyengine_rule_hint=policyengine_rule_hint,
             skip_reviewers=skip_reviewers,
+            reviewers_require_deterministic_pass=reviewers_require_deterministic_pass,
             source_metadata=source_metadata_payload,
             local_corpus_release=corpus_release,
             source_citation_path=_source_metadata_citation_path(
@@ -8858,10 +9250,16 @@ def _run_single_eval(
             replacement_overlay_scope=replacement_overlay_scope,
             allow_artifact_repairs=not repair_candidate_tests_only,
         )
+    if overlay_validation_issue is not None and metrics is not None:
+        metrics.ci_pass = False
+        if overlay_validation_issue not in metrics.ci_issues:
+            metrics.ci_issues.append(overlay_validation_issue)
     validation_error = _eval_artifact_validation_error(
         metrics,
         require_policyengine=oracle == "policyengine",
     )
+    if overlay_validation_issue is not None and validation_error is None:
+        validation_error = "Generated RuleSpec failed CI validation"
     outcome = _eval_result_outcome(
         response,
         wrote_artifact=wrote_artifact,
@@ -8992,6 +9390,7 @@ def _run_single_source_eval(
     policyengine_rule_hint: str | None,
     local_corpus_release: _corpus_resolver.LocalCorpusRelease,
     skip_reviewers: bool = False,
+    reviewers_require_deterministic_pass: bool = False,
     rulespec_dependency_roots: Sequence[Path] = (),
     review_findings_paths: list[Path] | None = None,
     require_complete_source_unit: bool = False,
@@ -9074,6 +9473,7 @@ def _run_single_source_eval(
             policyengine_runtime=policyengine_runtime,
             policyengine_rule_hint=policyengine_rule_hint,
             skip_reviewers=skip_reviewers,
+            reviewers_require_deterministic_pass=reviewers_require_deterministic_pass,
             source_metadata=source_metadata_payload,
             local_corpus_release=local_corpus_release,
             source_citation_path=_source_metadata_citation_path(
@@ -9826,9 +10226,17 @@ companion test file required by the task and deterministic validation.
         "and add the exact required witnesses.\n"
         if tests_only
         else (
-            "- Return complete replacement RuleSpec and companion test files, "
-            "including all preserved historical and current cases, not a patch "
-            "or partial fragment.\n"
+            "- Return syntactically complete RuleSpec and companion test YAML, but "
+            "you may omit unchanged named inputs, named rules, imports, deferred "
+            "outputs, and named companion cases. The encoder overlays those "
+            "omitted items from the hash-bound candidate before validation. Re-emit "
+            "the complete item only when changing or replacing it. To remove an "
+            "obsolete named input, rule, or companion case from this rejected "
+            "candidate, emit an exact YAML item containing only "
+            "`name: <existing name>` and `repair_remove: true`; input removal is "
+            "accepted only after no repaired rule or companion case references it. "
+            "The encoder removes accepted markers before validation. Never emit "
+            "prose or patch syntax.\n"
         )
     )
     return f"""
@@ -10891,7 +11299,7 @@ RuleSpec requirements:
   amounts described by that upstream source.
 - If an upstream output is already executable, do not replace it with a local
   placeholder fact or compatibility alias.
-- Do not encode simple unary factual inputs as `kind: data_relation` rules. If a formula needs a local true/false fact, reference a descriptive bare fact name in the formula and put that fact in tests as `{target_ref_prefix + "#input.<fact>" if target_ref_prefix else "<jurisdiction>:<path>#input.<fact>"}`.
+- Do not encode simple unary factual inputs as `kind: data_relation` rules. If a formula needs a local true/false fact, reference a descriptive bare fact name in the formula, declare that fact in the RuleSpec document-root `inputs` list (a sibling of `module` and `rules`, never nested under `module`) with its `entity`, `dtype`, and `period`, and put that fact in tests as `{target_ref_prefix + "#input.<fact>" if target_ref_prefix else "<jurisdiction>:<path>#input.<fact>"}`.
 - Use `kind: data_relation` only for structural runtime predicates with explicit `data_relation.predicate`, `data_relation.arity`, and `data_relation.arguments`.
 - If the requested source text includes a limitation, cap, exception, or
   cross-referenced subparagraph that changes the final exported amount, the
@@ -15431,6 +15839,49 @@ def _normalize_rulespec_content(content: str) -> str:
     return stripped + ("\n" if stripped else "")
 
 
+def _repair_misplaced_module_inputs(content: str) -> tuple[str, tuple[str, ...]]:
+    """Lift generated ``module.inputs`` to the RuleSpec document root."""
+
+    try:
+        payload = yaml.safe_load(content)
+    except (yaml.YAMLError, RecursionError):
+        return content, ()
+    if not isinstance(payload, dict):
+        return content, ()
+    module = payload.get("module")
+    if not isinstance(module, dict) or not isinstance(module.get("inputs"), list):
+        return content, ()
+    nested_inputs = module.pop("inputs")
+    root_inputs = payload.get("inputs")
+    if root_inputs is None:
+        inputs = list(nested_inputs)
+    elif isinstance(root_inputs, list):
+        inputs = list(root_inputs)
+        root_names = {
+            item["name"]
+            for item in root_inputs
+            if isinstance(item, dict) and isinstance(item.get("name"), str)
+        }
+        inputs.extend(
+            item
+            for item in nested_inputs
+            if not (
+                isinstance(item, dict)
+                and isinstance(item.get("name"), str)
+                and item["name"] in root_names
+            )
+        )
+    else:
+        return content, ()
+    payload["inputs"] = inputs
+    names = tuple(
+        item["name"]
+        for item in nested_inputs
+        if isinstance(item, dict) and isinstance(item.get("name"), str)
+    )
+    return yaml.safe_dump(payload, sort_keys=False).strip() + "\n", names
+
+
 def _normalize_main_eval_content(
     content: str,
     *,
@@ -15443,6 +15894,7 @@ def _normalize_main_eval_content(
         raise ValueError("RuleSpec artifacts must use canonical .yaml paths")
     content = _clean_generated_file_content(content)
     normalized = _normalize_rulespec_content(content)
+    normalized, _lifted_inputs = _repair_misplaced_module_inputs(normalized)
     normalized, _repaired_rules = repair_source_table_band_scalar_parameters(
         normalized,
         source_text=source_text,
@@ -15828,6 +16280,8 @@ def _normalize_single_amount_row_test_content(
     def normalize_case(case: object) -> object:
         if not isinstance(case, dict):
             return case
+        if _is_exact_repair_removal_marker(case):
+            return case
         normalized_case = dict(case)
         if annual_period and effective_date is not None:
             normalized_case["period"] = _normalize_annual_test_period_value(
@@ -15857,7 +16311,11 @@ def _normalize_single_amount_row_test_content(
         filtered = [
             normalize_case(case)
             for case in cases
-            if not isinstance(case, dict) or should_keep(case.get("name"))
+            if (
+                not isinstance(case, dict)
+                or _is_exact_repair_removal_marker(case)
+                or should_keep(case.get("name"))
+            )
         ]
         return yaml.safe_dump(filtered, sort_keys=False).strip() + "\n"
 
@@ -16094,6 +16552,10 @@ def _normalize_test_case_value(value: object) -> object:
         return [_normalize_test_case_value(item) for item in value]
     if isinstance(value, str):
         expression = value.strip()
+        # ISO date facts can also parse as subtraction (2024-12-31 -> 1981).
+        # Preserve date-shaped strings, including invalid dates, for typed validation.
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", expression):
+            return value
         if _PURE_NUMERIC_EXPRESSION_PATTERN.fullmatch(expression):
             if _PLAIN_SIGNED_NUMERIC_LITERAL_PATTERN.fullmatch(expression):
                 if "." in expression:
@@ -16271,6 +16733,8 @@ def _normalize_test_periods_to_effective_dates(
     def normalize_case(case: object) -> object:
         if not isinstance(case, dict):
             return case
+        if _is_exact_repair_removal_marker(case):
+            return case
         normalized_case = _repair_misindented_period_mapping_fields(case)
         if granularity == "Year" and effective_date is not None:
             normalized_case["period"] = _normalize_annual_test_period_value(
@@ -16334,6 +16798,17 @@ def _normalize_test_periods_to_effective_dates(
         )
 
     return normalized
+
+
+def _is_exact_repair_removal_marker(item: object) -> bool:
+    """Recognize the only transient deletion marker admitted by repair overlays."""
+
+    return (
+        isinstance(item, dict)
+        and set(item) == {"name", "repair_remove"}
+        and isinstance(item.get("name"), str)
+        and item.get("repair_remove") is True
+    )
 
 
 def _repair_misindented_period_mapping_fields(case: dict[str, Any]) -> dict[str, Any]:
@@ -16753,6 +17228,415 @@ def _materialize_eval_artifact(
     return True
 
 
+def _merge_named_yaml_items(
+    generated: object,
+    preserved: object,
+    *,
+    label: str,
+    allowed_missing_removals: Sequence[str] = (),
+) -> tuple[list[object], list[str], list[str]]:
+    """Restore omitted hash-bound items while allowing explicit replacements."""
+
+    raw_generated_items = list(generated) if isinstance(generated, list) else []
+    preserved_items = list(preserved) if isinstance(preserved, list) else []
+    generated_items: list[object] = []
+    generated_names: set[str] = set()
+    removed_names: set[str] = set()
+    for item in raw_generated_items:
+        if not isinstance(item, dict) or not isinstance(item.get("name"), str):
+            raise ValueError(f"generated {label} items must have string names")
+        name = item["name"]
+        if name in generated_names:
+            raise ValueError(f"generated {label} contains duplicate name `{name}`")
+        generated_names.add(name)
+        if "repair_remove" in item:
+            if not _is_exact_repair_removal_marker(item):
+                raise ValueError(
+                    f"generated {label} removal marker for `{name}` must contain "
+                    "only name and repair_remove: true"
+                )
+            removed_names.add(name)
+            continue
+        generated_items.append(item)
+    preserved_names: set[str] = set()
+    restored: list[str] = []
+    for item in preserved_items:
+        if not isinstance(item, dict) or not isinstance(item.get("name"), str):
+            raise ValueError(f"preserved {label} items must have string names")
+        name = item["name"]
+        if name in preserved_names:
+            raise ValueError(f"preserved {label} contains duplicate name `{name}`")
+        preserved_names.add(name)
+        if name not in generated_names:
+            generated_items.append(item)
+            generated_names.add(name)
+            restored.append(name)
+    unknown_removals = sorted(
+        removed_names - preserved_names - set(allowed_missing_removals)
+    )
+    if unknown_removals:
+        raise ValueError(
+            f"generated {label} removal marker names no preserved item: "
+            + ", ".join(f"`{name}`" for name in unknown_removals)
+        )
+    return generated_items, restored, sorted(removed_names)
+
+
+def _repair_overlay_removed_input_references(
+    payload: object,
+    removed_inputs: Sequence[str],
+) -> list[str]:
+    """Return removed input names still referenced by the repaired artifact."""
+
+    patterns = {
+        name: re.compile(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])")
+        for name in removed_inputs
+    }
+    referenced: set[str] = set()
+
+    def visit(value: object) -> None:
+        if isinstance(value, str):
+            referenced.update(
+                name for name, pattern in patterns.items() if pattern.search(value)
+            )
+            return
+        if isinstance(value, dict):
+            for key, child in value.items():
+                visit(key)
+                visit(child)
+            return
+        if isinstance(value, list):
+            for child in value:
+                visit(child)
+
+    visit(payload)
+    return sorted(referenced)
+
+
+def _normalize_repair_deferred_source_roots(
+    deferred_outputs: object,
+    *,
+    rulespec_file: Path,
+    artifact_root: Path,
+    corpus_citation_path: str,
+) -> tuple[list[object], list[str]]:
+    """Map destination-root deferrals onto the integrity-bound source root."""
+
+    if not isinstance(deferred_outputs, list):
+        raise ValueError("repair overlay deferred outputs must be lists")
+    try:
+        relative_target = rulespec_file.relative_to(artifact_root).with_suffix("")
+    except ValueError as exc:
+        raise ValueError(
+            "repair overlay RuleSpec must be inside artifact root"
+        ) from exc
+    source_root = _rulespec_target_base(corpus_citation_path)
+    jurisdiction = source_root.partition(":")[0]
+    destination_root = f"{jurisdiction}:{relative_target.as_posix()}"
+    normalized: list[object] = []
+    repairs: list[str] = []
+    for item in deferred_outputs:
+        if not isinstance(item, dict) or not isinstance(item.get("output"), str):
+            raise ValueError("repair overlay deferred outputs must name an output")
+        output = item["output"]
+        output_path, separator, fragment = output.partition("#")
+        if output_path == destination_root or output_path.startswith(
+            f"{destination_root}/"
+        ):
+            suffix = output_path[len(destination_root) :]
+            corrected = f"{source_root}{suffix}"
+            if separator:
+                corrected = f"{corrected}#{fragment}"
+            if corrected != output:
+                item = {**item, "output": corrected}
+                repairs.append(f"deferred_output_source_root:{output}->{corrected}")
+        normalized.append(item)
+    return normalized, repairs
+
+
+def _repair_overlay_candidate_base_issue(
+    candidate: ValidationRetryCandidate,
+) -> str | None:
+    """Return why a retained candidate cannot safely receive partial overlays."""
+
+    try:
+        preserved = yaml.safe_load(candidate.rulespec)
+    except (UnicodeError, yaml.YAMLError, RecursionError) as exc:
+        return f"preserved repair overlay RuleSpec must be valid UTF-8 YAML: {exc}"
+    if not isinstance(preserved, dict):
+        return "preserved repair overlay RuleSpec must be a YAML mapping"
+
+    imports = preserved.get("imports", [])
+    if not isinstance(imports, list) or any(
+        not isinstance(import_target, str) for import_target in imports
+    ):
+        return "preserved repair overlay imports must be a list of strings"
+    preserved_inputs = preserved.get("inputs", [])
+    if not isinstance(preserved_inputs, list):
+        return "preserved repair overlay inputs must be a list"
+    try:
+        _merge_named_yaml_items([], preserved_inputs, label="inputs")
+    except ValueError as exc:
+        return str(exc)
+    preserved_rules = preserved.get("rules")
+    if not isinstance(preserved_rules, list):
+        return "preserved repair overlay rules must be a list"
+    try:
+        _merge_named_yaml_items([], preserved_rules, label="rules")
+    except ValueError as exc:
+        return str(exc)
+
+    module = preserved.get("module")
+    if isinstance(module, dict):
+        deferred_outputs = module.get("deferred_outputs", [])
+        if not isinstance(deferred_outputs, list):
+            return "preserved repair overlay deferred outputs must be a list"
+        seen_outputs: set[str] = set()
+        for item in deferred_outputs:
+            if not isinstance(item, dict) or not isinstance(item.get("output"), str):
+                return "preserved deferred outputs must name an output"
+            output = item["output"]
+            if output in seen_outputs:
+                return (
+                    f"preserved deferred outputs contains duplicate output `{output}`"
+                )
+            seen_outputs.add(output)
+
+    if candidate.tests is None:
+        return None
+    try:
+        preserved_tests = yaml.safe_load(candidate.tests)
+    except (UnicodeError, yaml.YAMLError, RecursionError) as exc:
+        return f"preserved repair overlay tests must be valid UTF-8 YAML: {exc}"
+    if isinstance(preserved_tests, dict):
+        if set(preserved_tests) != {"cases"}:
+            return "preserved companion test mapping must contain cases"
+        preserved_cases = preserved_tests["cases"]
+    else:
+        preserved_cases = preserved_tests
+    if not isinstance(preserved_cases, list):
+        return "preserved companion test cases must be a list"
+    try:
+        _merge_named_yaml_items([], preserved_cases, label="companion tests")
+    except ValueError as exc:
+        return str(exc)
+    return None
+
+
+def _overlay_validation_retry_candidate(
+    rulespec_file: Path,
+    *,
+    artifact_root: Path,
+    candidate: ValidationRetryCandidate,
+) -> tuple[str, ...]:
+    """Overlay partial repair output onto its integrity-bound prior candidate."""
+
+    base_issue = _repair_overlay_candidate_base_issue(candidate)
+    if base_issue is not None:
+        raise _PreservedRepairOverlayError(base_issue)
+    try:
+        generated = yaml.safe_load(rulespec_file.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, yaml.YAMLError, RecursionError) as exc:
+        raise ValueError(
+            "generated repair overlay RuleSpec must be valid UTF-8 YAML"
+        ) from exc
+    preserved = yaml.safe_load(candidate.rulespec)
+    if not isinstance(generated, dict):
+        raise ValueError("generated repair overlay RuleSpec must be a YAML mapping")
+    if not isinstance(preserved, dict):
+        raise _PreservedRepairOverlayError(
+            "preserved repair overlay RuleSpec must be a YAML mapping"
+        )
+
+    repairs: list[str] = []
+    generated_imports = generated.get("imports", [])
+    preserved_imports = preserved.get("imports", [])
+    if not isinstance(generated_imports, list) or not isinstance(
+        preserved_imports, list
+    ):
+        raise ValueError("repair overlay imports must be lists")
+    imports = list(generated_imports)
+    for import_target in preserved_imports:
+        if not isinstance(import_target, str):
+            raise ValueError("preserved repair imports must be strings")
+        if import_target not in imports:
+            imports.append(import_target)
+            repairs.append(f"import:{import_target}")
+    if imports:
+        generated["imports"] = imports
+
+    generated_inputs = generated.get("inputs", [])
+    preserved_inputs = preserved.get("inputs", [])
+    if not isinstance(generated_inputs, list) or not isinstance(preserved_inputs, list):
+        raise ValueError("repair overlay inputs must be lists")
+    inputs, restored_inputs, removed_inputs = _merge_named_yaml_items(
+        generated_inputs,
+        preserved_inputs,
+        label="inputs",
+    )
+    if inputs:
+        generated["inputs"] = inputs
+    else:
+        generated.pop("inputs", None)
+    repairs.extend(f"input:{name}" for name in restored_inputs)
+    repairs.extend(f"removed_input:{name}" for name in removed_inputs)
+
+    generated_rules = generated.get("rules")
+    rules, restored_rules, removed_rules = _merge_named_yaml_items(
+        generated_rules,
+        preserved.get("rules"),
+        label="rules",
+        allowed_missing_removals=candidate.allowed_missing_rule_removals,
+    )
+    generated["rules"] = rules
+    generated_rule_names = {
+        item["name"]
+        for item in rules
+        if isinstance(item, dict) and isinstance(item.get("name"), str)
+    }
+    repairs.extend(f"rule:{name}" for name in restored_rules)
+    repairs.extend(f"removed_rule:{name}" for name in removed_rules)
+
+    generated_module = generated.get("module")
+    preserved_module = preserved.get("module")
+    if isinstance(generated_module, dict) and isinstance(preserved_module, dict):
+        preserved_source_verification = preserved_module.get("source_verification")
+        corpus_citation_path = (
+            preserved_source_verification.get("corpus_citation_path")
+            if isinstance(preserved_source_verification, dict)
+            else None
+        )
+        generated_deferred = generated_module.get("deferred_outputs", [])
+        preserved_deferred = preserved_module.get("deferred_outputs", [])
+        if isinstance(corpus_citation_path, str) and corpus_citation_path:
+            generated_deferred, generated_root_repairs = (
+                _normalize_repair_deferred_source_roots(
+                    generated_deferred,
+                    rulespec_file=rulespec_file,
+                    artifact_root=artifact_root,
+                    corpus_citation_path=corpus_citation_path,
+                )
+            )
+            preserved_deferred, preserved_root_repairs = (
+                _normalize_repair_deferred_source_roots(
+                    preserved_deferred,
+                    rulespec_file=rulespec_file,
+                    artifact_root=artifact_root,
+                    corpus_citation_path=corpus_citation_path,
+                )
+            )
+            repairs.extend(generated_root_repairs)
+            repairs.extend(preserved_root_repairs)
+        elif not isinstance(generated_deferred, list) or not isinstance(
+            preserved_deferred, list
+        ):
+            raise ValueError("repair overlay deferred outputs must be lists")
+        generated_outputs: set[str] = set()
+        for item in generated_deferred:
+            if not isinstance(item, dict) or not isinstance(item.get("output"), str):
+                raise ValueError("generated deferred outputs must name an output")
+            output = item["output"]
+            if output in generated_outputs:
+                raise ValueError(
+                    f"generated deferred outputs contains duplicate output `{output}`"
+                )
+            generated_outputs.add(output)
+        deferred = list(generated_deferred)
+        for item in preserved_deferred:
+            if not isinstance(item, dict) or not isinstance(item.get("output"), str):
+                raise ValueError("preserved deferred outputs must name an output")
+            output = item["output"]
+            output_name = output.rsplit("#", 1)[-1]
+            if output_name in generated_rule_names:
+                repairs.append(f"resolved_deferred_output:{output}")
+                continue
+            if output not in generated_outputs:
+                deferred.append(item)
+                generated_outputs.add(output)
+                repairs.append(f"deferred_output:{output}")
+        if deferred:
+            generated_module["deferred_outputs"] = deferred
+
+    test_file = _rulespec_test_path(rulespec_file)
+    merged_test_payload: object | None = None
+    if candidate.tests is not None:
+        try:
+            generated_tests = (
+                yaml.safe_load(test_file.read_text(encoding="utf-8"))
+                if test_file.exists()
+                else []
+            )
+            preserved_tests = yaml.safe_load(candidate.tests)
+        except (OSError, UnicodeError, yaml.YAMLError, RecursionError) as exc:
+            raise ValueError("repair overlay tests must be valid UTF-8 YAML") from exc
+        generated_wrapper = isinstance(generated_tests, dict)
+        preserved_wrapper = isinstance(preserved_tests, dict)
+        if generated_wrapper:
+            if set(generated_tests) != {"cases"}:
+                raise ValueError("generated companion test mapping must contain cases")
+            generated_cases = generated_tests["cases"]
+        else:
+            generated_cases = generated_tests
+        if preserved_wrapper:
+            if set(preserved_tests) != {"cases"}:
+                raise ValueError("preserved companion test mapping must contain cases")
+            preserved_cases = preserved_tests["cases"]
+        else:
+            preserved_cases = preserved_tests
+        if generated_wrapper != preserved_wrapper and test_file.exists():
+            raise ValueError("repair overlay cannot change companion test container")
+        merged_tests, restored_tests, removed_tests = _merge_named_yaml_items(
+            generated_cases,
+            preserved_cases,
+            label="companion tests",
+            allowed_missing_removals=candidate.allowed_missing_test_removals,
+        )
+        merged_test_payload = (
+            {"cases": merged_tests} if preserved_wrapper else merged_tests
+        )
+        repairs.extend(f"test:{name}" for name in restored_tests)
+        repairs.extend(f"removed_test:{name}" for name in removed_tests)
+
+    if removed_inputs:
+        reference_payload: list[object] = [generated]
+        if merged_test_payload is not None:
+            reference_payload.append(merged_test_payload)
+        elif test_file.exists():
+            try:
+                generated_test_payload = yaml.safe_load(
+                    test_file.read_text(encoding="utf-8")
+                )
+            except (OSError, UnicodeError, yaml.YAMLError, RecursionError) as exc:
+                raise ValueError(
+                    "repair overlay tests must be valid UTF-8 YAML"
+                ) from exc
+            reference_payload.append(generated_test_payload)
+        referenced_removed_inputs = _repair_overlay_removed_input_references(
+            reference_payload,
+            removed_inputs,
+        )
+        if referenced_removed_inputs:
+            raise ValueError(
+                "repair overlay cannot remove retained inputs that remain "
+                "referenced: "
+                + ", ".join(f"`{name}`" for name in referenced_removed_inputs)
+            )
+
+    if merged_test_payload is not None:
+        _write_eval_artifact_text(
+            test_file,
+            yaml.safe_dump(merged_test_payload, sort_keys=False, allow_unicode=True),
+            artifact_root,
+        )
+
+    _write_eval_artifact_text(
+        rulespec_file,
+        yaml.safe_dump(generated, sort_keys=False, allow_unicode=True),
+        artifact_root,
+    )
+    return tuple(repairs)
+
+
 def _preserves_companion_test_cases(
     original_content: str,
     proposed_content: str,
@@ -16893,6 +17777,59 @@ def _preserves_companion_test_cases(
     return True
 
 
+def _append_contract_test_fragment(
+    original_content: str,
+    fragment_content: str,
+    required_test_case_contracts: Sequence[Mapping[str, object]],
+) -> str | None:
+    """Append a model's exact contracted new cases to preserved list-style tests."""
+
+    try:
+        original_cases = yaml.safe_load(original_content)
+        fragment_cases = yaml.safe_load(fragment_content)
+    except (yaml.YAMLError, RecursionError):
+        return None
+    if not isinstance(original_cases, list) or not isinstance(fragment_cases, list):
+        return None
+    if not fragment_cases or any(
+        not isinstance(case, dict) or not isinstance(case.get("name"), str)
+        for case in (*original_cases, *fragment_cases)
+    ):
+        return None
+    original_names = {case["name"] for case in original_cases}
+    fragment_names = {case["name"] for case in fragment_cases}
+    contracts_by_name = {
+        contract.get("name"): contract for contract in required_test_case_contracts
+    }
+    if (
+        not contracts_by_name
+        or None in contracts_by_name
+        or len(contracts_by_name) != len(required_test_case_contracts)
+        or len(original_names) != len(original_cases)
+        or len(fragment_names) != len(fragment_cases)
+        or fragment_names != set(contracts_by_name) - original_names
+    ):
+        return None
+    for case in fragment_cases:
+        contract = contracts_by_name[case["name"]]
+        output = case.get("output")
+        required_output = contract.get("required_output")
+        if (
+            not isinstance(output, dict)
+            or not isinstance(required_output, dict)
+            or set(output) != set(required_output)
+        ):
+            return None
+    appended = original_content.rstrip() + "\n" + fragment_content.lstrip()
+    return (
+        appended
+        if _preserves_companion_test_cases(
+            original_content, appended, required_test_case_contracts
+        )
+        else None
+    )
+
+
 def _materialize_tests_only_repair_artifact(
     llm_response: str,
     *,
@@ -16924,10 +17861,18 @@ def _materialize_tests_only_repair_artifact(
         bundled_test = candidate_files.get(expected_test_path.name)
         if bundled_test is not None:
             test_content = bundled_test
-    if test_content is None or not _preserves_companion_test_cases(
+    if test_content is None:
+        return False
+    if not _preserves_companion_test_cases(
         repair_candidate.tests, test_content, required_test_case_contracts
     ):
-        return False
+        test_content = _append_contract_test_fragment(
+            repair_candidate.tests,
+            test_content,
+            required_test_case_contracts,
+        )
+        if test_content is None:
+            return False
     if hashlib.sha256(repair_candidate.rulespec.encode("utf-8")).hexdigest() != (
         repair_candidate.rulespec_sha256
     ):

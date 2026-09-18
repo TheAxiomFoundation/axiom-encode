@@ -1,0 +1,1 @@
+A prefix's separator is stripped whether it is a maqaf or an ASCII hyphen, in the number-prefix reader and in the compound parser's word reader, so "ב-מיליון וחצי" is 1,500,000, "כ-עשרים ושלושה" is 23 and "עשרים ו־שלושה אחוזים" is 0.23.

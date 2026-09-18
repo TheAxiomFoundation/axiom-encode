@@ -1,0 +1,1 @@
+Where a rate word governs the clause, a "בין" range shares its percent noun whatever the order of a number a rate could be ("שיעור המס יהיה בין 5 ל־3 אחוזים" runs from 0.05, and "בין 3½ ל־2½ אחוזים" from 0.035); a number no rate could be ("בין 500 ל־3 אחוזים") and a pair with no rate word keep the ascending guard.

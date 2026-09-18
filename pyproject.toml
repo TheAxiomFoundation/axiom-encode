@@ -4,11 +4,11 @@ build-backend = "hatchling.build"
 
 [project]
 name = "axiom-encode"
-version = "0.2.1694"
+version = "0.2.2006"
 description = "AI-assisted RuleSpec encoding infrastructure - fully self-contained"
 readme = "README.md"
 requires-python = ">=3.13"
-license = "Apache-2.0"
+license = "MIT"
 authors = [
     { name = "The Axiom Foundation", email = "hello@axiom-foundation.org" }
 ]
@@ -29,7 +29,7 @@ dependencies = [
     "pydantic>=2.0",
     "pypdf>=6.4.0",
     "pyyaml>=6.0",
-    "receipt==0.5.1",
+    "receipt==0.6.1",
     "requests>=2.28",
     "sqlite-utils>=3.30",
     "supabase>=2.0.0",
@@ -62,8 +62,8 @@ all = [
 ]
 
 [project.scripts]
-# entrypoint.main dispatches check-source-staleness and delegates every
-# other invocation to axiom_encode.cli:main unchanged.
+# entrypoint.main dispatches source-staleness and core candidate export commands;
+# all other invocations delegate to axiom_encode.cli:main unchanged.
 axiom-encode = "axiom_encode.entrypoint:main"
 
 # Required for the git-pinned axiom-oracles dependency above (axiom-oracles

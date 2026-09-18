@@ -60,6 +60,39 @@ def test_accepts_ancestor_base_when_repair_target_identity_is_unchanged(
     )
 
 
+def test_accepts_new_source_absent_from_both_bases(tmp_path: Path) -> None:
+    repository, source_ref = _repository(tmp_path)
+    (repository / "unrelated.txt").write_text("advance\n", encoding="utf-8")
+    current_ref = _commit(repository, "unrelated advance")
+
+    verify_base_advance(
+        repository,
+        country="us",
+        source_ref=source_ref,
+        current_ref=current_ref,
+        candidate_path="policies/example/new-source.yaml",
+        rulespec_path="",
+    )
+
+
+def test_rejects_new_source_that_appeared_during_base_advance(tmp_path: Path) -> None:
+    repository, source_ref = _repository(tmp_path)
+    destination = repository / "us/policies/example/new-source.yaml"
+    destination.parent.mkdir(parents=True)
+    destination.write_text("format: rulespec/v1\n", encoding="utf-8")
+    current_ref = _commit(repository, "conflicting new source")
+
+    with pytest.raises(ValueError, match="new-source repair destination"):
+        verify_base_advance(
+            repository,
+            country="us",
+            source_ref=source_ref,
+            current_ref=current_ref,
+            candidate_path="policies/example/new-source.yaml",
+            rulespec_path="",
+        )
+
+
 def test_accepts_state_jurisdiction_repository_path(tmp_path: Path) -> None:
     candidate_path = "statutes/47/297/4.yaml"
     repository, source_ref = _repository(

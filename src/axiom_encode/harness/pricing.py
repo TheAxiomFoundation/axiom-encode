@@ -26,6 +26,9 @@ class ModelPricing:
     cache_read_per_million: float = 0.0
     cache_create_per_million: float = 0.0
     max_input_tokens: int | None = None
+    source_url: str | None = None  # vendor page the rates were read from
+    captured_at: str | None = None  # ISO date that page was read
+    promotional_until: str | None = None
 
 
 @dataclass(frozen=True)
@@ -65,6 +68,15 @@ def _load_pricing_rates(path: Path = _PRICING_RATES_PATH) -> PricingRates:
             cache_create_per_million=float(rates.get("cache_create_per_million", 0.0)),
             max_input_tokens=(
                 int(rates["max_input_tokens"]) if "max_input_tokens" in rates else None
+            ),
+            source_url=(str(rates["source_url"]) if rates.get("source_url") else None),
+            captured_at=(
+                str(rates["captured_at"]) if rates.get("captured_at") else None
+            ),
+            promotional_until=(
+                str(rates["promotional_until"])
+                if rates.get("promotional_until")
+                else None
             ),
         )
 

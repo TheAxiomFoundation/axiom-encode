@@ -7,12 +7,14 @@ import argparse
 import ast
 import contextlib
 import hashlib
+import io
 import json
 import math
 import os
 import re
 import stat
 import subprocess
+import tokenize
 from datetime import date
 from pathlib import Path, PurePosixPath
 
@@ -121,15 +123,54 @@ REVIEWED_RULESPEC_REFS = frozenset(
             "6535019ce780d9e78f10509f2fe7a2607fb2bdc4",
         ),
         (
+            "us",
+            "c482ef6506c50b54236354926bbce1bcd6434132",
+        ),
+        (
+            "us",
+            "297aec1691edf7b3a21781c8a825690db1e7c988",
+        ),
+        (
+            "us",
+            "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683",
+        ),
+        (
+            "us",
+            "79ffd74fe3d3c83665335ec64feb7458d9cc877a",
+        ),
+        (
             "ca",
             "f60f7a84c30e38c7d4961d70647eb0457e7d76c2",
         ),
     }
 )
-REVIEWED_RULESPEC_PR_BASE_BRANCHES = frozenset(
+REVIEWED_RULESPEC_PR_BASES = frozenset(
     {
-        ("dk", "pin/dk-rulespec-2026-08-07"),
-        ("us", "hard-cut/canonical-layout-us"),
+        (
+            "dk",
+            "06489d04e7d4b8d424d1711d99df883c6411248a",
+            "pin/dk-rulespec-2026-08-07",
+        ),
+        (
+            "us",
+            "2a503a5c9a2227c363aceaece6c547429c3c0878",
+            "hard-cut/canonical-layout-us",
+        ),
+        (
+            "us",
+            "297aec1691edf7b3a21781c8a825690db1e7c988",
+            "axiom/signed-backfill-us-35001504609-1",
+        ),
+        (
+            "us",
+            "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683",
+            "axiom/signed-backfill-us-35145159769-1",
+        ),
+        (
+            "us",
+            "79ffd74fe3d3c83665335ec64feb7458d9cc877a",
+            "axiom/signed-backfill-us-35160240952-1",
+        ),
     }
 )
 
@@ -265,7 +306,7 @@ def validate_rulespec_base(
             "rulespec ref is neither on main nor an approved reviewed head"
         )
     if open_pr:
-        if (country, pr_base_branch) not in REVIEWED_RULESPEC_PR_BASE_BRANCHES:
+        if (country, requested_ref, pr_base_branch) not in REVIEWED_RULESPEC_PR_BASES:
             raise ValueError(
                 "reviewed-head runs are artifact-only unless the pull request "
                 "targets an approved protected base branch"
@@ -325,6 +366,7 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
         return {
             "canonical_refresh_bundle": [],
             "primary_required_test_cases": [],
+            "require_complete_source_unit": True,
             "source_bundle": payload,
         }
     if isinstance(payload, dict) and set(payload) == {"canonical_refresh_bundle"}:
@@ -334,23 +376,50 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
         return {
             "canonical_refresh_bundle": refresh_bundle,
             "primary_required_test_cases": [],
+            "require_complete_source_unit": True,
             "source_bundle": [],
         }
-    v2_fields = {
+    transaction_fields = {
         "schema",
         "source_bundle",
         "canonical_refresh_bundle",
         "primary_required_test_cases",
     }
+    require_complete_source_unit = True
+    manifest_only_refresh = False
+    if (
+        isinstance(payload, dict)
+        and payload.get("schema") == "axiom-encode/atomic-source-transaction/v3"
+    ):
+        transaction_fields.add("require_complete_source_unit")
+        require_complete_source_unit = payload.get("require_complete_source_unit")
+    elif (
+        isinstance(payload, dict)
+        and payload.get("schema") == "axiom-encode/atomic-source-transaction/v4"
+    ):
+        transaction_fields.update(
+            {"require_complete_source_unit", "manifest_only_refresh"}
+        )
+        require_complete_source_unit = payload.get("require_complete_source_unit")
+        manifest_only_refresh = payload.get("manifest_only_refresh")
     if (
         not isinstance(payload, dict)
-        or set(payload) != v2_fields
-        or payload.get("schema") != "axiom-encode/atomic-source-transaction/v2"
+        or set(payload) != transaction_fields
+        or payload.get("schema")
+        not in {
+            "axiom-encode/atomic-source-transaction/v2",
+            "axiom-encode/atomic-source-transaction/v3",
+            "axiom-encode/atomic-source-transaction/v4",
+        }
     ):
         raise ValueError(
             "atomic source JSON must be a source citation array or an exact "
-            "canonical_refresh_bundle or atomic-source-transaction/v2 object"
+            "canonical_refresh_bundle or atomic-source-transaction/v2, v3, or v4 object"
         )
+    if not isinstance(require_complete_source_unit, bool):
+        raise ValueError("require_complete_source_unit must be a boolean")
+    if not isinstance(manifest_only_refresh, bool):
+        raise ValueError("manifest_only_refresh must be a boolean")
     refresh_bundle = payload["canonical_refresh_bundle"]
     source_bundle = payload["source_bundle"]
     primary_required_test_cases = payload["primary_required_test_cases"]
@@ -363,11 +432,22 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
         raise ValueError(
             "atomic source transaction must select exactly one source mode"
         )
-    return {
+    if manifest_only_refresh and (
+        source_bundle or refresh_bundle or primary_required_test_cases
+    ):
+        raise ValueError(
+            "manifest-only refresh cannot include source, canonical refresh, or "
+            "required-test bundles"
+        )
+    normalized = {
         "canonical_refresh_bundle": refresh_bundle,
         "primary_required_test_cases": primary_required_test_cases,
+        "require_complete_source_unit": require_complete_source_unit,
         "source_bundle": source_bundle,
     }
+    if payload["schema"] == "axiom-encode/atomic-source-transaction/v4":
+        normalized["manifest_only_refresh"] = manifest_only_refresh
+    return normalized
 
 
 def parse_source_bundle(
@@ -1439,8 +1519,28 @@ def validate_dependent_cascade(
     target_citation: str,
     *dependent_citations: str,
     target_rulespec_path: str | None = None,
+    allow_proof_import_subset: bool = False,
 ) -> tuple[PurePosixPath, ...]:
-    """Require the supplied modules to be all of the target's direct dependents."""
+    """Require all direct dependents, or the exact proof-pinned subset when allowed."""
+
+    dependents, _mode = _classify_dependent_cascade(
+        repo,
+        target_citation,
+        *dependent_citations,
+        target_rulespec_path=target_rulespec_path,
+        allow_proof_import_subset=allow_proof_import_subset,
+    )
+    return dependents
+
+
+def _classify_dependent_cascade(
+    repo: Path,
+    target_citation: str,
+    *dependent_citations: str,
+    target_rulespec_path: str | None = None,
+    allow_proof_import_subset: bool = False,
+) -> tuple[tuple[PurePosixPath, ...], str]:
+    """Authenticate a complete cascade and identify its safe scheduling mode."""
 
     import yaml
 
@@ -1499,6 +1599,7 @@ def validate_dependent_cascade(
     target_import = target_relative.with_suffix("").as_posix()
     canonical_target_import = f"{target_jurisdiction}:{target_import}"
     direct_dependents: set[PurePosixPath] = set()
+    proof_import_dependents: set[PurePosixPath] = set()
     for atomic_root in sorted(RULESPEC_ATOMIC_ROOTS):
         root = content_root / atomic_root
         if not root.exists():
@@ -1527,18 +1628,61 @@ def validate_dependent_cascade(
                 in {target_import, canonical_target_import}
                 for raw_import in imports
             ):
-                direct_dependents.add(
-                    PurePosixPath(candidate.relative_to(content_root).as_posix())
+                relative_candidate = PurePosixPath(
+                    candidate.relative_to(content_root).as_posix()
                 )
+                direct_dependents.add(relative_candidate)
+                if _payload_has_proof_import_for_target(
+                    payload,
+                    target_import=target_import,
+                    canonical_target_import=canonical_target_import,
+                ):
+                    proof_import_dependents.add(relative_candidate)
 
     expected = set(dependent_relatives)
-    if direct_dependents != expected:
-        rendered = ", ".join(map(str, sorted(direct_dependents))) or "<none>"
-        raise ValueError(
-            "target direct-dependent set does not exactly match supplied dependents: "
-            f"{rendered}"
-        )
-    return tuple(dependent_relatives)
+    if direct_dependents == expected:
+        return tuple(dependent_relatives), "all-direct"
+    if allow_proof_import_subset and proof_import_dependents == expected:
+        return tuple(dependent_relatives), "proof-import-subset"
+    rendered = ", ".join(map(str, sorted(direct_dependents))) or "<none>"
+    raise ValueError(
+        "target direct-dependent set does not exactly match supplied dependents: "
+        f"{rendered}"
+    )
+
+
+def _payload_has_proof_import_for_target(
+    payload: dict[str, object],
+    *,
+    target_import: str,
+    canonical_target_import: str,
+) -> bool:
+    """Return whether a rule proof pins an import from the selected target."""
+
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return False
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        metadata = rule.get("metadata")
+        proof = metadata.get("proof") if isinstance(metadata, dict) else None
+        atoms = proof.get("atoms") if isinstance(proof, dict) else None
+        if not isinstance(atoms, list):
+            continue
+        for atom in atoms:
+            raw_import = atom.get("import") if isinstance(atom, dict) else None
+            if not isinstance(raw_import, dict) or not isinstance(
+                raw_import.get("hash"), str
+            ):
+                continue
+            raw_target = raw_import.get("target")
+            if not isinstance(raw_target, str):
+                continue
+            imported = raw_target.split("#", 1)[0].strip().strip("/")
+            if imported in {target_import, canonical_target_import}:
+                return True
+    return False
 
 
 def _git(repo: Path, *args: str) -> bytes:
@@ -1622,6 +1766,10 @@ def _retired_manifest_inventory_without_entry(
             "retired manifest inventory is not valid UTF-8 Python"
         ) from exc
 
+    inventory_name_present = any(
+        token.type == tokenize.NAME and token.string == "KNOWN_RETIRED_SCHEMA_MANIFESTS"
+        for token in tokenize.generate_tokens(io.StringIO(text).readline)
+    )
     assignments: list[ast.AnnAssign] = []
     for node in ast.walk(module):
         if (
@@ -1636,6 +1784,12 @@ def _retired_manifest_inventory_without_entry(
             for target in node.targets
         ):
             raise ValueError("retired manifest inventory assignment is not canonical")
+    if not inventory_name_present:
+        if manifest in text:
+            raise ValueError(
+                "retired manifest inventory path is present without an inventory"
+            )
+        return None
     if len(assignments) != 1 or assignments[0] not in module.body:
         raise ValueError(
             "retired manifest inventory lacks one canonical top-level assignment"
@@ -1787,6 +1941,39 @@ def _normal_model_apply_manifest_for_target(
     return manifest_path, payload
 
 
+def _require_absent_inventory(repo: Path) -> None:
+    """Verify optional inventory absence without following any path symlinks."""
+
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    with contextlib.ExitStack() as stack:
+        try:
+            descriptor = os.open(repo, flags)
+        except OSError as exc:
+            raise ValueError(
+                "retired manifest inventory has unsafe repository root"
+            ) from exc
+        stack.callback(os.close, descriptor)
+        for part in RETIRED_MANIFEST_INVENTORY.parts[:-1]:
+            try:
+                descriptor = os.open(part, flags, dir_fd=descriptor)
+            except FileNotFoundError:
+                return
+            except OSError as exc:
+                raise ValueError(
+                    "retired manifest inventory has unsafe parent"
+                ) from exc
+            stack.callback(os.close, descriptor)
+        try:
+            os.stat(
+                RETIRED_MANIFEST_INVENTORY.name,
+                dir_fd=descriptor,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            return
+        raise ValueError("retired manifest inventory exists outside HEAD")
+
+
 def reconcile_retired_manifest_inventory(
     repo: Path,
     target_rulespec_path: str,
@@ -1805,6 +1992,20 @@ def reconcile_retired_manifest_inventory(
         raise ValueError(
             "retired manifest inventory changed before exact reconciliation"
         )
+    entry = _git(
+        repo,
+        "ls-tree",
+        "--full-tree",
+        "-z",
+        "HEAD",
+        "--",
+        RETIRED_MANIFEST_INVENTORY.as_posix(),
+    )
+    if not entry:
+        _require_absent_inventory(repo)
+        return None
+    if not entry.startswith(b"100644 blob "):
+        raise ValueError("retired manifest inventory is not a regular HEAD file")
     try:
         base_raw = _git(
             repo,
@@ -3983,6 +4184,7 @@ def main() -> None:
     cascade_parser.add_argument("repo", type=Path)
     cascade_parser.add_argument("target_citation")
     cascade_parser.add_argument("--target-rulespec-path")
+    cascade_parser.add_argument("--allow-proof-import-subset", action="store_true")
     cascade_parser.add_argument("dependent_citations", nargs="+")
     citation_path_parser = subparsers.add_parser("citation-rulespec-path")
     citation_path_parser.add_argument("citation")
@@ -4120,14 +4322,14 @@ def main() -> None:
                 )
             )
         elif args.command == "validate-dependent-cascade":
-            print(
-                validate_dependent_cascade(
-                    args.repo,
-                    args.target_citation,
-                    *args.dependent_citations,
-                    target_rulespec_path=args.target_rulespec_path,
-                )
+            _dependents, mode = _classify_dependent_cascade(
+                args.repo,
+                args.target_citation,
+                *args.dependent_citations,
+                target_rulespec_path=args.target_rulespec_path,
+                allow_proof_import_subset=args.allow_proof_import_subset,
             )
+            print(mode)
         elif args.command == "citation-rulespec-path":
             print(citation_rulespec_path(args.citation))
         elif args.command == "authorize-legacy-index-manifest-shrink":

@@ -1,0 +1,1 @@
+An articled possessor qualifies the amount noun only where "של", an adjective, a copula or a threshold phrase follows it; a participle with a prepositional complement ("הקצבה המחולקת בין 3 אלפים ו־200 עובדים", an allocation distributed among 3,200 workers) opens a clause of its own, and the count reads whole.

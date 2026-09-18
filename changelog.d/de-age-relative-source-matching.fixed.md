@@ -1,0 +1,1 @@
+Recognize the German age-relative body/health-condition deviation predicate when matching an English formula selector, requiring the complete condition and selector vocabulary and preserving source and selector negation.

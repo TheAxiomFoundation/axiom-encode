@@ -1,0 +1,1 @@
+"בין … ובין …" joins a bounded range as "בין … לבין …" does ("שיעור המס יהיה בין 2 ובין 3 אחוזים" runs from 0.02), and a printed number may begin at its decimal point in every Hebrew reader and in the direct percentage reader (".5 אחוזים" and ".5%" are 0.005, ".5% וחצי" 0.01, "בין .5 ל־3 אחוזים" runs from 0.005).

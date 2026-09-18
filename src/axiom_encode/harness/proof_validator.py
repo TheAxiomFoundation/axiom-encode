@@ -547,19 +547,123 @@ def _validate_source_proof_atom(
     return issues
 
 
+# A line ends in "\r\n", "\r" or "\n" (a Windows, a classic Mac or a Unix
+# source, or one that mixes them); a bare carriage return is one only when no
+# newline follows, so a CRLF is one line end to a pattern that backtracks,
+# never a CR and an LF that make a blank line. The numeric readers share
+# these fragments, so the two read whitespace alike.
+LINE_END_FRAGMENT = "(?:\\r\\n|\\r(?!\\n)|\\n)"
+# Every whitespace character is horizontal space, a line end or a paragraph
+# separator -- the information separators U+001C-U+001F, whitespace to every
+# reader's \s, are horizontal space -- so the collapse below and the bindings
+# partition whitespace alike, and no character is a space to one and a
+# boundary to the other.
+# A bidirectional formatting mark inside a token ("−\u200f.5%", "3\u200f%") is
+# nothing to the readers; the one class serves them and the binding below.
+BIDI_MARKS_FRAGMENT = r"[\u200e\u200f\u202a-\u202e\u2066-\u2069\u061c]"
+HORIZONTAL_SPACE_FRAGMENT = (
+    "[ \\t\\x1c-\\x1f\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]"
+)
+# Whitespace a bound token may run across: spaces of any width and a single
+# line wrap, never a blank line or a paragraph separator.
+WRAP_SPACE_FRAGMENT = (
+    "(?:"
+    + HORIZONTAL_SPACE_FRAGMENT
+    + "|"
+    + LINE_END_FRAGMENT
+    + "(?!"
+    + HORIZONTAL_SPACE_FRAGMENT
+    + "*"
+    + LINE_END_FRAGMENT
+    + "))"
+)
+# A maqaf (U+05BE) binds the Hebrew word before it -- a prefix stack ("ו־",
+# "ל־", "וכש־") or a word of a compound ("שלושה־רבעים", "שנים־עשר") -- to the
+# word or number after it; a source that sets wrap space after the maqaf
+# ("ל־ 1⁄2", "ו־\nשלושה", "שלושה־ רבעים") and one that does not quote the
+# same text. A blank line or a paragraph separator after the maqaf is a
+# boundary the binding does not cross. The word begins at a word boundary,
+# so a maqaf inside an identifier ("121א־2", section 121a-2) or after a
+# digit binds nothing; a unary sign before the word ("−שלושה־עשר", with any
+# formatting marks after it) belongs to the word and moves with it, and a
+# hyphen a letter precedes ("מאה-שלושה") is no boundary the word begins at.
+# This one pattern is the binding evidence matching applies and the
+# binding the numeric cleaner applies, so the two never accept different
+# texts: group 1 is the word -- or the chain of maqaf-joined words, with wrap
+# space after any inner maqaf ("מאה־ ו־ כ־ שלושה"), bound as one, since a
+# space moved ahead of one word would land after the maqaf before it -- 2
+# the last maqaf, 3 the wrap space after it.
+HEBREW_MAQAF_WRAP_SPACE_PATTERN = re.compile(
+    "(?<![\u0590-\u05ff\\w\\-\u2212])((?:[\\-\u2212]"
+    + BIDI_MARKS_FRAGMENT
+    + "*)?[\u05d0-\u05ea]+(?:\u05be"
+    + WRAP_SPACE_FRAGMENT
+    + "*[\u05d0-\u05ea]+)*)(\u05be)("
+    + WRAP_SPACE_FRAGMENT
+    + "+)(?=[\u0590-\u05ff\\d.\u00bc-\u00be\u2150-\u215e])"
+)
+
+
+def _bind_maqaf_chain(match: "re.Match[str]") -> str:
+    """The chain with the wrap space after each of its maqafs dropped, and its last maqaf."""
+    return "".join(
+        character for character in match.group(1) if not character.isspace()
+    ) + match.group(2)
+
+
+def bind_maqaf_space(text: str) -> str:
+    """Drop the wrap space a source sets after a maqaf: "ל־ 1⁄2" reads "ל־1⁄2", "מאה־ ו־ כ־ שלושה" "מאה־ו־כ־שלושה"."""
+    return HEBREW_MAQAF_WRAP_SPACE_PATTERN.sub(_bind_maqaf_chain, text)
+
+
+# A paragraph gap -- a blank line or a paragraph separator -- is a boundary
+# an excerpt must quote as one: "ו־ שלושה" does not quote "ו־\n\nשלושה", whose
+# twenty and three are two numbers, and no run of spaces or a single line
+# wrap stands in for it. Each run of whitespace is read once, in one pass,
+# and becomes a blank line when it holds a paragraph separator or a second
+# line end, and a space otherwise.
+_WHITESPACE_RUN_PATTERN = re.compile(r"\s+")
+_LINE_BREAK_PATTERN = re.compile(LINE_END_FRAGMENT)
+_PARAGRAPH_SEPARATOR_PATTERN = re.compile("[\u2028\u2029\x0b\x0c\x85]")
+
+
+def _collapse_whitespace_run(match: re.Match[str]) -> str:
+    run = match.group(0)
+    if _PARAGRAPH_SEPARATOR_PATTERN.search(run):
+        return "\n\n"
+    first = _LINE_BREAK_PATTERN.search(run)
+    if first is not None and _LINE_BREAK_PATTERN.search(run, first.end()):
+        return "\n\n"
+    return " "
+
+
+def collapse_evidence_whitespace(text: str) -> str:
+    """Collapse whitespace for evidence matching, keeping every paragraph gap.
+
+    A paragraph gap becomes one blank line and any other run of whitespace
+    one space, so "A B" matches "A\nB" and never "A\n\nB".
+    """
+    return _WHITESPACE_RUN_PATTERN.sub(_collapse_whitespace_run, text).strip()
+
+
 def _source_contains_proof_evidence(
     *,
     source_text: str,
     evidence_text: str,
 ) -> bool:
-    normalized_evidence = re.sub(r"\s+", " ", evidence_text).strip()
+    normalized_evidence = collapse_evidence_whitespace(evidence_text)
     if not normalized_evidence:
         return False
+    maqaf_evidence = collapse_evidence_whitespace(bind_maqaf_space(evidence_text))
     for segment in split_proof_evidence_text(source_text):
         if _bounded_source_evidence_match(evidence_text, segment):
             return True
-        normalized_segment = re.sub(r"\s+", " ", segment).strip()
+        normalized_segment = collapse_evidence_whitespace(segment)
         if _bounded_source_evidence_match(normalized_evidence, normalized_segment):
+            return True
+        if "\u05be" in segment and _bounded_source_evidence_match(
+            maqaf_evidence, collapse_evidence_whitespace(bind_maqaf_space(segment))
+        ):
             return True
     return False
 
@@ -1834,6 +1938,212 @@ def _source_flattened_roman_coordinate_occurrences(
             occurrences.append((current_chain, marker, header_start))
             next_roman_value = roman_value + 1
             roman_sequence_established = True
+        record_offset += len(record) + len(PROOF_EVIDENCE_SEGMENT_SEPARATOR)
+    occurrences.extend(
+        _source_flattened_alpha_numeric_roman_coordinate_occurrences(source_text)
+    )
+    return list(dict.fromkeys(occurrences))
+
+
+def _source_flattened_alpha_numeric_roman_coordinate_occurrences(
+    source_text: str,
+) -> list[tuple[tuple[str, ...], str, int]]:
+    """Recover flat ``(a) -> (1) -> (i)`` federal-style ownership.
+
+    Flat federal regulation text commonly places every coordinate at the same
+    indentation.  This pass recognizes only alphabetic parents established in
+    ascending order and Roman children established in canonical ascending
+    order.  Those constraints keep an isolated Roman-looking letter or a
+    numeric sibling from being assigned to the claimed parent.
+    """
+    flat_coordinate_token = rf"(?:{_STRUCTURAL_COORDINATE_TOKEN}|[A-Z])"
+    header_pattern = re.compile(
+        r"(?m)^(?P<indent>[ \t]*)(?P<bundle>"
+        rf"(?:\({flat_coordinate_token}\)[ \t]*)+"
+        r")"
+    )
+    coordinate_pattern = re.compile(rf"\((?P<value>{flat_coordinate_token})\)")
+    occurrences: list[tuple[tuple[str, ...], str, int]] = []
+    record_offset = 0
+    for record in source_text.split(PROOF_EVIDENCE_SEGMENT_SEPARATOR):
+        headers = list(header_pattern.finditer(record))
+        baseline_indent = min(
+            (len(header.group("indent").expandtabs(2)) for header in headers),
+            default=None,
+        )
+        baseline_headers = [
+            header
+            for header in headers
+            if baseline_indent is not None
+            and len(header.group("indent").expandtabs(2)) == baseline_indent
+        ]
+        alpha_parent: str | None = None
+        next_alpha = "a"
+        current_chain: tuple[str, str] | None = None
+        next_roman_value = 1
+        roman_sequence_established = False
+        alpha_sequence_started = False
+        leading_numeric_owner_seen = False
+        suspended_chain: tuple[str, str] | None = None
+        suspended_next_roman_value = 1
+        suspended_chain_tainted = False
+        for header_index, header in enumerate(baseline_headers):
+            tokens = [
+                match.group("value")
+                for match in coordinate_pattern.finditer(header.group("bundle"))
+            ]
+            if len(tokens) != 1:
+                if suspended_chain is not None:
+                    suspended_chain_tainted = True
+                alpha_parent = None
+                current_chain = None
+                roman_sequence_established = False
+                continue
+            token = tokens[0]
+            successor_tokens = (
+                [
+                    match.group("value")
+                    for match in coordinate_pattern.finditer(
+                        baseline_headers[header_index + 1].group("bundle")
+                    )
+                ]
+                if header_index + 1 < len(baseline_headers)
+                else []
+            )
+            roman_value = (
+                _canonical_roman_value(token)
+                if re.fullmatch(r"[ivxlcdmIVXLCDM]+", token) is not None
+                else None
+            )
+            successor_roman_value = (
+                _canonical_roman_value(successor_tokens[0])
+                if len(successor_tokens) == 1
+                and re.fullmatch(r"[ivxlcdmIVXLCDM]+", successor_tokens[0]) is not None
+                else None
+            )
+            successor_is_numeric = (
+                len(successor_tokens) == 1 and successor_tokens[0].isdigit()
+            )
+            successor_is_expected_alpha = (
+                len(successor_tokens) == 1
+                and len(successor_tokens[0]) == 1
+                and successor_tokens[0] == next_alpha
+            )
+            ambiguous_single_letter = len(token) == 1 and token.islower()
+            successor_is_next_alpha_after_token = (
+                len(successor_tokens) == 1
+                and len(successor_tokens[0]) == 1
+                and ambiguous_single_letter
+                and successor_tokens[0] == chr(ord(token) + 1)
+            )
+            successor_is_upper_alpha = (
+                len(successor_tokens) == 1
+                and len(successor_tokens[0]) == 1
+                and successor_tokens[0].isupper()
+            )
+            uppercase_roman_transition = (
+                token.isupper()
+                and current_chain is not None
+                and roman_value == next_roman_value
+                and (
+                    len(token) > 1
+                    or successor_roman_value == roman_value + 1
+                    or successor_is_numeric
+                    or successor_is_expected_alpha
+                    or successor_is_upper_alpha
+                    or not successor_tokens
+                )
+            )
+            if token.isupper() and not uppercase_roman_transition:
+                if current_chain is not None and suspended_chain is None:
+                    suspended_chain = current_chain
+                    suspended_next_roman_value = next_roman_value
+                    suspended_chain_tainted = False
+                current_chain = None
+                roman_sequence_established = False
+                continue
+            if suspended_chain is not None and token.isdigit():
+                suspended_chain_tainted = True
+                current_chain = None
+                roman_sequence_established = False
+                continue
+            if suspended_chain is not None and roman_value is not None:
+                if (
+                    not suspended_chain_tainted
+                    and roman_value == suspended_next_roman_value
+                ):
+                    current_chain = suspended_chain
+                    next_roman_value = suspended_next_roman_value
+                suspended_chain = None
+                suspended_chain_tainted = False
+            alpha_transition = (
+                ambiguous_single_letter
+                and token == next_alpha
+                and not (leading_numeric_owner_seen and not alpha_sequence_started)
+                and (
+                    successor_is_numeric
+                    or current_chain is None
+                    or roman_value != next_roman_value
+                    or successor_is_next_alpha_after_token
+                )
+            )
+            roman_transition = (
+                current_chain is not None
+                and roman_value == next_roman_value
+                and not alpha_transition
+                and (
+                    token != next_alpha
+                    or successor_roman_value == roman_value + 1
+                    or successor_is_numeric
+                    or successor_is_upper_alpha
+                )
+                and (
+                    not ambiguous_single_letter
+                    or roman_sequence_established
+                    or successor_roman_value == roman_value + 1
+                    or successor_is_numeric
+                    or successor_is_expected_alpha
+                    or successor_is_upper_alpha
+                    or not successor_tokens
+                )
+            )
+            if alpha_transition:
+                alpha_parent = token
+                suspended_chain = None
+                suspended_chain_tainted = False
+                alpha_sequence_started = True
+                next_alpha = chr(ord(token) + 1)
+                current_chain = None
+                next_roman_value = 1
+                roman_sequence_established = False
+                continue
+            if token.isdigit():
+                if alpha_parent is None and not alpha_sequence_started:
+                    leading_numeric_owner_seen = True
+                current_chain = (
+                    (alpha_parent, token) if alpha_parent is not None else None
+                )
+                next_roman_value = 1
+                roman_sequence_established = False
+                continue
+            if roman_transition:
+                occurrences.append(
+                    (
+                        current_chain,
+                        _canonical_roman_marker(roman_value),
+                        record_offset + header.start("bundle"),
+                    )
+                )
+                next_roman_value = roman_value + 1
+                roman_sequence_established = True
+                continue
+            alpha_parent = None
+            current_chain = None
+            suspended_chain = None
+            suspended_chain_tainted = False
+            roman_sequence_established = False
+            if ambiguous_single_letter:
+                next_alpha = ""
         record_offset += len(record) + len(PROOF_EVIDENCE_SEGMENT_SEPARATOR)
     return occurrences
 

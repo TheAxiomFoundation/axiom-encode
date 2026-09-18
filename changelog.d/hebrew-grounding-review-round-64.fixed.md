@@ -1,0 +1,1 @@
+"כולל" is read as the adjective "total" only where "של", a copula or another adjective follows it ("המחזור הכולל של 3 מיליון"), and as the verb "includes" otherwise, so what it includes is a count of its own: "הסיוע כולל 3 אלפים ו־200 מיטות" is assistance including 3,200 beds.

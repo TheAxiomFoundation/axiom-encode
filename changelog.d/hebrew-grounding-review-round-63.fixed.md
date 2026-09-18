@@ -1,0 +1,1 @@
+An amount noun takes a possessor only in the construct state: "סכום המענק" and "הכנסת המפעל" bind the number through the possessor, while an articled amount noun followed by an articled word ("המענק המממן לפחות 3 אלפים ו־200 עובדים", a grant financing at least 3,200 workers) is attribution, so the clause binds nothing and the count reads whole.

@@ -1,0 +1,1 @@
+An amount noun is known in the inflections a noun takes and no others: a feminine or plural ending, then a possessive ("מסו", "מסיו", "הכנסתו", "קצבאות"), with the possessive never after the article, so "חמישית ממסו" is a fifth of the tax and "בבדיקה חמישית הערכנו" stays a fifth check.

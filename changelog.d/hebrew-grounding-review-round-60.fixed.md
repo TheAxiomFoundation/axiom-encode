@@ -1,0 +1,1 @@
+A dative ל names whom an amount is for, not its amount: "תקציב המיועד ל־3 אלפים ו־200 עובדים" and "תקציב המיועד לשלושה אלפים ומאתיים עובדים" are a budget intended for 3,200 workers, and the count reads whole; "תקציב ב־3 מיליון ו־20 עובדים" still binds the money.

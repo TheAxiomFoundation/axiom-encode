@@ -1,0 +1,1 @@
+One articled possessor may qualify the amount noun that binds a number ("מחזור העסקאות", "הכנסת המפעל"), while a relative participle after it ("המפעל המעסיק לפחות 3 אלפים ו־200 עובדים") opens a clause of its own and binds nothing, so the worker threshold reads 3,200.
