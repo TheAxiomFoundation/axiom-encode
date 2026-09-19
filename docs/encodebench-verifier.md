@@ -35,10 +35,15 @@ judge can be measured against, and that is what this track supplies.
     `encodings.db` `apply_applied` generations (`sources/encodings_db.py`,
     opened read-only).
   - `real`: recorded repair rounds under `benchmarks/verifier/real_defects_v0/`
-    (produced by another session; this code only reads it). The pre-fix
-    artifact is the defective case, the post-fix artifact is the control, and
-    every real control is marked `unverified` because a repair round makes an
-    artifact better, not proven clean.
+    (axiom-encode PR #1659, 520 cases mined from rulespec-us and rulespec-uk
+    fix history; this code only reads it). The pre-fix artifact is the
+    defective case, the post-fix artifact is the control, and every real
+    control is marked `unverified` because a repair round makes an artifact
+    better, not proven clean. Five of the corpus's eight defect kinds map onto
+    a synthetic kind with a kind-specific judge channel; `unrepresented_clause`,
+    `untraceable_branch` and `other` keep their own `other:` columns on the
+    verdict channel. By default the loader keeps family representatives only
+    and `triage_status: fidelity` only, skipping metadata-only records.
 - **Defect kinds**: `amount_changed` (a number that also appears verbatim in
   the provision window), `boundary_flipped` (`>=` and `>`, `<=` and `<`, both
   directions), `conjunct_dropped` (one `and` conjunct deleted),
@@ -143,12 +148,16 @@ index, or mentions the edited token), errors, median latency, mean tokens in
 and out, and cost per case where a published price is recorded in
 `benchmarks/verifier/pricing.json`. Every price entry names its source;
 models without an entry render cost as blank. Anthropic prices come from the
-claude-api skill's model table, never from memory; Sonnet 4.5 has no row
-there and so no cost.
+claude-api skill's model table or the official pricing page (with the fetch
+date recorded), never from memory.
 
 **Headline**: per-kind detection AUC on the judge's kind channel, subject to
 a false-alarm ceiling on the judge's native verdict. The default ceiling is
-25 percent (`--false-alarm-ceiling`), stated on every board. A judge whose
+10 percent (`--false-alarm-ceiling`), stated on every board. Ten because a
+referee flag adds a human-review label: a reviewer who finds a clean
+artifact one time in ten keeps reading, one time in four stops. At 10
+percent the ranking of the first board is unchanged from 25 (every judge is
+over either line) and only the detection-at-ceiling column moves. A judge whose
 native flag rate on clean controls exceeds it is shown but not ranked (†);
 a judge with no scored controls, or with a kind that has no AUC at all, is
 unrankable (§) and shown last. The mean AUC that ranks judges is only
@@ -202,7 +211,11 @@ uv run python benchmarks/verifier/verifier.py build-synthetic \
 
 `build-synthetic` writes `suite.json` (full texts) and `suite.manifest.json`
 (identities and digests only, small enough to commit). Load the real corpus
-with `build-real --dir benchmarks/verifier/real_defects_v0 --out ...`.
+with `build-real --dir benchmarks/verifier/real_defects_v0 --out ...`; the
+defaults keep family representatives with `triage_status: fidelity`
+(`--all-family-members`, `--triage-status`, `--min-confidence` and
+`--jurisdiction` change the selection, and the selection is recorded in the
+suite identity).
 
 `encodings.db` holds generations for several jurisdictions. To restrict a
 built suite, derive a child suite by citation prefix and, where a case is
@@ -378,7 +391,7 @@ rows live in `_axiom-runs/encodebench-verifier-2026-09-17/`.
 | judge | model | native FAR | native det | mean kind AUC | verdict AUC | localize | median s | cost/case | total |
 |---|---|---|---|---|---|---|---|---|---|
 | jev | jev-1.13.0 | 72% | 95% | 0.908 | 0.779 | blank by construction | 0.19 | $0.00013 | $0.048 |
-| sonnet | claude-sonnet-4-5 | 38% | 76% | 0.738 ‡ | 0.726 | 68% | 5.24 | no price on file | 1.19M in, 115k out tokens |
+| sonnet | claude-sonnet-4-5 | 38% | 76% | 0.738 ‡ | 0.726 | 68% | 5.24 | $0.01472 | $5.30 |
 | opus | claude-opus-4-6 | 63% | 86% | 0.705 ‡ | 0.752 | 80% | 11.11 | $0.02800 | $10.08 |
 | haiku | claude-haiku-4-5-20251001 | 72% | 89% | 0.680 ‡ | 0.639 | 69% | 3.88 | $0.00514 | $1.85 |
 
@@ -390,9 +403,9 @@ date or period 0.853 / 0.622 ‡ / 0.642 ‡ / 0.659 ‡; entity 0.942 / 0.570 �
 
 How to read it:
 
-- **Nobody ranks.** All four judges flag more than 25 percent of the clean
-  controls at their native verdict (Sonnet the fewest at 38 percent), so the
-  headline gate excludes them all. That is the pilot's finding reproduced on
+- **Nobody ranks.** All four judges flag far more than 10 percent of the
+  clean controls at their native verdict (Sonnet the fewest at 38 percent),
+  so the headline gate excludes them all. That is the pilot's finding reproduced on
   180 pairs and four judges: as a pass/flag gate, none of these is usable
   yet. The judges also agree with each other on the controls (in the
   superseded 1.0.0 run, Haiku and Jev both flagged 114 of 180), and sampled
@@ -401,7 +414,8 @@ How to read it:
   is an upper bound.
 - **On the kind channel Jev separates defective from control far better
   than any referee configuration**, at roughly one two-hundredth of Opus's
-  cost and one fortieth of Haiku's, and fifty times faster. Its weakest kinds
+  cost, one hundredth of Sonnet's and one fortieth of Haiku's, and twenty to
+  sixty times faster. Its weakest kinds
   are dropped conjuncts (0.753) and wrong dates or periods (0.853), the same
   shape as the pilot.
 - **The referee's kind channel is binary**, so its per-kind AUC is a balanced
@@ -423,9 +437,10 @@ How to read it:
   the same set of finding kinds on only 8 of 29. That join was computed from
   the superseded run's suite texts because its rows predate the content
   digests; `verifier.py agreement` does the same for any two current runs.
-- **Sonnet's cost is blank** because the claude-api skill's model table
-  consulted on 2026-09-17 carries no Sonnet 4.5 price; the board never
-  quotes a price from memory.
+- **Sonnet's cost** was blank on the first fold because the claude-api
+  skill's model table carries no Sonnet 4.5 row; the official pricing page
+  (fetched 2026-09-19) lists $3 in and $15 out per million, and the board was
+  re-costed from the same rows under that source.
 
 What this board does not say: nothing about the UK release (the suite is US
 generations from the run log), nothing about real repair rounds (the real
