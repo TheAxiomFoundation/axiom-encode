@@ -8,7 +8,10 @@ public command surface only needs a two-line hook: call
 Commands:
 
 * ``preclassify``       — worklist triage (bulk-encode.yml routing workflow).
-* ``judge-fidelity``    — corpus-bound Stage 1 referee.
+* ``judge-fidelity``    — corpus-bound Stage 1 referee (``--screen`` runs the
+  TypeSafe System One pre-screen first; advisory unless
+  ``AXIOM_JUDGE_SCREEN_MODE=cascade``).
+* ``judge-fidelity-screen`` — the corpus-bound pre-screen on its own.
 * ``judge-grid``        — Stage 2 grid-adequacy judge.
 * ``judge-disposition`` — Stage 3 disposition referee.
 * ``drift-check``       — golden-regeneration drift check.
@@ -26,7 +29,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from axiom_encode.constants import RULESPEC_ATOMIC_MODULE_ROOTS
+from axiom_encode.constants import JUDGE_SCREEN_MODES, RULESPEC_ATOMIC_MODULE_ROOTS
 from axiom_encode.corpus_resolver import (
     LocalCorpusRelease,
     ResolvedCorpusSource,
@@ -52,11 +55,13 @@ from .regeneration import (
 
 _MAX_DRIFT_REPORT_BYTES = 20 * 1024 * 1024
 _RULESPEC_ATOMIC_MODULE_ROOTS = RULESPEC_ATOMIC_MODULE_ROOTS
+_SCREEN_MODES = JUDGE_SCREEN_MODES
 
 COMMANDS = frozenset(
     {
         "preclassify",
         "judge-fidelity",
+        "judge-fidelity-screen",
         "judge-grid",
         "judge-disposition",
         "drift-check",
@@ -81,6 +86,27 @@ def _add_run_log_args(parser: argparse.ArgumentParser) -> None:
         "--log-dir",
         type=Path,
         help="Run-log directory (defaults to the standard run-log dir).",
+    )
+
+
+def _add_screen_args(parser: argparse.ArgumentParser, *, standalone: bool) -> None:
+    """Screen options: ``--screen`` (referee command only) and ``--screen-mode``."""
+
+    if not standalone:
+        parser.add_argument(
+            "--screen",
+            action="store_true",
+            help=(
+                "Run the TypeSafe System One statutory-fidelity screen before "
+                "the referee. Advisory by default (the referee always runs); "
+                "AXIOM_JUDGE_SCREEN_MODE=cascade lets a below-threshold screen "
+                "skip the referee."
+            ),
+        )
+    parser.add_argument(
+        "--screen-mode",
+        choices=sorted(_SCREEN_MODES),
+        help="Override AXIOM_JUDGE_SCREEN_MODE for this run.",
     )
 
 
@@ -133,8 +159,24 @@ def register_judge_subparsers(subparsers: argparse._SubParsersAction) -> None:
     fid.add_argument("--corpus-citation-path", required=True)
     fid.add_argument("--rule-file", type=Path, required=True)
     fid.add_argument("--rule-path")
+    _add_screen_args(fid, standalone=False)
     _add_run_log_args(fid)
     fid.add_argument("--json", action="store_true")
+
+    screen = subparsers.add_parser(
+        "judge-fidelity-screen",
+        help=(
+            "Corpus-bound statutory-fidelity screen on TypeSafe System One "
+            "(advisory; never a gate)."
+        ),
+    )
+    _add_corpus_binding_args(screen)
+    screen.add_argument("--corpus-citation-path", required=True)
+    screen.add_argument("--rule-file", type=Path, required=True)
+    screen.add_argument("--rule-path")
+    _add_screen_args(screen, standalone=True)
+    _add_run_log_args(screen)
+    screen.add_argument("--json", action="store_true")
 
     grid = subparsers.add_parser(
         "judge-grid", help="Grid-adequacy judge for an oracle suite."
@@ -232,6 +274,8 @@ def dispatch(args: argparse.Namespace) -> int:
         return cmd_preclassify(args)
     if args.command == "judge-fidelity":
         return cmd_judge_fidelity(args)
+    if args.command == "judge-fidelity-screen":
+        return cmd_judge_fidelity_screen(args)
     if args.command == "judge-grid":
         return cmd_judge_grid(args)
     if args.command == "judge-disposition":
@@ -311,15 +355,135 @@ def cmd_judge_fidelity(args: argparse.Namespace) -> int:
     source = _load_bound_source(args, args.corpus_citation_path)
     if source is None:
         return 2
+    generated_rule = _read(args.rule_file)
+
+    screen_event = None
+    decision = None
+    if getattr(args, "screen_mode", None) and not getattr(args, "screen", False):
+        # Silently ignoring the mode would let an operator believe a cascade
+        # was in force while the screen never ran.
+        print("--screen-mode requires --screen", file=sys.stderr)
+        return 2
+    if getattr(args, "screen", False):
+        outcome = _run_fidelity_screen(args, source, generated_rule)
+        if outcome is None:
+            return 2
+        screen_event, decision = outcome
+        if not args.json:
+            _emit_event(screen_event, False, None)
+            _print_cascade(decision)
+        if not decision.request_referee:
+            # Cascade mode, every configured kind below threshold: the screen
+            # is recorded and the referee is skipped. Only reachable when
+            # AXIOM_JUDGE_SCREEN_MODE=cascade (or --screen-mode cascade).
+            if args.json:
+                print(
+                    json.dumps(
+                        {
+                            "screen": screen_event.to_dict(),
+                            "cascade": decision.to_dict(),
+                            "referee": None,
+                        },
+                        indent=2,
+                        default=str,
+                    )
+                )
+            else:
+                print(
+                    "referee skipped: every configured kind is below its "
+                    "threshold in cascade mode (the choice verdict does not "
+                    "trigger the cascade)"
+                )
+            return 0
+
     event = sf.run(
         source.body,
-        _read(args.rule_file),
+        generated_rule,
         citation=source.requested,
         rule_path=args.rule_path,
     )
     event.extra["source_attestation"] = source.to_attestation()
-    _emit_event(event, args.json, args)
+    if screen_event is None or decision is None:
+        _emit_event(event, args.json, args)
+        return 0
+    event.extra["screen_cascade"] = decision.to_dict()
+    _write_run_log(event, args)
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "screen": screen_event.to_dict(),
+                    "cascade": decision.to_dict(),
+                    "referee": event.to_dict(),
+                },
+                indent=2,
+                default=str,
+            )
+        )
+    else:
+        _emit_event(event, False, None)
     return 0
+
+
+def cmd_judge_fidelity_screen(args: argparse.Namespace) -> int:
+    source = _load_bound_source(args, args.corpus_citation_path)
+    if source is None:
+        return 2
+    outcome = _run_fidelity_screen(args, source, _read(args.rule_file))
+    if outcome is None:
+        return 2
+    event, decision = outcome
+    # Already appended to the run log by _run_fidelity_screen.
+    _emit_event(event, args.json, None)
+    if not args.json:
+        _print_cascade(decision)
+    return 0
+
+
+def _screen_policy(args: argparse.Namespace):
+    from . import statutory_fidelity_screen as sfs
+
+    try:
+        policy = sfs.ScreenPolicy.from_env()
+        mode = getattr(args, "screen_mode", None)
+        if mode:
+            policy = policy.with_mode(mode)
+    except ValueError as exc:
+        print(f"invalid screen policy: {exc}", file=sys.stderr)
+        return None
+    return policy
+
+
+def _run_fidelity_screen(args: argparse.Namespace, source, generated_rule: str):
+    """Run the System One screen, log it, and return ``(event, decision)``.
+
+    Returns ``None`` (after printing the problem) only for an invalid policy;
+    a screen that cannot run still yields a fail-closed error event whose
+    cascade decision requests the referee.
+    """
+
+    from . import statutory_fidelity_screen as sfs
+
+    policy = _screen_policy(args)
+    if policy is None:
+        return None
+    event = sfs.run(
+        source.body,
+        generated_rule,
+        citation=source.requested,
+        rule_path=getattr(args, "rule_path", None),
+        policy=policy,
+    )
+    event.extra["source_attestation"] = source.to_attestation()
+    decision = sfs.cascade_decision(event, policy)
+    _write_run_log(event, args)
+    return event, decision
+
+
+def _print_cascade(decision) -> None:
+    verb = "requested" if decision.request_referee else "skipped"
+    triggered = ", ".join(decision.triggered) or "none"
+    print(f"  cascade: referee {verb} ({decision.reason}; triggered: {triggered})")
 
 
 def cmd_judge_grid(args: argparse.Namespace) -> int:
@@ -531,7 +695,11 @@ def _emit_event(event, as_json: bool, args: argparse.Namespace | None = None) ->
         f"escalated={event.escalated}"
     )
     for f in event.findings:
-        print(f"  - [{f.kind}] {f.clause_ref} @ {f.rule_path}: {f.explanation}")
+        if f.clause_ref or f.rule_path:
+            print(f"  - [{f.kind}] {f.clause_ref} @ {f.rule_path}: {f.explanation}")
+        else:
+            # Screen findings carry no locator; do not print an empty one.
+            print(f"  - [{f.kind}] {f.explanation}")
     if event.judge_error:
         print(f"  judge_error: {event.judge_error.type}: {event.judge_error.message}")
 

@@ -8,6 +8,10 @@ verdict emits a ``judge_error`` event, never a silent pass.
 
 Stages:
 
+* :mod:`~axiom_encode.judges.statutory_fidelity_screen` — typed-probability
+  pre-screen on TypeSafe System One (family ``typesafe``) that runs before the
+  referee. Advisory only; in cascade mode it decides whether the referee is
+  requested.
 * :mod:`~axiom_encode.judges.statutory_fidelity` — per generation, post-gates
   pre-apply. Advisory ``needs-review`` label + event.
 * :mod:`~axiom_encode.judges.grid_adequacy` — per oracle suite. Names untested
@@ -31,6 +35,8 @@ from . import (
     preclassifier,
     regeneration,
     statutory_fidelity,
+    statutory_fidelity_screen,
+    system_one,
 )
 from .client import JudgeCall, JudgeClient, model_family, truncate_provision
 from .disposition import Disposition
@@ -48,6 +54,8 @@ from .run_log import (
     error_event,
     validate_event_dict,
 )
+from .statutory_fidelity_screen import CascadeDecision, ScreenPolicy
+from .system_one import SystemOneCall, SystemOneClient
 
 __all__ = [
     "SCHEMA_VERSION",
@@ -63,9 +71,15 @@ __all__ = [
     "validate_event_dict",
     "JudgeClient",
     "JudgeCall",
+    "SystemOneClient",
+    "SystemOneCall",
+    "ScreenPolicy",
+    "CascadeDecision",
     "model_family",
     "truncate_provision",
     # stage modules
+    "statutory_fidelity_screen",
+    "system_one",
     "statutory_fidelity",
     "grid_adequacy",
     "disposition",
