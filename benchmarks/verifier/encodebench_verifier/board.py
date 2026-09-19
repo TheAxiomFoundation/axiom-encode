@@ -36,7 +36,7 @@ from .metrics import (
 )
 from .results import load_results
 
-DEFAULT_FALSE_ALARM_CEILING = 0.25
+DEFAULT_FALSE_ALARM_CEILING = 0.10
 OTHER_KIND_PREFIX = "other:"
 
 

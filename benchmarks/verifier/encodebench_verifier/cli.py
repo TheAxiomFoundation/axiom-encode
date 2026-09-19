@@ -79,13 +79,18 @@ def cmd_build_synthetic(args: argparse.Namespace) -> int:
 
 
 def cmd_build_real(args: argparse.Namespace) -> int:
-    suite = real.build_real_suite(
+    suite, report = real.build_real_suite(
         Path(args.dir),
         provision_chars=args.provision_chars,
         truncate=truncate_provision,
         name=args.name,
+        representatives_only=not args.all_family_members,
+        triage_statuses=tuple(args.triage_status or ()),
+        min_confidence=args.min_confidence,
+        jurisdictions=tuple(args.jurisdiction or ()),
     )
     suite_path, manifest_path = suite.write(Path(args.out))
+    _eprint(json.dumps(report, indent=1))
     _eprint(json.dumps(suite.summary(), indent=1))
     for note in suite.notes:
         _eprint(f"note: {note}")
@@ -293,6 +298,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dir", required=True)
     p.add_argument("--provision-chars", type=int, default=DEFAULT_PROVISION_CHARS)
     p.add_argument("--name", default=None)
+    p.add_argument(
+        "--all-family-members",
+        action="store_true",
+        help="keep every member of a correction family, not just representatives",
+    )
+    p.add_argument(
+        "--triage-status",
+        nargs="*",
+        default=["fidelity"],
+        help="triage statuses to keep (default: fidelity); pass none to keep all",
+    )
+    p.add_argument("--min-confidence", type=float, default=0.0)
+    p.add_argument("--jurisdiction", nargs="*", default=None, help="e.g. us uk")
     p.add_argument("--out", required=True)
     p.set_defaults(func=cmd_build_real)
 
