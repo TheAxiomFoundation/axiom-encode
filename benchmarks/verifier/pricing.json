@@ -30,6 +30,16 @@
       "input_usd_per_million": 3.0,
       "output_usd_per_million": 15.0,
       "source": "Anthropic pricing page https://platform.claude.com/docs/en/about-claude/pricing, fetched 2026-09-19: Claude Sonnet 4.5, $3 / MTok base input, $15 / MTok output; dated id of alias claude-sonnet-4-5"
+    },
+    "claude-opus-5": {
+      "input_usd_per_million": 5.0,
+      "output_usd_per_million": 25.0,
+      "source": "Anthropic pricing page https://platform.claude.com/docs/en/about-claude/pricing, fetched 2026-09-19: Claude Opus 5, $5 / MTok base input, $25 / MTok output"
+    },
+    "claude-sonnet-5": {
+      "input_usd_per_million": 2.0,
+      "output_usd_per_million": 10.0,
+      "source": "Anthropic pricing page https://platform.claude.com/docs/en/about-claude/pricing, fetched 2026-09-19: Claude Sonnet 5, $2 / MTok base input, $10 / MTok output (the launch introductory price, now standard per the page's note)"
     }
   }
 }
