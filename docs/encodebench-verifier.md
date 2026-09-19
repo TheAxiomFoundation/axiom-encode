@@ -417,70 +417,146 @@ as the record of which cases it scored.
   which is fine for the artifacts being judged but is not the pinned UK
   release; the UK synthetic set follows the encoder track's outputs.
 
-## First board (2026-09-18)
+## Boards (2026-09-19)
 
-Suite `EncodeBench verifier synthetic US v1`, digest `5b228af3d17c`: 180
-pairs (30 per kind) planted by mutator 1.0.1 in `gpt-5.5` `apply_applied`
-generations from `encodings.db` with US citations, provision window 24,000
-characters. Every judge scored all 360 cases with no errors. The board, its
-JSON and CSV, and the suite manifest are committed under
-`benchmarks/verifier/boards/synthetic_us_v1/`; full suite texts and per-run
-rows live in `_axiom-runs/encodebench-verifier-2026-09-17/`.
+Three boards are committed under `benchmarks/verifier/boards/`, each with its
+markdown, JSON, CSV and the suite manifest that identifies exactly which cases
+it scored. Full suite texts and per-run rows live in
+`_axiom-runs/encodebench-verifier-2026-09-17/`. The roster is the same on all
+three: TypeSafe Jev 1.13.0 and the incumbent referee on Haiku 4.5, Sonnet 4.5,
+Sonnet 5, Opus 4.6 (the repo's pinned default) and Opus 5. Referee runs on the
+real corpus used `--max-tokens 8192`; the synthetic runs used the production
+2,048 for the 4.x models and 8,192 for Opus 5 and Sonnet 5, whose adaptive
+thinking counts against the same budget. Every judge's configuration is in its
+results payload. Real API spend for everything below, including the
+superseded mutator 1.0.0 run and the runs stopped for the output-budget fix,
+was $190.95 (deduplicated by row).
+
+### Synthetic US v1
 
 | judge | model | native FAR | native det | mean kind AUC | verdict AUC | localize | median s | cost/case | total |
 |---|---|---|---|---|---|---|---|---|---|
-| jev | jev-1.13.0 | 72% | 95% | 0.908 | 0.779 | blank by construction | 0.19 | $0.00013 | $0.048 |
-| sonnet | claude-sonnet-4-5 | 38% | 76% | 0.738 ‡ | 0.726 | 68% | 5.24 | $0.01472 | $5.30 |
-| opus | claude-opus-4-6 | 63% | 86% | 0.705 ‡ | 0.752 | 80% | 11.11 | $0.02800 | $10.08 |
-| haiku | claude-haiku-4-5-20251001 | 72% | 89% | 0.680 ‡ | 0.639 | 69% | 3.88 | $0.00514 | $1.85 |
+| jev† | jev-1.13.0 | 72% | 95% | 0.908 | 0.779 | blank by construction | 0.19 | $0.00013 | $0.05 |
+| opus-5† | claude-opus-5 | 51% | 89% | 0.785 ‡ | 0.809 | 86% | 14.13 | $0.05288 | $19.04 |
+| sonnet† | claude-sonnet-4-5 | 38% | 76% | 0.738 ‡ | 0.726 | 68% | 5.24 | $0.01472 | $5.30 |
+| sonnet-5† | claude-sonnet-5 | 65% | 86% | 0.708 ‡ | 0.720 | 73% | 20.71 | $0.03290 | $11.84 |
+| opus† | claude-opus-4-6 | 63% | 86% | 0.705 ‡ | 0.752 | 80% | 11.11 | $0.02800 | $10.08 |
+| haiku† | claude-haiku-4-5-20251001 | 72% | 89% | 0.680 ‡ | 0.639 | 69% | 3.88 | $0.00514 | $1.85 |
 
-Per-kind kind-channel AUC (Jev / Sonnet / Opus / Haiku): amount 0.998 /
-0.983 / 0.950 / 0.983; boundary 0.924 / 0.800 / 0.783 / 0.700; conjunct
-0.753 / 0.650 / 0.583 / 0.467; polarity 0.979 / 0.800 / 0.717 / 0.683;
-date or period 0.853 / 0.622 ‡ / 0.642 ‡ / 0.659 ‡; entity 0.942 / 0.570 ‡ /
-0.557 ‡ / 0.588 ‡.
+Per-kind kind-channel AUC (jev / opus-5 / sonnet / sonnet-5 / opus / haiku): amount (n=30) 0.998 / 0.983 / 0.983 / 1.000 / 0.950 / 0.983; boundary (n=30) 0.924 / 0.983 / 0.800 / 0.950 / 0.783 / 0.700; conjunct (n=30) 0.753 / 0.667 / 0.650 / 0.567 / 0.583 / 0.467; polarity (n=30) 0.979 / 0.767 / 0.800 / 0.617 / 0.717 / 0.683; date or period (n=30) 0.853 / 0.696 ‡ / 0.622 ‡ / 0.588 ‡ / 0.642 ‡ / 0.659 ‡; entity (n=30) 0.942 / 0.614 ‡ / 0.570 ‡ / 0.524 ‡ / 0.557 ‡ / 0.588 ‡.
 
 How to read it:
 
-- **Nobody ranks.** All four judges flag far more than 10 percent of the
-  clean controls at their native verdict (Sonnet the fewest at 38 percent),
-  so the headline gate excludes them all. That is the pilot's finding reproduced on
-  180 pairs and four judges: as a pass/flag gate, none of these is usable
-  yet. The judges also agree with each other on the controls (in the
-  superseded 1.0.0 run, Haiku and Jev both flagged 114 of 180), and sampled
-  Haiku findings on controls are plausible fidelity complaints, so part of
-  that rate is real defects the compile and CI gates cannot see; native FAR
-  is an upper bound.
-- **On the kind channel Jev separates defective from control far better
-  than any referee configuration**, at roughly one two-hundredth of Opus's
-  cost, one hundredth of Sonnet's and one fortieth of Haiku's, and twenty to
-  sixty times faster. Its weakest kinds
-  are dropped conjuncts (0.753) and wrong dates or periods (0.853), the same
-  shape as the pilot.
+- **Nobody ranks.** Every judge flags far more than 10 percent of the clean
+  controls at its native verdict (sonnet the fewest at
+  38%), so the headline gate
+  excludes them all. As a pass/flag gate none of these is usable yet. Part of
+  that rate is real defects the compile and CI gates cannot see: the judges
+  agree with each other on which controls to flag, and sampled findings on
+  controls are plausible fidelity complaints. Native FAR is an upper bound.
+- **On the kind channel Jev separates defective from control far better than
+  any referee configuration** (0.908 against
+  0.785 for opus-5), at
+  $0.00013 a case against
+  $0.05288, and in
+  0.19 s against
+  14.13 s. Its weakest
+  kinds are dropped conjuncts (0.753)
+  and wrong dates or periods (0.853).
+- **Opus 5 is the best referee configuration** and localizes best
+  (86% of its defective-case findings
+  name the mutated rule or token). Sonnet 4.5 has the lowest false-alarm rate
+  of any judge. Sonnet 5 is no better than Sonnet 4.5 on the kind channel here
+  and is the slowest judge on the board, because its thinking runs long.
 - **The referee's kind channel is binary**, so its per-kind AUC is a balanced
   accuracy and its detection at the ceiling is often zero: when it names a
-  kind on more than a quarter of the controls, the channel has no operating
+  kind on more than a tenth of the controls, the channel has no operating
   point under the ceiling. Its two ‡ kinds fall back to the verdict score.
-- **Sonnet, not Opus, is the best referee on the kind channel** (0.738
-  against 0.705), and it has the lowest native false-alarm rate; Opus
-  localizes best (80 percent of its defective-case findings name the
-  mutated rule or token) and has the best verdict-channel AUC among the
-  referees (0.752).
 - **No coerced verdicts.** With the structured-output schema, no referee
-  answer was a raw pass with findings, so the coercion question the review
-  raised did not arise in this run.
-- **Self-agreement.** Twenty-nine texts were judged twice: once in a
-  superseded 1.0.0 build and once here, identical provision and artifact
-  bytes. Jev repeated its verdict on 28 of 29 (median change in P(flag)
-  0.03, maximum 0.07); Haiku repeated its verdict on 23 of 29 and produced
-  the same set of finding kinds on only 8 of 29. That join was computed from
-  the superseded run's suite texts because its rows predate the content
-  digests; `verifier.py agreement` does the same for any two current runs.
-- **Sonnet's cost** was blank on the first fold because the claude-api
-  skill's model table carries no Sonnet 4.5 row; the official pricing page
-  (fetched 2026-09-19) lists $3 in and $15 out per million, and the board was
-  re-costed from the same rows under that source.
+  answer was a raw pass with findings.
+- **Self-agreement.** Twenty-nine texts were judged twice by Haiku and by
+  Jev, once in a superseded 1.0.0 build and once here, identical provision
+  and artifact bytes. Jev repeated its verdict on 28 of 29 (median change in
+  P(flag) 0.03, maximum 0.07); Haiku repeated its verdict on 23 of 29 and
+  produced the same set of finding kinds on only 8 of 29.
 
-What this board does not say: nothing about the UK release (the suite is US
-generations from the run log), nothing about real repair rounds (the real
-corpus folds into its own board), and nothing about multi-edit defects.
+### Real defects v0
+
+The corpus (axiom-encode PR #1659, branch head `0fee8ddf`) holds 520 cases
+mined from rulespec-us and rulespec-uk fix history. The suite keeps the 172
+family representatives with `triage_status: fidelity`; controls are the
+post-fix modules and are not proven clean, so the false-alarm ceiling is not
+applied and no judge is unranked. Two boards: the full suite, on which Jev
+refused 33 cases over its input cap and Sonnet 5 lost
+16 to output truncation (both shown
+as errors, folded with `--allow-partial`), and a like-for-like child over the
+154 pairs under 100,000 characters that every
+judge could read.
+
+Full suite:
+
+| judge | model | native FAR | native det | mean kind AUC | verdict AUC | localize | median s | cost/case | total |
+|---|---|---|---|---|---|---|---|---|---|
+| jev | jev-1.13.0 | 94% | 95% | 0.655 ‡ | 0.480 | blank by construction | 0.24 | $0.00030 | $0.09 (311/344 scored) |
+| opus-5 | claude-opus-5 | 82% | 86% | 0.632 ‡ | 0.611 | 34% | 26.11 | $0.13120 | $45.13 |
+| opus | claude-opus-4-6 | 88% | 91% | 0.586 ‡ | 0.516 | 24% | 18.93 | $0.07361 | $25.32 |
+| sonnet | claude-sonnet-4-5 | 48% | 52% | 0.518 ‡ | 0.496 | 17% | 6.84 | $0.03977 | $13.68 |
+| haiku | claude-haiku-4-5-20251001 | 87% | 89% | 0.412 ‡ | 0.510 | 22% | 5.69 | $0.01431 | $4.92 |
+| sonnet-5§ | claude-sonnet-5 | 92% | 96% | — | 0.554 | 26% | 33.50 | $0.06520 | $22.43 (328/344 scored) |
+
+Per-kind kind-channel AUC (jev / opus-5 / opus / sonnet / haiku / sonnet-5): amount (n=4) 0.889 / 0.750 / 0.500 / 0.625 / 0.250 / 0.500; boundary (n=1) 1.000 / 0.500 / 1.000 / 0.000 / 0.500 / 0.500; polarity (n=7) 0.514 / 0.500 / 0.500 / 0.429 / 0.429 / 0.500; date or period (n=33) 0.555 / 0.547 ‡ / 0.476 ‡ / 0.519 ‡ / 0.535 ‡ / 0.520 ‡; entity (n=24) 0.580 / 0.533 ‡ / 0.508 ‡ / 0.562 ‡ / 0.468 ‡ / 0.554 ‡; other (n=1) 0.500 ‡ / 1.000 ‡ / 0.500 ‡ / 1.000 ‡ / 0.000 ‡ / —; unrepresented clause (n=64) 0.576 ‡ / 0.559 ‡ / 0.598 ‡ / 0.540 ‡ / 0.586 ‡ / 0.544 ‡; untraceable branch (n=38) 0.629 ‡ / 0.668 ‡ / 0.607 ‡ / 0.470 ‡ / 0.526 ‡ / 0.583 ‡.
+
+Under 100,000 characters:
+
+| judge | model | native FAR | native det | mean kind AUC | verdict AUC | localize | median s | cost/case | total |
+|---|---|---|---|---|---|---|---|---|---|
+| jev | jev-1.13.0 | 94% | 95% | 0.654 ‡ | 0.478 | blank by construction | 0.24 | $0.00030 | $0.09 |
+| opus-5 | claude-opus-5 | 80% | 84% | 0.644 ‡ | 0.600 | 37% | 24.25 | $0.10361 | $31.91 |
+| opus | claude-opus-4-6 | 87% | 90% | 0.589 ‡ | 0.520 | 27% | 17.79 | $0.05374 | $16.55 |
+| sonnet | claude-sonnet-4-5 | 49% | 54% | 0.524 ‡ | 0.512 | 19% | 6.38 | $0.02812 | $8.66 |
+| haiku | claude-haiku-4-5-20251001 | 90% | 92% | 0.429 ‡ | 0.520 | 23% | 5.49 | $0.01033 | $3.18 |
+| sonnet-5§ | claude-sonnet-5 | 90% | 95% | — | 0.567 | 29% | 31.51 | $0.05500 | $16.94 (293/308 scored) |
+
+Per-kind kind-channel AUC (jev / opus-5 / opus / sonnet / haiku / sonnet-5): amount (n=3) 0.889 / 0.833 / 0.500 / 0.667 / 0.333 / 0.500; boundary (n=1) 1.000 / 0.500 / 1.000 / 0.000 / 0.500 / 0.500; polarity (n=6) 0.514 / 0.500 / 0.500 / 0.417 / 0.500 / 0.500; date or period (n=33) 0.555 / 0.547 ‡ / 0.476 ‡ / 0.519 ‡ / 0.535 ‡ / 0.520 ‡; entity (n=20) 0.580 / 0.521 ‡ / 0.500 ‡ / 0.560 ‡ / 0.477 ‡ / 0.568 ‡; other (n=1) 0.500 ‡ / 1.000 ‡ / 0.500 ‡ / 1.000 ‡ / 0.000 ‡ / —; unrepresented clause (n=59) 0.574 ‡ / 0.565 ‡ / 0.593 ‡ / 0.544 ‡ / 0.575 ‡ / 0.558 ‡; untraceable branch (n=31) 0.621 ‡ / 0.683 ‡ / 0.646 ‡ / 0.485 ‡ / 0.514 ‡ / 0.595 ‡.
+
+How to read it:
+
+- **Real corrections are much harder than planted edits, for every judge.**
+  Jev drops from 0.908 on the synthetic suite to
+  0.655 here, and its verdict-channel AUC is
+  0.480: its pass/flag verdict does not tell a
+  pre-fix module from its own fix. The best referee configuration
+  (opus-5) reaches 0.632;
+  Haiku is below chance. Every judge except Sonnet 4.5 flags eight or nine in
+  ten of the post-fix controls.
+- **The per-kind numbers with a kind channel rest on tiny samples** (amount 4,
+  boundary 1, polarity 7). The kinds that carry the corpus, unrepresented
+  clause (64
+  pairs) and untraceable branch
+  (38 pairs),
+  have no kind-specific question in either judge family and are scored on the
+  verdict channel, where everyone is near 0.5 to 0.65.
+- **Where the signal is.** The breakdown by relative diff size shows the
+  pattern the headline hides: paired rise for fixes that changed under 2
+  percent of the module against fixes that changed 30 percent or more is
+  31% against 66%
+  for Jev, 30% against
+  66% for Opus 5 and
+  15% against 30%
+  for Sonnet 4.5. Post-merge corrections separate better than pre-merge review
+  fixes for every judge (Jev 64% against
+  47%). One-line corrections inside
+  large modules are where all of these judges fail.
+- **Input and output caps are part of the result.** Jev cannot read a case
+  over about 100,000 characters; Sonnet 5's thinking consumed the 8,192-token
+  output budget on a share of the largest modules even after one retry pass;
+  the production 2,048-token budget truncated Haiku and Sonnet 4.5 on the
+  largest modules before the runs were restarted at 8,192.
+- **The like-for-like board moves almost nothing.** Dropping the 18 largest
+  pairs changes each judge's mean kind AUC by at most a few hundredths, so the
+  full-suite comparison stands.
+
+What these boards do not say: nothing about the UK release (the synthetic
+suite is US generations from the run log), nothing about multi-edit synthetic
+defects, and nothing about judges given the diff rather than the whole module,
+which is the obvious next experiment given the diff-size pattern.
