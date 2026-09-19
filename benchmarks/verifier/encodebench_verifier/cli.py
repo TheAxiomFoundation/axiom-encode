@@ -22,6 +22,7 @@ from .board import (
     render_board_markdown,
     render_board_text,
 )
+from .breakdown import PROPERTIES, BreakdownError, breakdown
 from .cases import CaseSuite, SuiteError
 from .judges import make_runner
 from .pricing import load_pricing, price_for
@@ -285,6 +286,24 @@ def cmd_agreement(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_breakdown(args: argparse.Namespace) -> int:
+    suite = CaseSuite.load(Path(args.suite))
+    reports = []
+    for prop in args.by:
+        try:
+            report = breakdown(suite, Path(args.run), prop)
+        except BreakdownError as exc:
+            _eprint(f"error: {exc}")
+            return 2
+        print(report.render())
+        print()
+        reports.append(report.to_dict())
+    if args.json_out:
+        Path(args.json_out).write_text(json.dumps(reports, indent=1))
+        _eprint(f"wrote {args.json_out}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="verifier",
@@ -403,6 +422,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("run_b")
     p.add_argument("--json-out", default=None)
     p.set_defaults(func=cmd_agreement)
+
+    p = sub.add_parser(
+        "breakdown",
+        help="paired detection of one run by module size, diff, fix stage, ...",
+    )
+    p.add_argument("--suite", required=True)
+    p.add_argument("--run", required=True)
+    p.add_argument("--by", nargs="+", choices=PROPERTIES, default=["size", "diff"])
+    p.add_argument("--json-out", default=None)
+    p.set_defaults(func=cmd_breakdown)
 
     p = sub.add_parser("board", help="fold results into a leaderboard")
     p.add_argument("inputs", nargs="+")
