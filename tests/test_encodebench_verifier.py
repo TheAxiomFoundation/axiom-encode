@@ -2225,3 +2225,42 @@ def test_max_tokens_is_plumbed_and_part_of_referee_identity():
         ]
         == 2048
     )
+
+
+def test_breakdown_buckets_paired_detection_and_refuses_other_suites(tmp_path):
+    from encodebench_verifier.breakdown import BreakdownError, breakdown
+
+    suite = _suite_for_board()
+    suite.write(tmp_path / "suite")
+    runner = ReplayRunner(_replay_file(tmp_path, suite, "bd"), name="bd")
+    run_suite(suite, runner, tmp_path / "bd", price=None)
+    report = breakdown(suite, tmp_path / "bd", "kind")
+    assert report.complete_pairs == len(suite.cases) // 2
+    assert {b.label for b in report.buckets} == set(DEFECT_KINDS)
+    assert all(b.rise_rate == 1.0 and b.kind_auc == 1.0 for b in report.buckets)
+    size = breakdown(suite, tmp_path / "bd", "size")
+    assert sum(b.pairs for b in size.buckets) == report.complete_pairs
+    assert "paired detection by size" in size.render()
+    with pytest.raises(BreakdownError, match="unknown property"):
+        breakdown(suite, tmp_path / "bd", "colour")
+    other = _suite_for_board(seed=4)
+    with pytest.raises(BreakdownError, match="different suite"):
+        breakdown(other, tmp_path / "bd", "kind")
+    assert (
+        verifier_cli.main(
+            [
+                "breakdown",
+                "--suite",
+                str(tmp_path / "suite"),
+                "--run",
+                str(tmp_path / "bd"),
+                "--by",
+                "kind",
+                "fix_stage",
+                "--json-out",
+                str(tmp_path / "bd.json"),
+            ]
+        )
+        == 0
+    )
+    assert len(json.loads((tmp_path / "bd.json").read_text())) == 2

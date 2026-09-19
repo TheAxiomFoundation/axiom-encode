@@ -319,6 +319,25 @@ score. It refuses to compare two different judges, and says so when the two
 runs' identities differ (a different prompt or window is a comparison of two
 configurations, not a retest).
 
+## Breakdown (on which cases does a judge see the defect?)
+
+A board answers whether a judge separates defective from control; the
+breakdown answers where. It reports paired rise (the defective case scored
+strictly above its own control on the kind channel) and pooled AUC per
+bucket of module size, relative size of the fix, triage confidence, fix
+stage, kind or jurisdiction:
+
+```bash
+uv run python benchmarks/verifier/verifier.py breakdown \
+  --suite _axiom-runs/encodebench-verifier/real_v0 \
+  --run _axiom-runs/encodebench-verifier/runs_real/jev --by size diff fix_stage
+```
+
+It refuses a run judged against a different suite. On the real corpus this
+is the tool that shows the pattern behind a flat headline: a judge that is
+near chance overall may still separate large corrections cleanly and fail
+only on the one-line ones.
+
 ## Adding a judge
 
 Implement the `JudgeRunner` protocol in `judges/` (a `name`, `family`,
