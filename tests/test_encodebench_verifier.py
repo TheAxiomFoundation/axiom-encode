@@ -474,20 +474,34 @@ def test_suite_refuses_unpaired_cases():
 
 
 def test_real_fixture_loads_as_unverified_controls():
-    suite = real_source.build_real_suite(
+    suite, report = real_source.build_real_suite(
         FIXTURE_REAL, provision_chars=24_000, truncate=truncate_provision
     )
     assert suite.source_kind == "real_defects"
     assert suite.summary()["pair_count"] == 2
+    # rd-0003 is not a family representative, so the default selection drops
+    # it before its missing artifacts would.
+    assert report["skipped"] == {"family_member_not_representative": 1}
+    assert report["records_seen"] == 3
     kinds = {c.pair_id: c.defect_kind for c in suite.cases if c.is_defective}
-    assert kinds == {"rd-0001": "boundary_flipped", "rd-0002": "conjunct_dropped"}
+    assert kinds == {
+        "rd-0001": "boundary_flipped",
+        "rd-0002": "other:unrepresented_clause",
+    }
+    assert suite.source_identity["selection"]["representatives_only"] is True
+    assert suite.corpus_release == "us-rulespec-2026-07-14"
     for case in suite.cases:
         assert case.control_clean == "unverified"
     defective = next(
         c for c in suite.cases if c.pair_id == "rd-0001" and c.is_defective
     )
     assert defective.locator.rule_name == "tax_table_method_applies"
-    assert defective.locator.token == "tax_table_income"
+    # The corpus schema carries rule names, not tokens: the rule name doubles
+    # as the localisation token.
+    assert defective.locator.token == "tax_table_method_applies"
+    assert (
+        defective.locator.path == "rules[tax_table_method_applies].versions[0].formula"
+    )
     control = next(
         c for c in suite.cases if c.pair_id == "rd-0001" and not c.is_defective
     )
@@ -510,7 +524,12 @@ def test_real_loader_refuses_hash_mismatch_and_identical_pairs(tmp_path):
             root, provision_chars=24_000, truncate=truncate_provision
         )
     payload = json.loads((case_dir / "case.json").read_text())
-    payload.pop("hashes")
+    for key in (
+        "pre_fix_artifact_sha256",
+        "post_fix_artifact_sha256",
+        "provision_sha256",
+    ):
+        payload.pop(key)
     (case_dir / "pre_fix.yaml").write_text((case_dir / "post_fix.yaml").read_text())
     (case_dir / "case.json").write_text(json.dumps(payload))
     with pytest.raises(real_source.RealDefectsError, match="identical"):
@@ -534,7 +553,7 @@ def test_real_loader_maps_unknown_kinds_to_other_and_accepts_inline_content(tmp_
             }
         )
     )
-    suite = real_source.build_real_suite(
+    suite, _ = real_source.build_real_suite(
         root, provision_chars=100, truncate=truncate_provision
     )
     defective = next(c for c in suite.cases if c.is_defective)
@@ -542,6 +561,18 @@ def test_real_loader_maps_unknown_kinds_to_other_and_accepts_inline_content(tmp_
     assert defective.locator.rule_name == "some_rule"
     assert real_source.normalise_kind("Boundary Direction") == "boundary_flipped"
     assert real_source.normalise_kind("effective_date") == "date_or_period_wrong"
+    assert (
+        real_source.normalise_kind("wrong_period_or_effective_date")
+        == "date_or_period_wrong"
+    )
+    assert real_source.normalise_kind("wrong_entity_or_scope") == "entity_wrong"
+    assert real_source.normalise_kind("polarity_or_logic") == "polarity_swapped"
+    assert (
+        real_source.normalise_kind("untraceable_branch") == "other:untraceable_branch"
+    )
+    assert (
+        real_source.normalise_kind("other", "a long free-text label") == "other:other"
+    )
 
 
 # -- metrics ---------------------------------------------------------------------
@@ -605,7 +636,8 @@ def test_pricing_table_has_sources_and_costs_are_blank_without_a_price():
         assert price.input_usd_per_million >= 0
     assert "claude-haiku-4-5-20251001" in prices
     assert "jev-1.13.0" in prices
-    assert "claude-sonnet-4-5" not in prices
+    assert prices["claude-sonnet-4-5"].input_usd_per_million == 3.0
+    assert "platform.claude.com" in prices["claude-sonnet-4-5"].source
     assert cost_usd(None, 100, 100) is None
     assert cost_usd(Price("m", 1.0, 5.0, "s"), 1_000_000, 200_000) == pytest.approx(2.0)
 
@@ -1057,7 +1089,7 @@ def test_cli_end_to_end_with_replay_runner(tmp_path, capsys):
         == 0
     )
     out = capsys.readouterr().out
-    assert "False-alarm ceiling on native verdict: 25%" in out
+    assert "False-alarm ceiling on native verdict: 10%" in out
     assert (
         (tmp_path / "board.md").read_text().startswith("# EncodeBench verifier board")
     )
@@ -1545,7 +1577,7 @@ def test_board_spend_and_latency_cover_error_rows_and_blank_unknown_usage(tmp_pa
 
 
 def test_board_handles_other_kinds_and_unverified_controls(tmp_path):
-    suite = real_source.build_real_suite(
+    suite, _ = real_source.build_real_suite(
         FIXTURE_REAL, provision_chars=24_000, truncate=truncate_provision
     )
     # Relabel one pair as an out-of-taxonomy kind through a hand-built suite.
@@ -1577,6 +1609,7 @@ def test_board_handles_other_kinds_and_unverified_controls(tmp_path):
     board = board_module.fold_verifier_board([tmp_path / "fa"])
     assert board.ceiling_applied is False
     assert board.kinds == ["boundary_flipped", "other:wrong_import"]
+    assert board.ceiling_applied is False
     stats = board.runners[0]
     # Flagging unverified post-fix controls does not unrank a judge.
     assert stats.native_false_alarm_rate == 1.0
@@ -2079,5 +2112,73 @@ def test_agreement_joins_on_identical_text_and_refuses_different_judges(tmp_path
     )
     assert (
         verifier_cli.main(["agreement", str(tmp_path / "t1"), str(tmp_path / "t3")])
+        == 2
+    )
+
+
+def test_real_loader_selection_filters_and_reads_readme_keys(tmp_path):
+    suite, report = real_source.build_real_suite(
+        FIXTURE_REAL,
+        provision_chars=24_000,
+        truncate=truncate_provision,
+        representatives_only=False,
+        triage_statuses=(),
+    )
+    # rd-0003 is a family member and metadata-only: kept by the filters but skipped
+    # at load because it ships no artifacts.
+    assert report["skipped"] == {"metadata_only": 1}
+    assert suite.summary()["pair_count"] == 2
+    _, report = real_source.build_real_suite(
+        FIXTURE_REAL,
+        provision_chars=24_000,
+        truncate=truncate_provision,
+        min_confidence=0.85,
+    )
+    assert report["pairs_kept"] == 1 and report["skipped"]["below_min_confidence"] == 1
+    with pytest.raises(real_source.RealDefectsError, match="has no cases"):
+        real_source.build_real_suite(
+            FIXTURE_REAL,
+            provision_chars=24_000,
+            truncate=truncate_provision,
+            jurisdictions=("uk",),
+        )
+    defective = next(
+        c for c in suite.cases if c.pair_id == "rd-0001" and c.is_defective
+    )
+    assert (
+        defective.locator.path == "rules[tax_table_method_applies].versions[0].formula"
+    )
+    assert defective.locator.rule_name == "tax_table_method_applies"
+    assert "pre-fix lines" in defective.locator.detail
+    assert defective.origin["fix_reference"].endswith("/pull/1")
+    assert defective.origin["fix_stage"] == "post_merge"
+    assert (
+        verifier_cli.main(
+            [
+                "build-real",
+                "--dir",
+                str(FIXTURE_REAL),
+                "--out",
+                str(tmp_path / "r"),
+                "--jurisdiction",
+                "us",
+                "--min-confidence",
+                "0.5",
+            ]
+        )
+        == 0
+    )
+    assert (
+        verifier_cli.main(
+            [
+                "build-real",
+                "--dir",
+                str(FIXTURE_REAL),
+                "--out",
+                str(tmp_path / "r2"),
+                "--jurisdiction",
+                "uk",
+            ]
+        )
         == 2
     )

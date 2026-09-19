@@ -1,29 +1,21 @@
 # Real defects example fixture
 
-A two-case stand-in for `benchmarks/verifier/real_defects_v0/`, which another
-session is producing. The loader in `encodebench_verifier/sources/real.py`
-was written against the brief for that corpus and this fixture; when the real
-README lands, reconcile any field-name differences in the loader, never in
-the corpus directory.
-
-Shape assumed per case (one JSON per case, sibling files next to it):
+A three-record stand-in for `benchmarks/verifier/real_defects_v0/` (axiom-encode
+PR #1659), written in that corpus's own `case.json` key names so the loader in
+`encodebench_verifier/sources/real.py` is tested against the schema of record:
 
 ```
-cases/<case_id>/case.json
-cases/<case_id>/provision.txt     the provision text the encoder was given
-cases/<case_id>/pre_fix.yaml      the defective artifact (before the repair)
-cases/<case_id>/post_fix.yaml     the repaired artifact (the control; not proven clean)
+cases/<id>/case.json         id, jurisdiction, repo, commit, parent_commit, module_path,
+                             corpus_citation_path, corpus_release, defect_kind, other_kind,
+                             confidence, description, locator{pre_fix_lines, post_fix_lines,
+                             rule_names, rule_path}, pre_fix_artifact_sha256,
+                             post_fix_artifact_sha256, provision_sha256, fix_stage,
+                             triage_status, family_id, family_representative, artifacts_shipped
+cases/<id>/pre_fix.yaml      the defective artifact (before the correcting commit)
+cases/<id>/post_fix.yaml     the repaired artifact (the control; not proven clean)
+cases/<id>/provision.txt     the provision text
 ```
 
-`case.json` fields:
-
-| field | meaning |
-|---|---|
-| `case_id` | stable id; the pair id on the board |
-| `citation` | corpus citation path |
-| `defect_kind` | one of the six synthetic kinds, or any other label (kept as `other:<label>`) |
-| `locator` | `{path, rule_name, detail, token}` or a path string |
-| `provision`, `pre_fix`, `post_fix` | file names relative to the case JSON (defaults shown above) |
-| `hashes` | `{provision, pre_fix, post_fix}` sha256 of the file contents; verified when present |
-| `generator_model` | model that produced `pre_fix` |
-| `fix_reference` | where the repair is recorded (PR, run id, findings file) |
+`rd-0001` is a boundary correction, `rd-0002` an unrepresented clause (kept as
+an `other:` kind on the board), and `rd-0003` a metadata-only family member
+(`artifacts_shipped: false`) that the loader must skip and count, never invent.

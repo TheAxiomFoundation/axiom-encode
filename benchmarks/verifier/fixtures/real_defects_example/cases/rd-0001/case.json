@@ -1,21 +1,45 @@
 {
-  "case_id": "rd-0001",
-  "citation": "us-de/statute/30/1102",
+  "id": "rd-0001",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "1111111111111111111111111111111111111111",
+  "parent_commit": "0000000000000000000000000000000000000000",
+  "commit_subject": "Fix boundary in tax table method",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1",
+  "module_path": "us-de/statutes/30/1102/d.yaml",
+  "corpus_citation_path": "us-de/statute/30/1102",
+  "corpus_release": "us-rulespec-2026-07-14",
   "defect_kind": "boundary_direction",
+  "other_kind": null,
+  "confidence": 0.9,
+  "description": "does not exceed $60,000 is <=, not <",
+  "description_source": "commit_message",
   "locator": {
-    "path": "rules[1].versions[0].formula",
-    "rule_name": "tax_table_method_applies",
-    "detail": "'<' where the provision says does not exceed",
-    "token": "tax_table_income"
+    "pre_fix_lines": [
+      [
+        24,
+        24
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        24,
+        24
+      ]
+    ],
+    "rule_names": [
+      "tax_table_method_applies"
+    ],
+    "rule_path": "rules[tax_table_method_applies].versions[0].formula"
   },
-  "generator_model": "gpt-5.5",
-  "fix_reference": "repair round example; findings file rd-0001.findings.yaml",
-  "provision": "provision.txt",
-  "pre_fix": "pre_fix.yaml",
-  "post_fix": "post_fix.yaml",
-  "hashes": {
-    "provision": "484d95f65179a6383de51b5062c1fe464332ef8b4ededdf9b412b1e27e71e43c",
-    "pre_fix": "38ce085516be6c01e2239bf6086ef5c78fd4bda1b7d2173af14acb68bedb3fd8",
-    "post_fix": "6e869e2d5429bb69363b717abfa814f8294ca2afc79f7dda556de16e92cb1dec"
-  }
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "family_id": "us-11111111-a",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true,
+  "pre_fix_artifact_sha256": "38ce085516be6c01e2239bf6086ef5c78fd4bda1b7d2173af14acb68bedb3fd8",
+  "post_fix_artifact_sha256": "6e869e2d5429bb69363b717abfa814f8294ca2afc79f7dda556de16e92cb1dec",
+  "provision_sha256": "484d95f65179a6383de51b5062c1fe464332ef8b4ededdf9b412b1e27e71e43c",
+  "provision_chars": 249
 }

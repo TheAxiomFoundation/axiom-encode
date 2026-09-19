@@ -1,0 +1,21 @@
+{
+  "id": "rd-0003",
+  "jurisdiction": "us",
+  "defect_kind": "untraceable_branch",
+  "corpus_citation_path": "us/policies/cbp/us-tariff-schedule/generated/ch02",
+  "family_id": "us-22222222-b",
+  "family_size": 2,
+  "family_representative": false,
+  "artifacts_shipped": false,
+  "triage_status": "fidelity",
+  "confidence": 0.7,
+  "pre_fix_artifact_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "post_fix_artifact_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "provision_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "locator": {
+    "rule_names": [
+      "x"
+    ],
+    "rule_path": "rules[x]"
+  }
+}
