@@ -377,6 +377,15 @@ as the record of which cases it scored.
   taxpayer, employer, ...) and is the weakest of the six; treat that column
   as indicative.
 - Cost is quoted only where a price is on file; blank is not zero.
+- The referee's production output budget truncates on large artifacts.
+  `JudgeClient` defaults to 2,048 output tokens; on the real corpus the
+  referee's findings list for modules of 30,000 input tokens and more ran
+  past it, the JSON was cut, and the case became a `parse_error` row (never
+  a pass). That is a finding about the production default worth carrying to
+  the judges package. The real-corpus referee runs use `--max-tokens 8192`,
+  recorded in the runner identity, so the board measures reading rather than
+  a token cap; the synthetic board ran at the production 2,048 and hit it
+  once in 1,080 referee calls.
 - Jev has an input cap. On the real corpus every case up to 100,670
   characters of provision window plus artifact was answered and every case
   from 101,617 characters up was refused with a 400 `max_tokens_exceeded`

@@ -2211,3 +2211,17 @@ def test_cli_filter_suite_by_max_case_chars(tmp_path):
     child = CaseSuite.load(tmp_path / "o")
     assert len(child.cases) == len(suite.cases)
     assert child.source_identity["derived_from"]["filter"]["max_case_chars"] == biggest
+
+
+def test_max_tokens_is_plumbed_and_part_of_referee_identity():
+    default = make_runner("referee:claude-haiku-4-5-20251001")
+    bigger = make_runner("referee:claude-haiku-4-5-20251001", max_tokens=8192)
+    assert default.identity()["max_tokens"] == 2048
+    assert bigger.identity()["max_tokens"] == 8192
+    assert default.identity() != bigger.identity()
+    assert (
+        make_runner("referee:claude-haiku-4-5-20251001", max_tokens=None).identity()[
+            "max_tokens"
+        ]
+        == 2048
+    )
