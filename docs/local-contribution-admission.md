@@ -94,7 +94,13 @@ authenticated generation records.
 
 These are implementation deliverables, not commands that already work.
 Use the roles, closed schemas, registry, and administrative transitions in
-v33; enrollment must not introduce an alternate trust file or signing path.
+v33; enrollment must not introduce an alternate key authority or signing path.
+The implementation in [#1662](https://github.com/TheAxiomFoundation/axiom-encode/pull/1662)
+proposes supplemental `.axiom/notary/producers.json` metadata to bind registered
+keys to approved GitHub operators and reviewed encoder/runtime identities.
+That additional enrollment contract requires Max's explicit review; it is not
+part of the already approved v33 registry schema. It must enter through the
+administrative trust process and cannot authorize itself from a candidate PR.
 
 ### 1. Authenticate and authorize a producer
 
@@ -112,8 +118,10 @@ enter through the §8 ceremony and §6.2 genesis; subsequent additions use
 §6.4's administrative transition under predecessor-state roots. The
 normative public-key registry is `.axiom/notary/keys.json` (§5), not an
 organization variable or a file the contributor can self-authorize. The
-enrollment record supports that authorization and is not a new verifier
-schema or substitute for the registry. Name the host custodian and all
+enrollment record supports that authorization and is not a substitute for the
+registry. Supplemental runtime/operator metadata, if approved, is an additional
+intake restriction; signature authority still comes exclusively from the
+normative registry. Name the host custodian and all
 other required key custodians in the ceremony record before enrollment is
 activated.
 
@@ -238,7 +246,12 @@ checks. Those are tracked deployment prerequisites, not completed by docs.
 2. **Implementation and isolated fixtures:** deliver the verifier, producer
    enrollment/emission tools, and notary integration against the acceptance
    cases below. [#1511](https://github.com/TheAxiomFoundation/axiom-encode/pull/1511)
-   is the initial verifier-core work, not an onboarding or signing service.
+   is the initial verifier-core work. [#1662](https://github.com/TheAxiomFoundation/axiom-encode/pull/1662)
+   integrates that core with enrollment checks, exact-byte coverage replay,
+   chain reconstruction, typed signer operations and authenticated GitHub
+   readers. It still lacks the supervised emission operation, deployed services,
+   GitHub write broker, admission workflows and consumer rollout. Neither PR
+   establishes a working contributor path by itself.
 3. **Operator deployment and pilot:** satisfy every v33 §9
    precondition, complete the custody ceremony, and activate the `rulespec-nz`
    pilot. Report-only verification supplies no merge authority.
