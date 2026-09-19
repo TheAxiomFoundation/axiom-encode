@@ -2182,3 +2182,32 @@ def test_real_loader_selection_filters_and_reads_readme_keys(tmp_path):
         )
         == 2
     )
+
+
+def test_cli_filter_suite_by_max_case_chars(tmp_path):
+    suite = _suite_for_board()
+    suite.write(tmp_path / "suite")
+    biggest = max(len(c.provision_text) + len(c.artifact_text) for c in suite.cases)
+    base = ["filter-suite", "--suite", str(tmp_path / "suite"), "--name", "small"]
+    assert (
+        verifier_cli.main(
+            base + ["--out", str(tmp_path / "o"), "--max-case-chars", "0"]
+        )
+        == 2
+    )
+    # A limit below every case leaves nothing: refused, not an empty suite.
+    assert (
+        verifier_cli.main(
+            base + ["--out", str(tmp_path / "o"), "--max-case-chars", "10"]
+        )
+        == 2
+    )
+    assert (
+        verifier_cli.main(
+            base + ["--out", str(tmp_path / "o"), "--max-case-chars", str(biggest)]
+        )
+        == 0
+    )
+    child = CaseSuite.load(tmp_path / "o")
+    assert len(child.cases) == len(suite.cases)
+    assert child.source_identity["derived_from"]["filter"]["max_case_chars"] == biggest

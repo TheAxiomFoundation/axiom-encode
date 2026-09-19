@@ -233,7 +233,10 @@ uv run python benchmarks/verifier/verifier.py filter-suite \
   --out _axiom-runs/encodebench-verifier/synthetic_us_v1_final
 ```
 
-A filter must never depend on judge outputs. Rows already judged against the
+`--max-case-chars N` drops pairs whose larger member (provision window plus
+artifact) exceeds N characters, for a like-for-like board when one judge has
+an input cap. A filter must never depend on judge outputs beyond such a
+stated, size-based rule. Rows already judged against the
 parent fold into the child without re-judging: point `run` at the child suite
 and the same `--out` directory, and it re-assembles `results.json` from
 `cases.jsonl`, re-stamping row positions. Parent-suite and child-suite runs
@@ -374,6 +377,14 @@ as the record of which cases it scored.
   taxpayer, employer, ...) and is the weakest of the six; treat that column
   as indicative.
 - Cost is quoted only where a price is on file; blank is not zero.
+- Jev has an input cap. On the real corpus every case up to 100,670
+  characters of provision window plus artifact was answered and every case
+  from 101,617 characters up was refused with a 400 `max_tokens_exceeded`
+  (about 25 to 30 thousand tokens). Those cases are error rows for Jev,
+  never passes, and the full real board folds them with `--allow-partial`
+  so the limitation shows. A like-for-like board over the cases every judge
+  could read is derived with `filter-suite --max-case-chars 100000`; both
+  boards are reported.
 - The first board is drawn from `encodings.db` generations by `gpt-5.5`,
   which is fine for the artifacts being judged but is not the pinned UK
   release; the UK synthetic set follows the encoder track's outputs.

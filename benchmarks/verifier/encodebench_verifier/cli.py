@@ -103,12 +103,20 @@ def cmd_filter_suite(args: argparse.Namespace) -> int:
     keep = tuple(args.keep_citation_prefix or ())
     drop = tuple(args.drop_citation_prefix or ())
     drop_pairs = set(args.drop_pair or ())
-    if not keep and not drop and not drop_pairs:
+    max_chars = args.max_case_chars
+    if not keep and not drop and not drop_pairs and max_chars is None:
         _eprint(
-            "filter-suite needs --keep-citation-prefix, --drop-citation-prefix "
-            "and/or --drop-pair"
+            "filter-suite needs --keep-citation-prefix, --drop-citation-prefix, "
+            "--drop-pair and/or --max-case-chars"
         )
         return 2
+    if max_chars is not None and max_chars < 1:
+        _eprint("error: --max-case-chars must be at least 1")
+        return 2
+    sizes: dict[str, int] = {}
+    for case in suite.cases:
+        size = len(case.provision_text) + len(case.artifact_text)
+        sizes[case.pair_id] = max(sizes.get(case.pair_id, 0), size)
     known_pairs = {case.pair_id for case in suite.cases}
     unknown = sorted(drop_pairs - known_pairs)
     if unknown:
@@ -122,6 +130,8 @@ def cmd_filter_suite(args: argparse.Namespace) -> int:
         citation = case.citation
         if case.pair_id in drop_pairs:
             return False
+        if max_chars is not None and sizes[case.pair_id] > max_chars:
+            return False
         if keep and not citation.startswith(keep):
             return False
         return not (drop and citation.startswith(drop))
@@ -133,6 +143,7 @@ def cmd_filter_suite(args: argparse.Namespace) -> int:
             "keep_citation_prefix": list(keep),
             "drop_citation_prefix": list(drop),
             "drop_pairs": sorted(drop_pairs),
+            "max_case_chars": max_chars,
             "reason": args.reason,
         },
     )
@@ -328,6 +339,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="pair ids to drop; the criterion must not depend on judge outputs",
     )
     p.add_argument("--reason", default=None, help="why pairs were dropped (recorded)")
+    p.add_argument(
+        "--max-case-chars",
+        type=int,
+        default=None,
+        help=(
+            "drop pairs whose larger member (provision window + artifact) exceeds "
+            "this many characters, e.g. to fold a like-for-like board over cases "
+            "every judge could read"
+        ),
+    )
     p.add_argument("--name", required=True)
     p.add_argument("--out", required=True)
     p.set_defaults(func=cmd_filter_suite)
