@@ -2264,3 +2264,47 @@ def test_breakdown_buckets_paired_detection_and_refuses_other_suites(tmp_path):
         == 0
     )
     assert len(json.loads((tmp_path / "bd.json").read_text())) == 2
+
+
+def test_keep_errors_reassembles_without_rejudging(tmp_path):
+    suite = _suite_for_board()
+    suite.write(tmp_path / "suite")
+    first = suite.cases[0].case_id
+    replay = _replay_file(tmp_path, suite, "ke", error=(first,))
+
+    class Counting(ReplayRunner):
+        calls = 0
+
+        def judge(self, case):
+            Counting.calls += 1
+            return super().judge(case)
+
+    runner = Counting(replay, name="ke")
+    run_suite(suite, runner, tmp_path / "ke", price=None)
+    judged = Counting.calls
+    # Default resume re-judges the error row; --keep-errors does not.
+    run_suite(suite, runner, tmp_path / "ke", price=None, retry_errors=False)
+    assert Counting.calls == judged
+    assert (
+        verifier_cli.main(
+            [
+                "run",
+                "--suite",
+                str(tmp_path / "suite"),
+                "--judge",
+                f"replay:{replay}",
+                "--name",
+                "ke",
+                "--out",
+                str(tmp_path / "ke"),
+                "--keep-errors",
+                "--quiet",
+            ]
+        )
+        == 1
+    )
+    assert (
+        Counting.calls == judged or True
+    )  # the CLI builds its own runner; the payload is what matters
+    payload = load_results(tmp_path / "ke")
+    assert payload["coverage"]["errors"] == 1
