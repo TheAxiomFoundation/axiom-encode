@@ -175,6 +175,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         provision_chars=suite.provision_chars,
         max_attempts=args.max_attempts,
         retry_seconds=args.retry_seconds,
+        max_tokens=args.max_tokens,
         timeout=args.timeout,
         # JudgeClient counts attempts; the TypeSafe RetryPolicy counts retries
         # after the first attempt. Keep both families on the same budget.
@@ -379,6 +380,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--max-attempts", type=int, default=4)
     p.add_argument("--retry-seconds", type=float, default=15.0)
+    p.add_argument(
+        "--max-tokens",
+        type=int,
+        default=None,
+        help=(
+            "referee output budget; default is the production JudgeClient value "
+            "(2048), which truncates long findings lists on large artifacts into "
+            "parse errors. Recorded in the runner identity."
+        ),
+    )
     p.add_argument("--timeout", type=float, default=60.0)
     p.add_argument("--pricing", default=None)
     p.add_argument("--quiet", action="store_true")
