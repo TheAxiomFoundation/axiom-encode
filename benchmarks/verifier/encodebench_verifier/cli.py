@@ -196,6 +196,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             resume=not args.fresh,
             limit=args.limit,
             progress=_eprint if not args.quiet else None,
+            retry_errors=not args.keep_errors,
         )
     except KeyboardInterrupt:
         _eprint(
@@ -396,6 +397,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--fresh",
         action="store_true",
         help="rotate cases.jsonl and results.json to .bak files and start over",
+    )
+    p.add_argument(
+        "--keep-errors",
+        action="store_true",
+        help=(
+            "do not re-judge error rows on resume; use to re-assemble results.json "
+            "(for a derived suite, a new price) without spending"
+        ),
     )
     p.add_argument("--max-attempts", type=int, default=4)
     p.add_argument("--retry-seconds", type=float, default=15.0)
