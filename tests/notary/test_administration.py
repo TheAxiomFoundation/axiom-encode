@@ -232,7 +232,7 @@ def test_legacy_inventory_loads_authenticated_release_object_from_directory(
             snapshot("a" * 40, blobs),
             lane="TheAxiomFoundation/rulespec-us",
             apply_root=genesis_args(epoch)["legacy_apply_root"],
-            expected_encoder_identity={},
+            expected_encoder_identity=genesis_args(epoch)["expected_encoder_identity"],
             local_corpus_release=corpus,
             corpus_public_keys=[
                 Ed25519PublicKey.from_public_bytes(
@@ -243,3 +243,89 @@ def test_legacy_inventory_loads_authenticated_release_object_from_directory(
         == []
     )
     assert len(seen) == 1
+
+
+def test_legacy_inventory_forwards_canonical_identity_to_real_v5_comparator(
+    epoch, monkeypatch
+):
+    from axiom_encode import cli
+    from axiom_encode.notary.administration import legacy_inventory
+
+    public = genesis_args(epoch)["expected_encoder_identity"]
+    legacy = public | {"repository": cli.APPLIED_ENCODING_OFFICIAL_REPOSITORY}
+    payload = {
+        "axiom_encode_version": public["version"],
+        "axiom_encode_git": {"commit": public["commit"], "identity_source": "git"},
+        "source_attestation": {"rulespec_root": "."},
+        "applied_files": [{"path": "rules/example.yaml", "sha256": "b" * 64}],
+        "validation_execution": {
+            "schema": "axiom-encode/apply-validation-execution/v1",
+            "axiom_encode": legacy | {"identity_source": "git"},
+            "axiom_rules_engine": {
+                "repository": "github.com/TheAxiomFoundation/axiom-rules-engine",
+                "commit": "e" * 40,
+            },
+            "policy_pre_apply": {
+                "rulespec_root": ".",
+                "pre_apply_content_sha256": "b" * 64,
+                "pre_apply_file_count": 1,
+                "toolchain_contract_sha256": "c" * 64,
+                "validation_waiver_set_sha256": "d" * 64,
+            },
+            "rulespec_dependencies": [],
+        },
+    }
+    seen = []
+
+    def verify(root, name, **kwargs):
+        # This isolates the adapter boundary using the REAL legacy identity
+        # comparator, not a second implementation of its comparison. Other
+        # signed-v5 requirements have their existing CLI contract tests.
+        issues = cli._model_apply_validation_execution_issues(
+            payload,
+            manifest_label="fixture",
+            expected_waiver_set_sha256="d" * 64,
+            expected_encoder_identity=kwargs["expected_encoder_identity"],
+        )
+        seen.append(kwargs["expected_encoder_identity"])
+        return payload if not issues else None, "", "f" * 64, issues
+
+    monkeypatch.setattr(cli, "_load_verified_applied_encoding_manifest_payload", verify)
+    base = snapshot("a" * 40, {".axiom/encoding-manifests/fixture.json": b"{}"})
+    result = legacy_inventory(
+        base,
+        lane=epoch.anchor.lane,
+        apply_root=genesis_args(epoch)["legacy_apply_root"],
+        expected_encoder_identity=public,
+        local_corpus_release=None,
+    )
+    assert seen == [legacy]
+    assert result == [["rules/example.yaml", "b" * 64, "f" * 64]]
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {},
+        {
+            "repository": "outsider/axiom-encode",
+            "commit": "a" * 40,
+            "version": "fixture",
+        },
+        {
+            "repository": "TheAxiomFoundation/axiom-encode",
+            "commit": "main",
+            "version": "fixture",
+        },
+        {
+            "repository": "TheAxiomFoundation/axiom-encode",
+            "commit": "a" * 40,
+            "version": "",
+        },
+    ],
+)
+def test_genesis_refuses_bad_encoder_binding_before_classifying_baseline(epoch, bad):
+    with pytest.raises(InvalidChain, match="genesis_encoder_identity"):
+        build_genesis(
+            epoch.base, **(genesis_args(epoch) | {"expected_encoder_identity": bad})
+        )

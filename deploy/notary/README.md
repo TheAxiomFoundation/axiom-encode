@@ -50,7 +50,12 @@ the key-owning account. Fixed endpoints refuse redirects and environment proxies
 `deployment.build_app` validates the complete closed configuration. Shared
 fields are `schema: axiom/notary-service-config/v1`, `role`, `deployment`,
 `ceremony`, `encoder_identity` and `credentials`. `Deployment` in
-`notary/github_inputs.py` defines every public field. Obtain real numeric repo,
+`notary/github_inputs.py` defines every public field. The ceremony's `arguments.expected_encoder_identity` is a separate closed
+`{repository, commit, version}` object: use public repository
+`TheAxiomFoundation/axiom-encode` and the frozen full Git commit/version. The
+legacy verifier adapter converts only that fixed repository to its
+`github.com/` attestation spelling. Malformed identities refuse before legacy
+records can be classified as unattested. Obtain real numeric repo,
 owner, reviewer, ruleset, App and installation IDs from the deployment; do not
 substitute handles or fixture numbers. Credentials differ by role:
 
