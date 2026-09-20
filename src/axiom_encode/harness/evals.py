@@ -45,6 +45,10 @@ from axiom_encode.constants import (
     RULESPEC_FILE_SUFFIX,
     RULESPEC_TEST_FILE_SUFFIX,
 )
+from axiom_encode.engine_binding import (
+    bind_clean_engine_checkout,
+    engine_ref_arguments,
+)
 from axiom_encode.legacy_replacement import LegacyReplacementContract
 from axiom_encode.legacy_replacement_overlay import (
     LegacyReplacementOverlayError,
@@ -52,7 +56,10 @@ from axiom_encode.legacy_replacement_overlay import (
     scope_canonical_replacement_overlay,
     stage_legacy_replacement_overlay,
 )
-from axiom_encode.prompts.encoder import SOURCE_SCOPE_PROTOCOL
+from axiom_encode.prompts.encoder import (
+    LIFETIME_FIXTURE_PROTOCOL,
+    SOURCE_SCOPE_PROTOCOL,
+)
 from axiom_encode.repair_candidate_contract import (
     VALIDATION_RETRY_CANDIDATE_MAX_FILE_BYTES,
     VALIDATION_RETRY_CANDIDATE_MAX_TOTAL_BYTES,
@@ -69,6 +76,7 @@ from axiom_encode.retry_feedback import (
     VALIDATION_RETRY_FEEDBACK_MAX_TOTAL_CHARS,
     bounded_validation_retry_feedback_item,
 )
+from axiom_encode.rulespec_formula_identifiers import formula_reference_identifiers
 from axiom_encode.signing_broker import SigningBroker
 from axiom_encode.statute import (
     CitationParts,
@@ -106,6 +114,10 @@ from .eval_prompt_surface import (
     render_date_silent_scaffold_guidance,
     render_single_amount_row_guidance,
     render_uk_legislation_guidance,
+)
+from .lifetime_fixture_contracts import (
+    exact_fixture_value_equal,
+    validate_lifetime_test_contract,
 )
 from .observability import emit_eval_result, extract_reasoning_output_tokens
 from .policyengine_runtime import (
@@ -810,6 +822,46 @@ class EvalArtifactMetrics:
     policyengine_issues: list[str] = field(default_factory=list)
     policyengine_runtime_identity: dict[str, object] | None = None
     policyengine_runtime_identity_sha256: str | None = None
+    generalist_review_status: str | None = None
+    generalist_review_skip_reason: str | None = None
+
+
+def generalist_review_snapshot(metrics) -> dict[str, object] | None:
+    """Report reviewer evidence without interpreting absence as approval."""
+    if metrics is None:
+        return None
+    score = getattr(metrics, "generalist_review_score", None)
+    recorded_pass = getattr(metrics, "generalist_review_pass", None)
+    issues = list(getattr(metrics, "generalist_review_issues", None) or [])
+    prompt_hash = getattr(metrics, "generalist_review_prompt_sha256", None)
+    explicit_status = getattr(metrics, "generalist_review_status", None)
+    if score is not None:
+        status = "passed" if recorded_pass is True else "failed"
+        passed = recorded_pass is True
+    elif explicit_status == "skipped":
+        status, passed = "skipped", None
+    elif (
+        recorded_pass is False
+        or issues
+        or prompt_hash
+        or explicit_status == "unavailable"
+    ):
+        status = "unavailable"
+        passed = False if recorded_pass is False else None
+    else:
+        # Old pass=True/no-score rows include synthetic skips. Their actual
+        # review execution status cannot be reconstructed from that boolean.
+        status, passed = "not_recorded", None
+    return {
+        "status": status,
+        "passed": passed,
+        "score": score,
+        "issues": issues,
+        "prompt_sha256": prompt_hash,
+        "skip_reason": getattr(metrics, "generalist_review_skip_reason", None)
+        if status == "skipped"
+        else None,
+    }
 
 
 _VALIDATION_ISSUE_CLASSIFIERS: tuple[tuple[re.Pattern[str], str], ...] = (
@@ -1191,6 +1243,14 @@ class EvalResult:
             data.pop("require_complete_source_unit", None)
         if self.metrics is not None:
             data["metrics"] = asdict(self.metrics)
+            if (
+                self.metrics.generalist_review_status is None
+                and self.metrics.generalist_review_skip_reason is None
+            ):
+                # Rehydrated historical v6 verdicts must retain their exact
+                # authenticated metric shape, without newly injected nulls.
+                data["metrics"].pop("generalist_review_status")
+                data["metrics"].pop("generalist_review_skip_reason")
         return _bind_eval_result_payload(data)
 
 
@@ -1583,8 +1643,11 @@ def run_model_eval(
     validation_retry_candidate: ValidationRetryCandidate | None = None,
     repair_candidate_tests_only: bool = False,
     accept_valid_retry_candidate: bool = False,
+    axiom_rules_engine_ref: str | None = None,
 ) -> list[EvalResult]:
     """Run a deterministic comparison over one or more citations."""
+    if axiom_rules_engine_ref is not None:
+        bind_clean_engine_checkout(runtime_axiom_rules_path, axiom_rules_engine_ref)
     _validate_eval_oracle_runtime(oracle, policyengine_runtime, policy_path)
     if target_relative_output is not None and len(citations) != 1:
         raise ValueError(
@@ -1661,6 +1724,7 @@ def run_model_eval(
                         required_import_targets=required_import_targets,
                         legacy_replacement=legacy_replacement,
                         replacement_overlay_scope=replacement_overlay_scope,
+                        **engine_ref_arguments(axiom_rules_engine_ref),
                     )
                 )
 
@@ -4620,6 +4684,8 @@ _REVIEWER_DEPENDENT_METRIC_FIELDS = (
     "generalist_review_score",
     "generalist_review_issues",
     "generalist_review_prompt_sha256",
+    "generalist_review_status",
+    "generalist_review_skip_reason",
 )
 
 
@@ -4678,6 +4744,7 @@ def _revalidate_persisted_eval_suite_case_results(
                 policyengine_runtime=policyengine_runtime,
                 policyengine_rule_hint=case.policyengine_rule_hint,
                 skip_reviewers=True,
+                reviewer_skip_reason="persisted_revalidation",
                 source_metadata=source_metadata,
                 source_citation_path=source_citation_path,
                 rulespec_dependency_roots=rulespec_dependency_roots,
@@ -5471,6 +5538,10 @@ def _eval_result_from_payload(
             ),
             generalist_review_prompt_sha256=metrics_payload.get(
                 "generalist_review_prompt_sha256"
+            ),
+            generalist_review_status=metrics_payload.get("generalist_review_status"),
+            generalist_review_skip_reason=metrics_payload.get(
+                "generalist_review_skip_reason"
             ),
             policyengine_pass=metrics_payload.get("policyengine_pass"),
             policyengine_score=metrics_payload.get("policyengine_score"),
@@ -7283,6 +7354,8 @@ def evaluate_artifact(
     amendment_documents: Sequence[CorpusAmendmentDocument] = (),
     legacy_replacement: LegacyReplacementContract | None = None,
     replacement_overlay_scope: bool = False,
+    axiom_rules_engine_ref: str | None = None,
+    reviewer_skip_reason: str | None = None,
 ) -> EvalArtifactMetrics:
     """Evaluate an artifact inside one exact named corpus release."""
 
@@ -7308,6 +7381,7 @@ def evaluate_artifact(
             policyengine_runtime=policyengine_runtime,
             policyengine_rule_hint=policyengine_rule_hint,
             skip_reviewers=skip_reviewers,
+            reviewer_skip_reason=reviewer_skip_reason,
             reviewers_require_deterministic_pass=reviewers_require_deterministic_pass,
             source_metadata=source_metadata,
             local_corpus_release=local_corpus_release,
@@ -7317,6 +7391,7 @@ def evaluate_artifact(
             amendment_documents=amendment_documents,
             legacy_replacement=legacy_replacement,
             replacement_overlay_scope=replacement_overlay_scope,
+            **engine_ref_arguments(axiom_rules_engine_ref),
         )
 
 
@@ -7461,6 +7536,8 @@ def _evaluate_artifact_in_scope(
     amendment_documents: Sequence[CorpusAmendmentDocument] = (),
     legacy_replacement: LegacyReplacementContract | None = None,
     replacement_overlay_scope: bool = False,
+    axiom_rules_engine_ref: str | None = None,
+    reviewer_skip_reason: str | None = None,
 ) -> EvalArtifactMetrics:
     """Evaluate one RuleSpec artifact with deterministic checks plus optional oracles."""
     existing_target_oracle_contract: ExistingTargetOracleContract | None = None
@@ -7513,6 +7590,7 @@ def _evaluate_artifact_in_scope(
                 for document in amendment_documents
             },
             existing_target_oracle_contract=existing_target_oracle_contract,
+            **engine_ref_arguments(axiom_rules_engine_ref),
         )
         compile_result = pipeline._run_compile_check(validation_file)
         _add_attached_amendment_import_retry_guidance(
@@ -7548,8 +7626,8 @@ def _evaluate_artifact_in_scope(
             "The artifact file path is generic benchmark output and is not itself the legal citation. "
             "Benchmark directory labels may be stale, generic, or misleading and must be ignored as legal cues. "
             "The benchmark target is an atomic source slice/unit, so judge fidelity to exactly this source text rather than demanding omitted sibling limbs or parent consequences unless the RuleSpec claims to encode them. "
-            "Judge citation fidelity against the embedded source-text docstring and this authoritative source excerpt:\n\n"
-            f"{source_text.strip()[:4000]}"
+            "Judge citation fidelity against the embedded source-text docstring and this complete authoritative source text:\n\n"
+            f"{source_text}"
         )
         if re.search(
             r"\bon the first day\b|\bnext benefit week\b|\bon or after the day\b",
@@ -7565,9 +7643,15 @@ def _evaluate_artifact_in_scope(
         # model and never gates apply on the reviewer, so in that lane a
         # reviewer call on an already-rejected candidate is pure latency.
         deterministic_rejected = not compile_result.passed or not ci_result.passed
+        review_skip_reason = None
         if skip_reviewers or (
             reviewers_require_deterministic_pass and deterministic_rejected
         ):
+            review_skip_reason = (
+                reviewer_skip_reason or "user_requested"
+                if skip_reviewers
+                else "deterministic_rejection"
+            )
             generalist_review_result = ValidationResult(
                 validator_name="generalist-reviewer",
                 passed=True,
@@ -7819,7 +7903,25 @@ def _evaluate_artifact_in_scope(
         covered_source_numeric_occurrence_count=covered_source_numeric_occurrence_count,
         missing_source_numeric_occurrence_count=missing_source_numeric_occurrence_count,
         numeric_occurrence_issues=numeric_occurrence_issues,
-        generalist_review_pass=generalist_review_result.passed,
+        generalist_review_pass=(
+            None
+            if review_skip_reason
+            or (
+                generalist_review_result.score is None
+                and generalist_review_result.passed
+            )
+            else generalist_review_result.passed
+        ),
+        generalist_review_status=(
+            "skipped"
+            if review_skip_reason
+            else "unavailable"
+            if generalist_review_result.score is None
+            else "passed"
+            if generalist_review_result.passed
+            else "failed"
+        ),
+        generalist_review_skip_reason=review_skip_reason,
         generalist_review_score=generalist_review_result.score,
         generalist_review_issues=generalist_review_result.issues,
         generalist_review_prompt_sha256=generalist_review_result.prompt_sha256,
@@ -7868,6 +7970,8 @@ def _evaluate_generated_artifact_with_repairs(
     legacy_replacement: LegacyReplacementContract | None = None,
     replacement_overlay_scope: bool = False,
     allow_artifact_repairs: bool = True,
+    axiom_rules_engine_ref: str | None = None,
+    reviewer_skip_reason: str | None = None,
 ) -> EvalArtifactMetrics | None:
     evaluated_states: set[tuple[bytes | None, bytes | None]] = set()
     for _repair_round in range(_GENERATED_EVAL_REPAIR_LIMIT + 1):
@@ -7885,6 +7989,7 @@ def _evaluate_generated_artifact_with_repairs(
             policyengine_runtime=policyengine_runtime,
             policyengine_rule_hint=policyengine_rule_hint,
             skip_reviewers=skip_reviewers,
+            reviewer_skip_reason=reviewer_skip_reason,
             reviewers_require_deterministic_pass=reviewers_require_deterministic_pass,
             source_metadata=source_metadata,
             local_corpus_release=local_corpus_release,
@@ -7894,6 +7999,7 @@ def _evaluate_generated_artifact_with_repairs(
             amendment_documents=amendment_documents,
             legacy_replacement=legacy_replacement,
             replacement_overlay_scope=replacement_overlay_scope,
+            **engine_ref_arguments(axiom_rules_engine_ref),
         )
         if metrics is None:
             return None
@@ -7912,6 +8018,7 @@ def _evaluate_generated_artifact_with_repairs(
             local_corpus_release=local_corpus_release,
             protected_review_excerpts=protected_review_excerpts,
             rulespec_dependency_roots=rulespec_dependency_roots,
+            **engine_ref_arguments(axiom_rules_engine_ref),
         )
         if not repairs:
             return metrics
@@ -8039,6 +8146,7 @@ def _apply_generated_eval_repairs(
     local_corpus_release: _corpus_resolver.LocalCorpusRelease,
     protected_review_excerpts: frozenset[str] = frozenset(),
     rulespec_dependency_roots: Sequence[Path] = (),
+    axiom_rules_engine_ref: str | None = None,
 ) -> list[str]:
     """Apply deterministic generated-artifact repairs before final eval scoring."""
     repairs: list[str] = []
@@ -8161,6 +8269,7 @@ def _apply_generated_eval_repairs(
             relative_output=relative_output,
             issues=companion_issues,
             rulespec_dependency_roots=rulespec_dependency_roots,
+            **engine_ref_arguments(axiom_rules_engine_ref),
         )
     )
     repairs.extend(
@@ -8914,7 +9023,13 @@ def _run_single_eval(
     validation_retry_candidate: ValidationRetryCandidate | None = None,
     repair_candidate_tests_only: bool = False,
     accept_valid_retry_candidate: bool = False,
+    axiom_rules_engine_ref: str | None = None,
 ) -> EvalResult:
+    engine_binding = (
+        bind_clean_engine_checkout(runtime_axiom_rules_path, axiom_rules_engine_ref)
+        if axiom_rules_engine_ref is not None
+        else None
+    )
     include_tests = include_tests or require_complete_source_unit
     if source_unit is None:
         source_unit = resolve_corpus_source_unit(citation, corpus_release)
@@ -9029,6 +9144,7 @@ def _run_single_eval(
             policyengine_runtime=policyengine_runtime,
             policyengine_rule_hint=policyengine_rule_hint,
             skip_reviewers=True,
+            reviewer_skip_reason="retained_candidate_preflight",
             reviewers_require_deterministic_pass=reviewers_require_deterministic_pass,
             source_metadata=source_metadata_payload,
             local_corpus_release=corpus_release,
@@ -9044,6 +9160,7 @@ def _run_single_eval(
             legacy_replacement=legacy_replacement,
             replacement_overlay_scope=replacement_overlay_scope,
             allow_artifact_repairs=False,
+            **engine_ref_arguments(axiom_rules_engine_ref),
         )
         rebound_hashes = _rebind_retained_candidate_proof_import_hashes(
             rulespec_file=output_file,
@@ -9065,6 +9182,7 @@ def _run_single_eval(
                 policyengine_runtime=policyengine_runtime,
                 policyengine_rule_hint=policyengine_rule_hint,
                 skip_reviewers=True,
+                reviewer_skip_reason="retained_candidate_preflight",
                 reviewers_require_deterministic_pass=reviewers_require_deterministic_pass,
                 source_metadata=source_metadata_payload,
                 local_corpus_release=corpus_release,
@@ -9080,6 +9198,7 @@ def _run_single_eval(
                 legacy_replacement=legacy_replacement,
                 replacement_overlay_scope=replacement_overlay_scope,
                 allow_artifact_repairs=False,
+                **engine_ref_arguments(axiom_rules_engine_ref),
             )
         retained_candidate_accepted = (
             retained_candidate_metrics is not None
@@ -9249,6 +9368,7 @@ def _run_single_eval(
             legacy_replacement=legacy_replacement,
             replacement_overlay_scope=replacement_overlay_scope,
             allow_artifact_repairs=not repair_candidate_tests_only,
+            **engine_ref_arguments(axiom_rules_engine_ref),
         )
     if overlay_validation_issue is not None and metrics is not None:
         metrics.ci_pass = False
@@ -9322,6 +9442,12 @@ def _run_single_eval(
         source_attestation=_source_metadata_attestation(source_metadata_payload),
         require_complete_source_unit=require_complete_source_unit,
     )
+    if axiom_rules_engine_ref is not None and result.success:
+        current_binding = bind_clean_engine_checkout(
+            runtime_axiom_rules_path, axiom_rules_engine_ref, allow_build=False
+        )
+        if current_binding != engine_binding:
+            raise RuntimeError("Engine binding changed during generation or evaluation")
     emit_eval_result(result, response.trace)
     return result
 
@@ -10159,9 +10285,8 @@ def _format_required_test_case_contracts(
     if not contracts:
         return ""
     rendered: list[str] = []
-    expected_fields = {"name", "period", "input", "required_output"}
     for index, contract in enumerate(contracts):
-        if not isinstance(contract, Mapping) or set(contract) != expected_fields:
+        if not _valid_required_test_case_contract(contract):
             raise ValueError(f"Required test case contract #{index + 1} is invalid")
         rendered.append(
             json.dumps(
@@ -10175,9 +10300,10 @@ def _format_required_test_case_contracts(
 Structured companion-test apply-admission contract:
 - The following JSON objects are trusted workflow requirements, not legal
   authority. Each `name` must appear exactly once in the companion test file.
-- For each named case, `period` and the complete `input` map must equal the JSON
-  object exactly after YAML decoding. Do not add, remove, rename, or change an
-  input. Every key/value in `required_output` must appear in that case's
+- For each named case, `period` and the complete `input` map or `lifetime` map must
+  equal the JSON object exactly after YAML decoding. Preserve any contracted
+  description. Do not add, remove, rename, or change an input, observation,
+  entity ID, column type, or period. Every key/value in `required_output` must appear in that case's
   `output`; additional reached helper assertions are allowed.
 - These requirements are checked again on the final repaired overlay before
   apply. Preserve JSON scalar types as well as values.
@@ -11004,6 +11130,7 @@ Primary legal authority:
 {source_metadata_section}{provision_metadata_section}{amendment_section}{context_section}{missing_cited_source_section}{mandatory_review_findings_section}{required_deferred_output_contract_section}{required_test_case_contract_section}{required_import_section}
 {backend_section}
 {canonical_concept_section}{complete_source_unit_section}
+{LIFETIME_FIXTURE_PROTOCOL}
 RuleSpec requirements:
 - The RuleSpec file must begin with `format: rulespec/v1`.
 - Include `module.summary: |-` with a concise exact audit excerpt, not the full source text when the source is more than a short paragraph. Corpus-backed validation reads the authoritative source from `corpus.provisions`; use the summary only to orient reviewers to the encoded provisions.
@@ -13993,22 +14120,7 @@ def _context_surface_sequence(value: object) -> tuple[str, ...]:
     return (text,) if text else ()
 
 
-_CONTEXT_FORMULA_IDENTIFIER = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*\b")
 _CONTEXT_TEMPORAL_VALUE_FACT_YEAR_PATTERN = re.compile(r"(?:^|_)(?:19|20)\d{2}(?:_|$)")
-_CONTEXT_FORMULA_BUILTINS = {
-    "and",
-    "ceil",
-    "else",
-    "false",
-    "floor",
-    "if",
-    "match",
-    "max",
-    "min",
-    "not",
-    "or",
-    "true",
-}
 
 
 def _context_file_invalid_local_inputs(
@@ -14145,12 +14257,11 @@ def _context_file_local_inputs(source_path: str) -> set[str]:
                 formula_text = formula
             else:
                 continue
-            for identifier in _CONTEXT_FORMULA_IDENTIFIER.findall(formula_text):
-                if (
-                    identifier in defined
-                    or identifier in imported
-                    or identifier in _CONTEXT_FORMULA_BUILTINS
-                ):
+            for identifier in formula_reference_identifiers(
+                formula_text,
+                judgment=str(rule.get("dtype") or "").lower() == "judgment",
+            ):
+                if identifier in defined or identifier in imported:
                     continue
                 inputs.add(identifier)
     return inputs
@@ -14221,7 +14332,7 @@ def _context_file_terminal_exports(source_path: str) -> list[str]:
         return []
 
     exports: list[str] = []
-    formulas: list[tuple[str, str]] = []
+    formulas: list[tuple[str, str, bool]] = []
     for rule in rules:
         if not isinstance(rule, dict):
             continue
@@ -14242,21 +14353,21 @@ def _context_file_terminal_exports(source_path: str) -> list[str]:
                 continue
             formula = version.get("formula")
             if isinstance(formula, (int, float)) and not isinstance(formula, bool):
-                formulas.append((name, str(formula)))
+                formulas.append((name, str(formula), False))
             elif isinstance(formula, str) and formula.strip():
-                formulas.append((name, formula))
+                formulas.append(
+                    (name, formula, str(rule.get("dtype") or "").lower() == "judgment")
+                )
     if not exports:
         return []
 
     export_names = set(exports)
     referenced: set[str] = set()
-    for owner, formula in formulas:
+    for owner, formula, judgment in formulas:
         referenced.update(
             identifier
-            for identifier in _CONTEXT_FORMULA_IDENTIFIER.findall(formula)
-            if identifier in export_names
-            and identifier != owner
-            and identifier not in _CONTEXT_FORMULA_BUILTINS
+            for identifier in formula_reference_identifiers(formula, judgment=judgment)
+            if identifier in export_names and identifier != owner
         )
     terminal = [name for name in exports if name not in referenced]
     return terminal or exports
@@ -16253,7 +16364,12 @@ def _normalize_single_amount_row_test_content(
     try:
         payload = yaml.safe_load(normalized)
     except yaml.YAMLError:
-        return normalized
+        return content
+
+    try:
+        cases = _test_cases_preserving_lifetime_values(content, payload)
+    except _LifetimeFixtureNormalizationError:
+        return content
 
     if payload is None:
         return normalized
@@ -16282,6 +16398,8 @@ def _normalize_single_amount_row_test_content(
             return case
         if _is_exact_repair_removal_marker(case):
             return case
+        if "lifetime" in case:
+            return case
         normalized_case = dict(case)
         if annual_period and effective_date is not None:
             normalized_case["period"] = _normalize_annual_test_period_value(
@@ -16306,7 +16424,6 @@ def _normalize_single_amount_row_test_content(
                 normalized_case["output"] = numeric_output
         return normalized_case
 
-    cases = _coerce_test_payload_to_case_list(payload)
     if cases is not None:
         filtered = [
             normalize_case(case)
@@ -16314,6 +16431,7 @@ def _normalize_single_amount_row_test_content(
             if (
                 not isinstance(case, dict)
                 or _is_exact_repair_removal_marker(case)
+                or "lifetime" in case
                 or should_keep(case.get("name"))
             )
         ]
@@ -16529,6 +16647,9 @@ def _coerce_test_payload_to_case_list(payload: object) -> list[object] | None:
     tests_payload = payload.get("tests")
     if isinstance(tests_payload, list):
         return tests_payload
+    cases_payload = payload.get("cases")
+    if isinstance(cases_payload, list):
+        return cases_payload
 
     case_like_keys = {"name", "period", "input", "inputs", "output", "expect"}
     if case_like_keys & set(payload):
@@ -16544,6 +16665,50 @@ def _coerce_test_payload_to_case_list(payload: object) -> list[object] | None:
             case["name"] = key
         cases.append(case)
     return cases
+
+
+class _LifetimeFixtureNormalizationError(ValueError):
+    """A scalar repair could not retain the original lifetime case facts."""
+
+
+def _test_cases_preserving_lifetime_values(
+    original_content: str, normalized_payload: object
+) -> list[object] | None:
+    """Retain exact typed histories before scalar numeric/period repairs.
+
+    Decimal strings and opaque IDs must not pass through the scalar fixture
+    thousands-separator or value-coercion repairs, even in a mixed case list.
+    """
+    cases = _coerce_test_payload_to_case_list(normalized_payload)
+
+    def has_lifetime(items: list[object] | None) -> bool:
+        return any(
+            isinstance(item, dict) and "lifetime" in item for item in items or []
+        )
+
+    try:
+        original_cases = _coerce_test_payload_to_case_list(
+            yaml.safe_load(original_content)
+        )
+    except yaml.YAMLError as exc:
+        if has_lifetime(cases):
+            raise _LifetimeFixtureNormalizationError from exc
+        return cases
+    if cases is None or original_cases is None or len(cases) != len(original_cases):
+        if has_lifetime(cases) or has_lifetime(original_cases):
+            raise _LifetimeFixtureNormalizationError
+        return cases
+    if any(
+        isinstance(case, dict)
+        and "lifetime" in case
+        and not (isinstance(original, dict) and "lifetime" in original)
+        for original, case in zip(original_cases, cases, strict=True)
+    ):
+        raise _LifetimeFixtureNormalizationError
+    return [
+        original if isinstance(original, dict) and "lifetime" in original else case
+        for original, case in zip(original_cases, cases, strict=True)
+    ]
 
 
 def _normalize_test_case_value(value: object) -> object:
@@ -16704,12 +16869,16 @@ def _normalize_test_periods_to_effective_dates(
     try:
         payload = yaml.safe_load(normalized)
     except yaml.YAMLError:
-        return normalized
+        return content
+
+    try:
+        cases = _test_cases_preserving_lifetime_values(content, payload)
+    except _LifetimeFixtureNormalizationError:
+        return content
 
     if payload is None:
         return normalized
 
-    cases = _coerce_test_payload_to_case_list(payload)
     positive_output_keys: set[str] = set()
     if cases is not None:
         for case in cases:
@@ -16734,6 +16903,8 @@ def _normalize_test_periods_to_effective_dates(
         if not isinstance(case, dict):
             return case
         if _is_exact_repair_removal_marker(case):
+            return case
+        if "lifetime" in case:
             return case
         normalized_case = _repair_misindented_period_mapping_fields(case)
         if granularity == "Year" and effective_date is not None:
@@ -16782,6 +16953,7 @@ def _normalize_test_periods_to_effective_dates(
                 granularity == "Month"
                 and effective_date is not None
                 and isinstance(case, dict)
+                and "lifetime" not in case
                 and "pre_effective" in str(case.get("name", "")).lower()
                 and _period_precedes_effective_month(case.get("period"), effective_date)
                 and _case_outputs_only_zero_values(case)
@@ -17637,6 +17809,19 @@ def _overlay_validation_retry_candidate(
     return tuple(repairs)
 
 
+def _valid_required_test_case_contract(contract: object) -> bool:
+    """Check scalar or explicit lifetime repair contracts without executing them."""
+    if not isinstance(contract, Mapping):
+        return False
+    if "lifetime" not in contract:
+        return set(contract) == {"name", "period", "input", "required_output"}
+    try:
+        validate_lifetime_test_contract(contract)
+    except (KeyError, TypeError, ValueError, RecursionError):
+        return False
+    return True
+
+
 def _preserves_companion_test_cases(
     original_content: str,
     proposed_content: str,
@@ -17683,6 +17868,11 @@ def _preserves_companion_test_cases(
     proposed_by_name = by_name(proposed_cases)
     if original_by_name is None or proposed_by_name is None:
         return False
+    if any(
+        not _valid_required_test_case_contract(contract)
+        for contract in required_test_case_contracts
+    ):
+        return False
     contracts_by_name = {
         contract.get("name"): contract for contract in required_test_case_contracts
     }
@@ -17693,19 +17883,7 @@ def _preserves_companion_test_cases(
     ):
         return False
 
-    def values_equal(left: object, right: object) -> bool:
-        if type(left) is not type(right):
-            return False
-        if isinstance(left, dict):
-            return set(left) == set(right) and all(
-                values_equal(left[key], right[key]) for key in left
-            )
-        if isinstance(left, list):
-            return len(left) == len(right) and all(
-                values_equal(left_item, right_item)
-                for left_item, right_item in zip(left, right, strict=True)
-            )
-        return left == right
+    values_equal = exact_fixture_value_equal
 
     try:
         if not set(proposed_by_name).issubset(
@@ -17755,13 +17933,19 @@ def _preserves_companion_test_cases(
         for name in set(proposed_by_name) - set(original_by_name):
             case = proposed_by_name[name]
             contract = contracts_by_name[name]
-            if set(case) != {"name", "period", "input", "output"}:
+            input_field = "lifetime" if "lifetime" in contract else "input"
+            expected_fields = {"name", "period", input_field, "output"}
+            if "description" in contract:
+                expected_fields.add("description")
+            if set(case) != expected_fields:
                 return False
             if not values_equal(case.get("name"), name):
                 return False
             if not values_equal(case.get("period"), contract.get("period")):
                 return False
-            if not values_equal(case.get("input"), contract.get("input")):
+            if not values_equal(case.get(input_field), contract.get(input_field)):
+                return False
+            if not values_equal(case.get("description"), contract.get("description")):
                 return False
             output = case.get("output")
             required_output = contract.get("required_output")

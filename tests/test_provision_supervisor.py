@@ -282,6 +282,144 @@ class TestStageRuntimeTree:
         assert not (site / "toolcache-only.txt").exists()
 
 
+class TestReprovisionRuntime:
+    """Exercise real staging/publication with only synthetic interpreter bytes."""
+
+    @pytest.mark.parametrize(
+        "inherited_git,inherited_attestation,attest_encoder,preplaced",
+        [
+            (True, False, False, None),
+            (False, True, True, None),
+            (True, True, True, None),
+            (False, True, False, None),
+            (True, True, True, "git"),
+            (True, True, True, "attestation"),
+        ],
+    )
+    def test_rebuilds_only_installer_owned_files_in_fresh_copy(
+        self,
+        tmp_path,
+        monkeypatch,
+        inherited_git,
+        inherited_attestation,
+        attest_encoder,
+        preplaced,
+    ):
+        source = TestStageRuntimeTree()._make_source(tmp_path)
+        interpreter = source / "bin/python3"
+        old_git = source / "bin/git"
+        old_attestation = source / "runtime-attestation.json"
+        if inherited_git:
+            old_git.write_text(f"#!{interpreter} -I\n# stale synthetic broker\n")
+        if inherited_attestation:
+            old_attestation.write_text('{"synthetic_stale_identity": true}\n')
+            old_attestation.chmod(0o444)
+        (source / "bin/keep-tool").write_text("preserved unrelated tool\n")
+        (source / "keep-metadata.json").write_text('{"keep": true}\n')
+        source_bytes = {
+            path.relative_to(source): path.read_bytes()
+            for path in source.rglob("*")
+            if path.is_file()
+        }
+        staged = tmp_path / "staged"
+        staged.mkdir()
+        supervisor = tmp_path / "supervisor"
+        supervisor.write_text("synthetic supervisor; never executed\n")
+        package = tmp_path / "exported-package"
+        package.mkdir()
+        (package / "__init__.py").write_text('__version__ = "9.9.9"\n')
+        monkeypatch.setattr(provisioner.sys, "base_prefix", str(source))
+        monkeypatch.setattr(provisioner.sys, "executable", str(interpreter))
+        monkeypatch.setattr(
+            provisioner,
+            "_verify_and_export_encoder_snapshot",
+            lambda *args: ("9.9.9", package),
+        )
+        probed = []
+        preplaced_paths = []
+
+        def probe(runtime, source_runtime, new_interpreter):
+            # The fake interpreter is never executed. Capture what exists at
+            # the first real-runtime execution boundary in production.
+            probed.append(
+                (
+                    (new_interpreter.parent / "git").exists(),
+                    (runtime / "runtime-attestation.json").exists(),
+                )
+            )
+            if preplaced:
+                path = (
+                    new_interpreter.parent / "git"
+                    if preplaced == "git"
+                    else runtime / "runtime-attestation.json"
+                )
+                path.write_text("preplaced after inherited copies were removed\n")
+                preplaced_paths.append(path)
+
+        monkeypatch.setattr(provisioner, "_assert_self_contained", probe)
+        destination = tmp_path / "new-runtime"
+        kwargs = (
+            {
+                "encoder_origin_repository": "github.com/TheAxiomFoundation/axiom-encode",
+                "encoder_commit": "a" * 40,
+                "encoder_git_root": tmp_path / "synthetic-source",
+            }
+            if attest_encoder
+            else {}
+        )
+
+        def run():
+            provisioner.provision(
+                destination,
+                supervisor,
+                staged,
+                "test-apply",
+                "test-eval",
+                "test-corpus",
+                Path("/usr/bin/git"),
+                patchelf="unused-for-non-ELF-test-files",
+                **kwargs,
+            )
+
+        if preplaced:
+            with pytest.raises(SystemExit, match="path already exists"):
+                run()
+            assert (
+                preplaced_paths[0].read_text()
+                == "preplaced after inherited copies were removed\n"
+            )
+        else:
+            run()
+
+        runtime = destination / "python"
+        new_interpreter = runtime / "bin/python3"
+        assert probed == [(False, False)]
+        if preplaced != "git":
+            assert (runtime / "bin/git").read_text().splitlines()[
+                0
+            ] == f"#!{new_interpreter} -I"
+        assert (runtime / "bin/keep-tool").read_bytes() == source_bytes[
+            Path("bin/keep-tool")
+        ]
+        assert (runtime / "keep-metadata.json").read_bytes() == source_bytes[
+            Path("keep-metadata.json")
+        ]
+        attestation = runtime / "runtime-attestation.json"
+        if attest_encoder and not preplaced:
+            metadata = json.loads(attestation.read_text())
+            assert metadata["axiom_encode"]["commit"] == "a" * 40
+            assert metadata["axiom_encode"]["version"] == "9.9.9"
+            assert "synthetic_stale_identity" not in metadata
+            assert stat.S_IMODE(attestation.stat().st_mode) == 0o444
+        elif not preplaced:
+            assert not attestation.exists()
+        assert {
+            path.relative_to(source): path.read_bytes()
+            for path in source.rglob("*")
+            if path.is_file()
+        } == source_bytes
+
+
 class TestSanePrefixPreflight:
     def test_forbidden_system_prefix_refused(self):
         with pytest.raises(SystemExit, match="not a self-contained"):

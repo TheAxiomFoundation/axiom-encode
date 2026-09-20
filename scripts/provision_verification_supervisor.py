@@ -1609,6 +1609,16 @@ def provision(
     try:
         runtime = destination / "python"
         _stage_runtime_tree(source_runtime, runtime, site_packages)
+        interpreter = runtime / source_interpreter.relative_to(source_runtime)
+        # copytree created a fresh prefix. A previously provisioned source can
+        # carry a broker with its old interpreter path and an old attestation;
+        # neither belongs to this installation. Remove only those copied files
+        # before probing the new runtime, then publish fresh files exclusively.
+        for inherited in (
+            interpreter.parent / "git",
+            runtime / _RUNTIME_ATTESTATION_FILENAME,
+        ):
+            inherited.unlink(missing_ok=True)
         package_tree_sha256: str | None = None
         if provision_encoder:
             assert encoder_package is not None
@@ -1626,7 +1636,6 @@ def provision(
                         "(install it or pass --patchelf)"
                     )
             _relocate_elf_rpaths(runtime, patchelf)
-        interpreter = runtime / source_interpreter.relative_to(source_runtime)
         _assert_self_contained(runtime, source_runtime, interpreter)
         _install_trusted_git_wrapper(interpreter.parent, interpreter, trusted_git)
         codex_cli = (

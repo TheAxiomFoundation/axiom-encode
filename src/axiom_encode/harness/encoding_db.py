@@ -260,7 +260,14 @@ class ReviewResults:
 
     @property
     def passed(self) -> bool:
-        """All reviews passed."""
+        """All recorded reviews passed; unavailable/skipped is not approval."""
+        generalist = (
+            self.oracle_context.get("generalist_review")
+            if isinstance(self.oracle_context, dict)
+            else None
+        )
+        if isinstance(generalist, dict) and generalist.get("status") != "passed":
+            return False
         return all(r.passed for r in self.reviews) if self.reviews else False
 
     @property

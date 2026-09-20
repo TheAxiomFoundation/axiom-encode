@@ -1,0 +1,1 @@
+Verify each source lane's retained rejected candidate and companion before repair replay, preserve it over a different live candidate, and reject incomplete or invalid retained exports without falling back to stale files.
