@@ -34,7 +34,7 @@ def host(tmp_path, submission, monkeypatch):
         "state_directory": str(tmp_path / "state"),
         "lane": epoch.anchor.lane,
         "epoch_sha256": epoch.anchor.epoch_sha256,
-        "sampling": {"temperature": "0.5", "seed": None},
+        "sampling": {"temperature": None, "seed": None},
         "references": {"oracles": [], "reference_data": []},
     }
     for role in ("producer", "actor"):
@@ -161,3 +161,29 @@ def test_correction_of_unmerged_generation_preserves_both_records(host, submissi
     assert report["schema"] == "axiom/notary-report-pass/v1"
     assert len(report["eligible_records"]) == 2
     assert host.calls == ["1" * 32]
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        None,
+        {},
+        {"temperature": "0.5", "seed": None},
+        {"temperature": None, "seed": "42"},
+        {"temperature": None, "seed": None, "top_p": None},
+    ],
+)
+def test_codex_sampling_refuses_invented_or_open_metadata(value):
+    from axiom_encode.notary.producer_host import codex_sampling_metadata
+
+    with pytest.raises(IdentityRefusal, match="sampling_not_exposed"):
+        codex_sampling_metadata(value)
+
+
+def test_codex_sampling_records_unexposed_parameters_explicitly():
+    from axiom_encode.notary.producer_host import codex_sampling_metadata
+
+    assert codex_sampling_metadata({"temperature": None, "seed": None}) == {
+        "temperature": None,
+        "seed": None,
+    }

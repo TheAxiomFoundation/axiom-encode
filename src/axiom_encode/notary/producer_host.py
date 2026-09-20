@@ -49,6 +49,17 @@ from .verification import Snapshot
 MAX_REQUEST = 32_000_000
 
 
+def codex_sampling_metadata(value):
+    """The current Codex adapter neither sets nor observes these parameters.
+
+    Refuse invented defaults at startup, before accepting credentials or
+    spending a contributor's personal model usage.
+    """
+    if value != {"temperature": None, "seed": None}:
+        raise IdentityRefusal("producer_codex_sampling_not_exposed")
+    return value
+
+
 def parse_config(raw):
     body = strict_parse(raw)
     names = {
@@ -103,6 +114,7 @@ def parse_config(raw):
         body["references"], {"oracles", "reference_data"}
     ):
         raise IdentityRefusal("producer_host_metadata")
+    codex_sampling_metadata(body["sampling"])
     operators = body["operators"]
     if (
         not isinstance(operators, list)
