@@ -67,6 +67,11 @@ class JobPolicy:
     environment: str
     audience: str
     job_name: str
+    event: str = "workflow_dispatch"
+
+    def __post_init__(self):
+        if self.event not in {"workflow_dispatch", "push"}:
+            raise ValueError("unsupported notary workflow event")
 
 
 @dataclass(frozen=True)
@@ -210,11 +215,13 @@ def authenticate_job(
         str(run.get("id")) != claims["run_id"]
         or str(run.get("run_attempt")) != claims["run_attempt"]
         or run.get("path") != policy.workflow_path
-        or run.get("event") != "workflow_dispatch"
+        or run.get("event") != policy.event
         or run.get("head_branch") != policy.ref.removeprefix("refs/heads/")
         or run.get("status") != "in_progress"
     ):
         raise IdentityRefusal("run_identity_or_state")
+    if policy.event == "push" and run.get("head_sha") != policy.workflow_sha_git_oid:
+        raise IdentityRefusal("finalizer_merged_tip")
     if (
         not isinstance(run.get("repository"), dict)
         or str(run["repository"].get("id")) != policy.repository_id
@@ -258,13 +265,18 @@ def require_writer_submission(
     subject: str,
     *,
     contributor_ids: frozenset[str],
+    merged_commit: str | None = None,
 ) -> dict:
     """Authenticate PR metadata and current write access; reject forks and drafts.
 
     contributor_ids comes from the custodian-approved host enrollment, never
     a request's author field. It binds an enrolled producer to its operators.
     """
-    if not decimal_id(pr_number) or not oid(subject):
+    if (
+        not decimal_id(pr_number)
+        or not oid(subject)
+        or (merged_commit is not None and not oid(merged_commit))
+    ):
         raise IdentityRefusal("submission_encoding")
     pr = api.get(f"/repos/{repository}/pulls/{pr_number}")
     try:
@@ -273,13 +285,17 @@ def require_writer_submission(
             not isinstance(login, str)
             or re_login(login) is False
             or author_id not in contributor_ids
-            or pr["state"] != "open"
+            or pr["state"] != ("open" if merged_commit is None else "closed")
             or pr["head"]["sha"] != subject
             or pr["head"]["repo"]["full_name"] != repository
             or pr["base"]["repo"]["full_name"] != repository
             or pr.get("draft") is not False
         ):
             raise IdentityRefusal("submission_identity")
+        if merged_commit is not None and (
+            pr.get("merged") is not True or pr.get("merge_commit_sha") != merged_commit
+        ):
+            raise IdentityRefusal("submission_merge_identity")
         permission = api.get(f"/repos/{repository}/collaborators/{login}/permission")
         if (
             permission.get("permission") not in ("write", "admin")

@@ -1,12 +1,10 @@
 from copy import deepcopy
-from dataclasses import replace
 
 import pytest
 
 from axiom_encode.notary.canonical import jcs_dumps
 from axiom_encode.notary.identity import IdentityRefusal
 from axiom_encode.notary.lineage import STORE_PREFIX
-from axiom_encode.notary.manifest import manifest_sha256
 from axiom_encode.notary.producers import (
     ENROLLMENT_PATH,
     Enrollment,
@@ -35,41 +33,46 @@ class API:
         return self.pr if "/pulls/" in path else self.permission
 
 
-@pytest.fixture
-def submission():
-    epoch = Epoch.create()
+def enrollment_base(identities):
     entry = {
-        "producer_spki_sha256": epoch.identities.body["producer"][0]["spki_sha256"],
-        "actor_spki_sha256": epoch.identities.body["actor"][0]["spki_sha256"],
+        "producer_spki_sha256": identities.body["producer"][0]["spki_sha256"],
+        "actor_spki_sha256": identities.body["actor"][0]["spki_sha256"],
         "github_user_ids": ["123"],
         "encoder": {
             "repository": "TheAxiomFoundation/axiom-encode",
             "git_oid": "e" * 40,
-            "version": "0.2.2008",
+            "version": "0.2.2009",
             "package_tree_sha256": "f" * 64,
         },
         "codex_cli": {"version": "fixture-cli", "sha256": "c" * 64},
         "custody_evidence_sha256": "d" * 64,
     }
-    enrollment = Enrollment(jcs_dumps(entry))
-    registry = epoch.state().registry
     policy = {
         "schema": "axiom/notary-producer-enrollments/v1",
         "lane": LANE,
         "runtimes": [entry],
     }
-    base = snapshot(
-        epoch.active.commit,
-        epoch.active.blobs
-        | {
-            ENROLLMENT_PATH: jcs_dumps(policy),
-            ".axiom/workflow-toolchain.toml": (
-                '[workflow_toolchain]\naxiom_encode_version="0.2.2008"\naxiom_encode_ref="'
-                + "e" * 40
-                + '"\n'
-            ).encode(),
-        },
-    )
+    return {
+        ENROLLMENT_PATH: jcs_dumps(policy),
+        ".axiom/workflow-toolchain.toml": (
+            '[workflow_toolchain]\naxiom_encode_version="0.2.2009"\naxiom_encode_ref="'
+            + "e" * 40
+            + '"\n'
+        ).encode(),
+    }
+
+
+@pytest.fixture
+def submission():
+    # Enrollment is committed BEFORE genesis, so all manifests and signed
+    # historical chain anchors are real; no forged in-memory predecessor.
+    from axiom_encode.notary.canonical import strict_parse
+
+    epoch = Epoch.create(prepare_base=enrollment_base)
+    base = epoch.active
+    policy = strict_parse(base.blobs[ENROLLMENT_PATH])
+    enrollment = Enrollment(jcs_dumps(policy["runtimes"][0]))
+    registry = epoch.state().registry
     record = generation() | {
         "epoch_sha256": epoch.anchor.epoch_sha256,
         "runtime_identity": enrollment.runtime_identity,
@@ -84,9 +87,7 @@ def submission():
             for name, file in epoch.identities.store(record).items()
         },
     )
-    predecessor = replace(
-        epoch.state().predecessor(), manifest_sha256=manifest_sha256(base.manifest)
-    )
+    predecessor = epoch.state().predecessor()
     report = verify_snapshots(
         base,
         subject,

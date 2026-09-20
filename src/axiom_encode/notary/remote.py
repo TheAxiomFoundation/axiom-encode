@@ -218,7 +218,9 @@ class RemoteRepository:
             self.close()
             raise
 
-    def _run(self, *args: str, in_repo: bool = True) -> bytes:
+    def _run(
+        self, *args: str, in_repo: bool = True, input_bytes: bytes | None = None
+    ) -> bytes:
         command = [self._git, "--no-replace-objects"]
         if in_repo:
             command.extend(["-C", str(self.path)])
@@ -227,6 +229,7 @@ class RemoteRepository:
                 [*command, *args],
                 env=self._environment,
                 capture_output=True,
+                input=input_bytes,
                 check=False,
                 timeout=180,
             )

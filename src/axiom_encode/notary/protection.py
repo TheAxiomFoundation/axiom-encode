@@ -173,3 +173,18 @@ def require_bootstrap_lock(
         or rules["update"].get("update_allows_fetch_and_merge") is not False
     ):
         raise IdentityRefusal("bootstrap_lane_not_locked")
+
+
+def require_merge_methods(repository: dict, *, lane: str):
+    # The reference finalizer identifies the actual base from the first parent.
+    # Squash and merge commits preserve that boundary; multi-commit rebase
+    # merges do not. Refuse admission until the repository disables rebase.
+    if (
+        repository.get("full_name") != lane
+        or repository.get("allow_rebase_merge") is not False
+        or not (
+            repository.get("allow_squash_merge") is True
+            or repository.get("allow_merge_commit") is True
+        )
+    ):
+        raise IdentityRefusal("unsupported_merge_methods")

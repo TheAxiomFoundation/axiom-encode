@@ -14,6 +14,7 @@ from .protection import (
     require_chain_protection,
     require_environment,
     require_lane_protection,
+    require_merge_methods,
 )
 from .protocol import oid, parse_artifact
 from .provenance import REPORT_ARTIFACT, artifact_for_run, read_report_archive
@@ -42,6 +43,8 @@ class Deployment:
     lane_app_id: int
     check_name: str
     dependency_inventory: bytes
+    publishing_audience: str = "axiom-notary-publisher"
+    finalizer_workflow_path: str = ".github/workflows/notary-finalize.yml"
 
 
 @dataclass(frozen=True)
@@ -110,6 +113,7 @@ class GitHubSignerInputs:
 
     def _audit(self, environment="notary-signing"):
         c = self.config
+        require_merge_methods(self.api.get(f"/repos/{c.repository}"), lane=c.repository)
         env = self.api.get(f"/repos/{c.repository}/environments/{environment}")
         branches = self.api.get(
             f"/repos/{c.repository}/environments/{environment}/deployment-branch-policies?per_page=100"

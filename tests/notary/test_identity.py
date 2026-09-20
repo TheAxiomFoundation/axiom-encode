@@ -1,4 +1,5 @@
 import time
+from dataclasses import replace
 
 import jwt
 import pytest
@@ -117,6 +118,19 @@ def test_authenticates_signature_and_live_job(policy, rsa_key):
         signing_key=rsa_key.public_key(),
     )
     assert result.check_run_id == "2" and result.environment == "notary-signing"
+
+
+def test_push_finalizer_binds_the_actual_merged_tip(policy, rsa_key):
+    final = replace(policy, event="push", job_name="finalize")
+    api = API(final)
+    api.jobs[0]["name"] = "finalize"
+    api.run["event"] = "push"
+    api.run["head_sha"] = final.workflow_sha_git_oid
+    signed = token(claims(final), rsa_key)
+    assert authenticate_job(signed, final, api, signing_key=rsa_key.public_key())
+    api.run["head_sha"] = "b" * 40
+    with pytest.raises(IdentityRefusal, match="finalizer_merged_tip"):
+        authenticate_job(signed, final, api, signing_key=rsa_key.public_key())
 
 
 @pytest.mark.parametrize(

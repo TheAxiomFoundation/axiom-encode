@@ -190,3 +190,56 @@ def test_current_tree_commit_can_differ_after_squash(epoch):
     assert strict_parse(raw)["base_tree_manifest_sha256"] == manifest_sha256(
         epoch.active.manifest
     )
+
+
+def test_legacy_inventory_loads_authenticated_release_object_from_directory(
+    tmp_path, monkeypatch
+):
+    import base64
+
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+    from axiom_encode.corpus_resolver import LocalCorpusRelease
+    from axiom_encode.notary.administration import legacy_inventory
+    from tests.release_object_fixtures import TEST_RELEASE_PUBLIC_KEY
+    from tests.test_toolchain import _write_corpus_release, _write_toolchain
+
+    corpus, lane = tmp_path / "corpus", tmp_path / "rulespec-us"
+    release = _write_corpus_release(corpus)
+    _write_toolchain(lane, content_sha256=release.content_sha256)
+    epoch = Epoch.create()
+    blobs = {
+        str(path.relative_to(lane)): path.read_bytes()
+        for path in lane.rglob("*")
+        if path.is_file()
+    }
+    blobs[".axiom/encoding-manifests/fixture.json"] = b"{}"
+    seen = []
+
+    def verify(root, name, **kwargs):
+        bound = kwargs["local_corpus_release"]
+        assert isinstance(bound, LocalCorpusRelease)
+        assert bound.content_sha256 == release.content_sha256
+        assert bound.selector_sha256
+        seen.append(bound)
+        return None, None, None, ["fixture manifest has no attestation"]
+
+    monkeypatch.setattr(
+        "axiom_encode.cli._load_verified_applied_encoding_manifest_payload", verify
+    )
+    assert (
+        legacy_inventory(
+            snapshot("a" * 40, blobs),
+            lane="TheAxiomFoundation/rulespec-us",
+            apply_root=genesis_args(epoch)["legacy_apply_root"],
+            expected_encoder_identity={},
+            local_corpus_release=corpus,
+            corpus_public_keys=[
+                Ed25519PublicKey.from_public_bytes(
+                    base64.b64decode(TEST_RELEASE_PUBLIC_KEY)
+                )
+            ],
+        )
+        == []
+    )
+    assert len(seen) == 1

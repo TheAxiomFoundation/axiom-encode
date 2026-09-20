@@ -63,8 +63,9 @@ public trust inputs. They do not enroll a runtime or grant admission; the
 current RuleSpec manifest guard remains in force.
 
 The [notary contributor package](docs/notary-contributor-package.md) describes
-the v33 verification and signing core, its enrollment bindings, and the
-remaining runtime, service and CI integration required for activation.
+the v33 enrolled-producer implementation, external signing/publication services,
+CI integration and the custody and pilot evidence required for activation. Its
+[deployment runbook](deploy/notary/README.md) includes contributor commands.
 
 ```bash
 axiom-encode encode "26 USC 32(a)(1)" \

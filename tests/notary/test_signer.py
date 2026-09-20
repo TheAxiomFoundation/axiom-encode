@@ -7,7 +7,6 @@ import pytest
 
 from axiom_encode.notary.canonical import sha256_hex, strict_parse
 from axiom_encode.notary.identity import IdentityRefusal, authenticate_job
-from axiom_encode.notary.manifest import manifest_sha256
 from axiom_encode.notary.provenance import REPORT_ARTIFACT
 from axiom_encode.notary.signatures import verify_detached
 from axiom_encode.notary.signer import NotarySigner, ReceiptInputs, make_candidate
@@ -73,14 +72,6 @@ def service(submission, policy, rsa_key, monkeypatch):
         }
     ]
     state = epoch.state()
-    state = replace(
-        state,
-        tip=replace(
-            state.tip,
-            body=state.tip.body
-            | {"subject_tree_manifest_sha256": manifest_sha256(args["base"].manifest)},
-        ),
-    )
     reader = Inputs(
         ReceiptInputs(
             args["base"],

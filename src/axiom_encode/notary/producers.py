@@ -106,6 +106,7 @@ def require_enrolled_submission(
     subject: Snapshot,
     registry: KeyRegistry,
     report_raw: bytes,
+    merged_commit: str | None = None,
 ) -> dict:
     """Require the live PR author to operate every consumed lineage signer.
 
@@ -121,6 +122,23 @@ def require_enrolled_submission(
         or report["subject_commit_git_oid"] != subject.commit
     ):
         raise IdentityRefusal("submission_report")
+    return require_writer_submission(
+        api,
+        registry.lane,
+        pr_number,
+        subject.commit,
+        contributor_ids=enrolled_contributor_ids(
+            base, subject, registry, report["coverage_assignment"]
+        ),
+        merged_commit=merged_commit,
+    )
+
+
+def enrolled_contributor_ids(base, subject, registry, coverage_assignment):
+    """Bind a previously verified coverage assignment to enrolled operators.
+
+    This authenticates enrollment only; it is never a gate or receipt verdict.
+    """
     enrolled = parse_enrollments(base.blobs.get(ENROLLMENT_PATH, b""), registry)
     try:
         pins = tomllib.loads(base.blobs[".axiom/workflow-toolchain.toml"].decode())[
@@ -132,9 +150,7 @@ def require_enrolled_submission(
     except (KeyError, UnicodeError, ValueError, TypeError) as exc:
         raise IdentityRefusal("encoder_pin_unavailable") from exc
     allowed = set().union(*(set(e.body["github_user_ids"]) for e in enrolled.values()))
-    consumed = {
-        d for row in report["coverage_assignment"] for d in row["record_sha256s"]
-    }
+    consumed = {d for row in coverage_assignment for d in row["record_sha256s"]}
     for address in sorted(consumed):
         raw = subject.blobs.get(STORE_PREFIX + address + ".json", b"")
         record = parse_record(raw)
@@ -170,10 +186,4 @@ def require_enrolled_submission(
         ):
             raise IdentityRefusal("enrolled_runtime_mismatch")
         allowed.intersection_update(entry["github_user_ids"])
-    return require_writer_submission(
-        api,
-        registry.lane,
-        pr_number,
-        subject.commit,
-        contributor_ids=frozenset(allowed),
-    )
+    return frozenset(allowed)

@@ -45,6 +45,13 @@ class API:
         }
 
     def get(self, path):
+        if path == f"/repos/{LANE}":
+            return {
+                "full_name": LANE,
+                "allow_rebase_merge": False,
+                "allow_squash_merge": True,
+            }
+
         if path.endswith("/environments/notary-signing"):
             return self.env
         if "/deployment-branch-policies?" in path:

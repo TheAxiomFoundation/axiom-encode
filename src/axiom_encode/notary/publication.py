@@ -24,6 +24,13 @@ class PublicationPlan:
     admitted: bool
 
 
+@dataclass(frozen=True)
+class GenesisPublication:
+    first: Mapping[str, bytes]
+    final: Mapping[str, bytes]
+    state: ChainState
+
+
 def _state(history: Sequence[Snapshot], anchor: Anchor) -> ChainState:
     result = reconstruct(history, anchor)
     if isinstance(result, Refusal):
@@ -91,6 +98,46 @@ def plan_publication(
 def _marker(body: dict) -> tuple[str, bytes]:
     raw = jcs_dumps(body)
     return sha256_hex(raw) + ".json", raw
+
+
+def plan_genesis(
+    anchor: Anchor, bundle: Mapping[str, bytes], locked: Snapshot
+) -> GenesisPublication:
+    """Validate the complete two-commit bootstrap before the first remote write."""
+    if "HEAD.json" in bundle:
+        raise InvalidChain("genesis_early_pointer")
+    first = Snapshot(
+        "e" * 40,
+        sorted((p, "100644", sha256_hex(b)) for p, b in bundle.items()),
+        dict(bundle),
+    )
+    name, marker = _marker(
+        {
+            "schema": "axiom/notary-finalization/v1",
+            "lane": anchor.lane,
+            "epoch_sha256": anchor.epoch_sha256,
+            "target_sha256": anchor.epoch_sha256,
+            "target_kind": "genesis",
+            "merged_tip_manifest_sha256": manifest_sha256(locked.manifest),
+            "sequence": "1",
+        }
+    )
+    final = {
+        name: marker,
+        "HEAD.json": jcs_dumps(
+            {
+                "schema": "axiom/notary-head/v1",
+                "tip_sha256": anchor.epoch_sha256,
+                "tip_kind": "genesis",
+            }
+        ),
+    }
+    state = _state([first, _append([first], final)], anchor)
+    if state.tip.commit != locked.commit or state.tip.manifest != manifest_sha256(
+        locked.manifest
+    ):
+        raise InvalidChain("genesis_locked_tip")
+    return GenesisPublication(dict(bundle), final, state)
 
 
 def plan_finalization(
@@ -167,3 +214,29 @@ def plan_finalization(
         )
     next_state = _state([*history, _append(history, files)], successor_anchor)
     return PublicationPlan(history[-1].commit, files, next_state, accepted)
+
+
+def plan_void(
+    history: Sequence[Snapshot], anchor: Anchor, targets: Sequence[str], *, reason: str
+) -> PublicationPlan:
+    """Permanently invalidate authenticated pending artifacts, without advancing HEAD."""
+    state = _state(history, anchor)
+    if not reason or not targets or len(set(targets)) != len(targets):
+        raise InvalidChain("void_request")
+    files = {}
+    for target in targets:
+        if target not in state.pending or state.pending[target].kind == "genesis":
+            raise InvalidChain("void_not_pending")
+        name, raw = _marker(
+            {
+                "schema": "axiom/notary-void/v1",
+                "lane": anchor.lane,
+                "epoch_sha256": anchor.epoch_sha256,
+                "target_sha256": target,
+                "target_kind": state.pending[target].kind,
+                "reason": reason,
+            }
+        )
+        files[name] = raw
+    next_state = _state([*history, _append(history, files)], anchor)
+    return PublicationPlan(history[-1].commit, files, next_state, False)

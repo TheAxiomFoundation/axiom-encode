@@ -36,6 +36,7 @@ def legacy_inventory(
     apply_root: dict,
     expected_encoder_identity: dict,
     local_corpus_release,
+    corpus_public_keys=(),
 ) -> list[list[str]]:
     """Reuse the complete existing v5 contract with the frozen public root.
 
@@ -61,6 +62,31 @@ def legacy_inventory(
             target = root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(raw)
+        if isinstance(local_corpus_release, Path):
+            import base64
+
+            from axiom_encode.toolchain import (
+                load_rulespec_local_corpus_release,
+                local_corpus_release_verification,
+            )
+
+            release = None
+            for key in corpus_public_keys:
+                encoded = base64.b64encode(
+                    key.public_bytes(
+                        serialization.Encoding.Raw, serialization.PublicFormat.Raw
+                    )
+                ).decode()
+                try:
+                    with local_corpus_release_verification(encoded):
+                        release = load_rulespec_local_corpus_release(
+                            root, local_corpus_release
+                        )
+                    break
+                except Exception:
+                    continue
+            _require(release is not None, "genesis_corpus_release_unverifiable")
+            local_corpus_release = release
         for name in sorted(snapshot.blobs, key=str.encode):
             if "/.axiom/encoding-manifests/" not in "/" + name or not name.endswith(
                 ".json"
@@ -158,6 +184,7 @@ def build_genesis(
             apply_root=legacy_apply_root,
             expected_encoder_identity=expected_encoder_identity,
             local_corpus_release=local_corpus_release,
+            corpus_public_keys=tuple(registry.keys["corpus-release"].values()),
         )
         if row[0] in protected
     ]

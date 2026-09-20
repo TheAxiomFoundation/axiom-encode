@@ -2335,6 +2335,17 @@ def main():
         help="Emit findings as JSON instead of human-readable text",
     )
 
+    from axiom_encode.notary.merge_guard import (
+        add_arguments as add_notary_guard_arguments,
+    )
+
+    add_notary_guard_arguments(
+        subparsers.add_parser(
+            "notary-guard",
+            help="Verify enrolled lineage; exit 78 requires the legacy generated guard",
+        )
+    )
+
     guard_generated_parser = subparsers.add_parser(
         "guard-generated",
         help="Reject RuleSpec changes that were not installed by axiom-encode --apply",
@@ -3590,6 +3601,10 @@ def main():
         cmd_retire(args)
     elif args.command == "migrate-rulespec-paths":
         cmd_migrate_rulespec_paths(args)
+    elif args.command == "notary-guard":
+        from axiom_encode.notary.merge_guard import command as notary_guard_command
+
+        raise SystemExit(notary_guard_command(args))
     elif args.command == "guard-generated":
         cmd_guard_generated(args)
     elif args.command == "stage-signed-backfill":

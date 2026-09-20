@@ -78,7 +78,7 @@ class Epoch:
         self.append(files, head=(address, kind))
 
     @classmethod
-    def create(cls):
+    def create(cls, *, prepare_base=None, lane_snapshot=snapshot):
         identities = Identities.create()
         policy = policy_body()
         transition_policy = {
@@ -109,14 +109,15 @@ class Epoch:
             "notary_spki_sha256": identities.pins["notary_spki_sha256"],
         }
         waiver = b"validate_failures: {}\n"
-        base = snapshot(
+        base = lane_snapshot(
             "a" * 40,
             {
                 "known-validation-gaps.yaml": waiver,
                 ".axiom/toolchain.toml": (
                     f'[toolchain]\naxiom_corpus_release="fixture"\naxiom_corpus_release_content_sha256="{"c" * 64}"\nvalidation_waiver_set_sha256="{sha256_hex(waiver)}"\n'
                 ).encode(),
-            },
+            }
+            | (prepare_base(identities) if prepare_base else {}),
         )
         roots = {}
         for name in ("legacy_apply_root", "legacy_eval_root"):
@@ -153,7 +154,7 @@ class Epoch:
             LANE, address, LANE + "-notary", identities.pins["notary_spki_sha256"]
         )
         consumer["epoch_sha256"] = address
-        active = snapshot(
+        active = lane_snapshot(
             "b" * 40,
             base.blobs
             | prospective

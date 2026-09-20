@@ -210,3 +210,27 @@ def test_environment_cannot_silently_degrade(mutation):
     else:
         with pytest.raises(IdentityRefusal):
             require_environment(body, branches, **args)
+
+
+@pytest.mark.parametrize("rebase", [True, None, 0, "false"])
+def test_rebase_merge_is_refused_before_admission(rebase):
+    from axiom_encode.notary.protection import require_merge_methods
+
+    with pytest.raises(IdentityRefusal, match="unsupported_merge_methods"):
+        require_merge_methods(
+            {
+                "full_name": LANE,
+                "allow_rebase_merge": rebase,
+                "allow_squash_merge": True,
+            },
+            lane=LANE,
+        )
+
+
+def test_squash_and_merge_commits_are_supported():
+    from axiom_encode.notary.protection import require_merge_methods
+
+    for method in ("allow_squash_merge", "allow_merge_commit"):
+        require_merge_methods(
+            {"full_name": LANE, "allow_rebase_merge": False, method: True}, lane=LANE
+        )
