@@ -143,3 +143,33 @@ def test_socket_directory_can_allow_proxy_execute_without_write(tmp_path):
 
     tmp_path.chmod(0o710)
     custodian_parent(tmp_path.resolve() / "service.sock", socket=True)
+
+
+def test_running_encoder_uses_official_attestation_repository_spelling(monkeypatch):
+    from axiom_encode import __version__
+    from axiom_encode.notary.deployment import require_running_identity
+
+    # The global fixture uses the real legacy attestation's host-qualified
+    # spelling. Public v33 configuration intentionally uses owner/name.
+    monkeypatch.setattr(
+        "axiom_encode.harness.evals._deterministic_tree_identity",
+        lambda *a, **kw: {"tree_sha256": "b" * 64},
+    )
+    expected = {
+        "repository": "TheAxiomFoundation/axiom-encode",
+        "git_oid": "a" * 40,
+        "version": __version__,
+        "package_tree_sha256": "b" * 64,
+    }
+    inventory = jcs_dumps(
+        {"verifier": {"repo": expected["repository"], "git_oid": expected["git_oid"]}}
+    )
+    require_running_identity(expected, inventory)
+    for field, value in [
+        ("repository", "outsider/axiom-encode"),
+        ("git_oid", "c" * 40),
+        ("version", "wrong"),
+        ("package_tree_sha256", "d" * 64),
+    ]:
+        with pytest.raises(IdentityRefusal, match="encoder_identity"):
+            require_running_identity(expected | {field: value}, inventory)

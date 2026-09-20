@@ -5,6 +5,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
+from ._schema import fields, nonempty
 from .canonical import jcs_dumps, sha256_hex
 from .chain import (
     BOOTSTRAP_PATHS,
@@ -21,12 +22,27 @@ from .manifest import manifest_diff, manifest_sha256
 from .protocol import (
     PREFIX,
     TRANSITION_POLICY_PATH,
+    oid,
     parse_artifact,
     parse_transition_policy,
 )
 from .refusal import Refusal
 from .registry import REGISTRY_PATH
 from .verification import Snapshot
+
+
+def legacy_encoder_identity(value):
+    """Validate the ceremony's public identity before the legacy v5 boundary."""
+    from axiom_encode.cli import APPLIED_ENCODING_OFFICIAL_REPOSITORY
+
+    _require(
+        fields(value, {"repository", "commit", "version"})
+        and value["repository"] == "TheAxiomFoundation/axiom-encode"
+        and oid(value["commit"])
+        and nonempty(value["version"]),
+        "genesis_encoder_identity",
+    )
+    return value | {"repository": APPLIED_ENCODING_OFFICIAL_REPOSITORY}
 
 
 def legacy_inventory(
@@ -50,6 +66,7 @@ def legacy_inventory(
 
     from ._schema import decode_base64
 
+    expected_encoder_identity = legacy_encoder_identity(expected_encoder_identity)
     legacy_spki(apply_root)
     public = serialization.load_der_public_key(
         decode_base64(apply_root["public_key_spki_der_base64"])

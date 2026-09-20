@@ -180,6 +180,9 @@ def parse_ceremony(body, deployment):
         raise IdentityRefusal("ceremony_arguments")
     if not fields(args["prospective"], set(BOOTSTRAP_PATHS.values())):
         raise IdentityRefusal("ceremony_prospective")
+    from .administration import legacy_encoder_identity
+
+    legacy_encoder_identity(args["expected_encoder_identity"])
     prospective = {
         key: decode_base64(value) for key, value in args["prospective"].items()
     }
@@ -222,7 +225,10 @@ def require_running_identity(expected, inventory):
     ):
         raise IdentityRefusal("service_encoder_identity")
     from axiom_encode import __file__ as package_file
-    from axiom_encode.cli import _current_guard_encoder_execution_identity
+    from axiom_encode.cli import (
+        APPLIED_ENCODING_OFFICIAL_REPOSITORY,
+        _current_guard_encoder_execution_identity,
+    )
     from axiom_encode.harness.evals import _deterministic_tree_identity
 
     actual = _current_guard_encoder_execution_identity()
@@ -232,7 +238,10 @@ def require_running_identity(expected, inventory):
     if (
         actual
         != {
-            "repository": expected["repository"],
+            # The legacy runtime attestation uses a hostname-qualified
+            # repository; v33 inventories use GitHub's owner/name form.
+            # Both spellings are fixed constants, not a caller normalization.
+            "repository": APPLIED_ENCODING_OFFICIAL_REPOSITORY,
             "commit": expected["git_oid"],
             "version": expected["version"],
         }
