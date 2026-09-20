@@ -93,7 +93,7 @@ jobs:
           echo "initial=$authenticate_queue" >> "$GITHUB_OUTPUT"
           if [ "$authenticate_queue" = "true" ]; then
             printf 'queue_id=%s\n' "$queue_id" >> "$GITHUB_OUTPUT"
-            for field in corpus_ref rules_engine_ref rulespec_ref; do
+            for field in corpus_ref rules_engine_ref rulespec_ref pr_base_branch; do
               printf '%s=%s\n' "$field" \
                 "$(jq -r --arg field "$field" '.dispatch[$field]' "$queue")" \
                 >> "$GITHUB_OUTPUT"
@@ -168,10 +168,11 @@ jobs:
             --require-success false
 
           rulespec_ref="$(jq -r '.dispatch.rulespec_ref' "$queue")"
+          pr_base_branch="$(jq -r '.dispatch.pr_base_branch' "$queue")"
           test "$(gh api \
             --header "Accept: application/vnd.github+json" \
             --header "X-GitHub-Api-Version: $api_version" \
-            repos/TheAxiomFoundation/rulespec-us/git/ref/heads/hard-cut/canonical-layout-us \
+            "repos/TheAxiomFoundation/rulespec-us/git/ref/heads/$pr_base_branch" \
             --jq '.object.sha')" = "$rulespec_ref"
 
       - name: Checkout exact queue corpus source
@@ -232,7 +233,7 @@ jobs:
           test "$(gh api \
             --header "Accept: application/vnd.github+json" \
             --header "X-GitHub-Api-Version: $api_version" \
-            repos/TheAxiomFoundation/rulespec-us/git/ref/heads/hard-cut/canonical-layout-us \
+            "repos/TheAxiomFoundation/rulespec-us/git/ref/heads/${{ steps.transition.outputs.pr_base_branch }}" \
             --jq '.object.sha')" = "${{ steps.transition.outputs.rulespec_ref }}"
           git -C initial-axiom-rules-engine merge-base --is-ancestor \
             "${{ steps.transition.outputs.rules_engine_ref }}" \
@@ -283,6 +284,7 @@ jobs:
             --corpus-ref "${{ steps.transition.outputs.corpus_ref }}" \
             --rulespec-ref "${{ steps.transition.outputs.rulespec_ref }}" \
             --rules-engine-ref "${{ steps.transition.outputs.rules_engine_ref }}" \
+            --pr-base-branch "${{ steps.transition.outputs.pr_base_branch }}" \
             --release-name "$RELEASE_NAME" \
             --release-content-sha256 "$RELEASE_SHA" \
             --release-object "$release_object" \
