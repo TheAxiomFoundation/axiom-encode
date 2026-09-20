@@ -1,4 +1,4 @@
-__version__ = "0.2.2010"
+__version__ = "0.2.2012"
 # Axiom Encode - AI-assisted RuleSpec encoding
 # Self-contained encoding infrastructure -- no external plugin dependencies.
 
