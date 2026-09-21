@@ -608,7 +608,7 @@ REPOINT_ENVELOPE = json.dumps(
 
 
 def _atomic_source_tail() -> str:
-    """Return the successor-repoint block appended to the atomic-source step."""
+    """Return the workflow step that resolves the successor-repoint envelope."""
 
     import yaml
 
@@ -616,10 +616,9 @@ def _atomic_source_tail() -> str:
     step = next(
         item
         for item in workflow["jobs"]["encode"]["steps"]
-        if item.get("name") == "Validate atomic source inputs"
+        if item.get("name") == "Resolve successor repoint request"
     )
-    marker = "# A legacy successor repoint carries its whole authority"
-    return "set -euo pipefail\n" + step["run"][step["run"].index(marker) :]
+    return step["run"]
 
 
 def _run_tail(tmp_path, *, envelope: str, **env):
@@ -637,13 +636,8 @@ def _run_tail(tmp_path, *, envelope: str, **env):
     runner_temp.mkdir(exist_ok=True)
     output = tmp_path / "github-output"
     output.touch()
-    prelude = "\n".join(
-        [
-            "retained_successor_paths=()",
-            f"normalized_existing_imports='{env.pop('existing_imports', '[]')}'",
-        ]
-    )
-    script = prelude + "\n" + _atomic_source_tail()
+    env.setdefault("EXISTING_SIGNED_IMPORTS_JSON", env.pop("existing_imports", "[]"))
+    script = _atomic_source_tail()
     environment = {
         "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin",
         "RUNNER_TEMP": str(runner_temp),
@@ -656,6 +650,8 @@ def _run_tail(tmp_path, *, envelope: str, **env):
         "DEPENDENT_CITATION": "",
         "SECOND_DEPENDENT_CITATION": "",
         "REPAIR_RUN_ID": "",
+        "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON": "[]",
+        "EXISTING_SIGNED_IMPORTS_JSON": "[]",
         "PYTHONPATH": os.pathsep.join(
             [str(root / "src"), sysconfig.get_paths()["purelib"]]
         ),

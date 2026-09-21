@@ -2919,10 +2919,10 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     )
     assert repoint_step["id"] == "successor_repoint"
     assert repoint_step["if"] == (
-        "steps.atomic_source.outputs.successor_repoint == 'true'"
+        "steps.successor_repoint_request.outputs.successor_repoint == 'true'"
     )
     assert apply_step["if"] == (
-        "steps.atomic_source.outputs.successor_repoint != 'true'"
+        "steps.successor_repoint_request.outputs.successor_repoint != 'true'"
     )
     assert "OPENAI_API_KEY" not in repoint_step["env"]
     assert "AXIOM_ENCODE_SUPABASE_SECRET_KEY" not in repoint_step["env"]
@@ -2937,19 +2937,17 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert '--corpus-path "$GITHUB_WORKSPACE/axiom-corpus"' in repoint_step["run"]
     assert "--trusted-signing-roots" in repoint_step["run"]
 
-    atomic_source_step = next(
-        step for step in steps if step.get("name") == "Validate atomic source inputs"
+    request_step = next(
+        step
+        for step in steps
+        if step.get("name") == "Resolve successor repoint request"
     )
-    assert atomic_source_step["id"] == "atomic_source"
-    assert "successor-repoint-request" in atomic_source_step["run"]
-    assert (
-        'echo "successor_repoint=true" >> "$GITHUB_OUTPUT"'
-        in (atomic_source_step["run"])
-    )
-    assert (
-        'echo "successor_repoint=false" >> "$GITHUB_OUTPUT"'
-        in (atomic_source_step["run"])
-    )
+    assert request_step["id"] == "successor_repoint_request"
+    assert "successor-repoint-request" in request_step["run"]
+    assert 'echo "successor_repoint=true" >> "$GITHUB_OUTPUT"' in request_step["run"]
+    assert 'echo "successor_repoint=false" >> "$GITHUB_OUTPUT"' in request_step["run"]
+    assert "AXIOM_ENCODE_APPLY_SIGNING_KEY" not in (request_step.get("env") or {})
+    assert steps.index(request_step) < steps.index(repoint_step)
     assert steps.index(repoint_step) < steps.index(apply_step)
 
     secret_steps = [

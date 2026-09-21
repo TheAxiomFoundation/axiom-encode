@@ -725,7 +725,6 @@ jobs:
             >> "$GITHUB_OUTPUT"
 
       - name: Validate atomic source inputs
-        id: atomic_source
         env:
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
           CITATION: ${{ inputs.citation }}
@@ -863,32 +862,50 @@ jobs:
             echo "queue-authorized re-encodes cannot add source inputs until queue generation identity binds them" >&2
             exit 1
           fi
-          # A legacy successor repoint carries its whole authority in the
-          # bounded source input, so it needs no new dispatch input (the list
-          # is at GitHub's hard cap of 25). It is model-free and mutually
-          # exclusive with every other mode in this workflow.
+      # A legacy successor repoint carries its whole authority in the bounded
+      # source input, so it needs no new dispatch input (the list is at
+      # GitHub's hard cap of 25). It is model-free and mutually exclusive with
+      # every other mode this workflow can run.
+      - name: Resolve successor repoint request
+        id: successor_repoint_request
+        env:
+          ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
+          DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
+          EXISTING_SIGNED_IMPORTS_JSON: ${{ inputs.existing_signed_imports_json }}
+          LEGACY_EXACT_DEPENDENT_RULESPEC_PATH: ${{ inputs.legacy_exact_dependent_rulespec_path }}
+          LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON: ${{ inputs.legacy_retained_successor_rulespec_paths_json }}
+          REPAIR_RUN_ID: ${{ inputs.repair_run_id }}
+          REPLACE_LEGACY_RULESPEC_PATH: ${{ inputs.replace_legacy_rulespec_path }}
+          REPLACE_RULESPEC_PATH: ${{ inputs.replace_rulespec_path }}
+          SECOND_DEPENDENT_CITATION: ${{ inputs.second_dependent_citation }}
+          SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH: ${{ inputs.second_legacy_exact_dependent_rulespec_path }}
+        run: |
+          set -euo pipefail
           axiom-encode/.venv/bin/python \
             axiom-encode/scripts/prepare_signed_backfill.py \
             successor-repoint-request "${ATOMIC_SOURCE_JSON:-[]}" \
             > "$RUNNER_TEMP/successor-repoint-request.json"
-          if [ -s "$RUNNER_TEMP/successor-repoint-request.json" ]; then
-            if [ -n "$REPLACE_RULESPEC_PATH" ] || \
-               [ -n "$REPLACE_LEGACY_RULESPEC_PATH" ] || \
-               [ -n "$LEGACY_EXACT_DEPENDENT_RULESPEC_PATH" ] || \
-               [ -n "$SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH" ] || \
-               [ "${#retained_successor_paths[@]}" -gt 0 ] || \
-               [ -n "$DEPENDENT_CITATION" ] || \
-               [ -n "$SECOND_DEPENDENT_CITATION" ] || \
-               [ -n "$REPAIR_RUN_ID" ] || \
-               [ "$normalized_existing_imports" != "[]" ]; then
-              echo "successor repoints carry their whole authority in source_bundle_json and cannot mix with replacement, dependent, retained-successor, repair, or existing-import inputs" >&2
-              exit 1
-            fi
-            echo "successor_repoint=true" >> "$GITHUB_OUTPUT"
-          else
+          if [ ! -s "$RUNNER_TEMP/successor-repoint-request.json" ]; then
             rm -f "$RUNNER_TEMP/successor-repoint-request.json"
             echo "successor_repoint=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+          if [ -n "${REPLACE_RULESPEC_PATH:-}" ] || \
+             [ -n "${REPLACE_LEGACY_RULESPEC_PATH:-}" ] || \
+             [ -n "${LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
+             [ -n "${SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
+             [ -n "${DEPENDENT_CITATION:-}" ] || \
+             [ -n "${SECOND_DEPENDENT_CITATION:-}" ] || \
+             [ -n "${REPAIR_RUN_ID:-}" ] || \
+             ! jq -e 'type == "array" and length == 0' \
+               <<< "${LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON:-[]}" \
+               > /dev/null || \
+             ! jq -e 'type == "array" and length == 0' \
+               <<< "${EXISTING_SIGNED_IMPORTS_JSON:-[]}" > /dev/null; then
+            echo "successor repoints carry their whole authority in source_bundle_json and cannot mix with replacement, dependent, retained-successor, repair, or existing-import inputs" >&2
+            exit 1
+          fi
+          echo "successor_repoint=true" >> "$GITHUB_OUTPUT"
 
       - name: Fetch pinned signed corpus release object
         shell: bash
@@ -1240,7 +1257,7 @@ jobs:
 
       - name: Repoint legacy successor
         id: successor_repoint
-        if: steps.atomic_source.outputs.successor_repoint == 'true'
+        if: steps.successor_repoint_request.outputs.successor_repoint == 'true'
         env:
           PYTHONUNBUFFERED: "1"
           AXIOM_ENCODE_APPLY_SIGNING_KEY: ${{ secrets.AXIOM_ENCODE_APPLY_SIGNING_KEY }}
@@ -1262,7 +1279,7 @@ jobs:
 
       - name: Encode, review, validate, and apply
         id: encode_apply
-        if: steps.atomic_source.outputs.successor_repoint != 'true'
+        if: steps.successor_repoint_request.outputs.successor_repoint != 'true'
         env:
           # Flush encoder output as it is produced so a timeout or crash
           # still leaves attempt records in the job log.
