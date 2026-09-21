@@ -316,6 +316,73 @@ It signs a plan/HEAD/tree/corpus/waiver/hash-bound receipt under
 replacement manifest, and installs moves, reference rewrites, receipts, and
 manifests in one recoverable transaction.
 
+### Repointing a legacy module onto an existing signed successor
+
+Sometimes a legacy v1 module has no path problem at all: its concepts already
+exist, value-identical, in a signed-v5 module encoded from a *different* corpus
+page, at an unrelated canonical path. `migrate-rulespec-paths` cannot express
+that (its destination must be the normalization of its source) and a fresh
+model re-encode of the dependent is the wrong tool when the change is a handful
+of symbol renames. `repoint-legacy-successor` is the model-free transaction for
+exactly that case.
+
+Authority is one exact JSON envelope:
+
+```json
+{
+  "schema": "axiom-encode/legacy-successor-repoint/v1",
+  "legacy_primary": "us/policies/irs/rev-proc-2025-32/earned-income-credit.yaml",
+  "successor_primary": "us/policies/irs/rev-proc-2025-32/page-15.yaml",
+  "dependents": ["us/statutes/26/32.yaml"],
+  "concept_map": [
+    {
+      "from": "eitc_maximum_credit_amounts",
+      "to": "earned_income_credit_maximum_credit_amounts"
+    }
+  ],
+  "program_scope_updates": [
+    {"program_spec": "programs/us/fiit/fy-2026.yaml", "scope": "federal"}
+  ]
+}
+```
+
+```bash
+axiom-encode repoint-legacy-successor \
+  --request /tmp/repoint.json \
+  --policy-repo-path ~/TheAxiomFoundation/rulespec-us \
+  --axiom-rules-engine-path ~/TheAxiomFoundation/axiom-rules-engine \
+  --corpus-path ~/TheAxiomFoundation/axiom-corpus
+```
+
+Every declared rename is proved before anything is written: identical
+`kind`/`dtype`/`unit`/`entity`/`period`, identical table key sets, and equal
+values at every version boundary **inside the successor's validity window**.
+`indexed_by` names may differ only when every dependent formula use is a
+literal integer subscript the successor table defines. Dependents are rewritten
+by exact tokens on five surfaces only -- the module import,
+`module.deferred_outputs[].blocked_by`, proof import `target`/`output`/`hash`,
+and unquoted identifier-bounded formula symbols -- and the postimage is proved
+equal to the preimage with only those replacements applied. Any other
+occurrence of the retired identity or a mapped concept fails closed, as does any
+reference to the retired module from an undeclared protected module or
+ProgramSpec.
+
+The successor's validity window governs: after the repoint a dependent has no
+value outside that window, where a legacy module with no `effective_to` silently
+extended its amounts forever. The receipt records this as
+`post_window_behavior_change` together with each dependent use window. At
+runtime the rules engine's `Evaluator::lookup_parameter` filters versions by
+`ParameterVersion::applies_at` and returns `EvalError::MissingParameterValue`
+(`parameter \`X\` has no value for key \`K\` at <date>`) when none applies;
+compilation still succeeds and only evaluation for that period fails.
+
+The transaction validates the rewritten dependents and their transitive
+dependents on an isolated overlay, reconciles `.axiom` metadata and the declared
+ProgramSpec scopes through `program-scope-sync`, retires the legacy group and
+its v1 ownership manifests, and installs one signed receipt under
+`.axiom/legacy-successor-repoints/` plus a successor manifest and one manifest
+per rewritten dependent in a single recoverable transaction.
+
 Repository CI should run:
 
 ```bash
