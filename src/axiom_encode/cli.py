@@ -21874,8 +21874,7 @@ def _cmd_repoint_legacy_successor(args) -> None:
     }
     try:
         proof_set = prove_concept_map(
-            legacy_raw=dependent_preimages.get(legacy_primary.as_posix())
-            or clean_bytes(legacy_primary, label="legacy primary"),
+            legacy_raw=clean_bytes(legacy_primary, label="legacy primary"),
             successor_raw=clean_bytes(successor_primary, label="successor primary"),
             request=request,
             dependent_raws={
@@ -22095,7 +22094,6 @@ def _cmd_repoint_legacy_successor(args) -> None:
         planned=planned,
         expected_originals=expected_originals,
         proof_set=proof_set,
-        legacy_paths=legacy_paths,
         legacy_files=legacy_files,
         legacy_manifest_records=legacy_manifest_records,
         successor_primary=successor_primary,
@@ -22134,8 +22132,6 @@ def _successor_repoint_structural_residue(value: object, tokens: set[str]) -> bo
 
 def _successor_repoint_metadata_reconciliations(
     *,
-    repo_path: Path,
-    head_commit: str,
     tracked: Mapping[Path, str],
     request,
     dependent_postimages: Mapping[str, bytes],
@@ -22278,7 +22274,6 @@ def _successor_repoint_metadata_reconciliations(
                 "operations": [dict(item) for item in operations],
             }
         )
-    del head_commit, repo_path
     return records, planned
 
 
@@ -22465,7 +22460,6 @@ def _finish_successor_repoint(
     planned: dict[Path, bytes | None],
     expected_originals: dict[Path, str | None],
     proof_set,
-    legacy_paths: Sequence[Path],
     legacy_files: Mapping[str, str],
     legacy_manifest_records: Sequence[Mapping[str, object]],
     successor_primary: Path,
@@ -22488,8 +22482,6 @@ def _finish_successor_repoint(
         if planned.get(Path(str(record["primary"]))) is not None
     }
     metadata_records, metadata_planned = _successor_repoint_metadata_reconciliations(
-        repo_path=repo_path,
-        head_commit=head_commit,
         tracked=tracked,
         request=request,
         dependent_postimages=dependent_postimages,
@@ -27392,7 +27384,6 @@ def _successor_repoint_file_entries(value: object) -> dict[str, str] | None:
 def _successor_repoint_receipt_issues(
     receipt: Mapping[str, object],
     *,
-    repo_path: Path,
     receipt_label: str,
     expected_waiver_set_sha256: str,
     local_corpus_release: LocalCorpusRelease | None,
@@ -27523,7 +27514,6 @@ def _successor_repoint_receipt_issues(
         if not isinstance(receipt.get(field), list):
             issues.append(f"{receipt_label} {field} are malformed")
 
-    del repo_path
     return issues
 
 
@@ -27595,7 +27585,6 @@ def _successor_repoint_manifest_issues(
 
     issues = _successor_repoint_receipt_issues(
         receipt,
-        repo_path=repo_path,
         receipt_label=receipt_path.as_posix(),
         expected_waiver_set_sha256=expected_waiver_set_sha256,
         local_corpus_release=local_corpus_release,
