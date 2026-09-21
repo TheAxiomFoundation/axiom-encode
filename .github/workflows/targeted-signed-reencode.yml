@@ -725,6 +725,7 @@ jobs:
             >> "$GITHUB_OUTPUT"
 
       - name: Validate atomic source inputs
+        id: atomic_source
         env:
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
           CITATION: ${{ inputs.citation }}
@@ -861,6 +862,32 @@ jobs:
               [ "$normalized_existing_imports" != "[]" ]; }; then
             echo "queue-authorized re-encodes cannot add source inputs until queue generation identity binds them" >&2
             exit 1
+          fi
+          # A legacy successor repoint carries its whole authority in the
+          # bounded source input, so it needs no new dispatch input (the list
+          # is at GitHub's hard cap of 25). It is model-free and mutually
+          # exclusive with every other mode in this workflow.
+          axiom-encode/.venv/bin/python \
+            axiom-encode/scripts/prepare_signed_backfill.py \
+            successor-repoint-request "${ATOMIC_SOURCE_JSON:-[]}" \
+            > "$RUNNER_TEMP/successor-repoint-request.json"
+          if [ -s "$RUNNER_TEMP/successor-repoint-request.json" ]; then
+            if [ -n "$REPLACE_RULESPEC_PATH" ] || \
+               [ -n "$REPLACE_LEGACY_RULESPEC_PATH" ] || \
+               [ -n "$LEGACY_EXACT_DEPENDENT_RULESPEC_PATH" ] || \
+               [ -n "$SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH" ] || \
+               [ "${#retained_successor_paths[@]}" -gt 0 ] || \
+               [ -n "$DEPENDENT_CITATION" ] || \
+               [ -n "$SECOND_DEPENDENT_CITATION" ] || \
+               [ -n "$REPAIR_RUN_ID" ] || \
+               [ "$normalized_existing_imports" != "[]" ]; then
+              echo "successor repoints carry their whole authority in source_bundle_json and cannot mix with replacement, dependent, retained-successor, repair, or existing-import inputs" >&2
+              exit 1
+            fi
+            echo "successor_repoint=true" >> "$GITHUB_OUTPUT"
+          else
+            rm -f "$RUNNER_TEMP/successor-repoint-request.json"
+            echo "successor_repoint=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Fetch pinned signed corpus release object
@@ -1211,8 +1238,31 @@ jobs:
           PY
           fi
 
+      - name: Repoint legacy successor
+        id: successor_repoint
+        if: steps.atomic_source.outputs.successor_repoint == 'true'
+        env:
+          PYTHONUNBUFFERED: "1"
+          AXIOM_ENCODE_APPLY_SIGNING_KEY: ${{ secrets.AXIOM_ENCODE_APPLY_SIGNING_KEY }}
+          RULESPEC_CHECKOUT: ${{ github.workspace }}/rulespec-${{ inputs.country }}
+        run: |
+          set -euo pipefail
+          # Deterministic, model-free transaction: no model credential is set
+          # for this step, and repoint-legacy-successor never invokes a backend.
+          /opt/axiom-verification/axiom-encode-signing-supervisor \
+            --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
+            --trusted-python-runtime-root /opt/axiom-verification/python \
+            --trusted-python-import-root /opt/axiom-verification/python/lib/python3.13/site-packages \
+            --trusted-python-package-root /opt/axiom-verification/python/lib/python3.13/site-packages/axiom_encode \
+            -- /opt/axiom-verification/axiom-encode repoint-legacy-successor \
+            --request "$RUNNER_TEMP/successor-repoint-request.json" \
+            --policy-repo-path "$RULESPEC_CHECKOUT" \
+            --axiom-rules-engine-path "$GITHUB_WORKSPACE/axiom-rules-engine" \
+            --corpus-path "$GITHUB_WORKSPACE/axiom-corpus"
+
       - name: Encode, review, validate, and apply
         id: encode_apply
+        if: steps.atomic_source.outputs.successor_repoint != 'true'
         env:
           # Flush encoder output as it is produced so a timeout or crash
           # still leaves attempt records in the job log.

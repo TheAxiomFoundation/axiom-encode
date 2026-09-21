@@ -2912,12 +2912,52 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert 'guard_status="$?"' in guard_step["run"]
     assert 'jq . "$RUNNER_TEMP/guard-generated.json" >&2' in guard_step["run"]
 
+    # Exactly two steps sign: the model apply lane and the model-free legacy
+    # successor repoint. Both are mutually exclusive on the same dispatch.
+    repoint_step = next(
+        step for step in steps if step.get("name") == "Repoint legacy successor"
+    )
+    assert repoint_step["id"] == "successor_repoint"
+    assert repoint_step["if"] == (
+        "steps.atomic_source.outputs.successor_repoint == 'true'"
+    )
+    assert apply_step["if"] == (
+        "steps.atomic_source.outputs.successor_repoint != 'true'"
+    )
+    assert "OPENAI_API_KEY" not in repoint_step["env"]
+    assert "AXIOM_ENCODE_SUPABASE_SECRET_KEY" not in repoint_step["env"]
+    assert (
+        "-- /opt/axiom-verification/axiom-encode repoint-legacy-successor"
+        in repoint_step["run"]
+    )
+    assert (
+        '--request "$RUNNER_TEMP/successor-repoint-request.json"' in repoint_step["run"]
+    )
+    assert '--policy-repo-path "$RULESPEC_CHECKOUT"' in repoint_step["run"]
+    assert '--corpus-path "$GITHUB_WORKSPACE/axiom-corpus"' in repoint_step["run"]
+    assert "--trusted-signing-roots" in repoint_step["run"]
+
+    atomic_source_step = next(
+        step for step in steps if step.get("name") == "Validate atomic source inputs"
+    )
+    assert atomic_source_step["id"] == "atomic_source"
+    assert "successor-repoint-request" in atomic_source_step["run"]
+    assert (
+        'echo "successor_repoint=true" >> "$GITHUB_OUTPUT"'
+        in (atomic_source_step["run"])
+    )
+    assert (
+        'echo "successor_repoint=false" >> "$GITHUB_OUTPUT"'
+        in (atomic_source_step["run"])
+    )
+    assert steps.index(repoint_step) < steps.index(apply_step)
+
     secret_steps = [
         step
         for step in steps
         if "AXIOM_ENCODE_APPLY_SIGNING_KEY" in (step.get("env") or {})
     ]
-    assert secret_steps == [apply_step]
+    assert secret_steps == [repoint_step, apply_step]
 
     publish_step = next(
         step

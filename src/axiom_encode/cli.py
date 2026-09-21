@@ -22282,6 +22282,175 @@ def _successor_repoint_metadata_reconciliations(
     return records, planned
 
 
+def _build_successor_repoint_provenance(
+    *,
+    request,
+    head_commit: str,
+    base_tree: str,
+    proof_set,
+    legacy_files: Mapping[str, str],
+    legacy_manifest_records: Sequence[Mapping[str, object]],
+    successor_primary: Path,
+    successor_manifest_path: Path,
+    successor_manifest_sha256: str,
+    verified_successor: Mapping[str, object],
+    successor_file_entries: Sequence[Mapping[str, object]],
+    dependent_records: Sequence[Mapping[str, object]],
+    metadata_records: Sequence[Mapping[str, object]],
+    program_records: Sequence[Mapping[str, object]],
+    validation_execution: Mapping[str, object],
+    local_corpus_release: LocalCorpusRelease,
+    waiver_sha256: str,
+    encoder_provenance: Mapping[str, object],
+    signing_broker: SigningBroker,
+) -> tuple[Path, bytes, dict[Path, bytes], str]:
+    """Return the signed receipt and every manifest one repoint installs.
+
+    Kept separate from the journaled install so the writer and
+    ``_successor_repoint_manifest_issues`` can be round-tripped in tests.
+    """
+
+    semantics = {
+        "successor_window": {
+            "effective_from": proof_set.successor_window_start,
+            "effective_to": proof_set.successor_window_end,
+        },
+        "dependent_use_windows": [
+            dict(item) for item in proof_set.dependent_use_windows
+        ],
+        "post_window_behavior_change": proof_set.post_window_behavior_change,
+        "runtime_behavior_outside_successor_window": (
+            "axiom-rules-engine Evaluator::lookup_parameter selects the version "
+            "whose applies_at(period.start) holds; with no active version it "
+            "returns EvalError::MissingParameterValue "
+            '("parameter `{name}` has no value for key `{key}` at {date}"). '
+            "Compilation still succeeds; evaluation for that period fails."
+        ),
+    }
+    identity_payload = _successor_repoint_identity_payload(
+        request_sha256=request.sha256,
+        base_commit=head_commit,
+        base_tree=base_tree,
+        legacy_manifest_sha256=str(legacy_manifest_records[0]["sha256"]),
+        successor_manifest_sha256=successor_manifest_sha256,
+        legacy_files=[
+            {"path": path, "sha256": digest}
+            for path, digest in sorted(legacy_files.items())
+        ],
+        successor_files=[dict(item) for item in successor_file_entries],
+        dependents=[dict(record) for record in dependent_records],
+        concept_proofs=[proof.as_receipt_entry() for proof in proof_set.proofs],
+        metadata_reconciliations=[dict(item) for item in metadata_records],
+        program_scope_reconciliations=[dict(item) for item in program_records],
+        semantics=semantics,
+    )
+    receipt_id = _successor_repoint_identity_sha256(identity_payload)
+    receipt_relative = SUCCESSOR_REPOINT_RECEIPT_DIR / f"{receipt_id}.json"
+    post_waiver_sha256 = next(
+        (
+            str(item["after_sha256"])
+            for item in metadata_records
+            if item["path"] == "known-validation-gaps.yaml"
+        ),
+        waiver_sha256,
+    )
+    receipt = {
+        "schema_version": SUCCESSOR_REPOINT_RECEIPT_SCHEMA,
+        "generated_at": _utc_now_iso(),
+        "tool": SUCCESSOR_REPOINT_TOOL,
+        "repository": {
+            "base_commit": head_commit,
+            "head_commit": head_commit,
+            "base_tree": base_tree,
+        },
+        "axiom_encode_version": __version__,
+        "axiom_encode_git": dict(encoder_provenance),
+        VALIDATION_WAIVER_SET_SHA256_FIELD: post_waiver_sha256,
+        "corpus_release": {
+            "name": local_corpus_release.name,
+            "content_sha256": local_corpus_release.content_sha256,
+            "selector_sha256": local_corpus_release.selector_sha256,
+        },
+        "request": dict(request.payload),
+        "request_sha256": request.sha256,
+        "legacy": {
+            "owner_class": APPLIED_ENCODING_LEGACY_OWNER_CLASS,
+            "trusted_generated_provenance": False,
+            "manifests": [dict(item) for item in legacy_manifest_records],
+            "files": identity_payload["legacy_files"],
+        },
+        "successor": {
+            "primary": successor_primary.as_posix(),
+            "manifest_path": successor_manifest_path.as_posix(),
+            "manifest_sha256": successor_manifest_sha256,
+            "manifest": copy.deepcopy(dict(verified_successor)),
+            "files": [dict(item) for item in successor_file_entries],
+        },
+        "dependents": [dict(record) for record in dependent_records],
+        "concept_proofs": identity_payload["concept_proofs"],
+        "semantics": semantics,
+        "metadata_reconciliations": [dict(item) for item in metadata_records],
+        "program_scope_reconciliations": [dict(item) for item in program_records],
+        "validation_execution": dict(validation_execution),
+    }
+    _sign_applied_encoding_manifest(receipt, signing_broker)
+    receipt_bytes = (json.dumps(receipt, indent=2, sort_keys=True) + "\n").encode()
+    receipt_sha256 = hashlib.sha256(receipt_bytes).hexdigest()
+
+    binding = {
+        "receipt_path": receipt_relative.as_posix(),
+        "receipt_sha256": receipt_sha256,
+        "legacy_primary": Path(request.legacy_primary).as_posix(),
+        "legacy_manifest_path": str(legacy_manifest_records[0]["path"]),
+        "legacy_manifest_sha256": str(legacy_manifest_records[0]["sha256"]),
+        "successor_primary": successor_primary.as_posix(),
+    }
+    successor_manifest = {
+        "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+        "generated_at": _utc_now_iso(),
+        "tool": SUCCESSOR_REPOINT_SUCCESSOR_TOOL,
+        "axiom_encode_version": __version__,
+        "axiom_encode_git": dict(encoder_provenance),
+        VALIDATION_WAIVER_SET_SHA256_FIELD: post_waiver_sha256,
+        "applied_files": (
+            [dict(item) for item in successor_file_entries]
+            + [
+                {"path": item["path"], "sha256": item["after_sha256"]}
+                for item in metadata_records
+            ]
+            + [
+                {"path": item["program_spec"], "sha256": item["after_sha256"]}
+                for item in program_records
+            ]
+            + [{"path": path, "deleted": True} for path in sorted(legacy_files)]
+        ),
+        "successor_repoint": dict(binding),
+        "repointed_successor_manifest": copy.deepcopy(dict(verified_successor)),
+    }
+    _sign_applied_encoding_manifest(successor_manifest, signing_broker)
+    manifests: dict[Path, bytes] = {
+        successor_manifest_path: (
+            json.dumps(successor_manifest, indent=2, sort_keys=True) + "\n"
+        ).encode()
+    }
+    for record in dependent_records:
+        dependent_manifest = {
+            "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+            "generated_at": _utc_now_iso(),
+            "tool": SUCCESSOR_REPOINT_DEPENDENT_TOOL,
+            "axiom_encode_version": __version__,
+            "axiom_encode_git": dict(encoder_provenance),
+            VALIDATION_WAIVER_SET_SHA256_FIELD: post_waiver_sha256,
+            "applied_files": [dict(item) for item in record["live_files"]],
+            "successor_repoint": dict(binding),
+        }
+        _sign_applied_encoding_manifest(dependent_manifest, signing_broker)
+        manifests[_applied_encoding_manifest_path(Path(str(record["primary"])))] = (
+            json.dumps(dependent_manifest, indent=2, sort_keys=True) + "\n"
+        ).encode()
+    return receipt_relative, receipt_bytes, manifests, post_waiver_sha256
+
+
 def _finish_successor_repoint(
     args,
     *,
@@ -22467,43 +22636,30 @@ def _finish_successor_repoint(
             "axiom_encode": dict(expected_encoder_identity),
         }
 
-    # ---- receipt ----------------------------------------------------------
-    semantics = {
-        "successor_window": {
-            "effective_from": proof_set.successor_window_start,
-            "effective_to": proof_set.successor_window_end,
-        },
-        "dependent_use_windows": [
-            dict(item) for item in proof_set.dependent_use_windows
-        ],
-        "post_window_behavior_change": proof_set.post_window_behavior_change,
-        "runtime_behavior_outside_successor_window": (
-            "axiom-rules-engine Evaluator::lookup_parameter selects the version "
-            "whose applies_at(period.start) holds; with no active version it "
-            "returns EvalError::MissingParameterValue "
-            '("parameter `{name}` has no value for key `{key}` at {date}"). '
-            "Compilation still succeeds; evaluation for that period fails."
-        ),
-    }
-    identity_payload = _successor_repoint_identity_payload(
-        request_sha256=request.sha256,
-        base_commit=head_commit,
-        base_tree=base_tree,
-        legacy_manifest_sha256=str(legacy_manifest_records[0]["sha256"]),
-        successor_manifest_sha256=successor_manifest_sha256,
-        legacy_files=[
-            {"path": path, "sha256": digest}
-            for path, digest in sorted(legacy_files.items())
-        ],
-        successor_files=[dict(item) for item in successor_file_entries],
-        dependents=[dict(record) for record in dependent_records],
-        concept_proofs=[proof.as_receipt_entry() for proof in proof_set.proofs],
-        metadata_reconciliations=metadata_records,
-        program_scope_reconciliations=program_records,
-        semantics=semantics,
+    # ---- receipt and signed provenance ------------------------------------
+    receipt_relative, receipt_bytes, manifests, _post_waiver_sha256 = (
+        _build_successor_repoint_provenance(
+            request=request,
+            head_commit=head_commit,
+            base_tree=base_tree,
+            proof_set=proof_set,
+            legacy_files=legacy_files,
+            legacy_manifest_records=legacy_manifest_records,
+            successor_primary=successor_primary,
+            successor_manifest_path=successor_manifest_path,
+            successor_manifest_sha256=successor_manifest_sha256,
+            verified_successor=verified_successor,
+            successor_file_entries=successor_file_entries,
+            dependent_records=dependent_records,
+            metadata_records=metadata_records,
+            program_records=program_records,
+            validation_execution=validation_execution,
+            local_corpus_release=local_corpus_release,
+            waiver_sha256=waiver_sha256,
+            encoder_provenance=encoder_provenance,
+            signing_broker=signing_broker,
+        )
     )
-    receipt_id = _successor_repoint_identity_sha256(identity_payload)
-    receipt_relative = SUCCESSOR_REPOINT_RECEIPT_DIR / f"{receipt_id}.json"
     if (
         receipt_relative in tracked
         or (repo_path / receipt_relative).exists()
@@ -22512,126 +22668,26 @@ def _finish_successor_repoint(
         raise SystemExit(
             f"Successor repoint receipt already exists: {receipt_relative.as_posix()}"
         )
-    post_waiver_sha256 = next(
-        (
-            str(item["after_sha256"])
-            for item in metadata_records
-            if item["path"] == "known-validation-gaps.yaml"
-        ),
-        waiver_sha256,
-    )
-    receipt = {
-        "schema_version": SUCCESSOR_REPOINT_RECEIPT_SCHEMA,
-        "generated_at": _utc_now_iso(),
-        "tool": SUCCESSOR_REPOINT_TOOL,
-        "repository": {
-            "base_commit": head_commit,
-            "head_commit": head_commit,
-            "base_tree": base_tree,
-        },
-        "axiom_encode_version": __version__,
-        "axiom_encode_git": dict(encoder_provenance),
-        VALIDATION_WAIVER_SET_SHA256_FIELD: post_waiver_sha256,
-        "corpus_release": {
-            "name": local_corpus_release.name,
-            "content_sha256": local_corpus_release.content_sha256,
-            "selector_sha256": local_corpus_release.selector_sha256,
-        },
-        "request": dict(request.payload),
-        "request_sha256": request.sha256,
-        "legacy": {
-            "owner_class": APPLIED_ENCODING_LEGACY_OWNER_CLASS,
-            "trusted_generated_provenance": False,
-            "manifests": [dict(item) for item in legacy_manifest_records],
-            "files": identity_payload["legacy_files"],
-        },
-        "successor": {
-            "primary": successor_primary.as_posix(),
-            "manifest_path": successor_manifest_path.as_posix(),
-            "manifest_sha256": successor_manifest_sha256,
-            "manifest": copy.deepcopy(dict(verified_successor)),
-            "files": [dict(item) for item in successor_file_entries],
-        },
-        "dependents": [dict(record) for record in dependent_records],
-        "concept_proofs": identity_payload["concept_proofs"],
-        "semantics": semantics,
-        "metadata_reconciliations": metadata_records,
-        "program_scope_reconciliations": program_records,
-        "validation_execution": validation_execution,
-    }
-    _sign_applied_encoding_manifest(receipt, signing_broker)
-    receipt_bytes = (json.dumps(receipt, indent=2, sort_keys=True) + "\n").encode()
-    receipt_sha256 = hashlib.sha256(receipt_bytes).hexdigest()
     planned[receipt_relative] = receipt_bytes
     expected_originals[repo_path / receipt_relative] = None
-
-    binding = {
-        "receipt_path": receipt_relative.as_posix(),
-        "receipt_sha256": receipt_sha256,
-        "legacy_primary": Path(request.legacy_primary).as_posix(),
-        "legacy_manifest_path": str(legacy_manifest_records[0]["path"]),
-        "legacy_manifest_sha256": str(legacy_manifest_records[0]["sha256"]),
-        "successor_primary": successor_primary.as_posix(),
-    }
-
-    successor_applied = (
-        [dict(item) for item in successor_file_entries]
-        + [
-            {"path": item["path"], "sha256": item["after_sha256"]}
-            for item in metadata_records
-        ]
-        + [
-            {"path": item["program_spec"], "sha256": item["after_sha256"]}
-            for item in program_records
-        ]
-        + [{"path": path, "deleted": True} for path in sorted(legacy_files)]
-    )
-    successor_manifest = {
-        "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
-        "generated_at": _utc_now_iso(),
-        "tool": SUCCESSOR_REPOINT_SUCCESSOR_TOOL,
-        "axiom_encode_version": __version__,
-        "axiom_encode_git": dict(encoder_provenance),
-        VALIDATION_WAIVER_SET_SHA256_FIELD: post_waiver_sha256,
-        "applied_files": successor_applied,
-        "successor_repoint": dict(binding),
-        "repointed_successor_manifest": copy.deepcopy(dict(verified_successor)),
-    }
-    _sign_applied_encoding_manifest(successor_manifest, signing_broker)
-    planned[successor_manifest_path] = (
-        json.dumps(successor_manifest, indent=2, sort_keys=True) + "\n"
-    ).encode()
+    for relative, raw in manifests.items():
+        planned[relative] = raw
     expected_originals[repo_path / successor_manifest_path] = successor_manifest_sha256
-
     for record in dependent_records:
-        primary = Path(str(record["primary"]))
-        manifest_relative = _applied_encoding_manifest_path(primary)
-        dependent_manifest = {
-            "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
-            "generated_at": _utc_now_iso(),
-            "tool": SUCCESSOR_REPOINT_DEPENDENT_TOOL,
-            "axiom_encode_version": __version__,
-            "axiom_encode_git": dict(encoder_provenance),
-            VALIDATION_WAIVER_SET_SHA256_FIELD: post_waiver_sha256,
-            "applied_files": [dict(item) for item in record["live_files"]],
-            "successor_repoint": dict(binding),
-        }
-        _sign_applied_encoding_manifest(dependent_manifest, signing_broker)
-        planned[manifest_relative] = (
-            json.dumps(dependent_manifest, indent=2, sort_keys=True) + "\n"
-        ).encode()
-        if manifest_relative not in expected_originals:
-            expected_originals.setdefault(
-                repo_path / manifest_relative,
-                next(
-                    (
-                        str(item["sha256"])
-                        for item in record["manifests"]
-                        if str(item["path"]) == manifest_relative.as_posix()
-                    ),
-                    None,
+        manifest_relative = _applied_encoding_manifest_path(
+            Path(str(record["primary"]))
+        )
+        expected_originals.setdefault(
+            repo_path / manifest_relative,
+            next(
+                (
+                    str(item["sha256"])
+                    for item in record["manifests"]
+                    if str(item["path"]) == manifest_relative.as_posix()
                 ),
-            )
+                None,
+            ),
+        )
 
     transaction_files = [
         (repo_path / relative, raw)
@@ -24598,14 +24654,19 @@ def _applied_manifest_exact_schema_issues(
     applied_files = payload.get("applied_files")
     if isinstance(applied_files, list):
         for index, item in enumerate(applied_files):
+            mixed_live_and_deleted = contract in {
+                "path migration",
+                "legacy replacement",
+                "successor repoint successor",
+            }
             allowed_item_fields = (
                 _PATH_MIGRATION_DELETED_FILE_FIELDS
-                if contract in {"path migration", "legacy replacement"}
+                if mixed_live_and_deleted
                 and isinstance(item, dict)
                 and item.get("deleted") is True
                 else (
                     _PATH_MIGRATION_LIVE_FILE_FIELDS
-                    if contract in {"path migration", "legacy replacement"}
+                    if mixed_live_and_deleted
                     else expected_item_fields
                 )
             )

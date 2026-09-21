@@ -364,6 +364,9 @@ def citation_rulespec_path(citation: str) -> PurePosixPath:
     return PurePosixPath(jurisdiction) / relative
 
 
+SUCCESSOR_REPOINT_ENVELOPE_SCHEMA = "axiom-encode/legacy-successor-repoint/v1"
+
+
 def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
     """Split the bounded dispatch input into exactly one atomic source mode."""
 
@@ -378,6 +381,26 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
             "primary_required_test_cases": [],
             "require_complete_source_unit": True,
             "source_bundle": payload,
+        }
+    if (
+        isinstance(payload, dict)
+        and payload.get("schema") == SUCCESSOR_REPOINT_ENVELOPE_SCHEMA
+    ):
+        from axiom_encode.successor_repoint import (
+            SuccessorRepointError,
+            load_repoint_request_payload,
+        )
+
+        try:
+            load_repoint_request_payload(payload)
+        except SuccessorRepointError as exc:
+            raise ValueError(f"successor repoint envelope is invalid: {exc}") from exc
+        return {
+            "canonical_refresh_bundle": [],
+            "primary_required_test_cases": [],
+            "require_complete_source_unit": True,
+            "source_bundle": [],
+            "successor_repoint": payload,
         }
     if isinstance(payload, dict) and set(payload) == {"canonical_refresh_bundle"}:
         refresh_bundle = payload["canonical_refresh_bundle"]
@@ -4329,6 +4352,17 @@ def main() -> None:
             '{"canonical_refresh_bundle":[...]} object'
         ),
     )
+    repoint_parser = subparsers.add_parser(
+        "successor-repoint-request",
+        help=(
+            "emit the validated successor-repoint envelope carried by the "
+            "bounded source input, or nothing when the input selects another mode"
+        ),
+    )
+    repoint_parser.add_argument(
+        "atomic_source_json",
+        help="bounded source input that may carry a successor-repoint envelope",
+    )
     canonical_refresh_parser = subparsers.add_parser(
         "parse-canonical-refresh-bundle",
         help=(
@@ -4458,6 +4492,12 @@ def main() -> None:
                     sort_keys=True,
                 )
             )
+        elif args.command == "successor-repoint-request":
+            envelope = split_atomic_source_input(args.atomic_source_json).get(
+                "successor_repoint"
+            )
+            if envelope is not None:
+                print(json.dumps(envelope, separators=(",", ":"), sort_keys=True))
         elif args.command == "validate-source-add-targets":
             print(
                 json.dumps(
