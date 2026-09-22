@@ -2,6 +2,10 @@
 
 All notable changes to Axiom Encode will be documented here.
 
+- Bind affirmative worksheet notice conditions to derived field-code outputs
+  through adjacent authoritative rows and complete formula proof excerpts,
+  preserving exact threshold direction and independently executed test evidence.
+
 - Admit exact descendant rows as retired replacement context only when their
   full evidence is contained in the parent under the same signed corpus
   artifact and source scope. Retain separate attestations and containment
