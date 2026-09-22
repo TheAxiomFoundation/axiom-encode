@@ -360,6 +360,9 @@ from .legacy_replacement import (
     LegacyReplacementScheduledDependent as _LegacyReplacementScheduledDependent,
 )
 from .legacy_replacement import (
+    _UniqueKeySafeLoader as _LegacyReplacementYamlLoader,
+)
+from .legacy_replacement import (
     legacy_receipt_v1_manifest_issues as _legacy_receipt_v1_manifest_issues,
 )
 from .legacy_replacement import (
@@ -29472,6 +29475,93 @@ def _resolve_legacy_replacement_contract(
     )
 
 
+def _admit_retired_replacement_source_verification(
+    target_bytes: bytes,
+    *,
+    source_unit,
+    corpus_release: LocalCorpusRelease,
+) -> None:
+    """Admit historical input evidence only; never normalize generated output.
+
+    A replacement may retire the old plural module field when every cited
+    source is already covered by the exact requested resolver evidence. Keep
+    the original bytes in replacement context. Different source rows require
+    separate generation/imports, even if their text happens to match.
+    """
+    payload = yaml.load(
+        target_bytes.decode("utf-8"), Loader=_LegacyReplacementYamlLoader
+    )
+    module = payload.get("module") if isinstance(payload, dict) else None
+    verification = (
+        module.get("source_verification") if isinstance(module, dict) else None
+    )
+    if not isinstance(verification, dict):
+        raise ValueError("replacement legacy source verification must be a mapping")
+    singular = verification.get("corpus_citation_path")
+    plural = verification.get("corpus_citation_paths")
+    if (
+        not isinstance(singular, str)
+        or singular != source_unit.requested
+        or not isinstance(plural, list)
+        or not plural
+        or not all(isinstance(path, str) for path in plural)
+    ):
+        raise ValueError(
+            "replacement legacy source verification requires the exact requested "
+            "singular citation and a nonempty plural citation list"
+        )
+    for path in (singular, *plural):
+        require_canonical_corpus_citation_path(path)
+        if path != singular and not path.startswith(singular + "/"):
+            raise ValueError(
+                "replacement legacy citations must name the requested source "
+                "or its descendants; encode other sources separately and import them"
+            )
+    if len(set(plural)) != len(plural):
+        raise ValueError("replacement legacy source citations must not repeat")
+
+    # Check other locations without changing the input handed to generation.
+    # Copy each mapping on this path rather than mutating YAML aliases.
+    remaining = dict(payload)
+    remaining["module"] = dict(module)
+    remaining_verification = dict(verification)
+    del remaining_verification["corpus_citation_paths"]
+    remaining["module"]["source_verification"] = remaining_verification
+    other_issues = find_plural_corpus_citation_path_issues(remaining)
+    if other_issues:
+        raise ValueError(
+            "replacement RuleSpec has invalid source verification: "
+            + "; ".join(other_issues)
+        )
+
+    requested = source_unit.resolved_source
+    for path in dict.fromkeys((singular, *plural)):
+        historical = resolve_corpus_source_unit(path, corpus_release).resolved_source
+        same_provenance = all(
+            getattr(historical, field) == getattr(requested, field)
+            for field in (
+                "release_name",
+                "release_content_sha256",
+                "release_selector_sha256",
+                "provision_file",
+                "provision_file_sha256",
+                "row",
+                "component_rows",
+                "stored_body_sha256",
+            )
+        )
+        contained = all(
+            segment
+            and any(segment in source for source in requested.proof_evidence_segments)
+            for segment in historical.proof_evidence_segments
+        )
+        if not same_provenance or not contained:
+            raise ValueError(
+                f"replacement legacy citation {path} is not fully covered by the "
+                "requested resolver evidence; encode it separately and import it"
+            )
+
+
 def _resolve_encode_replacement_target(
     args,
     *,
@@ -29561,16 +29651,21 @@ def _resolve_encode_replacement_target(
         max_bytes=10 * 1024 * 1024,
     )
     try:
-        payload = yaml.safe_load(target_bytes.decode("utf-8"))
+        payload = yaml.load(
+            target_bytes.decode("utf-8"), Loader=_LegacyReplacementYamlLoader
+        )
     except (UnicodeError, yaml.YAMLError, RecursionError) as exc:
-        raise ValueError("replacement RuleSpec is not valid UTF-8 YAML") from exc
+        raise ValueError(
+            "replacement RuleSpec is not valid UTF-8 YAML or has duplicate keys"
+        ) from exc
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
         raise ValueError("replacement RuleSpec must declare format: rulespec/v1")
     plural_issues = find_plural_corpus_citation_path_issues(payload)
     if plural_issues:
-        raise ValueError(
-            "replacement RuleSpec has invalid source verification: "
-            + "; ".join(plural_issues)
+        _admit_retired_replacement_source_verification(
+            target_bytes,
+            source_unit=source_unit,
+            corpus_release=corpus_release,
         )
     module = payload.get("module")
     verification = (
