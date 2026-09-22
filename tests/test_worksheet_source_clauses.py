@@ -96,12 +96,9 @@ def test_completed_worksheet_row_preserves_offsets_and_notice_threshold():
     } == {0}
 
 
-def test_subtraction_is_covered_and_derived_notice_blocker_remains_explicit():
+def test_subtraction_and_derived_notice_are_covered():
     payload, cases = fixture()
-    issues = analyze(payload, cases).issues
-    assert len(issues) == 1
-    assert "paired positive/blocking cases" in issues[0]
-    assert NOTICE in issues[0]
+    assert not analyze(payload, cases).issues
 
 
 @pytest.mark.parametrize(
