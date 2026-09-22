@@ -14347,6 +14347,67 @@ class TestCmdEncode:
         assert feedback[0] == source_candidate.error
         assert "source issue 0" in feedback
 
+    def test_best_retry_candidate_counts_grouped_source_obligations(self):
+        import axiom_encode.cli as cli_module
+
+        older_issues = (
+            "[complete-source-unit:tests] Companion tests do not exercise every "
+            "source-stated boundary input; missing: (ii)=18, (iii)=21, (iii)=6, "
+            "(iv)=130, (iv) formula clause 114=130.",
+            "[complete-source-unit:tests] Source-stated exceptions or "
+            "applicability conditions require paired positive/blocking cases; "
+            "missing: us/regulation/7/273/4(a) [change]: `one`; "
+            "us/regulation/7/273/4(b) [change]: `two`; "
+            "us/regulation/7/273/4(c) [change]: `three`; "
+            "us/regulation/7/273/4(d) [change]: `four`; "
+            "us/regulation/7/273/4(e) [change]: `five`; "
+            "us/regulation/7/273/4(f) [change]: `six`; "
+            "us/regulation/7/273/4(g) [change]: `seven`; "
+            "us/regulation/7/273/4(h) [change]: `eight`; "
+            "us/regulation/7/273/4(i) [change]: `nine`. The evaluator recognized "
+            "122 directional formula-toggle witnesses.",
+        )
+        newer_issues = (
+            "[complete-source-unit:source-explicit-conditions] Derived formula "
+            "version(s) delegate multiple conjunctive factual gates stated in "
+            "their exact authoritative source clause to too few terminal local "
+            "inputs or canonical imports: `military_child` versions[0] (inputs).",
+            "[complete-source-unit:tests] Companion tests do not exercise every "
+            "source-stated boundary input; missing: (iii)=6, (iv)=130, "
+            "(iv) formula clause 114=130.",
+            "[complete-source-unit:tests] Source-stated exceptions or "
+            "applicability conditions require paired positive/blocking cases; "
+            "missing: us/regulation/7/273/4(a) [change]: `one`; "
+            "us/regulation/7/273/4(b) [change]: `two`; "
+            "us/regulation/7/273/4(c) [change]: `three`; "
+            "us/regulation/7/273/4(d) [change]: `four`. The evaluator recognized "
+            "142 directional formula-toggle witnesses.",
+        )
+        older = cli_module._FailedEncodeAttempt(
+            result=SimpleNamespace(),
+            error="Generated RuleSpec failed CI validation",
+            candidate=cli_module.ValidationRetryCandidate(
+                rulespec="# older\n", tests="[]\n"
+            ),
+            validation_issues=older_issues,
+            validation_issue_count=len(older_issues),
+            full_validation_issues=older_issues,
+        )
+        newer = cli_module._FailedEncodeAttempt(
+            result=SimpleNamespace(),
+            error="Generated RuleSpec failed CI validation",
+            candidate=cli_module.ValidationRetryCandidate(
+                rulespec="# newer\n", tests="[]\n"
+            ),
+            validation_issues=newer_issues,
+            validation_issue_count=len(newer_issues),
+            full_validation_issues=newer_issues,
+        )
+
+        assert cli_module._best_validation_retry_attempt([older, newer]) is newer
+        assert cli_module._validation_residual_obligation_count(older_issues) == 14
+        assert cli_module._validation_residual_obligation_count(newer_issues) == 8
+
     def test_encode_retry_scans_full_overlay_issue_list_for_actionable_feedback(
         self, tmp_path
     ):

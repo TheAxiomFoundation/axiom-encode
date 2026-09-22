@@ -27180,7 +27180,9 @@ def _best_validation_retry_attempt(
         # the original immediately-preceding-candidate behavior.
         return prior_attempts[-1]
 
-    def score(indexed: tuple[int, _FailedEncodeAttempt]) -> tuple[int, int, int]:
+    def score(
+        indexed: tuple[int, _FailedEncodeAttempt],
+    ) -> tuple[int, int, int, int]:
         index, attempt = indexed
         unsafe_candidate = (
             any(
@@ -27191,11 +27193,72 @@ def _best_validation_retry_attempt(
             or "compile validation" in attempt.error.casefold()
         )
         assert attempt.validation_issue_count is not None
+        residual_issues = attempt.full_validation_issues or attempt.validation_issues
+        residual_obligation_count = _validation_residual_obligation_count(
+            residual_issues
+        )
+        if residual_obligation_count == 0:
+            residual_obligation_count = attempt.validation_issue_count
         # Parser/compile failures cannot outrank a source-complete candidate.
+        # Complete-source diagnostics intentionally group many residual source
+        # obligations into one message. Rank those obligations before the raw
+        # message count so a candidate that closes six of nine missing branches
+        # is not discarded merely because another validator adds one message.
         # On an exact deterministic tie, keep forward progress by using newer.
-        return (int(unsafe_candidate), attempt.validation_issue_count, -index)
+        return (
+            int(unsafe_candidate),
+            residual_obligation_count,
+            attempt.validation_issue_count,
+            -index,
+        )
 
     return min(enumerate(prior_attempts), key=score)[1]
+
+
+def _validation_residual_obligation_count(issues: Sequence[str]) -> int:
+    """Count actionable obligations inside grouped validation diagnostics."""
+
+    total = 0
+    for issue in issues:
+        if not isinstance(issue, str):
+            continue
+        obligation_count = 1
+        if (
+            "[complete-source-unit:tests] Companion tests do not exercise "
+            "every source-stated boundary input; missing:" in issue
+        ):
+            missing = issue.split("missing:", 1)[1].strip().rstrip(".")
+            obligation_count = max(
+                1,
+                len([item for item in missing.split(",") if item.strip()]),
+            )
+        elif (
+            "[complete-source-unit:tests] Source-stated exceptions or "
+            "applicability conditions require paired positive/blocking cases"
+            in issue
+            and "missing:" in issue
+        ):
+            missing = issue.split("missing:", 1)[1].strip()
+            missing = missing.split(". The evaluator recognized", 1)[0]
+            obligation_count = max(
+                1,
+                len(
+                    re.findall(
+                        r"(?:^|;\s+)[a-z]{2}(?:-[a-z0-9_]+)*/",
+                        missing,
+                    )
+                ),
+            )
+        elif (
+            "[complete-source-unit:source-explicit-conditions] Derived formula "
+            "version(s) delegate multiple conjunctive factual gates" in issue
+        ):
+            obligation_count = max(
+                1,
+                len(re.findall(r"`[^`]+`\s+versions\[", issue)),
+            )
+        total += obligation_count
+    return total
 
 
 def _full_validation_issue_list(*issue_groups: object) -> tuple[str, ...]:
