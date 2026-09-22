@@ -1,7 +1,7 @@
 # Local contribution admission
 
 Status: contributor decision recorded; implementation package submitted for review;
-production custody, configuration and pilot pending. Tracks
+activation requires deployment and pilot evidence. Tracks
 [#1628](https://github.com/TheAxiomFoundation/axiom-encode/issues/1628),
 with the setup and experiment record in
 [#1622](https://github.com/TheAxiomFoundation/axiom-encode/issues/1622).
@@ -12,6 +12,14 @@ was signed off and merged through
 2026-09-18. This work plan scopes that direction at the contributor
 interface; it does not replace the protocol, complete its §9 deployment
 preconditions, or enable runtime admission.
+
+[Max's 22 September follow-up](https://github.com/TheAxiomFoundation/axiom-encode/pull/1662#issuecomment-5784793928)
+allows implementation PRs to merge before activation and adds a second,
+deterministic runtime kind alongside personal Codex. The NZ pilot remains
+personal Codex with truthful sampling metadata. Pavel owns enrollment
+preparation, the generator adapter, deployment and operations and takes one
+review/approval custodian role; Max retains the administrative key. These
+assignments do not establish which operational steps are already complete.
 
 ## Contributor outcome
 
@@ -251,7 +259,7 @@ checks. Those are tracked deployment prerequisites, not completed by docs.
    cases below. [#1511](https://github.com/TheAxiomFoundation/axiom-encode/pull/1511)
    is the initial verifier-core work. [#1662](https://github.com/TheAxiomFoundation/axiom-encode/pull/1662)
    integrates that core with enrollment checks, exact-byte coverage replay,
-   supervised personal-Codex emission and correction tooling, the contributor
+   supervised personal-Codex and deterministic emission, correction tooling, the contributor
    client, hardware approval adapter, external typed services, two-App broker,
    atomic publication/finalization, CI renderer and guard integration. Its
    deployment runbook specifies the actual custodian configuration and pilot
@@ -281,20 +289,30 @@ The two encoder companions are stacked on #1662 for focused review. The shared
 workflow requires the new encoder command and is adopted by full SHA in a
 separate lane rollout. Existing pinned callers are unaffected by its merge.
 
-Max's v33 §9 forbids admission-capable merge before its prerequisites. These
-PRs are a review package, not permission to skip that gate. Max must approve
-the remaining reference-deployment choices and sampling amendment, then record
-real hardware/host custody, service endpoints, public fingerprints and measured
-identities, App/ruleset/environment IDs, and the executable NZ oracle profile.
+Max's 22 September decision permits implementation PRs to merge without
+activating admission. Deployment, custody and pilot prerequisites still gate
+activation. Reconcile Pavel's existing work with the reference-deployment
+choices and sampling amendment, recording verified hardware/host custody,
+service endpoints, public fingerprints, measured identities, App/ruleset/
+environment IDs and the executable NZ oracle profile.
 The runbook includes commands and schemas for turning those real inputs into
 immutable lane workflow/configuration PRs and the exact activation sequence.
 
 A final NZ/US consumer activation PR cannot truthfully contain those identities
 before they exist. No production values, key custody or successful oracle/pilot
-runs are fabricated here. The remaining work is the actual ceremony,
-deployment and acceptance evidence; merging the source package alone does not
+runs are fabricated here. Confirm remaining ceremony, deployment and acceptance
+steps with Pavel before requesting any administrative action from Max. Merging the source package alone does not
 make an arbitrary local Codex draft eligible. Personal subscriptions remain the
 generation path, subject to the enrolled supervised-runtime boundary.
+
+The second runtime binds measured generator code, its runtime and input
+hashes, fixed parameters and observed output hashes. Its separate evidence
+schema contains no invented model/sampling fields. The B1.6 adapter and exact
+extension contract live in #1662, under `docs/notary-deterministic-producer.md`.
+Max's temporary actor-signed/hardware-reviewed correction authorization applies
+only to #1383's two note 50/52 modules and their companion tests, after US
+activation, and ends when the deterministic producer exists. It grants no
+general exception for unsigned drafts or the rest of that PR's files.
 
 ## End-to-end acceptance tests
 
