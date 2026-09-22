@@ -159,3 +159,24 @@ def formula_reference_identifiers(
                 continue
         references.add(name)
     return references
+
+
+def formula_calls_lifetime_reduction(formula: str) -> bool:
+    """Detect actual lifetime calls for conservative fixture routing.
+
+    This is not formula admission: the Rust compiler still validates syntax and
+    semantics. Bare facts, quoted text, and comments cannot make a scalar output
+    look like a lifetime calculation.
+    """
+    scrubbed = _NON_CODE.sub(lambda match: " " * len(match.group()), formula)
+    return any(
+        match.group()
+        in {
+            "sum_over_periods",
+            "max_over_periods",
+            "count_over_periods",
+            "sum_top_n_over_periods",
+        }
+        and scrubbed[match.end() :].lstrip().startswith("(")
+        for match in _IDENTIFIER.finditer(scrubbed)
+    )

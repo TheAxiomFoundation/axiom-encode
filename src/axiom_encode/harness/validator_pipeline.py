@@ -456,6 +456,7 @@ def _run_codex_reviewer_cli(
             idle_timeout=idle_timeout,
             cwd=cwd,
             input_text=prompt,
+            include_supervisor_codex_home=True,
         )
         return _extract_codex_text_output(result.output), result.returncode
     except subprocess.TimeoutExpired:
@@ -489,6 +490,7 @@ def _run_subprocess_with_idle_timeout(
     cwd: Optional[Path] = None,
     env: Mapping[str, str] | None = None,
     input_text: str | None = None,
+    include_supervisor_codex_home: bool = False,
     poll_interval: float = 0.5,
 ) -> _SubprocessRunResult:
     """Run a subprocess, aborting if it stops emitting output for too long."""
@@ -523,9 +525,14 @@ def _run_subprocess_with_idle_timeout(
                     text=True,
                     cwd=cwd,
                     env=(
-                        scrub_attestation_signing_keys()
+                        scrub_attestation_signing_keys(
+                            include_supervisor_codex_home=include_supervisor_codex_home
+                        )
                         if env is None
-                        else scrub_attestation_signing_keys(env)
+                        else scrub_attestation_signing_keys(
+                            env,
+                            include_supervisor_codex_home=include_supervisor_codex_home,
+                        )
                     ),
                 )
 

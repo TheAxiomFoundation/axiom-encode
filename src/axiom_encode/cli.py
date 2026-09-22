@@ -98,7 +98,10 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from yaml.nodes import MappingNode, ScalarNode, SequenceNode
 
 from axiom_encode import __version__
-from axiom_encode.rulespec_formula_identifiers import formula_reference_identifiers
+from axiom_encode.rulespec_formula_identifiers import (
+    formula_calls_lifetime_reduction,
+    formula_reference_identifiers,
+)
 
 from . import validation_waivers as _validation_waivers
 from .codex_cli import codex_auth_error
@@ -17609,6 +17612,85 @@ def _compiled_rulespec_test_output_names(
     return output_names
 
 
+def _non_scalar_fixture_output_names(
+    payload: dict[str, object], *, repo_path: Path
+) -> set[str]:
+    """Refuse scalar repair for lifetime or unclassified imported dependencies.
+
+    Inspect every local version and propagate through scalar/judgment helpers.
+    An imported derived output may need a lifetime context, so only an explicitly
+    resolved parameter is safe for automatic scalar fixture construction. Normal
+    compilation still admits semantics; this classifier cannot invent a history,
+    calculation date, or expected reduction to fill missing test coverage.
+    """
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return set()
+    by_name = {
+        str(rule.get("name") or "").strip(): rule
+        for rule in rules
+        if isinstance(rule, dict) and str(rule.get("name") or "").strip()
+    }
+    unsafe_imports = _imported_output_names_from_payload(payload)
+    imports = payload.get("imports")
+    if isinstance(imports, list):
+        for raw_import in imports:
+            if not isinstance(raw_import, str) or "#" not in raw_import:
+                continue
+            name = raw_import.rsplit("#", 1)[-1].strip()
+            # Multiple imported identities with the same local name cannot be
+            # made safe by finding one parameter among them.
+            if (
+                sum(
+                    isinstance(item, str)
+                    and "#" in item
+                    and item.rsplit("#", 1)[-1].strip() == name
+                    for item in imports
+                )
+                != 1
+            ):
+                continue
+            resolved = _same_repo_import_base_and_file(raw_import, repo_path=repo_path)
+            if resolved is None:
+                continue
+            try:
+                imported = yaml.safe_load(resolved[1].read_text())
+            except (OSError, ValueError, yaml.YAMLError):
+                continue
+            imported_rules = (
+                imported.get("rules") if isinstance(imported, dict) else None
+            )
+            if not isinstance(imported_rules, list):
+                continue
+            matches = [
+                rule
+                for rule in imported_rules
+                if isinstance(rule, dict) and rule.get("name") == name
+            ]
+            if (
+                len(matches) == 1
+                and str(matches[0].get("kind", "")).lower() == "parameter"
+            ):
+                unsafe_imports.discard(name)
+    seeds = set()
+    for name, rule in by_name.items():
+        versions = rule.get("versions")
+        if not isinstance(versions, list):
+            continue
+        if _generated_rule_formula_identifiers(rule).intersection(
+            unsafe_imports
+        ) or any(
+            isinstance(version, dict)
+            and isinstance(formula := version.get("formula"), str)
+            and formula_calls_lifetime_reduction(formula)
+            for version in versions
+        ):
+            seeds.add(name)
+    return _expand_affected_generated_rule_dependencies(
+        rules_by_name=by_name, seed_rules=seeds
+    )
+
+
 def _append_generic_zero_branch_tests_if_missing(
     *,
     rules_file: Path,
@@ -17644,6 +17726,9 @@ def _append_generic_zero_branch_tests_if_missing(
         and str(rule.get("kind") or "").strip().lower() in {"derived", "parameter"}
         and (name := str(rule.get("name") or "").strip())
     }
+    lifetime_outputs = _non_scalar_fixture_output_names(
+        rules_payload, repo_path=repo_path
+    )
     target_base = _rulespec_anchor_base_for_output(repo_path, relative_output)
     factual_inputs = _local_factual_input_names_from_rules_content(rules_content)
     input_defaults = {
@@ -17661,6 +17746,8 @@ def _append_generic_zero_branch_tests_if_missing(
         if isinstance(test_case, dict)
     }
     for output_name in output_names:
+        if output_name in lifetime_outputs:
+            continue
         if output_name not in rules_by_name:
             continue
         if valid_output_names is not None and output_name not in valid_output_names:
@@ -18015,6 +18102,9 @@ def _append_generated_derived_output_tests_if_missing(
         and str(rule.get("kind") or "").strip().lower() == "derived"
         and (rule_name := str(rule.get("name") or "").strip())
     }
+    lifetime_outputs = _non_scalar_fixture_output_names(
+        rules_payload, repo_path=repo_path
+    )
     existing_outputs = _rulespec_test_output_keys(test_file)
     factual_inputs = _local_factual_input_names_from_rules_content(rules_content)
     input_defaults = {
@@ -18039,6 +18129,8 @@ def _append_generated_derived_output_tests_if_missing(
         if rule is None:
             continue
         output_name = target.rsplit("#", 1)[-1]
+        if output_name in lifetime_outputs:
+            continue
         case_name = f"auto_output_{_safe_test_name(output_name)}"
         if case_name in existing_case_names:
             continue

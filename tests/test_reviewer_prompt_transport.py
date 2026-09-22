@@ -54,10 +54,12 @@ def test_reviewer_cli_passes_complete_prompt_on_stdin(
     assert options["timeout"] == 30
     assert options["idle_timeout"] == 7
     if reviewer_cli == "codex":
+        assert options["include_supervisor_codex_home"] is True
         assert command[-1] == "-"
         assert command[command.index("--model") + 1] == "codex-test-model"
         assert command[command.index("--sandbox") + 1] == "read-only"
     else:
+        assert "include_supervisor_codex_home" not in options
         assert command[-1] == "-p"
         assert command[command.index("--model") + 1] == "claude-test-model"
         assert command[command.index("--tools") + 1] == ""

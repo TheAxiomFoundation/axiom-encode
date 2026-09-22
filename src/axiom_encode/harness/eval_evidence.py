@@ -135,10 +135,15 @@ def eval_evidence_key_id(public_key: Ed25519PublicKey) -> str:
 
 def scrub_attestation_signing_keys(
     environment: Mapping[str, str] | None = None,
+    *,
+    include_supervisor_codex_home: bool = False,
 ) -> dict[str, str]:
     """Copy an environment without private keys or broker capabilities."""
 
-    return scrub_private_signing_environment(environment)
+    return scrub_private_signing_environment(
+        environment,
+        include_supervisor_codex_home=include_supervisor_codex_home,
+    )
 
 
 def _public_key_bytes(public_key: Ed25519PublicKey) -> bytes:
