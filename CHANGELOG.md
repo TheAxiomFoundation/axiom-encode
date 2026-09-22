@@ -2,6 +2,10 @@
 
 All notable changes to Axiom Encode will be documented here.
 
+- Recognize threshold witnesses over derived numeric rules only when both test
+  cases assert and independently reproduce the dependency chain. Preserve
+  quoted integer thresholds when matching source conditions.
+
 - Accept an additive companion-test fragment during protected tests-only repair
   only when every new case exactly matches the required case contract. The
   encoder appends it to retained tests, preserves all existing cases, and keeps

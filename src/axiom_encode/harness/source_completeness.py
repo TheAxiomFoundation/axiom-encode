@@ -23118,11 +23118,23 @@ def _formula_has_unequal_english_parenthetical_amount(text: str) -> bool:
     return False
 
 
+def _mask_quoted_integer_delimiters(text: str) -> str:
+    """Preserve a quoted integer threshold and its offsets, including PDF commas."""
+
+    spans = (
+        span
+        for match in re.finditer(r'"[+-]?\d+,?"|“[+-]?\d+,?”', text)
+        for span in ((match.start(), match.start() + 1), (match.end() - 1, match.end()))
+    )
+    return _mask_numeric_spans(text, spans)
+
+
 def _formula_interval_from_text(
     text: str,
     *,
     extract_numeric_occurrences: NumericOccurrenceExtractor,
 ) -> _NumericInterval | None:
+    text = _mask_quoted_integer_delimiters(text)
     if _formula_has_unequal_english_parenthetical_amount(text):
         return None
     lowered = text.lower()
@@ -26516,8 +26528,11 @@ def _toggled_formula_numeric_selectors(
                     or not isinstance(right_value, (int, float))
                 ):
                     continue
-                changed_names = _input_key_names(changed_key) & selector_names
-                if not changed_names:
+                direct_names = _input_key_names(changed_key) & selector_names - set(
+                    principal_rules
+                )
+                derived_names = selector_names & set(principal_rules) - {rule_name}
+                if not direct_names and not derived_names:
                     continue
                 left_dependencies = _case_asserted_dependency_environment(
                     principal_rules,
@@ -26529,6 +26544,53 @@ def _toggled_formula_numeric_selectors(
                     right_case,
                     formula_environment=formula_environment,
                 )
+                selector_values = {
+                    name: (float(left_value), float(right_value))
+                    for name in direct_names
+                }
+                if derived_names:
+                    # An asserted value alone is not execution evidence. Replay
+                    # locally without opaque-import assertion fallbacks as well
+                    # as requiring the entire reached chain to be asserted.
+                    left_replayed = _case_dependency_environment(
+                        principal_rules,
+                        left_case,
+                        formula_environment=formula_environment,
+                        require_asserted_value=False,
+                    )
+                    right_replayed = _case_dependency_environment(
+                        principal_rules,
+                        right_case,
+                        formula_environment=formula_environment,
+                        require_asserted_value=False,
+                    )
+                    for name in derived_names:
+                        pair = (
+                            left_dependencies.get(name),
+                            right_dependencies.get(name),
+                        )
+                        if (
+                            any(
+                                isinstance(value, bool)
+                                or not isinstance(value, (int, float, Decimal))
+                                or not math.isfinite(value)
+                                for value in pair
+                            )
+                            or name not in left_replayed
+                            or name not in right_replayed
+                            or not _formula_runtime_values_equal(
+                                pair[0], left_replayed[name]
+                            )
+                            or not _formula_runtime_values_equal(
+                                pair[1], right_replayed[name]
+                            )
+                            or _formula_runtime_values_equal(*pair)
+                        ):
+                            continue
+                        selector_values[name] = (float(pair[0]), float(pair[1]))
+                changed_names = set(selector_values)
+                if not changed_names:
+                    continue
                 stable_asserted_dependencies = (
                     _case_pair_stable_asserted_formula_dependencies(
                         rule_name,
@@ -26650,15 +26712,15 @@ def _toggled_formula_numeric_selectors(
                         (
                             left_runtime,
                             right_runtime,
-                            float(left_value),
-                            float(right_value),
+                            selector_values[selector_name][0],
+                            selector_values[selector_name][1],
                             left_to_right_relations,
                         ),
                         (
                             right_runtime,
                             left_runtime,
-                            float(right_value),
-                            float(left_value),
+                            selector_values[selector_name][1],
+                            selector_values[selector_name][0],
                             right_to_left_relations,
                         ),
                     ):
