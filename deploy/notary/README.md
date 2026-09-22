@@ -1,11 +1,20 @@
 # Custodian installation and contributor runbook
 
 These are reviewable reference deployments, not a declaration that a host,
-key or GitHub App is enrolled. Max's v33 §9 audit is a prerequisite to an
-admission-capable merge or activation. Do not generate production identities
+key or GitHub App is enrolled. Per [Max's 22 September decision](https://github.com/TheAxiomFoundation/axiom-encode/pull/1662#issuecomment-5784793928),
+implementation PRs may merge before activation; the v33 §9 deployment and pilot
+gates still apply to activation. Do not generate production identities
 from the test fixtures. The Linux/systemd host, direct-USB YubiHSM2 adapter,
 supplementary enrollment file and read-plane service are concrete proposals
 for Max's review; his decision did not select those implementations.
+
+The [deterministic-producer extension](../../docs/notary-deterministic-producer.md)
+documents the second runtime, measured recipe, adapter interface and scoped
+note 50/52 correction authorization. Personal Codex remains the NZ pilot.
+Pavel owns enrollment preparation, generator-adapter review, deployment and
+operations; Max retains the administrative key. Reuse their verified existing
+work and identify only remaining steps before requesting an administrative
+action. This runbook does not assert ceremony readiness or require new keys.
 
 ## Components and private custody
 

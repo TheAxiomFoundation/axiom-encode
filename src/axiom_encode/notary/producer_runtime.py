@@ -22,6 +22,21 @@ from .deployment import custodian_file, custodian_parent, require_running_identi
 from .identity import IdentityRefusal
 from .remote import RemoteRepository
 
+# Run this controller-owned probe before importing any adapter/encoder module.
+# A copied venv interpreter must not borrow unmeasured base stdlib/packages.
+DETERMINISTIC_BOOTSTRAP = """import os, sys
+root = os.path.realpath(sys.argv[1])
+job = sys.argv[2]
+def within(path):
+    return bool(path) and os.path.isabs(path) and os.path.commonpath([root, os.path.realpath(path)]) == root
+if (os.path.realpath(sys.prefix) != root or os.path.realpath(sys.base_prefix) != root
+        or not within(sys.executable) or not sys.path or not all(within(p) for p in sys.path)):
+    raise SystemExit('deterministic runtime has external import roots')
+sys.argv = ['axiom-producer-worker', job]
+from axiom_encode.notary.producer_worker import main
+main()
+"""
+
 
 def private_observation(root: Path, relative: str, *, limit=32_000_000) -> bytes:
     """Open each path component without following a worker-created link."""
@@ -143,6 +158,8 @@ def systemd_command(
     readonly: list[Path],
     timeout: int,
     safe_directories: list[Path] = (),
+    deterministic: bool = False,
+    runtime_root: Path | None = None,
 ):
     # No caller-controlled command, environment, properties, or scope selection.
     # No signing key directory, GitHub token, or host login enters the worker.
@@ -182,6 +199,10 @@ def systemd_command(
         "TasksMax": "256",
         "MemoryMax": "8G",
     }
+    if deterministic:
+        if runtime_root is None:
+            raise IdentityRefusal("deterministic_runtime_root")
+        properties |= {"PrivateNetwork": "yes", "RestrictAddressFamilies": "AF_UNIX"}
     return (
         ["/usr/bin/systemd-run", "--quiet", "--wait", "--collect", "--unit=" + unit]
         + ["--property=" + key + "=" + value for key, value in properties.items()]
@@ -201,13 +222,19 @@ def systemd_command(
                 f"--setenv=GIT_CONFIG_VALUE_{index}={path}",
             )
         ]
-        + [
-            python,
-            "-I",
-            "-m",
-            "axiom_encode.notary.producer_worker",
-            str(job),
-        ]
+        + (
+            [
+                python,
+                "-I",
+                "-B",
+                "-c",
+                DETERMINISTIC_BOOTSTRAP,
+                str(runtime_root),
+                str(job),
+            ]
+            if deterministic
+            else [python, "-I", "-m", "axiom_encode.notary.producer_worker", str(job)]
+        )
     )
 
 
@@ -220,7 +247,10 @@ class LinuxRuntime:
         if type(uid) is not int or uid < 1000 or type(gid) is not int or gid <= 0:
             raise IdentityRefusal("runtime_worker_identity")
         require_worker_account(uid, gid)
-        for path in (config["python"], config["codex_binary"]):
+        executables = [config["python"]]
+        if config.get("runtime_kind", "codex") == "codex":
+            executables.append(config["codex_binary"])
+        for path in executables:
             trusted_executable(path)
         version = subprocess.run(
             ["/usr/bin/systemd-run", "--version"],

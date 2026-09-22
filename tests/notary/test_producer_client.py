@@ -41,6 +41,24 @@ def test_arbitrary_export_paths_and_tampering_are_rejected(submission):
         packet_files(jcs_dumps(packet))
 
 
+def test_no_credential_response_needs_no_private_destination(submission, tmp_path):
+    export = emission(submission)
+    result = {
+        "state": "complete",
+        "run_id": "1" * 32,
+        "export_base64": base64.b64encode(export).decode(),
+        "refreshed_auth_base64": None,
+    }
+    public = tmp_path / "export.json"
+    save_result(jcs_dumps(result), public)
+    assert public.read_bytes() == export
+    result["refreshed_auth_base64"] = base64.b64encode(b'{"secret":true}').decode()
+    second = tmp_path / "second.json"
+    with pytest.raises(IdentityRefusal, match="private_auth_destination_required"):
+        save_result(jcs_dumps(result), second)
+    assert not second.exists()
+
+
 @pytest.fixture
 def checkout(submission, tmp_path, monkeypatch):
     epoch, _, _, args = submission

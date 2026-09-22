@@ -28,7 +28,10 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def test_actual_worker_cannot_read_host_key_or_modify_trusted_installation():
+@pytest.mark.parametrize("deterministic", [False, True])
+def test_actual_worker_cannot_read_host_key_or_modify_trusted_installation(
+    deterministic,
+):
     user = "axiom-notary-fixture"
     try:
         pwd.getpwnam(user)
@@ -69,6 +72,9 @@ def test_actual_worker_cannot_read_host_key_or_modify_trusted_installation():
         trusted = root / "trusted"
         trusted.write_text("unchanged trusted code")
         trusted.chmod(0o666)
+        prior = root / "prior-attempt"
+        prior.mkdir(mode=0o700)
+        (prior / "result").write_text("controller-owned first observation")
         job = root / "job"
         job.mkdir(mode=0o700)
         os.chown(job, uid, gid)
@@ -86,6 +92,7 @@ for name, operation in (
     ("key_denied", lambda: Path("/etc/axiom-producer/fixture-key").read_bytes()),
     ("trusted_write_denied", lambda: (root / "trusted").write_text("changed")),
     ("controller_denied", lambda: Path("/run/axiom-producer/stolen").write_text("changed")),
+    ("prior_attempt_denied", lambda: (root / "prior-attempt/result").write_text("changed")),
 ):
     try:
         operation()
@@ -94,11 +101,24 @@ for name, operation in (
         result[name] = True
 result["uid"] = os.geteuid()
 result["groups"] = os.getgroups()
+if "deterministic" in sys.argv:
+    import socket
+    try:
+        socket.socket(socket.AF_INET, socket.SOCK_STREAM).close()
+        result["network_denied"] = False
+    except OSError:
+        result["network_denied"] = True
 (root / "job/result.json").write_text(json.dumps(result))
 """)
         probe.chmod(0o444)
         executable = root / "python-fixture"
-        executable.write_text('#!/bin/sh\nexec /usr/bin/python3 "' + str(probe) + '"\n')
+        executable.write_text(
+            '#!/bin/sh\nexec /usr/bin/python3 "'
+            + str(probe)
+            + '"'
+            + (" deterministic" if deterministic else "")
+            + "\n"
+        )
         executable.chmod(0o555)
         command = systemd_command(
             job=job,
@@ -107,6 +127,8 @@ result["groups"] = os.getgroups()
             worker_gid=gid,
             readonly=[trusted, probe, executable, immutable_input],
             timeout=30,
+            deterministic=deterministic,
+            runtime_root=root if deterministic else None,
         )
         result = subprocess.run(command, capture_output=True, timeout=60)
         assert result.returncode == 0, result.stderr.decode()
@@ -120,9 +142,10 @@ result["groups"] = os.getgroups()
             "key_denied": True,
             "trusted_write_denied": True,
             "controller_denied": True,
+            "prior_attempt_denied": True,
             "uid": uid,
             "groups": [gid],
-        }
+        } | ({"network_denied": True} if deterministic else {})
         assert trusted.read_text() == "unchanged trusted code"
     finally:
         subprocess.run(["systemctl", "stop", "axiom-producer-job"], capture_output=True)

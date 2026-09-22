@@ -78,8 +78,8 @@ class Epoch:
         self.append(files, head=(address, kind))
 
     @classmethod
-    def create(cls, *, prepare_base=None, lane_snapshot=snapshot):
-        identities = Identities.create()
+    def create(cls, *, prepare_base=None, lane_snapshot=snapshot, identities=None):
+        identities = identities or Identities.create()
         policy = policy_body()
         transition_policy = {
             "schema": "axiom/notary-transition-path-policy/v1",

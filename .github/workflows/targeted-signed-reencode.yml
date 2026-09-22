@@ -3332,9 +3332,15 @@ jobs:
                       )
 
               destination.write_bytes(context_bytes)
+              from axiom_encode.retired_source_evidence import package_retired_source_evidence
+
+              source_admission = package_retired_source_evidence(
+                  generated_root, lane, Path(sys.argv[1]).parent
+              )
               applied_inventory.append(
                   {
                       "citation": citation,
+                      **({"source_admission": source_admission} if source_admission is not None else {}),
                       "path": relative_path.as_posix(),
                       "sha256": hashlib.sha256(
                           read_bounded_regular(
