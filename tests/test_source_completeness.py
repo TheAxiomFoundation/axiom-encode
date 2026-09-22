@@ -35305,6 +35305,64 @@ def test_inability_or_unwillingness_is_active_missing_documentation_condition():
     )
 
 
+def test_failure_to_provide_activates_negated_provided_selector():
+    source = "If the sponsored alien fails to provide consent, the alien is ineligible."
+
+    assert not completeness_module._source_exception_selector_active_value(
+        source,
+        "sponsored_alien_provided_required_consent",
+    )
+
+
+def test_formula_interval_recognizes_under_the_age_of_boundary():
+    interval = completeness_module._formula_interval_from_text(
+        "if a full-time student under the age of 22",
+        extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+    )
+
+    assert interval is not None
+    assert interval.lower is None
+    assert interval.upper is not None and interval.upper.value == 22
+    assert not interval.upper_inclusive
+
+
+def test_numeric_age_witness_does_not_require_non_numeric_selector_tokens():
+    source = "An unmarried full-time student under the age of 22 is eligible."
+    branch = completeness_module.SourceStructureBranch(
+        path=("a", "4", "iii"),
+        kind="number",
+        label="(iii)",
+        text=source,
+        start=0,
+        end=len(source),
+    )
+    witness = completeness_module._ExceptionWitness(
+        rule_name="student_child_under_age_limit",
+        selector_name="member_age",
+        active_value=True,
+        blocks=False,
+        boolean_effect=True,
+        zeroes=False,
+        numeric_transition=(22.0, 21.0),
+        relational_transitions=(("member_age", "<", "student_age_limit"),),
+        case_pair_identity=(1, 2),
+    )
+    rule = {
+        "name": "student_child_under_age_limit",
+        "source": "7 CFR 273.4(a)(4)(iii)",
+        "versions": [{"formula": "member_age < student_age_limit"}],
+    }
+
+    assert witness in completeness_module._exception_witnesses_for_branch(
+        branch,
+        principal_rules={"student_child_under_age_limit": rule},
+        principal_rule_paths={"student_child_under_age_limit": {("a", "4", "iii")}},
+        asserted_by_rule={"student_child_under_age_limit": []},
+        toggled_exception_selectors={witness},
+        extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+    )
+
+
 @pytest.mark.parametrize(
     ("source", "selector"),
     (

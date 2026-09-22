@@ -22732,6 +22732,10 @@ def _formula_bound_from_comparison(
         "not greater than or equal to",
         "remain below",
         "under",
+        "under age",
+        "under age of",
+        "under the age",
+        "under the age of",
         "up to but not including",
         "up to but excluding",
         "von weniger als",
@@ -23075,7 +23079,7 @@ def _formula_interval_from_text(
             r"mehr\s+als|weniger\s+als|"
             r"von(?!\s+(?:mehr\s+als|weniger\s+als|höchstens|mindestens|"
             r"nicht\s+mehr\s+als|über|unter))|"
-            r"from|unter|"
+            r"from|unter|under|"
             r"less\s+than\s+or\s+equal\s+to|"
             r"equal\s+to\s+or\s+less\s+than|no\s+(?:greater|higher|larger|more)\s+than|"
             r"not\s+(?:greater|higher|larger|more)\s+than|not\s+(?:in\s+excess\s+of|over)|"
@@ -23217,9 +23221,9 @@ def _formula_interval_from_text(
         if spelled_parenthetical_gap is not None or re.fullmatch(
             r"\s*(?:\$|€|£|usd|eur|gbp)?\s*(?:(?:zu|bis)\s+)?"
             r"(?:(?:einschließlich|maximal|inklusive|including|maximum)\s+)?"
-            r"(?:(?:einem?|einer|dem|der|das)\s+)?"
+            r"(?:(?:a|an|the|einem?|einer|dem|der|das)\s+)?"
             r"(?:(?:zu\s+versteuernd\w*|maßgeblich\w*)\s+)?"
-            r"(?:(?:einkommen|betrag|wert|income|amount)\s+)?"
+            r"(?:(?:einkommen|betrag|wert|income|amount|age)\s+)?"
             r"(?:(?:von|of)\s+)?"
             r"(?:(?:einschließlich|maximal|inklusive|including|maximum)\s+)?",
             first_gap,
@@ -23296,7 +23300,7 @@ def _formula_interval_from_text(
             return _NumericInterval(second, inclusive, None, False)
         return _NumericInterval(None, False, second, inclusive)
     if re.match(
-        r"(?:unter|less\s+than(?!\s+or\s+equal\s+to)|below|"
+        r"(?:unter|under|less\s+than(?!\s+or\s+equal\s+to)|below|"
         r"(?:von\s+)?weniger\s+als)\b",
         lowered_range,
     ):
@@ -24458,6 +24462,7 @@ def _exception_witnesses_for_branch(
         )
         and (
             witness.calendar_attainment_age is not None
+            or witness.numeric_transition is not None
             or _source_exception_selector_is_relevant(
                 condition_text,
                 witness.selector_name,
@@ -25429,10 +25434,16 @@ def _source_exception_selector_active_value(text: str, name: str) -> bool:
         collapsed,
         normalized_name,
     )
-    if source_polarity is None and _source_selector_has_explicitly_negated_action(
+    explicitly_negated_action = _source_selector_has_explicitly_negated_action(
         collapsed,
         normalized_name,
+    )
+    failed_action = _source_selector_has_failed_action(collapsed, normalized_name)
+    if (failed_action or explicitly_negated_action) and not (
+        _selector_identifier_negation_count(normalized_name) % 2
     ):
+        source_polarity = -1
+    elif source_polarity is None and explicitly_negated_action:
         source_polarity = -1
     if source_polarity is not None:
         selector_polarity = (
@@ -25465,6 +25476,28 @@ def _source_selector_has_explicitly_negated_action(
             for token in tokens
         )
         for match in negated_actions
+    )
+
+
+def _source_selector_has_failed_action(text: str, normalized_name: str) -> bool:
+    """Recognize ``fails to provide`` as the negative of ``provided``."""
+
+    tokens = _source_selector_distinctive_tokens(normalized_name)
+    failed_actions = re.finditer(
+        r"\bfails?\s+to\s+(?P<action>[a-z][a-z'-]*)\b",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return any(
+        any(
+            _source_selector_token_matches(
+                match.group("action"),
+                token,
+                selector_tokens=tokens,
+            )
+            for token in tokens
+        )
+        for match in failed_actions
     )
 
 
