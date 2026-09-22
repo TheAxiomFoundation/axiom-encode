@@ -15561,6 +15561,8 @@ def _companion_test_issues(
         )
         missing_exception_branches = _unwitnessed_exception_branches(
             paired_exception_branches,
+            source_text=source_text,
+            corpus_citation_path=corpus_citation_path,
             principal_rules=principal_rules,
             principal_rule_paths=principal_rule_paths,
             asserted_by_rule=asserted_by_rule,
@@ -24408,6 +24410,8 @@ def _rounding_source_formula_branches(
 def _unwitnessed_exception_branches(
     exception_branches: Sequence[SourceStructureBranch],
     *,
+    source_text: str = "",
+    corpus_citation_path: str = "",
     principal_rules: dict[str, dict[str, Any]],
     principal_rule_paths: dict[str, set[tuple[str, ...]]],
     asserted_by_rule: dict[str, list[dict[str, Any]]],
@@ -24417,6 +24421,8 @@ def _unwitnessed_exception_branches(
     candidate_witnesses = {
         branch: _exception_witnesses_for_branch(
             branch,
+            source_text=source_text,
+            corpus_citation_path=corpus_citation_path,
             principal_rules=principal_rules,
             principal_rule_paths=principal_rule_paths,
             asserted_by_rule=asserted_by_rule,
@@ -24481,9 +24487,99 @@ def _unconditional_nonapplicability_witnesses(
     return witnesses
 
 
+def _worksheet_notice_selector_is_relevant(
+    branch: SourceStructureBranch,
+    witness: _ExceptionWitness,
+    *,
+    principal_rules: dict[str, dict[str, Any]],
+    source_text: str,
+    corpus_citation_path: str,
+    numeric_interval: _NumericInterval | None,
+) -> bool:
+    """Bind a derived worksheet output to an adjacent affirmative notice condition."""
+    if (
+        not source_text
+        or not corpus_citation_path
+        or witness.numeric_transition is None
+    ):
+        return False
+    condition = _collapse_text(branch.text)
+    reference = re.match(r"If the amount on line ([1-9]\d{0,2})\b", condition, re.I)
+    if (
+        reference is None
+        or not re.fullmatch(
+            r"If the amount on line [1-9]\d{0,2} is (?:more than|at least) "
+            r"[+-]?\d+(?:\.\d+)?\s*,?\s+"
+            r"(?:the [a-z][a-z ]{0,100} will show it on your notice of assessment|"
+            r"show it on the notice)\.?",
+            _collapse_text(_mask_quoted_integer_delimiters(condition)),
+            re.I,
+        )
+        or not witness.boolean_effect
+        or witness.blocks
+        or numeric_interval is None
+        or numeric_interval.lower is None
+        or numeric_interval.upper is not None
+    ):
+        return False
+    rows = [
+        row
+        for row in _worksheet_arithmetic_rows(source_text)
+        if row.group("label") == reference.group(1)
+    ]
+    if len(rows) != 1:
+        return False
+    row = rows[0]
+    if row.end() > branch.start or source_text[row.end() : branch.start].strip():
+        return False
+    selector = principal_rules.get(witness.selector_name)
+    affected = principal_rules.get(witness.rule_name)
+    if (
+        selector is None
+        or affected is None
+        or any(len(rule.get("versions", [])) != 1 for rule in (selector, affected))
+    ):
+        return False
+    row_text = _collapse_text(row.group()).strip()
+    arithmetic_prefix = re.sub(r"\s+\d{5}\s*=\s*\d+\s*$", "", row_text)
+    if not any(
+        citation == corpus_citation_path
+        and _collapse_text(excerpt).strip() in {row_text, arithmetic_prefix}
+        for citation, excerpt in _rule_formula_source_excerpts(selector)
+    ):
+        return False
+    if not any(
+        citation == corpus_citation_path
+        and _collapse_text(excerpt).strip() == condition
+        for citation, excerpt in _rule_formula_source_excerpts(affected)
+    ):
+        return False
+    try:
+        formula = ast.parse(_rule_formula_text(affected).strip(), mode="eval").body
+    except (SyntaxError, ValueError):
+        return False
+    # Boundary samples cannot prove a different comparison or a different cutoff.
+    return (
+        isinstance(formula, ast.Compare)
+        and isinstance(formula.left, ast.Name)
+        and formula.left.id == witness.selector_name
+        and len(formula.ops) == 1
+        and isinstance(
+            formula.ops[0], ast.GtE if numeric_interval.lower_inclusive else ast.Gt
+        )
+        and len(formula.comparators) == 1
+        and isinstance(formula.comparators[0], ast.Constant)
+        and not isinstance(formula.comparators[0].value, bool)
+        and isinstance(formula.comparators[0].value, (int, float))
+        and formula.comparators[0].value == numeric_interval.lower.value
+    )
+
+
 def _exception_witnesses_for_branch(
     branch: SourceStructureBranch,
     *,
+    source_text: str = "",
+    corpus_citation_path: str = "",
     principal_rules: dict[str, dict[str, Any]],
     principal_rule_paths: dict[str, set[tuple[str, ...]]],
     asserted_by_rule: dict[str, list[dict[str, Any]]],
@@ -24548,6 +24644,14 @@ def _exception_witnesses_for_branch(
                         principal_rules[witness.rule_name]
                     )
                 ),
+            )
+            or _worksheet_notice_selector_is_relevant(
+                branch,
+                witness,
+                principal_rules=principal_rules,
+                source_text=source_text,
+                corpus_citation_path=corpus_citation_path,
+                numeric_interval=numeric_interval,
             )
             or _source_exception_composite_witness_is_relevant(
                 condition_text,
