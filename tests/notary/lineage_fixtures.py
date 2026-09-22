@@ -60,7 +60,10 @@ class Identities:
         )
 
     def sidecar(self, raw, role, *, key=None, scope=None):
-        key = key or self.keys["notary" if role in {"genesis", "transition"} else role]
+        registry_role = "notary" if role in {"genesis", "transition"} else role
+        if role == "deterministic-producer":
+            registry_role = "producer"
+        key = key or self.keys[registry_role]
         scope = scope or ROLE_SCOPES[role]
         digest = sha256_hex(raw)
         # Independent encoding of the published envelope, not a production signing helper.

@@ -17,11 +17,19 @@ from ._schema import (
     relative_path,
 )
 from .canonical import sha256_hex
+from .deterministic_contract import (
+    DETERMINISTIC_GENERATION,
+    file_inventory,
+    generator_identity,
+    parameters,
+    runtime_identity,
+)
 from .refusal import Refusal
 from .registry import KeyRegistry
 from .signatures import verify_detached
 
 GENERATION = "axiom/lineage-generation/v1"
+GENERATION_SCHEMAS = frozenset({GENERATION, DETERMINISTIC_GENERATION})
 CORRECTION = "axiom/lineage-correction/v1"
 STORE_PREFIX = ".axiom/lineage/"
 POLICY_PATH = ".axiom/notary/path-policy.json"
@@ -29,6 +37,13 @@ _BODY_NAME = re.compile(r"([0-9a-f]{64})\.json")
 _SIDECAR_NAME = re.compile(r"([0-9a-f]{64})\.json\.(producer|actor|review)\.sig")
 _DECIMAL = re.compile(r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]*[1-9])?")
 _INTEGER = re.compile(r"-?(?:0|[1-9][0-9]*)")
+
+
+def signature_role(body):
+    """Select the cryptographic domain from a parsed, closed record schema."""
+    if body["schema"] == DETERMINISTIC_GENERATION:
+        return "deterministic-producer"
+    return "producer" if body["schema"] == GENERATION else "actor"
 
 
 @dataclass(frozen=True, slots=True)
@@ -247,6 +262,27 @@ def parse_record(raw: bytes) -> dict | None:
             source["reference_data"]
         ):
             return None
+    elif body.get("schema") == DETERMINISTIC_GENERATION:
+        if not fields(
+            body,
+            common
+            | {
+                "runtime_identity",
+                "generator",
+                "runtime",
+                "inputs",
+                "parameters",
+                "emitted_at",
+            },
+        ) or not (
+            nonempty(body["runtime_identity"])
+            and generator_identity(body["generator"])
+            and runtime_identity(body["runtime"])
+            and file_inventory(body["inputs"])
+            and parameters(body["parameters"])
+            and _timestamp(body["emitted_at"])
+        ):
+            return None
     elif body.get("schema") == CORRECTION:
         if not fields(body, common | {"actor", "reason", "predecessor_record_sha256"}):
             return None
@@ -308,7 +344,9 @@ def classify_lineage(
             reasons.add("malformed-record")
         else:
             roles = (
-                ("producer",) if body["schema"] == GENERATION else ("actor", "review")
+                ("producer",)
+                if body["schema"] in GENERATION_SCHEMAS
+                else ("actor", "review")
             )
             if not all(
                 verify_detached(
@@ -318,7 +356,7 @@ def classify_lineage(
                         else b""
                     ),
                     body_sha256=actual_digest,
-                    role=role,
+                    role=signature_role(body) if role == "producer" else role,
                     registry=registry,
                 )
                 for role in roles

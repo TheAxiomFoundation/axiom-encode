@@ -21,7 +21,13 @@ from .canonical import jcs_dumps, sha256_hex, strict_parse
 from .chain import Anchor, reconstruct
 from .consumer import parse_consumer
 from .identity import IdentityRefusal
-from .lineage import STORE_PREFIX, parse_path_policy, parse_record
+from .lineage import (
+    GENERATION_SCHEMAS,
+    STORE_PREFIX,
+    parse_path_policy,
+    parse_record,
+    signature_role,
+)
 from .manifest import manifest_sha256
 from .producer_host import MAX_REQUEST, write_private
 from .protocol import oid
@@ -91,11 +97,7 @@ def packet_files(raw: bytes):
             ):
                 raise IdentityRefusal("producer_export_record")
             records[address] = body
-            role = (
-                "producer"
-                if body["schema"] == "axiom/lineage-generation/v1"
-                else "actor"
-            )
+            role = "producer" if body["schema"] in GENERATION_SCHEMAS else "actor"
             if files.get(path + "." + role + ".sig") is None:
                 raise IdentityRefusal("producer_export_evidence")
             allowed.update({path, path + "." + role + ".sig"})
@@ -165,7 +167,7 @@ def transport(args, raw):
     return result.stdout.strip()
 
 
-def save_result(raw: bytes, export_file: Path, refreshed_auth_file: Path):
+def save_result(raw: bytes, export_file: Path, refreshed_auth_file: Path | None = None):
     result = strict_parse(raw)
     if (
         not fields(
@@ -178,7 +180,10 @@ def save_result(raw: bytes, export_file: Path, refreshed_auth_file: Path):
     if export is None:
         raise IdentityRefusal("producer_response_export")
     packet_files(export)
-    if export_file.resolve() == refreshed_auth_file.resolve():
+    if (
+        refreshed_auth_file is not None
+        and export_file.resolve() == refreshed_auth_file.resolve()
+    ):
         raise IdentityRefusal("producer_auth_output_separation")
     auth = (
         decode_base64(result["refreshed_auth_base64"])
@@ -193,6 +198,8 @@ def save_result(raw: bytes, export_file: Path, refreshed_auth_file: Path):
         raise IdentityRefusal("producer_export_already_exists")
     if auth is not None:
         # Explicit, private credential output; never stdout, archive, or Git.
+        if refreshed_auth_file is None:
+            raise IdentityRefusal("producer_private_auth_destination_required")
         if refreshed_auth_file.is_symlink():
             raise IdentityRefusal("producer_auth_symlink")
         write_private(refreshed_auth_file, auth)
@@ -222,15 +229,11 @@ def apply_export(raw: bytes, checkout: Path):
     for path, content in files.items():
         if path.startswith(STORE_PREFIX) and path.endswith(".json"):
             record = parse_record(content)
-            role = (
-                "producer"
-                if record["schema"] == "axiom/lineage-generation/v1"
-                else "actor"
-            )
+            role = "producer" if record["schema"] in GENERATION_SCHEMAS else "actor"
             if not verify_detached(
                 files[path + "." + role + ".sig"],
                 body_sha256=sha256_hex(content),
-                role=role,
+                role=signature_role(record),
                 registry=registry,
             ):
                 raise IdentityRefusal("producer_apply_signature")
@@ -299,7 +302,8 @@ def main():
         description="Use an enrolled producer with personal Codex auth"
     )
     parser.add_argument(
-        "operation", choices=("encode", "status", "correction", "relay", "apply")
+        "operation",
+        choices=("encode", "generate", "status", "correction", "relay", "apply"),
     )
     parser.add_argument("--socket")
     parser.add_argument("--ssh-host")
@@ -328,7 +332,7 @@ def main():
             not args.run_id
             or not re.fullmatch(r"[0-9a-f]{32}", args.run_id)
             or not args.export
-            or not args.refreshed_auth
+            or (args.operation == "encode" and not args.refreshed_auth)
         ):
             raise IdentityRefusal("producer_client_arguments")
         request = {"operation": args.operation, "run_id": args.run_id}
@@ -353,7 +357,7 @@ def main():
         save_result(
             transport(args, jcs_dumps(request)), args.export, args.refreshed_auth
         )
-        print("Saved public export and separate private credential response.")
+        print("Saved public export. Any refreshed credentials were saved separately.")
     except Exception:
         raise SystemExit(
             "Producer request refused or incomplete; preserve the run ID and use status. No credentials printed."

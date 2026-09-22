@@ -16,6 +16,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from ._schema import digest, relative_path
 from .canonical import jcs_dumps, sha256_hex
+from .deterministic_contract import DETERMINISTIC_GENERATION
 from .identity import IdentityRefusal
 from .lineage import (
     CORRECTION,
@@ -24,6 +25,7 @@ from .lineage import (
     STORE_PREFIX,
     parse_path_policy,
     parse_record,
+    signature_role,
 )
 from .producers import Enrollment
 from .refusal import Refusal
@@ -90,7 +92,9 @@ def _export(key, body, changed, *, role, base, run_id):
     address = sha256_hex(raw)
     evidence = {
         STORE_PREFIX + address + ".json": raw,
-        STORE_PREFIX + address + f".json.{role}.sig": _signed_sidecar(key, raw, role),
+        STORE_PREFIX + address + f".json.{role}.sig": _signed_sidecar(
+            key, raw, signature_role(body)
+        ),
     }
     return jcs_dumps(
         {
@@ -132,7 +136,10 @@ def generation_export(
     independence: dict,
     references: dict,
 ):
-    if key_fingerprint(key) != enrollment.body["producer_spki_sha256"]:
+    if (
+        enrollment.kind != "codex"
+        or key_fingerprint(key) != enrollment.body["producer_spki_sha256"]
+    ):
         raise IdentityRefusal("producer_enrolled_key")
     transitions, changed = observed_transitions(base, outputs, lane=lane)
     body = {
@@ -156,6 +163,55 @@ def generation_export(
             "oracles": references["oracles"],
             "reference_data": references["reference_data"],
         },
+        "transitions": transitions,
+    }
+    return _export(key, body, changed, role="producer", base=base, run_id=run_id)
+
+
+def deterministic_export(
+    key,
+    *,
+    enrollment,
+    base,
+    lane,
+    epoch,
+    run_id,
+    outputs,
+    generator,
+    runtime,
+    inputs,
+    parameters,
+):
+    entry = enrollment.body
+    if (
+        enrollment.kind != "deterministic"
+        or key_fingerprint(key) != entry["producer_spki_sha256"]
+        or any(
+            value != entry[name]
+            for name, value in (
+                ("generator", generator),
+                ("runtime", runtime),
+                ("inputs", inputs),
+                ("parameters", parameters),
+            )
+        )
+        or set(outputs) != set(entry["outputs"])
+        or any(not isinstance(raw, bytes) for raw in outputs.values())
+    ):
+        raise IdentityRefusal("deterministic_observation_binding")
+    transitions, changed = observed_transitions(base, outputs, lane=lane)
+    body = {
+        "schema": DETERMINISTIC_GENERATION,
+        "lane": lane,
+        "epoch_sha256": epoch,
+        "runtime_identity": enrollment.runtime_identity,
+        "generator": generator,
+        "runtime": runtime,
+        "inputs": inputs,
+        "parameters": parameters,
+        "emitted_at": datetime.now(timezone.utc)
+        .isoformat(timespec="seconds")
+        .replace("+00:00", "Z"),
         "transitions": transitions,
     }
     return _export(key, body, changed, role="producer", base=base, run_id=run_id)
