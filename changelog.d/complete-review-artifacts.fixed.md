@@ -1,0 +1,1 @@
+Give reviewer agents the complete generated RuleSpec and companion tests instead of silently truncating executable rules and late test cases. Transport prompts over stdin so complete files do not exceed operating-system command-line limits.

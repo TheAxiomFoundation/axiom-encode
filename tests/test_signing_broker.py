@@ -15,6 +15,7 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from axiom_encode import signing_broker
 from axiom_encode.corpus_release import RELEASE_OBJECT_PUBLIC_KEY_ENV
 from axiom_encode.signing_broker import (
     APPLY_MANIFEST_SIGNING_PRIVATE_KEY_ENV,
@@ -216,6 +217,45 @@ def test_scrub_removes_private_keys_and_broker_handles() -> None:
         "XDG_CONFIG_HOME": "/nonexistent",
         "XDG_DATA_HOME": "/nonexistent",
     }
+
+
+def test_scrub_preserves_only_supervisor_captured_codex_home(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        signing_broker,
+        "_trusted_subprocess_base_environment",
+        {
+            "HOME": "/protected/python",
+            "PATH": "/protected/runtime",
+        },
+    )
+    monkeypatch.setattr(
+        signing_broker,
+        "_trusted_codex_home",
+        "/supervisor/isolated-codex-home",
+    )
+    monkeypatch.setenv("CODEX_HOME", "/ambient/codex-home")
+
+    environment = scrub_private_signing_environment(
+        {"CODEX_HOME": "/caller/override", "PATH": "/caller/bin"},
+        include_supervisor_codex_home=True,
+    )
+
+    assert environment == {
+        "CODEX_HOME": "/supervisor/isolated-codex-home",
+        "HOME": "/protected/python",
+        "PATH": "/protected/runtime",
+    }
+    assert "CODEX_HOME" not in scrub_private_signing_environment(
+        {"CODEX_HOME": "/caller/override"}
+    )
+
+    monkeypatch.setattr(signing_broker, "_trusted_codex_home", None)
+    assert "CODEX_HOME" not in scrub_private_signing_environment(
+        {"CODEX_HOME": "/caller/override"},
+        include_supervisor_codex_home=True,
+    )
 
 
 @pytest.mark.parametrize(
