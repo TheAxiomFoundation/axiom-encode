@@ -220,3 +220,144 @@ def test_aliased_plural_field_outside_module_is_not_removed(world):
     with pytest.raises(ValueError, match="invalid source verification"):
         world.run()
     assert world.target.read_bytes() == before
+
+
+@pytest.fixture
+def exact_world(world):
+    parent = replace(
+        world.resolved, citation_path=ROOT, row=replace(world.row, citation_path=ROOT)
+    )
+    child = replace(
+        parent,
+        requested=CHILD,
+        citation_path=CHILD,
+        body="(1) Fully insured.",
+        stored_body_sha256="f" * 64,
+        row=replace(
+            parent.row,
+            citation_path=CHILD,
+            record_id="child",
+            line_number=2,
+            body_sha256="f" * 64,
+        ),
+    )
+    world.sources[ROOT] = world.unit(parent)
+    world.sources[CHILD] = world.unit(child)
+    world.write()
+    return world
+
+
+def test_exact_descendant_records_separate_attestations_and_containment(exact_world):
+    import hashlib
+
+    world = exact_world
+    original = world.target.read_bytes()
+    result = world.run()
+    evidence = result.retired_source_admission
+    assert evidence["legacy_rulespec_sha256"] == hashlib.sha256(original).hexdigest()
+    assert evidence["requested_attestation"]["row"]["citation_path"] == ROOT
+    child = evidence["sources"][1]
+    assert child["attestation"]["row"]["citation_path"] == CHILD
+    assert child["attestation"]["source_sha256"] == "f" * 64
+    span = child["containment"][0]
+    parent = world.sources[ROOT].resolved_source.proof_evidence_segments[
+        span["parent_segment"]
+    ]
+    text = parent[span["start"] : span["end"]]
+    assert text == world.sources[CHILD].body
+    assert hashlib.sha256(text.encode()).hexdigest() == span["segment_sha256"]
+    assert world.target.read_bytes() == original
+    assert find_plural_corpus_citation_path_issues(world.payload)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("release_name", "other"),
+        ("release_selector_sha256", "a" * 64),
+        ("provision_file", "other.jsonl"),
+        ("provision_file_sha256", "e" * 64),
+        ("requested", ROOT),
+        ("citation_path", ROOT),
+        ("component_rows", ("composed",)),
+        ("slice_required", True),
+        ("source_history", ("Additional noncontained authority",)),
+        ("body", ""),
+    ],
+)
+def test_exact_descendant_rejects_incompatible_resolution(exact_world, field, value):
+    world = exact_world
+    world.sources[CHILD] = world.unit(
+        replace(world.sources[CHILD].resolved_source, **{field: value})
+    )
+    with pytest.raises(ValueError, match="not fully covered"):
+        world.run()
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("jurisdiction", "ca"),
+        ("document_class", "policy"),
+        ("version", "other"),
+        ("source_path", "different.pdf"),
+        ("source_as_of", "2025-01-01"),
+        ("expression_date", "2025-01-01"),
+        ("citation_path", ROOT),
+    ],
+)
+def test_exact_descendant_rejects_incompatible_row(exact_world, field, value):
+    world = exact_world
+    source = world.sources[CHILD].resolved_source
+    world.sources[CHILD] = world.unit(
+        replace(source, row=replace(source.row, **{field: value}))
+    )
+    with pytest.raises(ValueError, match="not fully covered"):
+        world.run()
+
+
+def test_actual_signed_release_resolves_distinct_contained_rows(tmp_path):
+    from axiom_encode.cli import _admit_retired_replacement_source_verification
+    from axiom_encode.harness.evals import resolve_corpus_source_unit
+    from tests.test_corpus_resolver import (
+        _release,
+        _scope,
+        _write_rows,
+        _write_selector,
+    )
+
+    version = "test-contained"
+    root = tmp_path / "corpus"
+    _write_selector(root, [_scope(version)])
+    _write_rows(
+        root,
+        version,
+        [
+            {
+                "id": "parent",
+                "citation_path": ROOT,
+                "body": "Every individual (1) Fully insured. (2) Age 62.",
+            },
+            {"id": "child", "citation_path": CHILD, "body": "Fully insured."},
+        ],
+    )
+    release = _release(root)
+    source = resolve_corpus_source_unit(ROOT, release)
+    content = yaml.safe_dump(
+        {
+            "module": {
+                "source_verification": {
+                    "corpus_citation_path": ROOT,
+                    "corpus_citation_paths": [ROOT, CHILD],
+                }
+            }
+        }
+    ).encode()
+    evidence = _admit_retired_replacement_source_verification(
+        content, source_unit=source, corpus_release=release
+    )
+    parent, child = [item["attestation"] for item in evidence["sources"]]
+    assert parent["row"]["record_id"] == "parent"
+    assert child["row"]["record_id"] == "child"
+    assert parent["source_sha256"] != child["source_sha256"]
+    assert parent["provision_file_sha256"] == child["provision_file_sha256"]

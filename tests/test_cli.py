@@ -16060,7 +16060,13 @@ rules:
         assert exit_code == 0
         assert mock_run.call_args.kwargs["review_findings_paths"] == [findings]
 
-    def test_encode_plumbs_existing_replacement_target_to_model_eval(self, tmp_path):
+    @pytest.mark.parametrize(
+        "admission",
+        [None, {"contract": "retired-source-containment/v1", "sources": []}],
+    )
+    def test_encode_plumbs_existing_replacement_target_to_model_eval(
+        self, tmp_path, admission
+    ):
         args = self._make_args(
             tmp_path,
             citation="us-nc/statute/105/105-153.7",
@@ -16080,6 +16086,7 @@ rules:
             relative_output=Path("policies/income_tax/pilot_liability_pipeline.yaml"),
             context_paths=(target, companion),
             legacy_replacement=None,
+            retired_source_admission=admission,
         )
 
         with patch(
@@ -16101,6 +16108,12 @@ rules:
             target,
             companion,
         ]
+
+        report = args.output / "retired-source-admission.json"
+        if admission is None:
+            assert not report.exists()
+        else:
+            assert json.loads(report.read_text()) == admission
 
     def test_encode_codex_backend_without_auth_stops_before_running(
         self, capsys, tmp_path
