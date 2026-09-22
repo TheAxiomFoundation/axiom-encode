@@ -24462,7 +24462,6 @@ def _exception_witnesses_for_branch(
         )
         and (
             witness.calendar_attainment_age is not None
-            or witness.numeric_transition is not None
             or _source_exception_selector_is_relevant(
                 condition_text,
                 witness.selector_name,
@@ -25046,6 +25045,8 @@ def _source_exception_selector_is_relevant(
 
     normalized_name = _normalized_selector_name(name)
     collapsed = _collapse_text(text).lower()
+    if "age" in normalized_name.split("_") and re.search(r"\bage\b", collapsed):
+        return True
     if _source_age_relative_deviation_predicate(
         collapsed, normalized_name
     ) or _source_impairment_expectation_predicate(collapsed, normalized_name):
@@ -25439,7 +25440,9 @@ def _source_exception_selector_active_value(text: str, name: str) -> bool:
         normalized_name,
     )
     failed_action = _source_selector_has_failed_action(collapsed, normalized_name)
-    if (failed_action or explicitly_negated_action) and not (
+    if failed_action:
+        source_polarity = -1
+    elif explicitly_negated_action and not (
         _selector_identifier_negation_count(normalized_name) % 2
     ):
         source_polarity = -1

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import functools
 import hashlib
 import time
@@ -35312,6 +35313,10 @@ def test_failure_to_provide_activates_negated_provided_selector():
         source,
         "sponsored_alien_provided_required_consent",
     )
+    assert completeness_module._source_exception_selector_active_value(
+        source,
+        "sponsored_alien_not_provided_required_consent",
+    )
 
 
 def test_formula_interval_recognizes_under_the_age_of_boundary():
@@ -35361,6 +35366,17 @@ def test_numeric_age_witness_does_not_require_non_numeric_selector_tokens():
         toggled_exception_selectors={witness},
         extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
     )
+
+    for unrelated_selector in ("member_income", "completely_unrelated"):
+        unrelated = dataclasses.replace(witness, selector_name=unrelated_selector)
+        assert unrelated not in completeness_module._exception_witnesses_for_branch(
+            branch,
+            principal_rules={"student_child_under_age_limit": rule},
+            principal_rule_paths={"student_child_under_age_limit": {("a", "4", "iii")}},
+            asserted_by_rule={"student_child_under_age_limit": []},
+            toggled_exception_selectors={unrelated},
+            extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+        )
 
 
 @pytest.mark.parametrize(
