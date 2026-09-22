@@ -1725,6 +1725,55 @@ def test_negative_dependent_source_forms_reject_positive_opposites(
 
 
 @pytest.mark.parametrize(
+    "text",
+    (
+        (
+            "The child was disabled and dependent on the person prior to the "
+            "child's 18th birthday."
+        ),
+        (
+            "The child was disabled and dependent on the veteran prior to the "
+            "child's 18th birthday."
+        ),
+    ),
+)
+def test_coordinated_dependent_adjective_is_positive(text: str):
+    assert completeness_module._source_gate_predicate_polarities(text) == {
+        "dependent": False
+    }
+
+
+def test_coordinated_dependent_adjective_retains_positive_split_gate():
+    gates = completeness_module._source_conjunctive_fact_gates(
+        "A child qualifies provided that the child was disabled and dependent "
+        "on the veteran prior to the child's 18th birthday."
+    )
+
+    assert gates == (
+        (frozenset({"child"}), frozenset({"disabled"})),
+        (
+            frozenset({"child"}),
+            frozenset({"birthday", "dependent", "prior", "th", "veteran"}),
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "A child qualifies provided that the child was neither disabled nor "
+        "dependent on the veteran prior to the child's 18th birthday.",
+        "A child qualifies provided that the child was not disabled nor dependent "
+        "on the veteran prior to the child's 18th birthday.",
+    ),
+)
+def test_negative_coordinated_dependent_adjective_is_not_positive(source: str):
+    gates = completeness_module._source_conjunctive_fact_gates(source)
+
+    assert "dependent" not in gates[1][1]
+
+
+@pytest.mark.parametrize(
     ("fact_clause", "positive_name", "positive_description"),
     (
         (

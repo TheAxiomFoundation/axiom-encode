@@ -12887,6 +12887,8 @@ _SOURCE_GATE_DEPENDENT_NEGATIVE_PATTERNS = (
 )
 _SOURCE_GATE_DEPENDENT_POSITIVE_PATTERNS = (
     rf"(?:is|are|was|were)\s+{_SOURCE_GATE_DEPENDENT_OBJECT}",
+    rf"(?:is|are|was|were)\s+[a-z][a-z'-]*\s+and\s+"
+    rf"{_SOURCE_GATE_DEPENDENT_OBJECT}",
     rf"(?:(?:is|are|was|were)\s+)?claimed\s+(?:as\s+)?"
     rf"{_SOURCE_GATE_DEPENDENT_OBJECT}",
     rf"(?:can\s+be|eligible\s+to\s+be)\s+claimed\s+(?:as\s+)?"
@@ -12955,19 +12957,26 @@ def _source_gate_replace_guarded_yet(
     return "".join(pieces)
 
 
-def _source_gate_split_conjunctive_conditions(text: str) -> list[str]:
-    """Split conjunctions and the same bounded adversative boundaries."""
+def _source_gate_split_conjunctive_conditions(
+    text: str,
+) -> list[tuple[str | None, str]]:
+    """Split conjunctions while retaining the connector for polarity."""
 
     with_yet_boundaries = _source_gate_replace_guarded_yet(
         text,
         independent_replacement="\n",
         ambiguous_replacement=f"\n{_SOURCE_GATE_AMBIGUOUS_YET_MARKER} ",
     )
-    return [
-        part
-        for line in with_yet_boundaries.splitlines()
-        for part in _SOURCE_GATE_CONJUNCTIVE_SEPARATOR.split(line)
-    ]
+    segments: list[tuple[str | None, str]] = []
+    for line in with_yet_boundaries.splitlines():
+        prior_end = 0
+        connector: str | None = None
+        for match in _SOURCE_GATE_CONJUNCTIVE_SEPARATOR.finditer(line):
+            segments.append((connector, line[prior_end : match.start()]))
+            connector = match.group(0).casefold()
+            prior_end = match.end()
+        segments.append((connector, line[prior_end:]))
+    return segments
 
 
 def _source_gate_unwrap_negation(tokens: list[str]) -> tuple[list[str], int]:
@@ -13300,7 +13309,7 @@ def _source_conjunctive_fact_gates(
         return ()
     gates: list[tuple[frozenset[str], frozenset[str]]] = []
     inherited_entities: frozenset[str] = frozenset()
-    for segment in segments:
+    for connector, segment in segments:
         if re.search(
             r"\b(?:is|are|be)\s*(?:[-–—]|:)\s*$",
             segment,
@@ -13308,6 +13317,15 @@ def _source_conjunctive_fact_gates(
         ):
             continue
         tokens = _source_gate_semantic_tokens(segment)
+        if (
+            connector == "and"
+            and "unknown_dependent" in tokens
+            and re.match(r"^\s*dependent\s+(?:on|upon)\b", segment, re.IGNORECASE)
+        ):
+            # Coordinated adjective predicates lose their auxiliary after the
+            # split (``was disabled and dependent on``).  Promote only an
+            # ``and`` continuation; ``nor dependent on`` remains conservative.
+            tokens = frozenset((tokens - {"unknown_dependent"}) | {"dependent"})
         explicit_entities = tokens & _SOURCE_GATE_ENTITIES
         is_subject_continuation = bool(
             re.match(
