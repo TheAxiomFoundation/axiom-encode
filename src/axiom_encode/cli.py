@@ -126,6 +126,7 @@ from .corpus_resolver import (
     CorpusDescendantStructureError,
     CorpusLayoutError,
     CorpusResolutionError,
+    CorpusRowIdentity,
     CorpusRowStructureError,
     CorpusSourceNotFoundError,
     InactiveCorpusSourceError,
@@ -27547,6 +27548,7 @@ class _EncodeReplacementTarget(NamedTuple):
     relative_output: Path
     context_paths: tuple[Path, ...]
     legacy_replacement: "_LegacyReplacementContract | None" = None
+    retired_source_admission: dict[str, Any] | None = None
 
 
 _LEGACY_REPLACEMENT_ATTR = "_axiom_legacy_replacement_contract"
@@ -29543,13 +29545,14 @@ def _admit_retired_replacement_source_verification(
     *,
     source_unit,
     corpus_release: LocalCorpusRelease,
-) -> None:
+) -> dict[str, Any]:
     """Admit historical input evidence only; never normalize generated output.
 
     A replacement may retire the old plural module field when every cited
     source is already covered by the exact requested resolver evidence. Keep
-    the original bytes in replacement context. Different source rows require
-    separate generation/imports, even if their text happens to match.
+    the original bytes in replacement context. Exact descendant rows may also
+    qualify within the same artifact and scope, with replayable containment
+    evidence; other sources require separate generation/imports.
     """
     payload = yaml.load(
         target_bytes.decode("utf-8"), Loader=_LegacyReplacementYamlLoader
@@ -29598,6 +29601,7 @@ def _admit_retired_replacement_source_verification(
         )
 
     requested = source_unit.resolved_source
+    admitted_sources = []
     for path in dict.fromkeys((singular, *plural)):
         historical = resolve_corpus_source_unit(path, corpus_release).resolved_source
         same_provenance = all(
@@ -29613,16 +29617,90 @@ def _admit_retired_replacement_source_verification(
                 "stored_body_sha256",
             )
         )
-        contained = all(
-            segment
-            and any(segment in source for source in requested.proof_evidence_segments)
-            for segment in historical.proof_evidence_segments
+        exact_contained_descendant = (
+            isinstance(requested.row, CorpusRowIdentity)
+            and isinstance(historical.row, CorpusRowIdentity)
+            and path != singular
+            and path.startswith(singular + "/")
+            and requested.requested
+            == requested.citation_path
+            == requested.row.citation_path
+            == singular
+            and historical.requested
+            == historical.citation_path
+            == historical.row.citation_path
+            == path
+            and not requested.component_rows
+            and not historical.component_rows
+            and not requested.slice_required
+            and not historical.slice_required
+            and all(
+                getattr(historical, field) == getattr(requested, field)
+                for field in (
+                    "release_name",
+                    "release_content_sha256",
+                    "release_selector_sha256",
+                    "provision_file",
+                    "provision_file_sha256",
+                )
+            )
+            and all(
+                getattr(historical.row, field) == getattr(requested.row, field)
+                for field in (
+                    "jurisdiction",
+                    "document_class",
+                    "version",
+                    "source_path",
+                    "source_as_of",
+                    "expression_date",
+                )
+            )
         )
-        if not same_provenance or not contained:
+        containment = []
+        for child_index, segment in enumerate(historical.proof_evidence_segments):
+            match = next(
+                (
+                    (parent_index, source.index(segment))
+                    for parent_index, source in enumerate(
+                        requested.proof_evidence_segments
+                    )
+                    if segment and segment in source
+                ),
+                None,
+            )
+            if match is None:
+                break
+            parent_index, offset = match
+            containment.append(
+                {
+                    "child_segment": child_index,
+                    "parent_segment": parent_index,
+                    "start": offset,
+                    "end": offset + len(segment),
+                    "segment_sha256": hashlib.sha256(
+                        segment.encode("utf-8")
+                    ).hexdigest(),
+                }
+            )
+        if not (same_provenance or exact_contained_descendant) or len(
+            containment
+        ) != len(historical.proof_evidence_segments):
             raise ValueError(
                 f"replacement legacy citation {path} is not fully covered by the "
                 "requested resolver evidence; encode it separately and import it"
             )
+        admitted_sources.append(
+            {
+                "attestation": historical.to_attestation(),
+                "containment": containment,
+            }
+        )
+    return {
+        "contract": "retired-source-containment/v1",
+        "legacy_rulespec_sha256": hashlib.sha256(target_bytes).hexdigest(),
+        "requested_attestation": requested.to_attestation(),
+        "sources": admitted_sources,
+    }
 
 
 def _resolve_encode_replacement_target(
@@ -29724,8 +29802,9 @@ def _resolve_encode_replacement_target(
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
         raise ValueError("replacement RuleSpec must declare format: rulespec/v1")
     plural_issues = find_plural_corpus_citation_path_issues(payload)
+    retired_source_admission = None
     if plural_issues:
-        _admit_retired_replacement_source_verification(
+        retired_source_admission = _admit_retired_replacement_source_verification(
             target_bytes,
             source_unit=source_unit,
             corpus_release=corpus_release,
@@ -29785,6 +29864,7 @@ def _resolve_encode_replacement_target(
     return _EncodeReplacementTarget(
         relative_output=relative_output,
         context_paths=tuple(context_paths),
+        retired_source_admission=retired_source_admission,
     )
 
 
@@ -30217,6 +30297,15 @@ def _run_encode_attempt(
         source_unit=source_unit,
         corpus_release=corpus_release,
     )
+    if (
+        replacement_target is not None
+        and replacement_target.retired_source_admission is not None
+    ):
+        from .retired_source_evidence import write_retired_source_evidence
+
+        write_retired_source_evidence(
+            Path(args.output), replacement_target.retired_source_admission
+        )
     raw_required_import_paths = tuple(
         Path(path) for path in getattr(args, "required_import_rulespec_path", ())
     )
@@ -30467,6 +30556,13 @@ def _run_encode_attempt(
         _ensure_logged_run()
 
     outcome = _initial_encode_outcome(result, apply_requested=apply_requested)
+    if (
+        replacement_target is not None
+        and replacement_target.retired_source_admission is not None
+    ):
+        outcome["retired_source_admission"] = (
+            replacement_target.retired_source_admission
+        )
     apply_passed = False
     full_validation_issues: tuple[str, ...] = ()
     retry_validation_issues: tuple[str, ...] = ()

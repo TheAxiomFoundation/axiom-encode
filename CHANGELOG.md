@@ -2,6 +2,11 @@
 
 All notable changes to Axiom Encode will be documented here.
 
+- Admit exact descendant rows as retired replacement context only when their
+  full evidence is contained in the parent under the same signed corpus
+  artifact and source scope. Retain separate attestations and containment
+  offsets in durable review artifacts without changing generated source gates.
+
 - Recognize threshold witnesses over derived numeric rules only when both test
   cases assert and independently reproduce the dependency chain. Preserve
   quoted integer thresholds when matching source conditions.
