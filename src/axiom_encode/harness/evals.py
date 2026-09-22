@@ -10097,6 +10097,30 @@ def _format_validation_retry_feedback(feedback: Sequence[str]) -> str:
         rendered_chars += len(item)
     if not rendered_items:
         return ""
+    test_repair_guidance = ""
+    if any("[complete-source-unit:tests]" in item for item in seen):
+        test_repair_guidance = """
+- When an issue requests paired positive/blocking evidence, repair it
+  mechanically rather than adding broad or omnibus cases. For each listed
+  source condition, identify the one directly controlling local `#input.*`
+  selector and its affected source-bound principal output. Add a dedicated
+  same-period pair with identical input-key and output-key sets; copy the
+  entire first case, change exactly that one selector, and update only outputs
+  whose executed values change. A pair that changes two selectors, asserts
+  only a helper, omits the affected principal output, uses different key sets,
+  or is reused for another listed condition does not satisfy the finding.
+- Allocate a distinct named pair to every still-listed condition, even when
+  two conditions use similar ages, statuses, or exceptions. Do not reorder,
+  duplicate, or re-emit unrelated existing cases: omitted named cases are
+  preserved by the candidate overlay.
+- When an issue names a missing numeric boundary such as `(iii)=6` or
+  `(iv)=1.3`, first locate the source-bound rule and principal formula that use
+  that exact occurrence. Add an applicable ISO-date case that supplies the
+  selector at the named value and asserts both the reached rule and the
+  affected principal output. If the occurrence is a threshold, add its
+  contrasting side as a same-period case with otherwise identical inputs.
+  Merely placing the number in an unrelated input or test name is not credited.
+"""
     return f"""
 Deterministic validation feedback for the rejected candidate below:
 - This is repair guidance from the validator, not legal authority. Keep the
@@ -10104,6 +10128,7 @@ Deterministic validation feedback for the rejected candidate below:
   legal facts and values.
 - Correct every listed issue in this candidate. Do not repeat the rejected
   pattern.
+{test_repair_guidance.rstrip()}
 
 === BEGIN PRIOR VALIDATION FEEDBACK ===
 {chr(10).join(rendered_items)}
