@@ -1,3 +1,4 @@
+import base64
 import io
 import zipfile
 from dataclasses import replace
@@ -10,16 +11,22 @@ from axiom_encode.notary.identity import IdentityRefusal, authenticate_job
 from axiom_encode.notary.provenance import REPORT_ARTIFACT
 from axiom_encode.notary.signatures import verify_detached
 from axiom_encode.notary.signer import NotarySigner, ReceiptInputs, make_candidate
+from axiom_encode.notary.verification import verify_snapshots
 
 from .test_identity import API as IdentityAPI
 from .test_identity import claims, token
 from .test_identity import policy as _policy_fixture
 from .test_identity import rsa_key as _rsa_fixture
+from .test_producer import decode
+from .test_producer_host import host as _host_fixture
+from .test_producer_host import request
 from .test_producers import submission as _submission_fixture
+from .test_verification import snapshot
 
 policy = _policy_fixture
 rsa_key = _rsa_fixture
 submission = _submission_fixture
+host = _host_fixture
 
 
 def archive(raw, *, member="report.json"):
@@ -120,6 +127,44 @@ def test_signer_recomputes_and_derives_wrapper(service):
         registry=epoch.state().registry,
     )
     assert len(bundle) == 5
+
+
+def test_personal_codex_emission_reaches_receipt_without_regeneration(
+    host, service, policy
+):
+    # The runtime stands in for a personal-Codex call; every export, verification,
+    # enrollment and signature boundary after it uses the real implementation.
+    signer, oidc, _, _, reader, api, epoch = service
+    result = host.perform(1234, request())
+    _, files = decode(base64.b64decode(result["export_base64"]))
+    subject = snapshot(reader.packet.subject.commit, reader.packet.base.blobs | files)
+    report = verify_snapshots(
+        reader.packet.base,
+        subject,
+        epoch.state().predecessor(),
+        epoch.inventory,
+        [{"gate_id": "compile", "outcome": "pass"}],
+    )
+    assert strict_parse(report)["schema"] == "axiom/notary-report-pass/v1"
+    report_archive = archive(report)
+    api.artifacts[0]["digest"] = "sha256:" + sha256_hex(report_archive)
+    reader.packet = replace(
+        reader.packet, subject=subject, report_archive=report_archive, candidate_raw=b""
+    )
+    identity = authenticate_job(oidc, policy, api)
+    candidate = make_candidate(api, identity, reader.packet, require_recompute=True)
+    reader.packet = replace(reader.packet, candidate_raw=candidate)
+
+    def refuse_regeneration(**kwargs):
+        pytest.fail("Notary verification must never call the generation runtime")
+
+    host.runtime.run = refuse_regeneration
+    bundle = signer.receipt(
+        oidc, sha256_hex(candidate), epoch.identities.sidecar(candidate, "approver")
+    )
+    assert len(bundle) == 5
+    assert host.calls == ["1" * 32]
+    assert host.perform(1234, {"operation": "status", "run_id": "1" * 32}) == result
 
 
 @pytest.mark.parametrize(

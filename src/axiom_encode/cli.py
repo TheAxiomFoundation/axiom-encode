@@ -126,6 +126,7 @@ from .corpus_resolver import (
     CorpusDescendantStructureError,
     CorpusLayoutError,
     CorpusResolutionError,
+    CorpusRowIdentity,
     CorpusRowStructureError,
     CorpusSourceNotFoundError,
     InactiveCorpusSourceError,
@@ -358,6 +359,9 @@ from .legacy_replacement import (
 )
 from .legacy_replacement import (
     LegacyReplacementScheduledDependent as _LegacyReplacementScheduledDependent,
+)
+from .legacy_replacement import (
+    _UniqueKeySafeLoader as _LegacyReplacementYamlLoader,
 )
 from .legacy_replacement import (
     legacy_receipt_v1_manifest_issues as _legacy_receipt_v1_manifest_issues,
@@ -27192,7 +27196,9 @@ def _best_validation_retry_attempt(
         # the original immediately-preceding-candidate behavior.
         return prior_attempts[-1]
 
-    def score(indexed: tuple[int, _FailedEncodeAttempt]) -> tuple[int, int, int]:
+    def score(
+        indexed: tuple[int, _FailedEncodeAttempt],
+    ) -> tuple[int, int, int, int]:
         index, attempt = indexed
         unsafe_candidate = (
             any(
@@ -27203,11 +27209,72 @@ def _best_validation_retry_attempt(
             or "compile validation" in attempt.error.casefold()
         )
         assert attempt.validation_issue_count is not None
+        residual_issues = attempt.full_validation_issues or attempt.validation_issues
+        residual_obligation_count = _validation_residual_obligation_count(
+            residual_issues
+        )
+        if residual_obligation_count == 0:
+            residual_obligation_count = attempt.validation_issue_count
         # Parser/compile failures cannot outrank a source-complete candidate.
+        # Complete-source diagnostics intentionally group many residual source
+        # obligations into one message. Rank those obligations before the raw
+        # message count so a candidate that closes six of nine missing branches
+        # is not discarded merely because another validator adds one message.
         # On an exact deterministic tie, keep forward progress by using newer.
-        return (int(unsafe_candidate), attempt.validation_issue_count, -index)
+        return (
+            int(unsafe_candidate),
+            residual_obligation_count,
+            attempt.validation_issue_count,
+            -index,
+        )
 
     return min(enumerate(prior_attempts), key=score)[1]
+
+
+def _validation_residual_obligation_count(issues: Sequence[str]) -> int:
+    """Count actionable obligations inside grouped validation diagnostics."""
+
+    total = 0
+    for issue in issues:
+        if not isinstance(issue, str):
+            continue
+        obligation_count = 1
+        if (
+            "[complete-source-unit:tests] Companion tests do not exercise "
+            "every source-stated boundary input; missing:" in issue
+        ):
+            missing = issue.split("missing:", 1)[1].strip().rstrip(".")
+            obligation_count = max(
+                1,
+                len([item for item in missing.split(",") if item.strip()]),
+            )
+        elif (
+            "[complete-source-unit:tests] Source-stated exceptions or "
+            "applicability conditions require paired positive/blocking cases"
+            in issue
+            and "missing:" in issue
+        ):
+            missing = issue.split("missing:", 1)[1].strip()
+            missing = missing.split(". The evaluator recognized", 1)[0]
+            obligation_count = max(
+                1,
+                len(
+                    re.findall(
+                        r"(?:^|;\s+)[a-z]{2}(?:-[a-z0-9_]+)*/",
+                        missing,
+                    )
+                ),
+            )
+        elif (
+            "[complete-source-unit:source-explicit-conditions] Derived formula "
+            "version(s) delegate multiple conjunctive factual gates" in issue
+        ):
+            obligation_count = max(
+                1,
+                len(re.findall(r"`[^`]+`\s+versions\[", issue)),
+            )
+        total += obligation_count
+    return total
 
 
 def _full_validation_issue_list(*issue_groups: object) -> tuple[str, ...]:
@@ -27496,6 +27563,7 @@ class _EncodeReplacementTarget(NamedTuple):
     relative_output: Path
     context_paths: tuple[Path, ...]
     legacy_replacement: "_LegacyReplacementContract | None" = None
+    retired_source_admission: dict[str, Any] | None = None
 
 
 _LEGACY_REPLACEMENT_ATTR = "_axiom_legacy_replacement_contract"
@@ -29487,6 +29555,169 @@ def _resolve_legacy_replacement_contract(
     )
 
 
+def _admit_retired_replacement_source_verification(
+    target_bytes: bytes,
+    *,
+    source_unit,
+    corpus_release: LocalCorpusRelease,
+) -> dict[str, Any]:
+    """Admit historical input evidence only; never normalize generated output.
+
+    A replacement may retire the old plural module field when every cited
+    source is already covered by the exact requested resolver evidence. Keep
+    the original bytes in replacement context. Exact descendant rows may also
+    qualify within the same artifact and scope, with replayable containment
+    evidence; other sources require separate generation/imports.
+    """
+    payload = yaml.load(
+        target_bytes.decode("utf-8"), Loader=_LegacyReplacementYamlLoader
+    )
+    module = payload.get("module") if isinstance(payload, dict) else None
+    verification = (
+        module.get("source_verification") if isinstance(module, dict) else None
+    )
+    if not isinstance(verification, dict):
+        raise ValueError("replacement legacy source verification must be a mapping")
+    singular = verification.get("corpus_citation_path")
+    plural = verification.get("corpus_citation_paths")
+    if (
+        not isinstance(singular, str)
+        or singular != source_unit.requested
+        or not isinstance(plural, list)
+        or not plural
+        or not all(isinstance(path, str) for path in plural)
+    ):
+        raise ValueError(
+            "replacement legacy source verification requires the exact requested "
+            "singular citation and a nonempty plural citation list"
+        )
+    for path in (singular, *plural):
+        require_canonical_corpus_citation_path(path)
+        if path != singular and not path.startswith(singular + "/"):
+            raise ValueError(
+                "replacement legacy citations must name the requested source "
+                "or its descendants; encode other sources separately and import them"
+            )
+    if len(set(plural)) != len(plural):
+        raise ValueError("replacement legacy source citations must not repeat")
+
+    # Check other locations without changing the input handed to generation.
+    # Copy each mapping on this path rather than mutating YAML aliases.
+    remaining = dict(payload)
+    remaining["module"] = dict(module)
+    remaining_verification = dict(verification)
+    del remaining_verification["corpus_citation_paths"]
+    remaining["module"]["source_verification"] = remaining_verification
+    other_issues = find_plural_corpus_citation_path_issues(remaining)
+    if other_issues:
+        raise ValueError(
+            "replacement RuleSpec has invalid source verification: "
+            + "; ".join(other_issues)
+        )
+
+    requested = source_unit.resolved_source
+    admitted_sources = []
+    for path in dict.fromkeys((singular, *plural)):
+        historical = resolve_corpus_source_unit(path, corpus_release).resolved_source
+        same_provenance = all(
+            getattr(historical, field) == getattr(requested, field)
+            for field in (
+                "release_name",
+                "release_content_sha256",
+                "release_selector_sha256",
+                "provision_file",
+                "provision_file_sha256",
+                "row",
+                "component_rows",
+                "stored_body_sha256",
+            )
+        )
+        exact_contained_descendant = (
+            isinstance(requested.row, CorpusRowIdentity)
+            and isinstance(historical.row, CorpusRowIdentity)
+            and path != singular
+            and path.startswith(singular + "/")
+            and requested.requested
+            == requested.citation_path
+            == requested.row.citation_path
+            == singular
+            and historical.requested
+            == historical.citation_path
+            == historical.row.citation_path
+            == path
+            and not requested.component_rows
+            and not historical.component_rows
+            and not requested.slice_required
+            and not historical.slice_required
+            and all(
+                getattr(historical, field) == getattr(requested, field)
+                for field in (
+                    "release_name",
+                    "release_content_sha256",
+                    "release_selector_sha256",
+                    "provision_file",
+                    "provision_file_sha256",
+                )
+            )
+            and all(
+                getattr(historical.row, field) == getattr(requested.row, field)
+                for field in (
+                    "jurisdiction",
+                    "document_class",
+                    "version",
+                    "source_path",
+                    "source_as_of",
+                    "expression_date",
+                )
+            )
+        )
+        containment = []
+        for child_index, segment in enumerate(historical.proof_evidence_segments):
+            match = next(
+                (
+                    (parent_index, source.index(segment))
+                    for parent_index, source in enumerate(
+                        requested.proof_evidence_segments
+                    )
+                    if segment and segment in source
+                ),
+                None,
+            )
+            if match is None:
+                break
+            parent_index, offset = match
+            containment.append(
+                {
+                    "child_segment": child_index,
+                    "parent_segment": parent_index,
+                    "start": offset,
+                    "end": offset + len(segment),
+                    "segment_sha256": hashlib.sha256(
+                        segment.encode("utf-8")
+                    ).hexdigest(),
+                }
+            )
+        if not (same_provenance or exact_contained_descendant) or len(
+            containment
+        ) != len(historical.proof_evidence_segments):
+            raise ValueError(
+                f"replacement legacy citation {path} is not fully covered by the "
+                "requested resolver evidence; encode it separately and import it"
+            )
+        admitted_sources.append(
+            {
+                "attestation": historical.to_attestation(),
+                "containment": containment,
+            }
+        )
+    return {
+        "contract": "retired-source-containment/v1",
+        "legacy_rulespec_sha256": hashlib.sha256(target_bytes).hexdigest(),
+        "requested_attestation": requested.to_attestation(),
+        "sources": admitted_sources,
+    }
+
+
 def _resolve_encode_replacement_target(
     args,
     *,
@@ -29576,16 +29807,22 @@ def _resolve_encode_replacement_target(
         max_bytes=10 * 1024 * 1024,
     )
     try:
-        payload = yaml.safe_load(target_bytes.decode("utf-8"))
+        payload = yaml.load(
+            target_bytes.decode("utf-8"), Loader=_LegacyReplacementYamlLoader
+        )
     except (UnicodeError, yaml.YAMLError, RecursionError) as exc:
-        raise ValueError("replacement RuleSpec is not valid UTF-8 YAML") from exc
+        raise ValueError(
+            "replacement RuleSpec is not valid UTF-8 YAML or has duplicate keys"
+        ) from exc
     if not isinstance(payload, dict) or payload.get("format") != "rulespec/v1":
         raise ValueError("replacement RuleSpec must declare format: rulespec/v1")
     plural_issues = find_plural_corpus_citation_path_issues(payload)
+    retired_source_admission = None
     if plural_issues:
-        raise ValueError(
-            "replacement RuleSpec has invalid source verification: "
-            + "; ".join(plural_issues)
+        retired_source_admission = _admit_retired_replacement_source_verification(
+            target_bytes,
+            source_unit=source_unit,
+            corpus_release=corpus_release,
         )
     module = payload.get("module")
     verification = (
@@ -29642,6 +29879,7 @@ def _resolve_encode_replacement_target(
     return _EncodeReplacementTarget(
         relative_output=relative_output,
         context_paths=tuple(context_paths),
+        retired_source_admission=retired_source_admission,
     )
 
 
@@ -30074,6 +30312,15 @@ def _run_encode_attempt(
         source_unit=source_unit,
         corpus_release=corpus_release,
     )
+    if (
+        replacement_target is not None
+        and replacement_target.retired_source_admission is not None
+    ):
+        from .retired_source_evidence import write_retired_source_evidence
+
+        write_retired_source_evidence(
+            Path(args.output), replacement_target.retired_source_admission
+        )
     raw_required_import_paths = tuple(
         Path(path) for path in getattr(args, "required_import_rulespec_path", ())
     )
@@ -30324,6 +30571,13 @@ def _run_encode_attempt(
         _ensure_logged_run()
 
     outcome = _initial_encode_outcome(result, apply_requested=apply_requested)
+    if (
+        replacement_target is not None
+        and replacement_target.retired_source_admission is not None
+    ):
+        outcome["retired_source_admission"] = (
+            replacement_target.retired_source_admission
+        )
     apply_passed = False
     full_validation_issues: tuple[str, ...] = ()
     retry_validation_issues: tuple[str, ...] = ()

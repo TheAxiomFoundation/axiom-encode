@@ -35,6 +35,7 @@ from .lineage import STORE_PREFIX
 from .manifest import manifest_sha256
 from .producer import (
     correction_export,
+    deterministic_export,
     generation_export,
     key_fingerprint,
     observed_transitions,
@@ -62,6 +63,10 @@ def codex_sampling_metadata(value):
 
 def parse_config(raw):
     body = strict_parse(raw)
+    deterministic = (
+        isinstance(body, dict)
+        and body.get("schema") == "axiom/supervised-deterministic-producer-host/v1"
+    )
     names = {
         "schema",
         "lane",
@@ -88,7 +93,20 @@ def parse_config(raw):
         "references",
         "timeout_seconds",
     }
-    if not fields(body, names) or body["schema"] != "axiom/supervised-producer-host/v1":
+    if deterministic:
+        names -= {
+            "codex_binary",
+            "corpus_path",
+            "engine_path",
+            "dependency_roots",
+            "model",
+            "sampling",
+            "references",
+        }
+        names |= {"generator_root", "input_root", "runtime_root"}
+    if not fields(body, names) or (
+        not deterministic and body["schema"] != "axiom/supervised-producer-host/v1"
+    ):
         raise IdentityRefusal("producer_host_configuration")
     if (
         not lane_name(body["lane"])
@@ -105,16 +123,18 @@ def parse_config(raw):
         or body["socket_gid"] <= 0
     ):
         raise IdentityRefusal("producer_host_limits")
-    if (
+    if not deterministic and (
         not isinstance(body["model"], str)
         or re.fullmatch(r"[A-Za-z0-9_.:-]{1,100}", body["model"]) is None
     ):
         raise IdentityRefusal("producer_host_model")
-    if not fields(body["sampling"], {"temperature", "seed"}) or not fields(
-        body["references"], {"oracles", "reference_data"}
+    if not deterministic and (
+        not fields(body["sampling"], {"temperature", "seed"})
+        or not fields(body["references"], {"oracles", "reference_data"})
     ):
         raise IdentityRefusal("producer_host_metadata")
-    codex_sampling_metadata(body["sampling"])
+    if not deterministic:
+        codex_sampling_metadata(body["sampling"])
     operators = body["operators"]
     if (
         not isinstance(operators, list)
@@ -130,8 +150,8 @@ def parse_config(raw):
         or len({item["uid"] for item in operators}) != len(operators)
     ):
         raise IdentityRefusal("producer_host_operators")
-    if not isinstance(body["dependency_roots"], dict) or any(
-        not re.fullmatch(r"[a-z]{2}", name) for name in body["dependency_roots"]
+    if not isinstance(body.get("dependency_roots", {}), dict) or any(
+        not re.fullmatch(r"[a-z]{2}", name) for name in body.get("dependency_roots", {})
     ):
         raise IdentityRefusal("producer_host_dependencies")
     for path in [
@@ -145,8 +165,12 @@ def parse_config(raw):
             "python",
             "corpus_path",
             "engine_path",
+            "generator_root",
+            "input_root",
+            "runtime_root",
         )
-    ] + list(body["dependency_roots"].values()):
+        if k in body
+    ] + list(body.get("dependency_roots", {}).values()):
         if (
             not isinstance(path, str)
             or not re.fullmatch(r"/[A-Za-z0-9_./-]+", path)
@@ -156,7 +180,10 @@ def parse_config(raw):
     inventory = jcs_dumps(body["dependency_inventory"])
     if parse_artifact(inventory, "dependency-inventory") is None:
         raise IdentityRefusal("producer_host_inventory")
-    return body | {"dependency_inventory": inventory}
+    return body | {
+        "dependency_inventory": inventory,
+        "runtime_kind": "deterministic" if deterministic else "codex",
+    }
 
 
 def write_private(path: Path, raw: bytes):
@@ -181,6 +208,10 @@ def write_private(path: Path, raw: bytes):
 class ProducerHost:
     def __init__(self, config, *, runtime=None):
         self.config = config
+        if runtime is None and config.get("runtime_kind") == "deterministic":
+            from .deterministic_runtime import LinuxDeterministicRuntime
+
+            runtime = LinuxDeterministicRuntime(config)
         self.runtime = runtime or LinuxRuntime(config)
         self.operators = {
             row["uid"]: row["github_user_id"] for row in config["operators"]
@@ -271,6 +302,7 @@ class ProducerHost:
                 != key_fingerprint(self.keys["actor"])
                 or github_user_id not in enrollment.body["github_user_ids"]
                 or enrollment.body["encoder"] != c["encoder_identity"]
+                or enrollment.kind != c.get("runtime_kind", "codex")
             ):
                 raise IdentityRefusal("producer_enrollment")
             try:
@@ -328,6 +360,8 @@ class ProducerHost:
                 raise IdentityRefusal("producer_request")
             return self._status(run_id, uid)
         if operation == "encode":
+            if self.config.get("runtime_kind", "codex") != "codex":
+                raise IdentityRefusal("producer_runtime_kind")
             if (
                 not fields(
                     request,
@@ -353,6 +387,13 @@ class ProducerHost:
             public_request = {
                 key: value for key, value in request.items() if key != "auth_base64"
             }
+        elif operation == "generate":
+            if self.config.get("runtime_kind", "codex") != "deterministic":
+                raise IdentityRefusal("producer_runtime_kind")
+            if not fields(request, {"operation", "run_id"}):
+                raise IdentityRefusal("producer_generate_request")
+            auth = None
+            public_request = request
         elif operation == "correction":
             if (
                 not fields(
@@ -401,7 +442,7 @@ class ProducerHost:
                         run_id=run_id,
                     )
                     refreshed = None
-                    if operation == "encode":
+                    if operation in {"encode", "generate"}:
                         job = self.root / "jobs" / run_id
                         job.mkdir(mode=0o700)
                         observed, refreshed = self.runtime.run(
@@ -413,18 +454,23 @@ class ProducerHost:
                             auth=auth,
                             corpus_public_keys=corpus_public_keys,
                         )
-                        export = generation_export(
-                            self.keys["producer"],
-                            **common,
-                            **observed,
-                            draw_set_id=request["draw_set_id"],
-                            sampling=self.config["sampling"],
-                            independence={
-                                "sibling_draws_visible": "no",
-                                "incumbent_encoding_visible": "yes",
-                            },
-                            references=self.config["references"],
-                        )
+                        if operation == "encode":
+                            export = generation_export(
+                                self.keys["producer"],
+                                **common,
+                                **observed,
+                                draw_set_id=request["draw_set_id"],
+                                sampling=self.config["sampling"],
+                                independence={
+                                    "sibling_draws_visible": "no",
+                                    "incumbent_encoding_visible": "yes",
+                                },
+                                references=self.config["references"],
+                            )
+                        else:
+                            export = deterministic_export(
+                                self.keys["producer"], **common, **observed
+                            )
                     else:
                         inherited = None
                         predecessor = None

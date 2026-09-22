@@ -11,8 +11,15 @@ from dataclasses import dataclass
 
 from ._schema import canonical_object, digest, fields, nonempty, ordered_strings
 from .canonical import jcs_dumps, sha256_hex
+from .deterministic_contract import DETERMINISTIC_GENERATION, deterministic_binding
 from .identity import IdentityRefusal, ReadAPI, require_writer_submission
-from .lineage import GENERATION, STORE_PREFIX, parse_record
+from .lineage import (
+    GENERATION,
+    GENERATION_SCHEMAS,
+    STORE_PREFIX,
+    parse_record,
+    signature_role,
+)
 from .protocol import decimal_id, oid, parse_artifact
 from .registry import KeyRegistry
 from .signatures import verify_detached
@@ -34,12 +41,20 @@ class Enrollment:
     def runtime_identity(self) -> str:
         return "axiom-runtime:sha256:" + sha256_hex(self.raw)
 
+    @property
+    def kind(self) -> str:
+        return self.body.get("runtime_kind", "codex")
+
 
 def parse_enrollments(raw: bytes, registry: KeyRegistry) -> dict[str, Enrollment]:
     body = canonical_object(raw)
     if (
         not fields(body, {"schema", "lane", "runtimes"})
-        or body["schema"] != "axiom/notary-producer-enrollments/v1"
+        or body["schema"]
+        not in (
+            "axiom/notary-producer-enrollments/v1",
+            "axiom/notary-producer-enrollments/v2",
+        )
         or body["lane"] != registry.lane
         or not isinstance(body["runtimes"], list)
     ):
@@ -47,6 +62,12 @@ def parse_enrollments(raw: bytes, registry: KeyRegistry) -> dict[str, Enrollment
     enrolled = {}
     producers, actors = [], []
     for entry in body["runtimes"]:
+        if not isinstance(entry, dict):
+            raise IdentityRefusal("runtime_enrollment_schema")
+        tagged = body["schema"] == "axiom/notary-producer-enrollments/v2"
+        kind = entry.get("runtime_kind") if tagged else "codex"
+        if kind not in ("codex", "deterministic"):
+            raise IdentityRefusal("runtime_enrollment_kind")
         if not fields(
             entry,
             {
@@ -54,15 +75,19 @@ def parse_enrollments(raw: bytes, registry: KeyRegistry) -> dict[str, Enrollment
                 "actor_spki_sha256",
                 "github_user_ids",
                 "encoder",
-                "codex_cli",
                 "custody_evidence_sha256",
-            },
+            }
+            | ({"runtime_kind"} if tagged else set())
+            | (
+                {"codex_cli"}
+                if kind == "codex"
+                else {"generator", "runtime", "inputs", "parameters", "outputs"}
+            ),
         ):
             raise IdentityRefusal("runtime_enrollment_schema")
         producer, actor = entry["producer_spki_sha256"], entry["actor_spki_sha256"]
-        encoder, cli, operators = (
+        encoder, operators = (
             entry["encoder"],
-            entry["codex_cli"],
             entry["github_user_ids"],
         )
         if (
@@ -81,11 +106,19 @@ def parse_enrollments(raw: bytes, registry: KeyRegistry) -> dict[str, Enrollment
             or not oid(encoder["git_oid"])
             or not nonempty(encoder["version"])
             or not digest(encoder["package_tree_sha256"])
-            or not fields(cli, {"version", "sha256"})
-            or not nonempty(cli["version"])
-            or not digest(cli["sha256"])
             or not digest(entry["custody_evidence_sha256"])
         ):
+            raise IdentityRefusal("runtime_enrollment_binding")
+        if kind == "codex":
+            cli = entry["codex_cli"]
+            valid = (
+                fields(cli, {"version", "sha256"})
+                and nonempty(cli["version"])
+                and digest(cli["sha256"])
+            )
+        else:
+            valid = deterministic_binding(entry)
+        if not valid:
             raise IdentityRefusal("runtime_enrollment_binding")
         enrollment = Enrollment(jcs_dumps(entry))
         enrolled[producer] = enrollment
@@ -156,12 +189,15 @@ def enrolled_contributor_ids(base, subject, registry, coverage_assignment):
         record = parse_record(raw)
         if record is None or sha256_hex(raw) != address:
             raise IdentityRefusal("submission_record")
-        role = "producer" if record["schema"] == GENERATION else "actor"
+        role = "producer" if record["schema"] in GENERATION_SCHEMAS else "actor"
         signature = subject.blobs.get(
             STORE_PREFIX + address + ".json." + role + ".sig", b""
         )
         if not verify_detached(
-            signature, body_sha256=address, role=role, registry=registry
+            signature,
+            body_sha256=address,
+            role=signature_role(record),
+            registry=registry,
         ):
             raise IdentityRefusal("submission_signature")
         signer = canonical_object(signature)["signer_spki_sha256"]
@@ -179,11 +215,30 @@ def enrolled_contributor_ids(base, subject, registry, coverage_assignment):
             or entry["encoder"]["version"] != version
         ):
             raise IdentityRefusal("enrolled_encoder_pin_mismatch")
-        if role == "producer" and (
-            record["runtime_identity"] != enrollment.runtime_identity
-            or record["cli_version"] != entry["codex_cli"]["version"]
-            or record["cli_sha256"] != entry["codex_cli"]["sha256"]
-        ):
-            raise IdentityRefusal("enrolled_runtime_mismatch")
+        if role == "producer":
+            expected_schema = (
+                GENERATION if enrollment.kind == "codex" else DETERMINISTIC_GENERATION
+            )
+            if (
+                record["schema"] != expected_schema
+                or record["runtime_identity"] != enrollment.runtime_identity
+            ):
+                raise IdentityRefusal("enrolled_runtime_mismatch")
+            if enrollment.kind == "codex":
+                valid = (
+                    record["cli_version"] == entry["codex_cli"]["version"]
+                    and record["cli_sha256"] == entry["codex_cli"]["sha256"]
+                )
+            else:
+                valid = all(
+                    record[name] == entry[name]
+                    for name in ("generator", "runtime", "inputs", "parameters")
+                ) and all(
+                    row["path"] in entry["outputs"]
+                    and row["after_blob_sha256"] is not None
+                    for row in record["transitions"]
+                )
+            if not valid:
+                raise IdentityRefusal("enrolled_runtime_mismatch")
         allowed.intersection_update(entry["github_user_ids"])
     return frozenset(allowed)

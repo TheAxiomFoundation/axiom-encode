@@ -6,6 +6,14 @@ using the approved [v33 design](notary-admission-design.md). It is **not an
 enabled US admission path**. A merge cannot enroll a host, install private
 keys, deploy services, or establish GitHub App permissions.
 
+[Max's 22 September follow-up](https://github.com/TheAxiomFoundation/axiom-encode/pull/1662#issuecomment-5784793928)
+permits implementation PRs to merge before activation and adds a separately
+enrolled deterministic runtime. The [extension contract](notary-deterministic-producer.md)
+specifies its measured recipe, signature domain and B1.6 adapter. The NZ pilot
+remains personal Codex; custody, deployment and pilot gates remain activation
+requirements. Pavel owns enrollment preparation, generator-adapter review,
+deployment and operations; Max retains the administrative key.
+
 The contributor outcome is unchanged: an enrolled team contributor generates
 with personal Codex; CI verifies the exact submitted bytes without model
 calls. Current repository write access is necessary. An outsider, fork, stale
@@ -27,6 +35,7 @@ authenticated by attaching a new signature.
 | Production reads | `remote.py`, `github_inputs.py`, `protection.py` | Fresh bare repositories, immutable GitHub artifacts, environment and ruleset audits, live bootstrap lock and sole-actor check |
 | Publication state machine | `publication.py` | Complete pending bundles, idempotent retry, exact merged-tree binding, permanent voids, sibling supersession, notary rotation |
 | Supervised personal-Codex runtime | `producer_host.py`, `producer_runtime.py`, `producer_worker.py`, `producer_client.py` | Root controller, isolated non-login worker, measured binaries, exact-byte export, private refreshed auth, durable idempotent status, authenticated apply |
+| Supervised deterministic runtime | `deterministic_contract.py`, `deterministic_runtime.py`, `producers.py` | Tagged enrollment, measured generator/runtime/input files, fixed parameters, offline repeat execution, exact observed output and a separate signature domain |
 | Hardware approvals | `approval.py`, `approval_inbox.py` | Direct USB device identity, non-exportable role-separated keys, explicit digest confirmation, bounded public sidecar deposit |
 | External services | `service.py`, `deployment.py`, `readplane.py` | Typed OIDC operations, separate custody, read-only proxy, no caller-supplied signing bytes or keys |
 | Live publication | `apps.py`, `leases.py`, `github_publication.py`, `publisher.py`, `finalizer.py` | Two App scope audits, durable revocable leases, first-push/fast-forward CAS, App checks, merge and revocation handling |
@@ -122,8 +131,9 @@ production IDs and fixture keys are not valid deployment inputs.
    under organization issue #39.
 3. Supply actual custodian-controlled hosts, hardware, endpoints, measured
    identities, App installations, rulesets and environment reviewer IDs using
-   the runbook. Audit every v33 §9 prerequisite before admission-capable merge
-   or activation. These operations cannot be accomplished by merging source.
+   the runbook. Reconcile this with Pavel's existing preparation and audit the
+   v33 §9 prerequisites before activation. Per Max's 22 September decision,
+   implementation PRs can merge while that preparation continues.
 4. Commit the actual NZ deployment/profile configuration and rendered immutable
    workflows in its dedicated gated PR. Execute the locked genesis ceremony,
    exact five-path activation and real personal-Codex NZ pilot with proof of

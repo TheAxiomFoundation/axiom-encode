@@ -23846,6 +23846,40 @@ def test_retry_feedback_appends_after_static_prompt_prefix(tmp_path):
     }
 
 
+def test_complete_source_test_retry_feedback_adds_mechanical_pair_guidance():
+    rendered = evals_module._format_validation_retry_feedback(
+        (
+            "ci: [complete-source-unit:tests] Source-stated exceptions require "
+            "paired positive/blocking cases differing in exactly one input",
+            "ci: [complete-source-unit:tests] Companion tests do not exercise "
+            "every source-stated boundary input; missing: (iii)=6, (iv)=1.3.",
+        )
+    )
+    normalized = " ".join(rendered.split())
+
+    assert "change exactly that one selector" in normalized
+    assert "identical input-key and output-key sets" in normalized
+    assert (
+        "Allocate a distinct named pair to every still-listed condition" in normalized
+    )
+    assert (
+        "and asserts both the reached rule and the affected principal output"
+        in normalized
+    )
+    assert (
+        "Do not reorder, duplicate, or re-emit unrelated existing cases" in normalized
+    )
+
+
+def test_non_test_retry_feedback_omits_mechanical_pair_guidance():
+    rendered = evals_module._format_validation_retry_feedback(
+        ("ci: [complete-source-unit:structure] Source branch is missing",)
+    )
+
+    assert "change exactly that one selector" not in rendered
+    assert "Allocate a distinct named pair" not in rendered
+
+
 def test_openai_prompt_cache_key_is_stable_per_prompt_family():
     prefix = "prompt head " * 500
     key = evals_module._openai_prompt_cache_key("gpt-5.6-terra", prefix)

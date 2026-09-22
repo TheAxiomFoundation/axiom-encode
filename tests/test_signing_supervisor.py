@@ -5838,7 +5838,7 @@ def test_targeted_review_finding_temp_file_is_valid_context(tmp_path: Path) -> N
     assert validate_explicit_context_file(finding_path, policy_root) == finding_path
 
 
-@pytest.mark.parametrize("contract_case", ["none", "exact", "tampered"])
+@pytest.mark.parametrize("contract_case", ["none", "exact", "tampered", "admission"])
 def test_targeted_artifact_packages_signed_review_context(
     tmp_path: Path, contract_case: str
 ) -> None:
@@ -5922,6 +5922,11 @@ def test_targeted_artifact_packages_signed_review_context(
     context_path = tmp_path / "generated" / "target" / "context-manifest.json"
     context_path.parent.mkdir(parents=True)
     context_path.write_bytes(context_bytes)
+    admission_bytes = b'{"contract":"retired-source-containment/v1","sources":[]}\n'
+    if contract_case == "admission":
+        (context_path.parent / "retired-source-admission.json").write_bytes(
+            admission_bytes
+        )
     applied_manifest = {
         "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
         "citation": citation,
@@ -5986,10 +5991,25 @@ def test_targeted_artifact_packages_signed_review_context(
     assert inventory["items"] == [
         {
             "citation": citation,
+            **(
+                {
+                    "source_admission": {
+                        "path": "source-admission/target/retired-source-admission.json",
+                        "sha256": hashlib.sha256(admission_bytes).hexdigest(),
+                    }
+                }
+                if contract_case == "admission"
+                else {}
+            ),
             "path": applied_path.relative_to(rulespec).as_posix(),
             "sha256": hashlib.sha256(applied_path.read_bytes()).hexdigest(),
         }
     ]
+
+    if contract_case == "admission":
+        assert (
+            packaged_context.parent / inventory["items"][0]["source_admission"]["path"]
+        ).read_bytes() == admission_bytes
 
 
 def _targeted_package_script() -> str:

@@ -9,6 +9,7 @@ from .registry import KeyRegistry
 
 ROLE_SCOPES = {
     "producer": "axiom/lineage-generation/v1",
+    "deterministic-producer": "axiom/lineage-deterministic-generation/v1",
     "actor": "axiom/lineage-correction/v1",
     "review": "axiom/lineage-correction-review/v1",
     "genesis": "axiom/notary-genesis/v1",
@@ -41,6 +42,8 @@ def verify_detached(
     ):
         return False
     registry_role = "notary" if role in {"genesis", "transition"} else role
+    if role == "deterministic-producer":
+        registry_role = "producer"
     public = registry.keys[registry_role].get(sidecar["signer_spki_sha256"])
     signature = decode_base64(sidecar["signature_base64"])
     if public is None or signature is None or len(signature) != 64:

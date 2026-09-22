@@ -112,6 +112,7 @@ class SourceStructureBranch:
     text: str
     start: int
     end: int
+    structural_numeric_spans: tuple[tuple[int, int], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -12237,11 +12238,42 @@ def _mask_spaced_german_sentence_labels(text: str) -> str:
     return text
 
 
+def _worksheet_arithmetic_rows(source_text: str) -> tuple[re.Match[str], ...]:
+    """Recognize printed subtraction rows corroborated by a following line reference.
+
+    A five-digit form field code and repeated output-line reference distinguish
+    the output label from an arithmetic constant. Keep the following condition
+    intact: its threshold is substantive evidence, not form furniture.
+    """
+
+    return tuple(
+        re.finditer(
+            r"(?m)^[ \t]*[^\n;.!?]{1,240}:\s*"
+            r"line[ \t]+[1-9]\d{0,2}[ \t]+minus[ \t]+"
+            r"line[ \t]+[1-9]\d{0,2}[ \t]+\d{5}[ \t]*="
+            r"[ \t]*(?P<label>[1-9]\d{0,2})[ \t]*"
+            r"(?=\r?\n[ \t]*If the amount on line[ \t]+(?P=label)\b)",
+            source_text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _mask_numeric_spans(text: str, spans: Iterable[tuple[int, int]]) -> str:
+    for start, end in sorted(spans, reverse=True):
+        text = text[:start] + " " * (end - start) + text[end:]
+    return text
+
+
 def authoritative_numeric_recall_text(
     source_text: str, *, corpus_citation_path: str = ""
 ) -> str:
     """Remove structural/citation ordinals, never substantive source values."""
 
+    source_text = _mask_numeric_spans(
+        source_text,
+        (row.span("label") for row in _worksheet_arithmetic_rows(source_text)),
+    )
     cleaned = _mask_spaced_german_sentence_labels(
         _strip_terminal_session_law_history(source_text)
     )
@@ -12887,6 +12919,8 @@ _SOURCE_GATE_DEPENDENT_NEGATIVE_PATTERNS = (
 )
 _SOURCE_GATE_DEPENDENT_POSITIVE_PATTERNS = (
     rf"(?:is|are|was|were)\s+{_SOURCE_GATE_DEPENDENT_OBJECT}",
+    rf"(?:is|are|was|were)\s+[a-z][a-z'-]*\s+and\s+"
+    rf"{_SOURCE_GATE_DEPENDENT_OBJECT}",
     rf"(?:(?:is|are|was|were)\s+)?claimed\s+(?:as\s+)?"
     rf"{_SOURCE_GATE_DEPENDENT_OBJECT}",
     rf"(?:can\s+be|eligible\s+to\s+be)\s+claimed\s+(?:as\s+)?"
@@ -12955,19 +12989,26 @@ def _source_gate_replace_guarded_yet(
     return "".join(pieces)
 
 
-def _source_gate_split_conjunctive_conditions(text: str) -> list[str]:
-    """Split conjunctions and the same bounded adversative boundaries."""
+def _source_gate_split_conjunctive_conditions(
+    text: str,
+) -> list[tuple[str | None, str]]:
+    """Split conjunctions while retaining the connector for polarity."""
 
     with_yet_boundaries = _source_gate_replace_guarded_yet(
         text,
         independent_replacement="\n",
         ambiguous_replacement=f"\n{_SOURCE_GATE_AMBIGUOUS_YET_MARKER} ",
     )
-    return [
-        part
-        for line in with_yet_boundaries.splitlines()
-        for part in _SOURCE_GATE_CONJUNCTIVE_SEPARATOR.split(line)
-    ]
+    segments: list[tuple[str | None, str]] = []
+    for line in with_yet_boundaries.splitlines():
+        prior_end = 0
+        connector: str | None = None
+        for match in _SOURCE_GATE_CONJUNCTIVE_SEPARATOR.finditer(line):
+            segments.append((connector, line[prior_end : match.start()]))
+            connector = match.group(0).casefold()
+            prior_end = match.end()
+        segments.append((connector, line[prior_end:]))
+    return segments
 
 
 def _source_gate_unwrap_negation(tokens: list[str]) -> tuple[list[str], int]:
@@ -13300,7 +13341,7 @@ def _source_conjunctive_fact_gates(
         return ()
     gates: list[tuple[frozenset[str], frozenset[str]]] = []
     inherited_entities: frozenset[str] = frozenset()
-    for segment in segments:
+    for connector, segment in segments:
         if re.search(
             r"\b(?:is|are|be)\s*(?:[-–—]|:)\s*$",
             segment,
@@ -13308,6 +13349,15 @@ def _source_conjunctive_fact_gates(
         ):
             continue
         tokens = _source_gate_semantic_tokens(segment)
+        if (
+            connector == "and"
+            and "unknown_dependent" in tokens
+            and re.match(r"^\s*dependent\s+(?:on|upon)\b", segment, re.IGNORECASE)
+        ):
+            # Coordinated adjective predicates lose their auxiliary after the
+            # split (``was disabled and dependent on``).  Promote only an
+            # ``and`` continuation; ``nor dependent on`` remains conservative.
+            tokens = frozenset((tokens - {"unknown_dependent"}) | {"dependent"})
         explicit_entities = tokens & _SOURCE_GATE_ENTITIES
         is_subject_continuation = bool(
             re.match(
@@ -15703,6 +15753,9 @@ def _source_formula_branches(
 ) -> tuple[SourceStructureBranch, ...]:
     """Return every explicit computation clause with its structural owner."""
 
+    worksheet_labels = tuple(
+        row.span("label") for row in _worksheet_arithmetic_rows(source_text)
+    )
     obligations: list[SourceStructureBranch] = []
     for clause_index, (start, end, clause) in enumerate(
         _source_clause_spans(source_text, branches=branches),
@@ -15754,6 +15807,11 @@ def _source_formula_branches(
             clause,
             start,
             end,
+            structural_numeric_spans=tuple(
+                (label_start - start, label_end - start)
+                for label_start, label_end in worksheet_labels
+                if start <= label_start < label_end <= end
+            ),
         )
         if _rounding_clause_refers_to_previous_result(
             obligation,
@@ -16068,6 +16126,11 @@ def _source_clause_spans(
             for point in span
         ),
         *(match.end() for match in boundary_matches),
+        *(
+            point
+            for row in _worksheet_arithmetic_rows(source_text)
+            for point in (row.start(), row.end())
+        ),
         *(
             match.start()
             for match in re.finditer(
@@ -16773,7 +16836,9 @@ def _formula_branch_computation_occurrences(
     interval: _NumericInterval | None,
     extract_numeric_occurrences: NumericOccurrenceExtractor,
 ) -> tuple[NumericOccurrenceLike, ...]:
-    recall_text = authoritative_numeric_recall_text(branch.text)
+    recall_text = authoritative_numeric_recall_text(
+        _mask_numeric_spans(branch.text, branch.structural_numeric_spans)
+    )
     fractional_percentages = _source_fractional_percentage_occurrences(recall_text)
     fractional_spans = tuple(
         (occurrence.start, occurrence.end) for occurrence in fractional_percentages
@@ -22732,6 +22797,10 @@ def _formula_bound_from_comparison(
         "not greater than or equal to",
         "remain below",
         "under",
+        "under age",
+        "under age of",
+        "under the age",
+        "under the age of",
         "up to but not including",
         "up to but excluding",
         "von weniger als",
@@ -23049,11 +23118,23 @@ def _formula_has_unequal_english_parenthetical_amount(text: str) -> bool:
     return False
 
 
+def _mask_quoted_integer_delimiters(text: str) -> str:
+    """Preserve a quoted integer threshold and its offsets, including PDF commas."""
+
+    spans = (
+        span
+        for match in re.finditer(r'"[+-]?\d+,?"|“[+-]?\d+,?”', text)
+        for span in ((match.start(), match.start() + 1), (match.end() - 1, match.end()))
+    )
+    return _mask_numeric_spans(text, spans)
+
+
 def _formula_interval_from_text(
     text: str,
     *,
     extract_numeric_occurrences: NumericOccurrenceExtractor,
 ) -> _NumericInterval | None:
+    text = _mask_quoted_integer_delimiters(text)
     if _formula_has_unequal_english_parenthetical_amount(text):
         return None
     lowered = text.lower()
@@ -23075,7 +23156,7 @@ def _formula_interval_from_text(
             r"mehr\s+als|weniger\s+als|"
             r"von(?!\s+(?:mehr\s+als|weniger\s+als|höchstens|mindestens|"
             r"nicht\s+mehr\s+als|über|unter))|"
-            r"from|unter|"
+            r"from|unter|under|"
             r"less\s+than\s+or\s+equal\s+to|"
             r"equal\s+to\s+or\s+less\s+than|no\s+(?:greater|higher|larger|more)\s+than|"
             r"not\s+(?:greater|higher|larger|more)\s+than|not\s+(?:in\s+excess\s+of|over)|"
@@ -23217,9 +23298,9 @@ def _formula_interval_from_text(
         if spelled_parenthetical_gap is not None or re.fullmatch(
             r"\s*(?:\$|€|£|usd|eur|gbp)?\s*(?:(?:zu|bis)\s+)?"
             r"(?:(?:einschließlich|maximal|inklusive|including|maximum)\s+)?"
-            r"(?:(?:einem?|einer|dem|der|das)\s+)?"
+            r"(?:(?:a|an|the|einem?|einer|dem|der|das)\s+)?"
             r"(?:(?:zu\s+versteuernd\w*|maßgeblich\w*)\s+)?"
-            r"(?:(?:einkommen|betrag|wert|income|amount)\s+)?"
+            r"(?:(?:einkommen|betrag|wert|income|amount|age)\s+)?"
             r"(?:(?:von|of)\s+)?"
             r"(?:(?:einschließlich|maximal|inklusive|including|maximum)\s+)?",
             first_gap,
@@ -23296,7 +23377,7 @@ def _formula_interval_from_text(
             return _NumericInterval(second, inclusive, None, False)
         return _NumericInterval(None, False, second, inclusive)
     if re.match(
-        r"(?:unter|less\s+than(?!\s+or\s+equal\s+to)|below|"
+        r"(?:unter|under|less\s+than(?!\s+or\s+equal\s+to)|below|"
         r"(?:von\s+)?weniger\s+als)\b",
         lowered_range,
     ):
@@ -25041,6 +25122,8 @@ def _source_exception_selector_is_relevant(
 
     normalized_name = _normalized_selector_name(name)
     collapsed = _collapse_text(text).lower()
+    if "age" in normalized_name.split("_") and re.search(r"\bage\b", collapsed):
+        return True
     if _source_age_relative_deviation_predicate(
         collapsed, normalized_name
     ) or _source_impairment_expectation_predicate(collapsed, normalized_name):
@@ -25429,10 +25512,18 @@ def _source_exception_selector_active_value(text: str, name: str) -> bool:
         collapsed,
         normalized_name,
     )
-    if source_polarity is None and _source_selector_has_explicitly_negated_action(
+    explicitly_negated_action = _source_selector_has_explicitly_negated_action(
         collapsed,
         normalized_name,
+    )
+    failed_action = _source_selector_has_failed_action(collapsed, normalized_name)
+    if failed_action:
+        source_polarity = -1
+    elif explicitly_negated_action and not (
+        _selector_identifier_negation_count(normalized_name) % 2
     ):
+        source_polarity = -1
+    elif source_polarity is None and explicitly_negated_action:
         source_polarity = -1
     if source_polarity is not None:
         selector_polarity = (
@@ -25465,6 +25556,28 @@ def _source_selector_has_explicitly_negated_action(
             for token in tokens
         )
         for match in negated_actions
+    )
+
+
+def _source_selector_has_failed_action(text: str, normalized_name: str) -> bool:
+    """Recognize ``fails to provide`` as the negative of ``provided``."""
+
+    tokens = _source_selector_distinctive_tokens(normalized_name)
+    failed_actions = re.finditer(
+        r"\bfails?\s+to\s+(?P<action>[a-z][a-z'-]*)\b",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return any(
+        any(
+            _source_selector_token_matches(
+                match.group("action"),
+                token,
+                selector_tokens=tokens,
+            )
+            for token in tokens
+        )
+        for match in failed_actions
     )
 
 
@@ -26415,8 +26528,11 @@ def _toggled_formula_numeric_selectors(
                     or not isinstance(right_value, (int, float))
                 ):
                     continue
-                changed_names = _input_key_names(changed_key) & selector_names
-                if not changed_names:
+                direct_names = _input_key_names(changed_key) & selector_names - set(
+                    principal_rules
+                )
+                derived_names = selector_names & set(principal_rules) - {rule_name}
+                if not direct_names and not derived_names:
                     continue
                 left_dependencies = _case_asserted_dependency_environment(
                     principal_rules,
@@ -26428,6 +26544,53 @@ def _toggled_formula_numeric_selectors(
                     right_case,
                     formula_environment=formula_environment,
                 )
+                selector_values = {
+                    name: (float(left_value), float(right_value))
+                    for name in direct_names
+                }
+                if derived_names:
+                    # An asserted value alone is not execution evidence. Replay
+                    # locally without opaque-import assertion fallbacks as well
+                    # as requiring the entire reached chain to be asserted.
+                    left_replayed = _case_dependency_environment(
+                        principal_rules,
+                        left_case,
+                        formula_environment=formula_environment,
+                        require_asserted_value=False,
+                    )
+                    right_replayed = _case_dependency_environment(
+                        principal_rules,
+                        right_case,
+                        formula_environment=formula_environment,
+                        require_asserted_value=False,
+                    )
+                    for name in derived_names:
+                        pair = (
+                            left_dependencies.get(name),
+                            right_dependencies.get(name),
+                        )
+                        if (
+                            any(
+                                isinstance(value, bool)
+                                or not isinstance(value, (int, float, Decimal))
+                                or not math.isfinite(value)
+                                for value in pair
+                            )
+                            or name not in left_replayed
+                            or name not in right_replayed
+                            or not _formula_runtime_values_equal(
+                                pair[0], left_replayed[name]
+                            )
+                            or not _formula_runtime_values_equal(
+                                pair[1], right_replayed[name]
+                            )
+                            or _formula_runtime_values_equal(*pair)
+                        ):
+                            continue
+                        selector_values[name] = (float(pair[0]), float(pair[1]))
+                changed_names = set(selector_values)
+                if not changed_names:
+                    continue
                 stable_asserted_dependencies = (
                     _case_pair_stable_asserted_formula_dependencies(
                         rule_name,
@@ -26549,15 +26712,15 @@ def _toggled_formula_numeric_selectors(
                         (
                             left_runtime,
                             right_runtime,
-                            float(left_value),
-                            float(right_value),
+                            selector_values[selector_name][0],
+                            selector_values[selector_name][1],
                             left_to_right_relations,
                         ),
                         (
                             right_runtime,
                             left_runtime,
-                            float(right_value),
-                            float(left_value),
+                            selector_values[selector_name][1],
+                            selector_values[selector_name][0],
                             right_to_left_relations,
                         ),
                     ):

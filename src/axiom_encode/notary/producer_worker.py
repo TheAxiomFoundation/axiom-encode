@@ -22,6 +22,11 @@ def main():
     require_running_identity(
         request["encoder_identity"], jcs_dumps(request["dependency_inventory"])
     )
+    if request.get("runtime_kind") == "deterministic":
+        from .deterministic_runtime import run_adapter
+
+        run_adapter(job, request)
+        return
     # The worker receives only this job's personal Codex login. It never uses
     # the host's HOME or reads a signing/service credential from its environment.
     work = job / "work"

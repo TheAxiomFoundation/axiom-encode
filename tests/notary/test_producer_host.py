@@ -8,7 +8,7 @@ from cryptography.hazmat.primitives import serialization
 from axiom_encode.notary.canonical import jcs_dumps, strict_parse
 from axiom_encode.notary.identity import IdentityRefusal
 from axiom_encode.notary.lineage import STORE_PREFIX
-from axiom_encode.notary.producer_host import ProducerHost
+from axiom_encode.notary.producer_host import ProducerHost, parse_config
 from axiom_encode.notary.producers import Enrollment
 from axiom_encode.notary.signer import _signed_sidecar
 from axiom_encode.notary.verification import verify_snapshots
@@ -18,6 +18,36 @@ from .test_producers import submission as _submission_fixture
 from .test_verification import snapshot
 
 submission = _submission_fixture
+
+
+def test_deterministic_configuration_needs_no_sampling_metadata(submission):
+    epoch, _, _, _ = submission
+    config = {
+        "schema": "axiom/supervised-deterministic-producer-host/v1",
+        "lane": epoch.anchor.lane,
+        "content_branch": "main",
+        "epoch_sha256": epoch.anchor.epoch_sha256,
+        "notary_spki_sha256": "a" * 64,
+        "producer_key_file": "/opt/axiom/producer.pem",
+        "actor_key_file": "/opt/axiom/actor.pem",
+        "state_directory": "/opt/axiom/state",
+        "socket_path": "/opt/axiom/service.sock",
+        "socket_gid": 1001,
+        "operators": [{"uid": 1002, "github_user_id": "123"}],
+        "encoder_identity": {},
+        "dependency_inventory": strict_parse(epoch.inventory),
+        "python": "/opt/axiom/runtime/bin/python3",
+        "worker_uid": 1003,
+        "worker_gid": 1003,
+        "generator_root": "/opt/axiom/generator",
+        "input_root": "/opt/axiom/inputs",
+        "runtime_root": "/opt/axiom/runtime",
+        "timeout_seconds": 60,
+    }
+    assert parse_config(jcs_dumps(config))["runtime_kind"] == "deterministic"
+    config["sampling"] = {"temperature": None, "seed": None}
+    with pytest.raises(IdentityRefusal, match="configuration"):
+        parse_config(jcs_dumps(config))
 
 
 @pytest.fixture
