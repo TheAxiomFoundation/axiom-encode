@@ -41,7 +41,7 @@ def enrollment_base(identities):
         "encoder": {
             "repository": "TheAxiomFoundation/axiom-encode",
             "git_oid": "e" * 40,
-            "version": "0.2.2015",
+            "version": "0.2.2016",
             "package_tree_sha256": "f" * 64,
         },
         "codex_cli": {"version": "fixture-cli", "sha256": "c" * 64},
@@ -55,7 +55,7 @@ def enrollment_base(identities):
     return {
         ENROLLMENT_PATH: jcs_dumps(policy),
         ".axiom/workflow-toolchain.toml": (
-            '[workflow_toolchain]\naxiom_encode_version="0.2.2015"\naxiom_encode_ref="'
+            '[workflow_toolchain]\naxiom_encode_version="0.2.2016"\naxiom_encode_ref="'
             + "e" * 40
             + '"\n'
         ).encode(),
