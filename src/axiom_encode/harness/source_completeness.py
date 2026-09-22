@@ -112,6 +112,7 @@ class SourceStructureBranch:
     text: str
     start: int
     end: int
+    structural_numeric_spans: tuple[tuple[int, int], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -12237,11 +12238,42 @@ def _mask_spaced_german_sentence_labels(text: str) -> str:
     return text
 
 
+def _worksheet_arithmetic_rows(source_text: str) -> tuple[re.Match[str], ...]:
+    """Recognize printed subtraction rows corroborated by a following line reference.
+
+    A five-digit form field code and repeated output-line reference distinguish
+    the output label from an arithmetic constant. Keep the following condition
+    intact: its threshold is substantive evidence, not form furniture.
+    """
+
+    return tuple(
+        re.finditer(
+            r"(?m)^[ \t]*[^\n;.!?]{1,240}:\s*"
+            r"line[ \t]+[1-9]\d{0,2}[ \t]+minus[ \t]+"
+            r"line[ \t]+[1-9]\d{0,2}[ \t]+\d{5}[ \t]*="
+            r"[ \t]*(?P<label>[1-9]\d{0,2})[ \t]*"
+            r"(?=\r?\n[ \t]*If the amount on line[ \t]+(?P=label)\b)",
+            source_text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _mask_numeric_spans(text: str, spans: Iterable[tuple[int, int]]) -> str:
+    for start, end in sorted(spans, reverse=True):
+        text = text[:start] + " " * (end - start) + text[end:]
+    return text
+
+
 def authoritative_numeric_recall_text(
     source_text: str, *, corpus_citation_path: str = ""
 ) -> str:
     """Remove structural/citation ordinals, never substantive source values."""
 
+    source_text = _mask_numeric_spans(
+        source_text,
+        (row.span("label") for row in _worksheet_arithmetic_rows(source_text)),
+    )
     cleaned = _mask_spaced_german_sentence_labels(
         _strip_terminal_session_law_history(source_text)
     )
@@ -15721,6 +15753,9 @@ def _source_formula_branches(
 ) -> tuple[SourceStructureBranch, ...]:
     """Return every explicit computation clause with its structural owner."""
 
+    worksheet_labels = tuple(
+        row.span("label") for row in _worksheet_arithmetic_rows(source_text)
+    )
     obligations: list[SourceStructureBranch] = []
     for clause_index, (start, end, clause) in enumerate(
         _source_clause_spans(source_text, branches=branches),
@@ -15772,6 +15807,11 @@ def _source_formula_branches(
             clause,
             start,
             end,
+            structural_numeric_spans=tuple(
+                (label_start - start, label_end - start)
+                for label_start, label_end in worksheet_labels
+                if start <= label_start < label_end <= end
+            ),
         )
         if _rounding_clause_refers_to_previous_result(
             obligation,
@@ -16086,6 +16126,11 @@ def _source_clause_spans(
             for point in span
         ),
         *(match.end() for match in boundary_matches),
+        *(
+            point
+            for row in _worksheet_arithmetic_rows(source_text)
+            for point in (row.start(), row.end())
+        ),
         *(
             match.start()
             for match in re.finditer(
@@ -16791,7 +16836,9 @@ def _formula_branch_computation_occurrences(
     interval: _NumericInterval | None,
     extract_numeric_occurrences: NumericOccurrenceExtractor,
 ) -> tuple[NumericOccurrenceLike, ...]:
-    recall_text = authoritative_numeric_recall_text(branch.text)
+    recall_text = authoritative_numeric_recall_text(
+        _mask_numeric_spans(branch.text, branch.structural_numeric_spans)
+    )
     fractional_percentages = _source_fractional_percentage_occurrences(recall_text)
     fractional_spans = tuple(
         (occurrence.start, occurrence.end) for occurrence in fractional_percentages
