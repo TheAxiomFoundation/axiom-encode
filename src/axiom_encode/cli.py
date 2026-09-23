@@ -29552,7 +29552,8 @@ def _admit_retired_replacement_source_verification(
     source is already covered by the exact requested resolver evidence. Keep
     the original bytes in replacement context. Exact descendant rows may also
     qualify within the same artifact and scope, with replayable containment
-    evidence; other sources require separate generation/imports.
+    evidence. External evidence is admitted only for literal scalar parameters
+    whose complete rules must survive unchanged and pass normal validation.
     """
     payload = yaml.load(
         target_bytes.decode("utf-8"), Loader=_LegacyReplacementYamlLoader
@@ -29578,11 +29579,8 @@ def _admit_retired_replacement_source_verification(
         )
     for path in (singular, *plural):
         require_canonical_corpus_citation_path(path)
-        if path != singular and not path.startswith(singular + "/"):
-            raise ValueError(
-                "replacement legacy citations must name the requested source "
-                "or its descendants; encode other sources separately and import them"
-            )
+        if path.split("/", 1)[0] != singular.split("/", 1)[0]:
+            raise ValueError("replacement legacy citations must share the requested source jurisdiction")
     if len(set(plural)) != len(plural):
         raise ValueError("replacement legacy source citations must not repeat")
 
@@ -29602,8 +29600,40 @@ def _admit_retired_replacement_source_verification(
 
     requested = source_unit.resolved_source
     admitted_sources = []
+    required_unchanged_rules = {}
     for path in dict.fromkeys((singular, *plural)):
         historical = resolve_corpus_source_unit(path, corpus_release).resolved_source
+        if path != singular and not path.startswith(singular + "/"):
+            from .legacy_external_parameters import external_parameter_obligations
+
+            if (
+                not isinstance(requested.row, CorpusRowIdentity)
+                or not isinstance(historical.row, CorpusRowIdentity)
+                or historical.requested != path
+                or historical.citation_path != path
+                or historical.row.citation_path != path
+                or historical.component_rows
+                or historical.slice_required
+                or not all(
+                    getattr(historical, field) == getattr(requested, field)
+                    for field in (
+                        "release_name", "release_content_sha256", "release_selector_sha256"
+                    )
+                )
+                or historical.row.jurisdiction != requested.row.jurisdiction
+            ):
+                raise ValueError("external scalar source must resolve exactly in the same verified release and jurisdiction")
+            obligations = external_parameter_obligations(
+                payload, path, historical.proof_evidence_segments
+            )
+            for rule in obligations:
+                required_unchanged_rules[rule["name"]] = rule
+            admitted_sources.append({
+                "attestation": historical.to_attestation(),
+                "admission_kind": "unchanged-external-scalar-parameter",
+                "required_rules": [rule["name"] for rule in obligations],
+            })
+            continue
         same_provenance = all(
             getattr(historical, field) == getattr(requested, field)
             for field in (
@@ -29656,27 +29686,28 @@ def _admit_retired_replacement_source_verification(
                 )
             )
         )
+        from .retired_source_evidence import match_contained_segment
+
         containment = []
         for child_index, segment in enumerate(historical.proof_evidence_segments):
             match = next(
                 (
-                    (parent_index, source.index(segment))
+                    (parent_index, matched)
                     for parent_index, source in enumerate(
                         requested.proof_evidence_segments
                     )
-                    if segment and segment in source
+                    if (matched := match_contained_segment(segment, source)) is not None
                 ),
                 None,
             )
             if match is None:
                 break
-            parent_index, offset = match
+            parent_index, matched = match
             containment.append(
                 {
                     "child_segment": child_index,
                     "parent_segment": parent_index,
-                    "start": offset,
-                    "end": offset + len(segment),
+                    **matched,
                     "segment_sha256": hashlib.sha256(
                         segment.encode("utf-8")
                     ).hexdigest(),
@@ -29696,7 +29727,15 @@ def _admit_retired_replacement_source_verification(
             }
         )
     return {
-        "contract": "retired-source-containment/v1",
+        "contract": (
+            "retired-source-external-parameters/v1" if required_unchanged_rules
+            else (
+                "retired-source-containment/v2"
+                if any(item.get("normalization") for source in admitted_sources for item in source.get("containment", []))
+                else "retired-source-containment/v1"
+            )
+        ),
+        "required_unchanged_rules": list(required_unchanged_rules.values()),
         "legacy_rulespec_sha256": hashlib.sha256(target_bytes).hexdigest(),
         "requested_attestation": requested.to_attestation(),
         "sources": admitted_sources,
@@ -30368,6 +30407,10 @@ def _run_encode_attempt(
             ),
             deferred_output_review_contract=deferred_output_review_contract,
             amendment_source_texts=amendment_source_texts,
+            retired_source_admission=(
+                replacement_target.retired_source_admission
+                if replacement_target is not None else None
+            ),
         )
 
     skip_reviewers = bool(getattr(args, "skip_reviewers", False))
@@ -55801,6 +55844,7 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
     require_complete_source_unit: bool = False,
     deferred_output_review_contract: _DeferredOutputReviewContract | None = None,
     amendment_source_texts: Mapping[str, str] | None = None,
+    retired_source_admission: dict[str, Any] | None = None,
 ) -> tuple[bool, list[str], dict[Path, str]]:
     """Validate generated artifacts in a temporary policy-repo overlay."""
     setattr(result, _APPLY_VALIDATION_SNAPSHOT_ATTR, None)
@@ -55892,6 +55936,19 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
     )
 
     generated_content = output_file.read_text()
+    if retired_source_admission is not None:
+        from .legacy_external_parameters import external_parameter_preservation_issues
+
+        try:
+            generated_payload = _safe_load_unique_keys(generated_content)
+        except (yaml.YAMLError, ValueError) as exc:
+            return False, [f"Invalid replacement YAML: {exc}"], {}
+        preservation_issues = external_parameter_preservation_issues(
+            generated_payload, retired_source_admission
+        )
+        if preservation_issues:
+            return False, preservation_issues, {}
+
     if (
         deferred_output_review_contract is not None
         and deferred_output_review_contract.required_test_cases
@@ -56272,6 +56329,16 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
                         )
                     for path in repaired_exact_paths:
                         supplemental_files.pop(path, None)
+                    if retired_source_admission is not None:
+                        try:
+                            final_payload = _safe_load_unique_keys(overlay_target.read_text())
+                        except (yaml.YAMLError, ValueError) as exc:
+                            return False, [f"Invalid final replacement YAML: {exc}"], {}
+                        final_preservation_issues = external_parameter_preservation_issues(
+                            final_payload, retired_source_admission
+                        )
+                        if final_preservation_issues:
+                            return False, final_preservation_issues, {}
                     _record_successful_apply_validation(
                         result,
                         output_root=output_root,
@@ -56702,6 +56769,7 @@ def _run_generated_encoding_overlay_validation(
     require_complete_source_unit: bool = False,
     deferred_output_review_contract: _DeferredOutputReviewContract | None = None,
     amendment_source_texts: Mapping[str, str] | None = None,
+    retired_source_admission: dict[str, Any] | None = None,
 ) -> tuple[bool, list[str], dict[Path, str]]:
     """Dispatch a release-bound overlay run through the patchable test seam."""
 
@@ -56717,6 +56785,7 @@ def _run_generated_encoding_overlay_validation(
         require_complete_source_unit=require_complete_source_unit,
         deferred_output_review_contract=deferred_output_review_contract,
         amendment_source_texts=amendment_source_texts,
+        retired_source_admission=retired_source_admission,
     )
 
 

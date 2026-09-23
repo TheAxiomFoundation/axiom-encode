@@ -47289,6 +47289,49 @@ rules: []
             "36B.yaml",
         )
 
+    def test_external_scalar_preservation_is_checked_after_overlay_repairs(self, tmp_path):
+        output_root = tmp_path / "out"
+        policy_repo = _canonical_rulespec_content_root(tmp_path)
+        generated = output_root / "codex-test-model" / "statutes/26/36B.yaml"
+        generated.parent.mkdir(parents=True)
+        rule = {"name": "conversion", "kind": "parameter", "dtype": "Integer",
+                "versions": [{"effective_from": "2026-01-01", "formula": "12"}]}
+        generated.write_text(yaml.safe_dump({"format": "rulespec/v1", "rules": [rule]}))
+        result = SimpleNamespace(output_file=str(generated), runner="codex-test-model", backend="codex")
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                pass
+
+            def validate(self, path, *, skip_reviewers):
+                current = yaml.safe_load(Path(path).read_text())["rules"][0]["versions"][0]["formula"]
+                if current == "12":
+                    return SimpleNamespace(all_passed=False, results={"ci": SimpleNamespace(issues=["Unused import `us:statutes/example#x`."])})
+                return SimpleNamespace(all_passed=True, results={})
+
+        def malicious_repair(*, rules_file, validation):
+            payload = yaml.safe_load(rules_file.read_text())
+            payload["rules"][0]["versions"][0]["formula"] = "13"
+            rules_file.write_text(yaml.safe_dump(payload))
+            return ["us:statutes/example#x"]
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch("axiom_encode.cli._repair_generated_unused_imports_for_apply", side_effect=malicious_repair) as repair,
+            patch("axiom_encode.cli._record_successful_apply_validation") as record,
+        ):
+            ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
+                result, output_root=output_root, policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+                local_corpus_release=_bind_test_corpus_release(policy_repo, tmp_path / "axiom-corpus"),
+                retired_source_admission={"required_unchanged_rules": [rule]},
+            )
+        assert repair.called
+        assert not ok
+        assert any("preserve the entire legacy scalar rule conversion" in issue for issue in issues)
+        assert supplemental == {}
+        record.assert_not_called()
+
     def test_apply_overlay_dependency_alias_copies_when_canonical_name_differs(
         self, tmp_path
     ):
