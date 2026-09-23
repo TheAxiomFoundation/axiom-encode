@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from axiom_encode import ci_parity
 from axiom_encode.ci_parity import (
     CI_GATE_REGISTRY,
     SUPPORTED_WORKFLOW_PINS,
@@ -447,6 +448,55 @@ def test_release_object_fetch_uses_workflow_url_scheme(tmp_path: Path) -> None:
 
     assert seen == [f"https://objects.example/base/releases/dk-release/{digest}.json"]
     assert path.read_bytes() == payload
+
+
+def test_release_object_fetch_rejects_objects_over_the_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(ci_parity, "MAX_RELEASE_OBJECT_BYTES", 16)
+    toolchain = _toolchain(tmp_path, "1" * 64)
+
+    with pytest.raises(ValueError, match="16-byte safety limit"):
+        acquire_release_object(
+            toolchain,
+            tmp_path,
+            "https://objects.example",
+            offline=False,
+            fetcher=lambda url: b"x" * 17,
+        )
+    assert not (tmp_path / "releases").exists()
+
+
+def test_default_release_object_fetch_reads_at_most_cap_plus_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(ci_parity, "MAX_RELEASE_OBJECT_BYTES", 16)
+    requested: list[int] = []
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self, size: int = -1) -> bytes:
+            requested.append(size)
+            return b"x" * 100 if size < 0 else b"x" * min(size, 100)
+
+    monkeypatch.setattr(
+        ci_parity.urllib.request, "urlopen", lambda url, timeout: Response()
+    )
+
+    with pytest.raises(ValueError, match="16-byte safety limit"):
+        acquire_release_object(
+            _toolchain(tmp_path, "1" * 64),
+            tmp_path,
+            "https://objects.example",
+            offline=False,
+        )
+    assert requested == [17]
+    assert not (tmp_path / "releases").exists()
 
 
 def test_offline_requires_present_release_object(tmp_path: Path) -> None:

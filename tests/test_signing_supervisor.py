@@ -33,6 +33,7 @@ from axiom_encode.cli import (
     APPLIED_ENCODING_MODEL_TOOL,
     _sign_applied_encoding_manifest,
 )
+from axiom_encode.corpus_resolver import MAX_RELEASE_OBJECT_BYTES
 from axiom_encode.harness.dependency_stubs import validate_explicit_context_file
 from axiom_encode.harness.evals import resolve_corpus_source_unit
 from scripts import prepare_signed_backfill as compatibility_backfill
@@ -2313,7 +2314,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert 'mktemp "$RUNNER_TEMP/' in release_command
     assert "/releases/${release_name}/${release_sha}.json" in release_command
     assert "--proto '=https' --proto-redir '=https' --tlsv1.2" in release_command
-    assert "--max-filesize 16777216" in release_command
+    assert f"--max-filesize {MAX_RELEASE_OBJECT_BYTES}" in release_command
     assert "NEXT_PUBLIC_SUPABASE_ANON_KEY" not in release_command
     assert "SUPABASE" not in release_command
     assert "jq -ce" in release_command

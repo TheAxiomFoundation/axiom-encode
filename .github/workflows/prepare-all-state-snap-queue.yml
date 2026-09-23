@@ -71,6 +71,7 @@ jobs:
           queue="data/encoding-queues/us-snap-all-states-2026-07.json"
           url="${SUPABASE_URL%/}/rest/v1/release_objects?select=release_object&release_name=eq.${RELEASE_NAME}&content_sha256=eq.${RELEASE_SHA}&limit=2"
           curl --fail --silent --show-error \
+            --max-filesize 67108864 \
             --header "apikey: $CORPUS_READ_KEY" \
             --header "Authorization: Bearer $CORPUS_READ_KEY" \
             --header "Accept-Profile: corpus" \
