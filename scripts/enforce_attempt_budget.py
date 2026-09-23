@@ -19,6 +19,11 @@ candidate are authenticated by the protected resolver before any model call,
 so they must be able to reach that resolver even when fresh attempts are
 exhausted.
 
+Legacy successor repoints are report-only too: they make no model call, and
+they must run under the successor's citation, whose model re-encode failures
+must not block them.  Only an exact repoint envelope qualifies; the protected
+resolver re-parses it and refuses anything else.
+
 The guard is a cost damper, not a security gate: if the GitHub API cannot
 be reached it fails open with a loud warning. Stdlib-only because it runs
 on a bare runner before any toolchain setup.
@@ -61,6 +66,7 @@ ENCODE_STEP_NAME = "Encode, review, validate, and apply"
 # At most this many per-run jobs lookups per evaluation; beyond the cap a
 # failure is counted without verification (conservative toward blocking).
 MAX_JOB_LOOKUPS = 10
+SUCCESSOR_REPOINT_ENVELOPE_SCHEMA = "axiom-encode/legacy-successor-repoint/v1"
 
 
 @dataclass
@@ -333,6 +339,19 @@ def _render_summary(
     return lines
 
 
+def is_successor_repoint_envelope(source_bundle_json: str) -> bool:
+    """Return whether the bounded source input is a successor repoint envelope."""
+
+    try:
+        payload = json.loads(source_bundle_json)
+    except (ValueError, RecursionError):
+        return False
+    return (
+        isinstance(payload, dict)
+        and payload.get("schema") == SUCCESSOR_REPOINT_ENVELOPE_SCHEMA
+    )
+
+
 def main() -> int:
     citation = os.environ.get("CITATION", "").strip()
     repo = os.environ.get("GITHUB_REPOSITORY", "")
@@ -340,6 +359,9 @@ def main() -> int:
     workflow_file = os.environ.get("WORKFLOW_FILE", "targeted-signed-reencode.yml")
     queue_id = os.environ.get("QUEUE_ID", "").strip()
     repair_run_id = os.environ.get("REPAIR_RUN_ID", "").strip()
+    successor_repoint = is_successor_repoint_envelope(
+        os.environ.get("SOURCE_BUNDLE_JSON", "")
+    )
     override = os.environ.get("ATTEMPT_BUDGET_OVERRIDE", "").strip().lower()
     try:
         budget = int(os.environ.get("ATTEMPT_BUDGET", str(DEFAULT_BUDGET)))
@@ -400,7 +422,12 @@ def main() -> int:
             lambda run_id: _fetch_run_jobs(repo=repo, token=token, run_id=run_id)
         ),
     )
-    enforced = queue_id == "" and repair_run_id == "" and override != "true"
+    enforced = (
+        queue_id == ""
+        and repair_run_id == ""
+        and not successor_repoint
+        and override != "true"
+    )
     blocked = enforced and decision.exhausted
     print(
         f"attempt-budget: citation={citation} streak={decision.streak} "
@@ -418,6 +445,11 @@ def main() -> int:
         print(
             "attempt-budget: repair replay is authenticated by the protected "
             "resolver; not blocking."
+        )
+    if successor_repoint:
+        print(
+            "attempt-budget: a legacy successor repoint makes no model call; "
+            "not blocking."
         )
     return 1 if blocked else 0
 

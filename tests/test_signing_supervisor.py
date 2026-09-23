@@ -2121,14 +2121,16 @@ def _apply_signer_commands(run: str) -> list[list[str]]:
 def _direct_supervisor_lines(run: str) -> list[int]:
     """Return the line numbers that invoke the signing supervisor directly.
 
-    Any mention of the supervisor binary counts, wherever it sits on the line
-    (``out="$(... supervisor ...)"``, ``if ! ...``, ``timeout 5 ...``), except
-    as the value of the apply signer's own ``--supervisor`` flag.
+    Any mention of the supervisor binary's name counts, by any path and
+    wherever it sits on the line (``out="$(... supervisor ...)"``, ``if ! ...``,
+    ``./axiom-encode-signing-supervisor``), except as the value of the apply
+    signer's own ``--supervisor`` flag.
     """
 
+    name = Path(_SIGNING_SUPERVISOR).name
     lines: list[int] = []
     for number, line in enumerate(run.splitlines()):
-        if _SIGNING_SUPERVISOR not in line:
+        if name not in line:
             continue
         if line.strip() == f"--supervisor {_SIGNING_SUPERVISOR} \\":
             continue
@@ -2139,8 +2141,10 @@ def _direct_supervisor_lines(run: str) -> list[int]:
 def _inside_key_free_subshell(run: str, line_number: int) -> bool:
     """Return whether a direct supervisor call runs where the key is unset.
 
-    Subshells are tracked by depth, so an ``unset`` in an earlier subshell
-    that has already closed does not cover a later call.
+    Subshells are tracked by depth: a line that is exactly ``(`` opens one;
+    a line starting with ``)`` (but not a command substitution's ``)"``) or
+    ending with `` )`` closes the innermost.  An ``unset`` in a subshell that
+    has already closed covers nothing after it.
     """
 
     frames: list[bool] = []
@@ -2148,7 +2152,10 @@ def _inside_key_free_subshell(run: str, line_number: int) -> bool:
         stripped = line.strip()
         if stripped == "(":
             frames.append(False)
-        elif stripped.startswith(")") and frames:
+        elif frames and (
+            (stripped.startswith(")") and not stripped.startswith(')"'))
+            or stripped.endswith(" )")
+        ):
             frames.pop()
         elif stripped == "unset AXIOM_ENCODE_APPLY_SIGNING_KEY" and frames:
             frames[-1] = True
@@ -2260,6 +2267,9 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         if step.get("name") == "Enforce failed-attempt budget"
     )
     assert attempt_step["env"]["REPAIR_RUN_ID"] == "${{ inputs.repair_run_id }}"
+    assert attempt_step["env"]["SOURCE_BUNDLE_JSON"] == (
+        "${{ inputs.source_bundle_json }}"
+    )
     steps = job["steps"]
     country_step = next(
         step for step in steps if step.get("name") == "Validate country routing input"
@@ -3295,6 +3305,15 @@ def test_apply_signer_contract_rejects_an_unbound_signing_step() -> None:
     )
     captured = f'out="$({_SIGNING_SUPERVISOR} -- x)"\n'
     assert _direct_supervisor_lines(captured) == [0]
+    relative = "cd /opt/axiom-verification\n./axiom-encode-signing-supervisor -- x\n"
+    assert _direct_supervisor_lines(relative) == [1]
+    trailing_close = "(\n  unset AXIOM_ENCODE_APPLY_SIGNING_KEY\n  true )\n" + direct
+    assert not _inside_key_free_subshell(trailing_close, 3)
+    substitution = (
+        "(\n  unset AXIOM_ENCODE_APPLY_SIGNING_KEY\n"
+        '  value="$(\n    echo x\n  )"\n' + direct + ")\n"
+    )
+    assert _inside_key_free_subshell(substitution, 6)
 
 
 def test_successor_repoint_step_signs_only_through_the_bound_apply_signer(
@@ -3309,8 +3328,6 @@ def test_successor_repoint_step_signs_only_through_the_bound_apply_signer(
         f"open({str(calls)!r}, 'w').write(json.dumps({{\n"
         "    'argv': sys.argv[1:],\n"
         "    'key': os.environ.get('AXIOM_ENCODE_APPLY_SIGNING_KEY'),\n"
-        "    'openai': 'OPENAI_API_KEY' in os.environ,\n"
-        "    'supabase': 'AXIOM_ENCODE_SUPABASE_SECRET_KEY' in os.environ,\n"
         "}))\n"
     )
     stub.chmod(0o755)
