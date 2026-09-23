@@ -714,3 +714,247 @@ def test_a_later_legacy_replacement_treats_a_repoint_receipt_as_provenance(
         "legacy replacement reference occurs in persisted provenance "
         f".axiom/legacy-successor-repoints/{'c' * 64}.json"
     ) in issues
+
+
+# ---------------------------------------------------------------------------
+# Review round 2: change-set binding, replay robustness, plan hardening
+# ---------------------------------------------------------------------------
+
+
+def _guard(fixture, base: str) -> list[str]:
+    from axiom_encode.cli import guard_generated_change_issues
+
+    return guard_generated_change_issues(
+        fixture.repo, corpus_path=fixture.corpus, base_ref=base, head_ref="HEAD"
+    )
+
+
+class TestGuardChangeSetBinding:
+    def test_refuses_a_receipt_without_its_transaction(self, tmp_path, monkeypatch):
+        fixture = build_repoint_fixture(tmp_path, monkeypatch)
+        receipt = (
+            fixture.repo / ".axiom/legacy-successor-repoints" / ("a" * 64 + ".json")
+        )
+        receipt.parent.mkdir(parents=True)
+        receipt.write_text("{}\n")
+        assert _guard(fixture, fixture.base) == [
+            f".axiom/legacy-successor-repoints/{'a' * 64}.json changed without the "
+            "successor repoint it records"
+        ]
+
+    def test_refuses_a_repoint_manifest_restored_without_its_receipt(self, repointed):
+        git(repointed.repo, "add", "-A")
+        git(repointed.repo, "commit", "-q", "-m", "repoint")
+        repoint_commit = git(repointed.repo, "rev-parse", "HEAD").strip()
+        # A later change replaces the dependent and drops the repoint manifest.
+        dependent = repointed.repo / DEPENDENT
+        dependent.write_text(dependent.read_text() + "# re-encoded\n")
+        (repointed.repo / DEPENDENT_MANIFEST).unlink()
+        git(repointed.repo, "add", "-A")
+        git(repointed.repo, "commit", "-q", "-m", "later change")
+        later = git(repointed.repo, "rev-parse", "HEAD").strip()
+        # Restoring the old signed repoint manifest and bytes must not pass.
+        git(
+            repointed.repo,
+            "checkout",
+            repoint_commit,
+            "--",
+            DEPENDENT,
+            DEPENDENT_MANIFEST,
+        )
+        issues = _guard(repointed, later)
+        assert any(
+            f"{DEPENDENT_MANIFEST} changed without introducing its successor repoint "
+            "receipt" in issue
+            for issue in issues
+        ), issues
+
+    def test_refuses_removing_a_receipt(self, repointed):
+        from axiom_encode.cli import _successor_repoint_change_set_issues
+
+        git(repointed.repo, "add", "-A")
+        git(repointed.repo, "commit", "-q", "-m", "repoint")
+        head = git(repointed.repo, "rev-parse", "HEAD").strip()
+        receipt = _receipt_path(repointed)
+        (repointed.repo / receipt).unlink()
+        dependent = repointed.repo / DEPENDENT
+        dependent.write_text(dependent.read_text() + "# edited\n")
+        assert _guard(repointed, head)
+        assert _successor_repoint_change_set_issues(
+            repointed.repo,
+            receipt_changes=[receipt.as_posix()],
+            surviving_manifest_paths=[],
+        ) == [
+            f"{receipt.as_posix()} is a successor repoint receipt and cannot be removed"
+        ]
+
+    def test_change_set_check_requires_a_verifier(self, repointed, monkeypatch):
+        from axiom_encode.cli import _successor_repoint_change_set_issues
+
+        monkeypatch.setattr(
+            "axiom_encode.cli._applied_encoding_manifest_verifier", lambda: None
+        )
+        issues = _successor_repoint_change_set_issues(
+            repointed.repo,
+            receipt_changes=[_receipt_path(repointed).as_posix()],
+            surviving_manifest_paths=[],
+        )
+        assert issues == [
+            "A protected signing broker is required to verify a successor repoint "
+            "receipt"
+        ]
+
+
+class TestReplayRobustness:
+    def test_a_misnamed_copy_is_refused_even_after_the_real_receipt_verified(
+        self, repointed
+    ):
+        real = _receipt_path(repointed)
+        assert (
+            _successor_repoint_fresh_receipt_issues(
+                repointed.repo, real, signing_broker=BROKER
+            )
+            == []
+        )
+        copy_path = real.with_name("f" * 64 + ".json")
+        shutil.copyfile(repointed.repo / real, repointed.repo / copy_path)
+        issues = _successor_repoint_fresh_receipt_issues(
+            repointed.repo, copy_path, signing_broker=BROKER
+        )
+        assert any("is not named by its identity digest" in issue for issue in issues)
+
+    def test_replay_does_not_depend_on_the_checkout_name(self, repointed):
+        # The replay takes the ProgramSpec country from the request's
+        # jurisdiction.  (A dependent manifest's cascade into the successor's
+        # model manifest still needs a rulespec-<country> checkout, as every
+        # model-manifest verification does.)
+        renamed = repointed.tmp_path / "some-worktree"
+        shutil.copytree(repointed.repo, renamed, symlinks=True)
+        assert (
+            _successor_repoint_manifest_issues(
+                json.loads((renamed / RETIRED_MANIFEST).read_text()),
+                repo_path=renamed,
+                manifest_label=RETIRED_MANIFEST,
+                signing_broker=BROKER,
+                local_corpus_release=None,
+            )
+            == []
+        )
+
+    def test_a_transient_replay_failure_is_refused_but_not_cached(
+        self, repointed, monkeypatch
+    ):
+        from axiom_encode import cli
+
+        real_plan = cli._plan_successor_repoint
+
+        def fail(*_args, **_kwargs):
+            raise RuntimeError("base commit is not fetched")
+
+        monkeypatch.setattr(cli, "_plan_successor_repoint", fail)
+        issues = _verify(repointed, RETIRED_MANIFEST)
+        assert any("could not be replayed from its base" in issue for issue in issues)
+        monkeypatch.setattr(cli, "_plan_successor_repoint", real_plan)
+        assert _verify(repointed, RETIRED_MANIFEST) == []
+
+
+class TestPlanHardening:
+    def _refusal(self, tmp_path, monkeypatch, **fixture_options) -> str:
+        fixture = build_repoint_fixture(tmp_path, monkeypatch, **fixture_options)
+        with pytest.raises(SystemExit) as exit_info:
+            run_repoint(fixture)
+        return str(exit_info.value)
+
+    def test_refuses_a_metadata_record_its_reconciliation_does_not_remove(
+        self, tmp_path, monkeypatch
+    ):
+        def rename_pending_key(repo):
+            path = repo / ".axiom/pending-validation-fingerprints.json"
+            payload = json.loads(path.read_text())
+            payload["modules"] = {
+                "us:policies/irs/rev-proc-2025-32/earned-income-credit": {
+                    "fingerprint": "sha256:" + "3" * 64
+                }
+            }
+            path.write_text(json.dumps(payload, indent=2) + "\n")
+
+        message = self._refusal(tmp_path, monkeypatch, before_commit=rename_pending_key)
+        assert (
+            "left a retired record in .axiom/pending-validation-fingerprints.json"
+            in message
+        )
+
+    def test_refuses_a_file_an_older_signed_v5_manifest_still_claims(
+        self, tmp_path, monkeypatch
+    ):
+        from tests.test_cli import _signed_manifest_payload
+
+        def add_older_owner(repo):
+            payload = _signed_manifest_payload(
+                {
+                    "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                    "backend": "codex",
+                    "applied_files": [
+                        {
+                            "path": DEPENDENT,
+                            "sha256": hashlib.sha256(
+                                (repo / DEPENDENT).read_bytes()
+                            ).hexdigest(),
+                        }
+                    ],
+                }
+            )
+            payload["axiom_encode_git"]["commit"] = "d" * 40
+            payload["axiom_encode_git"]["version"] = "0.2.1000"
+            payload.pop("signature", None)
+            _sign_applied_encoding_manifest(payload, BROKER)
+            target = repo / ".axiom/encoding-manifests/us/statutes/26/32-older.json"
+            target.write_text(json.dumps(payload, indent=2) + "\n")
+
+        message = self._refusal(tmp_path, monkeypatch, before_commit=add_older_owner)
+        assert f"cannot retire or rewrite {DEPENDENT}" in message
+        assert "claimed by a signed-v5 manifest" in message
+
+    def test_chains_two_declared_scopes_of_one_program_spec(
+        self, tmp_path, monkeypatch
+    ):
+        from axiom_encode.cli import guard_generated_change_issues
+        from axiom_encode.prepare_signed_backfill import successor_repoint_changes
+        from tests.successor_repoint_fixtures import ENVELOPE
+
+        def two_scopes(repo):
+            spec = repo / PROGRAM_SPEC
+            spec.write_text(
+                spec.read_text()
+                + "  us:\n    - policies/irs/rev-proc-2025-32/earned-income-credit\n"
+            )
+
+        envelope = dict(
+            ENVELOPE,
+            program_scope_updates=[
+                {"program_spec": PROGRAM_SPEC, "scope": "federal"},
+                {"program_spec": PROGRAM_SPEC, "scope": "us"},
+            ],
+        )
+        fixture = build_repoint_fixture(
+            tmp_path, monkeypatch, envelope=envelope, before_commit=two_scopes
+        )
+        run_repoint(fixture)
+        spec = (fixture.repo / PROGRAM_SPEC).read_text()
+        assert "earned-income-credit" not in spec
+        assert spec.count("policies/irs/rev-proc-2025-32/page-15") == 2
+        assert (
+            guard_generated_change_issues(
+                fixture.repo,
+                corpus_path=fixture.corpus,
+                base_ref=fixture.base,
+                head_ref="HEAD",
+            )
+            == []
+        )
+        inventory = successor_repoint_changes(
+            fixture.repo, fixture.base, request=fixture.request
+        )
+        assert {item["path"]: item["sha256"] for item in inventory["changes"]}[
+            PROGRAM_SPEC
+        ] == hashlib.sha256(spec.encode()).hexdigest()

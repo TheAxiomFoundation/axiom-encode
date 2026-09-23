@@ -424,8 +424,18 @@ def install_repoint_signing(monkeypatch) -> None:
     )
 
 
-def build_repoint_fixture(tmp_path: Path, monkeypatch) -> RepointFixture:
-    """Create and commit one canonical rulespec-us checkout ready to repoint."""
+def build_repoint_fixture(
+    tmp_path: Path,
+    monkeypatch,
+    *,
+    envelope: dict | None = None,
+    before_commit=None,
+) -> RepointFixture:
+    """Create and commit one canonical rulespec-us checkout ready to repoint.
+
+    ``before_commit(repo)`` may adjust the checkout before the base commit, and
+    ``envelope`` replaces the dispatched request.
+    """
 
     install_repoint_signing(monkeypatch)
 
@@ -607,11 +617,13 @@ def build_repoint_fixture(tmp_path: Path, monkeypatch) -> RepointFixture:
         ),
     )
 
+    if before_commit is not None:
+        before_commit(repo)
     git(repo, "add", "-A")
     git(repo, "commit", "-q", "-m", "fixture base")
     base = git(repo, "rev-parse", "HEAD").strip()
     request = tmp_path / "successor-repoint-request.json"
-    request.write_text(json.dumps(ENVELOPE), encoding="utf-8")
+    request.write_text(json.dumps(envelope or ENVELOPE), encoding="utf-8")
     preimages = {
         path: (repo / path).read_bytes()
         for path in (
