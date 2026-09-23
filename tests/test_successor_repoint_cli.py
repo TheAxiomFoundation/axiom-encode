@@ -616,6 +616,7 @@ def _run_tail(tmp_path, *, envelope: str, **env):
         "DEPENDENT_CITATION": "",
         "SECOND_DEPENDENT_CITATION": "",
         "REPAIR_RUN_ID": "",
+        "QUEUE_ID": "",
         "LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON": "[]",
         "EXISTING_SIGNED_IMPORTS_JSON": "[]",
         "PYTHONPATH": os.pathsep.join(
@@ -654,6 +655,7 @@ class TestWorkflowEnvelopeRouting:
             "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH",
             "DEPENDENT_CITATION",
             "REPAIR_RUN_ID",
+            "QUEUE_ID",
         ],
     )
     def test_refuses_to_mix_with_the_model_lanes(self, tmp_path, variable):
