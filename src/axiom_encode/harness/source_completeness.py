@@ -13443,6 +13443,19 @@ def _source_proposition_bounds(text: str, start: int, end: int) -> tuple[int, in
             text,
         )
     )
+    # Flattened forms can place a printed row label after sentence punctuation
+    # and before the next physical instruction line.  A trailing footnote plus
+    # subtraction sign is another explicit row-ending layout.  Keep decimal
+    # points and ordinary inline numeric prose outside these narrow patterns.
+    boundaries.extend(
+        match.end()
+        for match in re.finditer(
+            r"[.!?](?=(?:[ \t]+[1-9]\d{0,2}|"
+            r"\([1-9]\d?\)[ \t]+[–−-][ \t]+[1-9]\d{0,2})"
+            r"[ \t]*\r?\n[ \t]*[A-Z])",
+            text,
+        )
+    )
     boundaries.extend(
         match.start() for match in _SOURCE_INDEPENDENT_CONDITION_BOUNDARY.finditer(text)
     )
