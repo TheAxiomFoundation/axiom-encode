@@ -4219,11 +4219,40 @@ def _english_fraction_of_is_computational(source_text: str) -> bool:
     return False
 
 
+def _without_precomputed_income_table_percentage_captions(source_text: str) -> str:
+    """Mask only descriptive rates above a complete published income table.
+
+    The table supplies independently rounded amounts, not an instruction to
+    recompute them from another table. Keep all source bytes elsewhere available
+    to numeric recall and proof validation; this view is only for computation
+    classification. Incomplete or prose-shaped tables remain conservative.
+    """
+
+    amount = r"\$\d+(?:,\d{3})*(?:\.\d+)?"
+    three_amounts = rf"{amount}\s+{amount}\s+{amount}"
+    rows = r"\s+".join(rf"{size}\s+{three_amounts}" for size in range(1, 9))
+    captioned_table = re.compile(
+        r"^[ \t]*(?:Net|Gross) Monthly Income Eligibility Standards"
+        r"(?: for Households Where Elderly Disabled Are a Separate Household)?"
+        r"[ \t]+(?P<caption>\(\d+(?:\.\d+)? Percent of Poverty Level\))"
+        r"[ \t]*\r?\n\s*Household Size 48 States, DC, Guam, Virgin Islands Alaska Hawaii"
+        rf"\s+{rows}\s+Each additional person\s+{three_amounts}[ \t]*(?=\r?$)",
+        flags=re.MULTILINE | re.IGNORECASE,
+    )
+    masked = list(source_text)
+    for match in captioned_table.finditer(source_text):
+        start, end = match.span("caption")
+        masked[start:end] = " " * (end - start)
+    return "".join(masked)
+
+
 def source_states_explicit_computation(source_text: str) -> bool:
     """Return whether text states a computation rather than only a scalar."""
 
     computation_text = _without_unproven_applied_operations(
-        _without_stated_conversion_results(source_text)
+        _without_stated_conversion_results(
+            _without_precomputed_income_table_percentage_captions(source_text)
+        )
     )
     return bool(
         _has_substantive_arithmetic_expression(computation_text)
@@ -4244,7 +4273,9 @@ def _source_states_nonrounding_computation(source_text: str) -> bool:
     """Return whether text states a computation other than rounding."""
 
     computation_text = _without_unproven_applied_operations(
-        _without_stated_conversion_results(source_text)
+        _without_stated_conversion_results(
+            _without_precomputed_income_table_percentage_captions(source_text)
+        )
     )
     return bool(
         _has_substantive_arithmetic_expression(computation_text)
