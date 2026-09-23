@@ -56404,6 +56404,8 @@ def _atomic_replace_bytes(target: Path, raw: bytes, *, mode: int = 0o644) -> Non
 
 
 _APPLY_TRANSACTION_SCHEMA = "axiom-encode/apply-transaction/v2"
+# v2 plus the exact ProgramSpec paths one transaction may mutate.
+_APPLY_TRANSACTION_SCHEMA_V3 = "axiom-encode/apply-transaction/v3"
 _APPLY_TRANSACTION_DIRECTORY = Path(".axiom/.apply-transaction")
 _MAX_APPLY_TRANSACTION_ENTRIES = 1_024
 _MAX_APPLY_TRANSACTION_DIRECTORIES = 8_192
@@ -56644,11 +56646,38 @@ def _apply_transaction_relative_path(checkout_root: Path, target: Path) -> str:
     return relative.as_posix()
 
 
+def _is_declared_program_spec_target(relative: Path) -> bool:
+    """Return whether one path is a canonical repo-relative ProgramSpec file."""
+
+    parts = relative.parts
+    return (
+        not relative.is_absolute()
+        and all(part not in {"", ".", ".."} for part in parts)
+        and relative.suffix == RULESPEC_FILE_SUFFIX
+        and not relative.name.endswith(RULESPEC_TEST_FILE_SUFFIX)
+        and (
+            (len(parts) >= 2 and parts[0] == RULESPEC_COMPOSITION_SPEC_ROOT)
+            or (
+                len(parts) >= 3
+                and re.fullmatch(r"[a-z]{2}(?:-[a-z0-9_]+)*", parts[0]) is not None
+                and parts[1] == RULESPEC_COMPOSITION_SPEC_ROOT
+            )
+        )
+    )
+
+
 def _is_canonical_apply_transaction_target(
     checkout_root: Path,
     relative: Path,
+    *,
+    declared_program_specs: frozenset[Path] = frozenset(),
 ) -> bool:
-    """Return whether a journal path is one sanctioned live mutation target."""
+    """Return whether a journal path is one sanctioned live mutation target.
+
+    ProgramSpecs are never admitted wholesale: only the exact paths one
+    transaction declares (a successor repoint's ``program_scope_updates``),
+    carried through its journal so recovery applies the same predicate.
+    """
 
     def canonical_tail(path: Path, *, suffix: str) -> bool:
         parts = path.parts
@@ -56667,9 +56696,16 @@ def _is_canonical_apply_transaction_target(
         return True
     if relative in _LEGACY_REPLACEMENT_METADATA_REWRITE_PATHS:
         return True
+    if relative in _SUCCESSOR_REPOINT_METADATA_PATHS:
+        return True
+    if relative in declared_program_specs and _is_declared_program_spec_target(
+        relative
+    ):
+        return True
     for receipt_dir in (
         APPLIED_ENCODING_PATH_MIGRATION_RECEIPT_DIR,
         APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR,
+        SUCCESSOR_REPOINT_RECEIPT_DIR,
     ):
         receipt_prefix = receipt_dir.parts
         if relative.parts[: len(receipt_prefix)] == receipt_prefix:
@@ -56684,19 +56720,44 @@ def _is_canonical_apply_transaction_target(
     if relative.parts[: len(manifest_prefix)] != manifest_prefix:
         return False
     manifest_tail = Path(*relative.parts[len(manifest_prefix) :])
-    return canonical_tail(
-        manifest_tail, suffix=".json"
-    ) and not manifest_tail.name.endswith(".test.json")
+    return (
+        canonical_tail(manifest_tail, suffix=".json")
+        and not manifest_tail.name.endswith(".test.json")
+    ) or _is_jurisdictionless_manifest_target(relative)
+
+
+def _is_jurisdictionless_manifest_target(relative: Path) -> bool:
+    """Return whether one path is a historical jurisdiction-less v1 manifest.
+
+    rulespec-us still carries v1 manifests at the pre-monorepo path
+    (``.axiom/encoding-manifests/policies/...``, no jurisdiction).  A
+    transaction may retire one, never write one: callers enforce deletion.
+    """
+
+    manifest_prefix = APPLIED_ENCODING_MANIFEST_DIR.parts
+    if relative.parts[: len(manifest_prefix)] != manifest_prefix:
+        return False
+    tail = relative.parts[len(manifest_prefix) :]
+    return (
+        len(tail) >= 2
+        and tail[0] in RULESPEC_ATOMIC_MODULE_ROOTS
+        and relative.suffix == ".json"
+        and not relative.name.endswith(".test.json")
+        and all(part not in {"", ".", ".."} for part in tail)
+    )
 
 
 def _apply_transaction_target_relative_path(
     checkout_root: Path,
     target: Path,
+    *,
+    declared_program_specs: frozenset[Path] = frozenset(),
 ) -> str:
     relative_value = _apply_transaction_relative_path(checkout_root, target)
     if not _is_canonical_apply_transaction_target(
         checkout_root,
         Path(relative_value),
+        declared_program_specs=declared_program_specs,
     ):
         raise RuntimeError(
             "Apply transaction target is outside the canonical RuleSpec/manifest "
@@ -56794,6 +56855,30 @@ def _write_apply_transaction_journal(
     _atomic_replace_bytes(transaction_dir / "journal.json", raw, mode=0o600)
 
 
+def _apply_transaction_declared_program_specs(
+    value: object,
+    *,
+    required: bool,
+) -> frozenset[Path]:
+    """Parse one journal's exact, canonical, sorted declared ProgramSpec list."""
+
+    if (
+        not isinstance(value, list)
+        or (required and not value)
+        or len(value) > _MAX_APPLY_TRANSACTION_ENTRIES
+        or not all(isinstance(item, str) for item in value)
+        or value != sorted(set(value))
+    ):
+        raise RuntimeError("Apply transaction journal ProgramSpec list is invalid")
+    declared = frozenset(Path(item) for item in value)
+    if any(
+        path.as_posix() not in value or not _is_declared_program_spec_target(path)
+        for path in declared
+    ):
+        raise RuntimeError("Apply transaction journal ProgramSpec path is unsafe")
+    return declared
+
+
 def _load_apply_transaction_journal(
     transaction_dir: Path,
     *,
@@ -56828,10 +56913,19 @@ def _load_apply_transaction_journal(
         raise RuntimeError(f"Apply transaction journal is unreadable: {path}") from exc
     if not isinstance(payload, dict):
         raise RuntimeError("Apply transaction journal must be an object")
-    if set(payload) != {"schema", "state", "entries", "created_directories"}:
-        raise RuntimeError("Apply transaction journal has an unsupported shape")
-    if payload.get("schema") != _APPLY_TRANSACTION_SCHEMA:
+    base_fields = {"schema", "state", "entries", "created_directories"}
+    if payload.get("schema") == _APPLY_TRANSACTION_SCHEMA:
+        expected_journal_fields = base_fields
+    elif payload.get("schema") == _APPLY_TRANSACTION_SCHEMA_V3:
+        expected_journal_fields = base_fields | {"declared_program_specs"}
+    else:
         raise RuntimeError("Apply transaction journal schema is unsupported")
+    if set(payload) != expected_journal_fields:
+        raise RuntimeError("Apply transaction journal has an unsupported shape")
+    declared_program_specs = _apply_transaction_declared_program_specs(
+        payload.get("declared_program_specs", []),
+        required=payload.get("schema") == _APPLY_TRANSACTION_SCHEMA_V3,
+    )
     if payload.get("state") not in {"prepared", "applying", "committed"}:
         raise RuntimeError("Apply transaction journal state is invalid")
     entries = payload.get("entries")
@@ -56867,7 +56961,11 @@ def _load_apply_transaction_journal(
         ):
             raise RuntimeError("Apply transaction journal path is unsafe")
         relative = Path(path_value)
-        if not _is_canonical_apply_transaction_target(checkout_root, relative):
+        if not _is_canonical_apply_transaction_target(
+            checkout_root,
+            relative,
+            declared_program_specs=declared_program_specs,
+        ):
             raise RuntimeError("Apply transaction journal target is not canonical")
         if path_value in seen_paths:
             raise RuntimeError("Apply transaction journal lists a duplicate target")
@@ -56879,6 +56977,10 @@ def _load_apply_transaction_journal(
             raise RuntimeError("Apply transaction journal mode is invalid")
         if type(entry.get("delete")) is not bool:
             raise RuntimeError("Apply transaction journal deletion marker is invalid")
+        if _is_jurisdictionless_manifest_target(relative) and not entry["delete"]:
+            raise RuntimeError(
+                "Apply transaction journal writes a jurisdiction-less manifest"
+            )
         for field in ("old_sha256", "new_sha256"):
             digest = entry.get(field)
             if digest is not None and (
@@ -57125,8 +57227,14 @@ def _install_apply_transaction(
     expected_originals: Mapping[Path, str | None] | None = None,
     pre_install_check: Callable[[], None] | None = None,
     post_install_check: Callable[[], None] | None = None,
+    declared_program_specs: Sequence[Path] = (),
 ) -> None:
-    """Durably install a byte-exact set with killed-process recovery."""
+    """Durably install a byte-exact set with killed-process recovery.
+
+    ``declared_program_specs`` admits exactly those ProgramSpec paths to this
+    one transaction; they are journaled (schema v3) so a killed install
+    recovers under the same target predicate.
+    """
 
     normalized_files = [
         (Path(os.path.abspath(Path(target).expanduser())), raw) for target, raw in files
@@ -57148,10 +57256,25 @@ def _install_apply_transaction(
         Path(os.path.abspath(Path(target).expanduser())): digest
         for target, digest in (expected_originals or {}).items()
     }
+    declared_specs = frozenset(Path(path) for path in declared_program_specs)
+    if any(not _is_declared_program_spec_target(path) for path in declared_specs):
+        raise RuntimeError("Apply transaction declares a noncanonical ProgramSpec")
     relative_targets = {
-        target: _apply_transaction_target_relative_path(checkout_root, target)
+        target: _apply_transaction_target_relative_path(
+            checkout_root,
+            target,
+            declared_program_specs=declared_specs,
+        )
         for target, _raw in normalized_files
     }
+    for target, raw in normalized_files:
+        if raw is not None and _is_jurisdictionless_manifest_target(
+            Path(relative_targets[target])
+        ):
+            raise RuntimeError(
+                "Apply transaction may only delete a jurisdiction-less manifest: "
+                f"{relative_targets[target]}"
+            )
 
     with _exclusive_apply_transaction_lock(checkout_root):
         _recover_apply_transaction_locked(checkout_root)
@@ -57223,6 +57346,11 @@ def _install_apply_transaction(
                 "entries": entries,
                 "created_directories": created_directories,
             }
+            if declared_specs:
+                journal["schema"] = _APPLY_TRANSACTION_SCHEMA_V3
+                journal["declared_program_specs"] = sorted(
+                    path.as_posix() for path in declared_specs
+                )
             _write_apply_transaction_journal(transaction_dir, journal)
             journal["state"] = "applying"
             _write_apply_transaction_journal(transaction_dir, journal)
