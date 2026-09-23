@@ -677,6 +677,8 @@ class TestWorkflowEnvelopeRouting:
             "LEGACY_EXACT_DEPENDENT_RULESPEC_PATH",
             "DEPENDENT_CITATION",
             "REPAIR_RUN_ID",
+            "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH",
+            "SECOND_DEPENDENT_CITATION",
             "QUEUE_ID",
             "QUEUE_ITEM_ID",
             "QUEUE_MANIFEST_SHA256",
@@ -693,6 +695,29 @@ class TestWorkflowEnvelopeRouting:
         )
         assert completed.returncode == 1
         assert "cannot mix with replacement" in completed.stderr
+
+    def test_refuses_to_mix_with_retained_successors(self, tmp_path):
+        completed, _request, _output = _run_tail(
+            tmp_path,
+            envelope=REPOINT_ENVELOPE,
+            LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON='["us/policies/irs/x.yaml"]',
+        )
+        assert completed.returncode == 1
+        assert "cannot mix with replacement" in completed.stderr
+
+    def test_refuses_a_non_canonical_successor_citation(self, tmp_path):
+        successor = tmp_path / "workspace/rulespec-us" / SUCCESSOR_PRIMARY
+        completed, _request, _output = _run_tail(
+            tmp_path,
+            envelope=REPOINT_ENVELOPE,
+            CITATION="not a citation",
+            before=lambda: successor.write_text(
+                "module:\n  source_verification:\n"
+                "    corpus_citation_path: not a citation\nrules: []\n"
+            ),
+        )
+        assert completed.returncode == 1
+        assert "corpus citation is not canonical" in completed.stderr
 
     def test_refuses_to_mix_with_existing_signed_imports(self, tmp_path):
         completed, _request, _output = _run_tail(
@@ -1010,3 +1035,127 @@ class TestPlanHardening:
         assert {item["path"]: item["sha256"] for item in inventory["changes"]}[
             PROGRAM_SPEC
         ] == hashlib.sha256(spec.encode()).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Review round 3: --all, uncommitted repoints, pre-signing workflow steps
+# ---------------------------------------------------------------------------
+
+
+class TestLandedRepoint:
+    def test_guard_all_does_not_rebind_a_landed_repoint(self, repointed):
+        from axiom_encode.cli import guard_generated_change_issues
+
+        git(repointed.repo, "add", "-A")
+        git(repointed.repo, "commit", "-q", "-m", "repoint")
+        issues = guard_generated_change_issues(
+            repointed.repo, corpus_path=repointed.corpus, all_files=True
+        )
+        assert not [
+            issue
+            for issue in issues
+            if "successor repoint" in issue or "legacy-successor-repoints" in issue
+        ], issues
+
+    def test_encoding_over_an_uncommitted_repoint_is_refused(self, repointed):
+        from axiom_encode.cli import (
+            _ensure_no_unmanifested_preexisting_rulespec_changes,
+        )
+
+        # A repoint lands as one reviewed change set; a later encode must not
+        # sign over its dependent before that change set is committed.
+        git(repointed.repo, "update-ref", "refs/remotes/origin/main", repointed.base)
+        with pytest.raises(
+            RuntimeError, match="Refusing to sign over pre-existing RuleSpec"
+        ):
+            _ensure_no_unmanifested_preexisting_rulespec_changes(
+                repointed.repo,
+                [(Path(DEPENDENT), [repointed.repo / DEPENDENT])],
+                corpus_path=repointed.corpus,
+            )
+
+    def test_a_malformed_unrelated_program_spec_does_not_stop_a_repoint(
+        self, tmp_path, monkeypatch
+    ):
+        def add_malformed_spec(repo):
+            spec = repo / "programs/us/other/fy-2026.yaml"
+            spec.parent.mkdir(parents=True)
+            spec.write_text("program: us/other\nperiod: 2026-02-30\nscope: {}\n")
+
+        fixture = build_repoint_fixture(
+            tmp_path, monkeypatch, before_commit=add_malformed_spec
+        )
+        run_repoint(fixture)
+        assert not (fixture.repo / LEGACY).exists()
+
+
+class TestRepointModePreSigningSteps:
+    """Every step between the resolver and the signer must accept a repoint."""
+
+    # Steps that still run in repoint mode, each checked below or by its own
+    # test: none reads the citation except to parse empty source inputs.
+    ALLOWED = {
+        "Validate dependent cascade",
+        "Fetch pinned signed corpus release object",
+        "Provision protected signing supervisor",
+        "Verify protected RuleSpec routing",
+        "Verify existing signed imports",
+    }
+
+    def test_no_unreviewed_step_runs_before_the_signer(self):
+        import yaml
+
+        steps = yaml.safe_load(WORKFLOW.read_text())["jobs"]["encode"]["steps"]
+        names = [step.get("name") for step in steps]
+        start = names.index("Resolve successor repoint request")
+        end = names.index("Repoint legacy successor")
+        for step in steps[start + 1 : end]:
+            gated = "successor_repoint != 'true'" in str(step.get("if", ""))
+            assert gated or step["name"] in self.ALLOWED, step["name"]
+
+    def test_signed_import_helpers_accept_the_repoint_citation(self, repointed):
+        from axiom_encode.prepare_signed_backfill import (
+            parse_canonical_refresh_bundle,
+            parse_existing_signed_imports,
+            parse_source_bundle,
+            split_atomic_source_input,
+        )
+
+        # The successor exists at the pinned base, exactly as in production.
+        git(repointed.repo, "checkout", "-q", repointed.base, "--", ".")
+        split = split_atomic_source_input(REPOINT_ENVELOPE_REAL)
+        citation = "us/guidance/irs/rev-proc-2025-32/page-15"
+        assert (
+            parse_source_bundle(
+                json.dumps(split["source_bundle"]), primary_citation=citation
+            )
+            == ()
+        )
+        assert (
+            parse_canonical_refresh_bundle(
+                repointed.repo,
+                json.dumps(split["canonical_refresh_bundle"]),
+                primary_citation=citation,
+                primary_rulespec_path="",
+                primary_required_test_cases_json="[]",
+            )
+            == ()
+        )
+        assert (
+            parse_existing_signed_imports(
+                repointed.repo, "[]", primary_citation=citation
+            )
+            == ()
+        )
+
+
+REPOINT_ENVELOPE_REAL = json.dumps(
+    {
+        "schema": ENVELOPE_SCHEMA,
+        "legacy_primary": LEGACY_PRIMARY,
+        "successor_primary": SUCCESSOR_PRIMARY,
+        "dependents": [DEPENDENT_PRIMARY],
+        "concept_map": [{"from": "legacy_cap", "to": "successor_cap"}],
+        "program_scope_updates": [],
+    }
+)

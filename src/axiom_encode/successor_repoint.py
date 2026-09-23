@@ -1754,7 +1754,9 @@ def program_spec_lists_module(raw: bytes, scope_path: str) -> bool:
 
     try:
         payload = yaml.safe_load(raw.decode("utf-8"))
-    except (UnicodeError, yaml.YAMLError, RecursionError):
+    except (UnicodeError, yaml.YAMLError, RecursionError, ValueError, TypeError):
+        # A ProgramSpec YAML cannot load is one program-scope-sync cannot
+        # resolve either; the text search still sees any reference in it.
         return False
     scope = payload.get("scope") if isinstance(payload, dict) else None
     if not isinstance(scope, dict):

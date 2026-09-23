@@ -335,10 +335,13 @@ Authority is one exact JSON envelope:
   "successor_primary": "us/policies/irs/rev-proc-2025-32/page-15.yaml",
   "dependents": ["us/statutes/26/32.yaml"],
   "concept_map": [
-    {
-      "from": "eitc_maximum_credit_amounts",
-      "to": "earned_income_credit_maximum_credit_amounts"
-    }
+    {"from": "eitc_earned_income_amounts", "to": "earned_income_credit_earned_income_amounts"},
+    {"from": "eitc_maximum_credit_amounts", "to": "earned_income_credit_maximum_credit_amounts"},
+    {"from": "eitc_threshold_phaseout_amounts_joint", "to": "earned_income_credit_phaseout_threshold_joint_amounts"},
+    {"from": "eitc_threshold_phaseout_amounts_other", "to": "earned_income_credit_phaseout_threshold_other_amounts"},
+    {"from": "eitc_completed_phaseout_amounts_joint", "to": "earned_income_credit_completed_phaseout_joint_amounts"},
+    {"from": "eitc_completed_phaseout_amounts_other", "to": "earned_income_credit_completed_phaseout_other_amounts"},
+    {"from": "eitc_maximum_investment_income", "to": "earned_income_credit_maximum_investment_income"}
   ],
   "program_scope_updates": [
     {"program_spec": "programs/us/fiit/fy-2026.yaml", "scope": "federal"}

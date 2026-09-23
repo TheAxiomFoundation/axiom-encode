@@ -592,6 +592,7 @@ def successor_repoint_dispatch_citation(repo: Path, request: Path) -> str:
 
     import yaml
 
+    from axiom_encode.corpus_resolver import require_canonical_corpus_citation_path
     from axiom_encode.successor_repoint import (
         SuccessorRepointError,
         load_repoint_request_payload,
@@ -627,7 +628,13 @@ def successor_repoint_dispatch_citation(repo: Path, request: Path) -> str:
         raise ValueError(
             "successor repoint successor declares no single corpus citation path"
         )
-    return citation.strip()
+    try:
+        return require_canonical_corpus_citation_path(citation.strip())
+    except ValueError as exc:
+        raise ValueError(
+            "successor repoint successor corpus citation is not canonical: "
+            f"{citation.strip()}"
+        ) from exc
 
 
 def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
