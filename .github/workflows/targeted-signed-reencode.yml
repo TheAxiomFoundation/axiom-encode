@@ -1005,6 +1005,13 @@ jobs:
       - name: Fetch pinned signed corpus release object
         shell: bash
         env:
+          # The Supabase registry is the source of record, and the only source
+          # for releases registered after the last public mirror sync. The
+          # immutable public mirror serves pins the registry lacks and covers
+          # registry outages. Both are checked against the pin by the
+          # materializer below, and the resolver verifies the signature.
+          RELEASE_REGISTRY_URL: https://swocpijqqahhuwtuahwc.supabase.co
+          RELEASE_REGISTRY_ANON_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           RELEASE_BASE_URL: https://pub-a8952f8657fc49fda358146ac001366c.r2.dev
           RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
           QUEUE_ID: ${{ inputs.queue_id }}
@@ -1013,6 +1020,7 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           set -euo pipefail
+          test -n "$RELEASE_REGISTRY_ANON_KEY"
           materializer=axiom-encode/scripts/materialize_corpus_release.py
           toolchain="$RULESPEC_CHECKOUT/.axiom/toolchain.toml"
           mapfile -t release_pin < <(
@@ -1032,15 +1040,57 @@ jobs:
               --toolchain "$toolchain" \
               --manifest-sha256 "$QUEUE_MANIFEST_SHA256"
           fi
+          response=""
+          public_object=""
+          trap 'rm -f "$response" "$public_object"' EXIT
           response="$(mktemp "$RUNNER_TEMP/corpus-release-response.XXXXXX")"
           public_object="$(mktemp "$RUNNER_TEMP/corpus-release-object.XXXXXX")"
-          trap 'rm -f "$response" "$public_object"' EXIT
-          url="${RELEASE_BASE_URL%/}/releases/${release_name}/${release_sha}.json"
-          curl --fail --silent --show-error --location \
+          registry_url="${RELEASE_REGISTRY_URL%/}/rest/v1/release_objects?select=release_object&release_name=eq.${release_name}&content_sha256=eq.${release_sha}&limit=2"
+          if curl --fail --silent --show-error --location --globoff \
             --proto '=https' --proto-redir '=https' --tlsv1.2 \
+            --connect-timeout 20 --max-time 300 \
             --max-filesize 67108864 \
-            --output "$public_object" "$url"
-          jq -ce '[{"release_object": .}]' "$public_object" > "$response"
+            --header "apikey: $RELEASE_REGISTRY_ANON_KEY" \
+            --header "Authorization: Bearer $RELEASE_REGISTRY_ANON_KEY" \
+            --header "Accept-Profile: corpus" \
+            --output "$response" "$registry_url"; then
+            # Slurp so an empty body or several JSON documents classify as invalid.
+            registry_status="$(jq -rs 'if length != 1 or (.[0] | type) != "array" then "invalid"
+              elif (.[0] | length) == 0 then "missing"
+              elif (.[0] | length) == 1 then "found"
+              else "ambiguous" end' "$response")" || registry_status=invalid
+          else
+            registry_exit=$?
+            if [ "$registry_exit" -eq 63 ]; then
+              echo "Corpus release registry response for ${release_name}@${release_sha} exceeds the release object byte cap" >&2
+              exit 1
+            fi
+            registry_status=unavailable
+            echo "::warning::Corpus release registry is unavailable (transfer exit ${registry_exit}); trying the public release mirror"
+          fi
+          case "$registry_status" in
+            found)
+              release_source=registry
+              ;;
+            missing|unavailable)
+              release_source="public mirror"
+              object_url="${RELEASE_BASE_URL%/}/releases/${release_name}/${release_sha}.json"
+              if ! curl --fail --silent --show-error --location --globoff \
+                --proto '=https' --proto-redir '=https' --tlsv1.2 \
+                --connect-timeout 20 --max-time 300 \
+                --max-filesize 67108864 \
+                --output "$public_object" "$object_url"; then
+                echo "Signed corpus release ${release_name}@${release_sha} is unavailable: registry ${registry_status}, public mirror fetch failed" >&2
+                exit 1
+              fi
+              jq -ce '[{"release_object": .}]' "$public_object" > "$response"
+              ;;
+            *)
+              echo "Corpus release registry returned an ${registry_status} response for ${release_name}@${release_sha}" >&2
+              exit 1
+              ;;
+          esac
+          echo "Signed corpus release ${release_name}@${release_sha} source: ${release_source}"
           release_commit="$(axiom-encode/.venv/bin/python "$materializer" \
             materialize --toolchain "$toolchain" --response "$response" \
             --corpus-root axiom-corpus)"
