@@ -21783,14 +21783,15 @@ def _successor_repoint_reference_candidates(
     candidates: dict[str, bytes] = {}
     # program-scope-sync normalizes scope entries, so every ProgramSpec is
     # inventoried structurally, not only those the text search finds.
+    # A non-0644 ProgramSpec that names the module is still found (and refused)
+    # by the text search below.
     for path, (mode, _object_type, object_id, size) in entries.items():
-        if not _successor_repoint_is_program_spec(path):
+        if (
+            not _successor_repoint_is_program_spec(path)
+            or mode != "100644"
+            or size > _SUCCESSOR_REPOINT_MAX_FILE_BYTES
+        ):
             continue
-        if mode != "100644" or size > _SUCCESSOR_REPOINT_MAX_FILE_BYTES:
-            raise SuccessorRepointError(
-                "repoint cannot inventory a non-0644 or oversize ProgramSpec: "
-                f"{path.as_posix()}"
-            )
         candidates[path.as_posix()] = _rulespec_migration_git_bytes(
             repo_path, "cat-file", "blob", object_id
         )
@@ -22359,9 +22360,9 @@ def _plan_successor_repoint(
     )
     postimages.update(metadata_postimages)
     program_records: list[dict[str, object]] = []
-    # The country checkout is named for the jurisdiction's country, which the
+    # The canonical checkout is named for the jurisdiction's country, which the
     # request carries; never trust the checkout directory's own name.
-    country = jurisdiction.split("-", 1)[0]
+    country = monorepo_checkout_name(jurisdiction).removeprefix("rulespec-")
     last_update = {
         Path(update.program_spec.as_posix()): index
         for index, update in enumerate(request.program_scope_updates)
@@ -23497,11 +23498,18 @@ def guard_generated_change_issues(
                 f"{path} content does not match the encoder apply manifest sha256"
             )
 
+    # Only manifests this change set actually touches are bound to a receipt
+    # in it; --all re-verifies every manifest without re-landing any receipt.
+    changed_paths = {Path(path).as_posix() for path in changed}
     issues.extend(
         _successor_repoint_change_set_issues(
             repo_path,
             receipt_changes=receipt_changes,
-            surviving_manifest_paths=surviving_manifest_paths,
+            surviving_manifest_paths=[
+                path
+                for path in surviving_manifest_paths
+                if Path(path).as_posix() in changed_paths
+            ],
         )
     )
 
