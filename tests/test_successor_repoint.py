@@ -378,6 +378,120 @@ class TestConceptProof:
         )
         _request, proofs = _prove(legacy, _successor_module(), dependent)
         assert proofs.post_window_behavior_change is False
+        assert proofs.pre_window_behavior_change is False
+        assert proofs.behavior_change_outside_successor_window is False
+
+    def test_records_a_use_that_precedes_the_successor_window(self):
+        legacy = _legacy_module()
+        dependent = _dependent(legacy).replace(
+            b"      - effective_from: '2026-01-01'\n"
+            b"        formula: investment_income <= legacy_cap",
+            b"      - effective_from: '2025-01-01'\n"
+            b"        effective_to: '2026-12-31'\n"
+            b"        formula: investment_income <= legacy_cap",
+        )
+        _request, proofs = _prove(legacy, _successor_module(), dependent)
+        cap_windows = [
+            item
+            for item in proofs.dependent_use_windows
+            if item["concept"] == "legacy_cap"
+        ]
+        assert cap_windows == [
+            {
+                "concept": "legacy_cap",
+                "effective_from": "2025-01-01",
+                "effective_to": "2026-12-31",
+                "precedes_successor_window": True,
+                "extends_past_successor_window": False,
+            }
+        ]
+        assert proofs.pre_window_behavior_change is True
+        assert proofs.behavior_change_outside_successor_window is True
+        semantics = proofs.receipt_semantics()
+        assert semantics["pre_window_behavior_change"] is True
+        assert semantics["behavior_change_outside_successor_window"] is True
+
+    def test_records_engine_behaviour_per_concept_kind(self):
+        legacy = _legacy_module()
+        _request, proofs = _prove(legacy, _successor_module(), _dependent(legacy))
+        table, cap = proofs.proofs
+        assert table.engine_lowering == "indexed_parameter"
+        assert cap.engine_lowering == "scalar_parameter"
+        runtime = proofs.receipt_semantics()[
+            "runtime_behavior_outside_successor_window"
+        ]
+        assert runtime == [
+            {
+                "concept": "successor_amounts",
+                "engine_lowering": "indexed_parameter",
+                "error": (
+                    "EvalError::MissingParameterValue: parameter `{name}` has no "
+                    "value for key `{key}` at {date}"
+                ),
+            },
+            {
+                "concept": "successor_cap",
+                "engine_lowering": "scalar_parameter",
+                "error": (
+                    "EvalError::MissingParameterValue: parameter `{name}` has no "
+                    "value for key `0` at {date}"
+                ),
+            },
+        ]
+        assert table.as_receipt_entry()["outside_window_error"] == runtime[0]["error"]
+
+    def test_a_scalar_parameter_with_an_entity_lowers_to_a_derived_rule(self):
+        from axiom_encode.successor_repoint import engine_lowering
+
+        assert engine_lowering({"kind": "parameter", "indexed_by": "x"}) == (
+            "indexed_parameter"
+        )
+        assert engine_lowering({"kind": "parameter"}) == "scalar_parameter"
+        assert engine_lowering({"kind": "parameter", "entity": "TaxUnit"}) == (
+            "derived"
+        )
+
+    def test_refuses_a_formula_use_without_the_legacy_import(self):
+        legacy = _legacy_module()
+        dependent = _dependent(legacy).replace(
+            b"  - us:policies/irs/legacy-table\n", b""
+        )
+        with pytest.raises(SuccessorRepointError, match="without importing it"):
+            _prove(legacy, _successor_module(), dependent)
+
+    def test_a_fragment_import_scopes_only_its_own_concept(self):
+        legacy = _legacy_module()
+        dependent = _dependent(legacy).replace(
+            b"  - us:policies/irs/legacy-table\n",
+            b"  - us:policies/irs/legacy-table#legacy_cap\n",
+        )
+        with pytest.raises(
+            SuccessorRepointError, match="uses 'legacy_amounts' in a formula"
+        ):
+            _prove(legacy, _successor_module(), dependent)
+
+    def test_refuses_a_dependent_that_shadows_a_legacy_concept(self):
+        legacy = _legacy_module()
+        dependent = _dependent(legacy).replace(
+            b"  - name: investment_ok\n",
+            b"  - name: legacy_cap\n"
+            b"    kind: parameter\n"
+            b"    versions:\n"
+            b"      - effective_from: '2026-01-01'\n"
+            b"        formula: 1\n"
+            b"  - name: investment_ok\n",
+        )
+        with pytest.raises(SuccessorRepointError, match="defines legacy concept"):
+            _prove(legacy, _successor_module(), dependent)
+
+    def test_a_member_access_is_not_a_legacy_concept_use(self):
+        legacy = _legacy_module()
+        dependent = _dependent(legacy).replace(
+            b"formula: investment_income <= legacy_cap",
+            b"formula: investment_income <= legacy_cap + other.legacy_cap",
+        )
+        _request, proofs = _prove(legacy, _successor_module(), dependent)
+        assert proofs.proofs[1].formula_uses == 1
 
     def test_refuses_a_value_mismatch(self):
         legacy = _legacy_module()
@@ -728,10 +842,76 @@ class TestRewrite:
         assert f"{SUCCESSOR_IDENTITY}#successor_cap" in payload["cases"][0]["outputs"]
         assert replacements[0]["count"] == 1
 
+    def test_refuses_invalid_companion_yaml_as_a_contract_error(self):
+        with pytest.raises(SuccessorRepointError, match="is not valid YAML"):
+            _rewrite(b"cases: [\n", _successor_module(), primary=False)
+
+    def test_does_not_rename_a_member_access(self):
+        legacy = _legacy_module()
+        dependent = _dependent(legacy).replace(
+            b"formula: investment_income <= legacy_cap",
+            b"formula: investment_income <= legacy_cap + other.legacy_cap",
+        )
+        out, _replacements = _rewrite(dependent, _successor_module())
+        assert b"successor_cap + other.legacy_cap" in out
+
+    def test_refuses_an_unmapped_output_of_a_whole_module_import(self):
+        legacy = _legacy_module()
+        dependent = _dependent(legacy).replace(
+            b"              target: us:policies/irs/legacy-table#legacy_cap\n"
+            b"              output: legacy_cap\n",
+            b"              target: us:policies/irs/legacy-table\n"
+            b"              output: some_other_legacy_concept\n",
+        )
+        with pytest.raises(SuccessorRepointError, match="unmapped legacy concept"):
+            _rewrite(dependent, _successor_module())
+
+    def test_rewrites_a_mapped_output_of_a_whole_module_import(self):
+        legacy = _legacy_module()
+        dependent = _dependent(legacy).replace(
+            b"              target: us:policies/irs/legacy-table#legacy_cap\n",
+            b"              target: us:policies/irs/legacy-table\n",
+        )
+        out, _replacements = _rewrite(dependent, _successor_module())
+        atom = yaml.safe_load(out.decode("utf-8"))["rules"][2]["metadata"]["proof"][
+            "atoms"
+        ][0]["import"]
+        assert atom["target"] == SUCCESSOR_IDENTITY
+        assert atom["output"] == "successor_cap"
+
+    @pytest.mark.parametrize(
+        "reference",
+        [LEGACY_PRIMARY, "us/policies/irs/legacy-table", "policies/irs/legacy-table"],
+    )
+    def test_refuses_any_reference_form_that_survives_in_a_comment(self, reference):
+        legacy = _legacy_module()
+        dependent = _dependent(legacy) + f"# see {reference}\n".encode()
+        with pytest.raises(SuccessorRepointError, match="still references"):
+            _rewrite(dependent, _successor_module())
+
+    def test_refuses_a_path_form_reference_in_another_field(self):
+        legacy = _legacy_module()
+        dependent = _dependent(legacy).replace(
+            b"    corpus_citation_path: us/statute/26/32\n",
+            b"    corpus_citation_path: us/statute/26/32\n"
+            b"    note: us/policies/irs/legacy-table.yaml\n",
+        )
+        with pytest.raises(SuccessorRepointError, match="outside a rewritable"):
+            _rewrite(dependent, _successor_module())
+
 
 # ---------------------------------------------------------------------------
 # Reference inventory
 # ---------------------------------------------------------------------------
+
+
+PROVENANCE_PREFIXES = (
+    ".axiom/encoding-manifests/",
+    ".axiom/path-migrations/",
+    ".axiom/legacy-replacements/",
+    ".axiom/legacy-successor-repoints/",
+)
+LEGACY_V1_MANIFEST = ".axiom/encoding-manifests/policies/irs/legacy-table.json"
 
 
 class TestReferenceInventory:
@@ -746,63 +926,140 @@ class TestReferenceInventory:
                 "    - policies/irs/legacy-table\n"
             ).encode("utf-8"),
             "us/statutes/26/24/d.yaml": b"imports:\n  - us:statutes/26/32\n",
+            LEGACY_V1_MANIFEST: b'{"path": "policies/irs/legacy-table.yaml"}',
+            "known-validation-gaps.yaml": f'"{LEGACY_PRIMARY}":\n  x: 1\n'.encode(),
         }
         files.update(extra)
         return files
 
+    def _issues(self, files, request=None, **overrides):
+        request = request or load_repoint_request_payload(_envelope())
+        arguments = {
+            "tracked": list(files),
+            "retired_paths": [LEGACY_V1_MANIFEST],
+            "provenance_prefixes": PROVENANCE_PREFIXES,
+        }
+        arguments.update(overrides)
+        return repoint_reference_inventory_issues(files, request=request, **arguments)
+
     def test_accepts_a_fully_declared_inventory(self):
-        request = load_repoint_request_payload(_envelope())
-        assert repoint_reference_inventory_issues(self._files(), request=request) == []
+        assert self._issues(self._files()) == []
 
     def test_fails_closed_on_an_undeclared_protected_referrer(self):
-        request = load_repoint_request_payload(_envelope())
         files = self._files(
             **{"us/statutes/26/99.yaml": f"imports:\n  - {LEGACY_IDENTITY}\n".encode()}
         )
-        issues = repoint_reference_inventory_issues(files, request=request)
-        assert issues == [
+        assert self._issues(files) == [
             "us/statutes/26/99.yaml references the legacy module but is not a "
             "declared dependent"
         ]
 
-    def test_fails_closed_on_a_path_form_reference(self):
-        request = load_repoint_request_payload(_envelope())
+    @pytest.mark.parametrize(
+        "reference",
+        [
+            LEGACY_IDENTITY,
+            f"{LEGACY_IDENTITY}#legacy_cap",
+            LEGACY_PRIMARY,
+            "us/policies/irs/legacy-table",
+            "policies/irs/legacy-table.yaml",
+            "us/policies/irs/legacy-table.test.yaml",
+            ".axiom/encoding-manifests/us/policies/irs/legacy-table.json",
+            "rulespec-us/us/policies/irs/legacy-table",
+        ],
+    )
+    def test_fails_closed_on_every_reference_form(self, reference):
         files = self._files(
-            **{"us/statutes/26/99.yaml": f"note: {LEGACY_PRIMARY}\n".encode()}
+            **{"us/statutes/26/99.yaml": f"note: {reference}\n".encode()}
         )
-        assert repoint_reference_inventory_issues(files, request=request)
+        assert self._issues(files) == [
+            "us/statutes/26/99.yaml references the legacy module but is not a "
+            "declared dependent"
+        ]
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "us/policies/irs/legacy-table-2",
+            "us/policies/irs/legacy-table/child",
+            "us/policies/irs/legacy-tables.yaml",
+            "us/policies/irs/xlegacy-table",
+            "policies/irs/legacy_table",
+        ],
+    )
+    def test_does_not_mistake_a_neighbouring_module(self, text):
+        files = self._files(**{"us/statutes/26/99.yaml": f"note: {text}\n".encode()})
+        assert self._issues(files) == []
+
+    def test_scans_files_outside_protected_roots(self):
+        files = self._files(**{"docs/notes.md": LEGACY_IDENTITY.encode()})
+        assert self._issues(files) == [
+            "docs/notes.md references the legacy module and no repoint surface owns it"
+        ]
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "oracle-coverage-pending.yaml",
+            ".axiom/retired-schema-freeze.json",
+            "tests/test_encoding_manifests.py",
+        ],
+    )
+    def test_refuses_metadata_a_repoint_does_not_reconcile(self, path):
+        files = self._files(**{path: f"- {LEGACY_PRIMARY}\n".encode()})
+        assert self._issues(files) == [
+            f"{path} names the legacy module; a successor repoint does not "
+            "reconcile it, so retire that reference first"
+        ]
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            ".axiom/encoding-manifests/us/statutes/26/99.json",
+            ".axiom/legacy-replacements/" + "a" * 64 + ".json",
+            ".axiom/legacy-successor-repoints/" + "b" * 64 + ".json",
+        ],
+    )
+    def test_refuses_persisted_provenance(self, path):
+        files = self._files(**{path: LEGACY_PRIMARY.encode()})
+        assert self._issues(files) == [
+            f"{path} is persisted provenance that names the legacy module; a "
+            "repoint never rewrites signed provenance"
+        ]
+
+    def test_owns_retired_manifests_and_reconciled_metadata(self):
+        files = self._files()
+        assert self._issues(files, retired_paths=[]) == [
+            f"{LEGACY_V1_MANIFEST} is persisted provenance that names the legacy "
+            "module; a repoint never rewrites signed provenance"
+        ]
+
+    def test_refuses_non_utf8_candidates(self):
+        files = self._files(**{"data/blob.bin": b"\xff" + LEGACY_PRIMARY.encode()})
+        assert self._issues(files) == [
+            "data/blob.bin names the legacy module but is not UTF-8 text"
+        ]
 
     def test_fails_closed_on_an_undeclared_program_spec(self):
         request = load_repoint_request_payload(_envelope(program_scope_updates=[]))
-        issues = repoint_reference_inventory_issues(self._files(), request=request)
-        assert issues == [
+        assert self._issues(self._files(), request=request) == [
             "programs/us/fiit/fy-2026.yaml lists the legacy module but is not a "
             "declared program_scope_updates entry"
         ]
 
     def test_fails_closed_on_an_untracked_declared_dependent(self):
-        request = load_repoint_request_payload(_envelope())
         files = self._files()
         del files[DEPENDENT_PRIMARY]
-        issues = repoint_reference_inventory_issues(files, request=request)
-        assert issues == [
+        assert self._issues(files) == [
             f"declared dependent is not tracked at clean HEAD: {DEPENDENT_PRIMARY}"
         ]
 
     def test_fails_closed_on_an_untracked_declared_program_spec(self):
-        request = load_repoint_request_payload(_envelope())
         files = self._files()
         del files["programs/us/fiit/fy-2026.yaml"]
-        issues = repoint_reference_inventory_issues(files, request=request)
-        assert issues == [
+        assert self._issues(files) == [
             "declared ProgramSpec is not tracked at clean HEAD: "
             "programs/us/fiit/fy-2026.yaml"
         ]
-
-    def test_ignores_unrelated_files(self):
-        request = load_repoint_request_payload(_envelope())
-        files = self._files(**{"docs/notes.md": LEGACY_IDENTITY.encode()})
-        assert repoint_reference_inventory_issues(files, request=request) == []
 
 
 # ---------------------------------------------------------------------------
@@ -872,6 +1129,87 @@ class TestMetadataReconciliation:
             )
 
 
+class TestProgramScopeReconciliation:
+    SPEC = (
+        "program: us/fiit\n"
+        "scope:\n"
+        "  federal:\n"
+        "    # comment kept\n"
+        "    - policies/irs/alpha\n"
+        "    - policies/irs/legacy-table\n"
+        "    - statutes/26/32\n"
+    ).encode("utf-8")
+
+    def _update(self, **overrides):
+        from axiom_encode.successor_repoint import reconcile_program_scope
+
+        request = load_repoint_request_payload(_envelope(**overrides))
+        return reconcile_program_scope(
+            self.SPEC,
+            request=request,
+            update=request.program_scope_updates[0],
+            country="us",
+        )
+
+    def test_swaps_the_legacy_module_for_the_successor(self):
+        out, record = self._update()
+        assert out.decode("utf-8") == (
+            "program: us/fiit\n"
+            "scope:\n"
+            "  federal:\n"
+            "    # comment kept\n"
+            "    - policies/irs/alpha\n"
+            "    - policies/irs/page-15\n"
+            "    - statutes/26/32\n"
+        )
+        assert record == {
+            "program_spec": "programs/us/fiit/fy-2026.yaml",
+            "scope": "federal",
+            "before_sha256": hashlib.sha256(self.SPEC).hexdigest(),
+            "after_sha256": hashlib.sha256(out).hexdigest(),
+            "removed": ["policies/irs/legacy-table"],
+            "added": ["policies/irs/page-15"],
+        }
+
+    def test_refuses_a_scope_that_does_not_list_the_legacy_module(self):
+        from axiom_encode.successor_repoint import reconcile_program_scope
+
+        request = load_repoint_request_payload(_envelope())
+        with pytest.raises(SuccessorRepointError, match="did not remove"):
+            reconcile_program_scope(
+                self.SPEC.replace(b"    - policies/irs/legacy-table\n", b""),
+                request=request,
+                update=request.program_scope_updates[0],
+                country="us",
+            )
+
+    def test_refuses_a_scope_whose_prefix_does_not_resolve_to_the_successor(self):
+        from axiom_encode.successor_repoint import reconcile_program_scope
+
+        request = load_repoint_request_payload(_envelope())
+        spec = self.SPEC.replace(b"program: us/fiit", b"program: us-ca/fiit").replace(
+            b"  federal:", b"  state:"
+        )
+        update = type(request.program_scope_updates[0])(
+            program_spec=PurePosixPath("programs/us-ca/fiit/fy-2026.yaml"),
+            scope="state",
+        )
+        with pytest.raises(SuccessorRepointError, match="resolves the successor"):
+            reconcile_program_scope(spec, request=request, update=update, country="us")
+
+    def test_refuses_a_legacy_mention_the_scope_sync_leaves_behind(self):
+        from axiom_encode.successor_repoint import reconcile_program_scope
+
+        request = load_repoint_request_payload(_envelope())
+        with pytest.raises(SuccessorRepointError, match="still names"):
+            reconcile_program_scope(
+                self.SPEC + b"# retired policies/irs/legacy-table\n",
+                request=request,
+                update=request.program_scope_updates[0],
+                country="us",
+            )
+
+
 # ---------------------------------------------------------------------------
 # Receipt identity
 # ---------------------------------------------------------------------------
@@ -883,7 +1221,10 @@ class TestReceiptIdentity:
             "request_sha256": "a" * 64,
             "base_commit": "b" * 40,
             "base_tree": "c" * 40,
-            "legacy_manifest_sha256": "d" * 64,
+            "legacy_manifests": [
+                {"path": LEGACY_V1_MANIFEST, "sha256": "d" * 64},
+                {"path": ".axiom/encoding-manifests/us/x.json", "sha256": "1" * 64},
+            ],
             "successor_manifest_sha256": "e" * 64,
             "legacy_files": [{"path": LEGACY_PRIMARY, "sha256": "f" * 64}],
             "successor_files": [{"path": SUCCESSOR_PRIMARY, "sha256": "0" * 64}],
@@ -912,6 +1253,14 @@ class TestReceiptIdentity:
             != baseline
         )
         assert receipt_identity_sha256(self._payload(base_commit="9" * 40)) != baseline
+        assert (
+            receipt_identity_sha256(
+                self._payload(
+                    legacy_manifests=[{"path": LEGACY_V1_MANIFEST, "sha256": "d" * 64}]
+                )
+            )
+            != baseline
+        )
 
 
 def test_module_identity_and_scope_path_helpers():

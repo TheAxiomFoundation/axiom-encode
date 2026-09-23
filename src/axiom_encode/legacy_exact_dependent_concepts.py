@@ -103,12 +103,6 @@ def formula_segments(formula: str) -> tuple[tuple[bool, str], ...]:
     return _formula_segments(formula)
 
 
-def replace_formula_identifier(text: str, old: str, new: str) -> str:
-    """Public alias of the identifier-bounded, quote-aware formula rewrite."""
-
-    return _replace_identifier(text, old, new)
-
-
 def _formula_mentions(formula: object, concept: str) -> bool:
     if not isinstance(formula, str):
         return False

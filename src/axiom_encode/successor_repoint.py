@@ -7,9 +7,11 @@ dependents onto that successor.
 
 This module deliberately cannot sign, invoke a model, read Git, or mutate a
 checkout.  It owns the envelope grammar, the concept-equivalence proof, the
-exact-token rewrite and its postimage proof, the reference inventory, the two
-repoint-only metadata reconciliations, and the deterministic receipt identity.
-The CLI owns provenance verification, validation, and the journaled install.
+exact-token rewrite and its postimage proof, the whole-tree reference
+inventory classification, the repoint-only metadata and ProgramSpec
+reconciliations, and the deterministic receipt identity.  The CLI owns
+provenance verification, validation, the journaled install, and the
+guard-time replay of every receipt claim from its base commit.
 
 Deliberate scope limits (all fail closed, never silently widened):
 
@@ -17,12 +19,16 @@ Deliberate scope limits (all fail closed, never silently widened):
   a derived rule referenced by a dependent cannot be repointed here.
 * ``indexed_by`` names may differ only when every dependent formula use of the
   concept is a literal integer subscript present in the successor's table.
+* a formula symbol is renamed only where the dependent imports the legacy
+  module (or that exact concept of it); ``x.name`` is not a use of ``name``.
 * equivalence is proved over the **successor's** validity window, per the
-  2026-09-20 ruling.  When a dependent uses the concept past that window the
-  contract records ``post_window_behavior_change`` rather than extending the
-  successor.
+  2026-09-20 ruling.  A dependent use outside that window, before or after it,
+  is recorded as a behavior change rather than extending the successor.
 * a formula scalar written in a quoted YAML style cannot be rewritten in place;
   the transaction refuses rather than re-emitting the scalar.
+* metadata legacy replacement reconciles but a repoint does not
+  (``oracle-coverage-pending.yaml``, ``.axiom/retired-schema-freeze.json``,
+  ``tests/``) is a refusal when it names the legacy module.
 """
 
 from __future__ import annotations
@@ -34,23 +40,27 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import PurePosixPath
-from typing import Final, Mapping, Sequence
+from typing import Collection, Final, Mapping, Sequence
 
 import yaml
 from yaml.nodes import MappingNode, Node, ScalarNode, SequenceNode
 
 from .constants import RULESPEC_ATOMIC_MODULE_ROOTS, RULESPEC_COMPOSITION_SPEC_ROOT
-from .legacy_exact_dependent_concepts import (
-    formula_segments,
-    replace_formula_identifier,
-)
+from .legacy_exact_dependent_concepts import formula_segments
+from .program_scope import ProgramScopeError, plan_program_scope_update
 
 ENVELOPE_SCHEMA: Final = "axiom-encode/legacy-successor-repoint/v1"
 RECEIPT_SCHEMA: Final = "axiom-encode/legacy-successor-repoint-receipt/v1"
 TOOL: Final = "axiom-encode repoint-legacy-successor"
 RECEIPT_DIR: Final = PurePosixPath(".axiom/legacy-successor-repoints")
+# The two signed manifest classes one repoint writes.  The successor keeps its
+# own signed-v5 model manifest untouched; a dependent manifest owns each
+# rewritten dependent's live files, and a retired manifest owns only the
+# deletion of the legacy group.  Metadata and ProgramSpec postimages live in
+# the receipt alone and are re-derived from its base commit, never claimed as
+# live digests.
 MANIFEST_TOOL: Final = "axiom-encode repoint-legacy-successor --dependent"
-SUCCESSOR_MANIFEST_TOOL: Final = "axiom-encode repoint-legacy-successor --successor"
+RETIRED_MANIFEST_TOOL: Final = "axiom-encode repoint-legacy-successor --retired"
 
 MAX_ENVELOPE_BYTES: Final = 64 * 1024
 MAX_DEPENDENTS: Final = 32
@@ -61,6 +71,32 @@ UPSTREAM_SOURCE_CHECK_BASELINE: Final = PurePosixPath(
     ".axiom/upstream-source-check-baseline.txt"
 )
 MONEY_ATOM_RATCHET: Final = PurePosixPath("known-missing-money-atoms.yaml")
+WAIVER_SET: Final = PurePosixPath("known-validation-gaps.yaml")
+TOOLCHAIN: Final = PurePosixPath(".axiom/toolchain.toml")
+PROVISION_INDEX: Final = PurePosixPath(".axiom/index/provisions_to_rules.json")
+PENDING_FINGERPRINTS: Final = PurePosixPath(
+    ".axiom/pending-validation-fingerprints.json"
+)
+# Every non-RuleSpec metadata file a repoint may reconcile, in the order the
+# reconciliations are computed (the toolchain waiver digest depends on the
+# waiver set, so it is last).
+METADATA_PATHS: Final = (
+    WAIVER_SET,
+    PROVISION_INDEX,
+    PENDING_FINGERPRINTS,
+    UPSTREAM_SOURCE_CHECK_BASELINE,
+    MONEY_ATOM_RATCHET,
+    TOOLCHAIN,
+)
+# Metadata legacy replacement reconciles but a repoint deliberately does not:
+# a reference to the legacy module here is a refusal, not a silent survivor.
+UNRECONCILED_METADATA_PATHS: Final = frozenset(
+    {
+        PurePosixPath("oracle-coverage-pending.yaml"),
+        PurePosixPath(".axiom/retired-schema-freeze.json"),
+    }
+)
+UNRECONCILED_ROOTS: Final = frozenset({"tests"})
 
 PROTECTED_CONTENT_ROOTS: Final = RULESPEC_ATOMIC_MODULE_ROOTS
 PROGRAM_SPEC_ROOT: Final = RULESPEC_COMPOSITION_SPEC_ROOT
@@ -69,7 +105,16 @@ _CONCEPT_NAME = re.compile(r"[a-z][a-z0-9_]*")
 _NUMERIC_LITERAL = re.compile(r"[+-]?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?")
 _INTEGER_LITERAL = re.compile(r"0|-?[1-9][0-9]*")
 _IDENTIFIER_CHARACTER = "A-Za-z0-9_"
+# A formula symbol is a bare concept name.  ``x.name`` is a member of some other
+# namespace, so ``.`` bounds a use on the left; ``name.field`` still uses it.
+_FORMULA_LEFT_BOUNDARY = "A-Za-z0-9_."
 _DURABLE_REFERENCE_CHARACTER = r"A-Za-z0-9._:/-"
+# Every reference form (durable identity, jurisdiction-prefixed or -less path,
+# companion, manifest path, ProgramSpec scope entry) contains the legacy module's
+# jurisdiction-less path stem.  ``/`` and ``:`` may precede it (a prefix); any
+# character that would extend a path segment or name may not follow it.
+_REFERENCE_LEFT_CHARACTER = "A-Za-z0-9_.-"
+_REFERENCE_RIGHT_CHARACTER = "A-Za-z0-9_/-"
 _JURISDICTION = re.compile(r"[a-z]{2}(?:-[a-z0-9_]+)*")
 _SCOPE_KEY = re.compile(r"[a-z][a-z0-9_-]*")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -143,6 +188,19 @@ class RepointRequest:
     @property
     def successor_scope_path(self) -> str:
         return scope_module_path(self.successor_primary)
+
+    @property
+    def legacy_reference_pattern(self) -> re.Pattern[str]:
+        return reference_stem_pattern(self.legacy_scope_path)
+
+
+def reference_stem_pattern(stem: str) -> re.Pattern[str]:
+    """Match every textual reference form of one module path stem."""
+
+    return re.compile(
+        rf"(?<![{_REFERENCE_LEFT_CHARACTER}]){re.escape(stem)}"
+        rf"(?![{_REFERENCE_RIGHT_CHARACTER}])"
+    )
 
 
 def companion_of(primary: PurePosixPath) -> PurePosixPath:
@@ -387,6 +445,47 @@ class _ParameterVersion:
     values: dict[int, Decimal]
 
 
+# How axiom-rules-engine lowers each provable concept, and the evaluation error
+# it raises for a period no successor version covers.  Read from
+# axiom-rules-engine af6e4ea (rulespec-us's pinned axiom_rules_engine_ref):
+# src/rulespec.rs:2001-2009 lowers a RuleSpec parameter with a values table to
+# an IndexedParameterSpec and every other parameter through the formula layer;
+# src/formula.rs:1183-1217 lowers a no-entity, literal-only formula variable to
+# a scalar parameter keyed 0 and anything with an entity to a derived rule;
+# src/engine.rs:1165-1194 (lookup_parameter) raises MissingParameterValue
+# (src/engine.rs:74-79) when no version applies_at the period start, and
+# src/engine.rs:355-370 raises MissingDerivedFormulaVersion (src/engine.rs:80-84)
+# for a derived rule.  Either way compilation succeeds and evaluation for that
+# period fails loudly; it is never a silent zero.
+ENGINE_LOWERING_INDEXED_PARAMETER: Final = "indexed_parameter"
+ENGINE_LOWERING_SCALAR_PARAMETER: Final = "scalar_parameter"
+ENGINE_LOWERING_DERIVED: Final = "derived"
+_OUTSIDE_WINDOW_ERRORS: Final = {
+    ENGINE_LOWERING_INDEXED_PARAMETER: (
+        "EvalError::MissingParameterValue: parameter `{name}` has no value for "
+        "key `{key}` at {date}"
+    ),
+    ENGINE_LOWERING_SCALAR_PARAMETER: (
+        "EvalError::MissingParameterValue: parameter `{name}` has no value for "
+        "key `0` at {date}"
+    ),
+    ENGINE_LOWERING_DERIVED: (
+        "EvalError::MissingDerivedFormulaVersion: derived `{name}` has no "
+        "formula version at {date}"
+    ),
+}
+
+
+def engine_lowering(rule: Mapping[str, object]) -> str:
+    """Classify how the engine lowers one proved ``kind: parameter`` concept."""
+
+    if rule.get("indexed_by") is not None:
+        return ENGINE_LOWERING_INDEXED_PARAMETER
+    if rule.get("entity") is None:
+        return ENGINE_LOWERING_SCALAR_PARAMETER
+    return ENGINE_LOWERING_DERIVED
+
+
 @dataclass(frozen=True, slots=True)
 class ConceptProof:
     """One proved old -> new parameter equivalence over the successor window."""
@@ -402,6 +501,7 @@ class ConceptProof:
     formula_uses: int
     literal_subscripts: tuple[int, ...]
     reference_uses: int
+    engine_lowering: str
 
     def as_receipt_entry(self) -> dict[str, object]:
         return {
@@ -418,6 +518,8 @@ class ConceptProof:
             "formula_uses": self.formula_uses,
             "literal_subscripts": list(self.literal_subscripts),
             "reference_uses": self.reference_uses,
+            "engine_lowering": self.engine_lowering,
+            "outside_window_error": _OUTSIDE_WINDOW_ERRORS[self.engine_lowering],
         }
 
 
@@ -429,11 +531,42 @@ class ConceptProofSet:
     successor_window_start: str
     successor_window_end: str | None
     dependent_use_windows: tuple[dict[str, object], ...]
+    pre_window_behavior_change: bool
     post_window_behavior_change: bool
 
     @property
     def renames(self) -> dict[str, str]:
         return {proof.old: proof.new for proof in self.proofs}
+
+    @property
+    def behavior_change_outside_successor_window(self) -> bool:
+        return self.pre_window_behavior_change or self.post_window_behavior_change
+
+    def receipt_semantics(self) -> dict[str, object]:
+        """Return the exact window-semantics block a receipt records."""
+
+        return {
+            "successor_window": {
+                "effective_from": self.successor_window_start,
+                "effective_to": self.successor_window_end,
+            },
+            "dependent_use_windows": [
+                dict(item) for item in self.dependent_use_windows
+            ],
+            "pre_window_behavior_change": self.pre_window_behavior_change,
+            "post_window_behavior_change": self.post_window_behavior_change,
+            "behavior_change_outside_successor_window": (
+                self.behavior_change_outside_successor_window
+            ),
+            "runtime_behavior_outside_successor_window": [
+                {
+                    "concept": proof.new,
+                    "engine_lowering": proof.engine_lowering,
+                    "error": _OUTSIDE_WINDOW_ERRORS[proof.engine_lowering],
+                }
+                for proof in self.proofs
+            ],
+        }
 
 
 def _load_module(raw: bytes, *, label: str) -> dict[str, object]:
@@ -601,6 +734,23 @@ def _probe_dates(
     return tuple(sorted(probes))
 
 
+def _formula_symbol_pattern(name: str) -> re.Pattern[str]:
+    return re.compile(
+        rf"(?<![{_FORMULA_LEFT_BOUNDARY}]){re.escape(name)}"
+        rf"(?![{_IDENTIFIER_CHARACTER}])"
+    )
+
+
+def replace_formula_symbol(text: str, old: str, new: str) -> str:
+    """Rename every unquoted bare use of ``old``, leaving ``x.old`` alone."""
+
+    pattern = _formula_symbol_pattern(old)
+    return "".join(
+        pattern.sub(lambda _match: new, segment) if unquoted else segment
+        for unquoted, segment in formula_segments(text)
+    )
+
+
 def _formula_symbol_uses(formula: str, name: str) -> tuple[int | None, ...]:
     """Return one entry per unquoted, identifier-bounded use of ``name``.
 
@@ -608,9 +758,7 @@ def _formula_symbol_uses(formula: str, name: str) -> tuple[int | None, ...]:
     or ``None`` when the use is bare or subscripted by an expression.
     """
 
-    pattern = re.compile(
-        rf"(?<![{_IDENTIFIER_CHARACTER}]){re.escape(name)}(?![{_IDENTIFIER_CHARACTER}])"
-    )
+    pattern = _formula_symbol_pattern(name)
     uses: list[int | None] = []
     for unquoted, segment in formula_segments(formula):
         if not unquoted:
@@ -761,12 +909,34 @@ def prove_concept_map(
                 f"dependent {path} already defines successor concepts: "
                 + ", ".join(collisions)
             )
+        shadowed = sorted(set(renames) & set(local_rules))
+        if shadowed:
+            raise SuccessorRepointError(
+                f"dependent {path} defines legacy concept names locally, so a "
+                "formula use cannot be attributed to the legacy import: "
+                + ", ".join(shadowed)
+            )
         imports = payload.get("imports")
         if imports is not None and (
             not isinstance(imports, list)
             or not all(isinstance(item, str) for item in imports)
         ):
             raise SuccessorRepointError(f"dependent {path} imports are malformed")
+        # A bare formula symbol resolves through the module's imports, so a
+        # rename is authorized only where the legacy module (or that exact
+        # concept of it) is what the dependent imports.
+        imported_concepts: set[str] | None = (
+            None if request.legacy_identity in (imports or ()) else set()
+        )
+        for item in imports or ():
+            assert isinstance(item, str)
+            module_part, separator, fragment_part = item.partition("#")
+            if (
+                imported_concepts is not None
+                and separator
+                and module_part == request.legacy_identity
+            ):
+                imported_concepts.add(fragment_part)
         for item in imports or ():
             assert isinstance(item, str)
             fragment = item.rsplit("#", 1)[-1] if "#" in item else None
@@ -795,6 +965,11 @@ def prove_concept_map(
                 uses = _formula_symbol_uses(formula, old)
                 if not uses:
                     continue
+                if imported_concepts is not None and old not in imported_concepts:
+                    raise SuccessorRepointError(
+                        f"dependent {path} uses {old!r} in a formula without "
+                        "importing it from the legacy module"
+                    )
                 formula_uses[old].extend(uses)
                 use_windows[old].add((start, end))
 
@@ -901,6 +1076,7 @@ def prove_concept_map(
                 formula_uses=len(uses),
                 literal_subscripts=literal,
                 reference_uses=reference_uses[pair.old],
+                engine_lowering=engine_lowering(new_rule),
             )
         )
 
@@ -912,19 +1088,26 @@ def prove_concept_map(
     successor_start = next(iter(window_starts))
     successor_end = next(iter(window_ends))
 
+    # Both flags are geometric and conservative: a dependent formula version
+    # that reaches outside the successor window on either side is recorded as
+    # a behavior change, whether or not the legacy module had a value there.
     recorded_windows: list[dict[str, object]] = []
+    pre_window_change = False
     post_window_change = False
     for pair in request.concept_map:
         for start, end in sorted(
             use_windows[pair.old], key=lambda item: (item[0], item[1] or date.max)
         ):
+            precedes = start < successor_start
             beyond = successor_end is not None and (end is None or end > successor_end)
+            pre_window_change = pre_window_change or precedes
             post_window_change = post_window_change or beyond
             recorded_windows.append(
                 {
                     "concept": pair.old,
                     "effective_from": start.isoformat(),
                     "effective_to": end.isoformat() if end is not None else None,
+                    "precedes_successor_window": precedes,
                     "extends_past_successor_window": beyond,
                 }
             )
@@ -936,6 +1119,7 @@ def prove_concept_map(
             successor_end.isoformat() if successor_end is not None else None
         ),
         dependent_use_windows=tuple(recorded_windows),
+        pre_window_behavior_change=pre_window_change,
         post_window_behavior_change=post_window_change,
     )
 
@@ -1085,20 +1269,24 @@ def rewrite_repoint_file(
         text = raw.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise SuccessorRepointError(f"{label} is not UTF-8") from exc
-    payload = _load_module(raw, label=label) if primary else yaml.safe_load(text)
     try:
+        payload = _load_module(raw, label=label) if primary else yaml.safe_load(text)
         root = yaml.compose(text)
+        expected = yaml.safe_load(text)
     except (yaml.YAMLError, RecursionError) as exc:
-        raise SuccessorRepointError(f"{label} is not composable YAML") from exc
+        raise SuccessorRepointError(f"{label} is not valid YAML") from exc
     if root is None:
         raise SuccessorRepointError(f"{label} is empty")
     value_nodes, key_nodes = _scalar_nodes(root)
+    legacy_module, _separator, legacy_stem = legacy_identity.partition(":")
+    if not legacy_module or not legacy_stem:
+        raise SuccessorRepointError("legacy identity is not a durable module identity")
+    stem_pattern = reference_stem_pattern(legacy_stem)
 
     edits: dict[int, tuple[int, int, str]] = {}
     authorized: set[int] = set()
     counts: dict[tuple[str, str], int] = {}
     hash_retargets = 0
-    expected = yaml.safe_load(text)
 
     def record(old: str, new: str) -> None:
         counts[(old, new)] = counts.get((old, new), 0) + 1
@@ -1192,7 +1380,7 @@ def rewrite_repoint_file(
                     authorized.add(id(node))
                     rewritten_value = formula
                     for old, new in sorted(renames.items()):
-                        rewritten_value = replace_formula_identifier(
+                        rewritten_value = replace_formula_symbol(
                             rewritten_value, old, new
                         )
                     if rewritten_value == formula:
@@ -1209,7 +1397,13 @@ def rewrite_repoint_file(
                         uses = len(_formula_symbol_uses(formula, old))
                         if not uses:
                             continue
-                        rewritten_span = replace_formula_identifier(
+                        if len(_formula_symbol_uses(rewritten_span, old)) != uses:
+                            raise SuccessorRepointError(
+                                f"{label} rules[{rule_index}].versions"
+                                f"[{version_index}].formula renders {old!r} "
+                                "differently in YAML source and value"
+                            )
+                        rewritten_span = replace_formula_symbol(
                             rewritten_span, old, new
                         )
                         for _ in range(uses):
@@ -1250,6 +1444,7 @@ def rewrite_repoint_file(
                     "atoms"
                 ][atom_index]["import"]
                 expected_atom["target"] = mapped
+                whole_module_target = "#" not in mapped
                 output = imported.get("output")
                 if output is not None:
                     output_node = value_nodes.get(base + ("output",))
@@ -1267,6 +1462,14 @@ def rewrite_repoint_file(
                     elif output in set(renames.values()):
                         raise SuccessorRepointError(
                             f"{label} {field}.output already names a successor concept"
+                        )
+                    elif whole_module_target:
+                        # The target now names the successor module, so an
+                        # unmapped output would silently name a concept the
+                        # successor does not export.
+                        raise SuccessorRepointError(
+                            f"{label} {field}.output names unmapped legacy concept "
+                            f"{output!r} of a whole-module legacy import"
                         )
                 if "hash" not in imported:
                     raise SuccessorRepointError(
@@ -1305,7 +1508,6 @@ def rewrite_repoint_file(
             renames=renames,
         )
 
-    legacy_pattern = _durable_pattern(legacy_identity)
     concept_patterns = {old: _identifier_pattern(old) for old in renames}
     for path, node in list(value_nodes.items()) + list(key_nodes.items()):
         if id(node) in authorized:
@@ -1314,7 +1516,7 @@ def rewrite_repoint_file(
         if not isinstance(value, str):
             continue
         location = ".".join(str(part) for part in path) or "<root>"
-        if legacy_pattern.search(value) is not None:
+        if stem_pattern.search(value) is not None:
             raise SuccessorRepointError(
                 f"{label} references the legacy module outside a rewritable surface: "
                 f"{location}"
@@ -1350,7 +1552,9 @@ def rewrite_repoint_file(
         raise SuccessorRepointError(
             f"{label} repoint rewrite changed an unauthorized YAML surface"
         )
-    if legacy_pattern.search(rewritten.decode("utf-8")) is not None:
+    # Comments are not YAML nodes, so the whole postimage text is checked for
+    # every reference form, not just the durable identity.
+    if stem_pattern.search(rewritten.decode("utf-8")) is not None:
         raise SuccessorRepointError(
             f"{label} still references the legacy module after the rewrite"
         )
@@ -1413,22 +1617,37 @@ def _replace_mapping_keys(
 
 
 def repoint_reference_inventory_issues(
-    files: Mapping[str, bytes],
+    candidates: Mapping[str, bytes],
     *,
     request: RepointRequest,
+    tracked: Collection[str],
+    retired_paths: Collection[str],
+    provenance_prefixes: Sequence[str],
 ) -> list[str]:
     """Fail closed on any legacy reference the transaction does not own.
 
-    ``files`` maps repo-relative paths to their clean-HEAD bytes.  Protected
-    RuleSpec references must belong to a declared dependent; ``programs/``
-    references must belong to a declared ProgramSpec scope update.
+    ``candidates`` maps every tracked path whose committed bytes contain the
+    legacy module's jurisdiction-less path stem to those bytes (the caller finds
+    them with one ``git grep`` over the whole tree, so every tracked text file is
+    inventoried); ``tracked`` is the full tracked path set.  The stem occurs in
+    every reference form: the durable identity, the jurisdiction-prefixed and
+    jurisdiction-less paths with or without a suffix, the companion, manifest
+    paths, and ProgramSpec scope entries.
+
+    A hit is owned only when the transaction retires the file (the legacy group
+    and every retired v1 manifest), rewrites it (a declared dependent or its
+    companion), reconciles it (a declared ProgramSpec or one of
+    ``METADATA_PATHS``), or it is not a hit at all.  Persisted provenance, the
+    metadata legacy replacement reconciles but a repoint does not, protected
+    RuleSpec, ProgramSpecs, and every other file are refusals.
     """
 
-    identity = request.legacy_identity
-    legacy_path = request.legacy_primary.as_posix()
-    legacy_companion = request.legacy_companion.as_posix()
-    scope_path = request.legacy_scope_path
-    owned = {legacy_path, legacy_companion}
+    pattern = request.legacy_reference_pattern
+    retired = {PurePosixPath(item).as_posix() for item in retired_paths}
+    retired |= {
+        request.legacy_primary.as_posix(),
+        request.legacy_companion.as_posix(),
+    }
     declared_dependents = {item.as_posix() for item in request.dependents}
     declared_dependents |= {
         companion_of(item).as_posix() for item in request.dependents
@@ -1436,63 +1655,62 @@ def repoint_reference_inventory_issues(
     declared_specs = {
         item.program_spec.as_posix() for item in request.program_scope_updates
     }
-
-    identity_pattern = _durable_pattern(identity)
-    path_pattern = _durable_pattern(legacy_path)
-    scope_pattern = _durable_pattern(scope_path)
+    metadata = {item.as_posix() for item in METADATA_PATHS}
+    unreconciled = {item.as_posix() for item in UNRECONCILED_METADATA_PATHS}
+    tracked_paths = {PurePosixPath(item).as_posix() for item in tracked}
 
     issues: list[str] = []
-    for path in sorted(files):
-        if path in owned:
+    for path in sorted(candidates):
+        if path in retired:
+            continue
+        try:
+            text = candidates[path].decode("utf-8")
+        except UnicodeDecodeError:
+            issues.append(f"{path} names the legacy module but is not UTF-8 text")
+            continue
+        if pattern.search(text) is None:
+            continue
+        if path in declared_dependents or path in declared_specs or path in metadata:
             continue
         relative = PurePosixPath(path)
         parts = relative.parts
-        protected = (
+        if any(path.startswith(prefix) for prefix in provenance_prefixes):
+            issues.append(
+                f"{path} is persisted provenance that names the legacy module; a "
+                "repoint never rewrites signed provenance"
+            )
+        elif path in unreconciled or parts[0] in UNRECONCILED_ROOTS:
+            issues.append(
+                f"{path} names the legacy module; a successor repoint does not "
+                "reconcile it, so retire that reference first"
+            )
+        elif (
             len(parts) >= 3
             and _JURISDICTION.fullmatch(parts[0]) is not None
             and parts[1] in PROTECTED_CONTENT_ROOTS
             and relative.suffix in {".yaml", ".yml"}
-        )
-        program = parts[0] == PROGRAM_SPEC_ROOT or (
+        ):
+            issues.append(
+                f"{path} references the legacy module but is not a declared dependent"
+            )
+        elif parts[0] == PROGRAM_SPEC_ROOT or (
             len(parts) >= 2 and parts[1] == PROGRAM_SPEC_ROOT
-        )
-        if not protected and not program:
-            continue
-        try:
-            text = files[path].decode("utf-8")
-        except UnicodeDecodeError:
-            issues.append(f"{path} is not UTF-8 and cannot be inventoried")
-            continue
-        if protected:
-            if (
-                identity_pattern.search(text) is None
-                and path_pattern.search(text) is None
-            ):
-                continue
-            if path not in declared_dependents:
-                issues.append(
-                    f"{path} references the legacy module but is not a declared "
-                    "dependent"
-                )
+        ):
+            issues.append(
+                f"{path} lists the legacy module but is not a declared "
+                "program_scope_updates entry"
+            )
         else:
-            if (
-                scope_pattern.search(text) is None
-                and identity_pattern.search(text) is None
-                and path_pattern.search(text) is None
-            ):
-                continue
-            if path not in declared_specs:
-                issues.append(
-                    f"{path} lists the legacy module but is not a declared "
-                    "program_scope_updates entry"
-                )
+            issues.append(
+                f"{path} references the legacy module and no repoint surface owns it"
+            )
     for path in sorted(declared_dependents):
         if path.endswith(_TEST_SUFFIX):
             continue
-        if path not in files:
+        if path not in tracked_paths:
             issues.append(f"declared dependent is not tracked at clean HEAD: {path}")
     for path in sorted(declared_specs):
-        if path not in files:
+        if path not in tracked_paths:
             issues.append(f"declared ProgramSpec is not tracked at clean HEAD: {path}")
     return issues
 
@@ -1500,6 +1718,10 @@ def repoint_reference_inventory_issues(
 # ---------------------------------------------------------------------------
 # Repoint-only metadata reconciliations
 # ---------------------------------------------------------------------------
+
+
+def _legacy_path_pattern(legacy_path: str) -> re.Pattern[str]:
+    return reference_stem_pattern(scope_module_path(PurePosixPath(legacy_path)))
 
 
 def reconcile_upstream_source_check_baseline(
@@ -1521,7 +1743,7 @@ def reconcile_upstream_source_check_baseline(
             "once"
         )
     rewritten = "".join(line for line in lines if line not in removed).encode("utf-8")
-    if _durable_pattern(legacy_path).search(rewritten.decode("utf-8")) is not None:
+    if _legacy_path_pattern(legacy_path).search(rewritten.decode("utf-8")) is not None:
         raise SuccessorRepointError(
             "upstream source-check baseline still names the legacy module"
         )
@@ -1562,9 +1784,67 @@ def reconcile_money_atom_ratchet(
         raise SuccessorRepointError(
             "money-atom ratchet removal changed a declared value"
         )
-    if _durable_pattern(legacy_path).search(rewritten.decode("utf-8")) is not None:
+    if _legacy_path_pattern(legacy_path).search(rewritten.decode("utf-8")) is not None:
         raise SuccessorRepointError("money-atom ratchet still names the legacy module")
     return rewritten, ({"operation": "remove_money_atom_backlog_entry", "count": 1},)
+
+
+def reconcile_program_scope(
+    raw: bytes,
+    *,
+    request: RepointRequest,
+    update: ProgramScopeUpdate,
+    country: str,
+) -> tuple[bytes, dict[str, object]]:
+    """Swap the legacy module for the successor in one declared ProgramSpec scope.
+
+    Pure over the committed bytes, so the guard can replay it from the
+    receipt's base commit.  The addition must resolve to the successor primary
+    itself; the caller has already proved that file is tracked and signed.
+    """
+
+    label = update.program_spec.as_posix()
+    try:
+        text = raw.decode("utf-8")
+        plan = plan_program_scope_update(
+            text,
+            program_spec=label,
+            country=country,
+            scope=update.scope,
+            add=[request.successor_scope_path],
+            remove=[request.legacy_scope_path],
+        )
+    except UnicodeDecodeError as exc:
+        raise SuccessorRepointError(f"ProgramSpec {label} is not UTF-8") from exc
+    except ProgramScopeError as exc:
+        raise SuccessorRepointError(
+            f"ProgramSpec scope sync failed for {label}: {exc}"
+        ) from exc
+    resolved = PurePosixPath(plan.prefix) / f"{request.successor_scope_path}.yaml"
+    if resolved != request.successor_primary:
+        raise SuccessorRepointError(
+            f"ProgramSpec {label} scope {update.scope!r} resolves the successor to "
+            f"{resolved.as_posix()}, not {request.successor_primary.as_posix()}"
+        )
+    if not plan.result.changed or plan.updated_text is None:
+        raise SuccessorRepointError(f"ProgramSpec scope sync made no change: {label}")
+    if request.legacy_scope_path not in plan.result.removed:
+        raise SuccessorRepointError(
+            f"ProgramSpec scope sync did not remove the legacy module: {label}"
+        )
+    rewritten = plan.updated_text.encode("utf-8")
+    if request.legacy_reference_pattern.search(plan.updated_text) is not None:
+        raise SuccessorRepointError(
+            f"ProgramSpec {label} still names the legacy module after the scope sync"
+        )
+    return rewritten, {
+        "program_spec": label,
+        "scope": update.scope,
+        "before_sha256": hashlib.sha256(raw).hexdigest(),
+        "after_sha256": hashlib.sha256(rewritten).hexdigest(),
+        "removed": list(plan.result.removed),
+        "added": list(plan.result.added),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1577,7 +1857,7 @@ def receipt_identity_payload(
     request_sha256: str,
     base_commit: str,
     base_tree: str,
-    legacy_manifest_sha256: str,
+    legacy_manifests: Sequence[Mapping[str, object]],
     successor_manifest_sha256: str,
     legacy_files: Sequence[Mapping[str, object]],
     successor_files: Sequence[Mapping[str, object]],
@@ -1594,7 +1874,7 @@ def receipt_identity_payload(
         "request_sha256": request_sha256,
         "base_commit": base_commit,
         "base_tree": base_tree,
-        "legacy_manifest_sha256": legacy_manifest_sha256,
+        "legacy_manifests": [dict(item) for item in legacy_manifests],
         "successor_manifest_sha256": successor_manifest_sha256,
         "legacy_files": [dict(item) for item in legacy_files],
         "successor_files": [dict(item) for item in successor_files],

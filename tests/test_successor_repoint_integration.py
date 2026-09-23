@@ -209,3 +209,72 @@ def test_postimage_is_byte_identical_to_the_diagnostic_diff(
     )
     assert result.returncode == 0, result.stderr.decode("utf-8", "replace")
     assert _postimage(sources, request_envelope, proofs) == expected.read_bytes()
+
+
+def test_the_whole_transaction_plans_from_the_real_commit(request_envelope):
+    """Replay the command's plan read-only from rulespec-us's Git objects.
+
+    This is exactly what the guard re-derives from a receipt's base commit:
+    digest-bound v1 ownership, the successor's model manifest shape, the
+    whole-tree reference inventory, the rewrite, and every metadata and
+    ProgramSpec reconciliation.  Nothing in the checkout is read or written.
+    """
+
+    from axiom_encode.cli import _plan_successor_repoint
+
+    repo = _checkout()
+    if repo.name != "rulespec-us":
+        pytest.skip("the checkout must be named rulespec-us")
+    plan = _plan_successor_repoint(
+        repo, commit=RULESPEC_REF, request=request_envelope, verify_live=False
+    )
+    assert plan.legacy_manifests == (
+        {
+            "path": (
+                ".axiom/encoding-manifests/policies/irs/rev-proc-2025-32/"
+                "earned-income-credit.json"
+            ),
+            "sha256": hashlib.sha256(
+                _blob(
+                    repo,
+                    ".axiom/encoding-manifests/policies/irs/rev-proc-2025-32/"
+                    "earned-income-credit.json",
+                )
+            ).hexdigest(),
+        },
+    )
+    (dependent,) = plan.dependent_records
+    assert [item["path"] for item in dependent["manifests"]] == [
+        ".axiom/encoding-manifests/us/statutes/26/32.json",
+        ".axiom/encoding-manifests/statutes/26/32.json",
+    ]
+    assert hashlib.sha256(plan.postimages[Path(DEPENDENT_PRIMARY)]).hexdigest() == (
+        EXPECTED_POSTIMAGE_SHA256
+    )
+    assert sorted(item["path"] for item in plan.metadata_records) == [
+        ".axiom/index/provisions_to_rules.json",
+        ".axiom/pending-validation-fingerprints.json",
+        ".axiom/toolchain.toml",
+        ".axiom/upstream-source-check-baseline.txt",
+        "known-missing-money-atoms.yaml",
+        "known-validation-gaps.yaml",
+    ]
+    (program,) = plan.program_records
+    assert program["program_spec"] == "programs/us/fiit/fy-2026.yaml"
+    assert program["removed"] == ["policies/irs/rev-proc-2025-32/earned-income-credit"]
+    assert program["added"] == ["policies/irs/rev-proc-2025-32/page-15"]
+    assert sorted(path.as_posix() for path in plan.deletions) == [
+        ".axiom/encoding-manifests/policies/irs/rev-proc-2025-32/"
+        "earned-income-credit.json",
+        ".axiom/encoding-manifests/statutes/26/32.json",
+        "us/policies/irs/rev-proc-2025-32/earned-income-credit.test.yaml",
+        LEGACY_PRIMARY,
+    ]
+    semantics = plan.proof_set.receipt_semantics()
+    assert semantics["post_window_behavior_change"] is True
+    assert semantics["pre_window_behavior_change"] is False
+    assert {
+        item["engine_lowering"]
+        for item in semantics["runtime_behavior_outside_successor_window"]
+    } == {"indexed_parameter", "scalar_parameter"}
+    assert plan.post_waiver_sha256 != plan.base_waiver_sha256
