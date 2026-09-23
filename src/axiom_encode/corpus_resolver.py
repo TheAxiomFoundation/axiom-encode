@@ -33,7 +33,12 @@ MAX_LOCAL_CORPUS_ROWS = 1_000_000
 MAX_COMPOSED_CORPUS_BYTES = 64 * 1024 * 1024
 MAX_COMPOSITION_NODES = 100_000
 MAX_COMPOSITION_PREFIX_BYTES = 64 * 1024 * 1024
-MAX_RELEASE_OBJECT_BYTES = 16 * 1024 * 1024
+# Release objects are pretty-printed on disk (json.dumps(indent=2)). The
+# us-rulespec-2026-09-14-wave4-r2-union object (1,042 scopes, 45,880
+# artifacts) is 25.2 MiB in that form, so 64 MiB leaves room for ~2.5x growth.
+# Signature verification needs the whole object in memory, so it stays one
+# bounded read rather than a streamed parse.
+MAX_RELEASE_OBJECT_BYTES = 64 * 1024 * 1024
 MAX_CORPUS_DESCENDANT_ROWS = 10_000
 PROOF_EVIDENCE_SEGMENT_SEPARATOR = "\n\x1e\n"
 MAX_CORPUS_CITATION_SEGMENT_LENGTH = 512
