@@ -44448,7 +44448,8 @@ def test_formula_witness_accepts_computed_transition_end_year(start):
     )
     kwargs = dict(
         interval=completeness_module._formula_branch_interval(
-            branch, extract_numeric_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR
+            branch,
+            extract_numeric_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
         ),
         formula_environment={},
         execution_environment={**constants, "year": start + 2, "elapsed_years": 3},
