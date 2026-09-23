@@ -870,35 +870,113 @@ def test_contract_admits_cryptographically_verified_retained_successor(
     ]
 
 
-def test_destination_manifest_claimant_scan_is_one_conservative_base_query(
+@pytest.mark.parametrize("encoding", ["literal", "slashes", "unicode"])
+@pytest.mark.parametrize("relative_path", [True, False])
+def test_destination_manifest_claimant_scan_decodes_all_base_json(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    encoding: str,
+    relative_path: bool,
 ) -> None:
-    base_commit = "a" * 40
+    checkout, _, _ = _generated_unicode_checkout(tmp_path)
     claimant = Path(".axiom/encoding-manifests/us/statutes/claimant.json")
-    commands: list[list[str]] = []
+    path = "us/statutes/42/1437c-1.yaml"
+    if relative_path:
+        path = path.removeprefix("us/")
+    raw = json.dumps({"applied_files": [{"path": path}]})
+    if encoding == "slashes":
+        raw = raw.replace("/", r"\/")
+    elif encoding == "unicode":
+        raw = raw.replace("s", r"\u0073").replace("4", r"\u0034")
+    (checkout / claimant).write_text(raw)
+    _git(checkout, "add", ".")
+    _git(checkout, "commit", "-qm", "encoded ownership")
+    base_commit = subprocess.check_output(
+        ["git", "-C", str(checkout), "rev-parse", "HEAD"], text=True
+    ).strip()
+    # Only the immutable base matters, even if a live file drops its claim.
+    (checkout / claimant).write_text("{}")
+    assert _legacy_destination_manifest_claimants_at_base(
+        checkout,
+        base_commit=base_commit,
+        destination_paths={Path("us/statutes/42/1437c-1.yaml")},
+    ) == [claimant]
 
-    def run(command, **_kwargs):
-        commands.append(command)
-        return subprocess.CompletedProcess(
-            command,
-            0,
-            stdout=f"{base_commit}:{claimant.as_posix()}\0".encode(),
-            stderr=b"",
+
+@pytest.mark.parametrize("raw", ["{", "[]", '{"path":"a","path":"b"}'])
+def test_destination_manifest_claimant_scan_fails_closed_on_unreadable_json(
+    tmp_path: Path,
+    raw: str,
+) -> None:
+    checkout, _, _ = _generated_unicode_checkout(tmp_path)
+    claimant = checkout / ".axiom/encoding-manifests/us/statutes/unrelated.json"
+    claimant.write_text(raw)
+    _git(checkout, "add", ".")
+    _git(checkout, "commit", "-qm", "unreadable ownership")
+    with pytest.raises(RuntimeError, match="manifest is unreadable"):
+        _legacy_destination_manifest_claimants_at_base(
+            checkout,
+            base_commit=subprocess.check_output(
+                ["git", "-C", str(checkout), "rev-parse", "HEAD"], text=True
+            ).strip(),
+            destination_paths={Path("us/statutes/42/1437c-1.yaml")},
         )
 
-    monkeypatch.setattr("axiom_encode.cli.subprocess.run", run)
 
+@pytest.mark.parametrize("name", ["README.md", ".gitkeep"])
+def test_destination_manifest_claimant_scan_ignores_regular_non_json(
+    tmp_path: Path,
+    name: str,
+) -> None:
+    checkout, _, _ = _generated_unicode_checkout(tmp_path)
+    extra = checkout / ".axiom/encoding-manifests" / name
+    extra.write_text("us/statutes/42/1437c-1.yaml")
+    _git(checkout, "add", ".")
+    _git(checkout, "commit", "-qm", "non-manifest documentation")
+    base = subprocess.check_output(
+        ["git", "-C", str(checkout), "rev-parse", "HEAD"], text=True
+    ).strip()
+    assert (
+        _legacy_destination_manifest_claimants_at_base(
+            checkout,
+            base_commit=base,
+            destination_paths={Path("us/statutes/42/1437c-1.yaml")},
+        )
+        == []
+    )
+
+
+def test_destination_manifest_claimant_scan_decodes_json_keys(tmp_path: Path) -> None:
+    checkout, _, _ = _generated_unicode_checkout(tmp_path)
+    claimant = Path(".axiom/encoding-manifests/us/statutes/claimant.json")
+    (checkout / claimant).write_text(
+        json.dumps({"us/statutes/42/1437c-1.yaml": {}}).replace("/", r"\/")
+    )
+    _git(checkout, "add", ".")
+    _git(checkout, "commit", "-qm", "escaped key ownership")
+    base = subprocess.check_output(
+        ["git", "-C", str(checkout), "rev-parse", "HEAD"], text=True
+    ).strip()
     assert _legacy_destination_manifest_claimants_at_base(
-        tmp_path,
-        base_commit=base_commit,
-        destination_paths={
-            Path("us/statutes/42/1437c-1.yaml"),
-            Path("us/statutes/42/1437c-1.test.yaml"),
-        },
+        checkout,
+        base_commit=base,
+        destination_paths={Path("us/statutes/42/1437c-1.yaml")},
     ) == [claimant]
-    assert len(commands) == 1
-    assert commands[0][3:9] == ["grep", "-z", "-l", "-a", "-F", "-e"]
+
+
+def test_destination_manifest_claimant_scan_rejects_symlink(tmp_path: Path) -> None:
+    checkout, _, _ = _generated_unicode_checkout(tmp_path)
+    claimant = checkout / ".axiom/encoding-manifests/us/statutes/claimant.json"
+    claimant.symlink_to("missing.json")
+    _git(checkout, "add", ".")
+    _git(checkout, "commit", "-qm", "symlink ownership")
+    with pytest.raises(RuntimeError, match="unsafe entry"):
+        _legacy_destination_manifest_claimants_at_base(
+            checkout,
+            base_commit=subprocess.check_output(
+                ["git", "-C", str(checkout), "rev-parse", "HEAD"], text=True
+            ).strip(),
+            destination_paths={Path("us/statutes/42/1437c-1.yaml")},
+        )
 
 
 @pytest.mark.parametrize(
@@ -989,7 +1067,7 @@ def test_canonical_destination_predecessor_rejects_malformed_manifest_candidate(
 
     with (
         patch("axiom_encode.cli.resolve_corpus_source_unit", return_value=source),
-        pytest.raises(ValueError, match="already manifest-owned"),
+        pytest.raises(ValueError, match="ownership is unreadable"),
     ):
         _resolve_legacy_replacement_contract(
             source_raw=Path("us/statutes/42/1437c–1.yaml"),

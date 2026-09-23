@@ -4374,3 +4374,32 @@ def test_persisted_receipt_requires_generated_destination_index(
         ), issues
     else:
         assert index_issues == [], issues
+
+
+@pytest.mark.parametrize("escaped", [False, True])
+def test_both_verifiers_reject_predecessor_with_encoded_base_owner(
+    tmp_path: Path,
+    escaped: bool,
+) -> None:
+    repo = _repo(tmp_path)
+    claimant = repo / ".axiom/encoding-manifests/us/policies/other-owner.json"
+    claimant.parent.mkdir(parents=True)
+    raw = json.dumps({"applied_files": [{"path": "us/statutes/47/32.yaml"}]})
+    if escaped:
+        raw = raw.replace("/", r"\/").replace("4", r"\u0034")
+    claimant.write_text(raw)
+    manifest, _receipt, _old_manifest, _metadata = _write_legacy_replacement_change(
+        repo,
+        destination_predecessor=True,
+    )
+    with pytest.raises(ValueError, match="already manifest-owned"):
+        authorized_changed_paths(repo)
+    issues = _legacy_replacement_manifest_issues(
+        json.loads(manifest.read_text()),
+        repo_path=repo,
+        manifest_label=manifest.relative_to(repo).as_posix(),
+        signing_broker=Ed25519PrivateKey.generate().public_key(),
+        expected_waiver_set_sha256="b" * 64,
+        local_corpus_release=None,
+    )
+    assert any("already manifest-owned" in issue for issue in issues)

@@ -8634,61 +8634,117 @@ def _legacy_destination_manifest_claimants_at_base(
 
     if not destination_paths:
         return []
-    patterns = sorted(
-        {
-            candidate
-            for path in destination_paths
-            for candidate in (
-                path.as_posix(),
-                path.relative_to(path.parts[0]).as_posix(),
-            )
-        }
-    )
+    patterns = {
+        candidate
+        for path in destination_paths
+        for candidate in (
+            path.as_posix(),
+            path.relative_to(path.parts[0]).as_posix(),
+        )
+    }
     if len(patterns) > 4:
         raise RuntimeError("Legacy destination predecessor group is oversized")
-    command = ["git", "-C", str(repo_path), "grep", "-z", "-l", "-a", "-F"]
-    for pattern in patterns:
-        command.extend(("-e", pattern))
-    command.extend((base_commit, "--"))
-    completed = subprocess.run(
-        command,
-        capture_output=True,
-        env=_rulespec_migration_git_environment(),
-        check=False,
+    listing = _rulespec_migration_git_bytes(
+        repo_path,
+        "ls-tree",
+        "-r",
+        "-l",
+        "-z",
+        "--full-tree",
+        base_commit,
+        "--",
+        APPLIED_ENCODING_MANIFEST_DIR.as_posix(),
     )
-    if completed.returncode not in {0, 1}:
-        stderr = completed.stderr.decode("utf-8", errors="replace").strip()
-        raise RuntimeError(
-            f"Cannot scan legacy destination manifest ownership: {stderr}"
-        )
-
-    prefix = f"{base_commit}:".encode()
-    claimants: set[Path] = set()
-    for encoded_candidate in completed.stdout.split(b"\0"):
-        if not encoded_candidate:
+    entries: list[tuple[Path, str, int]] = []
+    total_size = 0
+    for record in listing.split(b"\0"):
+        if not record:
             continue
-        if not encoded_candidate.startswith(prefix):
-            raise RuntimeError("Legacy destination manifest candidate is malformed")
         try:
-            candidate_text = encoded_candidate[len(prefix) :].decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise RuntimeError(
-                "Legacy destination manifest candidate is not UTF-8"
-            ) from exc
-        candidate = Path(candidate_text)
-        try:
+            metadata, encoded_path = record.split(b"\t", 1)
+            mode, object_type, object_id, raw_size = metadata.decode("ascii").split()
+            candidate_text = encoded_path.decode("utf-8")
+            candidate = Path(candidate_text)
             relative = candidate.relative_to(APPLIED_ENCODING_MANIFEST_DIR)
-        except ValueError:
-            continue
+            size = int(raw_size)
+        except (ValueError, UnicodeError) as exc:
+            raise RuntimeError("Legacy ownership inventory is malformed") from exc
         if (
             candidate.is_absolute()
             or candidate.as_posix() != candidate_text
             or any(part in {"", ".", ".."} for part in candidate.parts)
-            or candidate.suffix != ".json"
-            or len(relative.parts) < 2
+            or mode != "100644"
+            or object_type != "blob"
+            or re.fullmatch(r"[0-9a-f]{40}", object_id) is None
+            or size < 0
         ):
-            raise RuntimeError("Legacy destination manifest candidate is malformed")
-        claimants.add(candidate)
+            raise RuntimeError("Legacy ownership inventory contains an unsafe entry")
+        if candidate.suffix != ".json":
+            continue
+        if len(relative.parts) < 2 or size > 4 * 1024 * 1024:
+            raise RuntimeError("Legacy ownership manifest exceeds shape or size limits")
+        entries.append((candidate, object_id, size))
+        total_size += size
+        if len(entries) > 20000 or total_size > 64 * 1024 * 1024:
+            raise RuntimeError("Legacy ownership inventory exceeds verification limits")
+    if not entries:
+        return []
+    # Tree sizes bound the batch before reading it. Object IDs, rather than
+    # path expressions, keep escaped names and revision syntax out of the protocol.
+    completed = subprocess.run(
+        ["git", "-C", str(repo_path), "cat-file", "--batch"],
+        input="".join(f"{oid}\n" for _, oid, _ in entries).encode("ascii"),
+        capture_output=True,
+        env=_rulespec_migration_git_environment(),
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError("Cannot read legacy ownership manifest inventory")
+
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate JSON field")
+            result[key] = value
+        return result
+
+    claimants: list[Path] = []
+    offset = 0
+    for candidate, object_id, size in entries:
+        header = f"{object_id} blob {size}\n".encode("ascii")
+        if completed.stdout[offset : offset + len(header)] != header:
+            raise RuntimeError("Legacy ownership batch header differs from base")
+        offset += len(header)
+        raw = completed.stdout[offset : offset + size]
+        offset += size
+        if completed.stdout[offset : offset + 1] != b"\n":
+            raise RuntimeError("Legacy ownership batch is truncated")
+        offset += 1
+        try:
+            payload = json.loads(raw.decode("utf-8"), object_pairs_hook=unique_object)
+            if not isinstance(payload, dict):
+                raise ValueError("manifest is not an object")
+        except (ValueError, UnicodeError, RecursionError) as exc:
+            raise RuntimeError(
+                f"Legacy ownership manifest is unreadable: {candidate.as_posix()}"
+            ) from exc
+        # Keep the historical conservative rule: any mention can be a claim.
+        # Decode every JSON string first so escaped slashes and Unicode cannot
+        # hide ownership from immutable-base verification.
+        pending: list[object] = [payload]
+        while pending:
+            value = pending.pop()
+            if isinstance(value, str) and any(pattern in value for pattern in patterns):
+                claimants.append(candidate)
+                break
+            if isinstance(value, dict):
+                pending.extend(value.keys())
+                pending.extend(value.values())
+            elif isinstance(value, list):
+                pending.extend(value)
+    if offset != len(completed.stdout):
+        raise RuntimeError("Legacy ownership batch has unexpected trailing bytes")
     return sorted(claimants, key=Path.as_posix)
 
 
@@ -29240,11 +29296,16 @@ def _resolve_legacy_replacement_contract(
                     predecessor_raw,
                 )
             )
-        claimants = _legacy_destination_manifest_claimants_at_base(
-            policy_checkout_path,
-            base_commit=base_commit,
-            destination_paths={item.path for item in destination_predecessor_files},
-        )
+        try:
+            claimants = _legacy_destination_manifest_claimants_at_base(
+                policy_checkout_path,
+                base_commit=base_commit,
+                destination_paths={item.path for item in destination_predecessor_files},
+            )
+        except RuntimeError as exc:
+            raise ValueError(
+                f"legacy destination predecessor ownership is unreadable: {exc}"
+            ) from exc
         if claimants:
             raise ValueError(
                 "legacy replacement canonical destination predecessor is already "
