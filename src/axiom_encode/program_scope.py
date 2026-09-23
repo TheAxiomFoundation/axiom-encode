@@ -96,6 +96,12 @@ def _scope_prefix(program: str, scope: str) -> str:
     return scope
 
 
+def normalize_scope_path(value: str) -> str:
+    """Return the canonical scope entry one ProgramSpec string resolves to."""
+
+    return _normalize_scope_path(value)
+
+
 def _updated_scope_text(
     *,
     text: str,
@@ -378,6 +384,9 @@ def sync_program_scope(
 
     with absolute_spec.open(encoding="utf-8", newline="") as source:
         text = source.read()
+    # Validate without rendering first so path and module-existence refusals
+    # keep precedence over a render refusal, exactly as before the planner
+    # was extracted; render only once every filesystem check has passed.
     plan = plan_program_scope_update(
         text,
         program_spec=spec_rel.as_posix(),
@@ -385,7 +394,7 @@ def sync_program_scope(
         scope=scope,
         add=add,
         remove=remove,
-        render=write,
+        render=False,
     )
     prefix = plan.prefix
     lexical_scope_root = repo / prefix
@@ -419,6 +428,14 @@ def sync_program_scope(
         )
 
     if plan.result.changed and write:
+        plan = plan_program_scope_update(
+            text,
+            program_spec=spec_rel.as_posix(),
+            country=repo.name.removeprefix("rulespec-"),
+            scope=scope,
+            add=add,
+            remove=remove,
+        )
         assert plan.updated_text is not None
         temporary_path: Path | None = None
         try:

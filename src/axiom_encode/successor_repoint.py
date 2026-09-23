@@ -46,8 +46,11 @@ import yaml
 from yaml.nodes import MappingNode, Node, ScalarNode, SequenceNode
 
 from .constants import RULESPEC_ATOMIC_MODULE_ROOTS, RULESPEC_COMPOSITION_SPEC_ROOT
-from .legacy_exact_dependent_concepts import formula_segments
-from .program_scope import ProgramScopeError, plan_program_scope_update
+from .program_scope import (
+    ProgramScopeError,
+    normalize_scope_path,
+    plan_program_scope_update,
+)
 
 ENVELOPE_SCHEMA: Final = "axiom-encode/legacy-successor-repoint/v1"
 RECEIPT_SCHEMA: Final = "axiom-encode/legacy-successor-repoint-receipt/v1"
@@ -476,14 +479,32 @@ _OUTSIDE_WINDOW_ERRORS: Final = {
 }
 
 
-def engine_lowering(rule: Mapping[str, object]) -> str:
-    """Classify how the engine lowers one proved ``kind: parameter`` concept."""
+_UNSIGNED_LITERAL = re.compile(r"(?:0|[1-9][0-9]*)(?:\.[0-9]+)?")
 
-    if rule.get("indexed_by") is not None:
+
+def engine_lowering(rule: Mapping[str, object]) -> str:
+    """Classify how the engine lowers one proved ``kind: parameter`` concept.
+
+    A values table is an indexed parameter whatever else the rule declares
+    (``is_parameter_table``).  Otherwise the rule goes through the formula
+    layer, where only a no-entity rule whose every version is a literal becomes
+    a scalar parameter; ``-50`` parses as a unary negation, not a literal, so a
+    negative value lowers to a derived rule.
+    """
+
+    versions = rule.get("versions")
+    if isinstance(versions, list) and any(
+        isinstance(version, dict) and version.get("values") for version in versions
+    ):
         return ENGINE_LOWERING_INDEXED_PARAMETER
-    if rule.get("entity") is None:
-        return ENGINE_LOWERING_SCALAR_PARAMETER
-    return ENGINE_LOWERING_DERIVED
+    if rule.get("entity") is not None or not isinstance(versions, list):
+        return ENGINE_LOWERING_DERIVED
+    for version in versions:
+        formula = version.get("formula") if isinstance(version, dict) else None
+        text = str(formula).strip() if isinstance(formula, (int, float, str)) else ""
+        if isinstance(formula, bool) or _UNSIGNED_LITERAL.fullmatch(text) is None:
+            return ENGINE_LOWERING_DERIVED
+    return ENGINE_LOWERING_SCALAR_PARAMETER
 
 
 @dataclass(frozen=True, slots=True)
@@ -734,6 +755,53 @@ def _probe_dates(
     return tuple(sorted(probes))
 
 
+def _formula_code_segments(formula: str) -> tuple[tuple[bool, str], ...]:
+    """Split formula text into code and non-code (string, docstring, comment).
+
+    Mirrors the axiom-rules-engine lexer at af6e4ea (src/formula.rs:175-310):
+    a triple-quoted block is skipped, ``#`` outside a string runs to the end of
+    the line, and a string opened by ``"`` or ``'`` ends at the same quote with
+    backslash escapes.  A quote inside a comment opens nothing.
+    """
+
+    segments: list[tuple[bool, str]] = []
+    start = 0
+    index = 0
+    length = len(formula)
+
+    def close(end: int, *, code: bool) -> None:
+        nonlocal start
+        if start < end:
+            segments.append((code, formula[start:end]))
+        start = end
+
+    while index < length:
+        character = formula[index]
+        if formula.startswith('"""', index):
+            close(index, code=True)
+            closing = formula.find('"""', index + 3)
+            index = length if closing < 0 else closing + 3
+            close(index, code=False)
+            continue
+        if character == "#":
+            close(index, code=True)
+            newline = formula.find("\n", index)
+            index = length if newline < 0 else newline
+            close(index, code=False)
+            continue
+        if character in {'"', "'"}:
+            close(index, code=True)
+            index += 1
+            while index < length and formula[index] != character:
+                index += 2 if formula[index] == "\\" else 1
+            index = min(index + 1, length)
+            close(index, code=False)
+            continue
+        index += 1
+    close(length, code=True)
+    return tuple(segments)
+
+
 def _formula_symbol_pattern(name: str) -> re.Pattern[str]:
     return re.compile(
         rf"(?<![{_FORMULA_LEFT_BOUNDARY}]){re.escape(name)}"
@@ -742,12 +810,15 @@ def _formula_symbol_pattern(name: str) -> re.Pattern[str]:
 
 
 def replace_formula_symbol(text: str, old: str, new: str) -> str:
-    """Rename every unquoted bare use of ``old``, leaving ``x.old`` alone."""
+    """Rename every bare use of ``old`` in formula code, leaving ``x.old`` alone.
+
+    Strings, docstrings and comments are not code and are never rewritten.
+    """
 
     pattern = _formula_symbol_pattern(old)
     return "".join(
-        pattern.sub(lambda _match: new, segment) if unquoted else segment
-        for unquoted, segment in formula_segments(text)
+        pattern.sub(lambda _match: new, segment) if code else segment
+        for code, segment in _formula_code_segments(text)
     )
 
 
@@ -760,8 +831,8 @@ def _formula_symbol_uses(formula: str, name: str) -> tuple[int | None, ...]:
 
     pattern = _formula_symbol_pattern(name)
     uses: list[int | None] = []
-    for unquoted, segment in formula_segments(formula):
-        if not unquoted:
+    for code, segment in _formula_code_segments(formula):
+        if not code:
             continue
         for match in pattern.finditer(segment):
             tail = segment[match.end() :]
@@ -958,14 +1029,51 @@ def prove_concept_map(
                     f"dependent {path} references unmapped legacy concept {fragment!r}"
                 )
             reference_uses[fragment] += count
+        whole_module = imported_concepts is None
+        if whole_module:
+            # After the rewrite the dependent imports the whole successor, so
+            # every successor export becomes visible to its formulas.
+            clashes = sorted(set(successor_rules) & set(local_rules))
+            if clashes:
+                raise SuccessorRepointError(
+                    f"dependent {path} defines names the successor module exports: "
+                    + ", ".join(clashes)
+                )
+        mapped_targets = set(renames.values())
         for formula, start, end in _dependent_formula_versions(
             payload, label=f"dependent {path}"
         ):
+            if whole_module:
+                # A bare legacy export the map does not cover would silently
+                # rebind to whatever the successor exports under that name, and
+                # a successor export the dependent already names (through
+                # another import) would change what it resolves to.
+                unmapped = sorted(
+                    name
+                    for name in set(legacy_rules) - set(renames)
+                    if _formula_symbol_uses(formula, name)
+                )
+                if unmapped:
+                    raise SuccessorRepointError(
+                        f"dependent {path} uses unmapped legacy concepts through "
+                        "the whole-module import: " + ", ".join(unmapped)
+                    )
+                rebound = sorted(
+                    name
+                    for name in set(successor_rules) - mapped_targets
+                    if _formula_symbol_uses(formula, name)
+                )
+                if rebound:
+                    raise SuccessorRepointError(
+                        f"dependent {path} already uses names the successor module "
+                        "exports, which the whole-module import would rebind: "
+                        + ", ".join(rebound)
+                    )
             for old in renames:
                 uses = _formula_symbol_uses(formula, old)
                 if not uses:
                     continue
-                if imported_concepts is not None and old not in imported_concepts:
+                if not whole_module and old not in imported_concepts:
                     raise SuccessorRepointError(
                         f"dependent {path} uses {old!r} in a formula without "
                         "importing it from the legacy module"
@@ -1016,7 +1124,8 @@ def prove_concept_map(
                 "the legacy module does not cover"
             )
         probes = _probe_dates(window=window, ladders=(old_versions, new_versions))
-        keys: tuple[int, ...] = ()
+        # Only keys defined throughout the window are safe to subscript.
+        common_keys: set[int] | None = None
         for probe in probes:
             old_values = _active(old_versions, probe)
             new_values = _active(new_versions, probe)
@@ -1044,7 +1153,12 @@ def prove_concept_map(
                     f"concept {pair.old!r} -> {pair.new!r} differs at "
                     f"{probe.isoformat()} for keys {differing}"
                 )
-            keys = tuple(sorted(new_values))
+            common_keys = (
+                set(new_values)
+                if common_keys is None
+                else common_keys & set(new_values)
+            )
+        keys = tuple(sorted(common_keys or ()))
 
         uses = formula_uses[pair.old]
         literal = tuple(sorted({use for use in uses if use is not None}))
@@ -1059,7 +1173,8 @@ def prove_concept_map(
             if missing:
                 raise SuccessorRepointError(
                     f"concept {pair.old!r} -> {pair.new!r} is subscripted with keys "
-                    f"{missing} that the successor table does not define"
+                    f"{missing} that the successor table does not define throughout "
+                    "its window"
                 )
         window_starts.add(window[0])
         window_ends.add(window[1])
@@ -1413,11 +1528,9 @@ def rewrite_repoint_file(
                         "formula"
                     ] = rewritten_value
 
-            atoms = (
-                rule.get("metadata", {}).get("proof", {}).get("atoms")
-                if isinstance(rule, dict) and isinstance(rule.get("metadata"), dict)
-                else None
-            )
+            metadata = rule.get("metadata") if isinstance(rule, dict) else None
+            proof = metadata.get("proof") if isinstance(metadata, dict) else None
+            atoms = proof.get("atoms") if isinstance(proof, dict) else None
             if not isinstance(atoms, list):
                 continue
             for atom_index, atom in enumerate(atoms):
@@ -1591,7 +1704,13 @@ def _replace_mapping_keys(
                 if isinstance(key, str)
                 else None
             )
-            result[mapped if mapped is not None else key] = _replace_mapping_keys(
+            target = mapped if mapped is not None else key
+            if target in result or (mapped is not None and mapped in value):
+                raise SuccessorRepointError(
+                    f"companion test key {key!r} would collide with {target!r} "
+                    "after the repoint"
+                )
+            result[target] = _replace_mapping_keys(
                 item,
                 legacy_identity=legacy_identity,
                 successor_identity=successor_identity,
@@ -1614,6 +1733,44 @@ def _replace_mapping_keys(
 # ---------------------------------------------------------------------------
 # Reference inventory
 # ---------------------------------------------------------------------------
+
+
+def is_program_spec_path(path: PurePosixPath) -> bool:
+    """Return whether one repo path is a ProgramSpec (``programs/`` or nested)."""
+
+    parts = path.parts
+    return path.suffix == ".yaml" and (
+        (len(parts) >= 2 and parts[0] == PROGRAM_SPEC_ROOT)
+        or (len(parts) >= 3 and parts[1] == PROGRAM_SPEC_ROOT)
+    )
+
+
+def program_spec_lists_module(raw: bytes, scope_path: str) -> bool:
+    """Return whether any ProgramSpec scope entry normalizes to ``scope_path``.
+
+    ``program-scope-sync`` normalizes entries (``a//b``, ``a/./b``, a trailing
+    ``/``), so a textual search alone could miss a spelling it would resolve.
+    """
+
+    try:
+        payload = yaml.safe_load(raw.decode("utf-8"))
+    except (UnicodeError, yaml.YAMLError, RecursionError):
+        return False
+    scope = payload.get("scope") if isinstance(payload, dict) else None
+    if not isinstance(scope, dict):
+        return False
+    for entries in scope.values():
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, str):
+                continue
+            try:
+                if normalize_scope_path(entry) == scope_path:
+                    return True
+            except ProgramScopeError:
+                continue
+    return False
 
 
 def repoint_reference_inventory_issues(
@@ -1663,16 +1820,21 @@ def repoint_reference_inventory_issues(
     for path in sorted(candidates):
         if path in retired:
             continue
+        raw = candidates[path]
+        relative = PurePosixPath(path)
         try:
-            text = candidates[path].decode("utf-8")
+            text = raw.decode("utf-8")
         except UnicodeDecodeError:
-            issues.append(f"{path} names the legacy module but is not UTF-8 text")
+            if request.legacy_scope_path.encode("utf-8") in raw:
+                issues.append(f"{path} names the legacy module but is not UTF-8 text")
             continue
-        if pattern.search(text) is None:
+        if pattern.search(text) is None and not (
+            is_program_spec_path(relative)
+            and program_spec_lists_module(raw, request.legacy_scope_path)
+        ):
             continue
         if path in declared_dependents or path in declared_specs or path in metadata:
             continue
-        relative = PurePosixPath(path)
         parts = relative.parts
         if any(path.startswith(prefix) for prefix in provenance_prefixes):
             issues.append(
@@ -1693,9 +1855,7 @@ def repoint_reference_inventory_issues(
             issues.append(
                 f"{path} references the legacy module but is not a declared dependent"
             )
-        elif parts[0] == PROGRAM_SPEC_ROOT or (
-            len(parts) >= 2 and parts[1] == PROGRAM_SPEC_ROOT
-        ):
+        elif is_program_spec_path(relative):
             issues.append(
                 f"{path} lists the legacy module but is not a declared "
                 "program_scope_updates entry"
@@ -1795,12 +1955,16 @@ def reconcile_program_scope(
     request: RepointRequest,
     update: ProgramScopeUpdate,
     country: str,
+    final: bool = True,
 ) -> tuple[bytes, dict[str, object]]:
     """Swap the legacy module for the successor in one declared ProgramSpec scope.
 
     Pure over the committed bytes, so the guard can replay it from the
     receipt's base commit.  The addition must resolve to the successor primary
     itself; the caller has already proved that file is tracked and signed.
+    When one ProgramSpec lists the module in several declared scopes, the
+    caller chains the updates and only the ``final`` one checks that no
+    reference to the legacy module remains.
     """
 
     label = update.program_spec.as_posix()
@@ -1833,7 +1997,10 @@ def reconcile_program_scope(
             f"ProgramSpec scope sync did not remove the legacy module: {label}"
         )
     rewritten = plan.updated_text.encode("utf-8")
-    if request.legacy_reference_pattern.search(plan.updated_text) is not None:
+    if final and (
+        request.legacy_reference_pattern.search(plan.updated_text) is not None
+        or program_spec_lists_module(rewritten, request.legacy_scope_path)
+    ):
         raise SuccessorRepointError(
             f"ProgramSpec {label} still names the legacy module after the scope sync"
         )
