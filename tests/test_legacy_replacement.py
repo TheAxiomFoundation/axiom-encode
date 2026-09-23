@@ -2404,3 +2404,168 @@ def test_empty_overlay_pruning_rejects_target_equal_to_protected_floor(
         match="strict descendant of its protected prune floor",
     ):
         _prune_empty_overlay_parent_directories(checkout, [protected_floor])
+
+
+def _new_index_candidate(citation: str) -> bytes:
+    return (
+        "format: rulespec/v1\nmodule:\n  source_verification:\n"
+        f"    corpus_citation_path: {citation}\nrules: []\n"
+    ).encode()
+
+
+def test_absent_canonical_index_uses_final_bytes_and_refinalizes(
+    tmp_path: Path,
+) -> None:
+    from axiom_encode.cli import _finalize_legacy_exact_dependents_from_overlay
+
+    checkout, content_root, source = _legacy_checkout(tmp_path)
+    index = checkout / ".axiom/index/provisions_to_rules.json"
+    index.write_text(
+        json.dumps(
+            {
+                "provisions": {
+                    "legacy/source": [
+                        {"module": "us-la/statutes/47:32.yaml", "via": ["module"]}
+                    ],
+                    "unrelated/source": [
+                        {"module": "us/keep.yaml", "via": ["proof_atom"]}
+                    ],
+                }
+            }
+        )
+        + "\n"
+    )
+    original_index = index.read_bytes()
+    _git(checkout, "add", ".")
+    _git(checkout, "commit", "-qm", "index with absent canonical destination")
+    with patch("axiom_encode.cli.resolve_corpus_source_unit", return_value=source):
+        contract = _resolve_legacy_replacement_contract(
+            source_raw=Path("us-la/statutes/47:32.yaml"),
+            destination_raw=Path("us-la/statutes/47/32.yaml"),
+            policy_checkout_path=checkout,
+            policy_repo_path=content_root,
+            source_unit=source,
+            corpus_release=SimpleNamespace(),
+        )
+    assert contract.provision_index_base.raw == original_index
+    assert not contract.provision_index_finalized
+    assert all(item.path != index.relative_to(checkout) for item in contract.rewrites)
+    stage_legacy_replacement_overlay(contract, checkout)
+    destination = checkout / contract.destination
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    for citation in ("generated/source", "repaired/source"):
+        destination.write_bytes(_new_index_candidate(citation))
+        contract, issues = _finalize_legacy_exact_dependents_from_overlay(
+            contract,
+            overlay_checkout_root=checkout,
+            overlay_content_root=content_root,
+        )
+        assert issues == []
+        assert contract.provision_index_finalized
+        assert json.loads(index.read_bytes()) == {
+            "provisions": {
+                citation: [{"module": "us-la/statutes/47/32.yaml", "via": ["module"]}],
+                "unrelated/source": [{"module": "us/keep.yaml", "via": ["proof_atom"]}],
+            }
+        }
+        reconciliation = next(
+            item
+            for item in contract.metadata_reconciliations
+            if item.path == index.relative_to(checkout)
+        )
+        assert (
+            reconciliation.before_sha256 == hashlib.sha256(original_index).hexdigest()
+        )
+        assert (
+            reconciliation.after_sha256
+            == hashlib.sha256(index.read_bytes()).hexdigest()
+        )
+    index.write_text("{}")
+    result, issues = _finalize_legacy_exact_dependents_from_overlay(
+        contract,
+        overlay_checkout_root=checkout,
+        overlay_content_root=content_root,
+    )
+    assert result is None
+    assert any("overlay changed" in issue for issue in issues)
+
+
+@pytest.mark.parametrize(
+    "module", ["us/unauthorized.yaml", "us-la/statutes/47:32.yaml"]
+)
+def test_new_index_rejects_unauthorized_destination(module: str) -> None:
+    with pytest.raises(ValueError, match="unauthorized new replacement"):
+        _legacy_metadata_reconciliation_bytes(
+            Path(".axiom/index/provisions_to_rules.json"),
+            json.dumps(
+                {"provisions": {"old": [{"module": "us-la/statutes/47:32.yaml"}]}}
+            ).encode(),
+            moves=[
+                PlannedMove(
+                    Path("us-la/statutes/47:32.yaml"), Path("us-la/statutes/47/32.yaml")
+                )
+            ],
+            new_destination_modules={module: _new_index_candidate("generated/source")},
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "none",
+        "tampered",
+        "missing",
+        "duplicate",
+        "wrong-destination",
+        "existing-destination",
+        "symlink",
+        "no-file",
+    ],
+)
+def test_receipt_new_index_requires_exact_signed_primary(
+    tmp_path: Path, mutation: str
+) -> None:
+    from axiom_encode.cli import _signed_replacement_index_postimages
+    from axiom_encode.corpus_resolver import UnsafeCorpusPathError
+
+    destination = "us-la/statutes/47/32.yaml"
+    path = tmp_path / destination
+    path.parent.mkdir(parents=True)
+    raw = _new_index_candidate("source/new")
+    path.write_bytes(raw)
+    replacement = {
+        "destination": destination,
+        "destination_predecessor_class": "absent",
+    }
+    nested = {
+        "applied_files": [
+            {"path": destination, "sha256": hashlib.sha256(raw).hexdigest()}
+        ]
+    }
+    moves = [PlannedMove(Path("us-la/statutes/47:32.yaml"), Path(destination))]
+    if mutation == "tampered":
+        path.write_bytes(_new_index_candidate("source/injected"))
+    elif mutation == "missing":
+        nested["applied_files"] = []
+    elif mutation == "duplicate":
+        nested["applied_files"] *= 2
+    elif mutation == "wrong-destination":
+        replacement["destination"] = "us/other.yaml"
+    elif mutation == "existing-destination":
+        replacement["destination_predecessor_class"] = "canonicalized_unowned_duplicate"
+    elif mutation == "symlink":
+        target = tmp_path / "other.yaml"
+        target.write_bytes(raw)
+        path.unlink()
+        path.symlink_to(target)
+    elif mutation == "no-file":
+        path.unlink()
+    if mutation == "none":
+        assert _signed_replacement_index_postimages(
+            tmp_path, replacement=replacement, nested=nested, moves=moves
+        ) == {destination: raw}
+    else:
+        with pytest.raises((OSError, ValueError, UnsafeCorpusPathError)):
+            _signed_replacement_index_postimages(
+                tmp_path, replacement=replacement, nested=nested, moves=moves
+            )
