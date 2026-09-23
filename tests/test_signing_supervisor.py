@@ -2067,6 +2067,79 @@ def test_targeted_signed_reencode_reconciles_retired_inventory_before_commits() 
     )
 
 
+_APPLY_SIGNER = "/opt/axiom-verification/axiom-encode-apply-signer run"
+_SIGNING_SUPERVISOR = "/opt/axiom-verification/axiom-encode-signing-supervisor"
+_APPLY_SIGNER_BINDING = [
+    "--scope",
+    "apply_ed25519",
+    "--key-env",
+    "AXIOM_ENCODE_APPLY_SIGNING_KEY",
+    "--supervisor",
+    _SIGNING_SUPERVISOR,
+    "--trusted-signing-roots",
+    "/opt/axiom-verification/signing-trust-roots.json",
+    "--trusted-python-runtime-root",
+    "/opt/axiom-verification/python",
+    "--trusted-python-import-root",
+    "/opt/axiom-verification/python/lib/python3.13/site-packages",
+    "--trusted-python-package-root",
+    "/opt/axiom-verification/python/lib/python3.13/site-packages/axiom_encode",
+    "--expected-github-repository",
+    "TheAxiomFoundation/axiom-encode",
+    "--allowed-workflow-ref",
+    "TheAxiomFoundation/axiom-encode/.github/workflows/"
+    "targeted-signed-reencode.yml@refs/heads/main",
+    "--allowed-event-name",
+    "workflow_dispatch",
+]
+
+
+def _apply_signer_commands(run: str) -> list[list[str]]:
+    """Return the command after ``--`` of every apply-signer invocation.
+
+    Each invocation must carry exactly the workflow binding flags, in order,
+    before its ``--`` separator; anything else fails the assertion here.
+    """
+
+    words = shlex.split(run.replace("\\\n", " "), comments=True)
+    commands: list[list[str]] = []
+    index = 0
+    while index < len(words):
+        if words[index : index + 2] != _APPLY_SIGNER.split():
+            index += 1
+            continue
+        separator = words.index("--", index + 2)
+        assert words[index + 2 : separator] == _APPLY_SIGNER_BINDING
+        end = separator + 1
+        while end < len(words) and words[end] not in {"&&", "||", ";", "|"}:
+            end += 1
+        commands.append(words[separator + 1 : end])
+        index = end
+    return commands
+
+
+def _direct_supervisor_lines(run: str) -> list[int]:
+    """Return the line numbers that invoke the signing supervisor directly."""
+
+    return [
+        number
+        for number, line in enumerate(run.splitlines())
+        if line.strip().startswith(_SIGNING_SUPERVISOR)
+    ]
+
+
+def _inside_key_free_subshell(run: str, line_number: int) -> bool:
+    """Return whether a direct supervisor call follows an unset in its subshell."""
+
+    lines = [line.strip() for line in run.splitlines()[:line_number]]
+    for line in reversed(lines):
+        if line == "unset AXIOM_ENCODE_APPLY_SIGNING_KEY":
+            return True
+        if line == "(":
+            return False
+    return False
+
+
 def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     workflow = yaml.safe_load(
         (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
@@ -2924,18 +2997,28 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert apply_step["if"] == (
         "steps.successor_repoint_request.outputs.successor_repoint != 'true'"
     )
-    assert "OPENAI_API_KEY" not in repoint_step["env"]
-    assert "AXIOM_ENCODE_SUPABASE_SECRET_KEY" not in repoint_step["env"]
-    assert (
-        "-- /opt/axiom-verification/axiom-encode repoint-legacy-successor"
-        in repoint_step["run"]
-    )
-    assert (
-        '--request "$RUNNER_TEMP/successor-repoint-request.json"' in repoint_step["run"]
-    )
-    assert '--policy-repo-path "$RULESPEC_CHECKOUT"' in repoint_step["run"]
-    assert '--corpus-path "$GITHUB_WORKSPACE/axiom-corpus"' in repoint_step["run"]
-    assert "--trusted-signing-roots" in repoint_step["run"]
+    # No model credential, Supabase secret, or dispatch citation reaches it.
+    assert set(repoint_step["env"]) == {
+        "PYTHONUNBUFFERED",
+        "AXIOM_ENCODE_APPLY_SIGNING_KEY",
+        "RULESPEC_CHECKOUT",
+    }
+    assert "CITATION" not in repoint_step["run"]
+    assert _apply_signer_commands(repoint_step["run"]) == [
+        [
+            "/opt/axiom-verification/axiom-encode",
+            "repoint-legacy-successor",
+            "--request",
+            "$RUNNER_TEMP/successor-repoint-request.json",
+            "--policy-repo-path",
+            "$RULESPEC_CHECKOUT",
+            "--axiom-rules-engine-path",
+            "$GITHUB_WORKSPACE/axiom-rules-engine",
+            "--corpus-path",
+            "$GITHUB_WORKSPACE/axiom-corpus",
+        ]
+    ]
+    assert _direct_supervisor_lines(repoint_step["run"]) == []
 
     request_step = next(
         step
@@ -2946,6 +3029,8 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert "successor-repoint-request" in request_step["run"]
     assert 'echo "successor_repoint=true" >> "$GITHUB_OUTPUT"' in request_step["run"]
     assert 'echo "successor_repoint=false" >> "$GITHUB_OUTPUT"' in request_step["run"]
+    assert '[ -n "${QUEUE_ID:-}" ]' in request_step["run"]
+    assert request_step["env"]["QUEUE_ID"] == "${{ inputs.queue_id }}"
     assert "AXIOM_ENCODE_APPLY_SIGNING_KEY" not in (request_step.get("env") or {})
     assert steps.index(request_step) < steps.index(repoint_step)
     assert steps.index(repoint_step) < steps.index(apply_step)
@@ -2956,6 +3041,18 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         if "AXIOM_ENCODE_APPLY_SIGNING_KEY" in (step.get("env") or {})
     ]
     assert secret_steps == [repoint_step, apply_step]
+    # Every step that carries the apply-signing secret reaches the signing
+    # supervisor only through the workflow-bound apply signer, with the exact
+    # scope, key, supervisor, trust roots, repository, ref and event binding.
+    # A direct supervisor call is allowed only in a subshell that has already
+    # unset the secret (the supervisor refuses a private key in its env).
+    for step in secret_steps:
+        assert _apply_signer_commands(step["run"]), step["name"]
+        for line_number in _direct_supervisor_lines(step["run"]):
+            assert _inside_key_free_subshell(step["run"], line_number), (
+                step["name"],
+                line_number,
+            )
 
     publish_step = next(
         step
@@ -3014,6 +3111,96 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     )
     assert steps.index(checksum_step) + 1 == steps.index(upload_step)
     assert steps.index(failure_upload_step) == len(steps) - 1
+
+
+def _targeted_step(name: str) -> dict:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    return next(
+        step for step in workflow["jobs"]["encode"]["steps"] if step.get("name") == name
+    )
+
+
+def test_apply_signer_contract_rejects_an_unbound_signing_step() -> None:
+    run = _targeted_step("Repoint legacy successor")["run"]
+    for flag in (
+        "--allowed-workflow-ref TheAxiomFoundation/axiom-encode/.github/workflows/"
+        "targeted-signed-reencode.yml@refs/heads/main \\\n",
+        "--allowed-event-name workflow_dispatch \\\n",
+        "--expected-github-repository TheAxiomFoundation/axiom-encode \\\n",
+        "--scope apply_ed25519 \\\n",
+    ):
+        assert flag in run
+        with pytest.raises(AssertionError):
+            _apply_signer_commands(run.replace(flag, ""))
+    # The pre-fix shape: the secret in env and the supervisor called directly.
+    direct = (
+        f"{_SIGNING_SUPERVISOR} \\\n"
+        "  --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \\\n"
+        "  -- /opt/axiom-verification/axiom-encode repoint-legacy-successor\n"
+    )
+    assert _apply_signer_commands(direct) == []
+    assert _direct_supervisor_lines(direct) == [0]
+    assert not _inside_key_free_subshell(direct, 0)
+    guarded = "(\n  unset AXIOM_ENCODE_APPLY_SIGNING_KEY\n" + direct + ")\n"
+    assert _inside_key_free_subshell(guarded, 2)
+
+
+def test_successor_repoint_step_signs_only_through_the_bound_apply_signer(
+    tmp_path: Path,
+) -> None:
+    step = _targeted_step("Repoint legacy successor")
+    stub = tmp_path / "apply-signer-stub"
+    calls = tmp_path / "calls.json"
+    stub.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, os, sys\n"
+        f"open({str(calls)!r}, 'w').write(json.dumps({{\n"
+        "    'argv': sys.argv[1:],\n"
+        "    'key': os.environ.get('AXIOM_ENCODE_APPLY_SIGNING_KEY'),\n"
+        "    'openai': 'OPENAI_API_KEY' in os.environ,\n"
+        "    'supabase': 'AXIOM_ENCODE_SUPABASE_SECRET_KEY' in os.environ,\n"
+        "}))\n"
+    )
+    stub.chmod(0o755)
+    script = step["run"].replace(
+        "/opt/axiom-verification/axiom-encode-apply-signer run", f"{stub} run"
+    )
+    assert f"{stub} run" in script
+    environment = {
+        "PATH": os.environ["PATH"],
+        "RUNNER_TEMP": str(tmp_path / "runner"),
+        "GITHUB_WORKSPACE": str(tmp_path / "workspace"),
+        "RULESPEC_CHECKOUT": str(tmp_path / "workspace/rulespec-us"),
+        "AXIOM_ENCODE_APPLY_SIGNING_KEY": "test-key-material",
+    }
+    completed = subprocess.run(
+        ["bash", "-c", script],
+        capture_output=True,
+        text=True,
+        env=environment,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    recorded = json.loads(calls.read_text())
+    assert recorded["key"] == "test-key-material"
+    assert recorded["openai"] is False and recorded["supabase"] is False
+    assert recorded["argv"] == [
+        "run",
+        *_APPLY_SIGNER_BINDING,
+        "--",
+        "/opt/axiom-verification/axiom-encode",
+        "repoint-legacy-successor",
+        "--request",
+        f"{tmp_path}/runner/successor-repoint-request.json",
+        "--policy-repo-path",
+        f"{tmp_path}/workspace/rulespec-us",
+        "--axiom-rules-engine-path",
+        f"{tmp_path}/workspace/axiom-rules-engine",
+        "--corpus-path",
+        f"{tmp_path}/workspace/axiom-corpus",
+    ]
 
 
 def test_targeted_reencode_defaults_legacy_manifest_refresh_mode_to_false() -> None:

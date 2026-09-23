@@ -874,6 +874,7 @@ jobs:
           EXISTING_SIGNED_IMPORTS_JSON: ${{ inputs.existing_signed_imports_json }}
           LEGACY_EXACT_DEPENDENT_RULESPEC_PATH: ${{ inputs.legacy_exact_dependent_rulespec_path }}
           LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON: ${{ inputs.legacy_retained_successor_rulespec_paths_json }}
+          QUEUE_ID: ${{ inputs.queue_id }}
           REPAIR_RUN_ID: ${{ inputs.repair_run_id }}
           REPLACE_LEGACY_RULESPEC_PATH: ${{ inputs.replace_legacy_rulespec_path }}
           REPLACE_RULESPEC_PATH: ${{ inputs.replace_rulespec_path }}
@@ -897,12 +898,13 @@ jobs:
              [ -n "${DEPENDENT_CITATION:-}" ] || \
              [ -n "${SECOND_DEPENDENT_CITATION:-}" ] || \
              [ -n "${REPAIR_RUN_ID:-}" ] || \
+             [ -n "${QUEUE_ID:-}" ] || \
              ! jq -e 'type == "array" and length == 0' \
                <<< "${LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON:-[]}" \
                > /dev/null || \
              ! jq -e 'type == "array" and length == 0' \
                <<< "${EXISTING_SIGNED_IMPORTS_JSON:-[]}" > /dev/null; then
-            echo "successor repoints carry their whole authority in source_bundle_json and cannot mix with replacement, dependent, retained-successor, repair, or existing-import inputs" >&2
+            echo "successor repoints carry their whole authority in source_bundle_json and cannot mix with replacement, dependent, retained-successor, repair, queue, or existing-import inputs" >&2
             exit 1
           fi
           echo "successor_repoint=true" >> "$GITHUB_OUTPUT"
@@ -1264,13 +1266,22 @@ jobs:
           RULESPEC_CHECKOUT: ${{ github.workspace }}/rulespec-${{ inputs.country }}
         run: |
           set -euo pipefail
-          # Deterministic, model-free transaction: no model credential is set
-          # for this step, and repoint-legacy-successor never invokes a backend.
-          /opt/axiom-verification/axiom-encode-signing-supervisor \
+          # Deterministic, model-free transaction: no model credential or
+          # Supabase secret is set for this step, and repoint-legacy-successor
+          # never invokes a backend. The supervisor refuses a private key in
+          # its environment, so the key reaches it only through the same
+          # workflow-bound apply signer the model lane uses.
+          /opt/axiom-verification/axiom-encode-apply-signer run \
+            --scope apply_ed25519 \
+            --key-env AXIOM_ENCODE_APPLY_SIGNING_KEY \
+            --supervisor /opt/axiom-verification/axiom-encode-signing-supervisor \
             --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
             --trusted-python-runtime-root /opt/axiom-verification/python \
             --trusted-python-import-root /opt/axiom-verification/python/lib/python3.13/site-packages \
             --trusted-python-package-root /opt/axiom-verification/python/lib/python3.13/site-packages/axiom_encode \
+            --expected-github-repository TheAxiomFoundation/axiom-encode \
+            --allowed-workflow-ref TheAxiomFoundation/axiom-encode/.github/workflows/targeted-signed-reencode.yml@refs/heads/main \
+            --allowed-event-name workflow_dispatch \
             -- /opt/axiom-verification/axiom-encode repoint-legacy-successor \
             --request "$RUNNER_TEMP/successor-repoint-request.json" \
             --policy-repo-path "$RULESPEC_CHECKOUT" \
