@@ -1203,3 +1203,29 @@ def test_entrypoint_delegates_other_commands_to_cli(monkeypatch):
     monkeypatch.setattr("sys.argv", ["axiom-encode", "stats"])
 
     assert entrypoint.main() == 42
+
+
+def test_check_staleness_reads_the_checkout_as_it_is_now(tmp_path):
+    from axiom_encode.corpus_resolver import resolve_local_corpus_source
+
+    corpus_root = _write_corpus(tmp_path)
+    module_path = _write_module(tmp_path, source_text_sha256(SOURCE_TEXT))
+    release = _local_release(corpus_root)
+    assert resolve_local_corpus_source(CITATION_PATH, release).body == SOURCE_TEXT
+    assert check_staleness(module_path.parents[3], release) == []
+
+    provision_file = next(
+        (corpus_root / "data" / "corpus" / "provisions").rglob("*.jsonl")
+    )
+    provision_file.write_text(
+        json.dumps(_release_row(CITATION_PATH, "republished text")) + "\n",
+        encoding="utf-8",
+    )
+    stale = check_staleness(module_path.parents[3], release)
+
+    assert [(entry.module_path, entry.current_sha) for entry in stale] == [
+        (module_path, None)
+    ]
+    assert "do not match the verified release" in stale[0].resolution_error
+    # The release instance itself still serves the rows it verified.
+    assert resolve_local_corpus_source(CITATION_PATH, release).body == SOURCE_TEXT
