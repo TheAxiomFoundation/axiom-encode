@@ -33,6 +33,7 @@ from typing import Any
 import yaml
 
 from axiom_encode import __version__
+from axiom_encode.corpus_resolver import MAX_RELEASE_OBJECT_BYTES
 from axiom_encode.toolchain import (
     RuleSpecToolchain,
     load_rulespec_local_corpus_release,
@@ -506,6 +507,11 @@ def encoder_version_at_pin(path: Path, pin: str) -> str:
     return pyproject
 
 
+def _fetch_bounded_release_object(url: str) -> bytes:
+    with urllib.request.urlopen(url, timeout=30) as response:
+        return response.read(MAX_RELEASE_OBJECT_BYTES + 1)
+
+
 def acquire_release_object(
     toolchain: RuleSpecToolchain,
     corpus_path: Path,
@@ -527,8 +533,13 @@ def acquire_release_object(
             f"--offline requires pinned corpus release object: {destination}"
         )
     url = f"{base_url.rstrip('/')}/releases/{toolchain.corpus_release}/{toolchain.corpus_release_content_sha256}.json"
-    fetch = fetcher or (lambda value: urllib.request.urlopen(value, timeout=30).read())
+    fetch = fetcher or _fetch_bounded_release_object
     raw = fetch(url)
+    if len(raw) > MAX_RELEASE_OBJECT_BYTES:
+        raise ValueError(
+            "Corpus release acquisition error: release object exceeds the "
+            f"{MAX_RELEASE_OBJECT_BYTES}-byte safety limit"
+        )
     try:
         payload = json.loads(raw)
         content = payload["content"]

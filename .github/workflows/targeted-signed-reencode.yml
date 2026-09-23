@@ -858,7 +858,7 @@ jobs:
           url="${RELEASE_BASE_URL%/}/releases/${release_name}/${release_sha}.json"
           curl --fail --silent --show-error --location \
             --proto '=https' --proto-redir '=https' --tlsv1.2 \
-            --max-filesize 16777216 \
+            --max-filesize 67108864 \
             --output "$public_object" "$url"
           jq -ce '[{"release_object": .}]' "$public_object" > "$response"
           release_commit="$(axiom-encode/.venv/bin/python "$materializer" \
