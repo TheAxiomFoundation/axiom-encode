@@ -561,6 +561,7 @@ class TestPlanOwnershipBinding:
 WORKFLOW = Path(__file__).resolve().parents[1] / (
     ".github/workflows/targeted-signed-reencode.yml"
 )
+SUCCESSOR_CITATION = "us/guidance/irs/rev-proc-2025-32/page-15"
 REPOINT_ENVELOPE = json.dumps(
     {
         "schema": ENVELOPE_SCHEMA,
@@ -587,7 +588,7 @@ def _atomic_source_tail() -> str:
     return step["run"]
 
 
-def _run_tail(tmp_path, *, envelope: str, **env):
+def _run_tail(tmp_path, *, envelope: str, before=None, **env):
     import subprocess
     import sys
     import sysconfig
@@ -602,12 +603,31 @@ def _run_tail(tmp_path, *, envelope: str, **env):
     runner_temp.mkdir(exist_ok=True)
     output = tmp_path / "github-output"
     output.touch()
+    successor = workspace / "rulespec-us" / SUCCESSOR_PRIMARY
+    successor.parent.mkdir(parents=True, exist_ok=True)
+    successor.write_text(
+        "format: rulespec/v1\n"
+        "module:\n"
+        "  source_verification:\n"
+        f"    corpus_citation_path: {SUCCESSOR_CITATION}\n"
+        "rules: []\n"
+    )
+    successor.chmod(0o644)
     env.setdefault("EXISTING_SIGNED_IMPORTS_JSON", env.pop("existing_imports", "[]"))
     script = _atomic_source_tail()
     environment = {
         "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin",
         "RUNNER_TEMP": str(runner_temp),
         "GITHUB_OUTPUT": str(output),
+        "RULESPEC_CHECKOUT": "rulespec-us",
+        "CITATION": SUCCESSOR_CITATION,
+        "REVIEW_FINDING": "",
+        "DEPENDENT_REVIEW_FINDING": "",
+        "SECOND_DEPENDENT_REVIEW_FINDING": "",
+        "QUEUE_ITEM_ID": "",
+        "QUEUE_MANIFEST_SHA256": "",
+        "QUEUE_ITEM_GENERATION_SHA256": "",
+        "QUEUE_DISPATCHER_RUN_ID": "",
         "ATOMIC_SOURCE_JSON": envelope,
         "REPLACE_RULESPEC_PATH": "",
         "REPLACE_LEGACY_RULESPEC_PATH": "",
@@ -624,6 +644,8 @@ def _run_tail(tmp_path, *, envelope: str, **env):
         ),
     }
     environment.update({key: str(value) for key, value in env.items()})
+    if before is not None:
+        before()
     completed = subprocess.run(
         ["bash", "-c", script],
         capture_output=True,
@@ -656,6 +678,13 @@ class TestWorkflowEnvelopeRouting:
             "DEPENDENT_CITATION",
             "REPAIR_RUN_ID",
             "QUEUE_ID",
+            "QUEUE_ITEM_ID",
+            "QUEUE_MANIFEST_SHA256",
+            "QUEUE_ITEM_GENERATION_SHA256",
+            "QUEUE_DISPATCHER_RUN_ID",
+            "REVIEW_FINDING",
+            "DEPENDENT_REVIEW_FINDING",
+            "SECOND_DEPENDENT_REVIEW_FINDING",
         ],
     )
     def test_refuses_to_mix_with_the_model_lanes(self, tmp_path, variable):
@@ -673,6 +702,29 @@ class TestWorkflowEnvelopeRouting:
         )
         assert completed.returncode == 1
         assert "cannot mix with replacement" in completed.stderr
+
+    def test_binds_the_dispatch_citation_to_the_successor(self, tmp_path):
+        completed, _request, output = _run_tail(
+            tmp_path,
+            envelope=REPOINT_ENVELOPE,
+            CITATION="us/guidance/irs/rev-proc-2025-32/earned-income-credit",
+        )
+        assert completed.returncode == 1
+        assert (
+            "successor repoint dispatches must use the successor's corpus "
+            f"citation: {SUCCESSOR_CITATION}"
+        ) in completed.stderr
+        assert "successor_repoint=true" not in output.read_text()
+
+    def test_refuses_a_successor_without_one_corpus_citation(self, tmp_path):
+        successor = tmp_path / "workspace/rulespec-us" / SUCCESSOR_PRIMARY
+        completed, _request, _output = _run_tail(
+            tmp_path,
+            envelope=REPOINT_ENVELOPE,
+            before=lambda: successor.write_text("format: rulespec/v1\nrules: []\n"),
+        )
+        assert completed.returncode == 1
+        assert "declares no single corpus citation path" in completed.stderr
 
     def test_refuses_a_malformed_envelope(self, tmp_path):
         broken = json.loads(REPOINT_ENVELOPE)

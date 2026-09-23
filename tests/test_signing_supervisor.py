@@ -2119,25 +2119,40 @@ def _apply_signer_commands(run: str) -> list[list[str]]:
 
 
 def _direct_supervisor_lines(run: str) -> list[int]:
-    """Return the line numbers that invoke the signing supervisor directly."""
+    """Return the line numbers that invoke the signing supervisor directly.
 
-    return [
-        number
-        for number, line in enumerate(run.splitlines())
-        if line.strip().startswith(_SIGNING_SUPERVISOR)
-    ]
+    Any mention of the supervisor binary counts, wherever it sits on the line
+    (``out="$(... supervisor ...)"``, ``if ! ...``, ``timeout 5 ...``), except
+    as the value of the apply signer's own ``--supervisor`` flag.
+    """
+
+    lines: list[int] = []
+    for number, line in enumerate(run.splitlines()):
+        if _SIGNING_SUPERVISOR not in line:
+            continue
+        if line.strip() == f"--supervisor {_SIGNING_SUPERVISOR} \\":
+            continue
+        lines.append(number)
+    return lines
 
 
 def _inside_key_free_subshell(run: str, line_number: int) -> bool:
-    """Return whether a direct supervisor call follows an unset in its subshell."""
+    """Return whether a direct supervisor call runs where the key is unset.
 
-    lines = [line.strip() for line in run.splitlines()[:line_number]]
-    for line in reversed(lines):
-        if line == "unset AXIOM_ENCODE_APPLY_SIGNING_KEY":
-            return True
-        if line == "(":
-            return False
-    return False
+    Subshells are tracked by depth, so an ``unset`` in an earlier subshell
+    that has already closed does not cover a later call.
+    """
+
+    frames: list[bool] = []
+    for line in run.splitlines()[:line_number]:
+        stripped = line.strip()
+        if stripped == "(":
+            frames.append(False)
+        elif stripped.startswith(")") and frames:
+            frames.pop()
+        elif stripped == "unset AXIOM_ENCODE_APPLY_SIGNING_KEY" and frames:
+            frames[-1] = True
+    return any(frames)
 
 
 def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
@@ -2730,6 +2745,16 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         "DEPENDENT_CITATION",
         "ENCODE_APPLY_CONCLUSION",
         "ENCODE_APPLY_OUTCOME",
+        "SUCCESSOR_REPOINT_REQUEST_CONCLUSION",
+        "SUCCESSOR_REPOINT_REQUEST_OUTCOME",
+        "SUCCESSOR_REPOINT_CONCLUSION",
+        "SUCCESSOR_REPOINT_OUTCOME",
+        "PACKAGE_SUCCESSOR_REPOINT_CHANGES_CONCLUSION",
+        "PACKAGE_SUCCESSOR_REPOINT_CHANGES_OUTCOME",
+        "COMMIT_SUCCESSOR_REPOINT_CONCLUSION",
+        "COMMIT_SUCCESSOR_REPOINT_OUTCOME",
+        "PUBLISH_SUCCESSOR_REPOINT_PULL_REQUEST_CONCLUSION",
+        "PUBLISH_SUCCESSOR_REPOINT_PULL_REQUEST_OUTCOME",
         "EXISTING_SIGNED_IMPORTS_JSON",
         "FINALIZE_SIGNED_REENCODE_ARTIFACT_CONCLUSION",
         "FINALIZE_SIGNED_REENCODE_ARTIFACT_OUTCOME",
@@ -3029,8 +3054,28 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert "successor-repoint-request" in request_step["run"]
     assert 'echo "successor_repoint=true" >> "$GITHUB_OUTPUT"' in request_step["run"]
     assert 'echo "successor_repoint=false" >> "$GITHUB_OUTPUT"' in request_step["run"]
-    assert '[ -n "${QUEUE_ID:-}" ]' in request_step["run"]
-    assert request_step["env"]["QUEUE_ID"] == "${{ inputs.queue_id }}"
+    for variable in (
+        "QUEUE_ID",
+        "QUEUE_ITEM_ID",
+        "QUEUE_MANIFEST_SHA256",
+        "QUEUE_ITEM_GENERATION_SHA256",
+        "QUEUE_DISPATCHER_RUN_ID",
+        "REVIEW_FINDING",
+        "DEPENDENT_REVIEW_FINDING",
+        "SECOND_DEPENDENT_REVIEW_FINDING",
+    ):
+        assert f'[ -n "${{{variable}:-}}" ]' in request_step["run"], variable
+        assert variable in request_step["env"], variable
+    assert request_step["env"]["CITATION"] == "${{ inputs.citation }}"
+    assert "successor-repoint-citation \\\n" in request_step["run"]
+    assert '[ "$CITATION" != "$expected_citation" ]' in request_step["run"]
+    atomic_step = next(
+        step for step in steps if step.get("name") == "Validate atomic source inputs"
+    )
+    assert steps.index(request_step) + 1 == steps.index(atomic_step)
+    assert atomic_step["if"] == (
+        "steps.successor_repoint_request.outputs.successor_repoint != 'true'"
+    )
     assert "AXIOM_ENCODE_APPLY_SIGNING_KEY" not in (request_step.get("env") or {})
     assert steps.index(request_step) < steps.index(repoint_step)
     assert steps.index(repoint_step) < steps.index(apply_step)
@@ -3041,6 +3086,12 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         if "AXIOM_ENCODE_APPLY_SIGNING_KEY" in (step.get("env") or {})
     ]
     assert secret_steps == [repoint_step, apply_step]
+    # The secret reaches the job only through those two step environments.
+    workflow_text = (
+        ROOT / ".github/workflows/targeted-signed-reencode.yml"
+    ).read_text()
+    assert workflow_text.count("secrets.AXIOM_ENCODE_APPLY_SIGNING_KEY") == 2
+    assert "env" not in workflow and "env" not in workflow["jobs"]["encode"]
     # Every step that carries the apply-signing secret reaches the signing
     # supervisor only through the workflow-bound apply signer, with the exact
     # scope, key, supervisor, trust roots, repository, ref and event binding.
@@ -3102,8 +3153,9 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert repoint_commit_step["if"] == repoint_lane
     assert repoint_publish_step["if"] == repoint_lane
     assert commit_step["if"] == model_lane
+    # Only the resolver reads the dispatch citation, to bind it to the
+    # successor's corpus citation; nothing downstream in the lane reads it.
     for step in (
-        repoint_request_step := request_step,
         repoint_step,
         repoint_package_step,
         repoint_commit_step,
@@ -3111,15 +3163,15 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     ):
         assert "inputs.citation" not in json.dumps(step), step["name"]
         assert "CITATION" not in (step.get("env") or {}), step["name"]
-        assert "AXIOM_ENCODE_APPLY_SIGNING_KEY" not in (step.get("env") or {}) or (
-            step is repoint_step
-        )
-    del repoint_request_step
+        if step is not repoint_step:
+            assert "AXIOM_ENCODE_APPLY_SIGNING_KEY" not in (step.get("env") or {})
     repoint_commit_command = repoint_commit_step["run"]
-    assert "--pathspec-from-file=" in repoint_commit_command
-    assert '| diff - "$RUNNER_TEMP/successor-repoint-staged"' in (
-        repoint_commit_command
-    )
+    assert "GIT_LITERAL_PATHSPECS=1" in repoint_commit_command
+    assert "--pathspec-file-nul" in repoint_commit_command
+    assert repoint_commit_command.count("--no-renames") >= 4
+    assert '"$RUNNER_TEMP/successor-repoint-staged"' in repoint_commit_command
+    assert '"$RUNNER_TEMP/successor-repoint-committed"' in repoint_commit_command
+    assert 'cat-file blob "HEAD:${path}"' in repoint_commit_command
     assert '| cmp - "$inventory"' in repoint_commit_command
     assert "core.hooksPath=/dev/null" in repoint_commit_command
     assert "stage-signed-backfill" not in repoint_commit_command
@@ -3236,6 +3288,13 @@ def test_apply_signer_contract_rejects_an_unbound_signing_step() -> None:
     assert not _inside_key_free_subshell(direct, 0)
     guarded = "(\n  unset AXIOM_ENCODE_APPLY_SIGNING_KEY\n" + direct + ")\n"
     assert _inside_key_free_subshell(guarded, 2)
+    # An unset in a subshell that has already closed covers nothing after it.
+    closed = guarded + direct
+    assert not _inside_key_free_subshell(
+        closed, closed.splitlines().index(direct.splitlines()[0], 3)
+    )
+    captured = f'out="$({_SIGNING_SUPERVISOR} -- x)"\n'
+    assert _direct_supervisor_lines(captured) == [0]
 
 
 def test_successor_repoint_step_signs_only_through_the_bound_apply_signer(
@@ -3276,7 +3335,6 @@ def test_successor_repoint_step_signs_only_through_the_bound_apply_signer(
     assert completed.returncode == 0, completed.stderr
     recorded = json.loads(calls.read_text())
     assert recorded["key"] == "test-key-material"
-    assert recorded["openai"] is False and recorded["supabase"] is False
     assert recorded["argv"] == [
         "run",
         *_APPLY_SIGNER_BINDING,

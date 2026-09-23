@@ -581,6 +581,55 @@ def successor_repoint_changes(
     }
 
 
+def successor_repoint_dispatch_citation(repo: Path, request: Path) -> str:
+    """Return the only dispatch citation a successor repoint may run under.
+
+    A repoint carries its authority in the envelope, but the workflow still
+    keys run names and the failed-attempt budget on ``citation``.  Binding it
+    to the successor's own corpus citation at the pinned base keeps that label
+    meaningful and makes it impossible to choose freely.
+    """
+
+    import yaml
+
+    from axiom_encode.successor_repoint import (
+        SuccessorRepointError,
+        load_repoint_request_payload,
+    )
+
+    envelope = _load_unambiguous_json(
+        request.read_text(encoding="utf-8"), label="successor repoint request"
+    )
+    try:
+        parsed = load_repoint_request_payload(envelope)
+    except SuccessorRepointError as exc:
+        raise ValueError(f"successor repoint request is invalid: {exc}") from exc
+    raw = _read_bounded_regular(
+        repo,
+        parsed.successor_primary,
+        label="successor repoint successor primary",
+        max_bytes=16 * 1024 * 1024,
+    )
+    try:
+        payload = yaml.safe_load(raw.decode("utf-8"))
+    except (UnicodeError, yaml.YAMLError, RecursionError) as exc:
+        raise ValueError("successor repoint successor is not valid YAML") from exc
+    module = payload.get("module") if isinstance(payload, dict) else None
+    verification = (
+        module.get("source_verification") if isinstance(module, dict) else None
+    )
+    citation = (
+        verification.get("corpus_citation_path")
+        if isinstance(verification, dict)
+        else None
+    )
+    if not isinstance(citation, str) or not citation.strip():
+        raise ValueError(
+            "successor repoint successor declares no single corpus citation path"
+        )
+    return citation.strip()
+
+
 def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
     """Split the bounded dispatch input into exactly one atomic source mode."""
 
@@ -4577,6 +4626,12 @@ def main() -> None:
         "atomic_source_json",
         help="bounded source input that may carry a successor-repoint envelope",
     )
+    repoint_citation_parser = subparsers.add_parser(
+        "successor-repoint-citation",
+        help="print the successor corpus citation a repoint dispatch must use",
+    )
+    repoint_citation_parser.add_argument("--repo", type=Path, required=True)
+    repoint_citation_parser.add_argument("--request", type=Path, required=True)
     repoint_changes_parser = subparsers.add_parser(
         "successor-repoint-changes",
         help=(
@@ -4716,6 +4771,8 @@ def main() -> None:
                     sort_keys=True,
                 )
             )
+        elif args.command == "successor-repoint-citation":
+            print(successor_repoint_dispatch_citation(args.repo, args.request))
         elif args.command == "successor-repoint-changes":
             print(
                 json.dumps(
