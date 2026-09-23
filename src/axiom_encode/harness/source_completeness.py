@@ -18032,6 +18032,76 @@ def _uncorroborated_formula_dependency_feedback(
     return detail
 
 
+def _reached_constant_comparison_values(
+    selector: str,
+    *,
+    constant_environment: dict[str, Any],
+    execution_environment: dict[str, Any] | None,
+) -> tuple[float, ...]:
+    """Credit complete additive constant bounds in evaluated comparisons only."""
+
+    if execution_environment is None:
+        return ()
+    expression = _parse_formula_expression(selector)
+    if expression is None:
+        return ()
+    values: list[float] = []
+
+    def additive_constant(node: ast.AST) -> bool:
+        if isinstance(node, ast.Constant):
+            return _rulespec_runtime_decimal(node.value) is not None
+        if isinstance(node, ast.Name):
+            return (
+                _rulespec_runtime_decimal(constant_environment.get(node.id)) is not None
+            )
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+            return additive_constant(node.operand)
+        return (
+            isinstance(node, ast.BinOp)
+            and isinstance(node.op, (ast.Add, ast.Sub))
+            and additive_constant(node.left)
+            and additive_constant(node.right)
+        )
+
+    def record(node: ast.expr) -> None:
+        # Literals/names are already collected. Never credit intermediate nodes
+        # or arithmetic involving a household input, even if it happens to fit.
+        if not isinstance(node, ast.BinOp) or not additive_constant(node):
+            return
+        value = _evaluate_condition_expression(node, constant_environment)
+        if _rulespec_runtime_decimal(value) is not None:
+            values.append(float(value))
+
+    def visit(node: ast.AST) -> None:
+        if isinstance(node, ast.BoolOp):
+            for item in node.values:
+                visit(item)
+                result = _evaluate_condition_expression(item, execution_environment)
+                if not isinstance(result, bool):
+                    return
+                if isinstance(node.op, ast.And) and not result:
+                    return
+                if isinstance(node.op, ast.Or) and result:
+                    return
+        elif isinstance(node, ast.Compare):
+            left = node.left
+            for operator, right in zip(node.ops, node.comparators):
+                result = _evaluate_condition_expression(
+                    ast.Compare(left=left, ops=[operator], comparators=[right]),
+                    execution_environment,
+                )
+                if not isinstance(result, bool):
+                    return
+                record(left)
+                record(right)
+                if not result:
+                    return
+                left = right
+
+    visit(expression)
+    return tuple(values)
+
+
 def _formula_execution_matches_source_branch(
     execution: _FormulaExecution,
     branch: SourceStructureBranch,
@@ -18167,6 +18237,15 @@ def _formula_execution_matches_source_branch(
         float(occurrence.value)
         for evidence_text in evidence_texts
         for occurrence in extract_numeric_occurrences(evidence_text)
+    )
+    candidate_values.extend(
+        value
+        for selector in reached_selector_texts
+        for value in _reached_constant_comparison_values(
+            selector,
+            constant_environment=binding_environment,
+            execution_environment=execution_environment,
+        )
     )
     if (
         "multiply" in source_operations
