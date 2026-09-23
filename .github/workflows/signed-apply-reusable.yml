@@ -57,6 +57,16 @@ on:
         required: false
         type: string
         default: ""
+      corpus-release-registry-url:
+        description: "Optional HTTPS Supabase project URL whose public corpus.release_objects registry is queried before the public release mirror, as in validate-rulespec."
+        required: false
+        type: string
+        default: ""
+      corpus-release-registry-anon-key:
+        description: "Public Supabase anon key; required when corpus-release-registry-url is set."
+        required: false
+        type: string
+        default: ""
     secrets:
       openai-api-key:
         description: "OpenAI model credential, explicitly passed by the caller."
@@ -410,21 +420,88 @@ jobs:
 
       - name: Fetch and verify the signed release object
         shell: bash
+        env:
+          # When the caller configures the Supabase registry (validate-rulespec's
+          # inputs), it is queried first. The immutable public mirror serves pins
+          # the registry lacks, registry outages, and callers without a registry.
+          # The pinned encoder's materializer checks either response against the
+          # toolchain pin, and the supervised resolver verifies the signature.
+          RELEASE_REGISTRY_URL: ${{ inputs['corpus-release-registry-url'] }}
+          RELEASE_REGISTRY_ANON_KEY: ${{ inputs['corpus-release-registry-anon-key'] }}
+          RELEASE_BASE_URL: https://pub-a8952f8657fc49fda358146ac001366c.r2.dev
+          RELEASE_NAME: ${{ steps.pins.outputs.release }}
+          RELEASE_SHA: ${{ steps.pins.outputs.release_sha }}
+          PYBIN: ${{ steps.py.outputs.python-path }}
         run: |
           set -euo pipefail
-          name="${{ steps.pins.outputs.release }}"
-          sha="${{ steps.pins.outputs.release_sha }}"
-          dest="_axiom/axiom-corpus/releases/$name"
-          mkdir -p "$dest"
-          curl -fsS --max-filesize 67108864 \
-            "https://pub-a8952f8657fc49fda358146ac001366c.r2.dev/releases/$name/$sha.json" \
-            -o "$dest/$sha.json"
-          python3 - "$dest/$sha.json" "$sha" <<'PY'
-          import hashlib, json, sys
-          obj = json.load(open(sys.argv[1]))
-          canon = json.dumps(obj["content"], sort_keys=True, separators=(",", ":")).encode()
-          assert hashlib.sha256(canon).hexdigest() == sys.argv[2], "release content hash mismatch"
-          PY
+          if [[ ! "$RELEASE_NAME" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
+            echo "RuleSpec corpus release name is invalid" >&2
+            exit 1
+          fi
+          if [[ ! "$RELEASE_SHA" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "RuleSpec corpus release digest is invalid" >&2
+            exit 1
+          fi
+          if [ -n "$RELEASE_REGISTRY_URL" ]; then
+            case "$RELEASE_REGISTRY_URL" in
+              https://*) ;;
+              *) echo "corpus-release-registry-url must use HTTPS" >&2; exit 1 ;;
+            esac
+            if [ -z "$RELEASE_REGISTRY_ANON_KEY" ]; then
+              echo "corpus-release-registry-anon-key is required with corpus-release-registry-url" >&2
+              exit 1
+            fi
+          elif [ -n "$RELEASE_REGISTRY_ANON_KEY" ]; then
+            echo "corpus-release-registry-anon-key requires corpus-release-registry-url" >&2
+            exit 1
+          fi
+          response="$(mktemp "$RUNNER_TEMP/corpus-release-response.XXXXXX")"
+          public_object="$(mktemp "$RUNNER_TEMP/corpus-release-object.XXXXXX")"
+          trap 'rm -f "$response" "$public_object"' EXIT
+          registry_status=unconfigured
+          if [ -n "$RELEASE_REGISTRY_URL" ]; then
+            registry_url="${RELEASE_REGISTRY_URL%/}/rest/v1/release_objects?select=release_object&release_name=eq.${RELEASE_NAME}&content_sha256=eq.${RELEASE_SHA}&limit=2"
+            if curl --fail --silent --show-error --location \
+              --proto '=https' --proto-redir '=https' --tlsv1.2 \
+              --max-filesize 67108864 \
+              --header "apikey: $RELEASE_REGISTRY_ANON_KEY" \
+              --header "Authorization: Bearer $RELEASE_REGISTRY_ANON_KEY" \
+              --header "Accept-Profile: corpus" \
+              --output "$response" "$registry_url"; then
+              registry_status="$(jq -r 'if type != "array" then "invalid"
+                elif length == 0 then "missing"
+                elif length == 1 then "found"
+                else "ambiguous" end' "$response")" || registry_status=invalid
+            else
+              registry_status=unavailable
+              echo "::warning::Corpus release registry is unavailable; trying the public release mirror"
+            fi
+          fi
+          case "$registry_status" in
+            found)
+              release_source=registry
+              ;;
+            unconfigured|missing|unavailable)
+              release_source="public mirror"
+              object_url="${RELEASE_BASE_URL%/}/releases/${RELEASE_NAME}/${RELEASE_SHA}.json"
+              if ! curl --fail --silent --show-error --location \
+                --proto '=https' --proto-redir '=https' --tlsv1.2 \
+                --max-filesize 67108864 \
+                --output "$public_object" "$object_url"; then
+                echo "Signed corpus release ${RELEASE_NAME}@${RELEASE_SHA} is unavailable: registry ${registry_status}, public mirror fetch failed" >&2
+                exit 1
+              fi
+              jq -ce '[{"release_object": .}]' "$public_object" > "$response"
+              ;;
+            *)
+              echo "Corpus release registry returned an ${registry_status} response for ${RELEASE_NAME}@${RELEASE_SHA}" >&2
+              exit 1
+              ;;
+          esac
+          release_commit="$("$PYBIN" _axiom/axiom-encode/scripts/materialize_corpus_release.py \
+            materialize --toolchain .axiom/toolchain.toml --response "$response" \
+            --corpus-root _axiom/axiom-corpus)"
+          echo "Signed corpus release ${RELEASE_NAME}@${RELEASE_SHA} source: ${release_source}; provenance commit ${release_commit}"
 
       - name: Build the .git-free generation mirror (no secrets in this step)
         shell: bash

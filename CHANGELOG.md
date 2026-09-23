@@ -2,6 +2,14 @@
 
 All notable changes to Axiom Encode will be documented here.
 
+- Fetch pinned corpus release objects from the Supabase release registry
+  first, as validate-rulespec does, in targeted signed re-encode, signed apply
+  (opt-in through validate-rulespec's registry inputs) and `axiom-encode ci`.
+  The public r2.dev mirror remains the fallback when the registry has no row
+  or is unavailable. The September US unions exist only in the registry, and
+  ten country pins exist only on the mirror. Ambiguous or mismatched registry
+  answers fail closed, and every fetch keeps the pin check and 64 MiB cap.
+
 - Raise the corpus release object byte cap from 16 MiB to 64 MiB in the
   resolver and the registry materializer, and apply the same cap to every
   release-object fetch: the four workflow curl steps and `axiom-encode ci`.

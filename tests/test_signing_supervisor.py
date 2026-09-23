@@ -2300,23 +2300,36 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         if step.get("name") == "Fetch pinned signed corpus release object"
     )
     assert release_step["env"] == {
+        "RELEASE_REGISTRY_URL": "https://swocpijqqahhuwtuahwc.supabase.co",
+        "RELEASE_REGISTRY_ANON_KEY": "${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}",
         "RELEASE_BASE_URL": ("https://pub-a8952f8657fc49fda358146ac001366c.r2.dev"),
         "RULESPEC_CHECKOUT": "rulespec-${{ inputs.country }}",
         "QUEUE_ID": "${{ inputs.queue_id }}",
         "QUEUE_MANIFEST_SHA256": "${{ inputs.queue_manifest_sha256 }}",
     }
     release_command = release_step["run"]
+    assert 'test -n "$RELEASE_REGISTRY_ANON_KEY"' in release_command
     assert "materialize_corpus_release.py" in release_command
     assert "$RULESPEC_CHECKOUT/.axiom/toolchain.toml" in release_command
     assert 'pin --toolchain "$toolchain"' in release_command
     assert "validate-release-pin" in release_command
     assert '--manifest-sha256 "$QUEUE_MANIFEST_SHA256"' in release_command
     assert 'mktemp "$RUNNER_TEMP/' in release_command
+    assert (
+        "/rest/v1/release_objects?select=release_object"
+        "&release_name=eq.${release_name}&content_sha256=eq.${release_sha}&limit=2"
+    ) in release_command
+    assert '--header "Accept-Profile: corpus"' in release_command
     assert "/releases/${release_name}/${release_sha}.json" in release_command
-    assert "--proto '=https' --proto-redir '=https' --tlsv1.2" in release_command
-    assert f"--max-filesize {MAX_RELEASE_OBJECT_BYTES}" in release_command
-    assert "NEXT_PUBLIC_SUPABASE_ANON_KEY" not in release_command
-    assert "SUPABASE" not in release_command
+    assert (
+        release_command.count("--proto '=https' --proto-redir '=https' --tlsv1.2") == 2
+    )
+    assert release_command.count(f"--max-filesize {MAX_RELEASE_OBJECT_BYTES}") == 2
+    # Registry first; the mirror only when it has no row or is unavailable.
+    assert release_command.index("release_objects?") < release_command.index(
+        "/releases/${release_name}"
+    )
+    assert "missing|unavailable)" in release_command
     assert "jq -ce" in release_command
     assert "release_object" in release_command
     assert (

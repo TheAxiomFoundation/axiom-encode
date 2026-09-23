@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import argparse
 import hashlib
+import http.client
 import json
 import os
 import subprocess
+import urllib.error
 from argparse import Namespace
+from email.message import Message
 from pathlib import Path
 
 import pytest
@@ -426,28 +430,442 @@ def _toolchain(tmp_path: Path, content_sha: str) -> RuleSpecToolchain:
     return RuleSpecToolchain(tmp_path, "dk-release", content_sha, "0" * 64)
 
 
-def test_release_object_fetch_uses_workflow_url_scheme(tmp_path: Path) -> None:
-    content = {"git": {"commit": "a" * 40}}
+def _release_object(content: dict | None = None) -> tuple[dict, str]:
+    content = content or {"git": {"commit": "a" * 40}}
     digest = hashlib.sha256(
         json.dumps(
             content, sort_keys=True, separators=(",", ":"), ensure_ascii=True
         ).encode()
     ).hexdigest()
-    payload = json.dumps(
-        {"release": "dk-release", "content_sha256": digest, "content": content}
-    ).encode()
-    seen = []
+    return {"release": "dk-release", "content_sha256": digest, "content": content}, (
+        digest
+    )
 
-    path = acquire_release_object(
+
+REGISTRY = ci_parity.ReleaseRegistry("https://registry.example/", "anon-key")
+
+
+def _registry_url(digest: str) -> str:
+    return (
+        "https://registry.example/rest/v1/release_objects?select=release_object"
+        f"&release_name=eq.dk-release&content_sha256=eq.{digest}&limit=2"
+    )
+
+
+def _mirror_url(digest: str) -> str:
+    return f"https://objects.example/base/releases/dk-release/{digest}.json"
+
+
+class _Routes:
+    """Fetcher double that serves or fails per URL and records each request."""
+
+    def __init__(self, routes: dict[str, bytes | BaseException]) -> None:
+        self.routes = routes
+        self.requests: list[tuple[str, dict[str, str]]] = []
+
+    def __call__(self, url: str, headers) -> bytes:
+        self.requests.append((url, dict(headers)))
+        response = self.routes[url]
+        if isinstance(response, BaseException):
+            raise response
+        return response
+
+    @property
+    def urls(self) -> list[str]:
+        return [url for url, _ in self.requests]
+
+
+def _acquire(tmp_path: Path, digest: str, fetcher, *, registry=REGISTRY) -> Path:
+    return acquire_release_object(
         _toolchain(tmp_path, digest),
         tmp_path,
         "https://objects.example/base/",
         offline=False,
-        fetcher=lambda url: seen.append(url) or payload,
+        registry=registry,
+        fetcher=fetcher,
     )
 
-    assert seen == [f"https://objects.example/base/releases/dk-release/{digest}.json"]
+
+def test_release_object_fetch_uses_workflow_url_scheme(tmp_path: Path) -> None:
+    release_object, digest = _release_object()
+    payload = json.dumps(release_object).encode()
+    fetcher = _Routes({_mirror_url(digest): payload})
+
+    path = _acquire(tmp_path, digest, fetcher, registry=None)
+
+    assert fetcher.requests == [(_mirror_url(digest), {})]
     assert path.read_bytes() == payload
+
+
+def test_release_object_fetch_prefers_the_registry_row(tmp_path: Path) -> None:
+    release_object, digest = _release_object()
+    fetcher = _Routes(
+        {
+            _registry_url(digest): json.dumps(
+                [{"release_object": release_object}]
+            ).encode()
+        }
+    )
+
+    path = _acquire(tmp_path, digest, fetcher)
+
+    assert fetcher.requests == [
+        (
+            _registry_url(digest),
+            {
+                "apikey": "anon-key",
+                "Authorization": "Bearer anon-key",
+                "Accept-Profile": "corpus",
+            },
+        )
+    ]
+    assert path == tmp_path / "releases" / "dk-release" / f"{digest}.json"
+    assert path.read_text() == json.dumps(release_object, indent=2, sort_keys=True) + (
+        "\n"
+    )
+
+
+@pytest.mark.parametrize(
+    "registry_failure",
+    [
+        urllib.error.HTTPError(
+            "https://registry.example", 402, "Payment Required", Message(), None
+        ),
+        urllib.error.URLError("connection refused"),
+        TimeoutError("timed out"),
+        http.client.IncompleteRead(b""),
+    ],
+)
+def test_release_object_fetch_falls_back_to_mirror_when_registry_is_unavailable(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    registry_failure: BaseException,
+) -> None:
+    release_object, digest = _release_object()
+    payload = json.dumps(release_object).encode()
+    fetcher = _Routes(
+        {_registry_url(digest): registry_failure, _mirror_url(digest): payload}
+    )
+
+    path = _acquire(tmp_path, digest, fetcher)
+
+    assert fetcher.urls == [_registry_url(digest), _mirror_url(digest)]
+    assert fetcher.requests[1][1] == {}
+    assert path.read_bytes() == payload
+    assert "registry is unavailable" in capsys.readouterr().err
+
+
+def test_release_object_fetch_falls_back_to_mirror_when_registry_has_no_row(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    release_object, digest = _release_object()
+    payload = json.dumps(release_object).encode()
+    fetcher = _Routes({_registry_url(digest): b"[]", _mirror_url(digest): payload})
+
+    path = _acquire(tmp_path, digest, fetcher)
+
+    assert fetcher.urls == [_registry_url(digest), _mirror_url(digest)]
+    assert path.read_bytes() == payload
+    assert capsys.readouterr().err == ""
+
+
+@pytest.mark.parametrize(
+    ("registry_response", "message"),
+    [
+        (b'{"release_object": {}}', "not a row list"),
+        (b"[{}, {}]", "exactly one release object"),
+        (b'["row"]', "exactly one release object"),
+        (b"[{}]", "row has no release object"),
+        (b'[{"release_object": []}]', "row has no release object"),
+        (b"<html>maintenance</html>", "invalid JSON"),
+        (b"\xff", "invalid JSON"),
+    ],
+)
+def test_release_object_fetch_fails_closed_on_malformed_registry_answers(
+    tmp_path: Path, registry_response: bytes, message: str
+) -> None:
+    release_object, digest = _release_object()
+    fetcher = _Routes(
+        {
+            _registry_url(digest): registry_response,
+            _mirror_url(digest): json.dumps(release_object).encode(),
+        }
+    )
+
+    with pytest.raises(ValueError, match=message):
+        _acquire(tmp_path, digest, fetcher)
+
+    assert fetcher.urls == [_registry_url(digest)]
+    assert not (tmp_path / "releases").exists()
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        (lambda row: row.update(release="other-release"), "release name mismatch"),
+        (lambda row: row.update(content_sha256="0" * 64), "content sha256 mismatch"),
+        (
+            lambda row: row["content"].update(extra=True),
+            "content sha256 mismatch",
+        ),
+        (lambda row: row.pop("content"), "missing content object"),
+    ],
+)
+def test_release_object_fetch_rejects_mismatched_registry_rows_without_fallback(
+    tmp_path: Path, mutation, message: str
+) -> None:
+    release_object, digest = _release_object()
+    good_mirror_object = json.dumps(release_object).encode()
+    row = json.loads(json.dumps(release_object))
+    mutation(row)
+    fetcher = _Routes(
+        {
+            _registry_url(digest): json.dumps([{"release_object": row}]).encode(),
+            _mirror_url(digest): good_mirror_object,
+        }
+    )
+
+    with pytest.raises(ValueError, match=message):
+        _acquire(tmp_path, digest, fetcher)
+
+    assert fetcher.urls == [_registry_url(digest)]
+    assert not (tmp_path / "releases").exists()
+
+
+def test_release_object_fetch_rejects_mismatched_mirror_objects(
+    tmp_path: Path,
+) -> None:
+    release_object, digest = _release_object()
+    release_object["content_sha256"] = "0" * 64
+    fetcher = _Routes(
+        {
+            _registry_url(digest): b"[]",
+            _mirror_url(digest): json.dumps(release_object).encode(),
+        }
+    )
+
+    with pytest.raises(ValueError, match="content sha256 mismatch"):
+        _acquire(tmp_path, digest, fetcher)
+
+    assert not (tmp_path / "releases").exists()
+
+
+@pytest.mark.parametrize(
+    ("registry", "registry_response", "status"),
+    [
+        (None, None, "registry not configured (pass --corpus-release-registry"),
+        (REGISTRY, b"[]", "registry has no matching row"),
+        (
+            REGISTRY,
+            urllib.error.URLError("connection refused"),
+            "registry unavailable (<urlopen error connection refused>)",
+        ),
+    ],
+)
+def test_release_object_fetch_reports_both_sources_when_neither_serves_the_pin(
+    tmp_path: Path, registry, registry_response, status: str
+) -> None:
+    _, digest = _release_object()
+    fetcher = _Routes(
+        {
+            _registry_url(digest): registry_response,
+            _mirror_url(digest): urllib.error.HTTPError(
+                _mirror_url(digest), 404, "Not Found", Message(), None
+            ),
+        }
+    )
+
+    with pytest.raises(ValueError) as raised:
+        _acquire(tmp_path, digest, fetcher, registry=registry)
+
+    message = str(raised.value)
+    assert f"dk-release@{digest} is unavailable" in message
+    assert status in message
+    assert "public mirror: HTTP Error 404: Not Found" in message
+    assert not (tmp_path / "releases").exists()
+
+
+def test_release_object_fetch_rejects_oversized_registry_answers_without_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(ci_parity, "MAX_RELEASE_OBJECT_BYTES", 16)
+    fetcher = _Routes(
+        {_registry_url("1" * 64): b"x" * 17, _mirror_url("1" * 64): b"{}"}
+    )
+
+    with pytest.raises(ValueError, match="16-byte safety limit"):
+        _acquire(tmp_path, "1" * 64, fetcher)
+
+    assert fetcher.urls == [_registry_url("1" * 64)]
+    assert not (tmp_path / "releases").exists()
+
+
+@pytest.mark.parametrize(
+    "base_url", ["http://objects.example", "file:///tmp/objects", "objects.example"]
+)
+def test_release_object_fetch_requires_an_https_mirror(
+    tmp_path: Path, base_url: str
+) -> None:
+    fetcher = _Routes({})
+
+    with pytest.raises(ValueError, match="base URL must use HTTPS"):
+        acquire_release_object(
+            _toolchain(tmp_path, "1" * 64),
+            tmp_path,
+            base_url,
+            offline=False,
+            registry=REGISTRY,
+            fetcher=fetcher,
+        )
+
+    assert fetcher.requests == []
+
+
+def test_release_object_fetch_reuses_a_cached_object_without_fetching(
+    tmp_path: Path,
+) -> None:
+    cached = tmp_path / "releases" / "dk-release" / f"{'1' * 64}.json"
+    cached.parent.mkdir(parents=True)
+    cached.write_text("{}")
+    fetcher = _Routes({})
+
+    assert _acquire(tmp_path, "1" * 64, fetcher) == cached
+    assert fetcher.requests == []
+
+
+def test_resolve_release_registry_defaults_to_the_public_registry_with_env_key() -> (
+    None
+):
+    registry = ci_parity.resolve_release_registry(
+        Namespace(),
+        {"NEXT_PUBLIC_SUPABASE_ANON_KEY": " env-key\n"},
+    )
+
+    assert registry == ci_parity.ReleaseRegistry(
+        "https://swocpijqqahhuwtuahwc.supabase.co", "env-key"
+    )
+
+
+def test_resolve_release_registry_prefers_explicit_flags() -> None:
+    registry = ci_parity.resolve_release_registry(
+        Namespace(
+            corpus_release_registry_url="https://registry.example",
+            corpus_release_registry_anon_key="flag-key",
+        ),
+        {"NEXT_PUBLIC_SUPABASE_ANON_KEY": "env-key"},
+    )
+
+    assert registry == ci_parity.ReleaseRegistry("https://registry.example", "flag-key")
+
+
+def test_resolve_release_registry_is_off_without_an_anon_key() -> None:
+    assert ci_parity.resolve_release_registry(Namespace(), {}) is None
+    assert (
+        ci_parity.resolve_release_registry(
+            Namespace(corpus_release_registry_anon_key=""),
+            {"NEXT_PUBLIC_SUPABASE_ANON_KEY": "  "},
+        )
+        is None
+    )
+
+
+def test_resolve_release_registry_rejects_a_url_without_a_key() -> None:
+    with pytest.raises(ValueError, match="requires --corpus-release-registry-anon"):
+        ci_parity.resolve_release_registry(
+            Namespace(corpus_release_registry_url="https://registry.example"), {}
+        )
+
+
+def test_resolve_release_registry_requires_https() -> None:
+    with pytest.raises(ValueError, match="registry URL must use HTTPS"):
+        ci_parity.resolve_release_registry(
+            Namespace(corpus_release_registry_url="http://registry.example"),
+            {"NEXT_PUBLIC_SUPABASE_ANON_KEY": "env-key"},
+        )
+
+
+def test_ci_parser_registers_release_registry_flags() -> None:
+    parser = argparse.ArgumentParser()
+    ci_parity.register_ci_parser(parser.add_subparsers())
+
+    defaults = parser.parse_args(
+        ["ci", "--repo", "r", "--corpus-release-public-key", "k"]
+    )
+    explicit = parser.parse_args(
+        [
+            "ci",
+            "--repo",
+            "r",
+            "--corpus-release-public-key",
+            "k",
+            "--corpus-release-registry-url",
+            "https://registry.example",
+            "--corpus-release-registry-anon-key",
+            "anon",
+        ]
+    )
+
+    assert defaults.corpus_release_registry_url is None
+    assert defaults.corpus_release_registry_anon_key is None
+    assert explicit.corpus_release_registry_url == "https://registry.example"
+    assert explicit.corpus_release_registry_anon_key == "anon"
+
+
+def test_run_ci_passes_the_resolved_registry_to_release_acquisition(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repo = tmp_path / "rulespec-dk"
+    caller = CallerConfig(
+        tmp_path / "caller.yml",
+        next(iter(SUPPORTED_WORKFLOW_PINS)),
+        {name: "a" * 40 for name in ("encode", "engine", "corpus", "rulespec_us")},
+        "dk",
+        True,
+        False,
+        release_base_url="https://objects.example",
+    )
+    seen = {}
+
+    def stop_after_acquisition(toolchain, corpus, base_url, **kwargs):
+        seen.update(corpus=corpus, base_url=base_url, **kwargs)
+        raise ValueError("stop after acquisition")
+
+    monkeypatch.setattr(ci_parity, "find_caller_workflow", lambda _: caller)
+    monkeypatch.setattr(ci_parity, "verify_toolchain_base_binding", lambda *_: None)
+    monkeypatch.setattr(ci_parity, "load_rulespec_toolchain", lambda _: object())
+    monkeypatch.setattr(
+        ci_parity, "verify_rulespec_validation_waiver_set", lambda _: None
+    )
+    monkeypatch.setattr(
+        ci_parity,
+        "resolve_dependency_paths",
+        lambda *_: {name: tmp_path / name for name in caller.refs},
+    )
+    monkeypatch.setattr(ci_parity, "verify_dependency_checkout", lambda *_, **__: None)
+    monkeypatch.setattr(ci_parity, "encoder_version_at_pin", lambda *_: "0")
+    monkeypatch.setattr(ci_parity, "verify_ambient_encoder", lambda *_, **__: None)
+    monkeypatch.setattr(ci_parity, "acquire_release_object", stop_after_acquisition)
+    monkeypatch.setenv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "env-key")
+    args = Namespace(
+        repo=repo,
+        json=False,
+        base_ref="origin/main",
+        allow_ref_mismatch=False,
+        offline=False,
+        corpus_release_registry_url=None,
+        corpus_release_registry_anon_key=None,
+    )
+
+    assert run_ci(args) == 1
+    assert "stop after acquisition" in capsys.readouterr().err
+    assert seen == {
+        "corpus": tmp_path / "corpus",
+        "base_url": "https://objects.example",
+        "offline": False,
+        "registry": ci_parity.ReleaseRegistry(
+            ci_parity.DEFAULT_RELEASE_REGISTRY_URL, "env-key"
+        ),
+    }
 
 
 def test_release_object_fetch_rejects_objects_over_the_cap(
@@ -462,7 +880,7 @@ def test_release_object_fetch_rejects_objects_over_the_cap(
             tmp_path,
             "https://objects.example",
             offline=False,
-            fetcher=lambda url: b"x" * 17,
+            fetcher=lambda url, headers: b"x" * 17,
         )
     assert not (tmp_path / "releases").exists()
 
@@ -484,9 +902,13 @@ def test_default_release_object_fetch_reads_at_most_cap_plus_one(
             requested.append(size)
             return b"x" * 100 if size < 0 else b"x" * min(size, 100)
 
-    monkeypatch.setattr(
-        ci_parity.urllib.request, "urlopen", lambda url, timeout: Response()
-    )
+    user_agents = []
+
+    def urlopen(request, timeout):
+        user_agents.append(request.get_header("User-agent"))
+        return Response()
+
+    monkeypatch.setattr(ci_parity.urllib.request, "urlopen", urlopen)
 
     with pytest.raises(ValueError, match="16-byte safety limit"):
         acquire_release_object(
@@ -496,6 +918,62 @@ def test_default_release_object_fetch_reads_at_most_cap_plus_one(
             offline=False,
         )
     assert requested == [17]
+    # r2.dev's Cloudflare front rejects urllib's default Python-urllib agent.
+    assert user_agents == [f"axiom-encode/{ci_parity.__version__}"]
+    assert not (tmp_path / "releases").exists()
+
+
+def test_default_registry_fetch_sends_the_anon_key_and_reads_at_most_cap_plus_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(ci_parity, "MAX_RELEASE_OBJECT_BYTES", 16)
+    requests = []
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self, size: int = -1) -> bytes:
+            requests[-1]["read"] = size
+            return b"x" * 100 if size < 0 else b"x" * min(size, 100)
+
+    def urlopen(request, timeout):
+        requests.append(
+            {
+                "url": request.full_url,
+                "headers": dict(request.header_items()),
+                "timeout": timeout,
+            }
+        )
+        return Response()
+
+    monkeypatch.setattr(ci_parity.urllib.request, "urlopen", urlopen)
+
+    with pytest.raises(ValueError, match="16-byte safety limit"):
+        acquire_release_object(
+            _toolchain(tmp_path, "1" * 64),
+            tmp_path,
+            "https://objects.example/base",
+            offline=False,
+            registry=REGISTRY,
+        )
+
+    assert requests == [
+        {
+            "url": _registry_url("1" * 64),
+            "headers": {
+                "User-agent": f"axiom-encode/{ci_parity.__version__}",
+                "Apikey": "anon-key",
+                "Authorization": "Bearer anon-key",
+                "Accept-profile": "corpus",
+            },
+            "timeout": 30,
+            "read": 17,
+        }
+    ]
     assert not (tmp_path / "releases").exists()
 
 

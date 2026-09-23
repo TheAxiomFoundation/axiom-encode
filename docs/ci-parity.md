@@ -38,9 +38,26 @@ gh api /orgs/TheAxiomFoundation/actions/variables/AXIOM_CORPUS_RELEASE_PUBLIC_KE
 The command never reads `AXIOM_CORPUS_RELEASE_PUBLIC_KEY` from the environment.
 It constructs a verification-only release binding in the library, acquires no
 signing capability and never runs `--apply`. It writes temporary report inputs;
-the sole non-report write is caching a missing immutable public release object
-at the workflow-defined corpus release path. The command downloads that object
-from the caller's `corpus-release-base-url` unless `--offline` is set.
+the sole non-report write is caching a missing signed release object at the
+workflow-defined corpus release path. Unless `--offline` is set, the command
+fetches that object from the public Supabase release registry, as
+validate-rulespec callers configured with `corpus-release-registry-url` do.
+It falls back to the caller's `corpus-release-base-url` mirror when the registry
+has no row for the pin or is unavailable. Registry answers with several rows or
+a mismatched release fail closed. Every fetched object must match the pinned
+release name and content SHA-256 before it is written, and its signature is
+then verified with `--corpus-release-public-key`.
+
+The registry needs its public anon key, which callers pass from repository
+variables that a local run cannot read. Supply it with
+`--corpus-release-registry-anon-key` or `NEXT_PUBLIC_SUPABASE_ANON_KEY`:
+
+```console
+export NEXT_PUBLIC_SUPABASE_ANON_KEY="$(gh variable get NEXT_PUBLIC_SUPABASE_ANON_KEY -R TheAxiomFoundation/rulespec-us)"
+```
+
+Without a key, only the mirror is queried. `--corpus-release-registry-url`
+overrides the default registry project.
 
 A dependency checkout whose `HEAD` differs from its caller pin fails resolution
 and names both SHAs. `--allow-ref-mismatch` permits all gates to run, but a
