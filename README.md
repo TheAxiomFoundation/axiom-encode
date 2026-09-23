@@ -358,9 +358,13 @@ Every declared rename is proved before anything is written: identical
 `kind`/`dtype`/`unit`/`entity`/`period`, identical table key sets, and equal
 values at every version boundary **inside the successor's validity window**.
 `indexed_by` names may differ only when every dependent formula use is a
-literal integer subscript the successor table defines, and a formula symbol is
-renamed only where the dependent imports the legacy module (or that exact
-concept of it); `x.name` is never a use of `name`. Dependents are rewritten by
+literal integer subscript the successor table defines throughout its window,
+and a formula symbol is renamed only where the dependent imports the legacy
+module (or that exact concept of it); `x.name` is never a use of `name`, and
+strings, docstrings and `#` comments are lexed as the rules engine lexes them
+and never rewritten. Through a whole-module import, every legacy export a
+formula uses must be mapped, and the dependent may neither use nor define a
+name the successor exports unmapped, so nothing silently rebinds. Dependents are rewritten by
 exact tokens on five surfaces only -- the module import,
 `module.deferred_outputs[].blocked_by`, proof import `target`/`output`/`hash`,
 and unquoted formula symbols -- and the postimage is proved equal to the
@@ -381,7 +385,10 @@ Legacy ownership is bound to digests: every v1 manifest of the retired group
 must bind exactly that group's bytes. A dependent is rewritten rather than
 retired, so its v1 manifests may be a superseded manifest plus a later partial
 re-attestation (as rulespec-us's `us/statutes/26/32.yaml` has), but together
-they must bind its exact current bytes and cover nothing outside it.
+they must bind its exact current bytes and cover nothing outside it. The
+receipt records each v1 manifest's owner class (generated, manual, or
+deterministic repair), and no signature-valid v5 manifest, from any encoder
+version, may still claim a retired or rewritten file.
 
 The successor's validity window governs: after the repoint a dependent has no
 value outside that window, where a legacy module with no `effective_to` silently
@@ -421,7 +428,11 @@ re-derived by `guard-generated` from the receipt's base commit, never compared
 with live shared files, so a later unrelated edit to the waiver set, the
 toolchain, the provisions index or a ProgramSpec cannot make a repoint manifest
 stale. The live tree must equal the receipt's postimage only in the change set
-that introduces the receipt. A dependent manifest also re-verifies the
+that introduces the receipt; a receipt lands only with its transaction's
+protected changes and is never edited or removed, and a repoint manifest may
+change only in the change set that introduces its receipt, so a transaction
+cannot be split across pull requests or restored later. A dependent manifest
+also re-verifies the
 successor's own model manifest (signature, schema, source attestation, live
 digests) and requires the successor primary to still have the bytes its
 repointed proof imports bind.
@@ -430,6 +441,15 @@ The successor's model manifest must verify against the checkout's current
 waiver set and corpus release when the repoint runs, exactly as a retained
 successor must; refresh it first (a manifest-only refresh) if its bindings are
 older.
+
+In the protected `targeted-signed-reencode.yml` workflow a repoint is
+dispatched with the envelope as `source_bundle_json`, `citation` set to the
+successor's own corpus citation (the resolver refuses any other), and every
+other mode input empty: replacement, dependent, retained-successor, review
+finding, repair, queue, and existing-import inputs are all refused. The lane
+signs through the workflow-bound apply signer with no model credential, then
+packages, commits and opens the draft pull request for exactly the receipt's
+change set.
 
 Repository CI should run:
 
