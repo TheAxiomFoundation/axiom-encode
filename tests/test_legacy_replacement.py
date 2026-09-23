@@ -2569,3 +2569,93 @@ def test_receipt_new_index_requires_exact_signed_primary(
             _signed_replacement_index_postimages(
                 tmp_path, replacement=replacement, nested=nested, moves=moves
             )
+
+
+@pytest.mark.parametrize("quote", ["", "'", '"'])
+def test_new_canonical_pending_oracle_keeps_all_obligations(quote: str) -> None:
+    raw = (
+        "version: 1\nceiling: 2\nentries:\n"
+        f"- legal_id: {quote}us-la:statutes/47:32#individual_income_tax_rate{quote} # keep\n"
+        "  source: manual\n  since: '2026-07-21'\n"
+        "  reason: Still awaiting independent oracle coverage.\n"
+        "- legal_id: us:keep#amount\n  source: bulk\n  since: '2026-07-08'\n"
+    ).encode()
+    after, operations = _legacy_metadata_reconciliation_bytes(
+        Path("oracle-coverage-pending.yaml"),
+        raw,
+        moves=[
+            PlannedMove(
+                Path("us-la/statutes/47:32.yaml"), Path("us-la/statutes/47/32.yaml")
+            )
+        ],
+    )
+    assert after == raw.replace(b"us-la:statutes/47:32#", b"us-la:statutes/47/32#")
+    assert operations == (
+        {"operation": "remove_legacy_oracle_pending", "count": 0},
+        {"operation": "relocate_legacy_oracle_pending", "count": 1},
+    )
+
+
+def test_pending_oracle_relocation_rejects_duplicate_output() -> None:
+    raw = b"- legal_id: us-la:statutes/47:32#rate\n- legal_id: us-la:statutes/47:32#rate\n"
+    with pytest.raises(ValueError, match="exact legal_id|ambiguous"):
+        _legacy_metadata_reconciliation_bytes(
+            Path("oracle-coverage-pending.yaml"),
+            raw,
+            moves=[
+                PlannedMove(
+                    Path("us-la/statutes/47:32.yaml"), Path("us-la/statutes/47/32.yaml")
+                )
+            ],
+        )
+
+
+def test_pending_oracle_mixed_moves_preserve_new_destination_debt() -> None:
+    import yaml
+
+    entries = [
+        {
+            "legal_id": "us-la:statutes/47:32#rate",
+            "source": "manual",
+            "since": "2026-07-21",
+        },
+        {
+            "legal_id": "us-la:statutes/47:32#tax",
+            "source": "manual",
+            "since": "2026-07-21",
+        },
+        {
+            "legal_id": "us-la:statutes/47:294#credit",
+            "source": "bulk",
+            "since": "2026-07-08",
+        },
+        {
+            "legal_id": "us-la:statutes/47/294#credit",
+            "source": "bulk",
+            "since": "2026-07-08",
+        },
+    ]
+    raw = yaml.safe_dump(
+        {"version": 1, "ceiling": 4, "entries": entries}, sort_keys=False
+    ).encode()
+    after, operations = _legacy_metadata_reconciliation_bytes(
+        Path("oracle-coverage-pending.yaml"),
+        raw,
+        moves=[
+            PlannedMove(
+                Path("us-la/statutes/47:32.yaml"), Path("us-la/statutes/47/32.yaml")
+            ),
+            PlannedMove(
+                Path("us-la/statutes/47:294.yaml"), Path("us-la/statutes/47/294.yaml")
+            ),
+        ],
+    )
+    expected = copy.deepcopy(entries)
+    for item in expected[:2]:
+        item["legal_id"] = item["legal_id"].replace("47:32", "47/32")
+    del expected[2]
+    assert yaml.safe_load(after) == {"version": 1, "ceiling": 3, "entries": expected}
+    assert operations == (
+        {"operation": "remove_legacy_oracle_pending", "count": 1},
+        {"operation": "relocate_legacy_oracle_pending", "count": 2},
+    )

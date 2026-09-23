@@ -28092,6 +28092,77 @@ def _line_preserving_yaml_mapping_removal(
     return rewritten, observed
 
 
+def _line_preserving_oracle_pending_relocation(
+    raw: bytes,
+    *,
+    moves: Sequence[PlannedMove],
+) -> tuple[bytes, int, tuple[PlannedMove, ...]]:
+    """Carry pending obligations to a new identity without changing their debt."""
+    try:
+        text = raw.decode("utf-8")
+        before = yaml.safe_load(text)
+    except (UnicodeError, yaml.YAMLError, RecursionError) as exc:
+        raise ValueError("legacy oracle metadata is not valid UTF-8 YAML") from exc
+    entries = (
+        before
+        if isinstance(before, list)
+        else before.get("entries")
+        if isinstance(before, dict)
+        else None
+    )
+    if not isinstance(entries, list):
+        raise ValueError("legacy oracle metadata lacks its entries list")
+    identities = {
+        item["legal_id"].split("#", 1)[0]
+        for item in entries
+        if isinstance(item, dict) and isinstance(item.get("legal_id"), str)
+    }
+    relocating = {
+        rulespec_identity(move.source): rulespec_identity(move.destination)
+        for move in moves
+        if move.source != move.destination
+        and rulespec_identity(move.source) in identities
+        and rulespec_identity(move.destination) not in identities
+    }
+    if not relocating:
+        return raw, 0, tuple(moves)
+    expected = copy.deepcopy(before)
+    expected_entries = expected if isinstance(expected, list) else expected["entries"]
+    count = 0
+    seen = set()
+    for item in expected_entries:
+        if not isinstance(item, dict) or not isinstance(item.get("legal_id"), str):
+            continue
+        old = item["legal_id"]
+        identity, separator, output = old.partition("#")
+        if identity not in relocating:
+            continue
+        if not separator or not output or old in seen:
+            raise ValueError("legacy pending oracle output is ambiguous")
+        seen.add(old)
+        new = relocating[identity] + "#" + output
+        pattern = re.compile(
+            r"(?m)^(?P<prefix>[ \t]*(?:-[ \t]+)?legal_id:[ \t]*)(?P<quote>['\"]?)"
+            + re.escape(old)
+            + r"(?P=quote)(?P<suffix>[ \t]*(?:#.*)?$)"
+        )
+        text, observed = pattern.subn(
+            lambda m: m["prefix"] + m["quote"] + new + m["quote"] + m["suffix"], text
+        )
+        if observed != 1:
+            raise ValueError(
+                "pending oracle relocation is not one exact legal_id field"
+            )
+        item["legal_id"] = new
+        count += 1
+    if yaml.safe_load(text) != expected:
+        raise ValueError("pending oracle relocation changed unrelated metadata")
+    remaining = tuple(
+        move for move in moves if rulespec_identity(move.source) not in relocating
+    )
+    return text.encode("utf-8"), count, remaining
+
+
 def _line_preserving_oracle_pending_removal(
     raw: bytes,
     *,
@@ -28408,11 +28479,21 @@ def _legacy_metadata_reconciliation_bytes(
         rewritten, count = _line_preserving_yaml_mapping_removal(raw, keys=old_modules)
         operations = ({"operation": "remove_legacy_validation_gaps", "count": count},)
     elif path == Path("oracle-coverage-pending.yaml"):
-        rewritten, count = _line_preserving_oracle_pending_removal(
-            raw,
-            moves=moves,
+        relocated, moved_count, removal_moves = (
+            _line_preserving_oracle_pending_relocation(raw, moves=moves)
         )
-        operations = ({"operation": "remove_legacy_oracle_pending", "count": count},)
+        rewritten, count = _line_preserving_oracle_pending_removal(
+            relocated,
+            moves=removal_moves,
+        )
+        operations = (
+            {"operation": "remove_legacy_oracle_pending", "count": count},
+            *(
+                ({"operation": "relocate_legacy_oracle_pending", "count": moved_count},)
+                if moved_count
+                else ()
+            ),
+        )
     elif path == Path("tests/test_encoding_manifests.py"):
         try:
             lines = raw.decode("utf-8").splitlines(keepends=True)
