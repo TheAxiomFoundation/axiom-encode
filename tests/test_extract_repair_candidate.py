@@ -1245,3 +1245,172 @@ def test_retained_diagnostics_reject_shared_limit_plus_one(tmp_path):
     )
     with pytest.raises(ValueError, match="exceeds its size limit"):
         extract_candidate(_args(tmp_path, retained))
+
+
+@pytest.mark.parametrize(
+    "prior_lane,changed_primary,incompatible,second_dependent",
+    [
+        ("target", False, False, False),
+        ("target", False, False, True),
+        ("dependent", False, False, True),
+        ("dependent", False, False, False),
+        ("target", False, True, False),
+        ("target", False, True, True),
+        ("target", True, False, False),
+    ],
+)
+def test_workflow_authenticates_retained_lane_before_new_dependent(
+    tmp_path: Path,
+    prior_lane: str,
+    changed_primary: bool,
+    incompatible: bool,
+    second_dependent: bool,
+) -> None:
+    import os
+    import subprocess
+    import sys
+
+    import yaml
+
+    root = Path(__file__).resolve().parents[1]
+    primary_citation = "us/guidance/primary/source"
+    primary_path = "us/guidance/primary/source.yaml"
+    dependent_citation = "us/statute/42/1437c\u20131"
+    dependent_path = "us/statutes/42/1437c-1.yaml"
+    if prior_lane == "target":
+        archive, metadata = _archive(
+            tmp_path,
+            citation=primary_citation,
+            module="guidance/primary/source.yaml",
+            replace_rulespec_path=primary_path,
+        )
+    else:
+        archive, metadata = _archive(tmp_path)
+        archive = _rewrite_as_dependent_candidate(
+            archive, tmp_path / "dependent.tar", metadata
+        )
+    repo = tmp_path / "rulespec-us"
+    repo.mkdir()
+
+    def git(*args):
+        return subprocess.check_output(
+            ["git", "-C", str(repo), *args], text=True
+        ).strip()
+
+    git("init", "--quiet")
+    git("config", "user.name", "Test")
+    git("config", "user.email", "test@example.invalid")
+    for path in (primary_path, dependent_path):
+        target = repo / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("format: rulespec/v1\nrules: []\n")
+        target.with_suffix(".test.yaml").write_text("[]\n")
+        manifest = repo / ".axiom/encoding-manifests" / Path(path).with_suffix(".json")
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        manifest.write_text("{}\n")
+    git("add", ".")
+    git("commit", "-qm", "source base")
+    metadata["rulespec_ref"] = git("rev-parse", "HEAD")
+    if incompatible:
+        metadata["corpus_ref"] = "e" * 40
+    archive = _rewrite_metadata(archive, tmp_path / "bound.tar", metadata)
+    if changed_primary:
+        (repo / primary_path).write_text("changed primary\n")
+        git("add", ".")
+        git("commit", "-qm", "changed primary")
+    workflow = yaml.safe_load(
+        (root / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    step = next(
+        step["run"]
+        for step in workflow["jobs"]["encode"]["steps"]
+        if step.get("name") == "Resolve trusted prior-run repair candidate"
+    )
+    command = (
+        "set -euo pipefail\n" + step[step.index("extract_authenticated_repair() {") :]
+    )
+    command = command.replace("axiom-encode/.venv/bin/python", sys.executable)
+    for name in ("extract_repair_candidate.py", "verify_repair_base_advance.py"):
+        command = command.replace(
+            f"axiom-encode/scripts/{name}", str(root / "scripts" / name)
+        )
+    output_file = tmp_path / "outputs"
+    completed = subprocess.run(
+        ["bash", "-c", command],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "RUNNER_TEMP": str(tmp_path),
+            "GITHUB_OUTPUT": str(output_file),
+            "repair_archive": str(archive),
+            "repair_encoder_commit": "a" * 40,
+            "repair_citation": dependent_citation,
+            "repair_rulespec_path": dependent_path,
+            "REPAIR_RUN_LANE": "dependent",
+            "CITATION": primary_citation,
+            "REPLACE_RULESPEC_PATH": primary_path,
+            "SECOND_DEPENDENT_CITATION": "us/statute/42/402/w"
+            if second_dependent
+            else "",
+            "COUNTRY": "us",
+            "CORPUS_REF": "b" * 40,
+            "RULES_ENGINE_REF": "c" * 40,
+            "RULESPEC_REF": git("rev-parse", "HEAD"),
+            "RULESPEC_CHECKOUT": str(repo),
+            "REPAIR_RUN_ID": "1234",
+            "ATOMIC_SOURCE_JSON": "[]",
+            "source_bundle_json": "[]",
+            "primary_required_test_cases_json": "[]",
+            "EXISTING_SIGNED_IMPORTS_JSON": "[]",
+        },
+    )
+    if second_dependent and prior_lane == "dependent":
+        assert completed.returncode != 0
+        assert (
+            "two fresh dependents require an authenticated single-target primary"
+            in completed.stderr
+        )
+        assert not (tmp_path / "repair-candidate").exists()
+        assert not output_file.exists()
+        return
+    if incompatible:
+        assert completed.returncode != 0
+        if second_dependent:
+            assert (
+                "two fresh dependents require an authenticated single-target primary"
+                in completed.stderr
+            )
+            assert (
+                "metadata mismatch: corpus_ref"
+                in (tmp_path / "repair-primary-probe.log").read_text()
+            )
+        else:
+            assert "metadata mismatch: corpus_ref" in completed.stderr
+        assert not output_file.exists()
+        return
+    if changed_primary:
+        assert completed.returncode != 0
+        assert (
+            "target identity changed after its source RuleSpec base" in completed.stderr
+        )
+        assert (tmp_path / "repair-primary-candidate.json").is_file()
+        assert not (tmp_path / "repair-candidate").exists()
+        assert not output_file.exists()
+        return
+    assert completed.returncode == 0, completed.stderr
+    outputs = dict(line.split("=", 1) for line in output_file.read_text().splitlines())
+    expected_path = primary_path if prior_lane == "target" else dependent_path
+    assert outputs["lane"] == prior_lane
+    assert outputs["rulespec_path"] == expected_path
+    assert outputs["path"] == expected_path.removeprefix("us/")
+    assert outputs["source_rulespec_ref"] == metadata["rulespec_ref"]
+    candidate = Path(outputs["root"]) / outputs["path"]
+    assert (
+        hashlib.sha256(candidate.read_bytes()).hexdigest() == outputs["rulespec_sha256"]
+    )
+    assert (
+        hashlib.sha256(candidate.with_suffix(".test.yaml").read_bytes()).hexdigest()
+        == outputs["tests_sha256"]
+    )
