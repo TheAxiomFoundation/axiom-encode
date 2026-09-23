@@ -403,6 +403,7 @@ class TestMainExitContract:
         repair_run_id: str = "",
         override: str = "",
         budget: str = "",
+        source_bundle_json: str = "[]",
     ) -> None:
         monkeypatch.setenv("CITATION", CITATION)
         monkeypatch.setenv("GITHUB_REPOSITORY", "org/repo")
@@ -410,6 +411,7 @@ class TestMainExitContract:
         monkeypatch.setenv("GITHUB_RUN_ID", "99")
         monkeypatch.setenv("QUEUE_ID", queue_id)
         monkeypatch.setenv("REPAIR_RUN_ID", repair_run_id)
+        monkeypatch.setenv("SOURCE_BUNDLE_JSON", source_bundle_json)
         monkeypatch.setenv("ATTEMPT_BUDGET_OVERRIDE", override)
         monkeypatch.setenv("ATTEMPT_BUDGET", budget)
         monkeypatch.delenv("ATTEMPT_BUDGET_BY_CITATION_JSON", raising=False)
@@ -446,6 +448,39 @@ class TestMainExitContract:
         self._set_env(monkeypatch, repair_run_id="32201076681")
         self._stub_api(monkeypatch, self.FAILING_HISTORY)
         assert budget_mod.main() == 0
+
+    def test_successor_repoint_reports_only(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._set_env(
+            monkeypatch,
+            source_bundle_json=json.dumps(
+                {"schema": "axiom-encode/legacy-successor-repoint/v1"}
+            ),
+        )
+        self._stub_api(monkeypatch, self.FAILING_HISTORY)
+        assert budget_mod.main() == 0
+
+    @pytest.mark.parametrize(
+        "source_bundle_json",
+        [
+            "[]",
+            "not json",
+            json.dumps(["axiom-encode/legacy-successor-repoint/v1"]),
+            json.dumps(
+                {
+                    "schema": "atomic-source-transaction/v4",
+                    "note": '"axiom-encode/legacy-successor-repoint/v1"',
+                }
+            ),
+        ],
+    )
+    def test_only_an_exact_repoint_envelope_is_exempt(
+        self, monkeypatch: pytest.MonkeyPatch, source_bundle_json: str
+    ) -> None:
+        self._set_env(monkeypatch, source_bundle_json=source_bundle_json)
+        self._stub_api(monkeypatch, self.FAILING_HISTORY)
+        assert budget_mod.main() == 1
 
     def test_override_passes(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._set_env(monkeypatch, override="true")

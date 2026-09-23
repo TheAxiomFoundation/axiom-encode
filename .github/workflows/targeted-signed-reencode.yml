@@ -152,6 +152,7 @@ jobs:
           CITATION: ${{ inputs.citation }}
           QUEUE_ID: ${{ inputs.queue_id }}
           REPAIR_RUN_ID: ${{ inputs.repair_run_id }}
+          SOURCE_BUNDLE_JSON: ${{ inputs.source_bundle_json }}
           ATTEMPT_BUDGET: ${{ vars.ATTEMPT_BUDGET }}
           ATTEMPT_BUDGET_OVERRIDE: ${{ vars.ATTEMPT_BUDGET_OVERRIDE }}
           ATTEMPT_BUDGET_BY_CITATION_JSON: ${{ vars.ATTEMPT_BUDGET_BY_CITATION_JSON }}
@@ -3980,8 +3981,9 @@ jobs:
             -c user.name=axiom-encode-bot \
             -c user.email=axiom-encode-bot@users.noreply.github.com \
             commit -m "Repoint ${legacy} onto ${successor}"
-          test -z "$(git -C "$RULESPEC_CHECKOUT" status --porcelain --no-renames \
-            --untracked-files=all)"
+          committed_status="$(git -C "$RULESPEC_CHECKOUT" status --porcelain \
+            --no-renames --untracked-files=all)"
+          test -z "$committed_status"
           # The committed tree itself, not the working tree, is exactly the
           # receipt: the same path set and every committed blob digest.
           git -C "$RULESPEC_CHECKOUT" diff --name-status --no-renames -z \
