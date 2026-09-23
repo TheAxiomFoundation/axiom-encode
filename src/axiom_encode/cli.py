@@ -29,6 +29,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 import unicodedata
 from base64 import b64decode, b64encode
 from binascii import Error as BinasciiError
@@ -453,13 +454,16 @@ from .successor_repoint import (
     MANIFEST_TOOL as SUCCESSOR_REPOINT_DEPENDENT_TOOL,
 )
 from .successor_repoint import (
+    METADATA_PATHS as SUCCESSOR_REPOINT_METADATA_ORDER,
+)
+from .successor_repoint import (
     RECEIPT_DIR as _SUCCESSOR_REPOINT_RECEIPT_DIR_TEXT,
 )
 from .successor_repoint import (
     RECEIPT_SCHEMA as SUCCESSOR_REPOINT_RECEIPT_SCHEMA,
 )
 from .successor_repoint import (
-    SUCCESSOR_MANIFEST_TOOL as SUCCESSOR_REPOINT_SUCCESSOR_TOOL,
+    RETIRED_MANIFEST_TOOL as SUCCESSOR_REPOINT_RETIRED_TOOL,
 )
 from .successor_repoint import (
     TOOL as SUCCESSOR_REPOINT_TOOL,
@@ -470,15 +474,13 @@ from .successor_repoint import (
     load_repoint_request_payload,
     prove_concept_map,
     reconcile_money_atom_ratchet,
+    reconcile_program_scope,
     reconcile_upstream_source_check_baseline,
     repoint_reference_inventory_issues,
     rewrite_repoint_file,
 )
 from .successor_repoint import (
     companion_of as _successor_repoint_companion,
-)
-from .successor_repoint import (
-    module_identity as _successor_repoint_identity,
 )
 from .successor_repoint import (
     receipt_identity_payload as _successor_repoint_identity_payload,
@@ -518,20 +520,13 @@ APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR = Path(
 )
 SUCCESSOR_REPOINT_RECEIPT_DIR = Path(_SUCCESSOR_REPOINT_RECEIPT_DIR_TEXT)
 SUCCESSOR_REPOINT_TOOLS = frozenset(
-    {SUCCESSOR_REPOINT_DEPENDENT_TOOL, SUCCESSOR_REPOINT_SUCCESSOR_TOOL}
+    {SUCCESSOR_REPOINT_DEPENDENT_TOOL, SUCCESSOR_REPOINT_RETIRED_TOOL}
 )
 # Non-RuleSpec repository metadata a successor repoint may reconcile. Every
 # entry is a deterministic, line-scoped removal of the retired module's own
 # record; nothing else in these files may change.
 _SUCCESSOR_REPOINT_METADATA_PATHS = frozenset(
-    {
-        Path(".axiom/index/provisions_to_rules.json"),
-        Path(".axiom/pending-validation-fingerprints.json"),
-        Path(".axiom/toolchain.toml"),
-        Path(".axiom/upstream-source-check-baseline.txt"),
-        Path("known-missing-money-atoms.yaml"),
-        Path("known-validation-gaps.yaml"),
-    }
+    Path(path.as_posix()) for path in SUCCESSOR_REPOINT_METADATA_ORDER
 )
 APPLIED_ENCODING_OFFICIAL_REPOSITORY = "github.com/TheAxiomFoundation/axiom-encode"
 # Trusted-runtime attestation (encode#1147): the git-free, root-provisioned
@@ -705,7 +700,7 @@ _LEGACY_REPLACEMENT_RECEIPT_FIELDS = frozenset(
         "signature",
     }
 )
-_SUCCESSOR_REPOINT_DEPENDENT_MANIFEST_FIELDS = frozenset(
+_SUCCESSOR_REPOINT_MANIFEST_FIELDS = frozenset(
     {
         "schema_version",
         "generated_at",
@@ -715,20 +710,6 @@ _SUCCESSOR_REPOINT_DEPENDENT_MANIFEST_FIELDS = frozenset(
         VALIDATION_WAIVER_SET_SHA256_FIELD,
         "applied_files",
         "successor_repoint",
-        "signature",
-    }
-)
-_SUCCESSOR_REPOINT_SUCCESSOR_MANIFEST_FIELDS = frozenset(
-    {
-        "schema_version",
-        "generated_at",
-        "tool",
-        "axiom_encode_version",
-        "axiom_encode_git",
-        VALIDATION_WAIVER_SET_SHA256_FIELD,
-        "applied_files",
-        "successor_repoint",
-        "repointed_successor_manifest",
         "signature",
     }
 )
@@ -760,8 +741,6 @@ _SUCCESSOR_REPOINT_BINDING_FIELDS = frozenset(
         "receipt_path",
         "receipt_sha256",
         "legacy_primary",
-        "legacy_manifest_path",
-        "legacy_manifest_sha256",
         "successor_primary",
     }
 )
@@ -9673,6 +9652,7 @@ def _legacy_replacement_reference_inventory_issues(
         APPLIED_ENCODING_MANIFEST_DIR.parts,
         APPLIED_ENCODING_PATH_MIGRATION_RECEIPT_DIR.parts,
         APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR.parts,
+        SUCCESSOR_REPOINT_RECEIPT_DIR.parts,
     )
     roots = tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS))
     hit_paths: set[Path] = set()
@@ -21539,7 +21519,14 @@ _SUCCESSOR_REPOINT_V1_MANIFEST_FIELDS = frozenset(
     }
 )
 _SUCCESSOR_REPOINT_V1_TOOLS = frozenset(
-    {"axiom-encode encode --apply", "axiom-encode sign-applied-files"}
+    {
+        "axiom-encode encode --apply",
+        "axiom-encode sign-applied-files",
+        # The real dependent's jurisdiction-less v1 manifest,
+        # .axiom/encoding-manifests/statutes/26/32.json at rulespec-us c654250f,
+        # was written by the deterministic repair tool.
+        "axiom-encode deterministic/manual repair",
+    }
 )
 _SUCCESSOR_REPOINT_V5_ONLY_FIELDS = frozenset(
     {
@@ -21550,32 +21537,49 @@ _SUCCESSOR_REPOINT_V5_ONLY_FIELDS = frozenset(
         "replacement_manifest",
         "retained_successor_manifest",
         "successor_repoint",
-        "repointed_successor_manifest",
         "source_attestation",
         "legacy_migration",
         "replacement",
         "migration",
     }
 )
+_SUCCESSOR_REPOINT_MAX_FILE_BYTES = 16 * 1024 * 1024
+_SUCCESSOR_REPOINT_REPLAY_CACHE: dict[
+    tuple[str, str], tuple["_SuccessorRepointPlan | None", tuple[str, ...]]
+] = {}
+_SUCCESSOR_REPOINT_REPLAY_CACHE_LIMIT = 64
 
 
-def _successor_repoint_v1_ownership_issues(
+def _successor_repoint_provenance_prefixes() -> tuple[str, ...]:
+    """Directories whose files are signed provenance a repoint never rewrites."""
+
+    return tuple(
+        f"{directory.as_posix()}/"
+        for directory in (
+            APPLIED_ENCODING_MANIFEST_DIR,
+            APPLIED_ENCODING_PATH_MIGRATION_RECEIPT_DIR,
+            APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR,
+            SUCCESSOR_REPOINT_RECEIPT_DIR,
+        )
+    )
+
+
+def _successor_repoint_v1_manifest_entries(
     payload: object,
     *,
-    expected_files: Mapping[str, str],
     jurisdiction_prefix: str,
     manifest_label: str,
-) -> list[str]:
-    """Admit one historical v1 ownership manifest as untrusted retirement evidence.
+) -> tuple[dict[str, str], list[str]]:
+    """Parse one historical v1 ownership manifest as untrusted evidence.
 
-    Authority for what is being retired comes entirely from the caller's
-    clean-HEAD Git binding and exact blob digests, exactly as
-    ``legacy_generated_manifest_issues`` documents.  This parser only
-    establishes that the manifest is the known v1 HMAC class and that it binds
-    the exact bytes being retired, in one path scope.
+    Returns the manifest's applied files as jurisdiction-prefixed
+    ``{path: sha256}``.  Authority for what a repoint retires or rewrites comes
+    entirely from the clean-HEAD Git binding and exact blob digests, exactly as
+    ``legacy_generated_manifest_issues`` documents; this parser only establishes
+    the known v1 HMAC class and a single path scope.
 
-    It is deliberately weaker than ``legacy_v1_manifest_issues`` on *generated
-    provenance*: the oldest v1 manifests in rulespec-us omit ``axiom_encode_git``
+    It is deliberately weaker than ``legacy_v1_manifest_issues`` on generated
+    provenance: the oldest v1 manifests in rulespec-us omit ``axiom_encode_git``
     and carry null ``run_id`` / ``generated_output_sha256`` (see
     ``.axiom/encoding-manifests/policies/irs/rev-proc-2025-32/earned-income-credit.json``
     at rulespec-us c654250f), so requiring those fields would make the class
@@ -21583,7 +21587,7 @@ def _successor_repoint_v1_ownership_issues(
     """
 
     if not isinstance(payload, dict):
-        return [f"{manifest_label} is not a JSON object"]
+        return {}, [f"{manifest_label} is not a JSON object"]
     issues: list[str] = []
     unknown = sorted(set(payload) - _SUCCESSOR_REPOINT_V1_MANIFEST_FIELDS)
     if unknown:
@@ -21617,7 +21621,7 @@ def _successor_repoint_v1_ownership_issues(
             if (
                 not isinstance(entry, dict)
                 or set(entry) != {"path", "sha256"}
-                or not isinstance(entry.get("path"), str)
+                or _successor_repoint_repo_path(entry.get("path")) is None
                 or not isinstance(entry.get("sha256"), str)
                 or _SHA256_HEX_PATTERN.fullmatch(str(entry["sha256"])) is None
                 or entry["path"] in actual
@@ -21626,18 +21630,16 @@ def _successor_repoint_v1_ownership_issues(
                 continue
             actual[str(entry["path"])] = str(entry["sha256"])
 
-    canonical = dict(expected_files)
     prefix = f"{jurisdiction_prefix}/"
-    relative = {
-        path[len(prefix) :]: digest
-        for path, digest in canonical.items()
-        if path.startswith(prefix) and len(path) > len(prefix)
-    }
-    if actual and not (
-        set(actual).issubset(canonical) or set(actual).issubset(relative)
-    ):
-        issues.append(f"{manifest_label} covers files outside the group being retired")
-    return issues
+    scoped = [path.startswith(prefix) for path in actual]
+    if any(scoped) and not all(scoped):
+        issues.append(
+            f"{manifest_label} mixes jurisdiction-prefixed and jurisdiction-less paths"
+        )
+    return {
+        (path if path.startswith(prefix) else f"{prefix}{path}"): digest
+        for path, digest in actual.items()
+    }, issues
 
 
 def _successor_repoint_group_manifest_paths(primary: Path) -> tuple[Path, Path]:
@@ -21646,6 +21648,877 @@ def _successor_repoint_group_manifest_paths(primary: Path) -> tuple[Path, Path]:
     prefixed = _applied_encoding_manifest_path(primary)
     relative = _applied_encoding_manifest_path(Path(*primary.parts[1:]))
     return prefixed, relative
+
+
+class _SuccessorRepointPlan(NamedTuple):
+    """Every deterministic fact one repoint derives from a single Git commit.
+
+    The command builds this at clean HEAD before signing; the guard rebuilds it
+    from the receipt's ``base_commit`` and requires equality, so nothing a
+    receipt claims depends on live files that later, unrelated edits may touch.
+    """
+
+    request: object
+    commit: str
+    tree: str
+    legacy_files: dict[str, str]
+    legacy_manifests: tuple[dict[str, object], ...]
+    successor_files: tuple[dict[str, object], ...]
+    successor_manifest_path: Path
+    successor_manifest_sha256: str
+    successor_manifest_payload: dict[str, object]
+    proof_set: object
+    dependent_records: tuple[dict[str, object], ...]
+    metadata_records: tuple[dict[str, object], ...]
+    program_records: tuple[dict[str, object], ...]
+    postimages: dict[Path, bytes]
+    deletions: tuple[Path, ...]
+    retired_manifest_path: Path
+    base_waiver_sha256: str
+    post_waiver_sha256: str
+    toolchain: dict[str, str]
+
+
+def _successor_repoint_tree_entries(
+    repo_path: Path, commit: str
+) -> dict[Path, tuple[str, str, str, int]]:
+    """Return ``path -> (mode, type, object id, size)`` for one exact commit."""
+
+    try:
+        listing = _rulespec_migration_git_bytes(
+            repo_path, "ls-tree", "-r", "-l", "-z", "--full-tree", commit
+        )
+    except RuntimeError as exc:
+        raise SuccessorRepointError(
+            f"cannot enumerate the repoint base tree {commit}: {exc}"
+        ) from exc
+    entries: dict[Path, tuple[str, str, str, int]] = {}
+    for record in listing.split(b"\0"):
+        if not record:
+            continue
+        try:
+            metadata, encoded_path = record.split(b"\t", 1)
+            mode, object_type, object_id, raw_size = metadata.decode("ascii").split()
+            path_text = encoded_path.decode("utf-8")
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise SuccessorRepointError("repoint base tree entry is malformed") from exc
+        path = Path(path_text)
+        if (
+            object_type != "blob"
+            or path.is_absolute()
+            or path.as_posix() != path_text
+            or any(part in {"", ".", ".."} for part in path.parts)
+            or path in entries
+            or not raw_size.isdigit()
+        ):
+            raise SuccessorRepointError(
+                f"repoint base tree cannot inventory non-blob or noncanonical "
+                f"tracked path {path_text}"
+            )
+        entries[path] = (mode, object_type, object_id, int(raw_size))
+    return entries
+
+
+def _successor_repoint_reference_candidates(
+    repo_path: Path,
+    *,
+    commit: str,
+    request,
+    entries: Mapping[Path, tuple[str, str, str, int]],
+) -> dict[str, bytes]:
+    """Return every tracked blob at ``commit`` that contains the legacy stem.
+
+    One ``git grep`` over the whole tree finds every candidate, so every tracked
+    text file is inventoried, not just protected roots and ``programs/``.  A
+    non-0644 blob that names the module is a refusal: nothing may rewrite it.
+    """
+
+    stem = request.legacy_scope_path
+    result = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo_path),
+            "grep",
+            "-z",
+            "-l",
+            "-a",
+            "-F",
+            "-e",
+            stem,
+            commit,
+            "--",
+        ],
+        capture_output=True,
+        env=_rulespec_migration_git_environment(),
+        check=False,
+    )
+    if result.returncode not in {0, 1}:
+        raise SuccessorRepointError(
+            "cannot scan the repoint reference inventory: "
+            + result.stderr.decode("utf-8", errors="replace").strip()
+        )
+    prefix = f"{commit}:".encode()
+    candidates: dict[str, bytes] = {}
+    for encoded in result.stdout.split(b"\0"):
+        if not encoded:
+            continue
+        if not encoded.startswith(prefix):
+            raise SuccessorRepointError("repoint reference candidate is malformed")
+        try:
+            path = Path(encoded[len(prefix) :].decode("utf-8"))
+        except UnicodeDecodeError as exc:
+            raise SuccessorRepointError(
+                "repoint reference candidate is malformed"
+            ) from exc
+        entry = entries.get(path)
+        if entry is None:
+            raise SuccessorRepointError(
+                f"repoint reference candidate is not tracked: {path.as_posix()}"
+            )
+        mode, _object_type, object_id, size = entry
+        if size > _SUCCESSOR_REPOINT_MAX_FILE_BYTES:
+            raise SuccessorRepointError(
+                "repoint reference candidate exceeds the 16 MiB inventory limit: "
+                f"{path.as_posix()}"
+            )
+        raw = _rulespec_migration_git_bytes(repo_path, "cat-file", "blob", object_id)
+        if mode != "100644":
+            raise SuccessorRepointError(
+                "a non-0644 tracked path names the legacy module and cannot be "
+                f"reconciled: {path.as_posix()}"
+            )
+        candidates[path.as_posix()] = raw
+    return candidates
+
+
+def _successor_repoint_structural_residue(value: object, pattern: re.Pattern) -> bool:
+    """Return whether a retired module survives as a structured record.
+
+    Free text (for example a historical ``divergence_note`` listing many
+    modules) may still name the retired module; only a key, list item, or scalar
+    value that *is* a reference to it (any form, whole string) is a record.
+    """
+
+    if isinstance(value, dict):
+        return any(
+            (isinstance(key, str) and pattern.fullmatch(key.strip()) is not None)
+            or _successor_repoint_structural_residue(item, pattern)
+            for key, item in value.items()
+        )
+    if isinstance(value, list):
+        return any(
+            _successor_repoint_structural_residue(item, pattern) for item in value
+        )
+    return isinstance(value, str) and pattern.fullmatch(value.strip()) is not None
+
+
+def _successor_repoint_record_pattern(request) -> re.Pattern:
+    """Match one whole string that is a reference to the legacy module."""
+
+    jurisdiction = re.escape(request.jurisdiction)
+    stem = re.escape(request.legacy_scope_path)
+    return re.compile(
+        rf"(?:{jurisdiction}[:/])?{stem}(?:\.test\.yaml|\.yaml|#[a-z][a-z0-9_.]*)?"
+    )
+
+
+def _successor_repoint_metadata_reconciliations(
+    *,
+    tracked: set[Path],
+    request,
+    dependent_postimages: Mapping[str, bytes],
+    read: Callable[[Path, str], bytes],
+) -> tuple[list[dict[str, object]], dict[Path, bytes]]:
+    """Build every audited repository-metadata removal this repoint requires.
+
+    Pure over committed bytes: the guard replays it from the receipt's base.
+    """
+
+    legacy_path = Path(request.legacy_primary.as_posix()).as_posix()
+    legacy_companion = Path(request.legacy_companion.as_posix()).as_posix()
+    successor_path = Path(request.successor_primary.as_posix()).as_posix()
+    reference = request.legacy_reference_pattern
+    record_pattern = _successor_repoint_record_pattern(request)
+    records: list[dict[str, object]] = []
+    planned: dict[Path, bytes] = {}
+    waiver_digest: str | None = None
+
+    for metadata_path in SUCCESSOR_REPOINT_METADATA_ORDER:
+        relative = Path(metadata_path.as_posix())
+        if relative not in tracked:
+            continue
+        raw = read(relative, f"successor repoint metadata {relative.as_posix()}")
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeError as exc:
+            raise SuccessorRepointError(
+                f"successor repoint metadata is not UTF-8: {relative.as_posix()}"
+            ) from exc
+        operations: tuple[dict[str, object], ...]
+        try:
+            if relative == Path("known-validation-gaps.yaml"):
+                if reference.search(text) is None:
+                    continue
+                rewritten, count = _line_preserving_yaml_mapping_removal(
+                    raw, keys={legacy_path, legacy_companion}
+                )
+                operations = (
+                    {"operation": "remove_legacy_validation_gaps", "count": count},
+                )
+                waiver_digest = hashlib.sha256(rewritten).hexdigest()
+            elif relative == Path(".axiom/index/provisions_to_rules.json"):
+                before = json.loads(text)
+                counts = _index_module_record_counts(before)
+                if counts[legacy_path] and not counts[successor_path]:
+                    raise SuccessorRepointError(
+                        "Provision index lacks records for the successor module: "
+                        f"{successor_path}"
+                    )
+                after, removed = _remove_index_module_records(
+                    before, old_modules={legacy_path}
+                )
+                after, reindexed = _reindex_exact_dependent_modules(
+                    after, modules=dict(dependent_postimages)
+                )
+                rewritten = (
+                    json.dumps(after, indent=2, ensure_ascii=False) + "\n"
+                ).encode()
+                operations = (
+                    {"operation": "remove_legacy_module_records", "count": removed},
+                    {"operation": "reindex_repointed_dependents", "count": reindexed},
+                )
+            elif relative == Path(".axiom/pending-validation-fingerprints.json"):
+                if reference.search(text) is None:
+                    continue
+                before = json.loads(text)
+                after, removed = _remove_nested_mapping_keys(
+                    before, {legacy_path, legacy_companion}
+                )
+                rewritten = (
+                    json.dumps(after, indent=2, ensure_ascii=True) + "\n"
+                ).encode()
+                operations = (
+                    {"operation": "remove_legacy_fingerprints", "count": removed},
+                )
+            elif relative == Path(".axiom/upstream-source-check-baseline.txt"):
+                if reference.search(text) is None:
+                    continue
+                rewritten, operations = reconcile_upstream_source_check_baseline(
+                    raw, legacy_path=legacy_path
+                )
+            elif relative == Path("known-missing-money-atoms.yaml"):
+                if reference.search(text) is None:
+                    continue
+                rewritten, operations = reconcile_money_atom_ratchet(
+                    raw, legacy_path=legacy_path
+                )
+            else:
+                if waiver_digest is None:
+                    continue
+                pattern = re.compile(
+                    r'(?m)^validation_waiver_set_sha256 = "[0-9a-f]{64}"$'
+                )
+                rewritten_text, count = pattern.subn(
+                    f'validation_waiver_set_sha256 = "{waiver_digest}"',
+                    text,
+                )
+                if count != 1:
+                    raise SuccessorRepointError(
+                        "RuleSpec toolchain waiver binding is not one canonical entry"
+                    )
+                rewritten = rewritten_text.encode("utf-8")
+                operations = (
+                    {"operation": "update_validation_waiver_set_sha256", "count": 1},
+                )
+        except (json.JSONDecodeError, RecursionError) as exc:
+            raise SuccessorRepointError(
+                f"successor repoint metadata is invalid JSON: {relative.as_posix()}"
+            ) from exc
+        except SuccessorRepointError:
+            raise
+        except ValueError as exc:
+            raise SuccessorRepointError(
+                f"successor repoint metadata {relative.as_posix()}: {exc}"
+            ) from exc
+        if rewritten == raw:
+            continue
+        if relative.suffix in {".json", ".yaml"}:
+            try:
+                loaded = (
+                    json.loads(rewritten.decode("utf-8"))
+                    if relative.suffix == ".json"
+                    else yaml.safe_load(rewritten.decode("utf-8"))
+                )
+            except (UnicodeError, ValueError, yaml.YAMLError, RecursionError) as exc:
+                raise SuccessorRepointError(
+                    "successor repoint metadata reconciliation produced an "
+                    f"unreadable {relative.as_posix()}"
+                ) from exc
+            if _successor_repoint_structural_residue(loaded, record_pattern):
+                raise SuccessorRepointError(
+                    "Successor repoint metadata reconciliation left a retired record "
+                    f"in {relative.as_posix()}"
+                )
+        planned[relative] = rewritten
+        records.append(
+            {
+                "path": relative.as_posix(),
+                "before_sha256": hashlib.sha256(raw).hexdigest(),
+                "after_sha256": hashlib.sha256(rewritten).hexdigest(),
+                "operations": [dict(item) for item in operations],
+            }
+        )
+    return records, planned
+
+
+def _plan_successor_repoint(
+    repo_path: Path,
+    *,
+    commit: str,
+    request,
+    verify_live: bool,
+) -> _SuccessorRepointPlan:
+    """Derive one repoint entirely from the committed bytes at ``commit``.
+
+    With ``verify_live`` (the command, at a pristine clean HEAD) every input is
+    also read from the working tree and must equal its committed blob with mode
+    0644.  Without it (the guard's replay) only immutable Git objects are read.
+    Every refusal raises ``SuccessorRepointError``.
+    """
+
+    tree = (
+        _rulespec_migration_git_bytes(repo_path, "rev-parse", f"{commit}^{{tree}}")
+        .decode("ascii", errors="replace")
+        .strip()
+    )
+    if re.fullmatch(r"[0-9a-f]{40}", tree) is None:
+        raise SuccessorRepointError(f"repoint base commit has no tree: {commit}")
+    entries = _successor_repoint_tree_entries(repo_path, commit)
+    tracked = set(entries)
+
+    def read(relative: Path, label: str) -> bytes:
+        entry = entries.get(relative)
+        if entry is None or entry[0] != "100644":
+            raise SuccessorRepointError(
+                "Successor repoint input is not a tracked regular 0644 file: "
+                f"{relative.as_posix()}"
+            )
+        if entry[3] > _SUCCESSOR_REPOINT_MAX_FILE_BYTES:
+            raise SuccessorRepointError(
+                f"{label} exceeds the 16 MiB repoint limit: {relative.as_posix()}"
+            )
+        raw = _rulespec_migration_git_bytes(repo_path, "cat-file", "blob", entry[2])
+        if verify_live:
+            try:
+                live = read_bounded_regular_file(
+                    repo_path,
+                    repo_path / relative,
+                    label=label,
+                    max_bytes=_SUCCESSOR_REPOINT_MAX_FILE_BYTES,
+                    required_mode=0o644,
+                )
+            except (OSError, UnsafeCorpusPathError) as exc:
+                raise SuccessorRepointError(
+                    f"Cannot read {label} safely: {relative.as_posix()}: {exc}"
+                ) from exc
+            if live != raw:
+                raise SuccessorRepointError(
+                    "Successor repoint input differs from clean HEAD: "
+                    f"{relative.as_posix()}"
+                )
+        return raw
+
+    def load_json(relative: Path, label: str) -> tuple[bytes, object]:
+        raw = read(relative, label)
+        try:
+            return raw, json.loads(raw.decode("utf-8"))
+        except (UnicodeError, json.JSONDecodeError, RecursionError) as exc:
+            raise SuccessorRepointError(
+                f"{label} is invalid JSON: {relative.as_posix()}"
+            ) from exc
+
+    def group_paths(primary: Path) -> list[Path]:
+        paths = [primary]
+        companion = Path(
+            _successor_repoint_companion(PurePosixPath(primary.as_posix())).as_posix()
+        )
+        if companion in tracked:
+            paths.append(companion)
+        return paths
+
+    def sha(raw: bytes) -> str:
+        return hashlib.sha256(raw).hexdigest()
+
+    jurisdiction = request.jurisdiction
+
+    # ---- legacy group: every v1 manifest must bind its exact bytes ---------
+    legacy_primary = Path(request.legacy_primary.as_posix())
+    successor_primary = Path(request.successor_primary.as_posix())
+    legacy_paths = group_paths(legacy_primary)
+    legacy_files = {
+        path.as_posix(): sha(read(path, f"legacy group file {path.as_posix()}"))
+        for path in legacy_paths
+    }
+    legacy_manifests: list[dict[str, object]] = []
+    legacy_manifest_paths: list[Path] = []
+    for candidate in _successor_repoint_group_manifest_paths(legacy_primary):
+        if candidate not in tracked:
+            continue
+        raw, payload = load_json(candidate, "legacy ownership manifest")
+        bound, issues = _successor_repoint_v1_manifest_entries(
+            payload,
+            jurisdiction_prefix=jurisdiction,
+            manifest_label=candidate.as_posix(),
+        )
+        if not issues and bound != legacy_files:
+            issues.append(
+                f"{candidate.as_posix()} does not bind the exact bytes of the legacy "
+                "group it would retire"
+            )
+        if issues:
+            raise SuccessorRepointError("; ".join(issues))
+        legacy_manifest_paths.append(candidate)
+        legacy_manifests.append({"path": candidate.as_posix(), "sha256": sha(raw)})
+    if not legacy_manifests:
+        raise SuccessorRepointError(
+            "Successor repoint requires the legacy primary's tracked v1 ownership "
+            f"manifest: {legacy_primary.as_posix()}"
+        )
+
+    # ---- successor group: an untouched signed-v5 model manifest ------------
+    if successor_primary in legacy_paths:
+        raise SuccessorRepointError(
+            "Successor repoint successor cannot be the legacy group"
+        )
+    successor_paths = group_paths(successor_primary)
+    successor_files = tuple(
+        {
+            "path": path.as_posix(),
+            "sha256": sha(read(path, f"successor group file {path.as_posix()}")),
+        }
+        for path in successor_paths
+    )
+    successor_manifest_path = _applied_encoding_manifest_path(successor_primary)
+    if successor_manifest_path not in tracked:
+        raise SuccessorRepointError(
+            "Successor repoint requires the successor's signed-v5 manifest: "
+            f"{successor_manifest_path.as_posix()}"
+        )
+    successor_manifest_raw, successor_payload = load_json(
+        successor_manifest_path, "successor signed manifest"
+    )
+    successor_applied = (
+        successor_payload.get("applied_files")
+        if isinstance(successor_payload, dict)
+        else None
+    )
+    if (
+        not isinstance(successor_payload, dict)
+        or successor_payload.get("schema_version") != APPLIED_ENCODING_MANIFEST_SCHEMA
+        or successor_payload.get("tool") != APPLIED_ENCODING_MODEL_TOOL
+        or successor_payload.get("backend") not in APPLIED_ENCODING_ENCODER_BACKENDS
+        or not isinstance(successor_applied, list)
+        or any(
+            not isinstance(item, dict) or set(item) != {"path", "sha256"}
+            for item in successor_applied
+        )
+        or [
+            {"path": item["path"], "sha256": item["sha256"]}
+            for item in sorted(successor_applied, key=lambda item: str(item["path"]))
+        ]
+        != sorted(
+            (dict(item) for item in successor_files),
+            key=lambda item: str(item["path"]),
+        )
+    ):
+        raise SuccessorRepointError(
+            "Successor is not owned by a signed-v5 model apply manifest that binds "
+            f"its exact canonical group: {successor_primary.as_posix()}"
+        )
+
+    # ---- dependents: their v1 manifests must bind the current bytes --------
+    dependent_primaries = [Path(item.as_posix()) for item in request.dependents]
+    dependent_groups = {
+        primary: group_paths(primary) for primary in dependent_primaries
+    }
+    dependent_preimages = {
+        path.as_posix(): read(path, f"dependent file {path.as_posix()}")
+        for paths in dependent_groups.values()
+        for path in paths
+    }
+    dependent_manifests: dict[Path, list[dict[str, object]]] = {}
+    for primary in dependent_primaries:
+        group = {
+            path.as_posix(): sha(dependent_preimages[path.as_posix()])
+            for path in dependent_groups[primary]
+        }
+        bound_now: set[str] = set()
+        records: list[dict[str, object]] = []
+        for candidate in _successor_repoint_group_manifest_paths(primary):
+            if candidate not in tracked:
+                continue
+            raw, payload = load_json(candidate, "dependent ownership manifest")
+            bound, issues = _successor_repoint_v1_manifest_entries(
+                payload,
+                jurisdiction_prefix=jurisdiction,
+                manifest_label=candidate.as_posix(),
+            )
+            outside = sorted(set(bound) - set(group))
+            if not issues and outside:
+                issues.append(
+                    f"{candidate.as_posix()} covers files outside the dependent "
+                    f"group it would supersede: {', '.join(outside)}"
+                )
+            if issues:
+                raise SuccessorRepointError("; ".join(issues))
+            bound_now.update(
+                path for path, digest in bound.items() if group.get(path) == digest
+            )
+            records.append({"path": candidate.as_posix(), "sha256": sha(raw)})
+        if not records:
+            raise SuccessorRepointError(
+                "Successor repoint requires each dependent's tracked v1 ownership "
+                f"manifest: {primary.as_posix()}"
+            )
+        # A dependent is rewritten, not retired, so one v1 manifest may be a
+        # later partial re-attestation of another (rulespec-us's 26/32 has a
+        # jurisdiction-less manifest with a superseded companion digest and a
+        # prefixed manual manifest for the current companion).  Together they
+        # must still bind the exact bytes being rewritten.
+        unbound = sorted(set(group) - bound_now)
+        if unbound:
+            raise SuccessorRepointError(
+                "Successor repoint dependent bytes are not bound by any v1 ownership "
+                f"manifest: {', '.join(unbound)}"
+            )
+        dependent_manifests[primary] = records
+
+    # ---- concept equivalence proof -----------------------------------------
+    proof_set = prove_concept_map(
+        legacy_raw=read(legacy_primary, "legacy primary"),
+        successor_raw=read(successor_primary, "successor primary"),
+        request=request,
+        dependent_raws={
+            primary.as_posix(): dependent_preimages[primary.as_posix()]
+            for primary in dependent_primaries
+        },
+    )
+
+    # ---- whole-tree reference inventory ------------------------------------
+    retired_manifest_paths = [
+        *legacy_manifest_paths,
+        *(
+            Path(str(record["path"]))
+            for records in dependent_manifests.values()
+            for record in records
+        ),
+    ]
+    candidates = _successor_repoint_reference_candidates(
+        repo_path, commit=commit, request=request, entries=entries
+    )
+    inventory_issues = repoint_reference_inventory_issues(
+        candidates,
+        request=request,
+        tracked=[path.as_posix() for path in tracked],
+        retired_paths=[path.as_posix() for path in retired_manifest_paths],
+        provenance_prefixes=_successor_repoint_provenance_prefixes(),
+    )
+    if inventory_issues:
+        raise SuccessorRepointError(
+            "reference inventory failed:\n  " + "\n  ".join(inventory_issues)
+        )
+
+    # ---- dependent rewrites -------------------------------------------------
+    successor_sha256 = next(
+        str(item["sha256"])
+        for item in successor_files
+        if item["path"] == successor_primary.as_posix()
+    )
+    postimages: dict[Path, bytes] = {}
+    dependent_records: list[dict[str, object]] = []
+    for primary in dependent_primaries:
+        rewrites: list[dict[str, object]] = []
+        live_files: list[dict[str, object]] = []
+        before_files: list[dict[str, object]] = []
+        for path in dependent_groups[primary]:
+            raw = dependent_preimages[path.as_posix()]
+            before_files.append({"path": path.as_posix(), "sha256": sha(raw)})
+            is_primary = path == primary
+            if (
+                not is_primary
+                and request.legacy_reference_pattern.search(
+                    raw.decode("utf-8", errors="replace")
+                )
+                is None
+            ):
+                live_files.append({"path": path.as_posix(), "sha256": sha(raw)})
+                continue
+            rewritten, replacements = rewrite_repoint_file(
+                raw,
+                primary=is_primary,
+                legacy_identity=request.legacy_identity,
+                successor_identity=request.successor_identity,
+                successor_sha256=successor_sha256,
+                renames=proof_set.renames,
+                label=path.as_posix(),
+            )
+            if _migration_corpus_citations(raw) != _migration_corpus_citations(
+                rewritten
+            ):
+                raise SuccessorRepointError(
+                    "Successor repoint would alter legal corpus citation text in "
+                    f"{path.as_posix()}"
+                )
+            postimages[path] = rewritten
+            rewrites.append(
+                {
+                    "path": path.as_posix(),
+                    "before_sha256": sha(raw),
+                    "after_sha256": sha(rewritten),
+                    "replacements": [dict(item) for item in replacements],
+                }
+            )
+            live_files.append({"path": path.as_posix(), "sha256": sha(rewritten)})
+        if not rewrites:
+            raise SuccessorRepointError(
+                "Successor repoint dependent has no legacy reference to rewrite: "
+                f"{primary.as_posix()}"
+            )
+        dependent_records.append(
+            {
+                "primary": primary.as_posix(),
+                "manifests": [dict(item) for item in dependent_manifests[primary]],
+                "before_files": before_files,
+                "live_files": live_files,
+                "rewrites": rewrites,
+            }
+        )
+
+    # ---- metadata and ProgramSpec reconciliations ---------------------------
+    metadata_records, metadata_postimages = _successor_repoint_metadata_reconciliations(
+        tracked=tracked,
+        request=request,
+        dependent_postimages={
+            record["primary"]: postimages[Path(str(record["primary"]))]
+            for record in dependent_records
+            if Path(str(record["primary"])) in postimages
+        },
+        read=read,
+    )
+    postimages.update(metadata_postimages)
+    program_records: list[dict[str, object]] = []
+    country = repo_path.name.removeprefix("rulespec-")
+    for update in request.program_scope_updates:
+        relative = Path(update.program_spec.as_posix())
+        rewritten, record = reconcile_program_scope(
+            read(relative, f"ProgramSpec {relative.as_posix()}"),
+            request=request,
+            update=update,
+            country=country,
+        )
+        if relative in postimages:
+            raise SuccessorRepointError(
+                f"ProgramSpec is reconciled twice: {relative.as_posix()}"
+            )
+        postimages[relative] = rewritten
+        program_records.append(record)
+
+    # ---- waiver and toolchain bindings --------------------------------------
+    waiver_path = Path("known-validation-gaps.yaml")
+    base_waiver_sha256 = sha(read(waiver_path, "validation waiver set"))
+    post_waiver_sha256 = next(
+        (
+            str(item["after_sha256"])
+            for item in metadata_records
+            if item["path"] == waiver_path.as_posix()
+        ),
+        base_waiver_sha256,
+    )
+    try:
+        toolchain_payload = tomllib.loads(
+            read(Path(".axiom/toolchain.toml"), "RuleSpec toolchain").decode("utf-8")
+        )
+        toolchain_table = toolchain_payload["toolchain"]
+        toolchain = {
+            "name": str(toolchain_table["axiom_corpus_release"]),
+            "content_sha256": str(
+                toolchain_table["axiom_corpus_release_content_sha256"]
+            ),
+        }
+    except (UnicodeError, tomllib.TOMLDecodeError, KeyError, TypeError) as exc:
+        raise SuccessorRepointError("RuleSpec toolchain is unreadable") from exc
+
+    retired_manifest_path = _applied_encoding_manifest_path(legacy_primary)
+    replaced_manifests = {
+        retired_manifest_path,
+        *(_applied_encoding_manifest_path(primary) for primary in dependent_primaries),
+    }
+    deletions = tuple(
+        sorted(
+            {
+                *legacy_paths,
+                *(
+                    path
+                    for path in retired_manifest_paths
+                    if path not in replaced_manifests
+                ),
+            },
+            key=Path.as_posix,
+        )
+    )
+    return _SuccessorRepointPlan(
+        request=request,
+        commit=commit,
+        tree=tree,
+        legacy_files=legacy_files,
+        legacy_manifests=tuple(legacy_manifests),
+        successor_files=successor_files,
+        successor_manifest_path=successor_manifest_path,
+        successor_manifest_sha256=sha(successor_manifest_raw),
+        successor_manifest_payload=successor_payload,
+        proof_set=proof_set,
+        dependent_records=tuple(dependent_records),
+        metadata_records=tuple(metadata_records),
+        program_records=tuple(program_records),
+        postimages=postimages,
+        deletions=deletions,
+        retired_manifest_path=retired_manifest_path,
+        base_waiver_sha256=base_waiver_sha256,
+        post_waiver_sha256=post_waiver_sha256,
+        toolchain=toolchain,
+    )
+
+
+def _successor_repoint_receipt_body(plan: _SuccessorRepointPlan) -> dict[str, object]:
+    """Return every receipt field that the guard re-derives from the base."""
+
+    request = plan.request
+    return {
+        "request": dict(request.payload),
+        "request_sha256": request.sha256,
+        "legacy": {
+            "owner_class": APPLIED_ENCODING_LEGACY_OWNER_CLASS,
+            "trusted_generated_provenance": False,
+            "manifests": [dict(item) for item in plan.legacy_manifests],
+            "files": [
+                {"path": path, "sha256": digest}
+                for path, digest in sorted(plan.legacy_files.items())
+            ],
+        },
+        "successor": {
+            "primary": request.successor_primary.as_posix(),
+            "manifest_path": plan.successor_manifest_path.as_posix(),
+            "manifest_sha256": plan.successor_manifest_sha256,
+            "manifest": copy.deepcopy(plan.successor_manifest_payload),
+            "files": [dict(item) for item in plan.successor_files],
+        },
+        "dependents": [copy.deepcopy(record) for record in plan.dependent_records],
+        "concept_proofs": [proof.as_receipt_entry() for proof in plan.proof_set.proofs],
+        "semantics": plan.proof_set.receipt_semantics(),
+        "metadata_reconciliations": [dict(item) for item in plan.metadata_records],
+        "program_scope_reconciliations": [
+            copy.deepcopy(item) for item in plan.program_records
+        ],
+        VALIDATION_WAIVER_SET_SHA256_FIELD: plan.post_waiver_sha256,
+    }
+
+
+def _successor_repoint_receipt_identity(plan: _SuccessorRepointPlan) -> str:
+    body = _successor_repoint_receipt_body(plan)
+    return _successor_repoint_identity_sha256(
+        _successor_repoint_identity_payload(
+            request_sha256=plan.request.sha256,
+            base_commit=plan.commit,
+            base_tree=plan.tree,
+            legacy_manifests=plan.legacy_manifests,
+            successor_manifest_sha256=plan.successor_manifest_sha256,
+            legacy_files=body["legacy"]["files"],
+            successor_files=body["successor"]["files"],
+            dependents=body["dependents"],
+            concept_proofs=body["concept_proofs"],
+            metadata_reconciliations=body["metadata_reconciliations"],
+            program_scope_reconciliations=body["program_scope_reconciliations"],
+            semantics=body["semantics"],
+        )
+    )
+
+
+def _build_successor_repoint_provenance(
+    plan: _SuccessorRepointPlan,
+    *,
+    validation_execution: Mapping[str, object],
+    local_corpus_release: LocalCorpusRelease,
+    encoder_provenance: Mapping[str, object],
+    signing_broker: SigningBroker,
+) -> tuple[Path, bytes, dict[Path, bytes]]:
+    """Return the signed receipt and the manifests one repoint installs.
+
+    Kept separate from the journaled install so the writer and
+    ``_successor_repoint_manifest_issues`` can be round-tripped in tests.
+    """
+
+    request = plan.request
+    receipt_relative = (
+        SUCCESSOR_REPOINT_RECEIPT_DIR
+        / f"{_successor_repoint_receipt_identity(plan)}.json"
+    )
+    receipt = {
+        "schema_version": SUCCESSOR_REPOINT_RECEIPT_SCHEMA,
+        "generated_at": _utc_now_iso(),
+        "tool": SUCCESSOR_REPOINT_TOOL,
+        "repository": {
+            "base_commit": plan.commit,
+            "head_commit": plan.commit,
+            "base_tree": plan.tree,
+        },
+        "axiom_encode_version": __version__,
+        "axiom_encode_git": dict(encoder_provenance),
+        "corpus_release": {
+            "name": local_corpus_release.name,
+            "content_sha256": local_corpus_release.content_sha256,
+            "selector_sha256": local_corpus_release.selector_sha256,
+        },
+        "validation_execution": dict(validation_execution),
+        **_successor_repoint_receipt_body(plan),
+    }
+    _sign_applied_encoding_manifest(receipt, signing_broker)
+    receipt_bytes = (json.dumps(receipt, indent=2, sort_keys=True) + "\n").encode()
+    binding = {
+        "receipt_path": receipt_relative.as_posix(),
+        "receipt_sha256": hashlib.sha256(receipt_bytes).hexdigest(),
+        "legacy_primary": request.legacy_primary.as_posix(),
+        "successor_primary": request.successor_primary.as_posix(),
+    }
+
+    def manifest(tool: str, applied_files: list[dict[str, object]]) -> bytes:
+        payload = {
+            "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+            "generated_at": _utc_now_iso(),
+            "tool": tool,
+            "axiom_encode_version": __version__,
+            "axiom_encode_git": dict(encoder_provenance),
+            VALIDATION_WAIVER_SET_SHA256_FIELD: plan.post_waiver_sha256,
+            "applied_files": applied_files,
+            "successor_repoint": dict(binding),
+        }
+        _sign_applied_encoding_manifest(payload, signing_broker)
+        return (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode()
+
+    manifests: dict[Path, bytes] = {
+        plan.retired_manifest_path: manifest(
+            SUCCESSOR_REPOINT_RETIRED_TOOL,
+            [{"path": path, "deleted": True} for path in sorted(plan.legacy_files)],
+        )
+    }
+    for record in plan.dependent_records:
+        manifests[_applied_encoding_manifest_path(Path(str(record["primary"])))] = (
+            manifest(
+                SUCCESSOR_REPOINT_DEPENDENT_TOOL,
+                [dict(item) for item in record["live_files"]],
+            )
+        )
+    return receipt_relative, receipt_bytes, manifests
 
 
 def cmd_repoint_legacy_successor(args) -> None:
@@ -21702,137 +22575,38 @@ def _cmd_repoint_legacy_successor(args) -> None:
         raise SystemExit(f"Invalid successor repoint request: {exc}") from exc
 
     jurisdiction = request.jurisdiction
-    content_root = repo_path / jurisdiction
-    if canonical_rulespec_root_identity(content_root) is None:
+    if canonical_rulespec_root_identity(repo_path / jurisdiction) is None:
         raise SystemExit(
             f"Successor repoint jurisdiction is not a canonical content root: "
             f"{jurisdiction}"
         )
-
-    tracked = _rulespec_migration_tracked_files(repo_path)
-    roots = tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS))
-
-    def clean_bytes(relative: Path, *, label: str, max_bytes: int = 16 * 1024 * 1024):
-        if tracked.get(relative) != "100644":
-            raise SystemExit(
-                f"Successor repoint input is not a tracked regular 0644 file: "
-                f"{relative.as_posix()}"
-            )
-        raw = read_bounded_regular_file(
-            repo_path,
-            repo_path / relative,
-            label=label,
-            max_bytes=max_bytes,
-            required_mode=0o644,
-        )
-        if raw != _rulespec_migration_base_blob(repo_path, head_commit, relative):
-            raise SystemExit(
-                f"Successor repoint input differs from clean HEAD: "
-                f"{relative.as_posix()}"
-            )
-        return raw
-
-    def group_paths(primary: Path) -> list[Path]:
-        paths = [primary]
-        companion = Path(
-            _successor_repoint_companion(PurePosixPath(primary.as_posix()))
-        )
-        if companion in tracked:
-            paths.append(companion)
-        return paths
-
-    # ---- legacy group -----------------------------------------------------
-    legacy_primary = Path(request.legacy_primary)
-    successor_primary = Path(request.successor_primary)
-    legacy_paths = group_paths(legacy_primary)
-    legacy_files = {
-        path.as_posix(): hashlib.sha256(
-            clean_bytes(path, label=f"legacy group file {path.as_posix()}")
-        ).hexdigest()
-        for path in legacy_paths
-    }
-    legacy_manifest_records: list[dict[str, object]] = []
-    legacy_manifest_paths: list[Path] = []
-    for candidate in _successor_repoint_group_manifest_paths(legacy_primary):
-        if candidate not in tracked:
-            continue
-        raw = clean_bytes(
-            candidate,
-            label=f"legacy ownership manifest {candidate.as_posix()}",
-            max_bytes=4 * 1024 * 1024,
-        )
-        try:
-            payload = json.loads(raw.decode("utf-8"))
-        except (UnicodeError, json.JSONDecodeError, RecursionError) as exc:
-            raise SystemExit(
-                f"Legacy ownership manifest is invalid JSON: {candidate.as_posix()}"
-            ) from exc
-        issues = _successor_repoint_v1_ownership_issues(
-            payload,
-            expected_files=legacy_files,
-            jurisdiction_prefix=jurisdiction,
-            manifest_label=candidate.as_posix(),
-        )
-        if issues:
-            raise SystemExit("; ".join(issues))
-        legacy_manifest_paths.append(candidate)
-        legacy_manifest_records.append(
-            {
-                "path": candidate.as_posix(),
-                "sha256": hashlib.sha256(raw).hexdigest(),
-            }
-        )
-    if not legacy_manifest_paths:
-        raise SystemExit(
-            "Successor repoint requires the legacy primary's tracked v1 ownership "
-            f"manifest: {legacy_primary.as_posix()}"
-        )
-
-    # ---- successor group --------------------------------------------------
-    if successor_primary in {legacy_primary, *legacy_paths}:
-        raise SystemExit("Successor repoint successor cannot be the legacy group")
-    successor_paths = group_paths(successor_primary)
-    successor_file_entries = [
-        {
-            "path": path.as_posix(),
-            "sha256": hashlib.sha256(
-                clean_bytes(path, label=f"successor group file {path.as_posix()}")
-            ).hexdigest(),
-        }
-        for path in successor_paths
-    ]
-    successor_manifest_path = _applied_encoding_manifest_path(successor_primary)
-    if successor_manifest_path not in tracked:
-        raise SystemExit(
-            "Successor repoint requires the successor's signed-v5 manifest: "
-            f"{successor_manifest_path.as_posix()}"
-        )
-    successor_manifest_raw = clean_bytes(
-        successor_manifest_path,
-        label="successor signed manifest",
-        max_bytes=4 * 1024 * 1024,
-    )
     try:
-        successor_manifest_payload = json.loads(successor_manifest_raw.decode("utf-8"))
-    except (UnicodeError, json.JSONDecodeError, RecursionError) as exc:
-        raise SystemExit("Successor signed manifest is invalid JSON") from exc
-    execution = (
-        successor_manifest_payload.get("validation_execution")
-        if isinstance(successor_manifest_payload, dict)
-        else None
-    )
+        plan = _plan_successor_repoint(
+            repo_path, commit=head_commit, request=request, verify_live=True
+        )
+    except SuccessorRepointError as exc:
+        raise SystemExit(f"Successor repoint refused: {exc}") from exc
+    if plan.tree != base_tree or plan.base_waiver_sha256 != waiver_sha256:
+        raise SystemExit("Successor repoint base changed while planning")
+
+    # The successor keeps its own signed-v5 model manifest; it must verify
+    # against the current toolchain exactly as a retained successor does.
+    roots = tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS))
+    successor_execution = plan.successor_manifest_payload.get("validation_execution")
     historical_encoder = (
-        execution.get("axiom_encode") if isinstance(execution, dict) else None
+        successor_execution.get("axiom_encode")
+        if isinstance(successor_execution, dict)
+        else None
     )
     if not isinstance(historical_encoder, dict):
         raise SystemExit(
             "Successor lacks signed encoder execution identity: "
-            f"{successor_primary.as_posix()}"
+            f"{request.successor_primary.as_posix()}"
         )
-    verified_successor, _prefix, successor_manifest_sha256, successor_issues = (
+    verified_successor, _prefix, verified_sha256, successor_issues = (
         _load_verified_applied_encoding_manifest_payload(
             repo_path,
-            successor_manifest_path.as_posix(),
+            plan.successor_manifest_path.as_posix(),
             roots=roots,
             signing_broker=signing_broker,
             expected_waiver_set_sha256=waiver_sha256,
@@ -21843,205 +22617,15 @@ def _cmd_repoint_legacy_successor(args) -> None:
     if (
         successor_issues
         or verified_successor is None
-        or successor_manifest_sha256 is None
+        or verified_sha256 != plan.successor_manifest_sha256
     ):
         raise SystemExit(
             "Successor signed-v5 ownership is invalid: "
             + "; ".join(successor_issues or ["manifest was not verified"])
         )
-    actual_successor_files = {
-        str(item.get("path")): str(item.get("sha256"))
-        for item in verified_successor.get("applied_files", [])
-        if isinstance(item, dict) and set(item) == {"path", "sha256"}
-    }
-    if actual_successor_files != {
-        str(item["path"]): str(item["sha256"]) for item in successor_file_entries
-    }:
-        raise SystemExit(
-            "Successor signed manifest does not bind the exact canonical group: "
-            f"{successor_primary.as_posix()}"
-        )
 
-    # ---- concept equivalence proof ---------------------------------------
-    dependent_primaries = [Path(item) for item in request.dependents]
-    dependent_groups = {
-        primary: group_paths(primary) for primary in dependent_primaries
-    }
-    dependent_preimages = {
-        path.as_posix(): clean_bytes(path, label=f"dependent file {path.as_posix()}")
-        for paths in dependent_groups.values()
-        for path in paths
-    }
-    try:
-        proof_set = prove_concept_map(
-            legacy_raw=clean_bytes(legacy_primary, label="legacy primary"),
-            successor_raw=clean_bytes(successor_primary, label="successor primary"),
-            request=request,
-            dependent_raws={
-                primary.as_posix(): dependent_preimages[primary.as_posix()]
-                for primary in dependent_primaries
-            },
-        )
-    except SuccessorRepointError as exc:
-        raise SystemExit(f"Successor repoint concept proof failed: {exc}") from exc
-
-    # ---- reference inventory ---------------------------------------------
-    inventory: dict[str, bytes] = {}
-    for relative, mode in tracked.items():
-        parts = relative.parts
-        interesting = (
-            (
-                len(parts) >= 3
-                and parts[1] in RULESPEC_ATOMIC_MODULE_ROOTS
-                and relative.suffix in {".yaml", ".yml"}
-            )
-            or parts[0] == RULESPEC_COMPOSITION_SPEC_ROOT
-            or (len(parts) >= 2 and parts[1] == RULESPEC_COMPOSITION_SPEC_ROOT)
-        )
-        if not interesting:
-            continue
-        if mode != "100644":
-            raise SystemExit(
-                "Successor repoint cannot inventory a non-0644 tracked RuleSpec path: "
-                f"{relative.as_posix()}"
-            )
-        inventory[relative.as_posix()] = _rulespec_migration_base_blob(
-            repo_path,
-            head_commit,
-            relative,
-        )
-    inventory_issues = repoint_reference_inventory_issues(inventory, request=request)
-    if inventory_issues:
-        raise SystemExit(
-            "Successor repoint reference inventory failed:\n  "
-            + "\n  ".join(inventory_issues)
-        )
-
-    # ---- dependent rewrites ----------------------------------------------
-    successor_sha256 = next(
-        item["sha256"]
-        for item in successor_file_entries
-        if item["path"] == successor_primary.as_posix()
-    )
-    planned: dict[Path, bytes | None] = {}
-    expected_originals: dict[Path, str | None] = {}
-    dependent_records: list[dict[str, object]] = []
-    retired_manifest_paths: list[Path] = []
-    for primary in dependent_primaries:
-        rewrites: list[dict[str, object]] = []
-        live_files: list[dict[str, object]] = []
-        before_files: list[dict[str, object]] = []
-        for path in dependent_groups[primary]:
-            raw = dependent_preimages[path.as_posix()]
-            before_files.append(
-                {"path": path.as_posix(), "sha256": hashlib.sha256(raw).hexdigest()}
-            )
-            is_primary = path == primary
-            if (
-                not is_primary
-                and _successor_repoint_identity(
-                    PurePosixPath(legacy_primary.as_posix())
-                ).encode()
-                not in raw
-            ):
-                live_files.append(
-                    {
-                        "path": path.as_posix(),
-                        "sha256": hashlib.sha256(raw).hexdigest(),
-                    }
-                )
-                continue
-            try:
-                rewritten, replacements = rewrite_repoint_file(
-                    raw,
-                    primary=is_primary,
-                    legacy_identity=request.legacy_identity,
-                    successor_identity=request.successor_identity,
-                    successor_sha256=str(successor_sha256),
-                    renames=proof_set.renames,
-                    label=path.as_posix(),
-                )
-            except SuccessorRepointError as exc:
-                raise SystemExit(
-                    f"Successor repoint rewrite failed for {path.as_posix()}: {exc}"
-                ) from exc
-            if _migration_corpus_citations(raw) != _migration_corpus_citations(
-                rewritten
-            ):
-                raise SystemExit(
-                    "Successor repoint would alter legal corpus citation text in "
-                    f"{path.as_posix()}"
-                )
-            planned[path] = rewritten
-            expected_originals[repo_path / path] = hashlib.sha256(raw).hexdigest()
-            rewrites.append(
-                {
-                    "path": path.as_posix(),
-                    "before_sha256": hashlib.sha256(raw).hexdigest(),
-                    "after_sha256": hashlib.sha256(rewritten).hexdigest(),
-                    "replacements": [dict(item) for item in replacements],
-                }
-            )
-            live_files.append(
-                {
-                    "path": path.as_posix(),
-                    "sha256": hashlib.sha256(rewritten).hexdigest(),
-                }
-            )
-        if not rewrites:
-            raise SystemExit(
-                "Successor repoint dependent has no legacy reference to rewrite: "
-                f"{primary.as_posix()}"
-            )
-        dependent_manifests: list[dict[str, object]] = []
-        for candidate in _successor_repoint_group_manifest_paths(primary):
-            if candidate not in tracked:
-                continue
-            raw = clean_bytes(
-                candidate,
-                label=f"dependent ownership manifest {candidate.as_posix()}",
-                max_bytes=4 * 1024 * 1024,
-            )
-            try:
-                payload = json.loads(raw.decode("utf-8"))
-            except (UnicodeError, json.JSONDecodeError, RecursionError) as exc:
-                raise SystemExit(
-                    "Dependent ownership manifest is invalid JSON: "
-                    f"{candidate.as_posix()}"
-                ) from exc
-            issues = _successor_repoint_v1_ownership_issues(
-                payload,
-                expected_files={
-                    str(item["path"]): str(item["sha256"]) for item in before_files
-                },
-                jurisdiction_prefix=jurisdiction,
-                manifest_label=candidate.as_posix(),
-            )
-            if issues:
-                raise SystemExit("; ".join(issues))
-            dependent_manifests.append(
-                {
-                    "path": candidate.as_posix(),
-                    "sha256": hashlib.sha256(raw).hexdigest(),
-                }
-            )
-            retired_manifest_paths.append(candidate)
-        if not dependent_manifests:
-            raise SystemExit(
-                "Successor repoint requires each dependent's tracked v1 ownership "
-                f"manifest: {primary.as_posix()}"
-            )
-        dependent_records.append(
-            {
-                "primary": primary.as_posix(),
-                "manifests": dependent_manifests,
-                "before_files": before_files,
-                "live_files": live_files,
-                "rewrites": rewrites,
-            }
-        )
-
-    # No signed-v5 owner may still claim anything the transaction retires.
+    # No verified signed owner may claim anything the transaction retires or
+    # rewrites; those files are owned only by the v1 manifests planned above.
     coverage = _manifest_coverage_by_file(
         repo_path,
         _all_applied_encoding_manifest_paths(repo_path, roots=roots),
@@ -22050,58 +22634,34 @@ def _cmd_repoint_legacy_successor(args) -> None:
         expected_encoder_identity=expected_encoder_identity,
         expected_waiver_set_sha256=waiver_sha256,
     )
-    retired_group = {
-        *legacy_files,
-        *(
-            str(item["path"])
-            for record in dependent_records
-            for item in record["before_files"]
-        ),
-    }
-    for path in sorted(retired_group):
-        owners = [
-            str(owner.get("manifest"))
-            for owner in coverage.get(path, [])
-            if str(owner.get("manifest")) != successor_manifest_path.as_posix()
-        ]
+    for path in sorted(
+        {
+            *plan.legacy_files,
+            *(
+                str(item["path"])
+                for record in plan.dependent_records
+                for item in record["before_files"]
+            ),
+        }
+    ):
+        owners = [str(owner.get("manifest")) for owner in coverage.get(path, [])]
         if owners:
             raise SystemExit(
-                f"Successor repoint cannot retire {path}: it is still claimed by a "
-                "verified signed manifest: " + ", ".join(sorted(owners))
+                f"Successor repoint cannot retire or rewrite {path}: it is still "
+                "claimed by a verified signed manifest: " + ", ".join(sorted(owners))
             )
 
-    for path in legacy_paths:
-        planned[path] = None
-        expected_originals[repo_path / path] = legacy_files[path.as_posix()]
-    for candidate in [*legacy_manifest_paths, *retired_manifest_paths]:
-        planned[candidate] = None
-
     print(
-        f"repoint {legacy_primary.as_posix()} -> {successor_primary.as_posix()} "
-        f"({len(proof_set.proofs)} proved concepts, "
-        f"{len(dependent_records)} dependents)"
+        f"repoint {request.legacy_primary.as_posix()} -> "
+        f"{request.successor_primary.as_posix()} "
+        f"({len(plan.proof_set.proofs)} proved concepts, "
+        f"{len(plan.dependent_records)} dependents)"
     )
     return _finish_successor_repoint(
         args,
-        request=request,
+        plan=plan,
         repo_path=repo_path,
         axiom_rules_path=axiom_rules_path,
-        jurisdiction=jurisdiction,
-        head_commit=head_commit,
-        base_tree=base_tree,
-        tracked=tracked,
-        clean_bytes=clean_bytes,
-        planned=planned,
-        expected_originals=expected_originals,
-        proof_set=proof_set,
-        legacy_files=legacy_files,
-        legacy_manifest_records=legacy_manifest_records,
-        successor_primary=successor_primary,
-        successor_manifest_path=successor_manifest_path,
-        successor_manifest_sha256=successor_manifest_sha256,
-        verified_successor=verified_successor,
-        successor_file_entries=successor_file_entries,
-        dependent_records=dependent_records,
         signing_broker=signing_broker,
         local_corpus_release=local_corpus_release,
         waiver_sha256=waiver_sha256,
@@ -22110,448 +22670,36 @@ def _cmd_repoint_legacy_successor(args) -> None:
     )
 
 
-def _successor_repoint_structural_residue(value: object, tokens: set[str]) -> bool:
-    """Return whether a retired identity survives as structured metadata.
-
-    Free text (for example a historical ``divergence_note``) may still name the
-    retired module; only keys, list items, and exact scalar values are records.
-    """
-
-    if isinstance(value, dict):
-        return any(
-            (isinstance(key, str) and key in tokens)
-            or _successor_repoint_structural_residue(item, tokens)
-            for key, item in value.items()
-        )
-    if isinstance(value, list):
-        return any(
-            _successor_repoint_structural_residue(item, tokens) for item in value
-        )
-    return isinstance(value, str) and value in tokens
-
-
-def _successor_repoint_metadata_reconciliations(
-    *,
-    tracked: Mapping[Path, str],
-    request,
-    dependent_postimages: Mapping[str, bytes],
-    clean_bytes,
-) -> tuple[list[dict[str, object]], dict[Path, bytes]]:
-    """Build every audited repository-metadata removal this repoint requires."""
-
-    legacy_path = Path(request.legacy_primary).as_posix()
-    legacy_companion = Path(request.legacy_companion).as_posix()
-    successor_path = Path(request.successor_primary).as_posix()
-    tokens = {
-        legacy_path,
-        legacy_companion,
-        request.legacy_identity,
-        request.legacy_scope_path,
-    }
-    records: list[dict[str, object]] = []
-    planned: dict[Path, bytes] = {}
-    waiver_digest: str | None = None
-
-    ordered = [
-        Path("known-validation-gaps.yaml"),
-        Path(".axiom/index/provisions_to_rules.json"),
-        Path(".axiom/pending-validation-fingerprints.json"),
-        Path(".axiom/upstream-source-check-baseline.txt"),
-        Path("known-missing-money-atoms.yaml"),
-        Path(".axiom/toolchain.toml"),
-    ]
-    for relative in ordered:
-        if relative not in tracked:
-            continue
-        raw = clean_bytes(
-            relative,
-            label=f"successor repoint metadata {relative.as_posix()}",
-        )
-        operations: tuple[dict[str, object], ...]
-        if relative == Path("known-validation-gaps.yaml"):
-            if legacy_path.encode() not in raw:
-                continue
-            rewritten, count = _line_preserving_yaml_mapping_removal(
-                raw, keys={legacy_path, legacy_companion}
-            )
-            operations = (
-                {"operation": "remove_legacy_validation_gaps", "count": count},
-            )
-            waiver_digest = hashlib.sha256(rewritten).hexdigest()
-        elif relative == Path(".axiom/index/provisions_to_rules.json"):
-            try:
-                before = json.loads(raw.decode("utf-8"))
-            except (UnicodeError, json.JSONDecodeError, RecursionError) as exc:
-                raise SystemExit("Provision index is invalid JSON") from exc
-            counts = _index_module_record_counts(before)
-            if counts[legacy_path] and not counts[successor_path]:
-                raise SystemExit(
-                    "Provision index lacks records for the successor module: "
-                    f"{successor_path}"
-                )
-            after, removed = _remove_index_module_records(
-                before, old_modules={legacy_path}
-            )
-            after, reindexed = _reindex_exact_dependent_modules(
-                after, modules=dict(dependent_postimages)
-            )
-            rewritten = (
-                json.dumps(after, indent=2, ensure_ascii=False) + "\n"
-            ).encode()
-            operations = (
-                {"operation": "remove_legacy_module_records", "count": removed},
-                {"operation": "reindex_repointed_dependents", "count": reindexed},
-            )
-        elif relative == Path(".axiom/pending-validation-fingerprints.json"):
-            if legacy_path.encode() not in raw:
-                continue
-            try:
-                before = json.loads(raw.decode("utf-8"))
-            except (UnicodeError, json.JSONDecodeError, RecursionError) as exc:
-                raise SystemExit("Pending fingerprints are invalid JSON") from exc
-            after, removed = _remove_nested_mapping_keys(
-                before, {legacy_path, legacy_companion}
-            )
-            rewritten = (json.dumps(after, indent=2, ensure_ascii=True) + "\n").encode()
-            operations = (
-                {"operation": "remove_legacy_fingerprints", "count": removed},
-            )
-        elif relative == Path(".axiom/upstream-source-check-baseline.txt"):
-            if legacy_path.encode() not in raw:
-                continue
-            try:
-                rewritten, operations = reconcile_upstream_source_check_baseline(
-                    raw, legacy_path=legacy_path
-                )
-            except SuccessorRepointError as exc:
-                raise SystemExit(str(exc)) from exc
-        elif relative == Path("known-missing-money-atoms.yaml"):
-            if legacy_path.encode() not in raw:
-                continue
-            try:
-                rewritten, operations = reconcile_money_atom_ratchet(
-                    raw, legacy_path=legacy_path
-                )
-            except SuccessorRepointError as exc:
-                raise SystemExit(str(exc)) from exc
-        else:
-            if waiver_digest is None:
-                continue
-            try:
-                text = raw.decode("utf-8")
-            except UnicodeError as exc:
-                raise SystemExit("RuleSpec toolchain metadata is not UTF-8") from exc
-            pattern = re.compile(r'(?m)^validation_waiver_set_sha256 = "[0-9a-f]{64}"$')
-            rewritten_text, count = pattern.subn(
-                f'validation_waiver_set_sha256 = "{waiver_digest}"',
-                text,
-            )
-            if count != 1:
-                raise SystemExit(
-                    "RuleSpec toolchain waiver binding is not one canonical entry"
-                )
-            rewritten = rewritten_text.encode("utf-8")
-            operations = (
-                {"operation": "update_validation_waiver_set_sha256", "count": 1},
-            )
-        if rewritten == raw:
-            continue
-        if relative.suffix in {".json", ".yaml"}:
-            loader = json.loads if relative.suffix == ".json" else yaml.safe_load
-            if _successor_repoint_structural_residue(
-                loader(rewritten.decode("utf-8")), tokens
-            ):
-                raise SystemExit(
-                    "Successor repoint metadata reconciliation left a retired record "
-                    f"in {relative.as_posix()}"
-                )
-        planned[relative] = rewritten
-        records.append(
-            {
-                "path": relative.as_posix(),
-                "before_sha256": hashlib.sha256(raw).hexdigest(),
-                "after_sha256": hashlib.sha256(rewritten).hexdigest(),
-                "operations": [dict(item) for item in operations],
-            }
-        )
-    return records, planned
-
-
-def _build_successor_repoint_provenance(
-    *,
-    request,
-    head_commit: str,
-    base_tree: str,
-    proof_set,
-    legacy_files: Mapping[str, str],
-    legacy_manifest_records: Sequence[Mapping[str, object]],
-    successor_primary: Path,
-    successor_manifest_path: Path,
-    successor_manifest_sha256: str,
-    verified_successor: Mapping[str, object],
-    successor_file_entries: Sequence[Mapping[str, object]],
-    dependent_records: Sequence[Mapping[str, object]],
-    metadata_records: Sequence[Mapping[str, object]],
-    program_records: Sequence[Mapping[str, object]],
-    validation_execution: Mapping[str, object],
-    local_corpus_release: LocalCorpusRelease,
-    waiver_sha256: str,
-    encoder_provenance: Mapping[str, object],
-    signing_broker: SigningBroker,
-) -> tuple[Path, bytes, dict[Path, bytes], str]:
-    """Return the signed receipt and every manifest one repoint installs.
-
-    Kept separate from the journaled install so the writer and
-    ``_successor_repoint_manifest_issues`` can be round-tripped in tests.
-    """
-
-    semantics = {
-        "successor_window": {
-            "effective_from": proof_set.successor_window_start,
-            "effective_to": proof_set.successor_window_end,
-        },
-        "dependent_use_windows": [
-            dict(item) for item in proof_set.dependent_use_windows
-        ],
-        "post_window_behavior_change": proof_set.post_window_behavior_change,
-        "runtime_behavior_outside_successor_window": (
-            "axiom-rules-engine Evaluator::lookup_parameter selects the version "
-            "whose applies_at(period.start) holds; with no active version it "
-            "returns EvalError::MissingParameterValue "
-            '("parameter `{name}` has no value for key `{key}` at {date}"). '
-            "Compilation still succeeds; evaluation for that period fails."
-        ),
-    }
-    identity_payload = _successor_repoint_identity_payload(
-        request_sha256=request.sha256,
-        base_commit=head_commit,
-        base_tree=base_tree,
-        legacy_manifest_sha256=str(legacy_manifest_records[0]["sha256"]),
-        successor_manifest_sha256=successor_manifest_sha256,
-        legacy_files=[
-            {"path": path, "sha256": digest}
-            for path, digest in sorted(legacy_files.items())
-        ],
-        successor_files=[dict(item) for item in successor_file_entries],
-        dependents=[dict(record) for record in dependent_records],
-        concept_proofs=[proof.as_receipt_entry() for proof in proof_set.proofs],
-        metadata_reconciliations=[dict(item) for item in metadata_records],
-        program_scope_reconciliations=[dict(item) for item in program_records],
-        semantics=semantics,
-    )
-    receipt_id = _successor_repoint_identity_sha256(identity_payload)
-    receipt_relative = SUCCESSOR_REPOINT_RECEIPT_DIR / f"{receipt_id}.json"
-    post_waiver_sha256 = next(
-        (
-            str(item["after_sha256"])
-            for item in metadata_records
-            if item["path"] == "known-validation-gaps.yaml"
-        ),
-        waiver_sha256,
-    )
-    receipt = {
-        "schema_version": SUCCESSOR_REPOINT_RECEIPT_SCHEMA,
-        "generated_at": _utc_now_iso(),
-        "tool": SUCCESSOR_REPOINT_TOOL,
-        "repository": {
-            "base_commit": head_commit,
-            "head_commit": head_commit,
-            "base_tree": base_tree,
-        },
-        "axiom_encode_version": __version__,
-        "axiom_encode_git": dict(encoder_provenance),
-        VALIDATION_WAIVER_SET_SHA256_FIELD: post_waiver_sha256,
-        "corpus_release": {
-            "name": local_corpus_release.name,
-            "content_sha256": local_corpus_release.content_sha256,
-            "selector_sha256": local_corpus_release.selector_sha256,
-        },
-        "request": dict(request.payload),
-        "request_sha256": request.sha256,
-        "legacy": {
-            "owner_class": APPLIED_ENCODING_LEGACY_OWNER_CLASS,
-            "trusted_generated_provenance": False,
-            "manifests": [dict(item) for item in legacy_manifest_records],
-            "files": identity_payload["legacy_files"],
-        },
-        "successor": {
-            "primary": successor_primary.as_posix(),
-            "manifest_path": successor_manifest_path.as_posix(),
-            "manifest_sha256": successor_manifest_sha256,
-            "manifest": copy.deepcopy(dict(verified_successor)),
-            "files": [dict(item) for item in successor_file_entries],
-        },
-        "dependents": [dict(record) for record in dependent_records],
-        "concept_proofs": identity_payload["concept_proofs"],
-        "semantics": semantics,
-        "metadata_reconciliations": [dict(item) for item in metadata_records],
-        "program_scope_reconciliations": [dict(item) for item in program_records],
-        "validation_execution": dict(validation_execution),
-    }
-    _sign_applied_encoding_manifest(receipt, signing_broker)
-    receipt_bytes = (json.dumps(receipt, indent=2, sort_keys=True) + "\n").encode()
-    receipt_sha256 = hashlib.sha256(receipt_bytes).hexdigest()
-
-    binding = {
-        "receipt_path": receipt_relative.as_posix(),
-        "receipt_sha256": receipt_sha256,
-        "legacy_primary": Path(request.legacy_primary).as_posix(),
-        "legacy_manifest_path": str(legacy_manifest_records[0]["path"]),
-        "legacy_manifest_sha256": str(legacy_manifest_records[0]["sha256"]),
-        "successor_primary": successor_primary.as_posix(),
-    }
-    successor_manifest = {
-        "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
-        "generated_at": _utc_now_iso(),
-        "tool": SUCCESSOR_REPOINT_SUCCESSOR_TOOL,
-        "axiom_encode_version": __version__,
-        "axiom_encode_git": dict(encoder_provenance),
-        VALIDATION_WAIVER_SET_SHA256_FIELD: post_waiver_sha256,
-        "applied_files": (
-            [dict(item) for item in successor_file_entries]
-            + [
-                {"path": item["path"], "sha256": item["after_sha256"]}
-                for item in metadata_records
-            ]
-            + [
-                {"path": item["program_spec"], "sha256": item["after_sha256"]}
-                for item in program_records
-            ]
-            + [{"path": path, "deleted": True} for path in sorted(legacy_files)]
-        ),
-        "successor_repoint": dict(binding),
-        "repointed_successor_manifest": copy.deepcopy(dict(verified_successor)),
-    }
-    _sign_applied_encoding_manifest(successor_manifest, signing_broker)
-    manifests: dict[Path, bytes] = {
-        successor_manifest_path: (
-            json.dumps(successor_manifest, indent=2, sort_keys=True) + "\n"
-        ).encode()
-    }
-    for record in dependent_records:
-        dependent_manifest = {
-            "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
-            "generated_at": _utc_now_iso(),
-            "tool": SUCCESSOR_REPOINT_DEPENDENT_TOOL,
-            "axiom_encode_version": __version__,
-            "axiom_encode_git": dict(encoder_provenance),
-            VALIDATION_WAIVER_SET_SHA256_FIELD: post_waiver_sha256,
-            "applied_files": [dict(item) for item in record["live_files"]],
-            "successor_repoint": dict(binding),
-        }
-        _sign_applied_encoding_manifest(dependent_manifest, signing_broker)
-        manifests[_applied_encoding_manifest_path(Path(str(record["primary"])))] = (
-            json.dumps(dependent_manifest, indent=2, sort_keys=True) + "\n"
-        ).encode()
-    return receipt_relative, receipt_bytes, manifests, post_waiver_sha256
-
-
 def _finish_successor_repoint(
     args,
     *,
-    request,
+    plan: _SuccessorRepointPlan,
     repo_path: Path,
     axiom_rules_path: Path,
-    jurisdiction: str,
-    head_commit: str,
-    base_tree: str,
-    tracked: Mapping[Path, str],
-    clean_bytes,
-    planned: dict[Path, bytes | None],
-    expected_originals: dict[Path, str | None],
-    proof_set,
-    legacy_files: Mapping[str, str],
-    legacy_manifest_records: Sequence[Mapping[str, object]],
-    successor_primary: Path,
-    successor_manifest_path: Path,
-    successor_manifest_sha256: str,
-    verified_successor: Mapping[str, object],
-    successor_file_entries: Sequence[Mapping[str, object]],
-    dependent_records: Sequence[Mapping[str, object]],
     signing_broker: SigningBroker,
     local_corpus_release: LocalCorpusRelease,
     waiver_sha256: str,
     encoder_provenance: Mapping[str, object],
     expected_encoder_identity: Mapping[str, str],
 ) -> None:
-    """Reconcile metadata, validate on an overlay, sign, and install atomically."""
+    """Validate on an overlay, sign, and install atomically."""
 
-    dependent_postimages = {
-        str(record["primary"]): planned[Path(str(record["primary"]))]
-        for record in dependent_records
-        if planned.get(Path(str(record["primary"]))) is not None
-    }
-    metadata_records, metadata_planned = _successor_repoint_metadata_reconciliations(
-        tracked=tracked,
-        request=request,
-        dependent_postimages=dependent_postimages,
-        clean_bytes=clean_bytes,
-    )
-    for relative, raw in metadata_planned.items():
-        planned[relative] = raw
-        expected_originals[repo_path / relative] = hashlib.sha256(
-            clean_bytes(relative, label=f"metadata preimage {relative.as_posix()}")
-        ).hexdigest()
-
-    program_records: list[dict[str, object]] = []
+    request = plan.request
+    jurisdiction = request.jurisdiction
     validation_started = time.time()
     with tempfile.TemporaryDirectory() as tmpdir:
         overlay_parent = Path(tmpdir).resolve(strict=True)
         overlay_repo = overlay_parent / repo_path.name
         _stage_apply_overlay_dependency_root(source=repo_path, target=overlay_repo)
+        for relative in plan.deletions:
+            (overlay_repo / relative).unlink(missing_ok=True)
         for relative, raw in sorted(
-            planned.items(), key=lambda item: item[0].as_posix()
+            plan.postimages.items(), key=lambda item: item[0].as_posix()
         ):
             target = overlay_repo / relative
-            if raw is None:
-                target.unlink(missing_ok=True)
-                continue
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(raw)
             target.chmod(0o644)
-
-        for update in request.program_scope_updates:
-            relative = Path(update.program_spec)
-            before = clean_bytes(relative, label=f"ProgramSpec {relative.as_posix()}")
-            try:
-                result = sync_program_scope(
-                    repo=overlay_repo,
-                    program_spec=relative,
-                    scope=update.scope,
-                    add=[request.successor_scope_path],
-                    remove=[request.legacy_scope_path],
-                )
-            except ProgramScopeError as exc:
-                raise SystemExit(
-                    f"ProgramSpec scope sync failed for {relative.as_posix()}: {exc}"
-                ) from exc
-            after = (overlay_repo / relative).read_bytes()
-            if not result.changed or after == before:
-                raise SystemExit(
-                    f"ProgramSpec scope sync made no change: {relative.as_posix()}"
-                )
-            if request.legacy_scope_path not in result.removed:
-                raise SystemExit(
-                    "ProgramSpec scope sync did not remove the legacy module: "
-                    f"{relative.as_posix()}"
-                )
-            planned[relative] = after
-            expected_originals[repo_path / relative] = hashlib.sha256(
-                before
-            ).hexdigest()
-            program_records.append(
-                {
-                    "program_spec": relative.as_posix(),
-                    "scope": update.scope,
-                    "before_sha256": hashlib.sha256(before).hexdigest(),
-                    "after_sha256": hashlib.sha256(after).hexdigest(),
-                    "removed": list(result.removed),
-                    "added": list(result.added),
-                }
-            )
-        if not program_records and request.program_scope_updates:
-            raise SystemExit("ProgramSpec scope reconciliation produced no change")
-
         try:
             _scope_replacement_overlay(overlay_repo, active_jurisdiction=jurisdiction)
         except _LegacyReplacementOverlayError as exc:
@@ -22589,7 +22737,7 @@ def _finish_successor_repoint(
         )
 
         validated: list[str] = []
-        for record in dependent_records:
+        for record in plan.dependent_records:
             relative_output = Path(*Path(str(record["primary"])).parts[1:])
             overlay_target = overlay_content_root / relative_output
             validations = _validate_overlay_files(
@@ -22628,59 +22776,37 @@ def _finish_successor_repoint(
             "axiom_encode": dict(expected_encoder_identity),
         }
 
-    # ---- receipt and signed provenance ------------------------------------
-    receipt_relative, receipt_bytes, manifests, _post_waiver_sha256 = (
-        _build_successor_repoint_provenance(
-            request=request,
-            head_commit=head_commit,
-            base_tree=base_tree,
-            proof_set=proof_set,
-            legacy_files=legacy_files,
-            legacy_manifest_records=legacy_manifest_records,
-            successor_primary=successor_primary,
-            successor_manifest_path=successor_manifest_path,
-            successor_manifest_sha256=successor_manifest_sha256,
-            verified_successor=verified_successor,
-            successor_file_entries=successor_file_entries,
-            dependent_records=dependent_records,
-            metadata_records=metadata_records,
-            program_records=program_records,
-            validation_execution=validation_execution,
-            local_corpus_release=local_corpus_release,
-            waiver_sha256=waiver_sha256,
-            encoder_provenance=encoder_provenance,
-            signing_broker=signing_broker,
-        )
+    receipt_relative, receipt_bytes, manifests = _build_successor_repoint_provenance(
+        plan,
+        validation_execution=validation_execution,
+        local_corpus_release=local_corpus_release,
+        encoder_provenance=encoder_provenance,
+        signing_broker=signing_broker,
     )
+    entries = _successor_repoint_tree_entries(repo_path, plan.commit)
     if (
-        receipt_relative in tracked
+        receipt_relative in entries
         or (repo_path / receipt_relative).exists()
         or (repo_path / receipt_relative).is_symlink()
     ):
         raise SystemExit(
             f"Successor repoint receipt already exists: {receipt_relative.as_posix()}"
         )
-    planned[receipt_relative] = receipt_bytes
-    expected_originals[repo_path / receipt_relative] = None
-    for relative, raw in manifests.items():
-        planned[relative] = raw
-    expected_originals[repo_path / successor_manifest_path] = successor_manifest_sha256
-    for record in dependent_records:
-        manifest_relative = _applied_encoding_manifest_path(
-            Path(str(record["primary"]))
-        )
-        expected_originals.setdefault(
-            repo_path / manifest_relative,
-            next(
-                (
-                    str(item["sha256"])
-                    for item in record["manifests"]
-                    if str(item["path"]) == manifest_relative.as_posix()
-                ),
-                None,
-            ),
-        )
 
+    planned: dict[Path, bytes | None] = {path: None for path in plan.deletions}
+    planned.update(plan.postimages)
+    planned[receipt_relative] = receipt_bytes
+    planned.update(manifests)
+    expected_originals: dict[Path, str | None] = {}
+    for relative in planned:
+        entry = entries.get(relative)
+        expected_originals[repo_path / relative] = (
+            None
+            if entry is None
+            else hashlib.sha256(
+                _rulespec_migration_git_bytes(repo_path, "cat-file", "blob", entry[2])
+            ).hexdigest()
+        )
     transaction_files = [
         (repo_path / relative, raw)
         for relative, raw in sorted(
@@ -22689,6 +22815,9 @@ def _finish_successor_repoint(
     ]
     for target, _raw in transaction_files:
         _ensure_safe_apply_target(repo_path, target)
+    program_specs = tuple(
+        Path(update.program_spec.as_posix()) for update in request.program_scope_updates
+    )
 
     expected_release_identity = (
         local_corpus_release.root,
@@ -22714,7 +22843,7 @@ def _finish_successor_repoint(
                 "Successor repoint corpus release changed after validation"
             )
         locked_head, locked_tree = _rulespec_migration_base_identity(repo_path)
-        if (locked_head, locked_tree) != (head_commit, base_tree):
+        if (locked_head, locked_tree) != (plan.commit, plan.tree):
             raise RuntimeError("RuleSpec base identity changed after planning")
 
     def post_install_check() -> None:
@@ -22723,16 +22852,7 @@ def _finish_successor_repoint(
             Path(args.corpus_path),
         )
         locked_waiver = verify_rulespec_validation_waiver_set(repo_path)
-        for manifest_relative in sorted(
-            {
-                successor_manifest_path,
-                *(
-                    _applied_encoding_manifest_path(Path(str(record["primary"])))
-                    for record in dependent_records
-                ),
-            },
-            key=Path.as_posix,
-        ):
+        for manifest_relative in sorted(manifests, key=Path.as_posix):
             verified, _prefix, _digest, issues = (
                 _load_verified_applied_encoding_manifest_payload(
                     repo_path,
@@ -22748,6 +22868,16 @@ def _finish_successor_repoint(
                     "Successor repoint manifest failed post-install verification: "
                     f"{manifest_relative.as_posix()}: {'; '.join(issues)}"
                 )
+        live_issues = _successor_repoint_fresh_receipt_issues(
+            repo_path,
+            receipt_relative,
+            signing_broker=signing_broker,
+        )
+        if live_issues:
+            raise RuntimeError(
+                "Successor repoint live tree does not match its receipt: "
+                + "; ".join(live_issues)
+            )
 
     _install_apply_transaction(
         transaction_files,
@@ -22755,23 +22885,20 @@ def _finish_successor_repoint(
         expected_originals=expected_originals,
         pre_install_check=pre_install_check,
         post_install_check=post_install_check,
+        declared_program_specs=program_specs,
     )
-    for path in sorted(legacy_files):
+    for path in sorted(plan.legacy_files):
         print(f"retired {path}")
-    for record in dependent_records:
+    for record in plan.dependent_records:
         for item in record["rewrites"]:
             print(f"repointed {item['path']}")
-    for item in metadata_records:
+    for item in plan.metadata_records:
         print(f"reconciled {item['path']}")
-    for item in program_records:
+    for item in plan.program_records:
         print(f"reconciled {item['program_spec']} ({item['scope']})")
     print(f"signed {receipt_relative.as_posix()}")
-    print(f"signed {successor_manifest_path.as_posix()}")
-    for record in dependent_records:
-        print(
-            "signed "
-            + _applied_encoding_manifest_path(Path(str(record["primary"]))).as_posix()
-        )
+    for manifest_relative in sorted(manifests, key=Path.as_posix):
+        print(f"signed {manifest_relative.as_posix()}")
 
 
 def cmd_retire(args):
@@ -23263,6 +23390,33 @@ def guard_generated_change_issues(
             issues.append(
                 f"{path} content does not match the encoder apply manifest sha256"
             )
+
+    # A successor-repoint receipt added or changed in this change set must be
+    # the exact live postimage it claims.  Afterwards it is verified only by
+    # replaying its base commit, so later edits to shared metadata are free.
+    fresh_receipts = sorted(
+        {
+            Path(path)
+            for path in changed
+            if Path(path).parent == SUCCESSOR_REPOINT_RECEIPT_DIR
+            and (repo_path / path).exists()
+        },
+        key=Path.as_posix,
+    )
+    if fresh_receipts:
+        try:
+            receipt_verifier = _applied_encoding_manifest_verifier()
+        except SigningBrokerError as exc:
+            issues.append(str(exc))
+        else:
+            for receipt_path in fresh_receipts:
+                issues.extend(
+                    _successor_repoint_fresh_receipt_issues(
+                        repo_path,
+                        receipt_path,
+                        signing_broker=receipt_verifier,
+                    )
+                )
 
     issues.extend(
         _generated_provenance_gate_issues(
@@ -24265,16 +24419,20 @@ def _applied_manifest_tool_execution_issues(
     if backend is None:
         applied_files = payload.get("applied_files")
         if tool in SUCCESSOR_REPOINT_TOOLS:
-            dependent_class = tool == SUCCESSOR_REPOINT_DEPENDENT_TOOL
-            if not isinstance(applied_files, list) or any(
-                not isinstance(item, dict)
-                or set(item)
-                not in (
-                    {frozenset({"path", "sha256"})}
-                    if dependent_class
-                    else {frozenset({"path", "sha256"}), frozenset({"path", "deleted"})}
+            expected_entry = (
+                {"path", "sha256"}
+                if tool == SUCCESSOR_REPOINT_DEPENDENT_TOOL
+                else {"path", "deleted"}
+            )
+            if (
+                not isinstance(applied_files, list)
+                or not applied_files
+                or any(
+                    not isinstance(item, dict)
+                    or set(item) != expected_entry
+                    or ("deleted" in item and item["deleted"] is not True)
+                    for item in applied_files
                 )
-                for item in applied_files
             ):
                 issues.append(
                     f"{manifest_label} successor repoint has malformed file entries"
@@ -24288,24 +24446,6 @@ def _applied_manifest_tool_execution_issues(
                     f"{manifest_label} successor repoint must preserve receipt-bound "
                     "provenance"
                 )
-            if dependent_class and "repointed_successor_manifest" in payload:
-                issues.append(
-                    f"{manifest_label} successor repoint dependent must not embed a "
-                    "successor manifest"
-                )
-            if not dependent_class:
-                repointed = payload.get("repointed_successor_manifest")
-                if (
-                    not isinstance(repointed, dict)
-                    or repointed.get("backend") not in APPLIED_ENCODING_ENCODER_BACKENDS
-                    or repointed.get("tool") != APPLIED_ENCODING_MODEL_TOOL
-                    or repointed.get("schema_version")
-                    != APPLIED_ENCODING_MANIFEST_SCHEMA
-                ):
-                    issues.append(
-                        f"{manifest_label} successor repoint must embed the verified "
-                        "signed-v5 successor model manifest"
-                    )
             provenance = payload.get("axiom_encode_git")
             if not isinstance(provenance, dict) or (
                 provenance.get("commit") != expected_encoder_identity.get("commit")
@@ -24538,13 +24678,13 @@ def _applied_manifest_exact_schema_issues(
         expected_item_fields = _MODEL_APPLIED_FILE_FIELDS
         contract = "legacy retained successor"
     elif backend is None and tool == SUCCESSOR_REPOINT_DEPENDENT_TOOL:
-        expected_fields = _SUCCESSOR_REPOINT_DEPENDENT_MANIFEST_FIELDS
+        expected_fields = _SUCCESSOR_REPOINT_MANIFEST_FIELDS
         expected_item_fields = _MODEL_APPLIED_FILE_FIELDS
         contract = "successor repoint dependent"
-    elif backend is None and tool == SUCCESSOR_REPOINT_SUCCESSOR_TOOL:
-        expected_fields = _SUCCESSOR_REPOINT_SUCCESSOR_MANIFEST_FIELDS
-        expected_item_fields = None
-        contract = "successor repoint successor"
+    elif backend is None and tool == SUCCESSOR_REPOINT_RETIRED_TOOL:
+        expected_fields = _SUCCESSOR_REPOINT_MANIFEST_FIELDS
+        expected_item_fields = _RETIRED_APPLIED_FILE_FIELDS
+        contract = "successor repoint retirement"
     else:
         return []
 
@@ -24649,7 +24789,6 @@ def _applied_manifest_exact_schema_issues(
             mixed_live_and_deleted = contract in {
                 "path migration",
                 "legacy replacement",
-                "successor repoint successor",
             }
             allowed_item_fields = (
                 _PATH_MIGRATION_DELETED_FILE_FIELDS
@@ -27359,162 +27498,314 @@ def _successor_repoint_repo_path(value: object) -> Path | None:
     return path
 
 
-def _successor_repoint_file_entries(value: object) -> dict[str, str] | None:
-    """Return exact {path: sha256} entries, or None when the list is malformed."""
-
-    if not isinstance(value, list) or not value:
-        return None
-    entries: dict[str, str] = {}
-    for item in value:
-        if not isinstance(item, dict) or set(item) != {"path", "sha256"}:
-            return None
-        path = _successor_repoint_repo_path(item.get("path"))
-        digest = item.get("sha256")
-        if (
-            path is None
-            or not isinstance(digest, str)
-            or _SHA256_HEX_PATTERN.fullmatch(digest) is None
-            or path.as_posix() in entries
-        ):
-            return None
-        entries[path.as_posix()] = digest
-    return entries
-
-
-def _successor_repoint_receipt_issues(
+def _successor_repoint_replay(
+    repo_path: Path,
     receipt: Mapping[str, object],
     *,
+    receipt_sha256: str,
     receipt_label: str,
-    expected_waiver_set_sha256: str,
-    local_corpus_release: LocalCorpusRelease | None,
-) -> list[str]:
-    """Verify one successor-repoint receipt body independently of its claimants."""
+) -> tuple[_SuccessorRepointPlan | None, tuple[str, ...]]:
+    """Re-derive one receipt's plan from its base commit and compare it.
 
+    Only immutable Git objects at ``base_commit`` are read, so the result is
+    cached per checkout and receipt digest for the life of the process.
+    """
+
+    key = (str(Path(repo_path).resolve()), receipt_sha256)
+    cached = _SUCCESSOR_REPOINT_REPLAY_CACHE.get(key)
+    if cached is not None:
+        return cached
     issues: list[str] = []
-    if receipt.get(VALIDATION_WAIVER_SET_SHA256_FIELD) != expected_waiver_set_sha256:
-        issues.append(f"{receipt_label} waiver-set binding is stale")
-    if local_corpus_release is not None:
-        release = receipt.get("corpus_release")
-        if not isinstance(release, dict) or set(release) != {
-            "name",
-            "content_sha256",
-            "selector_sha256",
-        }:
-            issues.append(f"{receipt_label} corpus release binding is malformed")
-        elif (
-            release.get("name") != local_corpus_release.name
-            or release.get("content_sha256") != local_corpus_release.content_sha256
-            or release.get("selector_sha256") != local_corpus_release.selector_sha256
-        ):
-            issues.append(f"{receipt_label} corpus release binding is stale")
-
+    plan: _SuccessorRepointPlan | None = None
     repository = receipt.get("repository")
-    if not isinstance(repository, dict) or set(repository) != {
-        "base_commit",
-        "head_commit",
-        "base_tree",
-    }:
-        issues.append(f"{receipt_label} repository binding is malformed")
-
-    request = receipt.get("request")
+    base_commit = (
+        repository.get("base_commit") if isinstance(repository, dict) else None
+    )
     try:
-        parsed_request = (
-            load_repoint_request_payload(request) if isinstance(request, dict) else None
-        )
+        request = load_repoint_request_payload(receipt.get("request"))
     except SuccessorRepointError as exc:
         issues.append(f"{receipt_label} request envelope is invalid: {exc}")
-        return issues
-    if parsed_request is None:
-        issues.append(f"{receipt_label} request envelope is missing")
-        return issues
-    if receipt.get("request_sha256") != parsed_request.sha256:
-        issues.append(f"{receipt_label} request digest is stale")
-
-    legacy = receipt.get("legacy")
+        request = None
     if (
-        not isinstance(legacy, dict)
-        or set(legacy)
-        != {"owner_class", "trusted_generated_provenance", "manifests", "files"}
-        or legacy.get("owner_class") not in APPLIED_ENCODING_LEGACY_OWNER_CLASSES
-        or legacy.get("trusted_generated_provenance") is not False
-        or _successor_repoint_file_entries(legacy.get("files")) is None
-        or not isinstance(legacy.get("manifests"), list)
-        or not legacy["manifests"]
+        not isinstance(repository, dict)
+        or set(repository) != {"base_commit", "head_commit", "base_tree"}
+        or not all(
+            isinstance(repository.get(field), str)
+            and re.fullmatch(r"[0-9a-f]{40}", str(repository.get(field))) is not None
+            for field in ("base_commit", "head_commit", "base_tree")
+        )
+        or repository.get("head_commit") != base_commit
     ):
-        issues.append(f"{receipt_label} legacy ownership evidence is malformed")
+        issues.append(f"{receipt_label} repository binding is malformed")
+    if request is not None and not issues:
+        try:
+            plan = _plan_successor_repoint(
+                repo_path, commit=str(base_commit), request=request, verify_live=False
+            )
+        except (SuccessorRepointError, RuntimeError) as exc:
+            issues.append(f"{receipt_label} does not replay from its base: {exc}")
+    if plan is not None:
+        if plan.tree != repository.get("base_tree"):
+            issues.append(f"{receipt_label} base tree does not match its base commit")
+        for field, expected in _successor_repoint_receipt_body(plan).items():
+            if receipt.get(field) != expected:
+                issues.append(
+                    f"{receipt_label} {field} does not match its base-commit replay"
+                )
+        release = receipt.get("corpus_release")
+        if (
+            not isinstance(release, dict)
+            or set(release) != {"name", "content_sha256", "selector_sha256"}
+            or release.get("name") != plan.toolchain["name"]
+            or release.get("content_sha256") != plan.toolchain["content_sha256"]
+            or not isinstance(release.get("selector_sha256"), str)
+            or _SHA256_HEX_PATTERN.fullmatch(str(release.get("selector_sha256")))
+            is None
+        ):
+            issues.append(
+                f"{receipt_label} corpus release is not its base-commit toolchain "
+                "release"
+            )
+        if Path(receipt_label).stem != _successor_repoint_receipt_identity(plan):
+            issues.append(f"{receipt_label} is not named by its identity digest")
+    result = (plan if not issues else None, tuple(issues))
+    if len(_SUCCESSOR_REPOINT_REPLAY_CACHE) >= _SUCCESSOR_REPOINT_REPLAY_CACHE_LIMIT:
+        _SUCCESSOR_REPOINT_REPLAY_CACHE.clear()
+    _SUCCESSOR_REPOINT_REPLAY_CACHE[key] = result
+    return result
+
+
+def _load_successor_repoint_receipt(
+    repo_path: Path,
+    receipt_path: Path,
+    *,
+    signing_broker: SigningBroker | Ed25519PublicKey,
+    local_corpus_release: LocalCorpusRelease | None,
+) -> tuple[
+    dict[str, object] | None, str | None, _SuccessorRepointPlan | None, list[str]
+]:
+    """Read, authenticate, and replay one successor-repoint receipt.
+
+    Nothing here compares against live metadata, the live waiver set, or the
+    live corpus release: the receipt's claims are re-derived from its base
+    commit, so an unrelated later edit cannot leave it stale.  Live postimages
+    are checked only where the receipt is introduced
+    (``_successor_repoint_fresh_receipt_issues``).
+    """
+
+    label = receipt_path.as_posix()
+    if (
+        receipt_path.parent != SUCCESSOR_REPOINT_RECEIPT_DIR
+        or receipt_path.suffix != ".json"
+        or _SHA256_HEX_PATTERN.fullmatch(receipt_path.stem) is None
+    ):
+        return None, None, None, [f"{label} is not a successor repoint receipt path"]
+    try:
+        raw = read_bounded_regular_file(
+            repo_path,
+            repo_path / receipt_path,
+            label="successor repoint receipt",
+            max_bytes=4 * 1024 * 1024,
+            required_mode=0o644,
+        )
+        receipt = json.loads(raw.decode("utf-8"))
+    except (
+        OSError,
+        UnsafeCorpusPathError,
+        UnicodeError,
+        json.JSONDecodeError,
+        RecursionError,
+    ):
+        return None, None, None, [f"{label} is unreadable"]
+    receipt_sha256 = hashlib.sha256(raw).hexdigest()
+    if (
+        not isinstance(receipt, dict)
+        or set(receipt) != _SUCCESSOR_REPOINT_RECEIPT_FIELDS
+        or receipt.get("schema_version") != SUCCESSOR_REPOINT_RECEIPT_SCHEMA
+        or receipt.get("tool") != SUCCESSOR_REPOINT_TOOL
+        or _applied_encoding_manifest_signature_issue(dict(receipt), signing_broker)
+    ):
+        return None, receipt_sha256, None, [f"{label} is not a signed repoint receipt"]
+    issues: list[str] = []
+    execution = receipt.get("validation_execution")
+    if (
+        not isinstance(execution, dict)
+        or set(execution)
+        != {"schema_version", "scope", "validated_files", "duration_ms", "axiom_encode"}
+        or execution.get("schema_version") != _APPLY_VALIDATION_EXECUTION_SCHEMA_V1
+        or execution.get("scope") != _APPLY_VALIDATION_SCOPE_REPLACEMENT
+        or not isinstance(execution.get("validated_files"), list)
+        or not execution["validated_files"]
+    ):
+        issues.append(f"{label} validation execution is malformed")
+    plan, replay_issues = _successor_repoint_replay(
+        repo_path, receipt, receipt_sha256=receipt_sha256, receipt_label=label
+    )
+    issues.extend(replay_issues)
+    release = receipt.get("corpus_release")
+    if (
+        plan is not None
+        and local_corpus_release is not None
+        and isinstance(release, dict)
+        and release.get("name") == local_corpus_release.name
+        and release.get("content_sha256") == local_corpus_release.content_sha256
+        and release.get("selector_sha256") != local_corpus_release.selector_sha256
+    ):
+        issues.append(f"{label} corpus release selector does not match that release")
+    return receipt, receipt_sha256, plan if not issues else None, issues
+
+
+def _successor_repoint_fresh_receipt_issues(
+    repo_path: Path,
+    receipt_path: Path,
+    *,
+    signing_broker: SigningBroker | Ed25519PublicKey,
+) -> list[str]:
+    """Require the live tree to be the exact postimage of a newly added receipt.
+
+    Run where a receipt is introduced (post-install, and by the guard for a
+    receipt inside the change set).  Afterwards the receipt is verified only by
+    replay, so later edits to shared metadata never make it stale.
+    """
+
+    receipt, _digest, plan, issues = _load_successor_repoint_receipt(
+        repo_path,
+        receipt_path,
+        signing_broker=signing_broker,
+        local_corpus_release=None,
+    )
+    if issues or receipt is None or plan is None:
+        return issues or [f"{receipt_path.as_posix()} did not replay"]
+    label = receipt_path.as_posix()
+    for relative, expected in sorted(
+        plan.postimages.items(), key=lambda item: item[0].as_posix()
+    ):
+        try:
+            live = read_bounded_regular_file(
+                repo_path,
+                repo_path / relative,
+                label="successor repoint postimage",
+                max_bytes=_SUCCESSOR_REPOINT_MAX_FILE_BYTES,
+                required_mode=0o644,
+            )
+        except (OSError, UnsafeCorpusPathError):
+            live = None
+        if live != expected:
+            issues.append(f"{label} postimage is not live: {relative.as_posix()}")
+    for relative in plan.deletions:
+        if not _is_unambiguously_absent_repo_path(repo_path, relative):
+            issues.append(f"{label} retired path still exists: {relative.as_posix()}")
+    try:
+        live_waiver = verify_rulespec_validation_waiver_set(repo_path)
+    except ValueError as exc:
+        issues.append(f"{label} cannot read the live waiver binding: {exc}")
     else:
-        legacy_files = _successor_repoint_file_entries(legacy.get("files")) or {}
-        if parsed_request.legacy_primary.as_posix() not in legacy_files:
-            issues.append(f"{receipt_label} legacy evidence omits its own primary")
+        if live_waiver != plan.post_waiver_sha256:
+            issues.append(f"{label} waiver binding is not the live waiver set")
+    return issues
+
+
+def _successor_repoint_successor_cascade_issues(
+    repo_path: Path,
+    receipt: Mapping[str, object],
+    *,
+    manifest_label: str,
+    signing_broker: SigningBroker | Ed25519PublicKey,
+    local_corpus_release: LocalCorpusRelease | None,
+) -> list[str]:
+    """Re-verify the successor's own signed-v5 model manifest, unmodified.
+
+    The successor's signature, exact schema, source attestation, validation
+    execution, and live file digests are all checked by the model-class
+    verifier.  Its encoder and waiver identities are its own historical ones:
+    whether that manifest is current is the model class's concern whenever it
+    changes, not the dependent's.  What the dependent binds is the successor
+    primary digest its proof imports were retargeted to.
+    """
 
     successor = receipt.get("successor")
-    if (
-        not isinstance(successor, dict)
-        or set(successor)
-        != {"primary", "manifest_path", "manifest_sha256", "manifest", "files"}
-        or successor.get("primary") != parsed_request.successor_primary.as_posix()
-        or _successor_repoint_repo_path(successor.get("manifest_path")) is None
-        or not isinstance(successor.get("manifest_sha256"), str)
-        or _SHA256_HEX_PATTERN.fullmatch(str(successor.get("manifest_sha256"))) is None
-        or _successor_repoint_file_entries(successor.get("files")) is None
+    if not isinstance(successor, dict):
+        return [f"{manifest_label} successor repoint successor evidence is missing"]
+    successor_manifest = _successor_repoint_repo_path(successor.get("manifest_path"))
+    if successor_manifest is None:
+        return [f"{manifest_label} successor repoint successor manifest is invalid"]
+    try:
+        raw = read_bounded_regular_file(
+            repo_path,
+            repo_path / successor_manifest,
+            label="successor repoint successor manifest",
+            max_bytes=1024 * 1024,
+            required_mode=0o644,
+        )
+        payload = json.loads(raw.decode("utf-8"))
+    except (
+        OSError,
+        UnsafeCorpusPathError,
+        UnicodeError,
+        json.JSONDecodeError,
+        RecursionError,
     ):
-        issues.append(f"{receipt_label} successor evidence is malformed")
-
-    dependents = receipt.get("dependents")
-    declared = [item.as_posix() for item in parsed_request.dependents]
-    if not isinstance(dependents, list) or len(dependents) != len(declared):
-        issues.append(f"{receipt_label} dependent evidence is malformed")
-    else:
-        seen: set[str] = set()
-        for dependent in dependents:
-            if (
-                not isinstance(dependent, dict)
-                or set(dependent)
-                != {"primary", "manifests", "before_files", "live_files", "rewrites"}
-                or dependent.get("primary") not in declared
-                or dependent.get("primary") in seen
-                or _successor_repoint_file_entries(dependent.get("before_files"))
-                is None
-                or _successor_repoint_file_entries(dependent.get("live_files")) is None
-                or not isinstance(dependent.get("manifests"), list)
-                or not isinstance(dependent.get("rewrites"), list)
-                or not dependent["rewrites"]
-            ):
-                issues.append(f"{receipt_label} dependent evidence is malformed")
-                continue
-            seen.add(str(dependent["primary"]))
-        if seen != set(declared):
-            issues.append(f"{receipt_label} dependent evidence is incomplete")
-
-    proofs = receipt.get("concept_proofs")
-    proved = (
-        {item.get("from") for item in proofs if isinstance(item, dict)}
-        if isinstance(proofs, list)
-        else set()
+        return [f"{manifest_label} successor repoint successor manifest is unreadable"]
+    execution = (
+        payload.get("validation_execution") if isinstance(payload, dict) else None
     )
-    if proved != {pair.old for pair in parsed_request.concept_map}:
-        issues.append(f"{receipt_label} concept proofs do not cover the request")
-
-    semantics = receipt.get("semantics")
+    historical_encoder = (
+        execution.get("axiom_encode") if isinstance(execution, dict) else None
+    )
+    declared_waiver = (
+        payload.get(VALIDATION_WAIVER_SET_SHA256_FIELD)
+        if isinstance(payload, dict)
+        else None
+    )
     if (
-        not isinstance(semantics, dict)
-        or set(semantics)
-        != {
-            "successor_window",
-            "dependent_use_windows",
-            "post_window_behavior_change",
-            "runtime_behavior_outside_successor_window",
-        }
-        or not isinstance(semantics.get("post_window_behavior_change"), bool)
-        or not isinstance(semantics.get("dependent_use_windows"), list)
+        not isinstance(payload, dict)
+        or payload.get("backend") not in APPLIED_ENCODING_ENCODER_BACKENDS
+        or payload.get("tool") != APPLIED_ENCODING_MODEL_TOOL
+        or not isinstance(historical_encoder, dict)
+        or not isinstance(declared_waiver, str)
     ):
-        issues.append(f"{receipt_label} window semantics are malformed")
-
-    for field in ("metadata_reconciliations", "program_scope_reconciliations"):
-        if not isinstance(receipt.get(field), list):
-            issues.append(f"{receipt_label} {field} are malformed")
-
-    return issues
+        return [
+            f"{manifest_label} successor {successor_manifest.as_posix()} is no longer "
+            "a signed-v5 model apply manifest"
+        ]
+    verified, _prefix, _digest, issues = (
+        _load_verified_applied_encoding_manifest_payload(
+            repo_path,
+            successor_manifest.as_posix(),
+            signing_broker=signing_broker,
+            expected_waiver_set_sha256=declared_waiver,
+            local_corpus_release=local_corpus_release,
+            expected_encoder_identity=historical_encoder,
+        )
+    )
+    if issues or verified is None:
+        return [
+            f"{manifest_label} successor model manifest does not verify: "
+            + "; ".join(issues or ["manifest was not verified"])
+        ]
+    primary = successor.get("primary")
+    expected_sha256 = next(
+        (
+            item.get("sha256")
+            for item in successor.get("files", [])
+            if isinstance(item, dict) and item.get("path") == primary
+        ),
+        None,
+    )
+    live_sha256 = next(
+        (
+            item.get("sha256")
+            for item in verified.get("applied_files", [])
+            if isinstance(item, dict) and item.get("path") == primary
+        ),
+        None,
+    )
+    if expected_sha256 is None or live_sha256 != expected_sha256:
+        return [
+            f"{manifest_label} successor primary {primary} no longer has the bytes its "
+            "repointed proof imports bind"
+        ]
+    return []
 
 
 def _successor_repoint_manifest_issues(
@@ -27523,7 +27814,6 @@ def _successor_repoint_manifest_issues(
     repo_path: Path,
     manifest_label: str,
     signing_broker: SigningBroker | Ed25519PublicKey,
-    expected_waiver_set_sha256: str,
     local_corpus_release: LocalCorpusRelease | None,
 ) -> list[str]:
     """Verify one successor-repoint manifest through its shared signed receipt."""
@@ -27537,173 +27827,63 @@ def _successor_repoint_manifest_issues(
     ):
         return [f"{manifest_label} successor repoint binding is malformed"]
     receipt_path = _successor_repoint_repo_path(binding.get("receipt_path"))
-    legacy_primary = _successor_repoint_repo_path(binding.get("legacy_primary"))
-    successor_primary = _successor_repoint_repo_path(binding.get("successor_primary"))
-    legacy_manifest_path = _successor_repoint_repo_path(
-        binding.get("legacy_manifest_path")
-    )
     if (
         receipt_path is None
-        or receipt_path.parent != SUCCESSOR_REPOINT_RECEIPT_DIR
-        or receipt_path.suffix != ".json"
-        or legacy_primary is None
-        or successor_primary is None
-        or legacy_manifest_path is None
-        or not isinstance(binding.get("legacy_manifest_sha256"), str)
-        or _SHA256_HEX_PATTERN.fullmatch(str(binding.get("legacy_manifest_sha256")))
-        is None
+        or not isinstance(binding.get("receipt_sha256"), str)
+        or _SHA256_HEX_PATTERN.fullmatch(str(binding.get("receipt_sha256"))) is None
     ):
         return [f"{manifest_label} successor repoint identity is invalid"]
-
-    try:
-        receipt_raw = read_bounded_regular_file(
-            repo_path,
-            repo_path / receipt_path,
-            label="successor repoint receipt",
-            max_bytes=4 * 1024 * 1024,
-            required_mode=0o644,
-        )
-        receipt = json.loads(receipt_raw.decode("utf-8"))
-    except (
-        OSError,
-        UnsafeCorpusPathError,
-        UnicodeError,
-        json.JSONDecodeError,
-        RecursionError,
-    ):
-        return [f"{manifest_label} successor repoint receipt is unreadable"]
-    receipt_sha256 = hashlib.sha256(receipt_raw).hexdigest()
-    if (
-        not isinstance(receipt, dict)
-        or set(receipt) != _SUCCESSOR_REPOINT_RECEIPT_FIELDS
-        or receipt.get("schema_version") != SUCCESSOR_REPOINT_RECEIPT_SCHEMA
-        or receipt.get("tool") != SUCCESSOR_REPOINT_TOOL
-        or receipt_sha256 != binding.get("receipt_sha256")
-        or _applied_encoding_manifest_signature_issue(dict(receipt), signing_broker)
-    ):
-        return [f"{manifest_label} successor repoint receipt is invalid"]
-
-    issues = _successor_repoint_receipt_issues(
-        receipt,
-        receipt_label=receipt_path.as_posix(),
-        expected_waiver_set_sha256=expected_waiver_set_sha256,
+    receipt, receipt_sha256, plan, issues = _load_successor_repoint_receipt(
+        repo_path,
+        receipt_path,
+        signing_broker=signing_broker,
         local_corpus_release=local_corpus_release,
     )
-    if issues:
-        return [f"{manifest_label}: {issue}" for issue in issues]
-
-    request = receipt.get("request")
-    assert isinstance(request, dict)
+    if issues or receipt is None or plan is None:
+        return [f"{manifest_label}: {issue}" for issue in issues] or [
+            f"{manifest_label} successor repoint receipt did not replay"
+        ]
+    request = plan.request
     if (
-        request.get("legacy_primary") != legacy_primary.as_posix()
-        or request.get("successor_primary") != successor_primary.as_posix()
+        receipt_sha256 != binding.get("receipt_sha256")
+        or binding.get("legacy_primary") != request.legacy_primary.as_posix()
+        or binding.get("successor_primary") != request.successor_primary.as_posix()
     ):
         return [f"{manifest_label} successor repoint receipt binding is stale"]
+    if payload.get(VALIDATION_WAIVER_SET_SHA256_FIELD) != plan.post_waiver_sha256:
+        return [
+            f"{manifest_label} {VALIDATION_WAIVER_SET_SHA256_FIELD} is not its "
+            "receipt's base-derived post-repoint waiver set"
+        ]
 
-    legacy = receipt.get("legacy")
-    assert isinstance(legacy, dict)
-    legacy_manifests = {
-        str(item.get("path")): str(item.get("sha256"))
-        for item in legacy.get("manifests", [])
-        if isinstance(item, dict) and set(item) == {"path", "sha256"}
-    }
-    if (
-        legacy_manifests.get(legacy_manifest_path.as_posix())
-        != binding["legacy_manifest_sha256"]
-    ):
-        return [f"{manifest_label} successor repoint legacy ownership binding is stale"]
-
-    successor = receipt.get("successor")
-    assert isinstance(successor, dict)
-    successor_manifest_label = str(successor.get("manifest_path"))
-
-    if tool == SUCCESSOR_REPOINT_SUCCESSOR_TOOL:
-        if successor_manifest_label != manifest_label:
-            return [f"{manifest_label} is not the receipt's successor manifest"]
-        expected_entries = dict(
-            _successor_repoint_file_entries(successor["files"]) or {}
-        )
-        for item in receipt.get("metadata_reconciliations", []):
-            if isinstance(item, dict) and isinstance(item.get("path"), str):
-                expected_entries[str(item["path"])] = str(item.get("after_sha256"))
-        for item in receipt.get("program_scope_reconciliations", []):
-            if isinstance(item, dict) and isinstance(item.get("program_spec"), str):
-                expected_entries[str(item["program_spec"])] = str(
-                    item.get("after_sha256")
-                )
-        expected_deleted = set(_successor_repoint_file_entries(legacy["files"]) or {})
-        actual_entries: dict[str, str] = {}
-        actual_deleted: set[str] = set()
-        applied = payload.get("applied_files")
-        if not isinstance(applied, list):
-            return [f"{manifest_label} successor repoint applied files are malformed"]
-        for item in applied:
-            if not isinstance(item, dict) or not isinstance(item.get("path"), str):
-                return [
-                    f"{manifest_label} successor repoint applied files are malformed"
-                ]
-            if item.get("deleted") is True:
-                actual_deleted.add(str(item["path"]))
-            else:
-                actual_entries[str(item["path"])] = str(item.get("sha256"))
-        if actual_entries != expected_entries or actual_deleted != expected_deleted:
+    if tool == SUCCESSOR_REPOINT_RETIRED_TOOL:
+        if manifest_label != plan.retired_manifest_path.as_posix():
+            return [f"{manifest_label} is not the receipt's retired-group manifest"]
+        expected = [
+            {"path": path, "deleted": True} for path in sorted(plan.legacy_files)
+        ]
+        if payload.get("applied_files") != expected:
             return [
-                f"{manifest_label} successor repoint applied files do not match its "
-                "receipt"
-            ]
-        if payload.get("repointed_successor_manifest") != successor.get("manifest"):
-            return [
-                f"{manifest_label} does not embed the receipt's verified successor "
-                "manifest"
+                f"{manifest_label} successor repoint retirement does not cover exactly "
+                "the retired legacy group"
             ]
         return []
 
-    dependents = receipt.get("dependents")
-    assert isinstance(dependents, list)
     matches = [
-        item
-        for item in dependents
-        if isinstance(item, dict)
-        and isinstance(item.get("primary"), str)
-        and _applied_encoding_manifest_path(Path(str(item["primary"]))).as_posix()
+        record
+        for record in plan.dependent_records
+        if _applied_encoding_manifest_path(Path(str(record["primary"]))).as_posix()
         == manifest_label
     ]
     if len(matches) != 1:
         return [f"{manifest_label} is not uniquely authorized by its repoint receipt"]
-    evidence = matches[0]
-    if evidence.get("live_files") != payload.get("applied_files"):
+    if matches[0]["live_files"] != payload.get("applied_files"):
         return [f"{manifest_label} successor repoint live files are stale"]
-
-    try:
-        owner_raw = read_bounded_regular_file(
-            repo_path,
-            repo_path / Path(successor_manifest_label),
-            label="successor repoint cascade owner",
-            max_bytes=4 * 1024 * 1024,
-            required_mode=0o644,
-        )
-        owner = json.loads(owner_raw.decode("utf-8"))
-    except (
-        OSError,
-        UnsafeCorpusPathError,
-        UnicodeError,
-        json.JSONDecodeError,
-        RecursionError,
-    ):
-        return [f"{manifest_label} successor repoint cascade owner is unreadable"]
-    if (
-        not isinstance(owner, dict)
-        or set(owner) != _SUCCESSOR_REPOINT_SUCCESSOR_MANIFEST_FIELDS
-        or owner.get("tool") != SUCCESSOR_REPOINT_SUCCESSOR_TOOL
-        or _applied_encoding_manifest_signature_issue(owner, signing_broker)
-    ):
-        return [f"{manifest_label} successor repoint cascade owner is invalid"]
-    return _successor_repoint_manifest_issues(
-        owner,
-        repo_path=repo_path,
-        manifest_label=successor_manifest_label,
+    return _successor_repoint_successor_cascade_issues(
+        repo_path,
+        receipt,
+        manifest_label=manifest_label,
         signing_broker=signing_broker,
-        expected_waiver_set_sha256=expected_waiver_set_sha256,
         local_corpus_release=local_corpus_release,
     )
 
@@ -28146,7 +28326,6 @@ def _load_verified_applied_encoding_manifest_payload(
         APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL,
         APPLIED_ENCODING_LEGACY_EXACT_DEPENDENT_TOOL,
         APPLIED_ENCODING_LEGACY_RETAINED_SUCCESSOR_TOOL,
-        *SUCCESSOR_REPOINT_TOOLS,
     }:
         expected_waiver_set_sha256 = expected_legacy_replacement_waiver_set_sha256
 
@@ -28186,7 +28365,12 @@ def _load_verified_applied_encoding_manifest_payload(
                 expected_encoder_identity=expected_encoder_identity,
             )
         )
-    if payload.get(VALIDATION_WAIVER_SET_SHA256_FIELD) != expected_waiver_set_sha256:
+    if backend is None and payload.get("tool") in SUCCESSOR_REPOINT_TOOLS:
+        # Bound to its receipt's post-repoint waiver digest, which the receipt
+        # replay re-derives from the base commit (_successor_repoint_manifest_issues);
+        # a later unrelated waiver edit must not leave it permanently stale.
+        pass
+    elif payload.get(VALIDATION_WAIVER_SET_SHA256_FIELD) != expected_waiver_set_sha256:
         issues.append(
             f"{manifest_label} {VALIDATION_WAIVER_SET_SHA256_FIELD} does not "
             "match the RuleSpec toolchain-bound waiver set"
@@ -28221,9 +28405,6 @@ def _load_verified_applied_encoding_manifest_payload(
             legacy_metadata_rewrite = (
                 payload.get("tool") == APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL
                 and relative_file in _LEGACY_REPLACEMENT_METADATA_REWRITE_PATHS
-            ) or (
-                payload.get("tool") == SUCCESSOR_REPOINT_SUCCESSOR_TOOL
-                and relative_file in _SUCCESSOR_REPOINT_METADATA_PATHS
             )
             if (
                 relative_file.suffix != RULESPEC_FILE_SUFFIX
@@ -28332,7 +28513,6 @@ def _load_verified_applied_encoding_manifest_payload(
             repo_path=repo_path,
             manifest_label=manifest_label,
             signing_broker=signing_broker,
-            expected_waiver_set_sha256=expected_waiver_set_sha256,
             local_corpus_release=local_corpus_release,
         )
     )
@@ -31875,6 +32055,7 @@ def _resolve_legacy_replacement_contract(
     receipt_prefixes = (
         APPLIED_ENCODING_PATH_MIGRATION_RECEIPT_DIR.parts,
         APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR.parts,
+        SUCCESSOR_REPOINT_RECEIPT_DIR.parts,
     )
     rewrites: list[_LegacyReplacementRewrite] = []
     for relative, mode in sorted(tracked.items(), key=lambda item: item[0].as_posix()):
