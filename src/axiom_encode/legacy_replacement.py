@@ -205,6 +205,8 @@ class LegacyReplacementContract(NamedTuple):
     destination_predecessor_files: tuple[LegacyReplacementFile, ...] = ()
     retained_successors: tuple[LegacyReplacementRetainedSuccessor, ...] = ()
     metadata_reconciliations: tuple[LegacyReplacementRewrite, ...] = ()
+    provision_index_base: LegacyReplacementFile | None = None
+    provision_index_finalized: bool = False
 
 
 def legacy_source_verification_citation_paths(

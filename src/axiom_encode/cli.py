@@ -25148,6 +25148,19 @@ def _legacy_replacement_manifest_issues(
                 )
         except (RuntimeError, ValueError):
             pass
+    new_destination_modules: dict[str, bytes] = {}
+    try:
+        new_destination_modules = _required_replacement_index_postimages(
+            repo_path,
+            base_commit=base_commit,
+            replacement=replacement,
+            nested=nested,
+            moves=primary_moves,
+        )
+    except (OSError, ValueError, UnsafeCorpusPathError) as exc:
+        issues.append(
+            f"{manifest_label} replacement index postimage is unverifiable: {exc}"
+        )
     listed_metadata_paths: set[Path] = set()
     for reconciliation in metadata_reconciliations:
         if not isinstance(reconciliation, dict) or set(reconciliation) != {
@@ -25187,6 +25200,7 @@ def _legacy_replacement_manifest_issues(
                 retired_schema_modules=frozenset(exact_metadata_retired_schema_modules),
                 retired_schema_count_transition=retired_schema_count_transition,
                 reindexed_modules=exact_metadata_reindexed_modules,
+                new_destination_modules=new_destination_modules,
             )
         except (OSError, RuntimeError, UnsafeCorpusPathError, ValueError) as exc:
             issues.append(
@@ -25220,6 +25234,7 @@ def _legacy_replacement_manifest_issues(
                 retired_schema_modules=frozenset(exact_metadata_retired_schema_modules),
                 retired_schema_count_transition=retired_schema_count_transition,
                 reindexed_modules=exact_metadata_reindexed_modules,
+                new_destination_modules=new_destination_modules,
             )
         except (RuntimeError, ValueError):
             continue
@@ -27921,6 +27936,108 @@ def _reindex_exact_dependent_modules(
     return rewritten, len(modules)
 
 
+def _required_replacement_index_postimages(
+    repo_path: Path,
+    *,
+    base_commit: str,
+    replacement: Mapping[str, object],
+    nested: Mapping[str, object],
+    moves: Sequence[PlannedMove],
+) -> dict[str, bytes]:
+    """Derive mandatory indexing independently of the claimed receipt inventory."""
+    if (
+        replacement.get("destination_predecessor_class")
+        != APPLIED_ENCODING_DESTINATION_PREDECESSOR_ABSENT
+    ):
+        return {}
+    try:
+        base = _rulespec_migration_base_blob(
+            repo_path, base_commit, Path(".axiom/index/provisions_to_rules.json")
+        )
+    except RuntimeError:
+        return {}
+    counts = _index_module_record_counts(json.loads(base))
+    source, destination = replacement.get("source"), replacement.get("destination")
+    if (
+        isinstance(source, str)
+        and isinstance(destination, str)
+        and source != destination
+        and counts[source] > 0
+        and counts[destination] == 0
+    ):
+        return _signed_replacement_index_postimages(
+            repo_path, replacement=replacement, nested=nested, moves=moves
+        )
+    return {}
+
+
+def _signed_replacement_index_postimages(
+    repo_path: Path,
+    *,
+    replacement: Mapping[str, object],
+    nested: Mapping[str, object],
+    moves: Sequence[PlannedMove],
+) -> dict[str, bytes]:
+    """Read the authorized new primary only when its signed model digest matches."""
+    destination = replacement.get("destination")
+    if (
+        not isinstance(destination, str)
+        or replacement.get("destination_predecessor_class")
+        != APPLIED_ENCODING_DESTINATION_PREDECESSOR_ABSENT
+    ):
+        raise ValueError("new index destination lacks absent predecessor authority")
+    if destination not in {move.destination.as_posix() for move in moves}:
+        raise ValueError("new index destination is not an authorized move")
+    bound_files = nested.get("applied_files", [])
+    if not isinstance(bound_files, list):
+        raise ValueError("new index destination lacks signed file inventory")
+    digests = [
+        item.get("sha256")
+        for item in bound_files
+        if isinstance(item, dict) and item.get("path") == destination
+    ]
+    destination_raw = read_bounded_regular_file(
+        repo_path,
+        repo_path / destination,
+        label="signed replacement index postimage",
+        max_bytes=16 * 1024 * 1024,
+        required_mode=0o644,
+    )
+    if digests != [hashlib.sha256(destination_raw).hexdigest()]:
+        raise ValueError("new index destination does not match signed model bytes")
+    return {destination: destination_raw}
+
+
+def _index_new_replacement_module(
+    value: object,
+    *,
+    module: str,
+    raw: bytes,
+) -> tuple[object, int]:
+    """Insert only an authorized absent destination's final source references."""
+    if not isinstance(value, dict) or not isinstance(value.get("provisions"), dict):
+        raise ValueError("legacy provision index has an unsupported schema")
+    if _index_module_record_counts(value)[module]:
+        raise ValueError("new replacement already has provision index records")
+    references = _rulespec_index_references(raw)
+    if not references:
+        raise ValueError("new replacement has no source index references")
+    result = copy.deepcopy(value)
+    provisions = result["provisions"]
+    for citation, kinds in sorted(references.items()):
+        records = provisions.setdefault(citation, [])
+        if not isinstance(records, list) or not all(
+            isinstance(r, dict) for r in records
+        ):
+            raise ValueError("legacy provision index records are malformed")
+        records.append({"module": module, "via": sorted(kinds)})
+        records.sort(key=lambda record: str(record.get("module", "")))
+    result["provisions"] = {
+        key: records for key, records in sorted(provisions.items()) if records
+    }
+    return result, len(references)
+
+
 def _line_preserving_yaml_mapping_removal(
     raw: bytes,
     *,
@@ -28107,6 +28224,7 @@ def _legacy_metadata_reconciliation_bytes(
     retired_schema_modules: frozenset[str] = frozenset(),
     retired_schema_count_transition: tuple[int, int] | None = None,
     reindexed_modules: Mapping[str, bytes] | None = None,
+    new_destination_modules: Mapping[str, bytes] | None = None,
 ) -> tuple[bytes, tuple[dict[str, object], ...]]:
     """Apply one audited metadata cleanup from an explicit move set."""
 
@@ -28145,11 +28263,22 @@ def _legacy_metadata_reconciliation_bytes(
         except (UnicodeError, json.JSONDecodeError, RecursionError) as exc:
             raise ValueError("legacy provision index is invalid JSON") from exc
         module_counts = _index_module_record_counts(before)
+        new_destination_modules = dict(new_destination_modules or {})
+        allowed_new = {
+            move.destination.as_posix()
+            for move in moves
+            if move.source != move.destination
+            and module_counts[move.source.as_posix()] > 0
+            and module_counts[move.destination.as_posix()] == 0
+        }
+        if not set(new_destination_modules) <= allowed_new:
+            raise ValueError("unauthorized new replacement index module")
         missing_successors = [
             move.destination.as_posix()
             for move in moves
             if module_counts[move.source.as_posix()] > 0
             and module_counts[move.destination.as_posix()] == 0
+            and move.destination.as_posix() not in new_destination_modules
         ]
         if missing_successors:
             raise ValueError(
@@ -28163,9 +28292,20 @@ def _legacy_metadata_reconciliation_bytes(
             after,
             modules=reindexed_modules,
         )
+        new_records = 0
+        for module, module_raw in sorted(new_destination_modules.items()):
+            after, inserted = _index_new_replacement_module(
+                after, module=module, raw=module_raw
+            )
+            new_records += inserted
         rewritten = (json.dumps(after, indent=2, ensure_ascii=False) + "\n").encode()
         operations = (
             {"operation": "remove_legacy_module_records", "count": count},
+            *(
+                ({"operation": "index_new_replacement_module", "count": new_records},)
+                if new_destination_modules
+                else ()
+            ),
             *(
                 (
                     {
@@ -28316,6 +28456,7 @@ def _legacy_metadata_reconciliations(
     tracked: Mapping[Path, str],
     moves: Sequence[PlannedMove],
     exact_dependents: Sequence[_LegacyReplacementExactDependent] = (),
+    deferred_index: bool = False,
 ) -> tuple[_LegacyReplacementRewrite, ...]:
     """Build audited path-move metadata and its derived toolchain binding."""
 
@@ -28396,6 +28537,8 @@ def _legacy_metadata_reconciliations(
         key=Path.as_posix,
     ):
         if path not in tracked:
+            continue
+        if deferred_index and path == Path(".axiom/index/provisions_to_rules.json"):
             continue
         if tracked[path] != "100644":
             raise ValueError(
@@ -29247,6 +29390,37 @@ def _resolve_legacy_replacement_contract(
         ],
         *[item.successor_manifest.path for item in retained_successors],
     }
+    provision_index_base = None
+    index_path = Path(".axiom/index/provisions_to_rules.json")
+    if (
+        not destination_predecessor_files
+        and source != destination
+        and index_path in tracked
+    ):
+        if tracked[index_path] != "100644":
+            raise ValueError("legacy provision index is not tracked 0644")
+        index_raw = read_bounded_regular_file(
+            policy_checkout_path,
+            policy_checkout_path / index_path,
+            label="legacy provision index base",
+            max_bytes=16 * 1024 * 1024,
+            required_mode=0o644,
+        )
+        if index_raw != _rulespec_migration_base_blob(
+            policy_checkout_path, base_commit, index_path
+        ):
+            raise ValueError("legacy provision index differs from clean HEAD")
+        index_value = json.loads(index_raw)
+        index_counts = _index_module_record_counts(index_value)
+        if index_counts[source.as_posix()] and not index_counts[destination.as_posix()]:
+            if not isinstance(index_value, dict) or not isinstance(
+                index_value.get("provisions"), dict
+            ):
+                raise ValueError("legacy provision index has an unsupported schema")
+            provision_index_base = _LegacyReplacementFile(
+                index_path, hashlib.sha256(index_raw).hexdigest(), index_raw
+            )
+            excluded.add(index_path)
     # Shared metadata affected by path moves is known now; exact-dependent
     # metadata is completed after those authenticated postimages are built.
     preliminary_metadata_reconciliations = _legacy_metadata_reconciliations(
@@ -29254,6 +29428,7 @@ def _resolve_legacy_replacement_contract(
         base_commit=base_commit,
         tracked=tracked,
         moves=all_moves,
+        deferred_index=provision_index_base is not None,
     )
     excluded.update(item.path for item in preliminary_metadata_reconciliations)
     if exact_groups:
@@ -29511,6 +29686,7 @@ def _resolve_legacy_replacement_contract(
         tracked=tracked,
         moves=all_moves,
         exact_dependents=exact_dependents,
+        deferred_index=provision_index_base is not None,
     )
 
     return _LegacyReplacementContract(
@@ -29538,6 +29714,7 @@ def _resolve_legacy_replacement_contract(
         ),
         retained_successors=tuple(retained_successors),
         metadata_reconciliations=metadata_reconciliations,
+        provision_index_base=provision_index_base,
     )
 
 
@@ -52803,6 +52980,10 @@ def _build_apply_validation_snapshot(
                 }
                 for successor in legacy_replacement.retained_successors
             ],
+            "provision_index_base_sha256": legacy_replacement.provision_index_base.sha256
+            if legacy_replacement.provision_index_base
+            else None,
+            "provision_index_finalized": legacy_replacement.provision_index_finalized,
             "metadata_reconciliations": [
                 {
                     "path": item.path.as_posix(),
@@ -53210,6 +53391,12 @@ def _stage_signed_legacy_replacement_provenance(
     local_corpus_release: LocalCorpusRelease,
 ) -> tuple[Path, bytes, Path, bytes, dict[Path, bytes]]:
     """Wrap one fresh v5 model manifest in an authenticated replacement proof."""
+
+    if (
+        contract.provision_index_base is not None
+        and not contract.provision_index_finalized
+    ):
+        raise RuntimeError("Cannot sign replacement with a pending provision index")
 
     try:
         model_manifest = json.loads(model_manifest_bytes.decode("utf-8"))
@@ -58897,7 +59084,76 @@ def _finalize_legacy_exact_dependents_from_overlay(
         )
     if issues or len(finalized_dependents) != len(contract.exact_dependents):
         return None, issues or ["Legacy exact dependent finalization is incomplete"]
-    return contract._replace(exact_dependents=tuple(finalized_dependents)), []
+    finalized = contract._replace(exact_dependents=tuple(finalized_dependents))
+    if contract.provision_index_base is not None:
+        base = contract.provision_index_base
+        try:
+            if hashlib.sha256(base.raw).hexdigest() != base.sha256:
+                raise ValueError("replacement provision index base digest is stale")
+            existing_index = read_bounded_regular_file(
+                overlay_checkout_root,
+                overlay_checkout_root / base.path,
+                label="replacement index overlay",
+                max_bytes=16 * 1024 * 1024,
+                required_mode=0o644,
+            )
+            expected_index = next(
+                (
+                    item.raw
+                    for item in contract.metadata_reconciliations
+                    if item.path == base.path
+                ),
+                base.raw,
+            )
+            if existing_index != expected_index:
+                raise ValueError("replacement provision index overlay changed")
+            destination_raw = read_bounded_regular_file(
+                overlay_checkout_root,
+                overlay_checkout_root / contract.destination,
+                label="generated replacement index postimage",
+                max_bytes=16 * 1024 * 1024,
+                required_mode=0o644,
+            )
+            rewritten, operations = _legacy_metadata_reconciliation_bytes(
+                base.path,
+                base.raw,
+                moves=[
+                    PlannedMove(contract.source, contract.destination),
+                    *[
+                        PlannedMove(item.source, item.destination)
+                        for item in contract.retained_successors
+                    ],
+                ],
+                reindexed_modules={
+                    item.primary.as_posix(): next(
+                        f.raw for f in item.live_files if f.path == item.primary
+                    )
+                    for item in finalized_dependents
+                },
+                new_destination_modules={
+                    contract.destination.as_posix(): destination_raw
+                },
+            )
+        except (OSError, ValueError, UnsafeCorpusPathError) as exc:
+            return None, [f"Replacement provision index finalization failed: {exc}"]
+        reconciliation = _LegacyReplacementRewrite(
+            base.path,
+            base.sha256,
+            hashlib.sha256(rewritten).hexdigest(),
+            operations,
+            rewritten,
+        )
+        (overlay_checkout_root / base.path).write_bytes(rewritten)
+        finalized = finalized._replace(
+            metadata_reconciliations=tuple(
+                item
+                for item in contract.metadata_reconciliations
+                if item.path != base.path
+            )
+            + (reconciliation,),
+            provision_index_finalized=True,
+        )
+    return finalized, []
 
 
 _MISSING_INPUT_RE = re.compile(

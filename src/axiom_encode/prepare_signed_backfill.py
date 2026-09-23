@@ -3310,6 +3310,7 @@ def authorized_changed_paths(
                 _legacy_metadata_reconciliation_bytes,
                 _legacy_replacement_authoritative_map,
                 _legacy_replacement_reference_inventory_issues,
+                _required_replacement_index_postimages,
                 _strict_legacy_replacement_map,
             )
 
@@ -3523,6 +3524,13 @@ def authorized_changed_paths(
                         )
                 except (subprocess.CalledProcessError, ValueError):
                     pass
+            new_destination_modules = _required_replacement_index_postimages(
+                repo,
+                base_commit=str(base_commit or ""),
+                replacement=receipt_replacement,
+                nested=nested_manifest,
+                moves=primary_moves,
+            )
             metadata_paths: set[PurePosixPath] = set()
             for index, reconciliation in enumerate(metadata_reconciliations):
                 if not isinstance(reconciliation, dict) or set(reconciliation) != {
@@ -3569,6 +3577,7 @@ def authorized_changed_paths(
                                 retired_schema_count_transition
                             ),
                             reindexed_modules=exact_metadata_reindexed_modules,
+                            new_destination_modules=new_destination_modules,
                         )
                     )
                 except ValueError as exc:
@@ -3614,6 +3623,7 @@ def authorized_changed_paths(
                                 retired_schema_count_transition
                             ),
                             reindexed_modules=exact_metadata_reindexed_modules,
+                            new_destination_modules=new_destination_modules,
                         )
                     )
                 except ValueError:
