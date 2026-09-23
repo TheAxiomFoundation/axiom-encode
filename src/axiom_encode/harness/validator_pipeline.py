@@ -34780,6 +34780,9 @@ class ValidatorPipeline:
         rules = payload.get("rules")
         if not isinstance(rules, list):
             return resolved
+        # Generated modules repeat one provision across thousands of atoms;
+        # the fetch is deterministic within this call, so fetch each path once.
+        fetched: set[str] = set()
         for rule in rules:
             if not isinstance(rule, dict):
                 continue
@@ -34799,7 +34802,8 @@ class ValidatorPipeline:
                 if not isinstance(source, dict):
                     continue
                 citation_path = str(source.get("corpus_citation_path") or "").strip()
-                if citation_path:
+                if citation_path and citation_path not in fetched:
+                    fetched.add(citation_path)
                     try:
                         resolved[citation_path] = fetch_source(citation_path)
                     except InvalidCorpusCitationError:
