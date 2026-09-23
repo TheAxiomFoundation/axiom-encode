@@ -444,3 +444,186 @@ def test_release_object_rejects_projection_evidence_mismatch(field: str) -> None
 
     with pytest.raises(CorpusReleaseObjectError, match="projection evidence"):
         verify_release_object(payload, public_key=public_key)
+
+
+def test_canonical_bytes_exclude_signature_without_mutating_payload() -> None:
+    payload, _public_key = _signed_release_object()
+    snapshot = copy.deepcopy(payload)
+
+    canonical = canonical_release_object_bytes(payload)
+
+    assert payload == snapshot
+    unsigned = {key: value for key, value in snapshot.items() if key != "signature"}
+    assert canonical == json.dumps(
+        unsigned, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    ).encode("utf-8")
+    assert canonical == canonical_release_object_bytes(unsigned)
+
+
+def _reference_scope_artifact_membership(scopes, artifacts) -> None:
+    """The per-scope full scan that the grouped membership check replaced."""
+
+    by_path = {artifact.path: artifact for artifact in artifacts}
+    claimed: set[str] = set()
+    for scope in scopes:
+        prefix = f"{scope.jurisdiction}/{scope.document_class}/{scope.version}"
+        required = {
+            "inventory": f"data/corpus/inventory/{prefix}.json",
+            "provisions": f"data/corpus/provisions/{prefix}.jsonl",
+            "coverage": f"data/corpus/coverage/{prefix}.json",
+        }
+        for artifact_class, path in required.items():
+            artifact = by_path.get(path)
+            if artifact is None or artifact.artifact_class != artifact_class:
+                raise CorpusReleaseObjectError(
+                    f"release scope lacks its {artifact_class} artifact: {prefix}"
+                )
+            claimed.add(path)
+        if by_path[required["provisions"]].row_count != scope.provision_rows:
+            raise CorpusReleaseObjectError(
+                "release scope row count does not match its provisions artifact: "
+                f"{prefix}"
+            )
+        source_prefix = f"data/corpus/sources/{prefix}/"
+        source_paths = [
+            path
+            for path, artifact in by_path.items()
+            if path.startswith(source_prefix) and artifact.artifact_class == "sources"
+        ]
+        if not source_paths:
+            raise CorpusReleaseObjectError(
+                f"release scope lacks source artifacts: {prefix}"
+            )
+        claimed.update(source_paths)
+    if set(by_path) != claimed:
+        raise CorpusReleaseObjectError(
+            "release object contains artifacts outside its declared scopes"
+        )
+
+
+def _membership_outcome(check, scopes, artifacts) -> str | None:
+    try:
+        check(scopes, artifacts)
+    except CorpusReleaseObjectError as exc:
+        return str(exc)
+    return None
+
+
+def _random_membership_case(rng):
+    from axiom_encode.corpus_release import (
+        VerifiedReleaseArtifact,
+        VerifiedReleaseScope,
+    )
+
+    versions = ("v1", "v10", "v1.0", "v1-a", "v2")
+    identities = rng.sample(
+        [
+            (jurisdiction, document_class, version)
+            for jurisdiction in ("us", "us-ca")
+            for document_class in ("statute", "manual")
+            for version in versions
+        ],
+        rng.randint(1, 6),
+    )
+    scopes = [
+        VerifiedReleaseScope(*identity, rng.randint(1, 3), "a" * 64, "b" * 64)
+        for identity in identities
+    ]
+    artifacts: dict[str, VerifiedReleaseArtifact] = {}
+
+    def add(artifact_class: str, path: str, rows: int | None = None) -> None:
+        artifacts[path] = VerifiedReleaseArtifact(
+            artifact_class, path, "c" * 64, 1, rows
+        )
+
+    for scope in scopes:
+        prefix = f"{scope.jurisdiction}/{scope.document_class}/{scope.version}"
+        if rng.random() > 0.05:
+            add("inventory", f"data/corpus/inventory/{prefix}.json")
+        if rng.random() > 0.05:
+            rows = scope.provision_rows if rng.random() > 0.05 else 99
+            add("provisions", f"data/corpus/provisions/{prefix}.jsonl", rows)
+        if rng.random() > 0.05:
+            add("coverage", f"data/corpus/coverage/{prefix}.json")
+        for _ in range(rng.choice((0, 1, 1, 2, 3))):
+            leaf = rng.choice(("act.html", "a/b.xml", "a/b/c.pdf", "x"))
+            add("sources", f"data/corpus/sources/{prefix}/{leaf}")
+    for _ in range(rng.choice((0, 0, 0, 1))):
+        jurisdiction = rng.choice(("us", "us-ca"))
+        document_class = rng.choice(("statute", "manual"))
+        version = rng.choice(versions)
+        prefix = f"{jurisdiction}/{document_class}/{version}"
+        add(
+            rng.choice(("sources", "inventory")),
+            rng.choice(
+                (
+                    f"data/corpus/sources/{prefix}/stray.html",
+                    f"data/corpus/sources/{prefix}",
+                    f"data/corpus/sources/{jurisdiction}/{document_class}/x.html",
+                    f"data/corpus/sources/{prefix}x/stray.html",
+                )
+            ),
+        )
+    ordered = sorted(artifacts.values(), key=lambda artifact: artifact.path)
+    return tuple(scopes), tuple(ordered)
+
+
+def test_grouped_membership_check_matches_reference_scan() -> None:
+    import random
+
+    from axiom_encode.corpus_release import _validate_scope_artifact_membership
+
+    rng = random.Random(20260923)
+    outcomes: set[str | None] = set()
+    for _ in range(3000):
+        scopes, artifacts = _random_membership_case(rng)
+        expected = _membership_outcome(
+            _reference_scope_artifact_membership, scopes, artifacts
+        )
+        assert (
+            _membership_outcome(_validate_scope_artifact_membership, scopes, artifacts)
+            == expected
+        )
+        outcomes.add(expected if expected is None else expected.split(":")[0])
+    assert outcomes == {
+        None,
+        "release scope lacks its inventory artifact",
+        "release scope lacks its provisions artifact",
+        "release scope lacks its coverage artifact",
+        "release scope row count does not match its provisions artifact",
+        "release scope lacks source artifacts",
+        "release object contains artifacts outside its declared scopes",
+    }
+
+
+def test_membership_does_not_credit_sibling_version_sources() -> None:
+    from axiom_encode.corpus_release import (
+        VerifiedReleaseArtifact,
+        VerifiedReleaseScope,
+        _validate_scope_artifact_membership,
+    )
+
+    def artifact(artifact_class: str, path: str, rows: int | None = None):
+        return VerifiedReleaseArtifact(artifact_class, path, "c" * 64, 1, rows)
+
+    scopes = tuple(
+        VerifiedReleaseScope("us", "statute", version, 1, "a" * 64, "b" * 64)
+        for version in ("v1", "v10")
+    )
+    artifacts = []
+    for version in ("v1", "v10"):
+        artifacts += [
+            artifact("inventory", f"data/corpus/inventory/us/statute/{version}.json"),
+            artifact(
+                "provisions", f"data/corpus/provisions/us/statute/{version}.jsonl", 1
+            ),
+            artifact("coverage", f"data/corpus/coverage/us/statute/{version}.json"),
+        ]
+    artifacts.append(artifact("sources", "data/corpus/sources/us/statute/v10/a.html"))
+
+    with pytest.raises(
+        CorpusReleaseObjectError, match="lacks source artifacts: us/statute/v1$"
+    ):
+        _validate_scope_artifact_membership(
+            scopes, tuple(sorted(artifacts, key=lambda item: item.path))
+        )

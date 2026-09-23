@@ -821,6 +821,9 @@ def _check_pinned_modules_staleness(
     release: LocalCorpusRelease,
 ) -> list[StaleModule]:
     """Check already-scanned pins against the active corpus release."""
+    # Staleness is judged against the checkout as it is now, not rows another
+    # operation on this release already verified and cached.
+    release = release.with_fresh_reads()
     stale: list[StaleModule] = []
     for pinned in pinned_modules:
         module_path = pinned.module_path
