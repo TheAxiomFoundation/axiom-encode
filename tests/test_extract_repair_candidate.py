@@ -84,6 +84,7 @@ def _add_retained_candidate(
     tests: bytes = b"[]\n",
     citation: str = "us/statute/42/1437c\u20131",
     module: str = "statutes/42/1437c-1.yaml",
+    issue_text: str = "best candidate still needs one repair",
 ) -> Path:
     root = "target/final-rejected-candidate"
     issues = json.dumps(
@@ -91,7 +92,7 @@ def _add_retained_candidate(
             "schema": "axiom-encode/failed-encode-candidate/v1",
             "citation": citation,
             "path": module,
-            "issues": ["best candidate still needs one repair"],
+            "issues": [issue_text],
             "rulespec_sha256": hashlib.sha256(candidate).hexdigest(),
             "tests_sha256": hashlib.sha256(tests).hexdigest(),
             "encoder_version": "0.2.1713",
@@ -1213,3 +1214,34 @@ def test_candidate_size_bound_rejects_limit_plus_one(tmp_path):
 
     with pytest.raises(ValueError, match="exceeds its size limit"):
         extract_candidate(_args(tmp_path, archive))
+
+
+def test_retained_large_diagnostics_do_not_use_yaml_size_bound(tmp_path):
+    archive, metadata = _archive(tmp_path)
+    retained = _add_retained_candidate(
+        archive,
+        tmp_path / "large-issues.tar",
+        metadata,
+        candidate=b"format: rulespec/v1\nrules: []\n",
+        issue_text="diagnostic " * 60000,
+    )
+    result = extract_candidate(_args(tmp_path, retained))
+    assert (
+        Path(result["root"], result["path"]).read_text()
+        == "format: rulespec/v1\nrules: []\n"
+    )
+
+
+def test_retained_diagnostics_reject_shared_limit_plus_one(tmp_path):
+    from scripts.extract_repair_candidate import MAX_ISSUES_BYTES
+
+    archive, metadata = _archive(tmp_path)
+    retained = _add_retained_candidate(
+        archive,
+        tmp_path / "oversize-issues.tar",
+        metadata,
+        candidate=b"format: rulespec/v1\nrules: []\n",
+        issue_text="x" * MAX_ISSUES_BYTES,
+    )
+    with pytest.raises(ValueError, match="exceeds its size limit"):
+        extract_candidate(_args(tmp_path, retained))
