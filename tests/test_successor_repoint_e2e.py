@@ -1,13 +1,15 @@
 """End-to-end ``repoint-legacy-successor`` on a real-shaped fixture checkout.
 
 Runs the real command (signing through the test broker, with only the rules
-engine validators stubbed), then ``guard-generated`` on the result.
+engine validators stubbed), then ``guard-generated`` on the result, then the
+workflow's repoint packaging check.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+from pathlib import Path
 
 import pytest
 import yaml
@@ -377,3 +379,176 @@ class TestRepointEndToEnd:
         git(repointed.repo, "commit", "-q", "-m", "repoint")
         with pytest.raises(SystemExit, match="refused"):
             run_repoint(repointed)
+
+
+# ---------------------------------------------------------------------------
+# Workflow packaging and commit of a repoint dispatch
+# ---------------------------------------------------------------------------
+
+WORKFLOW = Path(__file__).resolve().parents[1] / (
+    ".github/workflows/targeted-signed-reencode.yml"
+)
+
+
+def _step(name: str) -> str:
+    workflow = yaml.safe_load(WORKFLOW.read_text())
+    run = next(
+        step["run"]
+        for step in workflow["jobs"]["encode"]["steps"]
+        if step.get("name") == name
+    )
+    # A developer machine may carry a stale provisioned trusted runtime; force
+    # the step's documented test fallback (AXIOM_TEST_PYTHON) instead.
+    trusted = "/opt/axiom-verification/python/bin/python"
+    assert trusted in run
+    return run.replace(trusted, "/nonexistent/axiom-verification/python/bin/python")
+
+
+def _workspace(fixture) -> dict[str, str]:
+    """Lay out the runner workspace the repoint steps expect."""
+
+    import os
+    import sys
+
+    root = fixture.tmp_path
+    encoder = root / "axiom-encode"
+    if not encoder.exists():
+        encoder.mkdir()
+        (encoder / "scripts").symlink_to(WORKFLOW.parents[2] / "scripts")
+        for checkout in (encoder, fixture.corpus, fixture.engine):
+            git(checkout, "init", "-q")
+            git(checkout, "config", "user.email", "test@example.com")
+            git(checkout, "config", "user.name", "Test User")
+            git(checkout, "add", "-A")
+            git(checkout, "commit", "-q", "--allow-empty", "-m", "pin")
+    runner = root / "runner"
+    runner.mkdir(exist_ok=True)
+    (runner / "successor-repoint-request.json").write_text(json.dumps(ENVELOPE))
+    (runner / "guard-generated.json").write_text(
+        json.dumps({"passed": True, "issues": [], "repo": str(fixture.repo)})
+    )
+    return {
+        "PATH": os.environ["PATH"],
+        "HOME": os.environ.get("HOME", str(root)),
+        "RUNNER_TEMP": str(runner),
+        "GITHUB_RUN_ID": "35000000001",
+        "GITHUB_RUN_ATTEMPT": "1",
+        "AXIOM_TEST_PYTHON": sys.executable,
+        "PYTHONPATH": str(WORKFLOW.parents[2] / "src"),
+        "RULESPEC_CHECKOUT": "rulespec-us",
+        "RULESPEC_REF": fixture.base,
+        "COUNTRY": "us",
+        "CORPUS_REF": "0" * 40,
+        "RULES_ENGINE_REF": "0" * 40,
+    }
+
+
+def _run_step(fixture, name: str, *, request: dict | None = None):
+    import subprocess
+
+    environment = _workspace(fixture)
+    if request is not None:
+        (fixture.tmp_path / "runner/successor-repoint-request.json").write_text(
+            json.dumps(request)
+        )
+    return subprocess.run(
+        ["bash", "-c", _step(name)],
+        capture_output=True,
+        text=True,
+        cwd=fixture.tmp_path,
+        env=environment,
+        check=False,
+    )
+
+
+class TestRepointWorkflowPackaging:
+    def test_packages_exactly_the_receipt(self, repointed):
+        completed = _run_step(repointed, "Package successor repoint changes")
+        assert completed.returncode == 0, completed.stderr
+        artifact = repointed.tmp_path / "runner/targeted-reencode"
+        inventory = json.loads(
+            (artifact / "successor-repoint-changes.json").read_text()
+        )
+        receipt_path, _receipt_payload = _receipt(repointed)
+        assert inventory["receipt_path"] == receipt_path
+        assert inventory["legacy_primary"] == LEGACY
+        assert inventory["successor_primary"] == SUCCESSOR
+        assert {item["path"]: item["status"] for item in inventory["changes"]} == (
+            _changed(repointed)
+        )
+        metadata = json.loads((artifact / "metadata.json").read_text())
+        assert metadata["schema"] == "axiom-encode/successor-repoint-artifact/v1"
+        assert metadata["receipt_sha256"] == inventory["receipt_sha256"]
+        assert metadata["rulespec_base"] == repointed.base
+        assert "citation" not in metadata
+        assert (artifact / "successor-repoint-receipt.json").read_bytes() == (
+            repointed.repo / receipt_path
+        ).read_bytes()
+
+    def test_refuses_an_extra_file(self, repointed):
+        (repointed.repo / "notes.txt").write_text("stray\n")
+        completed = _run_step(repointed, "Package successor repoint changes")
+        assert completed.returncode != 0
+        assert "unexpected=['notes.txt']" in completed.stderr
+
+    def test_refuses_a_postimage_that_is_not_the_receipts(self, repointed):
+        spec = repointed.repo / PROGRAM_SPEC
+        spec.write_text(spec.read_text() + "# drift\n")
+        completed = _run_step(repointed, "Package successor repoint changes")
+        assert completed.returncode != 0
+        assert f"not its receipt postimage: {PROGRAM_SPEC}" in completed.stderr
+
+    def test_refuses_a_receipt_for_another_request(self, repointed):
+        other = dict(ENVELOPE, program_scope_updates=[])
+        completed = _run_step(
+            repointed, "Package successor repoint changes", request=other
+        )
+        assert completed.returncode != 0
+        assert "not for the dispatched request" in completed.stderr
+
+    def test_commits_exactly_the_packaged_inventory(self, repointed):
+        assert _run_step(repointed, "Package successor repoint changes").returncode == 0
+        completed = _run_step(repointed, "Commit successor repoint locally")
+        assert completed.returncode == 0, completed.stderr
+        assert (
+            git(repointed.repo, "status", "--porcelain", "--untracked-files=all") == ""
+        )
+        assert git(repointed.repo, "log", "-1", "--format=%s").strip() == (
+            f"Repoint {LEGACY} onto {SUCCESSOR}"
+        )
+        assert git(repointed.repo, "rev-parse", "--abbrev-ref", "HEAD").strip() == (
+            "axiom/signed-backfill-us-35000000001-1"
+        )
+        committed = git(
+            repointed.repo,
+            "diff",
+            "--name-status",
+            "--no-renames",
+            repointed.base,
+            "HEAD",
+        )
+        inventory = json.loads(
+            (
+                repointed.tmp_path
+                / "runner/targeted-reencode/successor-repoint-changes.json"
+            ).read_text()
+        )
+        assert committed == "".join(
+            f"{item['status']}\t{item['path']}\n" for item in inventory["changes"]
+        )
+        # The committed tree still passes the guard against the same base.
+        assert (
+            guard_generated_change_issues(
+                repointed.repo,
+                corpus_path=repointed.corpus,
+                base_ref=repointed.base,
+                head_ref="HEAD",
+            )
+            == []
+        )
+
+    def test_commit_refuses_a_change_made_after_packaging(self, repointed):
+        assert _run_step(repointed, "Package successor repoint changes").returncode == 0
+        (repointed.repo / TRANSITIVE).write_text("format: rulespec/v1\nrules: []\n")
+        completed = _run_step(repointed, "Commit successor repoint locally")
+        assert completed.returncode != 0

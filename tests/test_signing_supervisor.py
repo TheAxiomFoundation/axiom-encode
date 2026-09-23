@@ -3054,13 +3054,95 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
                 line_number,
             )
 
+    # Packaging, commit and PR: the model lane and the repoint lane are
+    # mutually exclusive, and nothing in the repoint lane reads the citation.
+    repoint_package_step = next(
+        step
+        for step in steps
+        if step.get("name") == "Package successor repoint changes"
+    )
+    assert repoint_package_step["id"] == "package_successor_repoint_changes"
+    assert repoint_package_step["if"] == (
+        "steps.successor_repoint_request.outputs.successor_repoint == 'true'"
+    )
+    assert package_step["if"] == (
+        "steps.successor_repoint_request.outputs.successor_repoint != 'true'"
+    )
+    repoint_package_command = repoint_package_step["run"]
+    assert f"workflow_python=({trusted_python} -I)" in repoint_package_command
+    assert "successor-repoint-changes \\\n" in repoint_package_command
+    assert '--base-ref "$RULESPEC_REF"' in repoint_package_command
+    assert (
+        '--request "$RUNNER_TEMP/successor-repoint-request.json"'
+        in repoint_package_command
+    )
+    assert '> "$artifact/successor-repoint-changes.json"' in repoint_package_command
+    assert '"$artifact/metadata.json"' in repoint_package_command
+    assert "axiom-encode/successor-repoint-artifact/v1" in repoint_package_command
+    assert steps.index(guard_step) < steps.index(repoint_package_step)
+    assert steps.index(repoint_package_step) < steps.index(package_step)
+
+    repoint_commit_step = next(
+        step for step in steps if step.get("name") == "Commit successor repoint locally"
+    )
+    repoint_publish_step = next(
+        step
+        for step in steps
+        if step.get("name")
+        == "Push successor repoint branch and open draft pull request"
+    )
+    repoint_lane = (
+        "${{ inputs.open_pr && "
+        "steps.successor_repoint_request.outputs.successor_repoint == 'true' }}"
+    )
+    model_lane = (
+        "${{ inputs.open_pr && "
+        "steps.successor_repoint_request.outputs.successor_repoint != 'true' }}"
+    )
+    assert repoint_commit_step["if"] == repoint_lane
+    assert repoint_publish_step["if"] == repoint_lane
+    assert commit_step["if"] == model_lane
+    for step in (
+        repoint_request_step := request_step,
+        repoint_step,
+        repoint_package_step,
+        repoint_commit_step,
+        repoint_publish_step,
+    ):
+        assert "inputs.citation" not in json.dumps(step), step["name"]
+        assert "CITATION" not in (step.get("env") or {}), step["name"]
+        assert "AXIOM_ENCODE_APPLY_SIGNING_KEY" not in (step.get("env") or {}) or (
+            step is repoint_step
+        )
+    del repoint_request_step
+    repoint_commit_command = repoint_commit_step["run"]
+    assert "--pathspec-from-file=" in repoint_commit_command
+    assert '| diff - "$RUNNER_TEMP/successor-repoint-staged"' in (
+        repoint_commit_command
+    )
+    assert '| cmp - "$inventory"' in repoint_commit_command
+    assert "core.hooksPath=/dev/null" in repoint_commit_command
+    assert "stage-signed-backfill" not in repoint_commit_command
+    repoint_publish_command = repoint_publish_step["run"]
+    assert repoint_publish_step["env"]["GH_TOKEN"] == (
+        "${{ secrets.AXIOM_REPO_TOKEN }}"
+    )
+    assert '" = "$RULESPEC_REF"' in repoint_publish_command
+    assert repoint_publish_command.count('"HEAD:refs/heads/${branch}"') == 1
+    assert "-F draft=true" in repoint_publish_command
+    assert '-f title="Repoint ${legacy} onto ${successor}"' in repoint_publish_command
+    assert "'.base.ref == $branch and .base.sha == $sha'" in repoint_publish_command
+    assert "created pull request does not target the reviewed base SHA" in (
+        repoint_publish_command
+    )
+
     publish_step = next(
         step
         for step in steps
         if step.get("name") == "Push lane branch and open draft pull request"
     )
     assert publish_step["id"] == "publish_lane_pull_request"
-    assert publish_step["if"] == "${{ inputs.open_pr }}"
+    assert publish_step["if"] == model_lane
     assert publish_step["env"]["GH_TOKEN"] == "${{ secrets.AXIOM_REPO_TOKEN }}"
     assert publish_step["env"]["PR_BASE_BRANCH"] == ("${{ inputs.pr_base_branch }}")
     assert "AXIOM_ENCODE_APPLY_SIGNING_KEY" not in publish_step["env"]
@@ -3092,6 +3174,15 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
         " push " in f" {step.get('run', '')} "
         for step in steps[: steps.index(publish_step)]
     )
+    # The repoint lane's only push is its own publish step; the model publish
+    # step before it is gated off for a repoint dispatch.
+    assert [
+        step["name"]
+        for step in steps[: steps.index(repoint_publish_step)]
+        if " push " in f" {step.get('run', '')} "
+    ] == ["Push lane branch and open draft pull request"]
+    assert steps.index(publish_step) < steps.index(repoint_commit_step)
+    assert steps.index(repoint_commit_step) < steps.index(repoint_publish_step)
 
     checksum_step = next(
         step

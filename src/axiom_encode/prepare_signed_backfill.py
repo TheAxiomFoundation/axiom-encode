@@ -367,6 +367,216 @@ def citation_rulespec_path(citation: str) -> PurePosixPath:
 SUCCESSOR_REPOINT_ENVELOPE_SCHEMA = "axiom-encode/legacy-successor-repoint/v1"
 
 
+SUCCESSOR_REPOINT_RECEIPT_ROOT = PurePosixPath(".axiom/legacy-successor-repoints")
+SUCCESSOR_REPOINT_CHANGES_SCHEMA = "axiom-encode/successor-repoint-changes/v1"
+
+
+def _worktree_change_statuses(repo: Path, base_ref: str) -> dict[str, str]:
+    """Return ``path -> A|M|D`` for the working tree against one base commit."""
+
+    if COMMIT_PATTERN.fullmatch(base_ref) is None:
+        raise ValueError("successor repoint base must be a full commit SHA")
+    statuses: dict[str, str] = {}
+    fields = _git(
+        repo, "diff", "--name-status", "--no-renames", "-z", base_ref, "--"
+    ).split(b"\0")
+    index = 0
+    while index < len(fields) and fields[index]:
+        status = fields[index].decode("ascii")
+        path = fields[index + 1].decode("utf-8")
+        if status not in {"A", "M", "D"}:
+            raise ValueError(
+                f"successor repoint change {path} has unsupported status {status}"
+            )
+        statuses[path] = status
+        index += 2
+    for encoded in _git(repo, "ls-files", "--others", "--exclude-standard", "-z").split(
+        b"\0"
+    ):
+        if not encoded:
+            continue
+        path = encoded.decode("utf-8")
+        if path in statuses:
+            raise ValueError(f"successor repoint change is ambiguous: {path}")
+        statuses[path] = "A"
+    return statuses
+
+
+def successor_repoint_changes(
+    repo: Path,
+    base_ref: str,
+    *,
+    request: Path,
+) -> dict[str, object]:
+    """Prove the change set is exactly the one successor repoint's receipt.
+
+    The receipt names every file the transaction may touch: the retired legacy
+    group and every retired v1 manifest (deleted), the rewritten dependents, the
+    reconciled metadata and declared ProgramSpecs (modified, at their receipt
+    postimage digests), the retired-group and dependent manifests (bound to the
+    receipt), and the receipt itself.  Anything else, including an untracked
+    file, is a refusal.  Signatures are the guard's job; this binds the diff.
+    """
+
+    from axiom_encode.successor_repoint import (
+        MANIFEST_TOOL,
+        RETIRED_MANIFEST_TOOL,
+        SuccessorRepointError,
+        load_repoint_request_payload,
+    )
+
+    statuses = _worktree_change_statuses(repo, base_ref)
+    receipts = sorted(
+        path
+        for path in statuses
+        if PurePosixPath(path).parent == SUCCESSOR_REPOINT_RECEIPT_ROOT
+    )
+    if len(receipts) != 1:
+        raise ValueError(
+            f"successor repoint must add exactly one receipt; found {len(receipts)}"
+        )
+    receipt_path = PurePosixPath(receipts[0])
+    if (
+        statuses[receipts[0]] != "A"
+        or receipt_path.suffix != ".json"
+        or DIGEST_PATTERN.fullmatch(receipt_path.stem) is None
+    ):
+        raise ValueError(
+            f"successor repoint receipt is not a new receipt: {receipt_path}"
+        )
+    receipt_raw = _read_bounded_regular(
+        repo, receipt_path, label="successor repoint receipt", max_bytes=4 * 1024 * 1024
+    )
+    receipt = _load_unambiguous_json(
+        receipt_raw.decode("utf-8"), label="successor repoint receipt"
+    )
+    dispatched = _load_unambiguous_json(
+        request.read_text(encoding="utf-8"), label="successor repoint request"
+    )
+    if not isinstance(receipt, dict) or receipt.get("request") != dispatched:
+        raise ValueError("successor repoint receipt is not for the dispatched request")
+    try:
+        parsed = load_repoint_request_payload(dispatched)
+    except SuccessorRepointError as exc:
+        raise ValueError(f"successor repoint request is invalid: {exc}") from exc
+    if receipt.get("request_sha256") != parsed.sha256:
+        raise ValueError("successor repoint receipt request digest is stale")
+
+    def records(value: object, *keys: str) -> list[dict[str, object]]:
+        if not isinstance(value, list) or not all(
+            isinstance(item, dict)
+            and all(isinstance(item.get(key), str) for key in keys)
+            for item in value
+        ):
+            raise ValueError("successor repoint receipt evidence is malformed")
+        return value
+
+    def manifest_path(primary: str) -> str:
+        return (MANIFEST_ROOT / PurePosixPath(primary).with_suffix(".json")).as_posix()
+
+    expected: dict[str, tuple[str, str | None]] = {receipts[0]: ("A", None)}
+    new_manifests: dict[str, str] = {}
+
+    def expect(path: str, status: str, digest: str | None = None) -> None:
+        if path in expected and expected[path] != (status, digest):
+            raise ValueError(f"successor repoint receipt claims {path} twice")
+        expected[path] = (status, digest)
+
+    legacy = receipt.get("legacy")
+    if not isinstance(legacy, dict):
+        raise ValueError("successor repoint receipt legacy evidence is malformed")
+    for item in records(legacy.get("files"), "path"):
+        expect(str(item["path"]), "D")
+    retired_manifest = manifest_path(parsed.legacy_primary.as_posix())
+    legacy_manifests = {
+        str(item["path"]) for item in records(legacy.get("manifests"), "path")
+    }
+    for path in legacy_manifests - {retired_manifest}:
+        expect(path, "D")
+    expect(retired_manifest, "M" if retired_manifest in legacy_manifests else "A")
+    new_manifests[retired_manifest] = RETIRED_MANIFEST_TOOL
+
+    for dependent in records(receipt.get("dependents"), "primary"):
+        own_manifest = manifest_path(str(dependent["primary"]))
+        retired = {
+            str(item["path"]) for item in records(dependent.get("manifests"), "path")
+        }
+        for path in retired - {own_manifest}:
+            expect(path, "D")
+        expect(own_manifest, "M" if own_manifest in retired else "A")
+        new_manifests[own_manifest] = MANIFEST_TOOL
+        for rewrite in records(dependent.get("rewrites"), "path", "after_sha256"):
+            expect(str(rewrite["path"]), "M", str(rewrite["after_sha256"]))
+    for item in records(
+        receipt.get("metadata_reconciliations"), "path", "after_sha256"
+    ):
+        expect(str(item["path"]), "M", str(item["after_sha256"]))
+    for item in records(
+        receipt.get("program_scope_reconciliations"), "program_spec", "after_sha256"
+    ):
+        expect(str(item["program_spec"]), "M", str(item["after_sha256"]))
+
+    unexpected = sorted(set(statuses) - set(expected))
+    missing = sorted(set(expected) - set(statuses))
+    wrong = sorted(
+        path
+        for path in set(statuses) & set(expected)
+        if statuses[path] != expected[path][0]
+    )
+    if unexpected or missing or wrong:
+        raise ValueError(
+            "successor repoint change set is not exactly its receipt: "
+            f"unexpected={unexpected} missing={missing} wrong_status={wrong}"
+        )
+
+    receipt_sha256 = hashlib.sha256(receipt_raw).hexdigest()
+    changes: list[dict[str, object]] = []
+    for path in sorted(expected):
+        status, digest = expected[path]
+        live_sha256: str | None = None
+        if status != "D":
+            raw = _read_bounded_regular(
+                repo,
+                PurePosixPath(path),
+                label="successor repoint change",
+                max_bytes=16 * 1024 * 1024,
+            )
+            live_sha256 = hashlib.sha256(raw).hexdigest()
+            if digest is not None and live_sha256 != digest:
+                raise ValueError(
+                    f"successor repoint change is not its receipt postimage: {path}"
+                )
+            if path in new_manifests:
+                payload = _load_unambiguous_json(
+                    raw.decode("utf-8"), label="successor repoint manifest"
+                )
+                binding = (
+                    payload.get("successor_repoint")
+                    if isinstance(payload, dict)
+                    else None
+                )
+                if (
+                    not isinstance(binding, dict)
+                    or payload.get("tool") != new_manifests[path]
+                    or binding.get("receipt_path") != receipt_path.as_posix()
+                    or binding.get("receipt_sha256") != receipt_sha256
+                ):
+                    raise ValueError(
+                        f"successor repoint manifest is not bound to its receipt: {path}"
+                    )
+        changes.append({"path": path, "status": status, "sha256": live_sha256})
+    return {
+        "schema": SUCCESSOR_REPOINT_CHANGES_SCHEMA,
+        "base": base_ref,
+        "receipt_path": receipt_path.as_posix(),
+        "receipt_sha256": receipt_sha256,
+        "request_sha256": parsed.sha256,
+        "legacy_primary": parsed.legacy_primary.as_posix(),
+        "successor_primary": parsed.successor_primary.as_posix(),
+        "changes": changes,
+    }
+
+
 def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
     """Split the bounded dispatch input into exactly one atomic source mode."""
 
@@ -4363,6 +4573,16 @@ def main() -> None:
         "atomic_source_json",
         help="bounded source input that may carry a successor-repoint envelope",
     )
+    repoint_changes_parser = subparsers.add_parser(
+        "successor-repoint-changes",
+        help=(
+            "prove the RuleSpec change set is exactly one successor repoint's "
+            "receipt and emit its change inventory"
+        ),
+    )
+    repoint_changes_parser.add_argument("--repo", type=Path, required=True)
+    repoint_changes_parser.add_argument("--base-ref", required=True)
+    repoint_changes_parser.add_argument("--request", type=Path, required=True)
     canonical_refresh_parser = subparsers.add_parser(
         "parse-canonical-refresh-bundle",
         help=(
@@ -4489,6 +4709,16 @@ def main() -> None:
                 json.dumps(
                     split_atomic_source_input(args.atomic_source_json),
                     separators=(",", ":"),
+                    sort_keys=True,
+                )
+            )
+        elif args.command == "successor-repoint-changes":
+            print(
+                json.dumps(
+                    successor_repoint_changes(
+                        args.repo, args.base_ref, request=args.request
+                    ),
+                    indent=2,
                     sort_keys=True,
                 )
             )
