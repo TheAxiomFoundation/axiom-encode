@@ -358,30 +358,78 @@ Every declared rename is proved before anything is written: identical
 `kind`/`dtype`/`unit`/`entity`/`period`, identical table key sets, and equal
 values at every version boundary **inside the successor's validity window**.
 `indexed_by` names may differ only when every dependent formula use is a
-literal integer subscript the successor table defines. Dependents are rewritten
-by exact tokens on five surfaces only -- the module import,
+literal integer subscript the successor table defines, and a formula symbol is
+renamed only where the dependent imports the legacy module (or that exact
+concept of it); `x.name` is never a use of `name`. Dependents are rewritten by
+exact tokens on five surfaces only -- the module import,
 `module.deferred_outputs[].blocked_by`, proof import `target`/`output`/`hash`,
-and unquoted identifier-bounded formula symbols -- and the postimage is proved
-equal to the preimage with only those replacements applied. Any other
-occurrence of the retired identity or a mapped concept fails closed, as does any
-reference to the retired module from an undeclared protected module or
-ProgramSpec.
+and unquoted formula symbols -- and the postimage is proved equal to the
+preimage with only those replacements applied. Any other occurrence of the
+retired module in any reference form (durable identity, jurisdiction-prefixed
+or jurisdiction-less path with or without a suffix, companion, manifest path,
+ProgramSpec scope entry) fails closed.
+
+The reference inventory scans every tracked file at clean HEAD with one
+`git grep` for the module's path stem. A hit is owned only when the transaction
+retires the file, rewrites it (a declared dependent), or reconciles it (a
+declared ProgramSpec or one of the six metadata files below). Signed
+provenance, `oracle-coverage-pending.yaml`, `.axiom/retired-schema-freeze.json`,
+`tests/`, undeclared protected modules or ProgramSpecs, and anything else are
+refusals: a repoint never leaves a stale reference behind.
+
+Legacy ownership is bound to digests: every v1 manifest of the retired group
+must bind exactly that group's bytes. A dependent is rewritten rather than
+retired, so its v1 manifests may be a superseded manifest plus a later partial
+re-attestation (as rulespec-us's `us/statutes/26/32.yaml` has), but together
+they must bind its exact current bytes and cover nothing outside it.
 
 The successor's validity window governs: after the repoint a dependent has no
 value outside that window, where a legacy module with no `effective_to` silently
-extended its amounts forever. The receipt records this as
-`post_window_behavior_change` together with each dependent use window. At
-runtime the rules engine's `Evaluator::lookup_parameter` filters versions by
-`ParameterVersion::applies_at` and returns `EvalError::MissingParameterValue`
-(`parameter \`X\` has no value for key \`K\` at <date>`) when none applies;
-compilation still succeeds and only evaluation for that period fails.
+extended its amounts forever. The receipt records each dependent use window
+with `precedes_successor_window` and `extends_past_successor_window`, the
+`pre_window_behavior_change` / `post_window_behavior_change` flags and their
+union `behavior_change_outside_successor_window`, and per concept how the rules
+engine lowers it and the error evaluation raises outside the window. Read from
+axiom-rules-engine `af6e4ea` (rulespec-us's pinned `axiom_rules_engine_ref`): a
+parameter with a values table lowers to an indexed parameter
+(`src/rulespec.rs:2001-2009`); a no-entity literal parameter lowers to a scalar
+parameter keyed `0` (`src/formula.rs:1183-1217`); both fail with
+`EvalError::MissingParameterValue` when no version `applies_at` the period
+(`src/engine.rs:1165-1194`), and a parameter with an entity would lower to a
+derived rule and fail with `EvalError::MissingDerivedFormulaVersion`.
+Compilation succeeds either way; evaluation for that period fails loudly.
 
 The transaction validates the rewritten dependents and their transitive
-dependents on an isolated overlay, reconciles `.axiom` metadata and the declared
-ProgramSpec scopes through `program-scope-sync`, retires the legacy group and
-its v1 ownership manifests, and installs one signed receipt under
-`.axiom/legacy-successor-repoints/` plus a successor manifest and one manifest
-per rewritten dependent in a single recoverable transaction.
+dependents on an isolated overlay, then installs in one recoverable transaction:
+the rewritten dependents, the reconciled metadata
+(`known-validation-gaps.yaml`, `.axiom/toolchain.toml`,
+`.axiom/index/provisions_to_rules.json`,
+`.axiom/pending-validation-fingerprints.json`,
+`.axiom/upstream-source-check-baseline.txt`, `known-missing-money-atoms.yaml`)
+and the declared ProgramSpec scopes, the deletion of the legacy group and every
+v1 ownership manifest of the legacy group and dependents, one signed receipt
+under `.axiom/legacy-successor-repoints/`, and two signed manifest classes:
+
+- a **dependent** manifest per rewritten dependent, owning its live files;
+- a **retired** manifest at the legacy primary's canonical manifest path,
+  owning only the deletion of the legacy group.
+
+The successor keeps its own signed-v5 model manifest untouched. Every receipt
+claim (ownership evidence, proofs, rewrites, metadata and ProgramSpec
+postimages, the post-repoint waiver digest, and the corpus release) is
+re-derived by `guard-generated` from the receipt's base commit, never compared
+with live shared files, so a later unrelated edit to the waiver set, the
+toolchain, the provisions index or a ProgramSpec cannot make a repoint manifest
+stale. The live tree must equal the receipt's postimage only in the change set
+that introduces the receipt. A dependent manifest also re-verifies the
+successor's own model manifest (signature, schema, source attestation, live
+digests) and requires the successor primary to still have the bytes its
+repointed proof imports bind.
+
+The successor's model manifest must verify against the checkout's current
+waiver set and corpus release when the repoint runs, exactly as a retained
+successor must; refresh it first (a manifest-only refresh) if its bindings are
+older.
 
 Repository CI should run:
 
