@@ -404,6 +404,7 @@ from .proof_hash_migration import (
     build_proof_hash_cascade_plan,
     render_proof_hash_cascade_plan,
 )
+from .repair_candidate_contract import FAILED_ENCODE_CANDIDATE_MAX_ISSUES_BYTES
 from .repo_routing import (
     _rulespec_routing_cache_scope,
     canonical_rulespec_repo_name,
@@ -26753,7 +26754,7 @@ _FAILED_ENCODE_CANDIDATE_METADATA_FIELDS = {
     "encoder_version",
     "attempt_count",
 }
-_FAILED_ENCODE_CANDIDATE_MAX_ISSUES_BYTES = 512 * 1024
+_FAILED_ENCODE_CANDIDATE_MAX_ISSUES_BYTES = FAILED_ENCODE_CANDIDATE_MAX_ISSUES_BYTES
 _FAILED_ENCODE_CANDIDATE_MAX_ISSUES = 4096
 _FAILED_ENCODE_CANDIDATE_EMPTY_TESTS = "[]\n"
 _FAILED_ENCODE_CANDIDATE_PROTECTED_SEGMENTS = {
