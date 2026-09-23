@@ -139,6 +139,10 @@ REVIEWED_RULESPEC_REFS = frozenset(
             "79ffd74fe3d3c83665335ec64feb7458d9cc877a",
         ),
         (
+            "us",
+            "7da77863c24ee74f1abcc664e0f65b74b320c99f",
+        ),
+        (
             "ca",
             "f60f7a84c30e38c7d4961d70647eb0457e7d76c2",
         ),
@@ -170,6 +174,11 @@ REVIEWED_RULESPEC_PR_BASES = frozenset(
             "us",
             "79ffd74fe3d3c83665335ec64feb7458d9cc877a",
             "axiom/signed-backfill-us-35160240952-1",
+        ),
+        (
+            "us",
+            "7da77863c24ee74f1abcc664e0f65b74b320c99f",
+            "fix/1248-snap-immigration-status",
         ),
     }
 )
