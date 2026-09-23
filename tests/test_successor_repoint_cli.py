@@ -39,6 +39,7 @@ from tests.successor_repoint_fixtures import (
     RETIRED_MANIFEST,
     SUCCESSOR,
     SUCCESSOR_MANIFEST,
+    TRANSITIVE,
     build_repoint_fixture,
     git,
     install_repoint_signing,
@@ -1056,6 +1057,45 @@ class TestLandedRepoint:
             for issue in issues
             if "successor repoint" in issue or "legacy-successor-repoints" in issue
         ], issues
+
+    def test_guard_all_with_a_base_accepts_a_repoint_in_the_range(
+        self, tmp_path, monkeypatch
+    ):
+        from axiom_encode.cli import guard_generated_change_issues
+
+        # --all re-verifies every manifest against the running encoder, so the
+        # successor here is signed by it; a historical successor model
+        # manifest fails --all on its own, exactly as any model manifest does.
+        fixture = build_repoint_fixture(tmp_path, monkeypatch, successor_encoder=None)
+        run_repoint(fixture)
+        issues = guard_generated_change_issues(
+            fixture.repo,
+            corpus_path=fixture.corpus,
+            base_ref=fixture.base,
+            all_files=True,
+        )
+        # The fixture's transitive dependent deliberately has no manifest.
+        assert issues == [
+            f"{TRANSITIVE} is missing a matching .axiom/encoding-manifests manifest"
+        ]
+
+    def test_refuses_a_non_0644_program_spec_that_lists_the_module(
+        self, tmp_path, monkeypatch
+    ):
+        def add_executable_spec(repo):
+            spec = repo / "programs/us/other/fy-2026.yaml"
+            spec.parent.mkdir(parents=True)
+            spec.write_text(
+                "program: us/other\nscope:\n  federal:\n"
+                "    - policies/irs//rev-proc-2025-32/earned-income-credit\n"
+            )
+            spec.chmod(0o755)
+
+        fixture = build_repoint_fixture(
+            tmp_path, monkeypatch, before_commit=add_executable_spec
+        )
+        with pytest.raises(SystemExit, match="non-0644 ProgramSpec lists the legacy"):
+            run_repoint(fixture)
 
     def test_encoding_over_an_uncommitted_repoint_is_refused(self, repointed):
         from axiom_encode.cli import (

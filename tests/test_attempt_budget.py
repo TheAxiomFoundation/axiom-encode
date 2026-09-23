@@ -475,7 +475,7 @@ class TestMainExitContract:
             ),
         ],
     )
-    def test_only_an_exact_repoint_envelope_is_exempt(
+    def test_only_a_repoint_schema_object_is_exempt(
         self, monkeypatch: pytest.MonkeyPatch, source_bundle_json: str
     ) -> None:
         self._set_env(monkeypatch, source_bundle_json=source_bundle_json)

@@ -486,6 +486,9 @@ from .successor_repoint import (
     is_program_spec_path as _successor_repoint_program_spec_path,
 )
 from .successor_repoint import (
+    program_spec_lists_module as _successor_repoint_program_spec_lists_module,
+)
+from .successor_repoint import (
     receipt_identity_payload as _successor_repoint_identity_payload,
 )
 from .successor_repoint import (
@@ -21783,18 +21786,29 @@ def _successor_repoint_reference_candidates(
     candidates: dict[str, bytes] = {}
     # program-scope-sync normalizes scope entries, so every ProgramSpec is
     # inventoried structurally, not only those the text search finds.
-    # A non-0644 ProgramSpec that names the module is still found (and refused)
-    # by the text search below.
     for path, (mode, _object_type, object_id, size) in entries.items():
-        if (
-            not _successor_repoint_is_program_spec(path)
-            or mode != "100644"
-            or size > _SUCCESSOR_REPOINT_MAX_FILE_BYTES
-        ):
+        if not _successor_repoint_is_program_spec(path):
             continue
-        candidates[path.as_posix()] = _rulespec_migration_git_bytes(
-            repo_path, "cat-file", "blob", object_id
-        )
+        if size > _SUCCESSOR_REPOINT_MAX_FILE_BYTES:
+            raise SuccessorRepointError(
+                f"repoint cannot inventory an oversize ProgramSpec: {path.as_posix()}"
+            )
+        raw = _rulespec_migration_git_bytes(repo_path, "cat-file", "blob", object_id)
+        if mode != "100644":
+            # program-scope-sync keeps a spec's mode, so a non-0644 ProgramSpec
+            # is live; one that lists the module in any spelling cannot be
+            # reconciled here.
+            if request.legacy_scope_path.encode(
+                "utf-8"
+            ) in raw or _successor_repoint_program_spec_lists_module(
+                raw, request.legacy_scope_path
+            ):
+                raise SuccessorRepointError(
+                    "a non-0644 ProgramSpec lists the legacy module and cannot be "
+                    f"reconciled: {path.as_posix()}"
+                )
+            continue
+        candidates[path.as_posix()] = raw
     for encoded in result.stdout.split(b"\0"):
         if not encoded:
             continue
