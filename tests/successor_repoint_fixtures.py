@@ -430,6 +430,7 @@ def build_repoint_fixture(
     *,
     envelope: dict | None = None,
     before_commit=None,
+    successor_encoder: dict | None = HISTORICAL_ENCODER,
 ) -> RepointFixture:
     """Create and commit one canonical rulespec-us checkout ready to repoint.
 
@@ -555,15 +556,14 @@ def build_repoint_fixture(
             ],
         }
     )
-    manifest["axiom_encode_version"] = HISTORICAL_ENCODER["version"]
-    manifest["axiom_encode_git"]["commit"] = HISTORICAL_ENCODER["commit"]
-    manifest["axiom_encode_git"]["version"] = HISTORICAL_ENCODER["version"]
-    manifest["validation_execution"]["axiom_encode"]["commit"] = HISTORICAL_ENCODER[
-        "commit"
-    ]
-    manifest["validation_execution"]["axiom_encode"]["version"] = HISTORICAL_ENCODER[
-        "version"
-    ]
+    if successor_encoder is not None:
+        manifest["axiom_encode_version"] = successor_encoder["version"]
+        manifest["axiom_encode_git"]["commit"] = successor_encoder["commit"]
+        manifest["axiom_encode_git"]["version"] = successor_encoder["version"]
+        execution = manifest["validation_execution"]["axiom_encode"]
+        execution["commit"] = successor_encoder["commit"]
+        execution["version"] = successor_encoder["version"]
+        manifest.pop("signature", None)
     _sign_applied_encoding_manifest(manifest, BROKER)
     successor_manifest_bytes = _write(
         repo, SUCCESSOR_MANIFEST, json.dumps(manifest, indent=2) + "\n"

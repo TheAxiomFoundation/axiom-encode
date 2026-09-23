@@ -21,8 +21,9 @@ exhausted.
 
 Legacy successor repoints are report-only too: they make no model call, and
 they must run under the successor's citation, whose model re-encode failures
-must not block them.  Only an exact repoint envelope qualifies; the protected
-resolver re-parses it and refuses anything else.
+must not block them.  Any source input whose object ``schema`` is the repoint
+envelope's qualifies here; the protected resolver then either admits it as a
+repoint, which skips the model step, or refuses it before any model call.
 
 The guard is a cost damper, not a security gate: if the GitHub API cannot
 be reached it fails open with a loud warning. Stdlib-only because it runs
