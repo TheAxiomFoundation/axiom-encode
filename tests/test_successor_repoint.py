@@ -443,13 +443,20 @@ class TestConceptProof:
     def test_a_scalar_parameter_with_an_entity_lowers_to_a_derived_rule(self):
         from axiom_encode.successor_repoint import engine_lowering
 
-        assert engine_lowering({"kind": "parameter", "indexed_by": "x"}) == (
-            "indexed_parameter"
+        assert engine_lowering(
+            {
+                "kind": "parameter",
+                "indexed_by": "x",
+                "versions": [{"effective_from": "2026-01-01", "values": {0: 1}}],
+            }
+        ) == ("indexed_parameter")
+        literal = [{"effective_from": "2026-01-01", "formula": 12200}]
+        assert engine_lowering({"kind": "parameter", "versions": literal}) == (
+            "scalar_parameter"
         )
-        assert engine_lowering({"kind": "parameter"}) == "scalar_parameter"
-        assert engine_lowering({"kind": "parameter", "entity": "TaxUnit"}) == (
-            "derived"
-        )
+        assert engine_lowering(
+            {"kind": "parameter", "entity": "TaxUnit", "versions": literal}
+        ) == ("derived")
 
     def test_refuses_a_formula_use_without_the_legacy_import(self):
         legacy = _legacy_module()
@@ -1266,3 +1273,252 @@ class TestReceiptIdentity:
 def test_module_identity_and_scope_path_helpers():
     assert module_identity(PurePosixPath(LEGACY_PRIMARY)) == LEGACY_IDENTITY
     assert scope_module_path(PurePosixPath(SUCCESSOR_PRIMARY)) == "policies/irs/page-15"
+
+
+# ---------------------------------------------------------------------------
+# Review round 2: name resolution, formula lexing, lowering, key coverage
+# ---------------------------------------------------------------------------
+
+
+def _legacy_with_extra_export() -> bytes:
+    return _legacy_module(
+        extra_rules=[
+            {
+                "name": "shared_rate",
+                "kind": "parameter",
+                "dtype": "Rate",
+                "versions": [{"effective_from": "2026-01-01", "formula": "7"}],
+            }
+        ]
+    )
+
+
+class TestWholeModuleNameResolution:
+    def test_refuses_an_unmapped_legacy_export_used_through_the_import(self):
+        legacy = _legacy_with_extra_export()
+        dependent = _dependent(legacy).replace(
+            b"formula: investment_income <= legacy_cap",
+            b"formula: investment_income <= legacy_cap * shared_rate",
+        )
+        with pytest.raises(SuccessorRepointError, match="unmapped legacy concepts"):
+            _prove(legacy, _successor_module(), dependent)
+
+    def test_refuses_a_successor_export_the_dependent_already_names(self):
+        legacy = _legacy_module()
+        successor = _successor_module().replace(
+            b"rules:\n",
+            b"rules:\n"
+            b"- name: capped_rate\n"
+            b"  kind: parameter\n"
+            b"  dtype: Rate\n"
+            b"  versions:\n"
+            b"  - effective_from: '2026-01-01'\n"
+            b"    effective_to: '2026-12-31'\n"
+            b"    formula: '2'\n",
+            1,
+        )
+        dependent = _dependent(legacy).replace(
+            b"formula: investment_income <= legacy_cap",
+            b"formula: investment_income <= legacy_cap * capped_rate",
+        )
+        with pytest.raises(SuccessorRepointError, match="would rebind: capped_rate"):
+            _prove(legacy, successor, dependent)
+
+    def test_refuses_a_local_rule_named_after_a_successor_export(self):
+        legacy = _legacy_module()
+        successor = _successor_module().replace(
+            b"rules:\n",
+            b"rules:\n"
+            b"- name: capped_child_count\n"
+            b"  kind: parameter\n"
+            b"  dtype: Integer\n"
+            b"  versions:\n"
+            b"  - effective_from: '2026-01-01'\n"
+            b"    effective_to: '2026-12-31'\n"
+            b"    formula: '3'\n",
+            1,
+        )
+        with pytest.raises(
+            SuccessorRepointError, match="defines names the successor module exports"
+        ):
+            _prove(legacy, successor, _dependent(legacy))
+
+
+class TestFormulaLexing:
+    def test_a_comment_apostrophe_does_not_hide_a_use(self):
+        from axiom_encode.successor_repoint import _formula_symbol_uses
+
+        assert _formula_symbol_uses(
+            "# the filer's cap\nlegacy_cap * 2", "legacy_cap"
+        ) == (None,)
+
+    def test_strings_docstrings_and_comments_are_never_renamed(self):
+        from axiom_encode.successor_repoint import replace_formula_symbol
+
+        formula = (
+            '"""legacy_cap docstring"""\n'
+            "# x's legacy_cap\n"
+            "status == 'legacy_cap'\n"
+            "# y's\n"
+            'legacy_cap + "a\\"legacy_cap"'
+        )
+        assert replace_formula_symbol(formula, "legacy_cap", "successor_cap") == (
+            '"""legacy_cap docstring"""\n'
+            "# x's legacy_cap\n"
+            "status == 'legacy_cap'\n"
+            "# y's\n"
+            'successor_cap + "a\\"legacy_cap"'
+        )
+
+    def test_a_negative_scalar_lowers_to_a_derived_rule(self):
+        from axiom_encode.successor_repoint import engine_lowering
+
+        assert (
+            engine_lowering({"kind": "parameter", "versions": [{"formula": -50}]})
+            == "derived"
+        )
+        assert (
+            engine_lowering(
+                {"kind": "parameter", "versions": [{"formula": "3.5"}, {"formula": 4}]}
+            )
+            == "scalar_parameter"
+        )
+
+
+def test_literal_subscripts_must_exist_throughout_the_successor_window():
+    def two_versions(indexed_by: str, *, end: bool) -> dict:
+        first = {"effective_from": "2026-01-01", "effective_to": "2026-06-30"}
+        first["values"] = {0: 1, 1: 2, 2: 3, 3: 4}
+        second = {"effective_from": "2026-07-01"}
+        if end:
+            second["effective_to"] = "2026-12-31"
+        second["values"] = {0: 1, 1: 2, 2: 3}
+        return {
+            "kind": "parameter",
+            "dtype": "Money",
+            "unit": "USD",
+            "indexed_by": indexed_by,
+            "versions": [first, second],
+        }
+
+    cap = {
+        "kind": "parameter",
+        "dtype": "Money",
+        "unit": "USD",
+        "versions": [{"effective_from": "2026-01-01", "formula": "12200"}],
+    }
+    legacy = yaml.safe_dump(
+        {
+            "format": "rulespec/v1",
+            "rules": [
+                {"name": "legacy_amounts", **two_versions("child_count", end=False)},
+                {"name": "legacy_cap", **cap},
+            ],
+        },
+        sort_keys=False,
+    ).encode()
+    successor_cap = {
+        **cap,
+        "versions": [{**cap["versions"][0], "effective_to": "2026-12-31"}],
+    }
+    successor = yaml.safe_dump(
+        {
+            "format": "rulespec/v1",
+            "rules": [
+                {
+                    "name": "successor_amounts",
+                    **two_versions("child_count_category", end=True),
+                },
+                {"name": "successor_cap", **successor_cap},
+            ],
+        },
+        sort_keys=False,
+    ).encode()
+    with pytest.raises(SuccessorRepointError, match="throughout its window"):
+        _prove(legacy, successor, _dependent(legacy))
+
+
+def test_malformed_proof_metadata_is_not_a_crash():
+    legacy = _legacy_module()
+    dependent = _dependent(legacy).replace(
+        b"  - name: capped_child_count\n",
+        b"  - name: capped_child_count\n    metadata:\n      proof: not-a-mapping\n",
+    )
+    out, _replacements = _rewrite(dependent, _successor_module())
+    assert b"proof: not-a-mapping" in out
+
+
+def test_refuses_a_companion_key_that_would_collide():
+    companion = (
+        "cases:\n"
+        "  - outputs:\n"
+        f"      {LEGACY_IDENTITY}#legacy_cap: 1\n"
+        f"      {SUCCESSOR_IDENTITY}#successor_cap: 2\n"
+    ).encode("utf-8")
+    with pytest.raises(SuccessorRepointError, match="would collide"):
+        _rewrite(companion, _successor_module(), primary=False)
+
+
+class TestProgramSpecNormalization:
+    SPEC = (
+        "program: us/fiit\n"
+        "scope:\n"
+        "  federal:\n"
+        "    - policies/irs//legacy-table\n"
+        "    - statutes/26/32\n"
+        "  us:\n"
+        "    - policies/irs/legacy-table\n"
+    ).encode("utf-8")
+
+    def test_the_inventory_sees_a_normalized_spelling(self):
+        from axiom_encode.successor_repoint import program_spec_lists_module
+
+        assert program_spec_lists_module(self.SPEC, "policies/irs/legacy-table")
+        request = load_repoint_request_payload(_envelope(program_scope_updates=[]))
+        issues = repoint_reference_inventory_issues(
+            {
+                "programs/us/other/fy-2026.yaml": self.SPEC.replace(
+                    b"  us:\n    - policies/irs/legacy-table\n", b""
+                )
+            },
+            request=request,
+            tracked=["programs/us/other/fy-2026.yaml", DEPENDENT_PRIMARY],
+            retired_paths=[],
+            provenance_prefixes=(),
+        )
+        assert issues == [
+            "programs/us/other/fy-2026.yaml lists the legacy module but is not a "
+            "declared program_scope_updates entry"
+        ]
+
+    def test_two_declared_scopes_chain_and_only_the_last_checks_residue(self):
+        from axiom_encode.successor_repoint import reconcile_program_scope
+
+        request = load_repoint_request_payload(
+            _envelope(
+                program_scope_updates=[
+                    {
+                        "program_spec": "programs/us/fiit/fy-2026.yaml",
+                        "scope": "federal",
+                    },
+                    {"program_spec": "programs/us/fiit/fy-2026.yaml", "scope": "us"},
+                ]
+            )
+        )
+        first, second = request.program_scope_updates
+        with pytest.raises(SuccessorRepointError, match="still names"):
+            reconcile_program_scope(
+                self.SPEC, request=request, update=first, country="us"
+            )
+        middle, _record = reconcile_program_scope(
+            self.SPEC, request=request, update=first, country="us", final=False
+        )
+        out, record = reconcile_program_scope(
+            middle, request=request, update=second, country="us"
+        )
+        payload = yaml.safe_load(out.decode("utf-8"))
+        assert payload["scope"] == {
+            "federal": ["policies/irs/page-15", "statutes/26/32"],
+            "us": ["policies/irs/page-15"],
+        }
+        assert record["before_sha256"] == hashlib.sha256(middle).hexdigest()
