@@ -176,47 +176,39 @@ def _updated_scope_text(
     return "".join(updated_lines)
 
 
-def sync_program_scope(
+@dataclass(frozen=True)
+class ProgramScopePlan:
+    """One validated ProgramSpec scope update that has not touched disk."""
+
+    result: ProgramScopeSyncResult
+    prefix: str
+    additions: tuple[str, ...]
+    updated_text: str | None
+
+
+def plan_program_scope_update(
+    text: str,
     *,
-    repo: Path,
-    program_spec: Path,
+    program_spec: str,
+    country: str,
     scope: str,
     add: list[str] | tuple[str, ...] = (),
     remove: list[str] | tuple[str, ...] = (),
-    write: bool = True,
-) -> ProgramScopeSyncResult:
-    """Apply one scope update while preserving all unrelated ProgramSpec text."""
+    render: bool = True,
+) -> ProgramScopePlan:
+    """Validate one scope update against ProgramSpec text, without disk access.
 
-    raw_repo = Path(repo)
-    if not is_composition_policy_repo_root(raw_repo):
-        raise ProgramScopeError(
-            f"repository must be an exact canonical rulespec-<country> checkout: {raw_repo}"
-        )
-    repo = raw_repo.resolve()
+    ``program_spec`` is the normalized repo-relative ``.yaml`` path and
+    ``country`` the ``rulespec-<country>`` suffix. Callers own every filesystem
+    check: the spec path, the scope root, and that each addition resolves to a
+    module under ``prefix``.
+    """
+
     if not _SCOPE_KEY_PATTERN.fullmatch(scope):
         raise ProgramScopeError(f"scope must be a lowercase identifier: {scope!r}")
     if scope in _NON_IMPORT_SCOPE_KEYS:
         raise ProgramScopeError(f"scope {scope!r} does not contain RuleSpec imports")
-    spec_path = Path(program_spec)
-    if spec_path.is_absolute():
-        raise ProgramScopeError("program spec must be relative to --repo")
-    if spec_path.suffix != ".yaml":
-        raise ProgramScopeError("program spec must be a repo-relative .yaml file")
-    spec_path = Path(_normalize_scope_path(spec_path.as_posix()[:-5]))
-    spec_rel = Path(f"{spec_path.as_posix()}.yaml")
-    lexical_spec = repo / spec_rel
-    absolute_spec = lexical_spec.resolve()
-    try:
-        absolute_spec.relative_to(repo)
-    except ValueError as exc:
-        raise ProgramScopeError("program spec must resolve inside --repo") from exc
-    if not absolute_spec.is_file():
-        raise ProgramScopeError(f"program spec does not exist: {absolute_spec}")
-    if absolute_spec != lexical_spec.absolute():
-        raise ProgramScopeError("program spec path must not contain symlinks")
-
-    with absolute_spec.open(encoding="utf-8", newline="") as source:
-        text = source.read()
+    spec_rel = Path(program_spec)
     try:
         payload = yaml.safe_load(text)
         root = yaml.compose(text)
@@ -229,7 +221,6 @@ def sync_program_scope(
         raise ProgramScopeError("ProgramSpec must declare a non-empty `program`")
     program_path = _normalize_scope_path(program.strip())
     program_parts = PurePosixPath(program_path).parts
-    country = repo.name.removeprefix("rulespec-")
     if re.fullmatch(rf"{re.escape(country)}(?:-[a-z0-9]+)*", program_parts[0]) is None:
         raise ProgramScopeError(
             f"program jurisdiction {program_parts[0]!r} does not belong to "
@@ -301,8 +292,102 @@ def sync_program_scope(
         raise ProgramScopeError(
             f"scope paths cannot be both added and removed: {sorted(overlap)}"
         )
-
     prefix = _scope_prefix(program.strip(), scope)
+
+    preserve_sorted_order = list(existing) == sorted(existing)
+    desired_list = [item for item in existing if item not in set(removals)]
+    for item in additions:
+        if item in desired_list:
+            continue
+        if preserve_sorted_order:
+            bisect.insort(desired_list, item)
+        else:
+            desired_list.append(item)
+    desired = tuple(desired_list)
+    changed = desired != existing
+    updated: str | None = None
+    if changed and render:
+        updated = _updated_scope_text(
+            text=text,
+            target_node=target_node,
+            existing=existing,
+            desired=desired,
+        )
+        try:
+            updated_payload = yaml.safe_load(updated)
+        except yaml.YAMLError as exc:
+            raise ProgramScopeError(
+                f"refusing to write invalid updated ProgramSpec YAML: {exc}"
+            ) from exc
+        if updated_payload.get("scope", {}).get(scope) != list(desired):
+            raise ProgramScopeError(
+                "refusing to write a ProgramSpec whose updated scope does not match"
+            )
+    return ProgramScopePlan(
+        result=ProgramScopeSyncResult(
+            program_spec=spec_rel.as_posix(),
+            scope=scope,
+            added=tuple(item for item in additions if item not in existing),
+            removed=tuple(item for item in removals if item in existing),
+            changed=changed,
+        ),
+        prefix=prefix,
+        additions=additions,
+        updated_text=updated,
+    )
+
+
+def sync_program_scope(
+    *,
+    repo: Path,
+    program_spec: Path,
+    scope: str,
+    add: list[str] | tuple[str, ...] = (),
+    remove: list[str] | tuple[str, ...] = (),
+    write: bool = True,
+) -> ProgramScopeSyncResult:
+    """Apply one scope update while preserving all unrelated ProgramSpec text."""
+
+    raw_repo = Path(repo)
+    if not is_composition_policy_repo_root(raw_repo):
+        raise ProgramScopeError(
+            f"repository must be an exact canonical rulespec-<country> checkout: {raw_repo}"
+        )
+    repo = raw_repo.resolve()
+    if not _SCOPE_KEY_PATTERN.fullmatch(scope):
+        raise ProgramScopeError(f"scope must be a lowercase identifier: {scope!r}")
+    if scope in _NON_IMPORT_SCOPE_KEYS:
+        raise ProgramScopeError(f"scope {scope!r} does not contain RuleSpec imports")
+    spec_path = Path(program_spec)
+    if spec_path.is_absolute():
+        raise ProgramScopeError("program spec must be relative to --repo")
+    if spec_path.suffix != ".yaml":
+        raise ProgramScopeError("program spec must be a repo-relative .yaml file")
+    spec_path = Path(_normalize_scope_path(spec_path.as_posix()[:-5]))
+    spec_rel = Path(f"{spec_path.as_posix()}.yaml")
+    lexical_spec = repo / spec_rel
+    absolute_spec = lexical_spec.resolve()
+    try:
+        absolute_spec.relative_to(repo)
+    except ValueError as exc:
+        raise ProgramScopeError("program spec must resolve inside --repo") from exc
+    if not absolute_spec.is_file():
+        raise ProgramScopeError(f"program spec does not exist: {absolute_spec}")
+    if absolute_spec != lexical_spec.absolute():
+        raise ProgramScopeError("program spec path must not contain symlinks")
+
+    with absolute_spec.open(encoding="utf-8", newline="") as source:
+        text = source.read()
+    plan = plan_program_scope_update(
+        text,
+        program_spec=spec_rel.as_posix(),
+        country=repo.name.removeprefix("rulespec-"),
+        scope=scope,
+        add=add,
+        remove=remove,
+        render=write,
+    )
+    prefix = plan.prefix
     lexical_scope_root = repo / prefix
     scope_root = lexical_scope_root.resolve()
     try:
@@ -314,7 +399,7 @@ def sync_program_scope(
     if lexical_scope_root.is_symlink() or scope_root != lexical_scope_root.absolute():
         raise ProgramScopeError("scope root path must not contain symlinks")
     missing_modules: list[str] = []
-    for item in additions:
+    for item in plan.additions:
         if PurePosixPath(item).parts[0] not in RULESPEC_ATOMIC_MODULE_ROOTS:
             missing_modules.append(item)
             continue
@@ -333,35 +418,8 @@ def sync_program_scope(
             f"scope additions do not resolve under {prefix}/: {missing_modules}"
         )
 
-    preserve_sorted_order = list(existing) == sorted(existing)
-    desired_list = [item for item in existing if item not in set(removals)]
-    for item in additions:
-        if item in desired_list:
-            continue
-        if preserve_sorted_order:
-            bisect.insort(desired_list, item)
-        else:
-            desired_list.append(item)
-    desired = tuple(desired_list)
-    changed = desired != existing
-    if changed and write:
-        updated = _updated_scope_text(
-            text=text,
-            target_node=target_node,
-            existing=existing,
-            desired=desired,
-        )
-        try:
-            updated_payload = yaml.safe_load(updated)
-        except yaml.YAMLError as exc:
-            raise ProgramScopeError(
-                f"refusing to write invalid updated ProgramSpec YAML: {exc}"
-            ) from exc
-        if updated_payload.get("scope", {}).get(scope) != list(desired):
-            raise ProgramScopeError(
-                "refusing to write a ProgramSpec whose updated scope does not match"
-            )
-
+    if plan.result.changed and write:
+        assert plan.updated_text is not None
         temporary_path: Path | None = None
         try:
             with tempfile.NamedTemporaryFile(
@@ -373,7 +431,7 @@ def sync_program_scope(
                 delete=False,
             ) as temporary:
                 temporary_path = Path(temporary.name)
-                temporary.write(updated)
+                temporary.write(plan.updated_text)
                 temporary.flush()
                 os.fsync(temporary.fileno())
             temporary_path.chmod(absolute_spec.stat().st_mode)
@@ -383,10 +441,4 @@ def sync_program_scope(
             if temporary_path is not None:
                 temporary_path.unlink(missing_ok=True)
 
-    return ProgramScopeSyncResult(
-        program_spec=spec_rel.as_posix(),
-        scope=scope,
-        added=tuple(item for item in additions if item not in existing),
-        removed=tuple(item for item in removals if item in existing),
-        changed=changed,
-    )
+    return plan.result
