@@ -8652,8 +8652,6 @@ def _legacy_destination_manifest_claimants_at_base(
         "-z",
         "--full-tree",
         base_commit,
-        "--",
-        APPLIED_ENCODING_MANIFEST_DIR.as_posix(),
     )
     entries: list[tuple[Path, str, int]] = []
     total_size = 0
@@ -8662,6 +8660,11 @@ def _legacy_destination_manifest_claimants_at_base(
             continue
         try:
             metadata, encoded_path = record.split(b"\t", 1)
+            manifest_prefix = APPLIED_ENCODING_MANIFEST_DIR.as_posix().encode()
+            if encoded_path != manifest_prefix and not encoded_path.startswith(
+                manifest_prefix + b"/"
+            ):
+                continue
             mode, object_type, object_id, raw_size = metadata.decode("ascii").split()
             candidate_text = encoded_path.decode("utf-8")
             candidate = Path(candidate_text)
