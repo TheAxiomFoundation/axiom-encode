@@ -241,12 +241,19 @@ def test_the_whole_transaction_plans_from_the_real_commit(request_envelope):
                     "earned-income-credit.json",
                 )
             ).hexdigest(),
+            "owner_class": "v1-hmac-untrusted",
         },
     )
     (dependent,) = plan.dependent_records
-    assert [item["path"] for item in dependent["manifests"]] == [
-        ".axiom/encoding-manifests/us/statutes/26/32.json",
-        ".axiom/encoding-manifests/statutes/26/32.json",
+    assert [(item["path"], item["owner_class"]) for item in dependent["manifests"]] == [
+        (
+            ".axiom/encoding-manifests/us/statutes/26/32.json",
+            "v1-manual-hmac-untrusted",
+        ),
+        (
+            ".axiom/encoding-manifests/statutes/26/32.json",
+            "v1-deterministic-hmac-untrusted",
+        ),
     ]
     assert hashlib.sha256(plan.postimages[Path(DEPENDENT_PRIMARY)]).hexdigest() == (
         EXPECTED_POSTIMAGE_SHA256

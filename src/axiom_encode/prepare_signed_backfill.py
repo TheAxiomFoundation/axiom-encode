@@ -511,10 +511,14 @@ def successor_repoint_changes(
         receipt.get("metadata_reconciliations"), "path", "after_sha256"
     ):
         expect(str(item["path"]), "M", str(item["after_sha256"]))
+    # Several declared scopes of one ProgramSpec chain; the last postimage lands.
+    program_postimages: dict[str, str] = {}
     for item in records(
         receipt.get("program_scope_reconciliations"), "program_spec", "after_sha256"
     ):
-        expect(str(item["program_spec"]), "M", str(item["after_sha256"]))
+        program_postimages[str(item["program_spec"])] = str(item["after_sha256"])
+    for path, digest in program_postimages.items():
+        expect(path, "M", digest)
 
     unexpected = sorted(set(statuses) - set(expected))
     missing = sorted(set(expected) - set(statuses))

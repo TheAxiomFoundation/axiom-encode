@@ -483,6 +483,9 @@ from .successor_repoint import (
     companion_of as _successor_repoint_companion,
 )
 from .successor_repoint import (
+    is_program_spec_path as _successor_repoint_program_spec_path,
+)
+from .successor_repoint import (
     receipt_identity_payload as _successor_repoint_identity_payload,
 )
 from .successor_repoint import (
@@ -21545,7 +21548,7 @@ _SUCCESSOR_REPOINT_V5_ONLY_FIELDS = frozenset(
 )
 _SUCCESSOR_REPOINT_MAX_FILE_BYTES = 16 * 1024 * 1024
 _SUCCESSOR_REPOINT_REPLAY_CACHE: dict[
-    tuple[str, str], tuple["_SuccessorRepointPlan | None", tuple[str, ...]]
+    tuple[str, str, str], tuple["_SuccessorRepointPlan | None", tuple[str, ...]]
 ] = {}
 _SUCCESSOR_REPOINT_REPLAY_CACHE_LIMIT = 64
 
@@ -21642,6 +21645,20 @@ def _successor_repoint_v1_manifest_entries(
     }, issues
 
 
+def _successor_repoint_v1_owner_class(payload: Mapping[str, object]) -> str:
+    """Name the historical v1 owner class one admitted manifest records."""
+
+    if (
+        payload.get("tool") == "axiom-encode sign-applied-files"
+        or payload.get("backend") == "manual"
+        or payload.get("runner") == "manual-attestation"
+    ):
+        return APPLIED_ENCODING_LEGACY_MANUAL_OWNER_CLASS
+    if payload.get("tool") == "axiom-encode deterministic/manual repair":
+        return "v1-deterministic-hmac-untrusted"
+    return APPLIED_ENCODING_LEGACY_OWNER_CLASS
+
+
 def _successor_repoint_group_manifest_paths(primary: Path) -> tuple[Path, Path]:
     """Return the two historically emitted manifest paths for one primary."""
 
@@ -21719,6 +21736,10 @@ def _successor_repoint_tree_entries(
     return entries
 
 
+def _successor_repoint_is_program_spec(path: Path) -> bool:
+    return _successor_repoint_program_spec_path(PurePosixPath(path.as_posix()))
+
+
 def _successor_repoint_reference_candidates(
     repo_path: Path,
     *,
@@ -21760,6 +21781,19 @@ def _successor_repoint_reference_candidates(
         )
     prefix = f"{commit}:".encode()
     candidates: dict[str, bytes] = {}
+    # program-scope-sync normalizes scope entries, so every ProgramSpec is
+    # inventoried structurally, not only those the text search finds.
+    for path, (mode, _object_type, object_id, size) in entries.items():
+        if not _successor_repoint_is_program_spec(path):
+            continue
+        if mode != "100644" or size > _SUCCESSOR_REPOINT_MAX_FILE_BYTES:
+            raise SuccessorRepointError(
+                "repoint cannot inventory a non-0644 or oversize ProgramSpec: "
+                f"{path.as_posix()}"
+            )
+        candidates[path.as_posix()] = _rulespec_migration_git_bytes(
+            repo_path, "cat-file", "blob", object_id
+        )
     for encoded in result.stdout.split(b"\0"):
         if not encoded:
             continue
@@ -21795,14 +21829,22 @@ def _successor_repoint_reference_candidates(
 def _successor_repoint_structural_residue(value: object, pattern: re.Pattern) -> bool:
     """Return whether a retired module survives as a structured record.
 
-    Free text (for example a historical ``divergence_note`` listing many
-    modules) may still name the retired module; only a key, list item, or scalar
-    value that *is* a reference to it (any form, whole string) is a record.
+    A key, list item, or scalar value that names the module in any reference
+    form and contains no whitespace is a record.  Free text (for example a
+    historical ``divergence_note`` listing many modules) may still name it.
     """
+
+    def is_record(text: str) -> bool:
+        stripped = text.strip()
+        return (
+            bool(stripped)
+            and not any(character.isspace() for character in stripped)
+            and pattern.search(stripped) is not None
+        )
 
     if isinstance(value, dict):
         return any(
-            (isinstance(key, str) and pattern.fullmatch(key.strip()) is not None)
+            (isinstance(key, str) and is_record(key))
             or _successor_repoint_structural_residue(item, pattern)
             for key, item in value.items()
         )
@@ -21810,17 +21852,7 @@ def _successor_repoint_structural_residue(value: object, pattern: re.Pattern) ->
         return any(
             _successor_repoint_structural_residue(item, pattern) for item in value
         )
-    return isinstance(value, str) and pattern.fullmatch(value.strip()) is not None
-
-
-def _successor_repoint_record_pattern(request) -> re.Pattern:
-    """Match one whole string that is a reference to the legacy module."""
-
-    jurisdiction = re.escape(request.jurisdiction)
-    stem = re.escape(request.legacy_scope_path)
-    return re.compile(
-        rf"(?:{jurisdiction}[:/])?{stem}(?:\.test\.yaml|\.yaml|#[a-z][a-z0-9_.]*)?"
-    )
+    return isinstance(value, str) and is_record(value)
 
 
 def _successor_repoint_metadata_reconciliations(
@@ -21839,7 +21871,6 @@ def _successor_repoint_metadata_reconciliations(
     legacy_companion = Path(request.legacy_companion.as_posix()).as_posix()
     successor_path = Path(request.successor_primary.as_posix()).as_posix()
     reference = request.legacy_reference_pattern
-    record_pattern = _successor_repoint_record_pattern(request)
     records: list[dict[str, object]] = []
     planned: dict[Path, bytes] = {}
     waiver_digest: str | None = None
@@ -21941,25 +21972,33 @@ def _successor_repoint_metadata_reconciliations(
             raise SuccessorRepointError(
                 f"successor repoint metadata {relative.as_posix()}: {exc}"
             ) from exc
-        if rewritten == raw:
-            continue
-        if relative.suffix in {".json", ".yaml"}:
-            try:
-                loaded = (
-                    json.loads(rewritten.decode("utf-8"))
-                    if relative.suffix == ".json"
-                    else yaml.safe_load(rewritten.decode("utf-8"))
-                )
-            except (UnicodeError, ValueError, yaml.YAMLError, RecursionError) as exc:
-                raise SuccessorRepointError(
-                    "successor repoint metadata reconciliation produced an "
-                    f"unreadable {relative.as_posix()}"
-                ) from exc
-            if _successor_repoint_structural_residue(loaded, record_pattern):
+        # Every metadata file that names the module is owned by this
+        # reconciliation, so its final bytes (changed or not) may keep no
+        # structured record of it; a text file may keep no mention at all.
+        if reference.search(text) is not None:
+            final_text = rewritten.decode("utf-8")
+            if relative.suffix in {".json", ".yaml"}:
+                try:
+                    loaded = (
+                        json.loads(final_text)
+                        if relative.suffix == ".json"
+                        else yaml.safe_load(final_text)
+                    )
+                except (ValueError, yaml.YAMLError, RecursionError) as exc:
+                    raise SuccessorRepointError(
+                        "successor repoint metadata reconciliation produced an "
+                        f"unreadable {relative.as_posix()}"
+                    ) from exc
+                residue = _successor_repoint_structural_residue(loaded, reference)
+            else:
+                residue = reference.search(final_text) is not None
+            if residue:
                 raise SuccessorRepointError(
                     "Successor repoint metadata reconciliation left a retired record "
                     f"in {relative.as_posix()}"
                 )
+        if rewritten == raw:
+            continue
         planned[relative] = rewritten
         records.append(
             {
@@ -22079,7 +22118,13 @@ def _plan_successor_repoint(
         if issues:
             raise SuccessorRepointError("; ".join(issues))
         legacy_manifest_paths.append(candidate)
-        legacy_manifests.append({"path": candidate.as_posix(), "sha256": sha(raw)})
+        legacy_manifests.append(
+            {
+                "path": candidate.as_posix(),
+                "sha256": sha(raw),
+                "owner_class": _successor_repoint_v1_owner_class(payload),
+            }
+        )
     if not legacy_manifests:
         raise SuccessorRepointError(
             "Successor repoint requires the legacy primary's tracked v1 ownership "
@@ -22175,7 +22220,13 @@ def _plan_successor_repoint(
             bound_now.update(
                 path for path, digest in bound.items() if group.get(path) == digest
             )
-            records.append({"path": candidate.as_posix(), "sha256": sha(raw)})
+            records.append(
+                {
+                    "path": candidate.as_posix(),
+                    "sha256": sha(raw),
+                    "owner_class": _successor_repoint_v1_owner_class(payload),
+                }
+            )
         if not records:
             raise SuccessorRepointError(
                 "Successor repoint requires each dependent's tracked v1 ownership "
@@ -22308,21 +22359,36 @@ def _plan_successor_repoint(
     )
     postimages.update(metadata_postimages)
     program_records: list[dict[str, object]] = []
-    country = repo_path.name.removeprefix("rulespec-")
-    for update in request.program_scope_updates:
+    # The country checkout is named for the jurisdiction's country, which the
+    # request carries; never trust the checkout directory's own name.
+    country = jurisdiction.split("-", 1)[0]
+    last_update = {
+        Path(update.program_spec.as_posix()): index
+        for index, update in enumerate(request.program_scope_updates)
+    }
+    spec_texts: dict[Path, bytes] = {}
+    for index, update in enumerate(request.program_scope_updates):
         relative = Path(update.program_spec.as_posix())
+        if relative in postimages:
+            raise SuccessorRepointError(
+                f"ProgramSpec is also another reconciled file: {relative.as_posix()}"
+            )
+        # Several declared scopes of one ProgramSpec chain in request order.
+        before = (
+            spec_texts[relative]
+            if relative in spec_texts
+            else read(relative, f"ProgramSpec {relative.as_posix()}")
+        )
         rewritten, record = reconcile_program_scope(
-            read(relative, f"ProgramSpec {relative.as_posix()}"),
+            before,
             request=request,
             update=update,
             country=country,
+            final=last_update[relative] == index,
         )
-        if relative in postimages:
-            raise SuccessorRepointError(
-                f"ProgramSpec is reconciled twice: {relative.as_posix()}"
-            )
-        postimages[relative] = rewritten
+        spec_texts[relative] = rewritten
         program_records.append(record)
+    postimages.update(spec_texts)
 
     # ---- waiver and toolchain bindings --------------------------------------
     waiver_path = Path("known-validation-gaps.yaml")
@@ -22398,7 +22464,6 @@ def _successor_repoint_receipt_body(plan: _SuccessorRepointPlan) -> dict[str, ob
         "request": dict(request.payload),
         "request_sha256": request.sha256,
         "legacy": {
-            "owner_class": APPLIED_ENCODING_LEGACY_OWNER_CLASS,
             "trusted_generated_provenance": False,
             "manifests": [dict(item) for item in plan.legacy_manifests],
             "files": [
@@ -22624,32 +22689,59 @@ def _cmd_repoint_legacy_successor(args) -> None:
             + "; ".join(successor_issues or ["manifest was not verified"])
         )
 
-    # No verified signed owner may claim anything the transaction retires or
+    # No signed-v5 manifest may still claim anything the transaction retires or
     # rewrites; those files are owned only by the v1 manifests planned above.
-    coverage = _manifest_coverage_by_file(
-        repo_path,
-        _all_applied_encoding_manifest_paths(repo_path, roots=roots),
-        roots=roots,
-        local_corpus_release=local_corpus_release,
-        expected_encoder_identity=expected_encoder_identity,
-        expected_waiver_set_sha256=waiver_sha256,
-    )
-    for path in sorted(
-        {
-            *plan.legacy_files,
-            *(
-                str(item["path"])
-                for record in plan.dependent_records
-                for item in record["before_files"]
-            ),
-        }
-    ):
-        owners = [str(owner.get("manifest")) for owner in coverage.get(path, [])]
-        if owners:
-            raise SystemExit(
-                f"Successor repoint cannot retire or rewrite {path}: it is still "
-                "claimed by a verified signed manifest: " + ", ".join(sorted(owners))
+    # Every signature-valid claim counts, not only manifests that verify
+    # against today's encoder and toolchain: an older owner is still an owner.
+    claimed = {
+        *plan.legacy_files,
+        *(
+            str(item["path"])
+            for record in plan.dependent_records
+            for item in record["before_files"]
+        ),
+    }
+    owners: dict[str, list[str]] = {}
+    for manifest_path in _all_applied_encoding_manifest_paths(repo_path, roots=roots):
+        try:
+            payload = json.loads(
+                read_bounded_regular_file(
+                    repo_path,
+                    repo_path / manifest_path,
+                    label="encoder apply manifest",
+                    max_bytes=1024 * 1024,
+                ).decode("utf-8")
             )
+        except (OSError, UnsafeCorpusPathError, UnicodeError, ValueError) as exc:
+            raise SystemExit(
+                f"Successor repoint cannot read apply manifest {manifest_path}: {exc}"
+            ) from exc
+        if (
+            not isinstance(payload, dict)
+            or payload.get("schema_version") != APPLIED_ENCODING_MANIFEST_SCHEMA
+            or _applied_encoding_manifest_signature_issue(payload, signing_broker)
+        ):
+            continue
+        root_prefix = _applied_encoding_manifest_root_prefix(
+            Path(manifest_path), roots=roots
+        )
+        for item in payload.get("applied_files") or ():
+            if (
+                isinstance(item, dict)
+                and isinstance(item.get("path"), str)
+                and item.get("deleted") is not True
+                and root_prefix is not None
+            ):
+                prefixed = _prefix_applied_manifest_path(item["path"], root_prefix)
+                if prefixed in claimed:
+                    owners.setdefault(prefixed, []).append(
+                        Path(manifest_path).as_posix()
+                    )
+    for path in sorted(owners):
+        raise SystemExit(
+            f"Successor repoint cannot retire or rewrite {path}: it is still "
+            "claimed by a signed-v5 manifest: " + ", ".join(sorted(owners[path]))
+        )
 
     print(
         f"repoint {request.legacy_primary.as_posix()} -> "
@@ -23291,6 +23383,20 @@ def guard_generated_change_issues(
             "--all found no protected RuleSpec YAML files or changed deletions; "
             "refusing to approve an empty corpus"
         ]
+    # A successor-repoint receipt is signed provenance for protected changes:
+    # it lands only together with them and is never edited or removed.
+    receipt_changes = sorted(
+        {
+            Path(path).as_posix()
+            for path in changed
+            if Path(path).parent == SUCCESSOR_REPOINT_RECEIPT_DIR
+        }
+    )
+    if receipt_changes and not protected:
+        return [
+            f"{path} changed without the successor repoint it records"
+            for path in receipt_changes
+        ]
     if not protected:
         return []
 
@@ -23391,32 +23497,13 @@ def guard_generated_change_issues(
                 f"{path} content does not match the encoder apply manifest sha256"
             )
 
-    # A successor-repoint receipt added or changed in this change set must be
-    # the exact live postimage it claims.  Afterwards it is verified only by
-    # replaying its base commit, so later edits to shared metadata are free.
-    fresh_receipts = sorted(
-        {
-            Path(path)
-            for path in changed
-            if Path(path).parent == SUCCESSOR_REPOINT_RECEIPT_DIR
-            and (repo_path / path).exists()
-        },
-        key=Path.as_posix,
+    issues.extend(
+        _successor_repoint_change_set_issues(
+            repo_path,
+            receipt_changes=receipt_changes,
+            surviving_manifest_paths=surviving_manifest_paths,
+        )
     )
-    if fresh_receipts:
-        try:
-            receipt_verifier = _applied_encoding_manifest_verifier()
-        except SigningBrokerError as exc:
-            issues.append(str(exc))
-        else:
-            for receipt_path in fresh_receipts:
-                issues.extend(
-                    _successor_repoint_fresh_receipt_issues(
-                        repo_path,
-                        receipt_path,
-                        signing_broker=receipt_verifier,
-                    )
-                )
 
     issues.extend(
         _generated_provenance_gate_issues(
@@ -23436,6 +23523,76 @@ def guard_generated_change_issues(
         issues.extend(
             f"{Path(path).as_posix()} does not exist in the working tree"
             for path in missing_manifest_paths
+        )
+    return issues
+
+
+def _successor_repoint_change_set_issues(
+    repo_path: Path,
+    *,
+    receipt_changes: Sequence[str],
+    surviving_manifest_paths: Sequence[str],
+) -> list[str]:
+    """Bind every changed repoint manifest to a receipt introduced alongside it.
+
+    The receipt introduced by a change set must be the exact live postimage it
+    claims; afterwards it is verified only by replaying its base commit, so
+    later edits to shared metadata stay free.  A repoint manifest can only be
+    written by its transaction, so one that changes without its receipt (split
+    across pull requests, or restored after a later re-encode) is refused.
+    """
+
+    issues: list[str] = []
+    fresh: list[Path] = []
+    for path in receipt_changes:
+        relative = Path(path)
+        if _is_unambiguously_absent_repo_path(repo_path, relative):
+            issues.append(
+                f"{path} is a successor repoint receipt and cannot be removed"
+            )
+        else:
+            fresh.append(relative)
+    for manifest_path in surviving_manifest_paths:
+        try:
+            payload = json.loads(
+                read_bounded_regular_file(
+                    repo_path,
+                    repo_path / manifest_path,
+                    label="changed apply manifest",
+                    max_bytes=1024 * 1024,
+                ).decode("utf-8")
+            )
+        except (OSError, UnsafeCorpusPathError, UnicodeError, ValueError):
+            continue  # the manifest verifier has already reported it
+        if (
+            not isinstance(payload, dict)
+            or payload.get("backend") is not None
+            or payload.get("tool") not in SUCCESSOR_REPOINT_TOOLS
+        ):
+            continue
+        binding = payload.get("successor_repoint")
+        receipt_path = (
+            binding.get("receipt_path") if isinstance(binding, dict) else None
+        )
+        if receipt_path not in {relative.as_posix() for relative in fresh}:
+            issues.append(
+                f"{Path(manifest_path).as_posix()} changed without introducing its "
+                f"successor repoint receipt {receipt_path}"
+            )
+    if not fresh:
+        return issues
+    verifier = _applied_encoding_manifest_verifier()
+    if verifier is None:
+        return [
+            *issues,
+            "A protected signing broker is required to verify a successor repoint "
+            "receipt",
+        ]
+    for relative in fresh:
+        issues.extend(
+            _successor_repoint_fresh_receipt_issues(
+                repo_path, relative, signing_broker=verifier
+            )
         )
     return issues
 
@@ -27511,12 +27668,13 @@ def _successor_repoint_replay(
     cached per checkout and receipt digest for the life of the process.
     """
 
-    key = (str(Path(repo_path).resolve()), receipt_sha256)
+    key = (str(Path(repo_path).resolve()), receipt_sha256, receipt_label)
     cached = _SUCCESSOR_REPOINT_REPLAY_CACHE.get(key)
     if cached is not None:
         return cached
     issues: list[str] = []
     plan: _SuccessorRepointPlan | None = None
+    transient = False
     repository = receipt.get("repository")
     base_commit = (
         repository.get("base_commit") if isinstance(repository, dict) else None
@@ -27542,8 +27700,16 @@ def _successor_repoint_replay(
             plan = _plan_successor_repoint(
                 repo_path, commit=str(base_commit), request=request, verify_live=False
             )
-        except (SuccessorRepointError, RuntimeError) as exc:
+        except SuccessorRepointError as exc:
             issues.append(f"{receipt_label} does not replay from its base: {exc}")
+        except Exception as exc:  # noqa: BLE001 - every failure is a refusal
+            # Git or I/O failures (an unfetched base commit, say) may be
+            # transient: refuse now, but do not cache the refusal.
+            transient = True
+            issues.append(
+                f"{receipt_label} could not be replayed from its base: "
+                f"{type(exc).__name__}: {exc}"
+            )
     if plan is not None:
         if plan.tree != repository.get("base_tree"):
             issues.append(f"{receipt_label} base tree does not match its base commit")
@@ -27569,6 +27735,8 @@ def _successor_repoint_replay(
         if Path(receipt_label).stem != _successor_repoint_receipt_identity(plan):
             issues.append(f"{receipt_label} is not named by its identity digest")
     result = (plan if not issues else None, tuple(issues))
+    if transient:
+        return result
     if len(_SUCCESSOR_REPOINT_REPLAY_CACHE) >= _SUCCESSOR_REPOINT_REPLAY_CACHE_LIMIT:
         _SUCCESSOR_REPOINT_REPLAY_CACHE.clear()
     _SUCCESSOR_REPOINT_REPLAY_CACHE[key] = result

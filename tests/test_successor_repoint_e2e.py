@@ -160,11 +160,16 @@ class TestRepointEndToEnd:
                         repointed.repo, "show", f"{repointed.base}:{LEGACY_V1_MANIFEST}"
                     ).encode()
                 ),
+                "owner_class": "v1-hmac-untrusted",
             }
         ]
-        assert [item["path"] for item in receipt["dependents"][0]["manifests"]] == [
-            DEPENDENT_MANIFEST,
-            DEPENDENT_RELATIVE_V1,
+        assert "owner_class" not in receipt["legacy"]
+        assert [
+            (item["path"], item["owner_class"])
+            for item in receipt["dependents"][0]["manifests"]
+        ] == [
+            (DEPENDENT_MANIFEST, "v1-manual-hmac-untrusted"),
+            (DEPENDENT_RELATIVE_V1, "v1-deterministic-hmac-untrusted"),
         ]
         assert receipt["successor"]["manifest_sha256"] == _sha256(
             repointed.successor_manifest_bytes
