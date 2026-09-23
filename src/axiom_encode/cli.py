@@ -29580,7 +29580,9 @@ def _admit_retired_replacement_source_verification(
     for path in (singular, *plural):
         require_canonical_corpus_citation_path(path)
         if path.split("/", 1)[0] != singular.split("/", 1)[0]:
-            raise ValueError("replacement legacy citations must share the requested source jurisdiction")
+            raise ValueError(
+                "replacement legacy citations must share the requested source jurisdiction"
+            )
     if len(set(plural)) != len(plural):
         raise ValueError("replacement legacy source citations must not repeat")
 
@@ -29617,22 +29619,28 @@ def _admit_retired_replacement_source_verification(
                 or not all(
                     getattr(historical, field) == getattr(requested, field)
                     for field in (
-                        "release_name", "release_content_sha256", "release_selector_sha256"
+                        "release_name",
+                        "release_content_sha256",
+                        "release_selector_sha256",
                     )
                 )
                 or historical.row.jurisdiction != requested.row.jurisdiction
             ):
-                raise ValueError("external scalar source must resolve exactly in the same verified release and jurisdiction")
+                raise ValueError(
+                    "external scalar source must resolve exactly in the same verified release and jurisdiction"
+                )
             obligations = external_parameter_obligations(
                 payload, path, historical.proof_evidence_segments
             )
             for rule in obligations:
                 required_unchanged_rules[rule["name"]] = rule
-            admitted_sources.append({
-                "attestation": historical.to_attestation(),
-                "admission_kind": "unchanged-external-scalar-parameter",
-                "required_rules": [rule["name"] for rule in obligations],
-            })
+            admitted_sources.append(
+                {
+                    "attestation": historical.to_attestation(),
+                    "admission_kind": "unchanged-external-scalar-parameter",
+                    "required_rules": [rule["name"] for rule in obligations],
+                }
+            )
             continue
         same_provenance = all(
             getattr(historical, field) == getattr(requested, field)
@@ -29728,10 +29736,15 @@ def _admit_retired_replacement_source_verification(
         )
     return {
         "contract": (
-            "retired-source-external-parameters/v1" if required_unchanged_rules
+            "retired-source-external-parameters/v1"
+            if required_unchanged_rules
             else (
                 "retired-source-containment/v2"
-                if any(item.get("normalization") for source in admitted_sources for item in source.get("containment", []))
+                if any(
+                    item.get("normalization")
+                    for source in admitted_sources
+                    for item in source.get("containment", [])
+                )
                 else "retired-source-containment/v1"
             )
         ),
@@ -30409,7 +30422,8 @@ def _run_encode_attempt(
             amendment_source_texts=amendment_source_texts,
             retired_source_admission=(
                 replacement_target.retired_source_admission
-                if replacement_target is not None else None
+                if replacement_target is not None
+                else None
             ),
         )
 
@@ -56331,11 +56345,15 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
                         supplemental_files.pop(path, None)
                     if retired_source_admission is not None:
                         try:
-                            final_payload = _safe_load_unique_keys(overlay_target.read_text())
+                            final_payload = _safe_load_unique_keys(
+                                overlay_target.read_text()
+                            )
                         except (yaml.YAMLError, ValueError) as exc:
                             return False, [f"Invalid final replacement YAML: {exc}"], {}
-                        final_preservation_issues = external_parameter_preservation_issues(
-                            final_payload, retired_source_admission
+                        final_preservation_issues = (
+                            external_parameter_preservation_issues(
+                                final_payload, retired_source_admission
+                            )
                         )
                         if final_preservation_issues:
                             return False, final_preservation_issues, {}
