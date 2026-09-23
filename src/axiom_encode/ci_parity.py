@@ -1,7 +1,7 @@
 """Local, verification-only parity entrypoint for validate-rulespec CI.
 
 This module deliberately owns no signing capability and never invokes an applying
-command. Apart from caching a fetched immutable public release object at the
+command. Apart from caching a fetched signed release object at the
 workflow-defined corpus path, it writes only temporary report inputs. Protected-supervisor calls
 in CI are reproduced as direct subcommands under an explicit, library-level
 corpus release verification key.
@@ -13,6 +13,7 @@ import argparse
 import contextlib
 import fnmatch
 import hashlib
+import http.client
 import importlib.metadata
 import io
 import json
@@ -25,7 +26,7 @@ import tarfile
 import tempfile
 import tomllib
 import urllib.request
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -33,6 +34,7 @@ from typing import Any
 import yaml
 
 from axiom_encode import __version__
+from axiom_encode.corpus_resolver import MAX_RELEASE_OBJECT_BYTES
 from axiom_encode.toolchain import (
     RuleSpecToolchain,
     load_rulespec_local_corpus_release,
@@ -53,6 +55,10 @@ DEPENDENCY_INPUTS = {
     "rulespec_us": "rulespec-us-ref",
 }
 DEFAULT_RELEASE_BASE_URL = "https://pub-a8952f8657fc49fda358146ac001366c.r2.dev"
+# The public corpus.release_objects registry. validate-rulespec callers pass it
+# from repository variables, which a local run cannot read.
+DEFAULT_RELEASE_REGISTRY_URL = "https://swocpijqqahhuwtuahwc.supabase.co"
+RELEASE_REGISTRY_ANON_KEY_ENV = "NEXT_PUBLIC_SUPABASE_ANON_KEY"
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +99,12 @@ class CallerConfig:
     release_base_url: str = DEFAULT_RELEASE_BASE_URL
     run_pytest: bool = True
     run_money_atom_check: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class ReleaseRegistry:
+    url: str
+    anon_key: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -291,6 +303,21 @@ def register_ci_parser(subparsers: Any) -> None:
     parser.add_argument("--base-ref", default="origin/main")
     parser.add_argument("--roots", default=None)
     parser.add_argument("--corpus-release-public-key", required=True)
+    parser.add_argument(
+        "--corpus-release-registry-url",
+        help=(
+            "HTTPS Supabase project URL whose corpus.release_objects registry is "
+            f"queried before the public mirror (default: {DEFAULT_RELEASE_REGISTRY_URL})"
+        ),
+    )
+    parser.add_argument(
+        "--corpus-release-registry-anon-key",
+        help=(
+            "Public Supabase anon key for the release registry (default: "
+            f"${RELEASE_REGISTRY_ANON_KEY_ENV}); without one, only the public "
+            "mirror is queried"
+        ),
+    )
     parser.add_argument("--allow-ref-mismatch", action="store_true")
     parser.add_argument("--allow-encoder-mismatch", action="store_true")
     parser.add_argument("--offline", action="store_true")
@@ -506,39 +533,90 @@ def encoder_version_at_pin(path: Path, pin: str) -> str:
     return pyproject
 
 
-def acquire_release_object(
-    toolchain: RuleSpecToolchain,
-    corpus_path: Path,
-    base_url: str,
-    *,
-    offline: bool,
-    fetcher: Callable[[str], bytes] | None = None,
-) -> Path:
-    destination = (
-        corpus_path
-        / "releases"
-        / toolchain.corpus_release
-        / f"{toolchain.corpus_release_content_sha256}.json"
+def resolve_release_registry(
+    args: argparse.Namespace, environ: Mapping[str, str] | None = None
+) -> ReleaseRegistry | None:
+    """Return the release registry to query, or None when no anon key is set.
+
+    The anon key is a public read credential, not a trust root: every fetched
+    object is checked against the toolchain pin here and signature-verified by
+    the resolver, so an environment default is safe for it (unlike
+    --corpus-release-public-key).
+    """
+
+    environment = os.environ if environ is None else environ
+    url = getattr(args, "corpus_release_registry_url", None)
+    anon_key = (
+        getattr(args, "corpus_release_registry_anon_key", None)
+        or environment.get(RELEASE_REGISTRY_ANON_KEY_ENV, "")
+    ).strip()
+    if not anon_key:
+        if url:
+            raise ValueError(
+                "--corpus-release-registry-url requires "
+                "--corpus-release-registry-anon-key or "
+                f"{RELEASE_REGISTRY_ANON_KEY_ENV}"
+            )
+        return None
+    url = url or DEFAULT_RELEASE_REGISTRY_URL
+    if not url.startswith("https://"):
+        raise ValueError("Corpus release registry URL must use HTTPS")
+    return ReleaseRegistry(url=url, anon_key=anon_key)
+
+
+def _fetch_bounded_release_object(url: str, headers: Mapping[str, str]) -> bytes:
+    # The r2.dev mirror's Cloudflare front returns 403 to urllib's default
+    # "Python-urllib/3.x" User-Agent, so identify the client explicitly.
+    request = urllib.request.Request(
+        url, headers={"User-Agent": f"axiom-encode/{__version__}", **headers}
     )
-    if destination.is_file():
-        return destination
-    if offline:
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return response.read(MAX_RELEASE_OBJECT_BYTES + 1)
+
+
+def _bounded_release_json(raw: bytes) -> Any:
+    if len(raw) > MAX_RELEASE_OBJECT_BYTES:
         raise ValueError(
-            f"--offline requires pinned corpus release object: {destination}"
+            "Corpus release acquisition error: release object exceeds the "
+            f"{MAX_RELEASE_OBJECT_BYTES}-byte safety limit"
         )
-    url = f"{base_url.rstrip('/')}/releases/{toolchain.corpus_release}/{toolchain.corpus_release_content_sha256}.json"
-    fetch = fetcher or (lambda value: urllib.request.urlopen(value, timeout=30).read())
-    raw = fetch(url)
     try:
-        payload = json.loads(raw)
-        content = payload["content"]
-    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+        return json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError(
             f"Corpus release acquisition error: invalid JSON: {exc}"
         ) from exc
+
+
+def _registry_release_object(raw: bytes) -> dict[str, Any] | None:
+    """Return the one registry row's release object, or None for no rows."""
+
+    rows = _bounded_release_json(raw)
+    if not isinstance(rows, list):
+        raise ValueError(
+            "Corpus release acquisition error: registry response is not a row list"
+        )
+    if not rows:
+        return None
+    if len(rows) != 1 or not isinstance(rows[0], dict):
+        raise ValueError(
+            "Corpus release acquisition error: registry did not return exactly "
+            "one release object"
+        )
+    payload = rows[0].get("release_object")
+    if not isinstance(payload, dict):
+        raise ValueError(
+            "Corpus release acquisition error: registry row has no release object"
+        )
+    return payload
+
+
+def _verify_release_payload(payload: Any, toolchain: RuleSpecToolchain) -> None:
+    if not isinstance(payload, dict) or not isinstance(payload.get("content"), dict):
+        raise ValueError("Corpus release acquisition error: missing content object")
     actual = hashlib.sha256(
         json.dumps(
-            content, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+            payload["content"], sort_keys=True, separators=(",", ":"), ensure_ascii=True
         ).encode()
     ).hexdigest()
     if payload.get("release") != toolchain.corpus_release:
@@ -550,9 +628,85 @@ def acquire_release_object(
         raise ValueError(
             f"Corpus release acquisition error: content sha256 mismatch ({actual} != {toolchain.corpus_release_content_sha256})"
         )
+
+
+def acquire_release_object(
+    toolchain: RuleSpecToolchain,
+    corpus_path: Path,
+    base_url: str,
+    *,
+    offline: bool,
+    registry: ReleaseRegistry | None = None,
+    fetcher: Callable[[str, Mapping[str, str]], bytes] | None = None,
+) -> Path:
+    """Cache the pinned signed release object from the registry or the mirror.
+
+    The registry is queried first when configured, as validate-rulespec does.
+    The public mirror serves pins the registry has no row for and registry
+    outages; ambiguous or malformed registry answers fail closed.
+    """
+
+    release = toolchain.corpus_release
+    content_sha256 = toolchain.corpus_release_content_sha256
+    destination = corpus_path / "releases" / release / f"{content_sha256}.json"
+    if destination.is_file():
+        return destination
+    if offline:
+        raise ValueError(
+            f"--offline requires pinned corpus release object: {destination}"
+        )
+    if not base_url.startswith("https://"):
+        raise ValueError("Corpus release base URL must use HTTPS")
+    fetch = fetcher or _fetch_bounded_release_object
+    payload: dict[str, Any] | None = None
+    serialized = b""
+    registry_status = (
+        "not configured (pass --corpus-release-registry-anon-key or set "
+        f"{RELEASE_REGISTRY_ANON_KEY_ENV})"
+    )
+    if registry is not None:
+        url = (
+            f"{registry.url.rstrip('/')}/rest/v1/release_objects"
+            f"?select=release_object&release_name=eq.{release}"
+            f"&content_sha256=eq.{content_sha256}&limit=2"
+        )
+        headers = {
+            "apikey": registry.anon_key,
+            "Authorization": f"Bearer {registry.anon_key}",
+            "Accept-Profile": "corpus",
+        }
+        try:
+            raw = fetch(url, headers)
+        except (OSError, http.client.HTTPException) as exc:
+            registry_status = f"unavailable ({exc})"
+            print(
+                f"warning: corpus release registry is {registry_status}; "
+                "trying the public release mirror",
+                file=sys.stderr,
+            )
+        else:
+            payload = _registry_release_object(raw)
+            if payload is None:
+                registry_status = "has no matching row"
+            else:
+                # The same form validate-rulespec and the materializer write.
+                serialized = (
+                    json.dumps(payload, indent=2, sort_keys=True) + "\n"
+                ).encode("utf-8")
+    if payload is None:
+        url = f"{base_url.rstrip('/')}/releases/{release}/{content_sha256}.json"
+        try:
+            serialized = fetch(url, {})
+        except (OSError, http.client.HTTPException) as exc:
+            raise ValueError(
+                f"Corpus release acquisition error: {release}@{content_sha256} "
+                f"is unavailable: registry {registry_status}; public mirror: {exc}"
+            ) from exc
+        payload = _bounded_release_json(serialized)
+    _verify_release_payload(payload, toolchain)
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_suffix(".json.tmp")
-    temporary.write_bytes(raw)
+    temporary.write_bytes(serialized)
     temporary.replace(destination)
     return destination
 
@@ -1357,7 +1511,11 @@ def run_ci(args: argparse.Namespace) -> int:
         if encoder_mismatch:
             mismatches.append(encoder_mismatch)
         release_path = acquire_release_object(
-            toolchain, paths["corpus"], caller.release_base_url, offline=args.offline
+            toolchain,
+            paths["corpus"],
+            caller.release_base_url,
+            offline=args.offline,
+            registry=resolve_release_registry(args),
         )
         authenticate_release_provenance(
             release_path,
