@@ -13714,22 +13714,20 @@ def _source_condition_clauses_owned_by_excerpt(
         branch_path = branch.path if branch is not None else ()
         container_start = branch.start if branch is not None else 0
         container_end = branch.end if branch is not None else len(source_text)
-        if branch is not None:
-            # A parent chapeau commonly ends with a colon rather than sentence
-            # punctuation.  Keep its proposition local to the parent instead
-            # of absorbing the first structural child into the same condition.
-            # A proof excerpt located inside a child already resolves to that
-            # more-specific branch above, so this only bounds true chapeaux.
-            container_end = min(
-                (
-                    candidate.start
-                    for candidate in ownership_branches
-                    if len(candidate.path) == len(branch.path) + 1
-                    and candidate.path[: len(branch.path)] == branch.path
-                    and match.end() <= candidate.start < branch.end
-                ),
-                default=container_end,
-            )
+        # Keep a parent proposition before its first structural child.  The
+        # document preamble is also a parent: flattened worksheet punctuation
+        # must not absorb a later numbered footnote into an earlier formula.
+        # Excerpts inside a child already resolve to that narrower branch.
+        container_end = min(
+            (
+                candidate.start
+                for candidate in ownership_branches
+                if len(candidate.path) == len(branch_path) + 1
+                and candidate.path[: len(branch_path)] == branch_path
+                and match.end() <= candidate.start < container_end
+            ),
+            default=container_end,
+        )
         container_text = source_text[container_start:container_end]
         local_start = match.start() - container_start
         local_end = match.end() - container_start
