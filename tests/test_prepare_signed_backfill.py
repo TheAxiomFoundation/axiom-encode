@@ -278,6 +278,42 @@ def test_split_atomic_source_input_selects_v4_manifest_only_refresh() -> None:
     }
 
 
+def test_split_atomic_source_input_selects_v5_reviewed_candidate_promotion() -> None:
+    payload = {
+        "schema": "axiom-encode/atomic-source-transaction/v5",
+        "source_bundle": [],
+        "canonical_refresh_bundle": [],
+        "primary_required_test_cases": [],
+        "require_complete_source_unit": True,
+        "manifest_only_refresh": False,
+        "reviewed_candidate_promotion": True,
+    }
+
+    assert split_atomic_source_input(json.dumps(payload)) == {
+        "canonical_refresh_bundle": [],
+        "manifest_only_refresh": False,
+        "primary_required_test_cases": [],
+        "require_complete_source_unit": True,
+        "reviewed_candidate_promotion": True,
+        "source_bundle": [],
+    }
+
+
+def test_split_atomic_source_input_rejects_mixed_reviewed_candidate_mode() -> None:
+    payload = {
+        "schema": "axiom-encode/atomic-source-transaction/v5",
+        "source_bundle": ["us/regulation/7/273/4"],
+        "canonical_refresh_bundle": [],
+        "primary_required_test_cases": [],
+        "require_complete_source_unit": True,
+        "manifest_only_refresh": False,
+        "reviewed_candidate_promotion": True,
+    }
+
+    with pytest.raises(ValueError, match="cannot mix"):
+        split_atomic_source_input(json.dumps(payload))
+
+
 @pytest.mark.parametrize("period_kind", ["month", "benefit_week"])
 def test_required_test_case_normalization_accepts_engine_period_kinds(
     period_kind: str,
@@ -2657,6 +2693,50 @@ def test_stage_authorized_changes_stages_only_manifest_and_applied_files(
     )
 
 
+def test_stage_reviewed_candidate_promotion_stages_only_new_manifest(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    rule = repo / "us/regulations/7-cfr/273/4.yaml"
+    companion = rule.with_name("4.test.yaml")
+    rule.parent.mkdir(parents=True)
+    rule.write_text("format: rulespec/v1\nrules: []\n", encoding="utf-8")
+    companion.write_text("[]\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "review candidate")
+    reviewed_ref = _git(repo, "rev-parse", "HEAD")
+    manifest = repo / ".axiom/encoding-manifests/us/regulations/7-cfr/273/4.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": "axiom-encode/applied-rulespec/v5",
+                "tool": "axiom-encode promote-reviewed-candidate",
+                "backend": None,
+                "reviewed_rulespec_ref": reviewed_ref,
+                "applied_files": [
+                    {
+                        "path": rule.relative_to(repo).as_posix(),
+                        "sha256": hashlib.sha256(rule.read_bytes()).hexdigest(),
+                    },
+                    {
+                        "path": companion.relative_to(repo).as_posix(),
+                        "sha256": hashlib.sha256(companion.read_bytes()).hexdigest(),
+                    },
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    stage_authorized_changes(repo)
+
+    assert _git(repo, "diff", "--cached", "--name-only").splitlines() == [
+        manifest.relative_to(repo).as_posix()
+    ]
+
+
 def test_stage_authorized_changes_rejects_git_transformed_index_bytes(
     tmp_path: Path,
 ) -> None:
@@ -3946,7 +4026,7 @@ def test_validate_rulespec_base_rejects_stale_main_pr_base(
         ("us", "297aec1691edf7b3a21781c8a825690db1e7c988"),
         ("us", "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683"),
         ("us", "79ffd74fe3d3c83665335ec64feb7458d9cc877a"),
-        ("us", "c75b8f6bb4bcb72eccec20eb20e5a0e1b9e93a7f"),
+        ("us", "1d480c2eeadd5da498be5ac39ca7cc2956f00e07"),
         ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
     ],
 )
@@ -3976,7 +4056,7 @@ def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
             ("us", "297aec1691edf7b3a21781c8a825690db1e7c988"),
             ("us", "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683"),
             ("us", "79ffd74fe3d3c83665335ec64feb7458d9cc877a"),
-            ("us", "c75b8f6bb4bcb72eccec20eb20e5a0e1b9e93a7f"),
+            ("us", "1d480c2eeadd5da498be5ac39ca7cc2956f00e07"),
             ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
         }
     )
@@ -4009,7 +4089,7 @@ def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
             ),
             (
                 "us",
-                "c75b8f6bb4bcb72eccec20eb20e5a0e1b9e93a7f",
+                "1d480c2eeadd5da498be5ac39ca7cc2956f00e07",
                 "fix/1248-snap-immigration-status",
             ),
         }
@@ -4082,7 +4162,7 @@ def test_validate_rulespec_base_accepts_exact_reviewed_protected_branch_tip(
             "axiom/signed-backfill-us-35160240952-1",
         ),
         (
-            "c75b8f6bb4bcb72eccec20eb20e5a0e1b9e93a7f",
+            "1d480c2eeadd5da498be5ac39ca7cc2956f00e07",
             "fix/1248-snap-immigration-status",
         ),
     ],
@@ -4144,7 +4224,7 @@ def test_validate_rulespec_base_accepts_reviewed_immigration_repair_branch_tip(
             "axiom/signed-backfill-us-35145159769-1",
         ),
         (
-            "c75b8f6bb4bcb72eccec20eb20e5a0e1b9e93a7f",
+            "1d480c2eeadd5da498be5ac39ca7cc2956f00e07",
             "axiom/signed-backfill-us-35160240952-1",
         ),
     ],
@@ -4191,7 +4271,7 @@ def test_validate_rulespec_base_rejects_reviewed_head_branch_cross_pairs(
             "axiom/signed-backfill-us-35160240952-1",
         ),
         (
-            "c75b8f6bb4bcb72eccec20eb20e5a0e1b9e93a7f",
+            "1d480c2eeadd5da498be5ac39ca7cc2956f00e07",
             "fix/1248-snap-immigration-status",
         ),
     ],
