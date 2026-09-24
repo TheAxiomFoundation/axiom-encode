@@ -43,6 +43,7 @@ LEGACY_RETAINED_SUCCESSOR_TOOL = (
     "axiom-encode encode --apply --legacy-retained-successor-rulespec-path"
 )
 MODEL_APPLY_TOOL = "axiom-encode encode --apply"
+REVIEWED_CANDIDATE_TOOL = "axiom-encode promote-reviewed-candidate"
 MODEL_APPLY_BACKENDS = frozenset({"claude", "codex", "openai"})
 LEGACY_REPLACEMENT_METADATA_PATHS = frozenset(
     {
@@ -396,6 +397,7 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
     }
     require_complete_source_unit = True
     manifest_only_refresh = False
+    reviewed_candidate_promotion = False
     if (
         isinstance(payload, dict)
         and payload.get("schema") == "axiom-encode/atomic-source-transaction/v3"
@@ -411,6 +413,20 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
         )
         require_complete_source_unit = payload.get("require_complete_source_unit")
         manifest_only_refresh = payload.get("manifest_only_refresh")
+    elif (
+        isinstance(payload, dict)
+        and payload.get("schema") == "axiom-encode/atomic-source-transaction/v5"
+    ):
+        transaction_fields.update(
+            {
+                "require_complete_source_unit",
+                "manifest_only_refresh",
+                "reviewed_candidate_promotion",
+            }
+        )
+        require_complete_source_unit = payload.get("require_complete_source_unit")
+        manifest_only_refresh = payload.get("manifest_only_refresh")
+        reviewed_candidate_promotion = payload.get("reviewed_candidate_promotion")
     if (
         not isinstance(payload, dict)
         or set(payload) != transaction_fields
@@ -419,16 +435,20 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
             "axiom-encode/atomic-source-transaction/v2",
             "axiom-encode/atomic-source-transaction/v3",
             "axiom-encode/atomic-source-transaction/v4",
+            "axiom-encode/atomic-source-transaction/v5",
         }
     ):
         raise ValueError(
             "atomic source JSON must be a source citation array or an exact "
-            "canonical_refresh_bundle or atomic-source-transaction/v2, v3, or v4 object"
+            "canonical_refresh_bundle or atomic-source-transaction/v2, v3, v4, "
+            "or v5 object"
         )
     if not isinstance(require_complete_source_unit, bool):
         raise ValueError("require_complete_source_unit must be a boolean")
     if not isinstance(manifest_only_refresh, bool):
         raise ValueError("manifest_only_refresh must be a boolean")
+    if not isinstance(reviewed_candidate_promotion, bool):
+        raise ValueError("reviewed_candidate_promotion must be a boolean")
     refresh_bundle = payload["canonical_refresh_bundle"]
     source_bundle = payload["source_bundle"]
     primary_required_test_cases = payload["primary_required_test_cases"]
@@ -448,14 +468,29 @@ def split_atomic_source_input(atomic_source_json: str) -> dict[str, object]:
             "manifest-only refresh cannot include source, canonical refresh, or "
             "required-test bundles"
         )
+    if reviewed_candidate_promotion and (
+        manifest_only_refresh
+        or source_bundle
+        or refresh_bundle
+        or primary_required_test_cases
+        or require_complete_source_unit is not True
+    ):
+        raise ValueError(
+            "reviewed candidate promotion cannot mix with another source mode"
+        )
     normalized = {
         "canonical_refresh_bundle": refresh_bundle,
         "primary_required_test_cases": primary_required_test_cases,
         "require_complete_source_unit": require_complete_source_unit,
         "source_bundle": source_bundle,
     }
-    if payload["schema"] == "axiom-encode/atomic-source-transaction/v4":
+    if payload["schema"] in {
+        "axiom-encode/atomic-source-transaction/v4",
+        "axiom-encode/atomic-source-transaction/v5",
+    }:
         normalized["manifest_only_refresh"] = manifest_only_refresh
+    if payload["schema"] == "axiom-encode/atomic-source-transaction/v5":
+        normalized["reviewed_candidate_promotion"] = reviewed_candidate_promotion
     return normalized
 
 
@@ -3040,7 +3075,19 @@ def authorized_changed_paths(
             raise ValueError(
                 f"model apply manifest has an unsupported backend: {relative}"
             )
-        is_model_apply = tool == MODEL_APPLY_TOOL
+        is_reviewed_candidate = tool == REVIEWED_CANDIDATE_TOOL
+        if is_reviewed_candidate:
+            reviewed_ref = payload.get("reviewed_rulespec_ref")
+            if (
+                backend is not None
+                or not isinstance(reviewed_ref, str)
+                or COMMIT_PATTERN.fullmatch(reviewed_ref) is None
+                or _git(repo, "rev-parse", "HEAD").decode().strip() != reviewed_ref
+            ):
+                raise ValueError(
+                    f"reviewed candidate manifest does not bind exact HEAD: {relative}"
+                )
+        is_exact_apply = tool == MODEL_APPLY_TOOL or is_reviewed_candidate
         replacement = payload.get("replacement")
         receipt_rewrites: set[PurePosixPath] = set()
         if tool == LEGACY_REPLACEMENT_TOOL:
@@ -4034,7 +4081,7 @@ def authorized_changed_paths(
             if applied_path not in receipt_rewrites:
                 _validate_rulespec_path(repo, applied_path, label=label)
             authorized.add(applied_path)
-            if is_model_apply:
+            if is_exact_apply:
                 digest = entry.get("sha256")
                 if (
                     set(entry) != {"path", "sha256"}
@@ -4047,7 +4094,11 @@ def authorized_changed_paths(
                 live_raw = _read_bounded_regular(
                     repo,
                     applied_path,
-                    label="model-applied file",
+                    label=(
+                        "model-applied file"
+                        if tool == MODEL_APPLY_TOOL
+                        else "reviewed-candidate file"
+                    ),
                     max_bytes=16 * 1024 * 1024,
                 )
                 if hashlib.sha256(live_raw).hexdigest() != digest:

@@ -474,6 +474,7 @@ _APPLY_VALIDATION_SCOPES = frozenset(
 APPLIED_ENCODING_SIGNATURE_ALGORITHM = "ed25519-domain-v1"
 APPLIED_ENCODING_DELETED_MARKER = "deleted"
 APPLIED_ENCODING_MODEL_TOOL = "axiom-encode encode --apply"
+APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL = "axiom-encode promote-reviewed-candidate"
 APPLIED_ENCODING_RETIRE_TOOL = "axiom-encode retire"
 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR = Path(
     _LEGACY_REPLACEMENT_RECEIPT_DIR_TEXT
@@ -538,6 +539,23 @@ _MODEL_APPLY_MANIFEST_FIELDS = frozenset(
         "trace_sha256",
         "context_manifest_file",
         "context_manifest_sha256",
+        "applied_files",
+        "source_attestation",
+        "validation_execution",
+        "signature",
+    }
+)
+_REVIEWED_CANDIDATE_MANIFEST_FIELDS = frozenset(
+    {
+        "schema_version",
+        "generated_at",
+        "tool",
+        "axiom_encode_version",
+        "axiom_encode_git",
+        "run_id",
+        "citation",
+        "reviewed_rulespec_ref",
+        VALIDATION_WAIVER_SET_SHA256_FIELD,
         "applied_files",
         "source_attestation",
         "validation_execution",
@@ -2420,6 +2438,50 @@ def main():
         help="Optional protected workflow run identifier recorded in the manifest",
     )
 
+    promote_reviewed_candidate_parser = subparsers.add_parser(
+        "promote-reviewed-candidate",
+        help=(
+            "Validate and sign one exact allowlisted reviewed RuleSpec head "
+            "without model regeneration"
+        ),
+    )
+    promote_reviewed_candidate_parser.add_argument(
+        "--repo",
+        type=Path,
+        required=True,
+        help="Exact clean canonical rulespec-<country> reviewed checkout",
+    )
+    promote_reviewed_candidate_parser.add_argument(
+        "--rulespec-path",
+        required=True,
+        help="Exact checkout-relative primary RuleSpec module",
+    )
+    promote_reviewed_candidate_parser.add_argument(
+        "--citation",
+        required=True,
+        help="Exact canonical corpus citation bound by the reviewed module",
+    )
+    promote_reviewed_candidate_parser.add_argument(
+        "--reviewed-rulespec-ref",
+        required=True,
+        help="Exact allowlisted reviewed RuleSpec commit checked out at HEAD",
+    )
+    promote_reviewed_candidate_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        required=True,
+        help="Exact axiom-rules-engine checkout (no sibling discovery)",
+    )
+    _add_required_corpus_path_argument(promote_reviewed_candidate_parser)
+    _add_rulespec_dependency_root_argument(promote_reviewed_candidate_parser)
+    promote_reviewed_candidate_parser.add_argument(
+        "--run-id",
+        default=None,
+        help="Optional protected workflow run identifier recorded in the manifest",
+    )
+
     signed_import_parser = subparsers.add_parser(
         "signed-import-inventory",
         help=(
@@ -3601,6 +3663,8 @@ def main():
         cmd_stage_signed_backfill(args)
     elif args.command == "refresh-applied-manifest":
         cmd_refresh_applied_manifest(args)
+    elif args.command == "promote-reviewed-candidate":
+        cmd_promote_reviewed_candidate(args)
     elif args.command == "signed-import-inventory":
         cmd_signed_import_inventory(args)
     elif args.command == "manifest-census":
@@ -7836,6 +7900,315 @@ def cmd_refresh_applied_manifest(args):
                     "manifest-only refresh returned an unexpected apply set"
                 )
             print(f"refreshed {expected_manifest}")
+
+
+def cmd_promote_reviewed_candidate(args):
+    """Validate and sign one exact allowlisted reviewed RuleSpec commit."""
+
+    from .prepare_signed_backfill import (
+        REVIEWED_RULESPEC_REFS,
+        citation_rulespec_path,
+    )
+
+    repo_path = _resolve_canonical_rulespec_checkout(
+        args.repo,
+        label="RuleSpec checkout",
+    )
+    axiom_rules_path = _resolve_explicit_existing_directory(
+        args.axiom_rules_path,
+        label="Axiom rules engine",
+    )
+    corpus_path = _resolve_explicit_existing_directory(
+        args.corpus_path,
+        label="Axiom Corpus",
+    )
+    dependency_roots = _normalize_rulespec_dependency_roots(
+        _rulespec_dependency_roots_from_args(args)
+    )
+    reviewed_ref = str(args.reviewed_rulespec_ref)
+    country_match = re.fullmatch(r"rulespec-([a-z]{2})", repo_path.name)
+    if country_match is None:
+        raise ValueError("reviewed candidate checkout name is not canonical")
+    country = country_match.group(1)
+    actual_ref = subprocess.check_output(
+        ["git", "-C", str(repo_path), "rev-parse", "HEAD"],
+        text=True,
+    ).strip()
+    if actual_ref != reviewed_ref:
+        raise ValueError("reviewed candidate checkout does not match its exact ref")
+    if (country, reviewed_ref) not in REVIEWED_RULESPEC_REFS:
+        raise ValueError("reviewed candidate ref is not explicitly allowlisted")
+
+    rulespec_relative = Path(args.rulespec_path)
+    expected_relative = Path(citation_rulespec_path(str(args.citation)))
+    if rulespec_relative != expected_relative:
+        raise ValueError(
+            "reviewed candidate path does not match the citation's canonical path"
+        )
+    if (
+        rulespec_relative.is_absolute()
+        or rulespec_relative.as_posix() != str(args.rulespec_path)
+        or any(part in {"", ".", ".."} for part in rulespec_relative.parts)
+        or not _is_protected_rulespec_yaml_path(
+            rulespec_relative,
+            roots=tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS)),
+        )
+    ):
+        raise ValueError("reviewed candidate path is not a protected RuleSpec module")
+
+    status = subprocess.check_output(
+        [
+            "git",
+            "-C",
+            str(repo_path),
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all",
+            "--ignored=matching",
+        ]
+    )
+    if status:
+        raise ValueError("reviewed candidate promotion requires a clean checkout")
+    rulespec_file = repo_path / rulespec_relative
+    companion_relative = _rulespec_test_path(rulespec_relative)
+    companion_file = repo_path / companion_relative
+    manifest_path = repo_path / _applied_encoding_manifest_path(rulespec_relative)
+    if manifest_path.exists() or manifest_path.is_symlink():
+        raise ValueError("reviewed candidate already has an apply manifest")
+
+    def exact_head_bytes(relative: Path, *, label: str) -> bytes:
+        try:
+            raw = read_bounded_regular_file(
+                repo_path,
+                repo_path / relative,
+                label=label,
+                max_bytes=10 * 1024 * 1024,
+            )
+            tracked = subprocess.check_output(
+                ["git", "-C", str(repo_path), "show", f"HEAD:{relative.as_posix()}"]
+            )
+        except (OSError, subprocess.CalledProcessError, UnsafeCorpusPathError) as exc:
+            raise ValueError(f"{label} must be a regular file tracked at HEAD") from exc
+        if raw != tracked:
+            raise ValueError(f"{label} differs from the reviewed HEAD")
+        return raw
+
+    before = {
+        rulespec_relative: exact_head_bytes(
+            rulespec_relative,
+            label="reviewed candidate RuleSpec",
+        ),
+        companion_relative: exact_head_bytes(
+            companion_relative,
+            label="reviewed candidate companion",
+        ),
+    }
+    _recover_apply_transaction(repo_path)
+    with _authoritative_rulespec_dependency_scope(dependency_roots):
+        with _isolated_apply_manifest_signer(preflight=True) as signing_broker:
+            local_corpus_release = load_rulespec_local_corpus_release(
+                repo_path,
+                corpus_path,
+            )
+            _verifications, rulespec_root = _manifest_primary_source_verifications(
+                manifest_root=repo_path,
+                applied_files=[rulespec_file, companion_file],
+            )
+            source_unit = resolve_corpus_source_unit(
+                str(args.citation),
+                local_corpus_release,
+            )
+            normalized_source = source_unit.body.replace("\r\n", "\n").replace(
+                "\r", "\n"
+            )
+            source_attestation = {
+                **source_unit.source_attestation,
+                "generation_input_sha256": hashlib.sha256(
+                    normalized_source.encode("utf-8")
+                ).hexdigest(),
+                "rulespec_root": rulespec_root,
+            }
+            content_root = repo_path / rulespec_relative.parts[0]
+            relative_output = Path(*rulespec_relative.parts[1:])
+            with tempfile.TemporaryDirectory() as temporary:
+                output_root = Path(temporary)
+                context_root = output_root / "reviewed-candidate-context"
+                context_root.mkdir()
+                source_text_file = context_root / "source.txt"
+                source_text_file.write_text(
+                    normalized_source,
+                    encoding="utf-8",
+                    newline="",
+                )
+                context_manifest = context_root / "context-manifest.json"
+                context_manifest.write_text(
+                    json.dumps(
+                        {
+                            "source_text_file": source_text_file.name,
+                            "source_metadata": {
+                                "source_attestation": source_attestation,
+                            },
+                        },
+                        indent=2,
+                        sort_keys=True,
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                generated_file = output_root / "reviewed-candidate" / relative_output
+                generated_file.parent.mkdir(parents=True)
+                shutil.copyfile(rulespec_file, generated_file)
+                generated_companion = _rulespec_test_path(generated_file)
+                shutil.copyfile(companion_file, generated_companion)
+                result = argparse.Namespace(
+                    output_file=str(generated_file),
+                    runner="reviewed-candidate",
+                    backend="openai",
+                    model="reviewed-candidate-promotion-v1",
+                    tool=APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
+                    citation=str(args.citation),
+                    generation_prompt_sha256=None,
+                    trace_file=None,
+                    context_manifest_file=str(context_manifest),
+                    source_attestation=source_attestation,
+                )
+                setattr(
+                    result,
+                    _IMMUTABLE_RULESPEC_SHA256_ATTR,
+                    hashlib.sha256(before[rulespec_relative]).hexdigest(),
+                )
+                setattr(result, _REVIEWED_CANDIDATE_PROMOTION_ATTR, True)
+                valid, validation_issues, supplemental_files = (
+                    _run_generated_encoding_overlay_validation(
+                        result,
+                        output_root=output_root,
+                        policy_repo_path=content_root,
+                        axiom_rules_path=axiom_rules_path,
+                        local_corpus_release=local_corpus_release,
+                        rulespec_dependency_roots=dependency_roots,
+                        require_complete_source_unit=True,
+                    )
+                )
+                if not valid:
+                    raise RuntimeError(
+                        "reviewed candidate failed current overlay validation: "
+                        + "; ".join(validation_issues)
+                    )
+                if supplemental_files:
+                    raise RuntimeError(
+                        "reviewed candidate validation produced supplemental changes"
+                    )
+                generated_after = {
+                    rulespec_relative: generated_file.read_bytes(),
+                    companion_relative: generated_companion.read_bytes(),
+                }
+                if generated_after != before:
+                    raise RuntimeError(
+                        "reviewed candidate validation changed RuleSpec bytes"
+                    )
+                snapshot = getattr(result, _APPLY_VALIDATION_SNAPSHOT_ATTR, None)
+                validation_execution = (
+                    snapshot.get("manifest_validation_execution")
+                    if isinstance(snapshot, dict)
+                    else None
+                )
+                if not isinstance(validation_execution, dict):
+                    raise RuntimeError(
+                        "reviewed candidate validation lacks execution provenance"
+                    )
+
+            axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+            payload: dict[str, object] = {
+                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "tool": APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
+                "axiom_encode_version": __version__,
+                "axiom_encode_git": axiom_encode_git,
+                "run_id": args.run_id,
+                "citation": str(args.citation),
+                "reviewed_rulespec_ref": reviewed_ref,
+                VALIDATION_WAIVER_SET_SHA256_FIELD: (
+                    verify_rulespec_validation_waiver_set(repo_path)
+                ),
+                "applied_files": [
+                    {
+                        "path": relative.as_posix(),
+                        "sha256": hashlib.sha256(raw).hexdigest(),
+                    }
+                    for relative, raw in before.items()
+                ],
+                "source_attestation": source_attestation,
+                "validation_execution": validation_execution,
+            }
+            _sign_applied_encoding_manifest(payload, signing_broker)
+            manifest_bytes = (
+                json.dumps(payload, indent=2, sort_keys=True) + "\n"
+            ).encode("utf-8")
+
+            def require_unchanged_reviewed_head() -> None:
+                for relative, expected in before.items():
+                    if (
+                        exact_head_bytes(relative, label="reviewed candidate file")
+                        != expected
+                    ):
+                        raise RuntimeError(
+                            "reviewed candidate changed after successful validation"
+                        )
+
+            def verify_installed_manifest() -> None:
+                require_unchanged_reviewed_head()
+                verified, _prefix, _digest, issues = (
+                    _load_verified_applied_encoding_manifest_payload(
+                        repo_path,
+                        manifest_path.relative_to(repo_path).as_posix(),
+                        roots=tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS)),
+                        signing_broker=signing_broker,
+                        expected_waiver_set_sha256=payload[
+                            VALIDATION_WAIVER_SET_SHA256_FIELD
+                        ],
+                        local_corpus_release=local_corpus_release,
+                        expected_encoder_identity=(
+                            _current_guard_encoder_execution_identity()
+                        ),
+                    )
+                )
+                if verified is None or issues:
+                    raise RuntimeError(
+                        "installed reviewed candidate manifest failed verification: "
+                        + "; ".join(issues)
+                    )
+
+            _install_apply_transaction(
+                [(manifest_path, manifest_bytes)],
+                checkout_root=repo_path,
+                expected_originals={manifest_path: None},
+                pre_install_check=require_unchanged_reviewed_head,
+                post_install_check=verify_installed_manifest,
+            )
+
+    changed_records = {
+        record
+        for record in subprocess.check_output(
+            [
+                "git",
+                "-C",
+                str(repo_path),
+                "status",
+                "--porcelain=v1",
+                "-z",
+                "--untracked-files=all",
+                "--ignored=matching",
+            ]
+        ).split(b"\0")
+        if record
+    }
+    expected_manifest = manifest_path.relative_to(repo_path).as_posix()
+    if changed_records != {b"?? " + os.fsencode(expected_manifest)}:
+        raise RuntimeError(
+            "reviewed candidate promotion changed paths other than its manifest"
+        )
+    print(f"promoted reviewed candidate {expected_manifest}")
 
 
 def cmd_signed_import_inventory(args):
@@ -21918,6 +22291,7 @@ def _manifest_coverage_by_file(
             )
             or payload.get("tool") == APPLIED_ENCODING_LEGACY_EXACT_DEPENDENT_TOOL
             or payload.get("tool") == APPLIED_ENCODING_LEGACY_RETAINED_SUCCESSOR_TOOL
+            or payload.get("tool") == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL
         )
         applied_files = payload.get("applied_files")
         if not isinstance(applied_files, list):
@@ -21983,8 +22357,14 @@ def _applied_manifest_source_attestation_issues(
             for issue in structure_issues
         )
 
-    generated_backend = backend in APPLIED_ENCODING_GENERATED_BACKENDS
-    model_backend = backend in APPLIED_ENCODING_ENCODER_BACKENDS
+    reviewed_candidate = (
+        backend == ""
+        and payload.get("tool") == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL
+    )
+    generated_backend = (
+        backend in APPLIED_ENCODING_GENERATED_BACKENDS or reviewed_candidate
+    )
+    model_backend = backend in APPLIED_ENCODING_ENCODER_BACKENDS or reviewed_candidate
     rulespec_verifications: list[tuple[str, dict[str, object] | None]] = []
     covered_rulespec_paths: list[str] = []
     target_rulespec_paths: list[str] = []
@@ -22435,6 +22815,29 @@ def _applied_manifest_tool_execution_issues(
                 f"{manifest_label} model backend must not claim deterministic execution"
             )
         return issues
+    if backend is None and tool == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL:
+        reviewed_ref = payload.get("reviewed_rulespec_ref")
+        if (
+            not isinstance(reviewed_ref, str)
+            or re.fullmatch(r"[0-9a-f]{40}", reviewed_ref) is None
+        ):
+            issues.append(f"{manifest_label} reviewed RuleSpec ref is invalid")
+        provenance = payload.get("axiom_encode_git")
+        if not isinstance(provenance, dict) or (
+            provenance.get("commit") != expected_encoder_identity.get("commit")
+            or provenance.get("version") != expected_encoder_identity.get("version")
+            or provenance.get("dirty_tracked") is not False
+        ):
+            issues.append(
+                f"{manifest_label} reviewed candidate promotion does not match "
+                "the running pinned encoder"
+            )
+        if "deterministic_execution" in payload:
+            issues.append(
+                f"{manifest_label} reviewed candidate promotion must carry "
+                "validation_execution instead of deterministic_execution"
+            )
+        return issues
     if backend is None:
         applied_files = payload.get("applied_files")
         if tool == APPLIED_ENCODING_LEGACY_EXACT_DEPENDENT_TOOL:
@@ -22633,6 +23036,10 @@ def _applied_manifest_exact_schema_issues(
         expected_fields = _MODEL_APPLY_MANIFEST_FIELDS
         expected_item_fields = _MODEL_APPLIED_FILE_FIELDS
         contract = "model"
+    elif backend is None and tool == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL:
+        expected_fields = _REVIEWED_CANDIDATE_MANIFEST_FIELDS
+        expected_item_fields = _MODEL_APPLIED_FILE_FIELDS
+        contract = "reviewed candidate promotion"
     elif backend is None and tool == APPLIED_ENCODING_RETIRE_TOOL:
         expected_fields = _RETIRE_APPLY_MANIFEST_FIELDS
         expected_item_fields = _RETIRED_APPLIED_FILE_FIELDS
@@ -25914,8 +26321,8 @@ def _load_verified_applied_encoding_manifest_payload(
         )
     if (
         backend in APPLIED_ENCODING_ENCODER_BACKENDS
-        and expected_encoder_identity is not None
-    ):
+        or payload.get("tool") == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL
+    ) and expected_encoder_identity is not None:
         issues.extend(
             _model_apply_validation_execution_issues(
                 payload,
@@ -27630,6 +28037,7 @@ _LEGACY_REPLACEMENT_ATTR = "_axiom_legacy_replacement_contract"
 _REPLACEMENT_OVERLAY_SCOPE_ATTR = "_axiom_replacement_overlay_scope"
 _IMMUTABLE_RULESPEC_SHA256_ATTR = "_axiom_immutable_rulespec_sha256"
 _MANIFEST_ONLY_REFRESH_ATTR = "_axiom_manifest_only_refresh"
+_REVIEWED_CANDIDATE_PROMOTION_ATTR = "_axiom_reviewed_candidate_promotion"
 _PRESERVED_COMPANION_TESTS_ATTR = "_axiom_preserved_companion_tests"
 _REQUIRED_TEST_CASE_CONTRACTS_ATTR = "_axiom_required_test_case_contracts"
 
@@ -52062,6 +52470,17 @@ def _stamp_generated_source_attestation_for_apply(result, output_file: Path) -> 
             "corpus path(s) not bound by resolver source_attestation: "
             + ", ".join(sorted(unattested_paths))
         )
+    if vars(result).get(_REVIEWED_CANDIDATE_PROMOTION_ATTR) is True:
+        binding_issues = _source_attestation_binding_issues(
+            attestation,
+            source_verification,
+        )
+        if binding_issues:
+            raise RuntimeError(
+                "Cannot promote reviewed candidate with unbound source verification: "
+                + "; ".join(binding_issues)
+            )
+        return
     # The staleness command uses this singular path to recompute the same hash.
     source_verification["corpus_citation_path"] = attestation[
         "requested_corpus_citation_path"
@@ -52223,9 +52642,18 @@ def _apply_result_metadata(result) -> dict[str, object]:
     backend = str(getattr(result, "backend", "") or "").strip().lower()
     if backend not in APPLIED_ENCODING_ENCODER_BACKENDS:
         raise RuntimeError(f"Cannot sign non-generated backend {backend!r}")
-    if tool != APPLIED_ENCODING_MODEL_TOOL:
+    reviewed_candidate_promotion = (
+        vars(result).get(_REVIEWED_CANDIDATE_PROMOTION_ATTR) is True
+    )
+    expected_tool = (
+        APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL
+        if reviewed_candidate_promotion
+        else APPLIED_ENCODING_MODEL_TOOL
+    )
+    if tool != expected_tool:
         raise RuntimeError(
-            "Cannot sign a model-generated RuleSpec with a non-allowlisted tool"
+            "Cannot sign a RuleSpec with a tool that does not match its "
+            "validated apply mode"
         )
     codex_cli_version, codex_cli_sha256 = _result_codex_cli_provenance(result)
     if backend == "codex" and (codex_cli_version is None or codex_cli_sha256 is None):
@@ -56277,10 +56705,11 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
             output_file,
             contained_in=generated_root,
         )
-    _rewrite_generated_yaml_without_non_ascii_escapes(
-        output_test,
-        contained_in=generated_root,
-    )
+    if vars(result).get(_REVIEWED_CANDIDATE_PROMOTION_ATTR) is not True:
+        _rewrite_generated_yaml_without_non_ascii_escapes(
+            output_test,
+            contained_in=generated_root,
+        )
 
     generated_content = output_file.read_text()
     if retired_source_admission is not None:

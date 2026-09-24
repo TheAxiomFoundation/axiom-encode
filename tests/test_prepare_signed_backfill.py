@@ -278,6 +278,42 @@ def test_split_atomic_source_input_selects_v4_manifest_only_refresh() -> None:
     }
 
 
+def test_split_atomic_source_input_selects_v5_reviewed_candidate_promotion() -> None:
+    payload = {
+        "schema": "axiom-encode/atomic-source-transaction/v5",
+        "source_bundle": [],
+        "canonical_refresh_bundle": [],
+        "primary_required_test_cases": [],
+        "require_complete_source_unit": True,
+        "manifest_only_refresh": False,
+        "reviewed_candidate_promotion": True,
+    }
+
+    assert split_atomic_source_input(json.dumps(payload)) == {
+        "canonical_refresh_bundle": [],
+        "manifest_only_refresh": False,
+        "primary_required_test_cases": [],
+        "require_complete_source_unit": True,
+        "reviewed_candidate_promotion": True,
+        "source_bundle": [],
+    }
+
+
+def test_split_atomic_source_input_rejects_mixed_reviewed_candidate_mode() -> None:
+    payload = {
+        "schema": "axiom-encode/atomic-source-transaction/v5",
+        "source_bundle": ["us/regulation/7/273/4"],
+        "canonical_refresh_bundle": [],
+        "primary_required_test_cases": [],
+        "require_complete_source_unit": True,
+        "manifest_only_refresh": False,
+        "reviewed_candidate_promotion": True,
+    }
+
+    with pytest.raises(ValueError, match="cannot mix"):
+        split_atomic_source_input(json.dumps(payload))
+
+
 @pytest.mark.parametrize("period_kind", ["month", "benefit_week"])
 def test_required_test_case_normalization_accepts_engine_period_kinds(
     period_kind: str,
@@ -2655,6 +2691,50 @@ def test_stage_authorized_changes_stages_only_manifest_and_applied_files(
     assert _git(repo, "diff", "--cached", "--name-only").splitlines() == sorted(
         [str(manifest.relative_to(repo)), str(rule.relative_to(repo))]
     )
+
+
+def test_stage_reviewed_candidate_promotion_stages_only_new_manifest(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    rule = repo / "us/regulations/7-cfr/273/4.yaml"
+    companion = rule.with_name("4.test.yaml")
+    rule.parent.mkdir(parents=True)
+    rule.write_text("format: rulespec/v1\nrules: []\n", encoding="utf-8")
+    companion.write_text("[]\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "review candidate")
+    reviewed_ref = _git(repo, "rev-parse", "HEAD")
+    manifest = repo / ".axiom/encoding-manifests/us/regulations/7-cfr/273/4.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": "axiom-encode/applied-rulespec/v5",
+                "tool": "axiom-encode promote-reviewed-candidate",
+                "backend": None,
+                "reviewed_rulespec_ref": reviewed_ref,
+                "applied_files": [
+                    {
+                        "path": rule.relative_to(repo).as_posix(),
+                        "sha256": hashlib.sha256(rule.read_bytes()).hexdigest(),
+                    },
+                    {
+                        "path": companion.relative_to(repo).as_posix(),
+                        "sha256": hashlib.sha256(companion.read_bytes()).hexdigest(),
+                    },
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    stage_authorized_changes(repo)
+
+    assert _git(repo, "diff", "--cached", "--name-only").splitlines() == [
+        manifest.relative_to(repo).as_posix()
+    ]
 
 
 def test_stage_authorized_changes_rejects_git_transformed_index_bytes(

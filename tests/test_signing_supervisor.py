@@ -2130,7 +2130,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert inputs["source_bundle_json"] == {
         "description": (
             "JSON citation array, canonical_refresh_bundle object, or "
-            "atomic-source-transaction/v2/v3/v4 envelope for an independent refresh "
+            "atomic-source-transaction/v2/v3/v4/v5 envelope for an independent refresh "
             "transaction"
         ),
         "required": False,
@@ -3006,6 +3006,26 @@ def test_targeted_reencode_defaults_legacy_manifest_refresh_mode_to_false() -> N
     )
 
     assert completed.stdout == "false\n"
+
+
+def test_targeted_reencode_has_fail_closed_reviewed_candidate_promotion() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    command = next(
+        step["run"]
+        for step in workflow["jobs"]["encode"]["steps"]
+        if step.get("name") == "Encode, review, validate, and apply"
+    )
+
+    assert "reviewed_candidate_promotion" in command
+    assert "promote-reviewed-candidate" in command
+    assert '--reviewed-rulespec-ref "$RULESPEC_REF"' in command
+    assert '--rulespec-path "$REPLACE_RULESPEC_PATH"' in command
+    assert "cannot mix with other transaction modes" in command
+    assert command.index("promote-reviewed-candidate") < command.index(
+        'elif [ "$canonical_refresh_enabled" = "true" ]'
+    )
 
 
 def test_targeted_reencode_extracts_false_complete_source_scope() -> None:
@@ -4024,7 +4044,7 @@ def test_targeted_signed_reencode_preserves_checkpoint_guard_failure(
         if step.get("name") == "Encode, review, validate, and apply"
     )
     checkpoint = command.split("checkpoint_signed_changes() {", 1)[1].split(
-        '\n}\n\nif [ "$canonical_refresh_enabled"',
+        '\n}\n\nif [ "$reviewed_candidate_promotion"',
         1,
     )[0]
     guard_stub = tmp_path / "guard-stub"
@@ -4102,7 +4122,7 @@ def test_targeted_signed_reencode_packages_noncontract_checkpoint_failure(
         if step.get("name") == "Encode, review, validate, and apply"
     )
     checkpoint = apply_command.split("checkpoint_signed_changes() {", 1)[1].split(
-        '\n}\n\nif [ "$canonical_refresh_enabled"',
+        '\n}\n\nif [ "$reviewed_candidate_promotion"',
         1,
     )[0]
     guard_stub = tmp_path / "guard-stub"
@@ -4635,7 +4655,7 @@ def test_targeted_signed_reencode_runs_canonical_refresh_bundle_in_order(
         1,
     )
     _checkpoint_body, after_checkpoint = checkpoint_and_after.split(
-        '\n}\n\nif [ "$canonical_refresh_enabled"',
+        '\n}\n\nif [ "$reviewed_candidate_promotion"',
         1,
     )
     command = (
@@ -4643,7 +4663,7 @@ def test_targeted_signed_reencode_runs_canonical_refresh_bundle_in_order(
         + "checkpoint_signed_changes() {\n"
         + '  printf \'%s\\n\' "$1" >> "$CHECKPOINTS_PATH"\n'
         + '  : > "$RUNNER_TEMP/checkpoint-guard-generated.json"\n'
-        + '}\n\nif [ "$canonical_refresh_enabled"'
+        + '}\n\nif [ "$reviewed_candidate_promotion"'
         + after_checkpoint
     )
     canonical_reconciliation = (
@@ -5192,7 +5212,7 @@ def test_targeted_signed_reencode_composes_nonempty_source_bundle(
         1,
     )
     _checkpoint_body, after_checkpoint = checkpoint_and_after.split(
-        '\n}\n\nif [ "$canonical_refresh_enabled"',
+        '\n}\n\nif [ "$reviewed_candidate_promotion"',
         1,
     )
     command = (
@@ -5200,7 +5220,7 @@ def test_targeted_signed_reencode_composes_nonempty_source_bundle(
         + "checkpoint_signed_changes() {\n"
         + '  printf \'%s\\n\' "$1" >> "$CHECKPOINTS_PATH"\n'
         + '  : > "$RUNNER_TEMP/checkpoint-guard-generated.json"\n'
-        + '}\n\nif [ "$canonical_refresh_enabled"'
+        + '}\n\nif [ "$reviewed_candidate_promotion"'
         + after_checkpoint
     )
 
