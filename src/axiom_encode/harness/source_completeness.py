@@ -17081,15 +17081,6 @@ def _formula_execution_is_source_branch_witness(
         execution is None
         or execution_environment is None
         or not _formula_execution_leaf_is_computational(execution)
-        or not _formula_execution_matches_source_branch(
-            execution,
-            branch,
-            interval=interval,
-            formula_environment=formula_environment,
-            execution_environment=execution_environment,
-            extract_numeric_occurrences=extract_numeric_occurrences,
-            numeric_value_is_grounded=numeric_value_is_grounded,
-        )
     ):
         return False
     if require_corroborated_dependencies and any(
@@ -17104,6 +17095,86 @@ def _formula_execution_is_source_branch_witness(
         )
     ):
         return False
+
+    def matches(binding_execution: _FormulaExecution) -> bool:
+        return _formula_execution_matches_source_branch(
+            binding_execution,
+            branch,
+            interval=interval,
+            formula_environment=formula_environment,
+            execution_environment=execution_environment,
+            extract_numeric_occurrences=extract_numeric_occurrences,
+            numeric_value_is_grounded=numeric_value_is_grounded,
+        )
+
+    if not matches(execution):
+        independent_environment = _case_dependency_environment(
+            principal_rules,
+            case,
+            formula_environment=formula_environment,
+            require_asserted_value=False,
+        )
+        independent_execution = _case_formula_execution(
+            rule,
+            case,
+            formula_environment=formula_environment,
+            dependency_environment=independent_environment,
+        )
+        if independent_execution is None or not (
+            _formula_execution_runtime_value(independent_execution)
+            is not _UNRESOLVED_CONDITION_VALUE
+            and _formula_runtime_values_equal(
+                _formula_execution_runtime_value(independent_execution),
+                _formula_execution_runtime_value(execution),
+            )
+            and independent_execution.trace == execution.trace
+        ):
+            return False
+        corroborated_rules = {}
+        for name, dependency in principal_rules.items():
+            if name not in dependency_environment:
+                continue
+            replay = _case_formula_execution(
+                dependency,
+                case,
+                formula_environment=formula_environment,
+                dependency_environment=independent_environment,
+            )
+            if replay is None or replay.currency_rounding is not None:
+                continue
+            value = _formula_execution_runtime_value(replay)
+            if value is _UNRESOLVED_CONDITION_VALUE or not (
+                _formula_runtime_values_equal(value, dependency_environment[name])
+                and _asserted_formula_runtime_values_equal(
+                    dependency, value, _test_case_asserted_output_value(case, name)
+                )
+            ):
+                continue
+            corroborated_rules[name] = dependency
+        expanded = _expand_reached_formula_dependencies(
+            execution.leaf,
+            principal_rules=corroborated_rules,
+            case=case,
+            formula_environment=formula_environment,
+            dependency_environment=independent_environment,
+        )
+        if expanded == execution.leaf:
+            return False
+        reached = _asserted_reached_rule_executions(
+            rule,
+            execution,
+            principal_rules=corroborated_rules,
+            case=case,
+            formula_environment=formula_environment,
+            dependency_environment=independent_environment,
+        )
+        binding_execution = replace(
+            execution,
+            leaf=expanded,
+            trace=tuple(step for _, replay in reached for step in replay.trace),
+        )
+        if not matches(binding_execution):
+            return False
     if interval is None:
         return True
     if execution.trace:
