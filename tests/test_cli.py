@@ -1734,7 +1734,14 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys):
             _APPLY_VALIDATION_SNAPSHOT_ATTR,
             {"manifest_validation_execution": validation_execution},
         )
-        return True, [], {}
+        # A repair pass can mark the reviewed companion as supplemental even
+        # when its final bytes are unchanged. That no-op marker must not block
+        # an otherwise exact reviewed-candidate promotion.
+        return (
+            True,
+            [],
+            {Path("statutes/7/2015/f.test.yaml"): original_companion.decode("utf-8")},
+        )
 
     provenance = {
         "root": "/opt/axiom-verification",
