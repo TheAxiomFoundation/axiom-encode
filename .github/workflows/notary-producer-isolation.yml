@@ -1,0 +1,45 @@
+name: Notary producer isolation
+
+on:
+  pull_request:
+    paths:
+      - "src/axiom_encode/notary/**"
+      - "tests/notary/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/notary-producer-isolation.yml"
+  push:
+    branches: [main]
+    paths:
+      - "src/axiom_encode/notary/**"
+      - "tests/notary/**"
+      - ".github/workflows/notary-producer-isolation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  linux-systemd:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.26"
+          python-version: "3.13.14"
+          enable-cache: false
+      - name: Install locked test dependencies
+        run: uv sync --locked --extra dev
+      - name: Exercise real systemd worker boundary on this disposable runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo env -i \
+            PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+            HOME=/root \
+            AXIOM_NOTARY_EPHEMERAL_ISOLATION_TEST=1 \
+            "$GITHUB_WORKSPACE/.venv/bin/python" -m pytest \
+            -q --no-cov tests/notary/test_producer_systemd.py
