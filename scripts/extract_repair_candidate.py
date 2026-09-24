@@ -46,6 +46,7 @@ BACKFILL_CONTRACT = runpy.run_path(
 )
 SPLIT_ATOMIC_SOURCE_INPUT = BACKFILL_CONTRACT["split_atomic_source_input"]
 CITATION_RULESPEC_PATH = BACKFILL_CONTRACT["citation_rulespec_path"]
+MAX_ISSUES_BYTES = CONTRACT["FAILED_ENCODE_CANDIDATE_MAX_ISSUES_BYTES"]
 MAX_CANDIDATE_BYTES = CONTRACT["VALIDATION_RETRY_CANDIDATE_MAX_FILE_BYTES"]
 SINGLE_TARGET_MODE_FIELDS = {
     "dependent_citation": None,
@@ -148,12 +149,14 @@ def _verified_generated_file(
     members: dict[str, tarfile.TarInfo],
     files: dict[str, dict[str, object]],
     relative_path: str,
+    *,
+    max_bytes: int = MAX_CANDIDATE_BYTES,
 ) -> bytes:
     entry = files.get(relative_path)
     if entry is None:
         raise ValueError(f"repair metadata does not bind {relative_path}")
     member = _regular_member(members, f"generated/{relative_path}")
-    data = _read_member(bundle, member, max_bytes=MAX_CANDIDATE_BYTES)
+    data = _read_member(bundle, member, max_bytes=max_bytes)
     if (
         len(data) != entry["size"]
         or hashlib.sha256(data).hexdigest() != entry["sha256"]
@@ -183,9 +186,9 @@ def _retained_candidate(
         return None
     try:
         metadata = json.loads(
-            _verified_generated_file(bundle, members, files, issues_path).decode(
-                "utf-8", errors="strict"
-            )
+            _verified_generated_file(
+                bundle, members, files, issues_path, max_bytes=MAX_ISSUES_BYTES
+            ).decode("utf-8", errors="strict")
         )
     except (UnicodeError, json.JSONDecodeError, RecursionError) as exc:
         raise ValueError("retained repair candidate metadata is invalid") from exc

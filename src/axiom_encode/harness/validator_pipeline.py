@@ -1226,6 +1226,19 @@ _STRUCTURAL_SOURCE_FORM_LINE_PATTERN = re.compile(
     r"\bLine\s+\d+[A-Za-z]?\b",
     re.IGNORECASE,
 )
+# Explicit plural form-line references and page counters are coordinates,
+# not amounts to reproduce as RuleSpec parameters. Keep numeric tokens with
+# decimal or monetary/rate suffixes outside this structural grammar.
+_STRUCTURAL_SOURCE_FORM_LINES_PATTERN = re.compile(
+    r"\blines\s+\d+[A-Za-z]?"
+    r"(?:(?:,\s+(?:(?:and|or)\s+)?|\s+(?:and|or|through|to)\s+)\d+[A-Za-z]?)+"
+    r"\b(?![.,]\d)(?!\s*(?:%|percent\b|dollars?\b|euros?\b|pounds?\b))",
+    re.IGNORECASE,
+)
+_STRUCTURAL_SOURCE_PAGE_COUNTER_PATTERN = re.compile(
+    r"\bpage[ \t]+\d+[ \t]+of[ \t]+\d+[ \t]*(?=\r?$)",
+    re.IGNORECASE | re.MULTILINE,
+)
 _STRUCTURAL_SOURCE_CODE_CITATION_PATTERN = re.compile(
     r"\b\d+\s+"
     r"(?:U\.?\s*S\.?\s*C\.?|USC|C\.?\s*F\.?\s*R\.?|CFR|C\.?\s*C\.?\s*R\.?|CCR)\s+"
@@ -12420,6 +12433,8 @@ def _danish_equal_length_numeric_mask(text: str) -> _EqualLengthNumericMask:
             _STRUCTURAL_SOURCE_HANDBOOK_SECTION_PATTERN,
             _STRUCTURAL_SOURCE_FORM_NUMBER_PATTERN,
             _STRUCTURAL_SOURCE_FORM_LINE_PATTERN,
+            _STRUCTURAL_SOURCE_FORM_LINES_PATTERN,
+            _STRUCTURAL_SOURCE_PAGE_COUNTER_PATTERN,
             _STRUCTURAL_SOURCE_CODE_CITATION_PATTERN,
             _STRUCTURAL_SOURCE_LEGAL_EDITION_PATTERN,
             _STRUCTURAL_SOURCE_STATE_CODE_CITATION_PATTERN,
@@ -12959,6 +12974,8 @@ def _clean_source_text_for_numeric_extraction_tracked(
     tracked = tracked.sub(_STRUCTURAL_SOURCE_HANDBOOK_SECTION_PATTERN, _blank_match)
     tracked = tracked.sub(_STRUCTURAL_SOURCE_FORM_NUMBER_PATTERN, _blank_match)
     tracked = tracked.sub(_STRUCTURAL_SOURCE_FORM_LINE_PATTERN, _blank_match)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_FORM_LINES_PATTERN, _blank_match)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_PAGE_COUNTER_PATTERN, _blank_match)
     tracked = tracked.sub(_STRUCTURAL_SOURCE_CODE_CITATION_PATTERN, _blank_match)
     tracked = tracked.sub(_STRUCTURAL_SOURCE_LEGAL_EDITION_PATTERN, _blank_match)
     tracked = tracked.sub(_STRUCTURAL_SOURCE_STATE_CODE_CITATION_PATTERN, _blank_match)

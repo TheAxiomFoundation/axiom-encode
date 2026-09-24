@@ -44384,3 +44384,203 @@ def test_dakg_review_reference_accepts_explicit_missing_state_without_redundant_
     covered, issues = _dakg_review_deferral(reason=reason, typed=typed)
     assert covered == {("2", "satz-3")}
     assert not issues
+
+
+@pytest.mark.parametrize(
+    ("selector", "extra", "expected"),
+    [
+        ("year <= start + duration - 1", {}, (2004.0,)),
+        ("start + duration - 1 >= year", {}, (2004.0,)),
+        ("year <= (start + duration - 1) + 1", {}, (2005.0,)),
+        ("False and year <= start + duration - 1", {}, ()),
+        ("True or year <= start + duration - 1", {}, ()),
+        ("unknown and year <= start + duration - 1", {}, ()),
+        ("year < 0 < start + duration - 1", {}, ()),
+        ("0 < year <= start + duration - 1", {}, (2004.0,)),
+        ("year <= household_start + duration - 1", {"household_start": 2000}, ()),
+        ("year <= max(start + duration - 1, 2000)", {}, ()),
+        ("year <= start ** duration", {}, ()),
+        ("year <= start + flag", {"flag": True}, ()),
+    ],
+)
+def test_computed_comparison_evidence_is_constant_complete_and_reached(
+    selector, extra, expected
+):
+    constants = {"start": 2000, "duration": 5}
+    assert (
+        completeness_module._reached_constant_comparison_values(
+            selector,
+            constant_environment=constants,
+            execution_environment={**constants, "year": 2002, **extra},
+        )
+        == expected
+    )
+
+
+def test_computed_comparison_evidence_requires_execution_environment():
+    assert (
+        completeness_module._reached_constant_comparison_values(
+            "year <= start + duration - 1",
+            constant_environment={"start": 2000, "duration": 5},
+            execution_environment=None,
+        )
+        == ()
+    )
+
+
+@pytest.mark.parametrize("start", [2000, 2017])
+def test_formula_witness_accepts_computed_transition_end_year(start):
+    source = f"(A) With respect to an individual who attains early retirement age in the 5-year period consisting of the calendar years {start} through {start + 4}, the age increase factor shall be equal to two-twelfths of the number of months in the period beginning with January {start} and ending with December of the year in which the individual attains early retirement age."
+    branch = completeness_module.SourceStructureBranch(
+        ("3", "a"), "formula-clause", "transition", source, 0, len(source)
+    )
+    constants = {"start": start, "duration": 5, "factor": 2}
+    execution = completeness_module._FormulaExecution(
+        trace=(
+            completeness_module._FormulaTraceStep(
+                "if", ("year >= start and year <= start + duration - 1",), 0
+            ),
+        ),
+        leaf="factor * elapsed_years",
+        evaluated_value=None,
+        evaluates_to_zero=False,
+        constant_environment=constants,
+    )
+    kwargs = dict(
+        interval=completeness_module._formula_branch_interval(
+            branch,
+            extract_numeric_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
+        ),
+        formula_environment={},
+        execution_environment={**constants, "year": start + 2, "elapsed_years": 3},
+        extract_numeric_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
+        numeric_value_is_grounded=numeric_value_is_grounded,
+    )
+    assert completeness_module._formula_execution_matches_source_branch(
+        execution, branch, **kwargs
+    )
+    wrong = completeness_module._FormulaExecution(
+        trace=(
+            completeness_module._FormulaTraceStep(
+                "if", ("year >= start and year <= start + duration",), 0
+            ),
+        ),
+        leaf=execution.leaf,
+        evaluated_value=None,
+        evaluates_to_zero=False,
+        constant_environment=constants,
+    )
+    assert not completeness_module._formula_execution_matches_source_branch(
+        wrong, branch, **kwargs
+    )
+
+
+@pytest.mark.parametrize("invalid", [True, float("inf"), float("nan")])
+def test_computed_comparison_rejects_nonfinite_and_boolean_constants(invalid):
+    constants = {"start": 2000, "duration": invalid}
+    assert (
+        completeness_module._reached_constant_comparison_values(
+            "year <= start + duration - 1",
+            constant_environment=constants,
+            execution_environment={**constants, "year": 2002},
+        )
+        == ()
+    )
+
+
+def test_computed_comparison_uses_only_selected_temporal_parameters():
+    temporal = completeness_module._TemporalFormulaValue(
+        (("2000-01-01", "2004-12-31", 2000), ("2017-01-01", "2021-12-31", 2017)),
+        (),
+    )
+    for period, expected in (("2002-01-01", 2004.0), ("2019-01-01", 2021.0)):
+        constants = completeness_module._formula_environment_for_case(
+            {"start": temporal, "duration": 5}, {"period": period}
+        )
+        assert completeness_module._reached_constant_comparison_values(
+            "year <= start + duration - 1",
+            constant_environment=constants,
+            execution_environment={**constants, "year": int(period[:4])},
+        ) == (expected,)
+    assert (
+        completeness_module._reached_constant_comparison_values(
+            "year <= start + duration - 1",
+            constant_environment={"start": temporal, "duration": 5},
+            execution_environment={"start": 2000, "duration": 5, "year": 2002},
+        )
+        == ()
+    )
+
+
+def _published_income_table_fixture(rate: int = 130) -> str:
+    rows = " ".join(
+        f"{size} ${1000 + size} ${2000 + size} ${3000 + size}" for size in range(1, 9)
+    )
+    return (
+        f"Gross Monthly Income Eligibility Standards ({rate} Percent of Poverty Level)\n\n"
+        "Household Size 48 States, DC, Guam, Virgin Islands Alaska Hawaii "
+        f"{rows} Each additional person $100 $200 $300"
+    )
+
+
+def test_precomputed_income_table_captions_are_not_computation():
+    source = "\n\n".join(
+        _published_income_table_fixture(rate) for rate in (100, 130, 165)
+    )
+    assert not source_states_explicit_computation(source)
+    assert not completeness_module._source_states_nonrounding_computation(source)
+    masked = completeness_module._without_precomputed_income_table_percentage_captions(
+        source
+    )
+    assert len(masked) == len(source)
+    assert masked.index("$1001") == source.index("$1001")
+    assert "Each additional person $100 $200 $300" in masked
+    # Computation classification must not alter the original numeric inventory.
+    assert {100.0, 130.0, 165.0, 1001.0, 2001.0, 3008.0, 200.0, 300.0}.issubset(
+        {item.value for item in EN_NUMERIC_OCCURRENCE_EXTRACTOR(source)}
+    )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda source: source.replace("8 $1008 $2008 $3008", ""),
+        lambda source: source.replace("Each additional person $100 $200 $300", ""),
+        lambda source: source.replace("$2001", "amount calculated separately"),
+        lambda source: source.replace(
+            "Household Size", "Income is calculated for household size"
+        ),
+        lambda source: source.replace("\n", " "),
+    ],
+)
+def test_percentage_caption_without_complete_table_stays_computational(mutation):
+    assert source_states_explicit_computation(
+        mutation(_published_income_table_fixture())
+    )
+
+
+@pytest.mark.parametrize(
+    "instruction",
+    [
+        "The income limit is 130 percent of the poverty level.",
+        "The limit is computed by multiplying the poverty level by 1.3.",
+        "The additional-person limit equals the eight-person limit plus $100.",
+        "The result is rounded to the nearest whole dollar.",
+    ],
+)
+def test_income_table_caption_mask_preserves_adjacent_computation(instruction):
+    source = _published_income_table_fixture() + "\n\n" + instruction
+    assert source_states_explicit_computation(source)
+
+
+def test_income_table_amounts_still_require_numeric_coverage():
+    source = _published_income_table_fixture()
+    result = _analyze(
+        "format: rulespec/v1\nrules: []\n",
+        source,
+        corpus_citation_path="us/guidance/example/income-table",
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text, profile="legacy"
+        ),
+    )
+    assert _has_issue(result, "numeric")
