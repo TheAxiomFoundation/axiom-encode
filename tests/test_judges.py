@@ -2570,3 +2570,8 @@ def test_advisory_flag_passes_but_promoted_flag_fails():
     d = promoted.to_dict()
     assert d["status"] == "failed"
     assert d["reason_code"] == "judge_rejected"
+
+
+def test_judge_generator_default_is_the_encoder_default(monkeypatch):
+    monkeypatch.delenv("AXIOM_GENERATOR_MODEL", raising=False)
+    assert JudgeClient(api_key="x").generator_model == "gpt-6-luna"
