@@ -4044,7 +4044,7 @@ def test_targeted_signed_reencode_preserves_checkpoint_guard_failure(
         if step.get("name") == "Encode, review, validate, and apply"
     )
     checkpoint = command.split("checkpoint_signed_changes() {", 1)[1].split(
-        '\n}\n\nif [ "$canonical_refresh_enabled"',
+        '\n}\n\nif [ "$reviewed_candidate_promotion"',
         1,
     )[0]
     guard_stub = tmp_path / "guard-stub"
@@ -4122,7 +4122,7 @@ def test_targeted_signed_reencode_packages_noncontract_checkpoint_failure(
         if step.get("name") == "Encode, review, validate, and apply"
     )
     checkpoint = apply_command.split("checkpoint_signed_changes() {", 1)[1].split(
-        '\n}\n\nif [ "$canonical_refresh_enabled"',
+        '\n}\n\nif [ "$reviewed_candidate_promotion"',
         1,
     )[0]
     guard_stub = tmp_path / "guard-stub"
@@ -4655,7 +4655,7 @@ def test_targeted_signed_reencode_runs_canonical_refresh_bundle_in_order(
         1,
     )
     _checkpoint_body, after_checkpoint = checkpoint_and_after.split(
-        '\n}\n\nif [ "$canonical_refresh_enabled"',
+        '\n}\n\nif [ "$reviewed_candidate_promotion"',
         1,
     )
     command = (
@@ -4663,7 +4663,7 @@ def test_targeted_signed_reencode_runs_canonical_refresh_bundle_in_order(
         + "checkpoint_signed_changes() {\n"
         + '  printf \'%s\\n\' "$1" >> "$CHECKPOINTS_PATH"\n'
         + '  : > "$RUNNER_TEMP/checkpoint-guard-generated.json"\n'
-        + '}\n\nif [ "$canonical_refresh_enabled"'
+        + '}\n\nif [ "$reviewed_candidate_promotion"'
         + after_checkpoint
     )
     canonical_reconciliation = (
@@ -5212,7 +5212,7 @@ def test_targeted_signed_reencode_composes_nonempty_source_bundle(
         1,
     )
     _checkpoint_body, after_checkpoint = checkpoint_and_after.split(
-        '\n}\n\nif [ "$canonical_refresh_enabled"',
+        '\n}\n\nif [ "$reviewed_candidate_promotion"',
         1,
     )
     command = (
@@ -5220,7 +5220,7 @@ def test_targeted_signed_reencode_composes_nonempty_source_bundle(
         + "checkpoint_signed_changes() {\n"
         + '  printf \'%s\\n\' "$1" >> "$CHECKPOINTS_PATH"\n'
         + '  : > "$RUNNER_TEMP/checkpoint-guard-generated.json"\n'
-        + '}\n\nif [ "$canonical_refresh_enabled"'
+        + '}\n\nif [ "$reviewed_candidate_promotion"'
         + after_checkpoint
     )
 
