@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "axiom-encode"
-version = "0.2.2039"
+version = "0.2.2040"
 description = "AI-assisted RuleSpec encoding infrastructure - fully self-contained"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -26,11 +26,15 @@ dependencies = [
     # axiom-oracles is not on PyPI; bump the SHA to pull bridge changes.
     "axiom-oracles @ git+https://github.com/TheAxiomFoundation/axiom-oracles@e1374eb30c582639f8f71f9bf9c22ba93b6e36f4",
     "cryptography>=46.0",
+    "rfc8785>=0.1.4",
+    "PyJWT[crypto]>=2.10.1",
     "pydantic>=2.0",
     "pypdf>=6.4.0",
     "pyyaml>=6.0",
     "receipt==0.6.1",
     "requests>=2.28",
+    "starlette>=0.52.1",
+    "uvicorn>=0.41.0",
     "sqlite-utils>=3.30",
     "supabase>=2.0.0",
 ]
@@ -56,9 +60,13 @@ dev = [
     "pytest-cov",
     "ruff",
     "towncrier>=24.8.0",
+    "yubihsm[usb]>=3.1.2",
 ]
 all = [
     "axiom-encode[api,dev,observability]",
+]
+notary-hardware = [
+    "yubihsm[usb]>=3.1.2",
 ]
 
 [project.scripts]

@@ -1,0 +1,1 @@
+Implement v33 coverage replay, typed reports, administrative and admission-chain validation, enrolled-writer authorization, external-signer core and GitHub read adapter, protection audits, and publication/finalization plans. Production runtime emission, broker deployment, CI integration and lane activation remain required.

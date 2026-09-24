@@ -1,0 +1,1 @@
+Add read-only contributor write-eligibility and producer-lineage diagnostics, with v33 registry separation, role-bound detached signature checks, generation/correction schemas, and append-only lineage classification. These primitives do not enroll a runtime, sign artifacts, or grant RuleSpec admission.
