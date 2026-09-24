@@ -1726,9 +1726,7 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys):
     )
     args.axiom_rules_path.mkdir()
     args.corpus_path.mkdir()
-    validation_execution = {
-        "schema": "axiom-encode/apply-validation-execution/v2"
-    }
+    validation_execution = {"schema": "axiom-encode/apply-validation-execution/v2"}
 
     def validate(result, **_kwargs):
         setattr(
@@ -1791,14 +1789,10 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys):
             return_value=({}, "", "d" * 64, []),
         ),
     ):
-        signer_context.return_value.__enter__.return_value = (
-            TEST_APPLY_SIGNING_BROKER
-        )
+        signer_context.return_value.__enter__.return_value = TEST_APPLY_SIGNING_BROKER
         cmd_promote_reviewed_candidate(args)
 
-    manifest = repo / _applied_encoding_manifest_path(
-        Path("us/statutes/7/2015/f.yaml")
-    )
+    manifest = repo / _applied_encoding_manifest_path(Path("us/statutes/7/2015/f.yaml"))
     payload = json.loads(manifest.read_text())
     assert payload["tool"] == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL
     assert payload["reviewed_rulespec_ref"] == reviewed_ref
@@ -1807,9 +1801,7 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys):
     assert companion.read_bytes() == original_companion
     assert _git(
         repo, "ls-files", "--others", "--exclude-standard"
-    ).stdout.splitlines() == [
-        ".axiom/encoding-manifests/us/statutes/7/2015/f.json"
-    ]
+    ).stdout.splitlines() == [".axiom/encoding-manifests/us/statutes/7/2015/f.json"]
     with patch(
         "axiom_encode.cli._load_verified_applied_encoding_manifest_payload",
         return_value=(payload, "", _sha256_file(manifest), []),
@@ -1838,9 +1830,7 @@ def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys):
                 return_value=(
                     {
                         "us/statutes/7/2015/f.yaml": {_sha256_file(rule)},
-                        "us/statutes/7/2015/f.test.yaml": {
-                            _sha256_file(companion)
-                        },
+                        "us/statutes/7/2015/f.test.yaml": {_sha256_file(companion)},
                     },
                     [],
                 ),
@@ -46535,15 +46525,13 @@ rules:
             ),
             patch("axiom_encode.cli._record_successful_apply_validation") as record,
         ):
-            ok, issues, supplemental = (
-                _validate_generated_encoding_in_policy_overlay(
-                    result,
-                    output_root=output_root,
-                    policy_repo_path=policy_repo,
-                    axiom_rules_path=tmp_path / "axiom-rules-engine",
-                    local_corpus_release=MagicMock(),
-                    validate_dependents=False,
-                )
+            ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+                local_corpus_release=MagicMock(),
+                validate_dependents=False,
             )
 
         assert ok is True, issues

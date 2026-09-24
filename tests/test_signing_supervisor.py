@@ -2130,7 +2130,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert inputs["source_bundle_json"] == {
         "description": (
             "JSON citation array, canonical_refresh_bundle object, or "
-                "atomic-source-transaction/v2/v3/v4/v5 envelope for an independent refresh "
+            "atomic-source-transaction/v2/v3/v4/v5 envelope for an independent refresh "
             "transaction"
         ),
         "required": False,

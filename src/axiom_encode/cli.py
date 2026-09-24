@@ -474,9 +474,7 @@ _APPLY_VALIDATION_SCOPES = frozenset(
 APPLIED_ENCODING_SIGNATURE_ALGORITHM = "ed25519-domain-v1"
 APPLIED_ENCODING_DELETED_MARKER = "deleted"
 APPLIED_ENCODING_MODEL_TOOL = "axiom-encode encode --apply"
-APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL = (
-    "axiom-encode promote-reviewed-candidate"
-)
+APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL = "axiom-encode promote-reviewed-candidate"
 APPLIED_ENCODING_RETIRE_TOOL = "axiom-encode retire"
 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR = Path(
     _LEGACY_REPLACEMENT_RECEIPT_DIR_TEXT
@@ -8150,7 +8148,10 @@ def cmd_promote_reviewed_candidate(args):
 
             def require_unchanged_reviewed_head() -> None:
                 for relative, expected in before.items():
-                    if exact_head_bytes(relative, label="reviewed candidate file") != expected:
+                    if (
+                        exact_head_bytes(relative, label="reviewed candidate file")
+                        != expected
+                    ):
                         raise RuntimeError(
                             "reviewed candidate changed after successful validation"
                         )
@@ -26319,12 +26320,9 @@ def _load_verified_applied_encoding_manifest_payload(
             )
         )
     if (
-        (
-            backend in APPLIED_ENCODING_ENCODER_BACKENDS
-            or payload.get("tool") == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL
-        )
-        and expected_encoder_identity is not None
-    ):
+        backend in APPLIED_ENCODING_ENCODER_BACKENDS
+        or payload.get("tool") == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL
+    ) and expected_encoder_identity is not None:
         issues.extend(
             _model_apply_validation_execution_issues(
                 payload,

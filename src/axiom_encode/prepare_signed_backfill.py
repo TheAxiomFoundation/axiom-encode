@@ -3082,8 +3082,7 @@ def authorized_changed_paths(
                 backend is not None
                 or not isinstance(reviewed_ref, str)
                 or COMMIT_PATTERN.fullmatch(reviewed_ref) is None
-                or _git(repo, "rev-parse", "HEAD").decode().strip()
-                != reviewed_ref
+                or _git(repo, "rev-parse", "HEAD").decode().strip() != reviewed_ref
             ):
                 raise ValueError(
                     f"reviewed candidate manifest does not bind exact HEAD: {relative}"
