@@ -1,6 +1,6 @@
 """LLM judge stages for the encoding pipeline (maximum-traceability part 2).
 
-Cross-family judging: the generator is ``gpt-5.6-terra``; judges run on a
+Cross-family judging: the generator is ``gpt-6-luna``; judges run on a
 Claude-family model. Every stage emits a structured
 :class:`~axiom_encode.judges.run_log.JudgeEvent`
 (``axiom_encode.run_log.v1``) and is fail-closed — a judge that cannot reach a

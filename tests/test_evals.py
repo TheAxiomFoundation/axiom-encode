@@ -23934,3 +23934,27 @@ def test_older_openai_models_reuse_stable_prefix_key_across_retries(tmp_path):
     assert evals_module._openai_prompt_cache_key(
         "gpt-5.4", first_prefix
     ) == evals_module._openai_prompt_cache_key("gpt-5.4", retry_prefix)
+
+
+@pytest.mark.parametrize(
+    ("model", "extended", "explicit_cache"),
+    [
+        ("gpt-6-luna", True, True),
+        ("gpt-6-sol", True, True),
+        ("gpt-5.6-terra", True, True),
+        ("gpt-5.4", True, False),
+        ("gpt-60-luna", False, False),
+        ("gpt-4.1", False, False),
+    ],
+)
+def test_openai_generation_gates_cover_gpt_6_models(model, extended, explicit_cache):
+    expected_tokens = (
+        evals_module._OPENAI_EXTENDED_PROMPT_MAX_OUTPUT_TOKENS
+        if extended
+        else evals_module._OPENAI_DEFAULT_PROMPT_MAX_OUTPUT_TOKENS
+    )
+    assert evals_module._openai_prompt_max_output_tokens(model) == expected_tokens
+    assert (
+        evals_module._openai_model_supports_explicit_prompt_cache(model)
+        is explicit_cache
+    )

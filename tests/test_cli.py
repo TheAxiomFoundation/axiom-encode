@@ -1140,8 +1140,8 @@ def test_package_version_metadata_matches_pyproject():
 
 
 def test_openai_encode_model_defaults():
-    assert DEFAULT_OPENAI_MODEL == "gpt-5.6-terra"
-    assert DEFAULT_OPENAI_ESCALATION_MODEL == "gpt-5.6-sol"
+    assert DEFAULT_OPENAI_MODEL == "gpt-6-luna"
+    assert DEFAULT_OPENAI_ESCALATION_MODEL == "gpt-6-sol"
     assert DEFAULT_OPENAI_ESCALATE_AFTER == 2
 
 

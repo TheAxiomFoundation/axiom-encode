@@ -345,8 +345,8 @@ _OPENAI_REQUEST_MAX_ATTEMPTS = 6
 _OPENAI_REQUEST_BACKOFF_SECONDS = (1, 2, 4, 8, 10)
 _OPENAI_DEFAULT_PROMPT_MAX_OUTPUT_TOKENS = 16384
 _OPENAI_EXTENDED_PROMPT_MAX_OUTPUT_TOKENS = 32768
-_OPENAI_EXTENDED_OUTPUT_MODEL_PREFIXES = ("gpt-5.4", "gpt-5.5", "gpt-5.6")
-_OPENAI_EXPLICIT_PROMPT_CACHE_MODEL_PREFIXES = ("gpt-5.6",)
+_OPENAI_EXTENDED_OUTPUT_MODEL_PREFIXES = ("gpt-5.4", "gpt-5.5", "gpt-5.6", "gpt-6")
+_OPENAI_EXPLICIT_PROMPT_CACHE_MODEL_PREFIXES = ("gpt-5.6", "gpt-6")
 _OPENAI_PROMPT_CACHE_SCHEMA = "rulespec-authoring-v1"
 EVAL_EXECUTION_IDENTITY_SCHEMA = "axiom-encode/eval-execution-identity/v3"
 _EVAL_CASE_DEADLINE_MONOTONIC: ContextVar[float | None] = ContextVar(
@@ -15208,7 +15208,7 @@ def _openai_prompt_max_output_tokens(model: str) -> int:
 
 
 def _openai_model_supports_explicit_prompt_cache(model: str) -> bool:
-    """Return whether the model supports GPT-5.6 prompt-cache breakpoints."""
+    """Return whether the model supports GPT-5.6-and-later prompt-cache breakpoints."""
 
     return any(
         model == prefix or model.startswith(f"{prefix}-")

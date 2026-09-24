@@ -38,7 +38,7 @@ def codex_auth_json_path() -> Path:
 def codex_auth_error() -> str | None:
     """Return a clear error when the Codex CLI has no usable auth file.
 
-    ``axiom-encode encode`` defaults to the Codex backend (gpt-5.6-terra), which
+    ``axiom-encode encode`` defaults to the Codex backend (gpt-6-luna), which
     authenticates through the Codex CLI's ``auth.json`` (ChatGPT sign-in or
     an ``OPENAI_API_KEY`` recorded by ``codex login``). When neither that
     file nor ``OPENAI_API_KEY`` is present, encoding fails deep inside the
