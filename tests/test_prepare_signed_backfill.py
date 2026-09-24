@@ -4026,7 +4026,7 @@ def test_validate_rulespec_base_rejects_stale_main_pr_base(
         ("us", "297aec1691edf7b3a21781c8a825690db1e7c988"),
         ("us", "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683"),
         ("us", "79ffd74fe3d3c83665335ec64feb7458d9cc877a"),
-        ("us", "1d480c2eeadd5da498be5ac39ca7cc2956f00e07"),
+        ("us", "b59d4944c61bee9850b3e037370413adb8ab5681"),
         ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
     ],
 )
@@ -4056,7 +4056,7 @@ def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
             ("us", "297aec1691edf7b3a21781c8a825690db1e7c988"),
             ("us", "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683"),
             ("us", "79ffd74fe3d3c83665335ec64feb7458d9cc877a"),
-            ("us", "1d480c2eeadd5da498be5ac39ca7cc2956f00e07"),
+            ("us", "b59d4944c61bee9850b3e037370413adb8ab5681"),
             ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
         }
     )
@@ -4089,7 +4089,7 @@ def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
             ),
             (
                 "us",
-                "1d480c2eeadd5da498be5ac39ca7cc2956f00e07",
+                "b59d4944c61bee9850b3e037370413adb8ab5681",
                 "fix/1248-snap-immigration-status",
             ),
         }
@@ -4162,7 +4162,7 @@ def test_validate_rulespec_base_accepts_exact_reviewed_protected_branch_tip(
             "axiom/signed-backfill-us-35160240952-1",
         ),
         (
-            "1d480c2eeadd5da498be5ac39ca7cc2956f00e07",
+            "b59d4944c61bee9850b3e037370413adb8ab5681",
             "fix/1248-snap-immigration-status",
         ),
     ],
@@ -4224,7 +4224,7 @@ def test_validate_rulespec_base_accepts_reviewed_immigration_repair_branch_tip(
             "axiom/signed-backfill-us-35145159769-1",
         ),
         (
-            "1d480c2eeadd5da498be5ac39ca7cc2956f00e07",
+            "b59d4944c61bee9850b3e037370413adb8ab5681",
             "axiom/signed-backfill-us-35160240952-1",
         ),
     ],
@@ -4271,7 +4271,7 @@ def test_validate_rulespec_base_rejects_reviewed_head_branch_cross_pairs(
             "axiom/signed-backfill-us-35160240952-1",
         ),
         (
-            "1d480c2eeadd5da498be5ac39ca7cc2956f00e07",
+            "b59d4944c61bee9850b3e037370413adb8ab5681",
             "fix/1248-snap-immigration-status",
         ),
     ],
