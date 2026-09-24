@@ -16555,9 +16555,22 @@ rules:
             },
         ]
 
+    @pytest.mark.parametrize(
+        "publication_mutation",
+        [
+            None,
+            "rulespec",
+            "companion",
+            "missing",
+            "manifest_identity",
+            "deleted_inventory",
+            "unchanged_companion",
+        ],
+    )
     def test_apply_freshly_replaces_untrusted_v1_at_same_canonical_path(
         self,
         tmp_path,
+        publication_mutation,
     ):
         from axiom_encode.cli import _resolve_legacy_replacement_contract
         from axiom_encode.toolchain import load_rulespec_local_corpus_release
@@ -16579,7 +16592,11 @@ rules:
             "      - us-me/statute/36/5111\n"
             "rules: []\n"
         )
-        target_test.write_text("- name: old manual fixture\n")
+        target_test.write_text(
+            "[]\n"
+            if publication_mutation == "unchanged_companion"
+            else "- name: old manual fixture\n"
+        )
         legacy_files = {
             path.relative_to(checkout).as_posix(): _sha256_file(path)
             for path in (target, target_test)
@@ -16797,6 +16814,37 @@ rules:
         )
         assert issues == [], "\n".join(issues)
         assert verified == outer
+
+        from axiom_encode.prepare_signed_backfill import stage_authorized_changes
+
+        if publication_mutation in {"rulespec", "companion"}:
+            changed_file = target if publication_mutation == "rulespec" else target_test
+            changed_file.write_text(changed_file.read_text() + "# unsigned change\n")
+        elif publication_mutation == "missing":
+            target_test.unlink()
+        elif publication_mutation == "manifest_identity":
+            outer["replacement"]["legacy_manifest_path"] = (
+                ".axiom/encoding-manifests/us-me/policies/income_tax/other.json"
+            )
+            manifest.write_text(json.dumps(outer) + "\n")
+        elif publication_mutation == "deleted_inventory":
+            outer["applied_files"].append(
+                {"path": checkout_relative.as_posix(), "deleted": True}
+            )
+            manifest.write_text(json.dumps(outer) + "\n")
+        if publication_mutation not in {None, "unchanged_companion"}:
+            with pytest.raises(ValueError):
+                stage_authorized_changes(checkout)
+            assert _git(checkout, "diff", "--cached", "--name-only").stdout == ""
+            return
+
+        stage_authorized_changes(checkout)
+        staged = _git(checkout, "diff", "--cached", "--name-only").stdout.splitlines()
+        assert set(staged) == {
+            path.relative_to(checkout).as_posix()
+            for path in applied
+            if publication_mutation != "unchanged_companion" or path != target_test
+        }
 
     @pytest.mark.parametrize("dependent_owner", ["manual", "generated"])
     def test_apply_atomically_migrates_exact_legacy_dependent(
