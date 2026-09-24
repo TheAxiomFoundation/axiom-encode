@@ -41,10 +41,12 @@ from axiom_encode.cli import (
     _PRESERVED_COMPANION_TESTS_ATTR,
     _REPLACEMENT_OVERLAY_SCOPE_ATTR,
     _REQUIRED_TEST_CASE_CONTRACTS_ATTR,
+    _REVIEWED_CANDIDATE_PROMOTION_ATTR,
     APPLIED_ENCODING_MANIFEST_SCHEMA,
     APPLIED_ENCODING_MODEL_TOOL,
     APPLIED_ENCODING_OFFICIAL_REPOSITORY,
     APPLIED_ENCODING_RETIRE_TOOL,
+    APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
     APPLIED_ENCODING_SIGNATURE_ALGORITHM,
     _all_applied_encoding_manifest_paths,
     _append_exception_positive_companion_tests_if_missing,
@@ -60,6 +62,7 @@ from axiom_encode.cli import (
     _apply_encoder_execution_identity,
     _apply_generated_encoding_result,
     _apply_legacy_exact_dependent_proof_excerpt_reanchors,
+    _apply_result_metadata,
     _build_eval_suite_payload,
     _build_eval_suite_report,
     _canonical_rulespec_compile_path,
@@ -283,6 +286,7 @@ from axiom_encode.cli import (
     cmd_normalize_proof_atom_kinds,
     cmd_oracle_candidates,
     cmd_oracle_coverage,
+    cmd_promote_reviewed_candidate,
     cmd_refresh_applied_manifest,
     cmd_retire,
     cmd_runs,
@@ -1685,6 +1689,209 @@ def test_manifest_refresh_rejects_unsigned_manifest_mutation(tmp_path):
         )
 
 
+def test_promote_reviewed_candidate_changes_only_manifest(tmp_path, capsys):
+    repo = tmp_path / "rulespec-us"
+    _init_test_git_repo(repo)
+    rule = repo / "us/statutes/7/2015/f.yaml"
+    companion = rule.with_name("f.test.yaml")
+    rule.parent.mkdir(parents=True)
+    rule.write_text(
+        "format: rulespec/v1\n"
+        "module:\n"
+        "  source_verification:\n"
+        "    corpus_citation_path: us/statute/7/2015/f\n"
+        f"    source_sha256: {'a' * 64}\n"
+        "rules: []\n"
+    )
+    companion.write_text("[]\n")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "reviewed candidate"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    reviewed_ref = _git(repo, "rev-parse", "HEAD").stdout.strip()
+    original_rule = rule.read_bytes()
+    original_companion = companion.read_bytes()
+    args = SimpleNamespace(
+        repo=repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        corpus_path=tmp_path / "axiom-corpus",
+        rulespec_dependency_root=[],
+        rulespec_path="us/statutes/7/2015/f.yaml",
+        citation="us/statute/7/2015/f",
+        reviewed_rulespec_ref=reviewed_ref,
+        run_id="promotion-test-run",
+    )
+    args.axiom_rules_path.mkdir()
+    args.corpus_path.mkdir()
+    validation_execution = {
+        "schema": "axiom-encode/apply-validation-execution/v2"
+    }
+
+    def validate(result, **_kwargs):
+        setattr(
+            result,
+            _APPLY_VALIDATION_SNAPSHOT_ATTR,
+            {"manifest_validation_execution": validation_execution},
+        )
+        return True, [], {}
+
+    provenance = {
+        "root": "/opt/axiom-verification",
+        "commit": "b" * 40,
+        "dirty_tracked": False,
+        "version": AXIOM_ENCODE_TEST_VERSION,
+        "version_commit": "b" * 40,
+        "identity_source": "trusted-runtime-attestation",
+    }
+    with (
+        patch(
+            "axiom_encode.prepare_signed_backfill.REVIEWED_RULESPEC_REFS",
+            frozenset({("us", reviewed_ref)}),
+        ),
+        patch("axiom_encode.cli._recover_apply_transaction"),
+        patch("axiom_encode.cli._isolated_apply_manifest_signer") as signer_context,
+        patch(
+            "axiom_encode.cli.load_rulespec_local_corpus_release",
+            return_value=object(),
+        ),
+        patch(
+            "axiom_encode.cli._manifest_primary_source_verifications",
+            return_value=([], "rulespec-us/us"),
+        ),
+        patch(
+            "axiom_encode.cli.resolve_corpus_source_unit",
+            return_value=_manifest_refresh_source_unit(),
+        ),
+        patch(
+            "axiom_encode.cli._run_generated_encoding_overlay_validation",
+            side_effect=validate,
+        ),
+        patch(
+            "axiom_encode.cli._require_clean_axiom_encode_git_provenance",
+            return_value=provenance,
+        ),
+        patch(
+            "axiom_encode.cli.verify_rulespec_validation_waiver_set",
+            return_value="c" * 64,
+        ),
+        patch(
+            "axiom_encode.cli._current_guard_encoder_execution_identity",
+            return_value={
+                "repository": APPLIED_ENCODING_OFFICIAL_REPOSITORY,
+                "commit": "b" * 40,
+                "version": AXIOM_ENCODE_TEST_VERSION,
+                "identity_source": "trusted-runtime-attestation",
+            },
+        ),
+        patch(
+            "axiom_encode.cli._load_verified_applied_encoding_manifest_payload",
+            return_value=({}, "", "d" * 64, []),
+        ),
+    ):
+        signer_context.return_value.__enter__.return_value = (
+            TEST_APPLY_SIGNING_BROKER
+        )
+        cmd_promote_reviewed_candidate(args)
+
+    manifest = repo / _applied_encoding_manifest_path(
+        Path("us/statutes/7/2015/f.yaml")
+    )
+    payload = json.loads(manifest.read_text())
+    assert payload["tool"] == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL
+    assert payload["reviewed_rulespec_ref"] == reviewed_ref
+    assert payload["validation_execution"] == validation_execution
+    assert rule.read_bytes() == original_rule
+    assert companion.read_bytes() == original_companion
+    assert _git(
+        repo, "ls-files", "--others", "--exclude-standard"
+    ).stdout.splitlines() == [
+        ".axiom/encoding-manifests/us/statutes/7/2015/f.json"
+    ]
+    with patch(
+        "axiom_encode.cli._load_verified_applied_encoding_manifest_payload",
+        return_value=(payload, "", _sha256_file(manifest), []),
+    ):
+        coverage = _manifest_coverage_by_file(
+            repo,
+            [manifest.relative_to(repo).as_posix()],
+            expected_encoder_identity={},
+        )
+        with (
+            patch("axiom_encode.cli.load_rulespec_toolchain"),
+            patch(
+                "axiom_encode.cli.verify_rulespec_validation_waiver_set",
+                return_value="c" * 64,
+            ),
+            patch(
+                "axiom_encode.cli.load_rulespec_local_corpus_release",
+                return_value=object(),
+            ),
+            patch(
+                "axiom_encode.cli._read_only_guard_encoder_execution_identity",
+                return_value={},
+            ),
+            patch(
+                "axiom_encode.cli._load_applied_encoding_manifest_entries",
+                return_value=(
+                    {
+                        "us/statutes/7/2015/f.yaml": {_sha256_file(rule)},
+                        "us/statutes/7/2015/f.test.yaml": {
+                            _sha256_file(companion)
+                        },
+                    },
+                    [],
+                ),
+            ),
+        ):
+            guard_issues = guard_generated_change_issues(
+                repo,
+                corpus_path=args.corpus_path,
+                changed_files=[
+                    "us/statutes/7/2015/f.yaml",
+                    "us/statutes/7/2015/f.test.yaml",
+                    manifest.relative_to(repo).as_posix(),
+                ],
+            )
+    assert coverage["us/statutes/7/2015/f.yaml"][0]["is_generated"] is True
+    assert coverage["us/statutes/7/2015/f.test.yaml"][0]["is_generated"] is True
+    assert guard_issues == []
+    assert "promoted reviewed candidate" in capsys.readouterr().out
+
+
+def test_promote_reviewed_candidate_rejects_unallowlisted_ref(tmp_path):
+    repo = tmp_path / "rulespec-us"
+    _init_test_git_repo(repo)
+    subprocess.run(
+        ["git", "commit", "--allow-empty", "-m", "empty reviewed head"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    reviewed_ref = _git(repo, "rev-parse", "HEAD").stdout.strip()
+    args = SimpleNamespace(
+        repo=repo,
+        axiom_rules_path=tmp_path,
+        corpus_path=tmp_path,
+        rulespec_dependency_root=[],
+        rulespec_path="us/statutes/7/2015/f.yaml",
+        citation="us/statute/7/2015/f",
+        reviewed_rulespec_ref=reviewed_ref,
+        run_id=None,
+    )
+
+    with (
+        patch(
+            "axiom_encode.prepare_signed_backfill.REVIEWED_RULESPEC_REFS",
+            frozenset(),
+        ),
+        pytest.raises(ValueError, match="not explicitly allowlisted"),
+    ):
+        cmd_promote_reviewed_candidate(args)
+
+
 def test_apply_manifest_environment_public_key_cannot_replace_protected_broker(
     monkeypatch,
 ):
@@ -2328,6 +2535,31 @@ def _complete_source_attestation(
         "source_as_of": "2026-01-01",
         "expression_date": "2026-01-01",
     }
+
+
+def _write_test_context_manifest(
+    root: Path,
+    *,
+    citation_path: str = "us/statute/26/1",
+    source_sha256: str = "a" * 64,
+) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "source.txt").write_text("test source\n")
+    manifest = root / "context-manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "source_text_file": "source.txt",
+                "source_metadata": {
+                    "source_attestation": _complete_source_attestation(
+                        citation_path,
+                        source_sha256=source_sha256,
+                    )
+                },
+            }
+        )
+    )
+    return manifest
 
 
 def _write_v4_model_manifest(
@@ -43760,6 +43992,33 @@ rules: []
         assert any("cannot be read: permission denied" in issue for issue in issues)
         assert any("is missing source_attestation" in issue for issue in issues)
 
+    def test_reviewed_candidate_requires_source_verification_and_attestation(
+        self, tmp_path
+    ):
+        rule = tmp_path / "us/statutes/26/1.yaml"
+        rule.parent.mkdir(parents=True)
+        rule.write_text("format: rulespec/v1\nmodule: {}\nrules: []\n")
+        payload = {
+            "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+            "tool": APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
+            "applied_files": [
+                {
+                    "path": "us/statutes/26/1.yaml",
+                    "sha256": _sha256_file(rule),
+                }
+            ],
+        }
+
+        issues = _applied_manifest_source_attestation_issues(
+            payload,
+            repo_path=tmp_path,
+            root_prefix="",
+            manifest_label=".axiom/encoding-manifests/us/statutes/26/1.json",
+        )
+
+        assert any("is missing module.source_verification" in issue for issue in issues)
+        assert any("is missing source_attestation" in issue for issue in issues)
+
     def test_rejects_model_manifest_with_single_item_plural_locator(self, tmp_path):
         rule = tmp_path / "us/statutes/26/1.yaml"
         rule.parent.mkdir(parents=True)
@@ -46167,6 +46426,141 @@ rules:
         ]
         assert supplemental == {}
         assert generated.read_text() == malformed
+
+    def test_reviewed_candidate_promotion_preserves_exact_rulespec_bytes(
+        self, tmp_path
+    ):
+        citation = "us/regulation/7/273/4"
+        source_sha256 = "d" * 64
+        output_file = tmp_path / "4.yaml"
+        original = (
+            "# reviewed formatting must survive signing\n"
+            "format: 'rulespec/v1'\n"
+            "module:\n"
+            "  source_verification:\n"
+            f"    corpus_citation_path: '{citation}'\n"
+            f"    source_sha256: '{source_sha256}'\n"
+            "rules: []\n"
+        ).encode()
+        output_file.write_bytes(original)
+        context_manifest = _write_test_context_manifest(
+            tmp_path / "context",
+            citation_path=citation,
+            source_sha256=source_sha256,
+        )
+        result = SimpleNamespace(
+            backend="openai",
+            tool=APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
+            citation=citation,
+            runner="reviewed-candidate",
+            model="reviewed-candidate-promotion-v1",
+            generation_prompt_sha256=None,
+            context_manifest_file=str(context_manifest),
+            source_attestation=_complete_source_attestation(
+                citation,
+                source_sha256=source_sha256,
+            ),
+        )
+        setattr(result, _REVIEWED_CANDIDATE_PROMOTION_ATTR, True)
+
+        _stamp_generated_source_attestation_for_apply(result, output_file)
+
+        assert output_file.read_bytes() == original
+        assert _apply_result_metadata(result)["tool"] == (
+            APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL
+        )
+
+    def test_reviewed_candidate_promotion_runs_real_overlay_without_rewriting(
+        self, tmp_path
+    ):
+        citation = "us/regulation/7/273/4"
+        source_sha256 = "d" * 64
+        output_root = tmp_path / "out"
+        policy_repo = tmp_path / "rulespec-us" / "us"
+        relative = Path("regulations/7-cfr/273/4.yaml")
+        generated = output_root / "reviewed-candidate" / relative
+        policy_repo.mkdir(parents=True)
+        generated.parent.mkdir(parents=True)
+        original = (
+            "# exact reviewed candidate\n"
+            "format: 'rulespec/v1'\n"
+            "module:\n"
+            "  source_verification:\n"
+            f"    corpus_citation_path: '{citation}'\n"
+            f"    source_sha256: '{source_sha256}'\n"
+            "rules: []\n"
+        ).encode()
+        generated.write_bytes(original)
+        generated_companion = _rulespec_test_path(generated)
+        companion_original = (
+            '- name: "caf\\u00e9 reviewed case"\n'
+            "  period: 2026-01\n"
+            "  input: {}\n"
+            "  output: {}\n"
+        ).encode()
+        generated_companion.write_bytes(companion_original)
+        context_manifest = _write_test_context_manifest(
+            tmp_path / "context",
+            citation_path=citation,
+            source_sha256=source_sha256,
+        )
+        result = SimpleNamespace(
+            output_file=str(generated),
+            runner="reviewed-candidate",
+            backend="openai",
+            model="reviewed-candidate-promotion-v1",
+            tool=APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
+            citation=citation,
+            generation_prompt_sha256=None,
+            trace_file=None,
+            context_manifest_file=str(context_manifest),
+            source_attestation=_complete_source_attestation(
+                citation,
+                source_sha256=source_sha256,
+            ),
+        )
+        setattr(result, _REVIEWED_CANDIDATE_PROMOTION_ATTR, True)
+        setattr(
+            result,
+            _IMMUTABLE_RULESPEC_SHA256_ATTR,
+            hashlib.sha256(original).hexdigest(),
+        )
+
+        validation = SimpleNamespace(all_passed=True, results={})
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", MagicMock()),
+            patch(
+                "axiom_encode.cli._validate_overlay_files",
+                return_value=[(generated, validation)],
+            ),
+            patch("axiom_encode.cli._record_successful_apply_validation") as record,
+        ):
+            ok, issues, supplemental = (
+                _validate_generated_encoding_in_policy_overlay(
+                    result,
+                    output_root=output_root,
+                    policy_repo_path=policy_repo,
+                    axiom_rules_path=tmp_path / "axiom-rules-engine",
+                    local_corpus_release=MagicMock(),
+                    validate_dependents=False,
+                )
+            )
+
+        assert ok is True, issues
+        assert issues == []
+        assert supplemental == {}
+        assert generated.read_bytes() == original
+        assert generated_companion.read_bytes() == companion_original
+        record.assert_called_once()
+
+    def test_reviewed_candidate_tool_requires_explicit_promotion_mode(self):
+        result = SimpleNamespace(
+            backend="openai",
+            tool=APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
+        )
+
+        with pytest.raises(RuntimeError, match="validated apply mode"):
+            _apply_result_metadata(result)
 
     def test_apply_overlay_reports_batch009_flow_mapping_parser_failure(
         self, monkeypatch, tmp_path

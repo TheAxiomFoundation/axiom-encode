@@ -2130,7 +2130,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert inputs["source_bundle_json"] == {
         "description": (
             "JSON citation array, canonical_refresh_bundle object, or "
-            "atomic-source-transaction/v2/v3/v4 envelope for an independent refresh "
+                "atomic-source-transaction/v2/v3/v4/v5 envelope for an independent refresh "
             "transaction"
         ),
         "required": False,
@@ -3006,6 +3006,26 @@ def test_targeted_reencode_defaults_legacy_manifest_refresh_mode_to_false() -> N
     )
 
     assert completed.stdout == "false\n"
+
+
+def test_targeted_reencode_has_fail_closed_reviewed_candidate_promotion() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    command = next(
+        step["run"]
+        for step in workflow["jobs"]["encode"]["steps"]
+        if step.get("name") == "Encode, review, validate, and apply"
+    )
+
+    assert "reviewed_candidate_promotion" in command
+    assert "promote-reviewed-candidate" in command
+    assert '--reviewed-rulespec-ref "$RULESPEC_REF"' in command
+    assert '--rulespec-path "$REPLACE_RULESPEC_PATH"' in command
+    assert "cannot mix with other transaction modes" in command
+    assert command.index("promote-reviewed-candidate") < command.index(
+        'elif [ "$canonical_refresh_enabled" = "true" ]'
+    )
 
 
 def test_targeted_reencode_extracts_false_complete_source_scope() -> None:
