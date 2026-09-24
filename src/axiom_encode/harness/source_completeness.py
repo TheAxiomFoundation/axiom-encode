@@ -29248,7 +29248,7 @@ def _resolved_imported_parameter_rules(
     *,
     imported_symbol_contents: Sequence[tuple[str, str]],
 ) -> dict[str, dict[str, Any]]:
-    """Use only unambiguous directly resolved parameter exports, never case values."""
+    """Corroborate literal parameters or fixed table cells, never case values."""
 
     imports = payload.get("imports")
     if not isinstance(imports, list):
@@ -29300,7 +29300,7 @@ def _resolved_imported_parameter_rules(
             if not isinstance(versions, list) or not versions:
                 continue
             # Provider-local names must never resolve in the consumer namespace.
-            # This bounded path admits literal numeric parameters only.
+            # Closed table exports have already been reduced to a literal cell.
             if not all(
                 isinstance(version, dict)
                 and _imported_parameter_formula_is_numeric_literal(
