@@ -36,6 +36,7 @@ LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V4 = "axiom-encode/legacy-fresh-reencode-recei
 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5 = "axiom-encode/legacy-fresh-reencode-receipt/v5"
 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6 = "axiom-encode/legacy-fresh-reencode-receipt/v6"
 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7 = "axiom-encode/legacy-fresh-reencode-receipt/v7"
+LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8 = "axiom-encode/legacy-fresh-reencode-receipt/v8"
 LEGACY_EXACT_DEPENDENT_TOOL = (
     "axiom-encode encode --apply --legacy-exact-dependent-rulespec-path"
 )
@@ -2440,7 +2441,10 @@ def _validate_legacy_exact_dependents(
         replacement_source_raw
     )
     retained_modules: list[tuple[Path, Path, bytes, bytes]] = []
-    if receipt_schema == LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7:
+    if receipt_schema in {
+        LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+        LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
+    }:
         raw_successors = receipt_replacement.get("retained_successors")
         if not isinstance(raw_successors, list):
             raise ValueError("legacy replacement retained successors are malformed")
@@ -2479,9 +2483,13 @@ def _validate_legacy_exact_dependents(
             LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
             LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
             LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+            LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
         }:
             expected_dependent_fields.add("source_verification_migration")
-        if receipt_schema == LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7:
+        if receipt_schema in {
+            LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+            LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
+        }:
             expected_dependent_fields.add("concept_replacements")
         if (
             not isinstance(raw_dependent, dict)
@@ -2495,6 +2503,7 @@ def _validate_legacy_exact_dependents(
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
             }
             else None
         )
@@ -2616,6 +2625,7 @@ def _validate_legacy_exact_dependents(
             LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
             LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
             LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+            LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
         }:
             _unused_primary, source_verification_migration = (
                 migrate_legacy_exact_dependent_source_verification(
@@ -2657,7 +2667,10 @@ def _validate_legacy_exact_dependents(
             raise ValueError(f"{label}.rewrites is malformed")
         exact_authoritative_replacements = authoritative_replacements
         exact_concept_replacements: dict[str, str] = {}
-        if receipt_schema == LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7:
+        if receipt_schema in {
+            LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+            LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
+        }:
             derived_concepts = derive_exact_dependent_parameter_replacements(
                 dependent_primary_raw=base_by_path[primary],
                 retained_modules=retained_modules,
@@ -2686,6 +2699,7 @@ def _validate_legacy_exact_dependents(
             if receipt_schema in {
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
             }:
                 expected_rewrite_fields.add("proof_excerpt_reanchors")
             if not isinstance(rewrite, dict) or set(rewrite) != expected_rewrite_fields:
@@ -2714,6 +2728,7 @@ def _validate_legacy_exact_dependents(
                     in {
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                        LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
                     }
                     and not isinstance(rewrite.get("proof_excerpt_reanchors"), list)
                 )
@@ -2753,6 +2768,7 @@ def _validate_legacy_exact_dependents(
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                        LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
                     }:
                         expected_live, observed_source_migration = (
                             migrate_legacy_exact_dependent_source_verification(
@@ -2770,6 +2786,7 @@ def _validate_legacy_exact_dependents(
                     if receipt_schema in {
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                        LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
                     }:
                         if corpus_release is None:
                             raise ValueError(
@@ -2805,6 +2822,7 @@ def _validate_legacy_exact_dependents(
                     in {
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                        LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
                     }
                     and rewrite["proof_excerpt_reanchors"]
                 ):
@@ -2834,6 +2852,7 @@ def _validate_legacy_exact_dependents(
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
             }
             and primary not in rewrite_paths
             and source_verification_migration is not None
@@ -3082,6 +3101,7 @@ def authorized_changed_paths(
                     LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                     LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                     LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                    LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
                 }
                 or receipt.get("tool") != LEGACY_REPLACEMENT_TOOL
             ):
@@ -3157,6 +3177,7 @@ def authorized_changed_paths(
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
             }:
                 if not isinstance(retained_successors, list) or not isinstance(
                     metadata_reconciliations, list
@@ -3189,6 +3210,7 @@ def authorized_changed_paths(
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
             }:
                 identity_deleted_files.extend(
                     {"path": item.get("path"), "deleted": True}
@@ -3237,6 +3259,7 @@ def authorized_changed_paths(
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                        LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
                     }
                     else None
                 ),
@@ -3249,6 +3272,7 @@ def authorized_changed_paths(
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                        LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
                     }
                     else None
                 ),
@@ -3261,6 +3285,7 @@ def authorized_changed_paths(
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                        LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
                     }
                     else None
                 ),
@@ -3272,6 +3297,7 @@ def authorized_changed_paths(
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                        LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
                     }
                     else None
                 ),
@@ -3283,6 +3309,7 @@ def authorized_changed_paths(
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                         LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                        LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
                     }
                     else None
                 ),
@@ -3297,6 +3324,7 @@ def authorized_changed_paths(
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
             } and (
                 not isinstance(
                     receipt_replacement.get("destination_predecessor_class"), str
@@ -3352,6 +3380,7 @@ def authorized_changed_paths(
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
             }:
                 predecessor_issues = _legacy_destination_predecessor_issues(
                     repo,
@@ -3445,10 +3474,20 @@ def authorized_changed_paths(
                 for old, new in authoritative_replacements.items()
                 if old.endswith(".yaml") and not old.endswith(".test.yaml")
             ]
+            in_place_waiver_modules = (
+                frozenset({str(receipt_replacement["source"])})
+                if receipt_schema == LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8
+                and receipt_replacement.get("source")
+                == receipt_replacement.get("destination")
+                else frozenset()
+            )
             exact_metadata_manifest_paths: set[str] = set()
             exact_metadata_retired_schema_modules: set[str] = set()
             exact_metadata_reindexed_modules: dict[str, bytes] = {}
-            if receipt_schema == LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7:
+            if receipt_schema in {
+                LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
+            }:
                 assert isinstance(exact_dependents, list)
                 for index, dependent in enumerate(exact_dependents):
                     label = f"{relative} exact_dependents[{index}]"
@@ -3504,6 +3543,7 @@ def authorized_changed_paths(
                         Path("known-validation-gaps.yaml"),
                         base_waiver_raw,
                         moves=primary_moves,
+                        in_place_waiver_modules=in_place_waiver_modules,
                     )
                 )
                 post_migration_waiver_sha256 = hashlib.sha256(
@@ -3512,7 +3552,10 @@ def authorized_changed_paths(
             except (subprocess.CalledProcessError, ValueError):
                 pass
             retired_schema_count_transition: tuple[int, int] | None = None
-            if receipt_schema == LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7:
+            if receipt_schema in {
+                LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
+            }:
                 try:
                     base_retired_freeze_raw = _git_quiet(
                         repo,
@@ -3524,6 +3567,7 @@ def authorized_changed_paths(
                             Path(".axiom/retired-schema-freeze.json"),
                             base_retired_freeze_raw,
                             moves=primary_moves,
+                            in_place_waiver_modules=in_place_waiver_modules,
                             retired_schema_modules=frozenset(
                                 exact_metadata_retired_schema_modules
                             ),
@@ -3549,6 +3593,16 @@ def authorized_changed_paths(
                 nested=nested_manifest,
                 moves=primary_moves,
             )
+            allowed_metadata_paths = (
+                frozenset(
+                    {
+                        PurePosixPath("known-validation-gaps.yaml"),
+                        PurePosixPath(".axiom/toolchain.toml"),
+                    }
+                )
+                if in_place_waiver_modules and not primary_moves
+                else LEGACY_REPLACEMENT_METADATA_PATHS
+            )
             metadata_paths: set[PurePosixPath] = set()
             for index, reconciliation in enumerate(metadata_reconciliations):
                 if not isinstance(reconciliation, dict) or set(reconciliation) != {
@@ -3565,7 +3619,7 @@ def authorized_changed_paths(
                     label=f"{relative} metadata_reconciliations[{index}].path",
                 )
                 if (
-                    metadata_path not in LEGACY_REPLACEMENT_METADATA_PATHS
+                    metadata_path not in allowed_metadata_paths
                     or metadata_path in metadata_paths
                 ):
                     raise ValueError(
@@ -3584,6 +3638,7 @@ def authorized_changed_paths(
                             Path(metadata_path),
                             base_raw,
                             moves=primary_moves,
+                            in_place_waiver_modules=in_place_waiver_modules,
                             validation_waiver_set_sha256=(post_migration_waiver_sha256),
                             retired_manifest_paths=frozenset(
                                 exact_metadata_manifest_paths
@@ -3615,7 +3670,7 @@ def authorized_changed_paths(
                     )
                 metadata_paths.add(metadata_path)
             expected_metadata_paths: set[PurePosixPath] = set()
-            for metadata_path in LEGACY_REPLACEMENT_METADATA_PATHS:
+            for metadata_path in allowed_metadata_paths:
                 try:
                     base_raw = _git_quiet(
                         repo,
@@ -3630,6 +3685,7 @@ def authorized_changed_paths(
                             Path(metadata_path),
                             base_raw,
                             moves=primary_moves,
+                            in_place_waiver_modules=in_place_waiver_modules,
                             validation_waiver_set_sha256=(post_migration_waiver_sha256),
                             retired_manifest_paths=frozenset(
                                 exact_metadata_manifest_paths
@@ -3987,6 +4043,7 @@ def authorized_changed_paths(
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
                 LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+                LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V8,
             }:
                 exact_unchanged_claims = _validate_legacy_exact_dependents(
                     repo,

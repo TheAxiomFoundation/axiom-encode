@@ -16565,12 +16565,16 @@ rules:
             "manifest_identity",
             "deleted_inventory",
             "unchanged_companion",
+            "omitted_waiver_cleanup",
+            "extra_waiver_removal",
         ],
     )
+    @pytest.mark.parametrize("has_target_waiver", [False, True])
     def test_apply_freshly_replaces_untrusted_v1_at_same_canonical_path(
         self,
         tmp_path,
         publication_mutation,
+        has_target_waiver,
     ):
         from axiom_encode.cli import _resolve_legacy_replacement_contract
         from axiom_encode.toolchain import load_rulespec_local_corpus_release
@@ -16632,6 +16636,39 @@ rules:
             citation_path="us-me/guidance/revenue/rate-schedule",
             source_text=source_text,
         )
+        if has_target_waiver:
+            waiver = checkout / "known-validation-gaps.yaml"
+            expiry = (date.today() + timedelta(days=30)).isoformat()
+            waiver.write_text(
+                "validate_failures:\n"
+                f"  {checkout_relative.as_posix()}:\n"
+                "    active:\n"
+                f"      fingerprint: sha256:{'a' * 64}\n"
+                "      owner: '@axiom-test'\n"
+                "      issue: https://github.com/TheAxiomFoundation/axiom-encode/issues/1\n"
+                f"      expires: '{expiry}'\n"
+            )
+            if publication_mutation == "extra_waiver_removal":
+                with waiver.open("a") as stream:
+                    stream.write(
+                        "  us-me/policies/unrelated.yaml:\n    active:\n"
+                        f"      fingerprint: sha256:{'b' * 64}\n"
+                        "      owner: '@axiom-test'\n"
+                        "      issue: https://github.com/TheAxiomFoundation/axiom-encode/issues/1\n"
+                        f"      expires: '{expiry}'\n"
+                    )
+            toolchain = checkout / ".axiom/toolchain.toml"
+            toolchain.write_text(
+                re.sub(
+                    r'validation_waiver_set_sha256 = "[0-9a-f]{64}"',
+                    f'validation_waiver_set_sha256 = "{hashlib.sha256(waiver.read_bytes()).hexdigest()}"',
+                    toolchain.read_text(),
+                )
+            )
+        if has_target_waiver:
+            unrelated_index = checkout / ".axiom/index/provisions_to_rules.json"
+            unrelated_index.parent.mkdir(parents=True, exist_ok=True)
+            unrelated_index.write_text('{"unrelated": []}')
         _git(checkout, "init", "-b", "main")
         _git(checkout, "config", "user.email", "test@example.com")
         _git(checkout, "config", "user.name", "Test User")
@@ -16785,6 +16822,11 @@ rules:
         assert {item["path"] for item in outer["applied_files"]} == {
             target.relative_to(checkout).as_posix(),
             target_test.relative_to(checkout).as_posix(),
+            *(
+                {"known-validation-gaps.yaml", ".axiom/toolchain.toml"}
+                if has_target_waiver
+                else set()
+            ),
         }
         receipt = json.loads(
             (checkout / outer["replacement"]["receipt_path"]).read_text()
@@ -16807,7 +16849,9 @@ rules:
                 checkout,
                 manifest.relative_to(checkout).as_posix(),
                 signing_broker=TEST_APPLY_SIGNING_BROKER,
-                expected_waiver_set_sha256=TEST_VALIDATION_WAIVER_SHA256,
+                expected_waiver_set_sha256=hashlib.sha256(
+                    (checkout / "known-validation-gaps.yaml").read_bytes()
+                ).hexdigest(),
                 expected_encoder_identity=TEST_PINNED_ENCODER_IDENTITY,
                 local_corpus_release=release,
             )
@@ -16816,6 +16860,112 @@ rules:
         assert verified == outer
 
         from axiom_encode.prepare_signed_backfill import stage_authorized_changes
+
+        if publication_mutation in {"omitted_waiver_cleanup", "extra_waiver_removal"}:
+            if not has_target_waiver:
+                return
+            from axiom_encode.legacy_replacement import (
+                receipt_identity_payload,
+                receipt_identity_sha256,
+            )
+
+            old_receipt_path = checkout / outer["replacement"]["receipt_path"]
+            metadata_paths = {"known-validation-gaps.yaml", ".axiom/toolchain.toml"}
+            if publication_mutation == "omitted_waiver_cleanup":
+                for path in metadata_paths:
+                    (checkout / path).write_text(
+                        _git(checkout, "show", f"HEAD:{path}").stdout
+                    )
+                receipt["replacement"]["metadata_reconciliations"] = []
+                outer["applied_files"] = [
+                    item
+                    for item in outer["applied_files"]
+                    if item["path"] not in metadata_paths
+                ]
+            else:
+                (checkout / "known-validation-gaps.yaml").write_text(
+                    "validate_failures: {}\n"
+                )
+                digest = hashlib.sha256(
+                    (checkout / "known-validation-gaps.yaml").read_bytes()
+                ).hexdigest()
+                toolchain = checkout / ".axiom/toolchain.toml"
+                toolchain.write_text(
+                    re.sub(
+                        r'validation_waiver_set_sha256 = "[0-9a-f]{64}"',
+                        f'validation_waiver_set_sha256 = "{digest}"',
+                        toolchain.read_text(),
+                    )
+                )
+                for entry in receipt["replacement"]["metadata_reconciliations"]:
+                    entry["after_sha256"] = hashlib.sha256(
+                        (checkout / entry["path"]).read_bytes()
+                    ).hexdigest()
+                    if entry["path"] == "known-validation-gaps.yaml":
+                        entry["operations"][0]["count"] = 2
+                for entry in outer["applied_files"]:
+                    if entry["path"] in metadata_paths:
+                        entry["sha256"] = hashlib.sha256(
+                            (checkout / entry["path"]).read_bytes()
+                        ).hexdigest()
+            old_digest = hashlib.sha256(
+                (checkout / "known-validation-gaps.yaml").read_bytes()
+            ).hexdigest()
+            receipt["validation_waiver_set_sha256"] = old_digest
+            replacement = receipt["replacement"]
+            identity = receipt_identity_payload(
+                base_commit=receipt["repository"]["base_commit"],
+                base_tree=receipt["repository"]["base_tree"],
+                legacy_manifest_sha256=receipt["legacy"]["manifest"]["sha256"],
+                model_manifest_sha256=replacement["model_manifest_sha256"],
+                live_files=replacement["live_files"],
+                deleted_files=[],
+                rewrites=replacement["rewrites"],
+                scheduled_dependents=replacement["scheduled_dependents"],
+                exact_dependents=replacement["exact_dependents"],
+                destination_predecessor_class=replacement[
+                    "destination_predecessor_class"
+                ],
+                destination_predecessor_files=replacement[
+                    "destination_predecessor_files"
+                ],
+                retained_successors=replacement["retained_successors"],
+                metadata_reconciliations=replacement["metadata_reconciliations"],
+            )
+            receipt_path = old_receipt_path.with_name(
+                receipt_identity_sha256(identity) + ".json"
+            )
+            _sign_applied_encoding_manifest(receipt, TEST_APPLY_SIGNING_BROKER)
+            old_receipt_path.unlink()
+            receipt_path.write_text(json.dumps(receipt) + "\n")
+            outer["replacement"]["receipt_path"] = receipt_path.relative_to(
+                checkout
+            ).as_posix()
+            outer["replacement"]["receipt_sha256"] = hashlib.sha256(
+                receipt_path.read_bytes()
+            ).hexdigest()
+            outer["validation_waiver_set_sha256"] = old_digest
+            _sign_applied_encoding_manifest(outer, TEST_APPLY_SIGNING_BROKER)
+            manifest.write_text(json.dumps(outer) + "\n")
+            _verified, _root, _digest, rejected = (
+                _load_verified_applied_encoding_manifest_payload(
+                    checkout,
+                    manifest.relative_to(checkout).as_posix(),
+                    signing_broker=TEST_APPLY_SIGNING_BROKER,
+                    expected_waiver_set_sha256=old_digest,
+                    expected_encoder_identity=TEST_PINNED_ENCODER_IDENTITY,
+                    local_corpus_release=release,
+                )
+            )
+            expected_issue = (
+                "metadata reconciliation inventory is not exact"
+                if publication_mutation == "omitted_waiver_cleanup"
+                else "metadata reconciliation proof is stale"
+            )
+            assert any(expected_issue in issue for issue in rejected), rejected
+            with pytest.raises(ValueError, match="metadata reconciliation"):
+                stage_authorized_changes(checkout)
+            return
 
         if publication_mutation in {"rulespec", "companion"}:
             changed_file = target if publication_mutation == "rulespec" else target_test
@@ -16844,7 +16994,11 @@ rules:
             path.relative_to(checkout).as_posix()
             for path in applied
             if publication_mutation != "unchanged_companion" or path != target_test
-        }
+        } | (
+            {"known-validation-gaps.yaml", ".axiom/toolchain.toml"}
+            if has_target_waiver
+            else set()
+        )
 
     @pytest.mark.parametrize("dependent_owner", ["manual", "generated"])
     def test_apply_atomically_migrates_exact_legacy_dependent(
