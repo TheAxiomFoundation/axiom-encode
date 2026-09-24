@@ -57,7 +57,10 @@ from axiom_oracles.bridges.registry import (
     load_policyengine_registry,
 )
 
-from axiom_encode.codex_cli import resolve_codex_cli
+from axiom_encode.codex_cli import (
+    resolve_codex_cli,
+    with_codex_model_availability_hint,
+)
 from axiom_encode.concepts.jurisdiction import jurisdiction_prefix
 from axiom_encode.constants import (
     DEFAULT_OPENAI_MODEL,
@@ -603,7 +606,11 @@ def _extract_codex_text_output(output: str) -> str:
         elif payload_type == "error":
             last_error = payload.get("message") or "codex exec error"
 
-    return "\n".join(assistant_messages).strip() or last_error or output
+    return (
+        "\n".join(assistant_messages).strip()
+        or with_codex_model_availability_hint(last_error)
+        or output
+    )
 
 
 _REVIEW_JSON_KEYS = {

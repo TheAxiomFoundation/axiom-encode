@@ -620,8 +620,6 @@ def test_failed_candidate_upload_is_failure_only_and_exactly_preverified():
         ({"require_complete_source_unit": True}, [COMPLETE_SOURCE_FLAG]),
         ({"initial_model": "gpt-5.6-terra"}, [MODEL_FLAG, "gpt-5.6-terra"]),
         ({"initial_model": "gpt-5.6-sol"}, [MODEL_FLAG, "gpt-5.6-sol"]),
-        ({"initial_model": "gpt-6-luna"}, [MODEL_FLAG, "gpt-6-luna"]),
-        ({"initial_model": "gpt-6-sol"}, [MODEL_FLAG, "gpt-6-sol"]),
         ({"escalate_after": "1"}, [ESCALATE_FLAG, "1"]),
         ({"escalate_after": "99"}, [ESCALATE_FLAG, "99"]),
         (

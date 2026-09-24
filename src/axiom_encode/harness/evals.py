@@ -32,7 +32,10 @@ from axiom_oracles.bridges.registry import load_policyengine_registry
 
 from axiom_encode import __version__
 from axiom_encode import corpus_resolver as _corpus_resolver
-from axiom_encode.codex_cli import resolve_codex_cli
+from axiom_encode.codex_cli import (
+    resolve_codex_cli,
+    with_codex_model_availability_hint,
+)
 from axiom_encode.concepts.jurisdiction import jurisdiction_prefix
 from axiom_encode.concepts.registry import (
     Concept,
@@ -14876,6 +14879,7 @@ def _run_codex_prompt_eval(
         and not ((terminated_after_output and final_text) or (timed_out and final_text))
     ):
         error = (stdout_text + stderr_text).strip() or "Codex eval failed"
+    error = with_codex_model_availability_hint(error)
 
     return EvalPromptResponse(
         text=final_text,
