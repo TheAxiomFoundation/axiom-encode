@@ -238,8 +238,9 @@ def parse_record(raw: bytes) -> dict | None:
         if not ordered_strings(prompts) or not all(digest(p) for p in prompts):
             return None
         sampling = body["sampling"]
-        if not fields(sampling, {"temperature", "seed"}) or not _decimal(
-            sampling["temperature"]
+        if not fields(sampling, {"temperature", "seed"}) or (
+            sampling["temperature"] is not None
+            and not _decimal(sampling["temperature"])
         ):
             return None
         if sampling["seed"] is not None and not _decimal(

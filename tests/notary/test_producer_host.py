@@ -8,7 +8,7 @@ from cryptography.hazmat.primitives import serialization
 from axiom_encode.notary.canonical import jcs_dumps, strict_parse
 from axiom_encode.notary.identity import IdentityRefusal
 from axiom_encode.notary.lineage import STORE_PREFIX
-from axiom_encode.notary.producer_host import ProducerHost
+from axiom_encode.notary.producer_host import ProducerHost, parse_config
 from axiom_encode.notary.producers import Enrollment
 from axiom_encode.notary.signer import _signed_sidecar
 from axiom_encode.notary.verification import verify_snapshots
@@ -18,6 +18,36 @@ from .test_producers import submission as _submission_fixture
 from .test_verification import snapshot
 
 submission = _submission_fixture
+
+
+def test_deterministic_configuration_needs_no_sampling_metadata(submission):
+    epoch, _, _, _ = submission
+    config = {
+        "schema": "axiom/supervised-deterministic-producer-host/v1",
+        "lane": epoch.anchor.lane,
+        "content_branch": "main",
+        "epoch_sha256": epoch.anchor.epoch_sha256,
+        "notary_spki_sha256": "a" * 64,
+        "producer_key_file": "/opt/axiom/producer.pem",
+        "actor_key_file": "/opt/axiom/actor.pem",
+        "state_directory": "/opt/axiom/state",
+        "socket_path": "/opt/axiom/service.sock",
+        "socket_gid": 1001,
+        "operators": [{"uid": 1002, "github_user_id": "123"}],
+        "encoder_identity": {},
+        "dependency_inventory": strict_parse(epoch.inventory),
+        "python": "/opt/axiom/runtime/bin/python3",
+        "worker_uid": 1003,
+        "worker_gid": 1003,
+        "generator_root": "/opt/axiom/generator",
+        "input_root": "/opt/axiom/inputs",
+        "runtime_root": "/opt/axiom/runtime",
+        "timeout_seconds": 60,
+    }
+    assert parse_config(jcs_dumps(config))["runtime_kind"] == "deterministic"
+    config["sampling"] = {"temperature": None, "seed": None}
+    with pytest.raises(IdentityRefusal, match="configuration"):
+        parse_config(jcs_dumps(config))
 
 
 @pytest.fixture
@@ -34,7 +64,7 @@ def host(tmp_path, submission, monkeypatch):
         "state_directory": str(tmp_path / "state"),
         "lane": epoch.anchor.lane,
         "epoch_sha256": epoch.anchor.epoch_sha256,
-        "sampling": {"temperature": "0.5", "seed": None},
+        "sampling": {"temperature": None, "seed": None},
         "references": {"oracles": [], "reference_data": []},
     }
     for role in ("producer", "actor"):
@@ -161,3 +191,29 @@ def test_correction_of_unmerged_generation_preserves_both_records(host, submissi
     assert report["schema"] == "axiom/notary-report-pass/v1"
     assert len(report["eligible_records"]) == 2
     assert host.calls == ["1" * 32]
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        None,
+        {},
+        {"temperature": "0.5", "seed": None},
+        {"temperature": None, "seed": "42"},
+        {"temperature": None, "seed": None, "top_p": None},
+    ],
+)
+def test_codex_sampling_refuses_invented_or_open_metadata(value):
+    from axiom_encode.notary.producer_host import codex_sampling_metadata
+
+    with pytest.raises(IdentityRefusal, match="sampling_not_exposed"):
+        codex_sampling_metadata(value)
+
+
+def test_codex_sampling_records_unexposed_parameters_explicitly():
+    from axiom_encode.notary.producer_host import codex_sampling_metadata
+
+    assert codex_sampling_metadata({"temperature": None, "seed": None}) == {
+        "temperature": None,
+        "seed": None,
+    }
