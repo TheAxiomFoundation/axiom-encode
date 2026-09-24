@@ -549,7 +549,10 @@ jobs:
              [ -n "$REPLACE_LEGACY_RULESPEC_PATH" ] || \
              [ -n "$LEGACY_EXACT_DEPENDENT_RULESPEC_PATH" ] || \
              [ -n "$SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH" ] || \
-             [ -n "$SECOND_DEPENDENT_CITATION" ] || \
+             { [ -n "$SECOND_DEPENDENT_CITATION" ] && {
+                 [ -z "$DEPENDENT_CITATION" ] || \
+                 [ "$source_bundle_json" != "[]" ] || \
+                 [ "$primary_required_test_cases_json" != "[]" ]; }; } || \
              [ -n "$QUEUE_ID" ] || \
              ! jq -e 'type == "array" and length == 0' \
                <<< "$canonical_refresh_bundle_json" > /dev/null || \
@@ -561,7 +564,7 @@ jobs:
              ! jq -e 'type == "array" and length == 0' \
                <<< "${LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON:-[]}" \
                > /dev/null; then
-            echo "repair replay is limited to one non-legacy target and at most one direct dependent, with at most one exact source or test bundle, artifact-bound imports, and without refreshes, second dependents, or queue authorization" >&2
+            echo "repair replay is limited to one non-legacy target and at most two fresh direct dependents, with at most one exact source or test bundle, artifact-bound imports, and without refreshes or queue authorization" >&2
             exit 1
           fi
 
@@ -623,23 +626,59 @@ jobs:
             --dir "$repair_download"
           repair_archive="$repair_download/targeted-reencode-failure.tar"
           test -f "$repair_archive" && test ! -L "$repair_archive"
-          axiom-encode/.venv/bin/python axiom-encode/scripts/extract_repair_candidate.py \
-            "$repair_archive" "$RUNNER_TEMP/repair-candidate" \
-            --citation "$repair_citation" \
-            --country "$COUNTRY" \
-            --encoder-commit "$repair_encoder_commit" \
-            --corpus-ref "$CORPUS_REF" \
-            --rules-engine-ref "$RULES_ENGINE_REF" \
-            --rulespec-ref "$RULESPEC_REF" \
-            --allow-rulespec-base-advance \
-            --atomic-source-json "$ATOMIC_SOURCE_JSON" \
-            --existing-signed-imports-json "${EXISTING_SIGNED_IMPORTS_JSON:-[]}" \
-            --repair-lane "$REPAIR_RUN_LANE" \
-            --replace-rulespec-path "$repair_rulespec_path" \
-            --transaction-citation "$CITATION" \
-            --transaction-rulespec-path "$REPLACE_RULESPEC_PATH" \
-            --workflow-run-id "$REPAIR_RUN_ID" \
-            > "$RUNNER_TEMP/repair-candidate.json"
+          extract_authenticated_repair() {
+            axiom-encode/.venv/bin/python axiom-encode/scripts/extract_repair_candidate.py \
+              "$repair_archive" "$1" \
+              --citation "$repair_citation" \
+              --country "$COUNTRY" \
+              --encoder-commit "$repair_encoder_commit" \
+              --corpus-ref "$CORPUS_REF" \
+              --rules-engine-ref "$RULES_ENGINE_REF" \
+              --rulespec-ref "$RULESPEC_REF" \
+              --allow-rulespec-base-advance \
+              --atomic-source-json "$ATOMIC_SOURCE_JSON" \
+              --existing-signed-imports-json "${EXISTING_SIGNED_IMPORTS_JSON:-[]}" \
+              --repair-lane "$REPAIR_RUN_LANE" \
+              --replace-rulespec-path "$repair_rulespec_path" \
+              --transaction-citation "$CITATION" \
+              --transaction-rulespec-path "$REPLACE_RULESPEC_PATH" \
+              --workflow-run-id "$REPAIR_RUN_ID" \
+              > "$2"
+          }
+          # A newly requested direct dependent need not discard an authenticated
+          # single-target primary. Both extractor modes keep their exact prior
+          # transaction checks; only the successfully authenticated lane is used.
+          retained_primary=false
+          if [ "$REPAIR_RUN_LANE" = "dependent" ] && \
+             [ "$source_bundle_json" = "[]" ] && \
+             [ "$primary_required_test_cases_json" = "[]" ]; then
+            dependent_repair_citation="$repair_citation"
+            dependent_repair_rulespec_path="$repair_rulespec_path"
+            REPAIR_RUN_LANE=target
+            repair_citation="$CITATION"
+            repair_rulespec_path="$REPLACE_RULESPEC_PATH"
+            if extract_authenticated_repair \
+              "$RUNNER_TEMP/repair-primary-candidate" \
+              "$RUNNER_TEMP/repair-primary-candidate.json" \
+              2> "$RUNNER_TEMP/repair-primary-probe.log"; then
+              retained_primary=true
+              cp "$RUNNER_TEMP/repair-primary-candidate.json" \
+                "$RUNNER_TEMP/repair-candidate.json"
+            else
+              REPAIR_RUN_LANE=dependent
+              repair_citation="$dependent_repair_citation"
+              repair_rulespec_path="$dependent_repair_rulespec_path"
+            fi
+          fi
+          if [ "$retained_primary" != "true" ]; then
+            if [ -n "${SECOND_DEPENDENT_CITATION:-}" ]; then
+              echo "two fresh dependents require an authenticated single-target primary candidate" >&2
+              exit 1
+            fi
+            extract_authenticated_repair \
+              "$RUNNER_TEMP/repair-candidate" \
+              "$RUNNER_TEMP/repair-candidate.json"
+          fi
           jq -e '
             (.source_rulespec_ref | test("^[0-9a-f]{40}$"))
             and if .lane == "source-only" then

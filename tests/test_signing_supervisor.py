@@ -3326,7 +3326,10 @@ def test_repair_preflight_accepts_one_bound_dependent_lane(tmp_path: Path) -> No
     )
 
 
-def test_repair_preflight_accepts_new_source_target(tmp_path: Path) -> None:
+@pytest.mark.parametrize("second_without_first", [False, True])
+def test_repair_preflight_accepts_new_source_target(
+    tmp_path: Path, second_without_first: bool
+) -> None:
     workflow = yaml.safe_load(
         (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
     )
@@ -3362,11 +3365,17 @@ def test_repair_preflight_accepts_new_source_target(tmp_path: Path) -> None:
             "REPAIR_RULESPEC_PATH": "",
             "REPLACE_LEGACY_RULESPEC_PATH": "",
             "REPLACE_RULESPEC_PATH": "",
-            "SECOND_DEPENDENT_CITATION": "",
+            "SECOND_DEPENDENT_CITATION": "us/statute/42/402/w"
+            if second_without_first
+            else "",
             "SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH": "",
         },
     )
 
+    if second_without_first:
+        assert completed.returncode != 0
+        assert "repair replay is limited" in completed.stderr
+        return
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout == "target\n\n"
     assert (tmp_path / "github-output").read_text(encoding="utf-8") == (
@@ -4904,7 +4913,10 @@ if mutation_path and len(calls_path.read_text(encoding="utf-8").splitlines()) ==
         (1, "", ""),
         (1, "proof-import-subset", ""),
         (1, "", "dependent"),
+        (1, "", "target-existing"),
+        (1, "proof-import-subset", "target-existing"),
         (2, "", ""),
+        (2, "", "target-existing"),
     ],
 )
 def test_targeted_signed_reencode_orders_target_and_dependents(
@@ -4930,6 +4942,7 @@ def test_targeted_signed_reencode_orders_target_and_dependents(
     signer_stub = tmp_path / "signer-stub"
     signer_stub.write_text(
         """#!/usr/bin/env python3
+import hashlib
 import json
 import os
 import sys
@@ -4939,6 +4952,48 @@ with Path(os.environ["CALLS_PATH"]).open("a", encoding="utf-8") as stream:
     stream.write(json.dumps(sys.argv[1:]) + "\\n")
 """
     )
+    if repair_lane == "target-existing":
+        # The native encoder is stubbed above; materialize its minimal apply output
+        # so the real manifest-maintenance commands still run against a Git repo.
+        signer_stub.write_text(
+            signer_stub.read_text()
+            + """
+if sys.argv[-1] == os.environ["CITATION"]:
+    repo = Path(os.environ["RULESPEC_CHECKOUT"])
+    relative = os.environ["REPLACE_RULESPEC_PATH"]
+    target = repo / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("rules: []\\n")
+    manifest = repo / ".axiom/encoding-manifests" / Path(relative).with_suffix(".json")
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(json.dumps({
+        "schema_version": "axiom-encode/applied-rulespec/v5",
+        "tool": "axiom-encode encode --apply",
+        "backend": "openai",
+        "signature": {"algorithm": "ed25519-domain-v1", "key_id": "fixture", "value": "fixture"},
+        "applied_files": [{"path": relative, "sha256": hashlib.sha256(target.read_bytes()).hexdigest()}],
+    }))
+"""
+        )
+        repo = tmp_path / "rulespec-us"
+        subprocess.run(["git", "init", str(repo)], check=True, capture_output=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repo),
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.test",
+                "commit",
+                "--allow-empty",
+                "-m",
+                "Base",
+            ],
+            check=True,
+            capture_output=True,
+        )
     signer_stub.chmod(0o700)
     runner_temp = tmp_path / "runner-temp"
     runner_temp.mkdir()
@@ -4994,6 +5049,19 @@ with Path(os.environ["CALLS_PATH"]).open("a", encoding="utf-8") as stream:
                 "REPAIR_TESTS_ONLY": "false",
             }
         )
+    elif repair_lane == "target-existing":
+        environment.update(
+            {
+                "REPAIR_CANDIDATE_PATH": "regulations/42-cfr/435/555.yaml",
+                "REPAIR_CANDIDATE_ROOT": str(tmp_path / "repair-candidate"),
+                "REPAIR_CANDIDATE_RULESPEC_SHA256": "b" * 64,
+                "REPAIR_CANDIDATE_TESTS_SHA256": "c" * 64,
+                "REPAIR_RUN_LANE": "target",
+                "REPAIR_RULESPEC_PATH": "us/regulations/42-cfr/435/555.yaml",
+                "REPLACE_RULESPEC_PATH": "us/regulations/42-cfr/435/555.yaml",
+                "REPAIR_TESTS_ONLY": "false",
+            }
+        )
     if dependent_count == 2:
         environment.update(
             {
@@ -5025,8 +5093,15 @@ with Path(os.environ["CALLS_PATH"]).open("a", encoding="utf-8") as stream:
     )
     assert encode_args[0][-1] == expected_primary_citation
     assert ("--repair-candidate-root" in encode_args[0]) is (
-        repair_lane == "target-new-source"
+        repair_lane in {"target-new-source", "target-existing"}
     )
+    if repair_lane == "target-existing":
+        assert encode_args[0][encode_args[0].index("--repair-candidate-path") + 1] == (
+            "regulations/42-cfr/435/555.yaml"
+        )
+        assert encode_args[0][encode_args[0].index("--replace-rulespec-path") + 1] == (
+            "us/regulations/42-cfr/435/555.yaml"
+        )
     if repair_lane == "target-new-source":
         assert "--replace-rulespec-path" not in encode_args[0]
         expected_repair_values = {
@@ -5079,6 +5154,7 @@ with Path(os.environ["CALLS_PATH"]).open("a", encoding="utf-8") as stream:
     if dependent_count == 2:
         assert encode_args[2][-1] == "us/regulation/42/435/561"
         assert "--apply-target-only" not in encode_args[2]
+        assert "--repair-candidate-root" not in encode_args[2]
         assert (
             Path(encode_args[2][encode_args[2].index("--review-findings") + 1])
             .read_text(encoding="utf-8")

@@ -1779,6 +1779,7 @@ def _write_legacy_replacement_change(
     companion_only_plural_exact_dependent: bool = False,
     destination_predecessor: bool = False,
     retained_successor: bool = False,
+    new_index_destination: bool = False,
     legacy_owner_class: str = "v1-hmac-untrusted",
 ) -> tuple[Path, Path, Path, Path]:
     old_rule = repo / "us/statutes/47:32.yaml"
@@ -1832,6 +1833,19 @@ def _write_legacy_replacement_change(
     metadata = repo / ".axiom/index/provisions_to_rules.json"
     metadata.parent.mkdir(parents=True)
     metadata.write_text('{"module":"us:statutes/47:32"}\n', encoding="utf-8")
+    if new_index_destination:
+        metadata.write_text(
+            json.dumps(
+                {
+                    "provisions": {
+                        "legacy/source": [
+                            {"module": "us/statutes/47:32.yaml", "via": ["module"]}
+                        ]
+                    }
+                }
+            )
+            + "\n"
+        )
     dependent = repo / "us/policies/income_tax/dependent.yaml"
     if scheduled_pending:
         dependent.parent.mkdir(parents=True)
@@ -3932,6 +3946,7 @@ def test_validate_rulespec_base_rejects_stale_main_pr_base(
         ("us", "297aec1691edf7b3a21781c8a825690db1e7c988"),
         ("us", "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683"),
         ("us", "79ffd74fe3d3c83665335ec64feb7458d9cc877a"),
+        ("us", "c75b8f6bb4bcb72eccec20eb20e5a0e1b9e93a7f"),
         ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
     ],
 )
@@ -3961,6 +3976,7 @@ def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
             ("us", "297aec1691edf7b3a21781c8a825690db1e7c988"),
             ("us", "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683"),
             ("us", "79ffd74fe3d3c83665335ec64feb7458d9cc877a"),
+            ("us", "c75b8f6bb4bcb72eccec20eb20e5a0e1b9e93a7f"),
             ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
         }
     )
@@ -3990,6 +4006,11 @@ def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
                 "us",
                 "79ffd74fe3d3c83665335ec64feb7458d9cc877a",
                 "axiom/signed-backfill-us-35160240952-1",
+            ),
+            (
+                "us",
+                "c75b8f6bb4bcb72eccec20eb20e5a0e1b9e93a7f",
+                "fix/1248-snap-immigration-status",
             ),
         }
     )
@@ -4060,6 +4081,10 @@ def test_validate_rulespec_base_accepts_exact_reviewed_protected_branch_tip(
             "79ffd74fe3d3c83665335ec64feb7458d9cc877a",
             "axiom/signed-backfill-us-35160240952-1",
         ),
+        (
+            "c75b8f6bb4bcb72eccec20eb20e5a0e1b9e93a7f",
+            "fix/1248-snap-immigration-status",
+        ),
     ],
 )
 def test_validate_rulespec_base_accepts_reviewed_immigration_repair_branch_tip(
@@ -4118,6 +4143,10 @@ def test_validate_rulespec_base_accepts_reviewed_immigration_repair_branch_tip(
             "79ffd74fe3d3c83665335ec64feb7458d9cc877a",
             "axiom/signed-backfill-us-35145159769-1",
         ),
+        (
+            "c75b8f6bb4bcb72eccec20eb20e5a0e1b9e93a7f",
+            "axiom/signed-backfill-us-35160240952-1",
+        ),
     ],
 )
 def test_validate_rulespec_base_rejects_reviewed_head_branch_cross_pairs(
@@ -4160,6 +4189,10 @@ def test_validate_rulespec_base_rejects_reviewed_head_branch_cross_pairs(
         (
             "79ffd74fe3d3c83665335ec64feb7458d9cc877a",
             "axiom/signed-backfill-us-35160240952-1",
+        ),
+        (
+            "c75b8f6bb4bcb72eccec20eb20e5a0e1b9e93a7f",
+            "fix/1248-snap-immigration-status",
         ),
     ],
 )
@@ -4256,3 +4289,136 @@ def test_validate_rulespec_base_rejects_unreviewed_non_main_head(
 
     with pytest.raises(ValueError, match="neither on main nor an approved"):
         validate_rulespec_base(repo, "us", head, open_pr=False)
+
+
+@pytest.mark.parametrize("omit_index", [False, True])
+def test_persisted_receipt_requires_generated_destination_index(
+    tmp_path: Path, omit_index: bool
+) -> None:
+    from axiom_encode.cli import _legacy_metadata_reconciliation_bytes
+    from axiom_encode.rulespec_path_migration import PlannedMove
+
+    repo = _repo(tmp_path)
+    manifest, receipt, _old_manifest, index = _write_legacy_replacement_change(
+        repo, new_index_destination=True
+    )
+    receipt_payload = json.loads(receipt.read_text())
+    outer = json.loads(manifest.read_text())
+    replacement = receipt_payload["replacement"]
+    destination = repo / replacement["destination"]
+    destination.write_text(
+        "format: rulespec/v1\nmodule:\n  source_verification:\n    corpus_citation_path: generated/source\nrules: []\n"
+    )
+    digest = hashlib.sha256(destination.read_bytes()).hexdigest()
+    for item in replacement["live_files"]:
+        if item["path"] == replacement["destination"]:
+            item["sha256"] = digest
+    nested = receipt_payload["replacement_manifest"]
+    nested["applied_files"] = replacement["live_files"]
+    outer["replacement_manifest"] = nested
+    for item in outer["applied_files"]:
+        if item["path"] == replacement["destination"]:
+            item["sha256"] = digest
+    replacement["model_manifest_sha256"] = hashlib.sha256(
+        (json.dumps(nested, indent=2, sort_keys=True) + "\n").encode()
+    ).hexdigest()
+    base = receipt_payload["repository"]["base_commit"]
+    base_raw = subprocess.check_output(
+        ["git", "show", f"{base}:.axiom/index/provisions_to_rules.json"], cwd=repo
+    )
+    after, operations = _legacy_metadata_reconciliation_bytes(
+        Path(".axiom/index/provisions_to_rules.json"),
+        base_raw,
+        moves=[
+            PlannedMove(Path(replacement["source"]), Path(replacement["destination"]))
+        ],
+        new_destination_modules={replacement["destination"]: destination.read_bytes()},
+    )
+    index.write_bytes(after)
+    receipt_payload["schema_version"] = "axiom-encode/legacy-fresh-reencode-receipt/v4"
+    replacement.update(
+        destination_predecessor_class="absent",
+        destination_predecessor_files=[],
+        exact_dependents=[],
+        retained_successors=[],
+        rewrites=[],
+        metadata_reconciliations=[],
+    )
+    index_relative = index.relative_to(repo).as_posix()
+    outer["applied_files"] = [
+        item for item in outer["applied_files"] if item["path"] != index_relative
+    ]
+    if not omit_index:
+        replacement["metadata_reconciliations"] = [
+            {
+                "path": index_relative,
+                "before_sha256": hashlib.sha256(base_raw).hexdigest(),
+                "after_sha256": hashlib.sha256(after).hexdigest(),
+                "operations": list(operations),
+            }
+        ]
+        outer["applied_files"].insert(
+            len(replacement["live_files"]),
+            {"path": index_relative, "sha256": hashlib.sha256(after).hexdigest()},
+        )
+    receipt.write_text(json.dumps(receipt_payload, sort_keys=True) + "\n")
+    manifest.write_text(json.dumps(outer, sort_keys=True) + "\n")
+    _refresh_legacy_receipt_bindings(repo, manifest, receipt)
+    if omit_index:
+        with pytest.raises(
+            ValueError, match="metadata reconciliation inventory is not exact"
+        ):
+            authorized_changed_paths(repo)
+    else:
+        assert PurePosixPath(index_relative) in authorized_changed_paths(repo)
+    issues = _legacy_replacement_manifest_issues(
+        json.loads(manifest.read_text()),
+        repo_path=repo,
+        manifest_label=manifest.relative_to(repo).as_posix(),
+        signing_broker=Ed25519PrivateKey.generate().public_key(),
+        expected_waiver_set_sha256="b" * 64,
+        local_corpus_release=None,
+    )
+    # This fixture deliberately has incomplete model provenance. Exercise the
+    # complete persisted receipt verifier's independent metadata inventory.
+    index_issues = [
+        issue
+        for issue in issues
+        if "metadata reconciliation" in issue or "index postimage" in issue
+    ]
+    if omit_index:
+        assert any(
+            "metadata reconciliation inventory is not exact" in issue
+            for issue in index_issues
+        ), issues
+    else:
+        assert index_issues == [], issues
+
+
+@pytest.mark.parametrize("escaped", [False, True])
+def test_both_verifiers_reject_predecessor_with_encoded_base_owner(
+    tmp_path: Path,
+    escaped: bool,
+) -> None:
+    repo = _repo(tmp_path)
+    claimant = repo / ".axiom/encoding-manifests/us/policies/other-owner.json"
+    claimant.parent.mkdir(parents=True)
+    raw = json.dumps({"applied_files": [{"path": "us/statutes/47/32.yaml"}]})
+    if escaped:
+        raw = raw.replace("/", r"\/").replace("4", r"\u0034")
+    claimant.write_text(raw)
+    manifest, _receipt, _old_manifest, _metadata = _write_legacy_replacement_change(
+        repo,
+        destination_predecessor=True,
+    )
+    with pytest.raises(ValueError, match="already manifest-owned"):
+        authorized_changed_paths(repo)
+    issues = _legacy_replacement_manifest_issues(
+        json.loads(manifest.read_text()),
+        repo_path=repo,
+        manifest_label=manifest.relative_to(repo).as_posix(),
+        signing_broker=Ed25519PrivateKey.generate().public_key(),
+        expected_waiver_set_sha256="b" * 64,
+        local_corpus_release=None,
+    )
+    assert any("already manifest-owned" in issue for issue in issues)

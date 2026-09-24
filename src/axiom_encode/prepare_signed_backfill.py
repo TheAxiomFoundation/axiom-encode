@@ -139,6 +139,10 @@ REVIEWED_RULESPEC_REFS = frozenset(
             "79ffd74fe3d3c83665335ec64feb7458d9cc877a",
         ),
         (
+            "us",
+            "c75b8f6bb4bcb72eccec20eb20e5a0e1b9e93a7f",
+        ),
+        (
             "ca",
             "f60f7a84c30e38c7d4961d70647eb0457e7d76c2",
         ),
@@ -170,6 +174,11 @@ REVIEWED_RULESPEC_PR_BASES = frozenset(
             "us",
             "79ffd74fe3d3c83665335ec64feb7458d9cc877a",
             "axiom/signed-backfill-us-35160240952-1",
+        ),
+        (
+            "us",
+            "c75b8f6bb4bcb72eccec20eb20e5a0e1b9e93a7f",
+            "fix/1248-snap-immigration-status",
         ),
     }
 )
@@ -3094,8 +3103,17 @@ def authorized_changed_paths(
                 old_manifest.get("path"),
                 label=f"{relative} legacy.manifest.path",
             )
+            replaces_manifest_in_place = (
+                isinstance(receipt_replacement.get("source"), str)
+                and receipt_replacement.get("source")
+                == receipt_replacement.get("destination")
+                and old_manifest_path == relative
+            )
             if (
-                old_manifest_path not in deleted_manifests
+                (
+                    old_manifest_path not in deleted_manifests
+                    and not replaces_manifest_in_place
+                )
                 or replacement.get("legacy_manifest_path")
                 != old_manifest_path.as_posix()
                 or replacement.get("legacy_manifest_sha256")
@@ -3310,6 +3328,7 @@ def authorized_changed_paths(
                 _legacy_metadata_reconciliation_bytes,
                 _legacy_replacement_authoritative_map,
                 _legacy_replacement_reference_inventory_issues,
+                _required_replacement_index_postimages,
                 _strict_legacy_replacement_map,
             )
 
@@ -3523,6 +3542,13 @@ def authorized_changed_paths(
                         )
                 except (subprocess.CalledProcessError, ValueError):
                     pass
+            new_destination_modules = _required_replacement_index_postimages(
+                repo,
+                base_commit=str(base_commit or ""),
+                replacement=receipt_replacement,
+                nested=nested_manifest,
+                moves=primary_moves,
+            )
             metadata_paths: set[PurePosixPath] = set()
             for index, reconciliation in enumerate(metadata_reconciliations):
                 if not isinstance(reconciliation, dict) or set(reconciliation) != {
@@ -3569,6 +3595,7 @@ def authorized_changed_paths(
                                 retired_schema_count_transition
                             ),
                             reindexed_modules=exact_metadata_reindexed_modules,
+                            new_destination_modules=new_destination_modules,
                         )
                     )
                 except ValueError as exc:
@@ -3614,6 +3641,7 @@ def authorized_changed_paths(
                                 retired_schema_count_transition
                             ),
                             reindexed_modules=exact_metadata_reindexed_modules,
+                            new_destination_modules=new_destination_modules,
                         )
                     )
                 except ValueError:
@@ -3764,7 +3792,7 @@ def authorized_changed_paths(
                 *[
                     {"path": item.get("path"), "deleted": True}
                     for item in legacy_files
-                    if isinstance(item, dict)
+                    if isinstance(item, dict) and item.get("path") not in live_paths
                 ],
                 *retained_deleted_files,
             ]
@@ -3801,6 +3829,14 @@ def authorized_changed_paths(
                     raise ValueError(
                         f"legacy replacement live file differs: {live_path}"
                     )
+                if replaces_manifest_in_place and live_path not in changed:
+                    base_raw = _git(repo, "show", f"HEAD:{live_path.as_posix()}")
+                    if hashlib.sha256(base_raw).hexdigest() != item["sha256"]:
+                        raise ValueError(
+                            f"legacy replacement unchanged live base differs: {live_path}"
+                        )
+                    authorized_unchanged.add(live_path)
+                    authenticated_unchanged_claims.add((relative, live_path))
             for index, item in enumerate(legacy_files):
                 if (
                     not isinstance(item, dict)
@@ -3815,7 +3851,9 @@ def authorized_changed_paths(
                     item.get("path"),
                     label=f"{relative} legacy.files[{index}].path",
                 )
-                if (repo / deleted_path).exists() or (repo / deleted_path).is_symlink():
+                if deleted_path.as_posix() not in live_paths and (
+                    (repo / deleted_path).exists() or (repo / deleted_path).is_symlink()
+                ):
                     raise ValueError(
                         f"legacy replacement deleted file still exists: {deleted_path}"
                     )
