@@ -404,6 +404,7 @@ from .proof_hash_migration import (
     build_proof_hash_cascade_plan,
     render_proof_hash_cascade_plan,
 )
+from .repair_candidate_contract import FAILED_ENCODE_CANDIDATE_MAX_ISSUES_BYTES
 from .repo_routing import (
     _rulespec_routing_cache_scope,
     canonical_rulespec_repo_name,
@@ -8648,61 +8649,120 @@ def _legacy_destination_manifest_claimants_at_base(
 
     if not destination_paths:
         return []
-    patterns = sorted(
-        {
-            candidate
-            for path in destination_paths
-            for candidate in (
-                path.as_posix(),
-                path.relative_to(path.parts[0]).as_posix(),
-            )
-        }
-    )
+    patterns = {
+        candidate
+        for path in destination_paths
+        for candidate in (
+            path.as_posix(),
+            path.relative_to(path.parts[0]).as_posix(),
+        )
+    }
     if len(patterns) > 4:
         raise RuntimeError("Legacy destination predecessor group is oversized")
-    command = ["git", "-C", str(repo_path), "grep", "-z", "-l", "-a", "-F"]
-    for pattern in patterns:
-        command.extend(("-e", pattern))
-    command.extend((base_commit, "--"))
-    completed = subprocess.run(
-        command,
-        capture_output=True,
-        env=_rulespec_migration_git_environment(),
-        check=False,
+    listing = _rulespec_migration_git_bytes(
+        repo_path,
+        "ls-tree",
+        "-r",
+        "-l",
+        "-z",
+        "--full-tree",
+        base_commit,
     )
-    if completed.returncode not in {0, 1}:
-        stderr = completed.stderr.decode("utf-8", errors="replace").strip()
-        raise RuntimeError(
-            f"Cannot scan legacy destination manifest ownership: {stderr}"
-        )
-
-    prefix = f"{base_commit}:".encode()
-    claimants: set[Path] = set()
-    for encoded_candidate in completed.stdout.split(b"\0"):
-        if not encoded_candidate:
+    entries: list[tuple[Path, str, int]] = []
+    total_size = 0
+    for record in listing.split(b"\0"):
+        if not record:
             continue
-        if not encoded_candidate.startswith(prefix):
-            raise RuntimeError("Legacy destination manifest candidate is malformed")
         try:
-            candidate_text = encoded_candidate[len(prefix) :].decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise RuntimeError(
-                "Legacy destination manifest candidate is not UTF-8"
-            ) from exc
-        candidate = Path(candidate_text)
-        try:
+            metadata, encoded_path = record.split(b"\t", 1)
+            manifest_prefix = APPLIED_ENCODING_MANIFEST_DIR.as_posix().encode()
+            if encoded_path != manifest_prefix and not encoded_path.startswith(
+                manifest_prefix + b"/"
+            ):
+                continue
+            mode, object_type, object_id, raw_size = metadata.decode("ascii").split()
+            candidate_text = encoded_path.decode("utf-8")
+            candidate = Path(candidate_text)
             relative = candidate.relative_to(APPLIED_ENCODING_MANIFEST_DIR)
-        except ValueError:
-            continue
+            size = int(raw_size)
+        except (ValueError, UnicodeError) as exc:
+            raise RuntimeError("Legacy ownership inventory is malformed") from exc
         if (
             candidate.is_absolute()
             or candidate.as_posix() != candidate_text
             or any(part in {"", ".", ".."} for part in candidate.parts)
-            or candidate.suffix != ".json"
-            or len(relative.parts) < 2
+            or mode != "100644"
+            or object_type != "blob"
+            or re.fullmatch(r"[0-9a-f]{40}", object_id) is None
+            or size < 0
         ):
-            raise RuntimeError("Legacy destination manifest candidate is malformed")
-        claimants.add(candidate)
+            raise RuntimeError("Legacy ownership inventory contains an unsafe entry")
+        if candidate.suffix != ".json":
+            continue
+        if len(relative.parts) < 2 or size > 4 * 1024 * 1024:
+            raise RuntimeError("Legacy ownership manifest exceeds shape or size limits")
+        entries.append((candidate, object_id, size))
+        total_size += size
+        if len(entries) > 20000 or total_size > 64 * 1024 * 1024:
+            raise RuntimeError("Legacy ownership inventory exceeds verification limits")
+    if not entries:
+        return []
+    # Tree sizes bound the batch before reading it. Object IDs, rather than
+    # path expressions, keep escaped names and revision syntax out of the protocol.
+    completed = subprocess.run(
+        ["git", "-C", str(repo_path), "cat-file", "--batch"],
+        input="".join(f"{oid}\n" for _, oid, _ in entries).encode("ascii"),
+        capture_output=True,
+        env=_rulespec_migration_git_environment(),
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError("Cannot read legacy ownership manifest inventory")
+
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate JSON field")
+            result[key] = value
+        return result
+
+    claimants: list[Path] = []
+    offset = 0
+    for candidate, object_id, size in entries:
+        header = f"{object_id} blob {size}\n".encode("ascii")
+        if completed.stdout[offset : offset + len(header)] != header:
+            raise RuntimeError("Legacy ownership batch header differs from base")
+        offset += len(header)
+        raw = completed.stdout[offset : offset + size]
+        offset += size
+        if completed.stdout[offset : offset + 1] != b"\n":
+            raise RuntimeError("Legacy ownership batch is truncated")
+        offset += 1
+        try:
+            payload = json.loads(raw.decode("utf-8"), object_pairs_hook=unique_object)
+            if not isinstance(payload, dict):
+                raise ValueError("manifest is not an object")
+        except (ValueError, UnicodeError, RecursionError) as exc:
+            raise RuntimeError(
+                f"Legacy ownership manifest is unreadable: {candidate.as_posix()}"
+            ) from exc
+        # Keep the historical conservative rule: any mention can be a claim.
+        # Decode every JSON string first so escaped slashes and Unicode cannot
+        # hide ownership from immutable-base verification.
+        pending: list[object] = [payload]
+        while pending:
+            value = pending.pop()
+            if isinstance(value, str) and any(pattern in value for pattern in patterns):
+                claimants.append(candidate)
+                break
+            if isinstance(value, dict):
+                pending.extend(value.keys())
+                pending.extend(value.values())
+            elif isinstance(value, list):
+                pending.extend(value)
+    if offset != len(completed.stdout):
+        raise RuntimeError("Legacy ownership batch has unexpected trailing bytes")
     return sorted(claimants, key=Path.as_posix)
 
 
@@ -25162,6 +25222,19 @@ def _legacy_replacement_manifest_issues(
                 )
         except (RuntimeError, ValueError):
             pass
+    new_destination_modules: dict[str, bytes] = {}
+    try:
+        new_destination_modules = _required_replacement_index_postimages(
+            repo_path,
+            base_commit=base_commit,
+            replacement=replacement,
+            nested=nested,
+            moves=primary_moves,
+        )
+    except (OSError, ValueError, UnsafeCorpusPathError) as exc:
+        issues.append(
+            f"{manifest_label} replacement index postimage is unverifiable: {exc}"
+        )
     listed_metadata_paths: set[Path] = set()
     for reconciliation in metadata_reconciliations:
         if not isinstance(reconciliation, dict) or set(reconciliation) != {
@@ -25201,6 +25274,7 @@ def _legacy_replacement_manifest_issues(
                 retired_schema_modules=frozenset(exact_metadata_retired_schema_modules),
                 retired_schema_count_transition=retired_schema_count_transition,
                 reindexed_modules=exact_metadata_reindexed_modules,
+                new_destination_modules=new_destination_modules,
             )
         except (OSError, RuntimeError, UnsafeCorpusPathError, ValueError) as exc:
             issues.append(
@@ -25234,6 +25308,7 @@ def _legacy_replacement_manifest_issues(
                 retired_schema_modules=frozenset(exact_metadata_retired_schema_modules),
                 retired_schema_count_transition=retired_schema_count_transition,
                 reindexed_modules=exact_metadata_reindexed_modules,
+                new_destination_modules=new_destination_modules,
             )
         except (RuntimeError, ValueError):
             continue
@@ -26768,7 +26843,7 @@ _FAILED_ENCODE_CANDIDATE_METADATA_FIELDS = {
     "encoder_version",
     "attempt_count",
 }
-_FAILED_ENCODE_CANDIDATE_MAX_ISSUES_BYTES = 512 * 1024
+_FAILED_ENCODE_CANDIDATE_MAX_ISSUES_BYTES = FAILED_ENCODE_CANDIDATE_MAX_ISSUES_BYTES
 _FAILED_ENCODE_CANDIDATE_MAX_ISSUES = 4096
 _FAILED_ENCODE_CANDIDATE_EMPTY_TESTS = "[]\n"
 _FAILED_ENCODE_CANDIDATE_PROTECTED_SEGMENTS = {
@@ -27935,6 +28010,108 @@ def _reindex_exact_dependent_modules(
     return rewritten, len(modules)
 
 
+def _required_replacement_index_postimages(
+    repo_path: Path,
+    *,
+    base_commit: str,
+    replacement: Mapping[str, object],
+    nested: Mapping[str, object],
+    moves: Sequence[PlannedMove],
+) -> dict[str, bytes]:
+    """Derive mandatory indexing independently of the claimed receipt inventory."""
+    if (
+        replacement.get("destination_predecessor_class")
+        != APPLIED_ENCODING_DESTINATION_PREDECESSOR_ABSENT
+    ):
+        return {}
+    try:
+        base = _rulespec_migration_base_blob(
+            repo_path, base_commit, Path(".axiom/index/provisions_to_rules.json")
+        )
+    except RuntimeError:
+        return {}
+    counts = _index_module_record_counts(json.loads(base))
+    source, destination = replacement.get("source"), replacement.get("destination")
+    if (
+        isinstance(source, str)
+        and isinstance(destination, str)
+        and source != destination
+        and counts[source] > 0
+        and counts[destination] == 0
+    ):
+        return _signed_replacement_index_postimages(
+            repo_path, replacement=replacement, nested=nested, moves=moves
+        )
+    return {}
+
+
+def _signed_replacement_index_postimages(
+    repo_path: Path,
+    *,
+    replacement: Mapping[str, object],
+    nested: Mapping[str, object],
+    moves: Sequence[PlannedMove],
+) -> dict[str, bytes]:
+    """Read the authorized new primary only when its signed model digest matches."""
+    destination = replacement.get("destination")
+    if (
+        not isinstance(destination, str)
+        or replacement.get("destination_predecessor_class")
+        != APPLIED_ENCODING_DESTINATION_PREDECESSOR_ABSENT
+    ):
+        raise ValueError("new index destination lacks absent predecessor authority")
+    if destination not in {move.destination.as_posix() for move in moves}:
+        raise ValueError("new index destination is not an authorized move")
+    bound_files = nested.get("applied_files", [])
+    if not isinstance(bound_files, list):
+        raise ValueError("new index destination lacks signed file inventory")
+    digests = [
+        item.get("sha256")
+        for item in bound_files
+        if isinstance(item, dict) and item.get("path") == destination
+    ]
+    destination_raw = read_bounded_regular_file(
+        repo_path,
+        repo_path / destination,
+        label="signed replacement index postimage",
+        max_bytes=16 * 1024 * 1024,
+        required_mode=0o644,
+    )
+    if digests != [hashlib.sha256(destination_raw).hexdigest()]:
+        raise ValueError("new index destination does not match signed model bytes")
+    return {destination: destination_raw}
+
+
+def _index_new_replacement_module(
+    value: object,
+    *,
+    module: str,
+    raw: bytes,
+) -> tuple[object, int]:
+    """Insert only an authorized absent destination's final source references."""
+    if not isinstance(value, dict) or not isinstance(value.get("provisions"), dict):
+        raise ValueError("legacy provision index has an unsupported schema")
+    if _index_module_record_counts(value)[module]:
+        raise ValueError("new replacement already has provision index records")
+    references = _rulespec_index_references(raw)
+    if not references:
+        raise ValueError("new replacement has no source index references")
+    result = copy.deepcopy(value)
+    provisions = result["provisions"]
+    for citation, kinds in sorted(references.items()):
+        records = provisions.setdefault(citation, [])
+        if not isinstance(records, list) or not all(
+            isinstance(r, dict) for r in records
+        ):
+            raise ValueError("legacy provision index records are malformed")
+        records.append({"module": module, "via": sorted(kinds)})
+        records.sort(key=lambda record: str(record.get("module", "")))
+    result["provisions"] = {
+        key: records for key, records in sorted(provisions.items()) if records
+    }
+    return result, len(references)
+
+
 def _line_preserving_yaml_mapping_removal(
     raw: bytes,
     *,
@@ -27987,6 +28164,77 @@ def _line_preserving_yaml_mapping_removal(
     if actual != expected or observed != expected_count:
         raise ValueError("legacy metadata YAML removal is not exact")
     return rewritten, observed
+
+
+def _line_preserving_oracle_pending_relocation(
+    raw: bytes,
+    *,
+    moves: Sequence[PlannedMove],
+) -> tuple[bytes, int, tuple[PlannedMove, ...]]:
+    """Carry pending obligations to a new identity without changing their debt."""
+    try:
+        text = raw.decode("utf-8")
+        before = yaml.safe_load(text)
+    except (UnicodeError, yaml.YAMLError, RecursionError) as exc:
+        raise ValueError("legacy oracle metadata is not valid UTF-8 YAML") from exc
+    entries = (
+        before
+        if isinstance(before, list)
+        else before.get("entries")
+        if isinstance(before, dict)
+        else None
+    )
+    if not isinstance(entries, list):
+        raise ValueError("legacy oracle metadata lacks its entries list")
+    identities = {
+        item["legal_id"].split("#", 1)[0]
+        for item in entries
+        if isinstance(item, dict) and isinstance(item.get("legal_id"), str)
+    }
+    relocating = {
+        rulespec_identity(move.source): rulespec_identity(move.destination)
+        for move in moves
+        if move.source != move.destination
+        and rulespec_identity(move.source) in identities
+        and rulespec_identity(move.destination) not in identities
+    }
+    if not relocating:
+        return raw, 0, tuple(moves)
+    expected = copy.deepcopy(before)
+    expected_entries = expected if isinstance(expected, list) else expected["entries"]
+    count = 0
+    seen = set()
+    for item in expected_entries:
+        if not isinstance(item, dict) or not isinstance(item.get("legal_id"), str):
+            continue
+        old = item["legal_id"]
+        identity, separator, output = old.partition("#")
+        if identity not in relocating:
+            continue
+        if not separator or not output or old in seen:
+            raise ValueError("legacy pending oracle output is ambiguous")
+        seen.add(old)
+        new = relocating[identity] + "#" + output
+        pattern = re.compile(
+            r"(?m)^(?P<prefix>[ \t]*(?:-[ \t]+)?legal_id:[ \t]*)(?P<quote>['\"]?)"
+            + re.escape(old)
+            + r"(?P=quote)(?P<suffix>[ \t]*(?:#.*)?$)"
+        )
+        text, observed = pattern.subn(
+            lambda m: m["prefix"] + m["quote"] + new + m["quote"] + m["suffix"], text
+        )
+        if observed != 1:
+            raise ValueError(
+                "pending oracle relocation is not one exact legal_id field"
+            )
+        item["legal_id"] = new
+        count += 1
+    if yaml.safe_load(text) != expected:
+        raise ValueError("pending oracle relocation changed unrelated metadata")
+    remaining = tuple(
+        move for move in moves if rulespec_identity(move.source) not in relocating
+    )
+    return text.encode("utf-8"), count, remaining
 
 
 def _line_preserving_oracle_pending_removal(
@@ -28121,6 +28369,7 @@ def _legacy_metadata_reconciliation_bytes(
     retired_schema_modules: frozenset[str] = frozenset(),
     retired_schema_count_transition: tuple[int, int] | None = None,
     reindexed_modules: Mapping[str, bytes] | None = None,
+    new_destination_modules: Mapping[str, bytes] | None = None,
 ) -> tuple[bytes, tuple[dict[str, object], ...]]:
     """Apply one audited metadata cleanup from an explicit move set."""
 
@@ -28159,11 +28408,22 @@ def _legacy_metadata_reconciliation_bytes(
         except (UnicodeError, json.JSONDecodeError, RecursionError) as exc:
             raise ValueError("legacy provision index is invalid JSON") from exc
         module_counts = _index_module_record_counts(before)
+        new_destination_modules = dict(new_destination_modules or {})
+        allowed_new = {
+            move.destination.as_posix()
+            for move in moves
+            if move.source != move.destination
+            and module_counts[move.source.as_posix()] > 0
+            and module_counts[move.destination.as_posix()] == 0
+        }
+        if not set(new_destination_modules) <= allowed_new:
+            raise ValueError("unauthorized new replacement index module")
         missing_successors = [
             move.destination.as_posix()
             for move in moves
             if module_counts[move.source.as_posix()] > 0
             and module_counts[move.destination.as_posix()] == 0
+            and move.destination.as_posix() not in new_destination_modules
         ]
         if missing_successors:
             raise ValueError(
@@ -28177,9 +28437,20 @@ def _legacy_metadata_reconciliation_bytes(
             after,
             modules=reindexed_modules,
         )
+        new_records = 0
+        for module, module_raw in sorted(new_destination_modules.items()):
+            after, inserted = _index_new_replacement_module(
+                after, module=module, raw=module_raw
+            )
+            new_records += inserted
         rewritten = (json.dumps(after, indent=2, ensure_ascii=False) + "\n").encode()
         operations = (
             {"operation": "remove_legacy_module_records", "count": count},
+            *(
+                ({"operation": "index_new_replacement_module", "count": new_records},)
+                if new_destination_modules
+                else ()
+            ),
             *(
                 (
                     {
@@ -28282,11 +28553,21 @@ def _legacy_metadata_reconciliation_bytes(
         rewritten, count = _line_preserving_yaml_mapping_removal(raw, keys=old_modules)
         operations = ({"operation": "remove_legacy_validation_gaps", "count": count},)
     elif path == Path("oracle-coverage-pending.yaml"):
-        rewritten, count = _line_preserving_oracle_pending_removal(
-            raw,
-            moves=moves,
+        relocated, moved_count, removal_moves = (
+            _line_preserving_oracle_pending_relocation(raw, moves=moves)
         )
-        operations = ({"operation": "remove_legacy_oracle_pending", "count": count},)
+        rewritten, count = _line_preserving_oracle_pending_removal(
+            relocated,
+            moves=removal_moves,
+        )
+        operations = (
+            {"operation": "remove_legacy_oracle_pending", "count": count},
+            *(
+                ({"operation": "relocate_legacy_oracle_pending", "count": moved_count},)
+                if moved_count
+                else ()
+            ),
+        )
     elif path == Path("tests/test_encoding_manifests.py"):
         try:
             lines = raw.decode("utf-8").splitlines(keepends=True)
@@ -28330,6 +28611,7 @@ def _legacy_metadata_reconciliations(
     tracked: Mapping[Path, str],
     moves: Sequence[PlannedMove],
     exact_dependents: Sequence[_LegacyReplacementExactDependent] = (),
+    deferred_index: bool = False,
 ) -> tuple[_LegacyReplacementRewrite, ...]:
     """Build audited path-move metadata and its derived toolchain binding."""
 
@@ -28410,6 +28692,8 @@ def _legacy_metadata_reconciliations(
         key=Path.as_posix,
     ):
         if path not in tracked:
+            continue
+        if deferred_index and path == Path(".axiom/index/provisions_to_rules.json"):
             continue
         if tracked[path] != "100644":
             raise ValueError(
@@ -29030,11 +29314,16 @@ def _resolve_legacy_replacement_contract(
                     predecessor_raw,
                 )
             )
-        claimants = _legacy_destination_manifest_claimants_at_base(
-            policy_checkout_path,
-            base_commit=base_commit,
-            destination_paths={item.path for item in destination_predecessor_files},
-        )
+        try:
+            claimants = _legacy_destination_manifest_claimants_at_base(
+                policy_checkout_path,
+                base_commit=base_commit,
+                destination_paths={item.path for item in destination_predecessor_files},
+            )
+        except RuntimeError as exc:
+            raise ValueError(
+                f"legacy destination predecessor ownership is unreadable: {exc}"
+            ) from exc
         if claimants:
             raise ValueError(
                 "legacy replacement canonical destination predecessor is already "
@@ -29261,6 +29550,37 @@ def _resolve_legacy_replacement_contract(
         ],
         *[item.successor_manifest.path for item in retained_successors],
     }
+    provision_index_base = None
+    index_path = Path(".axiom/index/provisions_to_rules.json")
+    if (
+        not destination_predecessor_files
+        and source != destination
+        and index_path in tracked
+    ):
+        if tracked[index_path] != "100644":
+            raise ValueError("legacy provision index is not tracked 0644")
+        index_raw = read_bounded_regular_file(
+            policy_checkout_path,
+            policy_checkout_path / index_path,
+            label="legacy provision index base",
+            max_bytes=16 * 1024 * 1024,
+            required_mode=0o644,
+        )
+        if index_raw != _rulespec_migration_base_blob(
+            policy_checkout_path, base_commit, index_path
+        ):
+            raise ValueError("legacy provision index differs from clean HEAD")
+        index_value = json.loads(index_raw)
+        index_counts = _index_module_record_counts(index_value)
+        if index_counts[source.as_posix()] and not index_counts[destination.as_posix()]:
+            if not isinstance(index_value, dict) or not isinstance(
+                index_value.get("provisions"), dict
+            ):
+                raise ValueError("legacy provision index has an unsupported schema")
+            provision_index_base = _LegacyReplacementFile(
+                index_path, hashlib.sha256(index_raw).hexdigest(), index_raw
+            )
+            excluded.add(index_path)
     # Shared metadata affected by path moves is known now; exact-dependent
     # metadata is completed after those authenticated postimages are built.
     preliminary_metadata_reconciliations = _legacy_metadata_reconciliations(
@@ -29268,6 +29588,7 @@ def _resolve_legacy_replacement_contract(
         base_commit=base_commit,
         tracked=tracked,
         moves=all_moves,
+        deferred_index=provision_index_base is not None,
     )
     excluded.update(item.path for item in preliminary_metadata_reconciliations)
     if exact_groups:
@@ -29525,6 +29846,7 @@ def _resolve_legacy_replacement_contract(
         tracked=tracked,
         moves=all_moves,
         exact_dependents=exact_dependents,
+        deferred_index=provision_index_base is not None,
     )
 
     return _LegacyReplacementContract(
@@ -29552,6 +29874,7 @@ def _resolve_legacy_replacement_contract(
         ),
         retained_successors=tuple(retained_successors),
         metadata_reconciliations=metadata_reconciliations,
+        provision_index_base=provision_index_base,
     )
 
 
@@ -29567,7 +29890,8 @@ def _admit_retired_replacement_source_verification(
     source is already covered by the exact requested resolver evidence. Keep
     the original bytes in replacement context. Exact descendant rows may also
     qualify within the same artifact and scope, with replayable containment
-    evidence; other sources require separate generation/imports.
+    evidence. External evidence is admitted only for literal scalar parameters
+    whose complete rules must survive unchanged and pass normal validation.
     """
     payload = yaml.load(
         target_bytes.decode("utf-8"), Loader=_LegacyReplacementYamlLoader
@@ -29593,10 +29917,9 @@ def _admit_retired_replacement_source_verification(
         )
     for path in (singular, *plural):
         require_canonical_corpus_citation_path(path)
-        if path != singular and not path.startswith(singular + "/"):
+        if path.split("/", 1)[0] != singular.split("/", 1)[0]:
             raise ValueError(
-                "replacement legacy citations must name the requested source "
-                "or its descendants; encode other sources separately and import them"
+                "replacement legacy citations must share the requested source jurisdiction"
             )
     if len(set(plural)) != len(plural):
         raise ValueError("replacement legacy source citations must not repeat")
@@ -29617,8 +29940,46 @@ def _admit_retired_replacement_source_verification(
 
     requested = source_unit.resolved_source
     admitted_sources = []
+    required_unchanged_rules = {}
     for path in dict.fromkeys((singular, *plural)):
         historical = resolve_corpus_source_unit(path, corpus_release).resolved_source
+        if path != singular and not path.startswith(singular + "/"):
+            from .legacy_external_parameters import external_parameter_obligations
+
+            if (
+                not isinstance(requested.row, CorpusRowIdentity)
+                or not isinstance(historical.row, CorpusRowIdentity)
+                or historical.requested != path
+                or historical.citation_path != path
+                or historical.row.citation_path != path
+                or historical.component_rows
+                or historical.slice_required
+                or not all(
+                    getattr(historical, field) == getattr(requested, field)
+                    for field in (
+                        "release_name",
+                        "release_content_sha256",
+                        "release_selector_sha256",
+                    )
+                )
+                or historical.row.jurisdiction != requested.row.jurisdiction
+            ):
+                raise ValueError(
+                    "external scalar source must resolve exactly in the same verified release and jurisdiction"
+                )
+            obligations = external_parameter_obligations(
+                payload, path, historical.proof_evidence_segments
+            )
+            for rule in obligations:
+                required_unchanged_rules[rule["name"]] = rule
+            admitted_sources.append(
+                {
+                    "attestation": historical.to_attestation(),
+                    "admission_kind": "unchanged-external-scalar-parameter",
+                    "required_rules": [rule["name"] for rule in obligations],
+                }
+            )
+            continue
         same_provenance = all(
             getattr(historical, field) == getattr(requested, field)
             for field in (
@@ -29671,27 +30032,28 @@ def _admit_retired_replacement_source_verification(
                 )
             )
         )
+        from .retired_source_evidence import match_contained_segment
+
         containment = []
         for child_index, segment in enumerate(historical.proof_evidence_segments):
             match = next(
                 (
-                    (parent_index, source.index(segment))
+                    (parent_index, matched)
                     for parent_index, source in enumerate(
                         requested.proof_evidence_segments
                     )
-                    if segment and segment in source
+                    if (matched := match_contained_segment(segment, source)) is not None
                 ),
                 None,
             )
             if match is None:
                 break
-            parent_index, offset = match
+            parent_index, matched = match
             containment.append(
                 {
                     "child_segment": child_index,
                     "parent_segment": parent_index,
-                    "start": offset,
-                    "end": offset + len(segment),
+                    **matched,
                     "segment_sha256": hashlib.sha256(
                         segment.encode("utf-8")
                     ).hexdigest(),
@@ -29711,7 +30073,20 @@ def _admit_retired_replacement_source_verification(
             }
         )
     return {
-        "contract": "retired-source-containment/v1",
+        "contract": (
+            "retired-source-external-parameters/v1"
+            if required_unchanged_rules
+            else (
+                "retired-source-containment/v2"
+                if any(
+                    item.get("normalization")
+                    for source in admitted_sources
+                    for item in source.get("containment", [])
+                )
+                else "retired-source-containment/v1"
+            )
+        ),
+        "required_unchanged_rules": list(required_unchanged_rules.values()),
         "legacy_rulespec_sha256": hashlib.sha256(target_bytes).hexdigest(),
         "requested_attestation": requested.to_attestation(),
         "sources": admitted_sources,
@@ -30383,6 +30758,11 @@ def _run_encode_attempt(
             ),
             deferred_output_review_contract=deferred_output_review_contract,
             amendment_source_texts=amendment_source_texts,
+            retired_source_admission=(
+                replacement_target.retired_source_admission
+                if replacement_target is not None
+                else None
+            ),
         )
 
     skip_reviewers = bool(getattr(args, "skip_reviewers", False))
@@ -52760,6 +53140,10 @@ def _build_apply_validation_snapshot(
                 }
                 for successor in legacy_replacement.retained_successors
             ],
+            "provision_index_base_sha256": legacy_replacement.provision_index_base.sha256
+            if legacy_replacement.provision_index_base
+            else None,
+            "provision_index_finalized": legacy_replacement.provision_index_finalized,
             "metadata_reconciliations": [
                 {
                     "path": item.path.as_posix(),
@@ -53167,6 +53551,12 @@ def _stage_signed_legacy_replacement_provenance(
     local_corpus_release: LocalCorpusRelease,
 ) -> tuple[Path, bytes, Path, bytes, dict[Path, bytes]]:
     """Wrap one fresh v5 model manifest in an authenticated replacement proof."""
+
+    if (
+        contract.provision_index_base is not None
+        and not contract.provision_index_finalized
+    ):
+        raise RuntimeError("Cannot sign replacement with a pending provision index")
 
     try:
         model_manifest = json.loads(model_manifest_bytes.decode("utf-8"))
@@ -55816,6 +56206,7 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
     require_complete_source_unit: bool = False,
     deferred_output_review_contract: _DeferredOutputReviewContract | None = None,
     amendment_source_texts: Mapping[str, str] | None = None,
+    retired_source_admission: dict[str, Any] | None = None,
 ) -> tuple[bool, list[str], dict[Path, str]]:
     """Validate generated artifacts in a temporary policy-repo overlay."""
     setattr(result, _APPLY_VALIDATION_SNAPSHOT_ATTR, None)
@@ -55907,6 +56298,19 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
     )
 
     generated_content = output_file.read_text()
+    if retired_source_admission is not None:
+        from .legacy_external_parameters import external_parameter_preservation_issues
+
+        try:
+            generated_payload = _safe_load_unique_keys(generated_content)
+        except (yaml.YAMLError, ValueError) as exc:
+            return False, [f"Invalid replacement YAML: {exc}"], {}
+        preservation_issues = external_parameter_preservation_issues(
+            generated_payload, retired_source_admission
+        )
+        if preservation_issues:
+            return False, preservation_issues, {}
+
     if (
         deferred_output_review_contract is not None
         and deferred_output_review_contract.required_test_cases
@@ -56287,6 +56691,20 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
                         )
                     for path in repaired_exact_paths:
                         supplemental_files.pop(path, None)
+                    if retired_source_admission is not None:
+                        try:
+                            final_payload = _safe_load_unique_keys(
+                                overlay_target.read_text()
+                            )
+                        except (yaml.YAMLError, ValueError) as exc:
+                            return False, [f"Invalid final replacement YAML: {exc}"], {}
+                        final_preservation_issues = (
+                            external_parameter_preservation_issues(
+                                final_payload, retired_source_admission
+                            )
+                        )
+                        if final_preservation_issues:
+                            return False, final_preservation_issues, {}
                     _record_successful_apply_validation(
                         result,
                         output_root=output_root,
@@ -56717,6 +57135,7 @@ def _run_generated_encoding_overlay_validation(
     require_complete_source_unit: bool = False,
     deferred_output_review_contract: _DeferredOutputReviewContract | None = None,
     amendment_source_texts: Mapping[str, str] | None = None,
+    retired_source_admission: dict[str, Any] | None = None,
 ) -> tuple[bool, list[str], dict[Path, str]]:
     """Dispatch a release-bound overlay run through the patchable test seam."""
 
@@ -56732,6 +57151,7 @@ def _run_generated_encoding_overlay_validation(
         require_complete_source_unit=require_complete_source_unit,
         deferred_output_review_contract=deferred_output_review_contract,
         amendment_source_texts=amendment_source_texts,
+        retired_source_admission=retired_source_admission,
     )
 
 
@@ -58824,7 +59244,76 @@ def _finalize_legacy_exact_dependents_from_overlay(
         )
     if issues or len(finalized_dependents) != len(contract.exact_dependents):
         return None, issues or ["Legacy exact dependent finalization is incomplete"]
-    return contract._replace(exact_dependents=tuple(finalized_dependents)), []
+    finalized = contract._replace(exact_dependents=tuple(finalized_dependents))
+    if contract.provision_index_base is not None:
+        base = contract.provision_index_base
+        try:
+            if hashlib.sha256(base.raw).hexdigest() != base.sha256:
+                raise ValueError("replacement provision index base digest is stale")
+            existing_index = read_bounded_regular_file(
+                overlay_checkout_root,
+                overlay_checkout_root / base.path,
+                label="replacement index overlay",
+                max_bytes=16 * 1024 * 1024,
+                required_mode=0o644,
+            )
+            expected_index = next(
+                (
+                    item.raw
+                    for item in contract.metadata_reconciliations
+                    if item.path == base.path
+                ),
+                base.raw,
+            )
+            if existing_index != expected_index:
+                raise ValueError("replacement provision index overlay changed")
+            destination_raw = read_bounded_regular_file(
+                overlay_checkout_root,
+                overlay_checkout_root / contract.destination,
+                label="generated replacement index postimage",
+                max_bytes=16 * 1024 * 1024,
+                required_mode=0o644,
+            )
+            rewritten, operations = _legacy_metadata_reconciliation_bytes(
+                base.path,
+                base.raw,
+                moves=[
+                    PlannedMove(contract.source, contract.destination),
+                    *[
+                        PlannedMove(item.source, item.destination)
+                        for item in contract.retained_successors
+                    ],
+                ],
+                reindexed_modules={
+                    item.primary.as_posix(): next(
+                        f.raw for f in item.live_files if f.path == item.primary
+                    )
+                    for item in finalized_dependents
+                },
+                new_destination_modules={
+                    contract.destination.as_posix(): destination_raw
+                },
+            )
+        except (OSError, ValueError, UnsafeCorpusPathError) as exc:
+            return None, [f"Replacement provision index finalization failed: {exc}"]
+        reconciliation = _LegacyReplacementRewrite(
+            base.path,
+            base.sha256,
+            hashlib.sha256(rewritten).hexdigest(),
+            operations,
+            rewritten,
+        )
+        (overlay_checkout_root / base.path).write_bytes(rewritten)
+        finalized = finalized._replace(
+            metadata_reconciliations=tuple(
+                item
+                for item in contract.metadata_reconciliations
+                if item.path != base.path
+            )
+            + (reconciliation,),
+            provision_index_finalized=True,
+        )
+    return finalized, []
 
 
 _MISSING_INPUT_RE = re.compile(

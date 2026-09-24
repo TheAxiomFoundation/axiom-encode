@@ -20,9 +20,11 @@ import math
 import re
 import textwrap
 from collections.abc import Callable, Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from decimal import (
+    ROUND_CEILING,
+    ROUND_FLOOR,
     ROUND_HALF_EVEN,
     ROUND_HALF_UP,
     Decimal,
@@ -157,6 +159,20 @@ class _FormulaTraceStep:
 
 
 @dataclass(frozen=True)
+class _CurrencyRounding:
+    mode: str
+    minor_units: int
+
+
+class _CurrencyRoundingRule(dict):
+    """A parsed rule with privately resolved module-level currency metadata."""
+
+    def __init__(self, rule: dict[str, Any], rounding: _CurrencyRounding | None):
+        super().__init__(rule)
+        self.resolved_currency_rounding = rounding
+
+
+@dataclass(frozen=True)
 class _FormulaExecution:
     """The selected control-flow path and reconstructed reachable formula."""
 
@@ -165,6 +181,8 @@ class _FormulaExecution:
     evaluated_value: tuple[str, str] | None
     evaluates_to_zero: bool
     constant_environment: dict[str, Any]
+    currency_rounding: _CurrencyRounding | None = None
+    unrounded_value: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -4219,11 +4237,40 @@ def _english_fraction_of_is_computational(source_text: str) -> bool:
     return False
 
 
+def _without_precomputed_income_table_percentage_captions(source_text: str) -> str:
+    """Mask only descriptive rates above a complete published income table.
+
+    The table supplies independently rounded amounts, not an instruction to
+    recompute them from another table. Keep all source bytes elsewhere available
+    to numeric recall and proof validation; this view is only for computation
+    classification. Incomplete or prose-shaped tables remain conservative.
+    """
+
+    amount = r"\$\d+(?:,\d{3})*(?:\.\d+)?"
+    three_amounts = rf"{amount}\s+{amount}\s+{amount}"
+    rows = r"\s+".join(rf"{size}\s+{three_amounts}" for size in range(1, 9))
+    captioned_table = re.compile(
+        r"^[ \t]*(?:Net|Gross) Monthly Income Eligibility Standards"
+        r"(?: for Households Where Elderly Disabled Are a Separate Household)?"
+        r"[ \t]+(?P<caption>\(\d+(?:\.\d+)? Percent of Poverty Level\))"
+        r"[ \t]*\r?\n\s*Household Size 48 States, DC, Guam, Virgin Islands Alaska Hawaii"
+        rf"\s+{rows}\s+Each additional person\s+{three_amounts}[ \t]*(?=\r?$)",
+        flags=re.MULTILINE | re.IGNORECASE,
+    )
+    masked = list(source_text)
+    for match in captioned_table.finditer(source_text):
+        start, end = match.span("caption")
+        masked[start:end] = " " * (end - start)
+    return "".join(masked)
+
+
 def source_states_explicit_computation(source_text: str) -> bool:
     """Return whether text states a computation rather than only a scalar."""
 
     computation_text = _without_unproven_applied_operations(
-        _without_stated_conversion_results(source_text)
+        _without_stated_conversion_results(
+            _without_precomputed_income_table_percentage_captions(source_text)
+        )
     )
     return bool(
         _has_substantive_arithmetic_expression(computation_text)
@@ -4244,7 +4291,9 @@ def _source_states_nonrounding_computation(source_text: str) -> bool:
     """Return whether text states a computation other than rounding."""
 
     computation_text = _without_unproven_applied_operations(
-        _without_stated_conversion_results(source_text)
+        _without_stated_conversion_results(
+            _without_precomputed_income_table_percentage_captions(source_text)
+        )
     )
     return bool(
         _has_substantive_arithmetic_expression(computation_text)
@@ -4495,6 +4544,85 @@ def analyze_complete_source_unit(
     return CompleteSourceUnitAnalysis((), (), 0, 0, 0)
 
 
+def _bind_currency_rounding_rules(payload: dict[str, Any]) -> dict[str, Any]:
+    """Resolve explicit currency declarations without trusting model-added fields.
+
+    Unknown defaults, duplicate units and malformed declarations are deliberately
+    unresolved. A rule with unresolved rounding cannot supply execution evidence.
+    The engine remains the authority for complete schema/unit validation.
+    """
+
+    units: dict[str, list[dict[str, Any]]] = {}
+    for unit in (
+        payload.get("units", []) if isinstance(payload.get("units"), list) else []
+    ):
+        if isinstance(unit, dict) and isinstance(unit.get("name"), str):
+            units.setdefault(unit["name"], []).append(unit)
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return payload
+    bound = []
+    for rule in rules:
+        if not isinstance(rule, dict) or rule.get("rounding") is None:
+            bound.append(rule)
+            continue
+        candidates = (
+            units.get(rule.get("unit"), []) if isinstance(rule.get("unit"), str) else []
+        )
+        spec = None
+        if len(candidates) == 1:
+            unit = candidates[0]
+            precision = unit.get("minor_units")
+            mode = rule.get("rounding")
+            if (
+                rule.get("kind") == "derived"
+                and unit.get("kind") == "currency"
+                and type(precision) is int
+                and 0 <= precision <= 28
+                and isinstance(mode, str)
+                and mode in {"half_up", "half_even", "floor", "ceil"}
+            ):
+                spec = _CurrencyRounding(mode, precision)
+        bound.append(_CurrencyRoundingRule(rule, spec))
+    return {**payload, "rules": bound}
+
+
+def _apply_currency_output_rounding(
+    rule: dict[str, Any], execution: _FormulaExecution | None
+) -> _FormulaExecution | None:
+    """Apply native decimal rounding once, at this rule's output boundary."""
+
+    if execution is None or rule.get("rounding") is None:
+        return execution
+    if not isinstance(rule, _CurrencyRoundingRule):
+        return None
+    spec = rule.resolved_currency_rounding
+    raw = _rulespec_runtime_decimal(_formula_execution_runtime_value(execution))
+    if spec is None or raw is None:
+        return None
+    modes = {
+        "half_up": ROUND_HALF_UP,
+        "half_even": ROUND_HALF_EVEN,
+        "floor": ROUND_FLOOR,
+        "ceil": ROUND_CEILING,
+    }
+    try:
+        with localcontext() as context:
+            context.prec = 60
+            rounded = raw.quantize(
+                Decimal(1).scaleb(-spec.minor_units), rounding=modes[spec.mode]
+            )
+    except (InvalidOperation, ValueError, OverflowError):
+        return None
+    return replace(
+        execution,
+        evaluated_value=("Decimal", repr(rounded)),
+        evaluates_to_zero=rounded == 0,
+        currency_rounding=spec,
+        unrounded_value=raw,
+    )
+
+
 def _analyze_rulespec_payload(
     payload: dict[str, Any],
     *,
@@ -4511,6 +4639,7 @@ def _analyze_rulespec_payload(
     authenticated_same_act_aliases: Sequence[str],
     imported_symbol_contents: Sequence[tuple[str, str]],
 ) -> CompleteSourceUnitAnalysis:
+    payload = _bind_currency_rounding_rules(payload)
     branches = recognize_source_structure(source_text)
     (
         all_covered_paths,
@@ -13443,6 +13572,19 @@ def _source_proposition_bounds(text: str, start: int, end: int) -> tuple[int, in
             text,
         )
     )
+    # Flattened forms can place a printed row label after sentence punctuation
+    # and before the next physical instruction line.  A trailing footnote plus
+    # subtraction sign is another explicit row-ending layout.  Keep decimal
+    # points and ordinary inline numeric prose outside these narrow patterns.
+    boundaries.extend(
+        match.end()
+        for match in re.finditer(
+            r"[.!?](?=(?:[ \t]+[1-9]\d{0,2}|"
+            r"\([1-9]\d?\)[ \t]+[–−-][ \t]+[1-9]\d{0,2})"
+            r"[ \t]*\r?\n[ \t]*[A-Z])",
+            text,
+        )
+    )
     boundaries.extend(
         match.start() for match in _SOURCE_INDEPENDENT_CONDITION_BOUNDARY.finditer(text)
     )
@@ -13714,22 +13856,20 @@ def _source_condition_clauses_owned_by_excerpt(
         branch_path = branch.path if branch is not None else ()
         container_start = branch.start if branch is not None else 0
         container_end = branch.end if branch is not None else len(source_text)
-        if branch is not None:
-            # A parent chapeau commonly ends with a colon rather than sentence
-            # punctuation.  Keep its proposition local to the parent instead
-            # of absorbing the first structural child into the same condition.
-            # A proof excerpt located inside a child already resolves to that
-            # more-specific branch above, so this only bounds true chapeaux.
-            container_end = min(
-                (
-                    candidate.start
-                    for candidate in ownership_branches
-                    if len(candidate.path) == len(branch.path) + 1
-                    and candidate.path[: len(branch.path)] == branch.path
-                    and match.end() <= candidate.start < branch.end
-                ),
-                default=container_end,
-            )
+        # Keep a parent proposition before its first structural child.  The
+        # document preamble is also a parent: flattened worksheet punctuation
+        # must not absorb a later numbered footnote into an earlier formula.
+        # Excerpts inside a child already resolve to that narrower branch.
+        container_end = min(
+            (
+                candidate.start
+                for candidate in ownership_branches
+                if len(candidate.path) == len(branch_path) + 1
+                and candidate.path[: len(branch_path)] == branch_path
+                and match.end() <= candidate.start < container_end
+            ),
+            default=container_end,
+        )
         container_text = source_text[container_start:container_end]
         local_start = match.start() - container_start
         local_end = match.end() - container_start
@@ -16941,15 +17081,6 @@ def _formula_execution_is_source_branch_witness(
         execution is None
         or execution_environment is None
         or not _formula_execution_leaf_is_computational(execution)
-        or not _formula_execution_matches_source_branch(
-            execution,
-            branch,
-            interval=interval,
-            formula_environment=formula_environment,
-            execution_environment=execution_environment,
-            extract_numeric_occurrences=extract_numeric_occurrences,
-            numeric_value_is_grounded=numeric_value_is_grounded,
-        )
     ):
         return False
     if require_corroborated_dependencies and any(
@@ -16964,6 +17095,86 @@ def _formula_execution_is_source_branch_witness(
         )
     ):
         return False
+
+    def matches(binding_execution: _FormulaExecution) -> bool:
+        return _formula_execution_matches_source_branch(
+            binding_execution,
+            branch,
+            interval=interval,
+            formula_environment=formula_environment,
+            execution_environment=execution_environment,
+            extract_numeric_occurrences=extract_numeric_occurrences,
+            numeric_value_is_grounded=numeric_value_is_grounded,
+        )
+
+    if not matches(execution):
+        independent_environment = _case_dependency_environment(
+            principal_rules,
+            case,
+            formula_environment=formula_environment,
+            require_asserted_value=False,
+        )
+        independent_execution = _case_formula_execution(
+            rule,
+            case,
+            formula_environment=formula_environment,
+            dependency_environment=independent_environment,
+        )
+        if independent_execution is None or not (
+            _formula_execution_runtime_value(independent_execution)
+            is not _UNRESOLVED_CONDITION_VALUE
+            and _formula_runtime_values_equal(
+                _formula_execution_runtime_value(independent_execution),
+                _formula_execution_runtime_value(execution),
+            )
+            and independent_execution.trace == execution.trace
+        ):
+            return False
+        corroborated_rules = {}
+        for name, dependency in principal_rules.items():
+            if name not in dependency_environment:
+                continue
+            replay = _case_formula_execution(
+                dependency,
+                case,
+                formula_environment=formula_environment,
+                dependency_environment=independent_environment,
+            )
+            if replay is None or replay.currency_rounding is not None:
+                continue
+            value = _formula_execution_runtime_value(replay)
+            if value is _UNRESOLVED_CONDITION_VALUE or not (
+                _formula_runtime_values_equal(value, dependency_environment[name])
+                and _asserted_formula_runtime_values_equal(
+                    dependency, value, _test_case_asserted_output_value(case, name)
+                )
+            ):
+                continue
+            corroborated_rules[name] = dependency
+        expanded = _expand_reached_formula_dependencies(
+            execution.leaf,
+            principal_rules=corroborated_rules,
+            case=case,
+            formula_environment=formula_environment,
+            dependency_environment=independent_environment,
+        )
+        if expanded == execution.leaf:
+            return False
+        reached = _asserted_reached_rule_executions(
+            rule,
+            execution,
+            principal_rules=corroborated_rules,
+            case=case,
+            formula_environment=formula_environment,
+            dependency_environment=independent_environment,
+        )
+        binding_execution = replace(
+            execution,
+            leaf=expanded,
+            trace=tuple(step for _, replay in reached for step in replay.trace),
+        )
+        if not matches(binding_execution):
+            return False
     if interval is None:
         return True
     if execution.trace:
@@ -18021,6 +18232,76 @@ def _uncorroborated_formula_dependency_feedback(
     return detail
 
 
+def _reached_constant_comparison_values(
+    selector: str,
+    *,
+    constant_environment: dict[str, Any],
+    execution_environment: dict[str, Any] | None,
+) -> tuple[float, ...]:
+    """Credit complete additive constant bounds in evaluated comparisons only."""
+
+    if execution_environment is None:
+        return ()
+    expression = _parse_formula_expression(selector)
+    if expression is None:
+        return ()
+    values: list[float] = []
+
+    def additive_constant(node: ast.AST) -> bool:
+        if isinstance(node, ast.Constant):
+            return _rulespec_runtime_decimal(node.value) is not None
+        if isinstance(node, ast.Name):
+            return (
+                _rulespec_runtime_decimal(constant_environment.get(node.id)) is not None
+            )
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+            return additive_constant(node.operand)
+        return (
+            isinstance(node, ast.BinOp)
+            and isinstance(node.op, (ast.Add, ast.Sub))
+            and additive_constant(node.left)
+            and additive_constant(node.right)
+        )
+
+    def record(node: ast.expr) -> None:
+        # Literals/names are already collected. Never credit intermediate nodes
+        # or arithmetic involving a household input, even if it happens to fit.
+        if not isinstance(node, ast.BinOp) or not additive_constant(node):
+            return
+        value = _evaluate_condition_expression(node, constant_environment)
+        if _rulespec_runtime_decimal(value) is not None:
+            values.append(float(value))
+
+    def visit(node: ast.AST) -> None:
+        if isinstance(node, ast.BoolOp):
+            for item in node.values:
+                visit(item)
+                result = _evaluate_condition_expression(item, execution_environment)
+                if not isinstance(result, bool):
+                    return
+                if isinstance(node.op, ast.And) and not result:
+                    return
+                if isinstance(node.op, ast.Or) and result:
+                    return
+        elif isinstance(node, ast.Compare):
+            left = node.left
+            for operator, right in zip(node.ops, node.comparators):
+                result = _evaluate_condition_expression(
+                    ast.Compare(left=left, ops=[operator], comparators=[right]),
+                    execution_environment,
+                )
+                if not isinstance(result, bool):
+                    return
+                record(left)
+                record(right)
+                if not result:
+                    return
+                left = right
+
+    visit(expression)
+    return tuple(values)
+
+
 def _formula_execution_matches_source_branch(
     execution: _FormulaExecution,
     branch: SourceStructureBranch,
@@ -18156,6 +18437,15 @@ def _formula_execution_matches_source_branch(
         float(occurrence.value)
         for evidence_text in evidence_texts
         for occurrence in extract_numeric_occurrences(evidence_text)
+    )
+    candidate_values.extend(
+        value
+        for selector in reached_selector_texts
+        for value in _reached_constant_comparison_values(
+            selector,
+            constant_environment=binding_environment,
+            execution_environment=execution_environment,
+        )
     )
     if (
         "multiply" in source_operations
@@ -19092,11 +19382,13 @@ def _case_formula_execution(
     formula_text = _rule_formula_text_for_case(rule, case)
     if formula_text is None:
         return None
-    return _execute_formula_text(
+    execution = _execute_formula_text(
         formula_text,
         environment=environment,
         constant_environment=constant_environment,
     )
+
+    return _apply_currency_output_rounding(rule, execution)
 
 
 def _case_input_formula_environment(
@@ -19184,9 +19476,10 @@ def _case_dependency_environment(
                 environment=environment,
                 constant_environment=constants,
             )
+            execution = _apply_currency_output_rounding(rule, execution)
             if execution is None:
                 continue
-            value = _evaluate_formula_selector(execution.leaf, environment)
+            value = _formula_execution_runtime_value(execution)
             if value is _UNRESOLVED_CONDITION_VALUE:
                 if not require_asserted_value:
                     continue
@@ -27795,6 +28088,18 @@ def _closed_rounding_arithmetic_environment(
             value = _evaluate_formula_selector(
                 ast.unparse(expression.body), environment
             )
+            if rules[name].get("rounding") is not None:
+                execution = _apply_currency_output_rounding(
+                    rules[name],
+                    _execute_formula_text(
+                        ast.unparse(expression.body),
+                        environment=environment,
+                        constant_environment=environment,
+                    ),
+                )
+                if execution is None:
+                    continue
+                value = _formula_execution_runtime_value(execution)
             if _rulespec_runtime_decimal(value) is None:
                 continue
             if name in inputs and not _formula_runtime_values_equal(
@@ -27849,6 +28154,17 @@ def _closed_fractional_rounding_operand_witness(
     )
 
 
+def _currency_rounding_matches_direction(
+    spec: _CurrencyRounding | None, direction: str
+) -> bool:
+    return (
+        spec is not None
+        and spec.minor_units == 0
+        and spec.mode
+        == {"nearest": "half_up", "downward": "floor", "upward": "ceil"}.get(direction)
+    )
+
+
 def _rule_implements_rounding(
     rule: dict[str, Any],
     direction: str,
@@ -27856,6 +28172,10 @@ def _rule_implements_rounding(
     environment: dict[str, Any] | None = None,
     case: dict[str, Any] | None = None,
 ) -> bool:
+    if isinstance(rule, _CurrencyRoundingRule) and _currency_rounding_matches_direction(
+        rule.resolved_currency_rounding, direction
+    ):
+        return True
     formula_text = (
         _rule_formula_text(rule)
         if case is None
@@ -27919,6 +28239,15 @@ def _fractional_rounding_case_witnesses(
             environment=parameter_environment,
         ):
             continue
+        metadata_rounding = _currency_rounding_matches_direction(
+            execution.currency_rounding, direction
+        )
+        if metadata_rounding and not _asserted_formula_runtime_values_equal(
+            rule,
+            _formula_execution_runtime_value(execution),
+            _test_case_asserted_output_value(case, rule_name),
+        ):
+            continue
         reached_executions = _asserted_reached_rule_executions(
             rule,
             execution,
@@ -27948,16 +28277,25 @@ def _fractional_rounding_case_witnesses(
         evaluation_environment = dict(execution.constant_environment)
         evaluation_environment.update(dependency_environment)
         evaluation_environment.update(input_environment)
-        for function_name, operand in _rounding_call_operands(
-            operative_leaf,
-            functions=functions,
-            root_only=rounding_refers_to_result,
-            environment=parameter_environment,
-        ):
-            effective_operand = _rounding_demonstrated_operand(
-                operand,
-                direction=direction,
+        rounding_operands = (
+            (("currency_metadata", operative_leaf),)
+            if metadata_rounding
+            else _rounding_call_operands(
+                operative_leaf,
+                functions=functions,
+                root_only=rounding_refers_to_result,
                 environment=parameter_environment,
+            )
+        )
+        for function_name, operand in rounding_operands:
+            effective_operand = (
+                operand
+                if metadata_rounding
+                else _rounding_demonstrated_operand(
+                    operand,
+                    direction=direction,
+                    environment=parameter_environment,
+                )
             )
             if effective_operand is None:
                 continue
@@ -28038,6 +28376,8 @@ def _formula_execution_implements_rounding(
     *,
     environment: dict[str, Any] | None = None,
 ) -> bool:
+    if _currency_rounding_matches_direction(execution.currency_rounding, direction):
+        return True
     if direction == "nearest":
         return any(
             _rounding_demonstrated_operand(
@@ -28172,7 +28512,7 @@ def _expand_reached_formula_dependencies(
                 formula_environment=formula_environment,
                 dependency_environment=dependency_environment,
             )
-            if execution is None:
+            if execution is None or execution.currency_rounding is not None:
                 return node
             try:
                 replacement = ast.parse(
@@ -28860,12 +29200,126 @@ def _imported_parameter_formula_is_numeric_literal(formula: Any) -> bool:
     return False
 
 
+class _ImportedEvidenceLoader(yaml.SafeLoader):
+    """Reject duplicate keys before an imported literal table can collapse them."""
+
+
+def _imported_evidence_mapping(loader, node, deep=False):
+    result = {}
+    for key_node, value_node in node.value:
+        if key_node.tag == "tag:yaml.org,2002:merge":
+            raise ValueError("merged imported evidence is ambiguous")
+        key = loader.construct_object(key_node, deep=deep)
+        if key in result:
+            raise ValueError("duplicate imported evidence key")
+        result[key] = loader.construct_object(value_node, deep=deep)
+    return result
+
+
+_ImportedEvidenceLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _imported_evidence_mapping
+)
+
+
+def _closed_imported_table_export(provider, export):
+    """Corroborate a fixed literal cell without importing provider-local names."""
+    if provider.get("imports", []) != [] or export.get("kind") != "derived":
+        return None
+    if any(key in export for key in ("rounding", "effective_from", "effective_to")):
+        return None
+    versions = export.get("versions")
+    if not isinstance(versions, list) or len(versions) != 1:
+        return None
+    version = versions[0]
+    if not isinstance(version, dict) or set(version) != {
+        "formula",
+        "effective_from",
+        "effective_to",
+    }:
+        return None
+    start, end = version["effective_from"], version["effective_to"]
+    if not isinstance(start, str) or not isinstance(end, str):
+        return None
+    if date.fromisoformat(start) > date.fromisoformat(end):
+        return None
+    if not isinstance(version["formula"], str):
+        return None
+    tree = ast.parse(version["formula"], mode="eval").body
+    if not (
+        isinstance(tree, ast.Subscript)
+        and isinstance(tree.value, ast.Name)
+        and isinstance(tree.slice, ast.Constant)
+        and type(tree.slice.value) is int
+    ):
+        return None
+    rules, inputs = provider.get("rules"), provider.get("inputs", [])
+    if not isinstance(rules, list) or not isinstance(inputs, list):
+        return None
+    relevant_names = {export.get("name"), tree.value.id}
+    if any(not isinstance(item, dict) for item in [*rules, *inputs]):
+        return None
+    if any(item.get("name") in relevant_names for item in inputs):
+        return None
+    tables = [item for item in rules if item.get("name") == tree.value.id]
+    if len(tables) != 1:
+        return None
+    table = tables[0]
+    if table.get("kind") != "parameter" or any(
+        key in table
+        for key in ("rounding", "effective_from", "effective_to", "default")
+    ):
+        return None
+    if not isinstance(table.get("indexed_by"), str):
+        return None
+    if export.get("dtype") != table.get("dtype") or export.get("unit") != table.get(
+        "unit"
+    ):
+        return None
+    if export.get("dtype") not in {"Money", "Decimal", "Rate", "Count", "Integer"}:
+        return None
+    if any(
+        table.get(key) not in (None, export.get(key)) for key in ("entity", "period")
+    ):
+        return None
+    table_versions = table.get("versions")
+    if not isinstance(table_versions, list) or len(table_versions) != 1:
+        return None
+    table_version = table_versions[0]
+    if not isinstance(table_version, dict) or set(table_version) != {
+        "values",
+        "effective_from",
+        "effective_to",
+    }:
+        return None
+    if any(
+        table_version[key] != version[key] for key in ("effective_from", "effective_to")
+    ):
+        return None
+    values = table_version["values"]
+    if (
+        not isinstance(values, dict)
+        or not values
+        or not all(
+            type(key) is int and _imported_parameter_formula_is_numeric_literal(value)
+            for key, value in values.items()
+        )
+    ):
+        return None
+    if tree.slice.value not in values:
+        return None
+    return {
+        **export,
+        "kind": "parameter",
+        "versions": [{**version, "formula": str(values[tree.slice.value])}],
+    }
+
+
 def _resolved_imported_parameter_rules(
     payload: dict[str, Any],
     *,
     imported_symbol_contents: Sequence[tuple[str, str]],
 ) -> dict[str, dict[str, Any]]:
-    """Use only unambiguous directly resolved parameter exports, never case values."""
+    """Corroborate literal parameters or fixed table cells, never case values."""
 
     imports = payload.get("imports")
     if not isinstance(imports, list):
@@ -28889,8 +29343,10 @@ def _resolved_imported_parameter_rules(
     for name, content in imported_symbol_contents:
         if counts.get(name) != 1 or name in local_names:
             continue
-        with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
-            imported = yaml.safe_load(content)
+        with contextlib.suppress(
+            yaml.YAMLError, TypeError, ValueError, SyntaxError, RecursionError
+        ):
+            imported = yaml.load(content, Loader=_ImportedEvidenceLoader)
             if (
                 not isinstance(imported, dict)
                 or imported.get("format") != "rulespec/v1"
@@ -28904,13 +29360,18 @@ def _resolved_imported_parameter_rules(
                 for rule in rules
                 if isinstance(rule, dict) and rule.get("name") == name
             ]
-            if len(matches) != 1 or matches[0].get("kind") != "parameter":
+            if len(matches) != 1:
                 continue
-            versions = matches[0].get("versions")
+            resolved = matches[0]
+            if resolved.get("kind") != "parameter":
+                resolved = _closed_imported_table_export(imported, resolved)
+                if resolved is None:
+                    continue
+            versions = resolved.get("versions")
             if not isinstance(versions, list) or not versions:
                 continue
             # Provider-local names must never resolve in the consumer namespace.
-            # This bounded path admits literal numeric parameters only.
+            # Closed table exports have already been reduced to a literal cell.
             if not all(
                 isinstance(version, dict)
                 and _imported_parameter_formula_is_numeric_literal(
@@ -28919,7 +29380,7 @@ def _resolved_imported_parameter_rules(
                 for version in versions
             ):
                 continue
-            candidates.setdefault(name, []).append(matches[0])
+            candidates.setdefault(name, []).append(resolved)
     return {name: rules[0] for name, rules in candidates.items() if len(rules) == 1}
 
 
@@ -28941,6 +29402,8 @@ def _constant_rule_environment(payload: dict[str, Any]) -> dict[str, Any]:
         return environment
     for rule in rules:
         if not isinstance(rule, dict):
+            continue
+        if rule.get("rounding") is not None:
             continue
         name = str(rule.get("name") or "").strip()
         versions = rule.get("versions")
@@ -29020,6 +29483,7 @@ def _constant_rule_environment(payload: dict[str, Any]) -> dict[str, Any]:
         for rule in rules
         if isinstance(rule, dict)
         and rule.get("kind") == "parameter"
+        and rule.get("rounding") is None
         and str(rule.get("name") or "").strip()
         and str(rule.get("name") or "").strip() not in environment
     }

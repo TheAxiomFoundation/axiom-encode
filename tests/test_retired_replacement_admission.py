@@ -122,7 +122,7 @@ def test_admits_contained_descendants_without_mutating_context(world):
 def test_rejects_ancestors_siblings_and_other_sources(world, path):
     world.payload["module"]["source_verification"]["corpus_citation_paths"] = [path]
     world.write()
-    with pytest.raises(ValueError, match="descendants"):
+    with pytest.raises(ValueError, match="missing or ambiguous|jurisdiction"):
         world.run()
 
 
@@ -361,3 +361,203 @@ def test_actual_signed_release_resolves_distinct_contained_rows(tmp_path):
     assert child["row"]["record_id"] == "child"
     assert parent["source_sha256"] != child["source_sha256"]
     assert parent["provision_file_sha256"] == child["provision_file_sha256"]
+
+
+EXTERNAL = "us/guidance/example/conversion"
+
+
+def external_world(world):
+    external = replace(
+        world.resolved,
+        requested=EXTERNAL,
+        citation_path=EXTERNAL,
+        body="The annual amount is exactly 12 times the monthly amount.",
+        row=replace(
+            world.resolved.row,
+            citation_path=EXTERNAL,
+            record_id="conversion",
+            document_class="guidance",
+        ),
+    )
+    world.sources[EXTERNAL] = world.unit(external)
+    world.payload["module"]["source_verification"]["corpus_citation_paths"].append(
+        EXTERNAL
+    )
+    world.payload["rules"] = [
+        {
+            "name": "months_per_year",
+            "kind": "parameter",
+            "dtype": "Integer",
+            "unit": "months",
+            "versions": [{"effective_from": "1983-04-20", "formula": "12\n"}],
+            "metadata": {
+                "proof": {
+                    "atoms": [
+                        {
+                            "path": "versions[0].formula",
+                            "kind": "amount",
+                            "source": {
+                                "corpus_citation_path": EXTERNAL,
+                                "excerpt": "exactly 12 times the monthly",
+                            },
+                        }
+                    ]
+                }
+            },
+        }
+    ]
+    return world
+
+
+def test_external_scalar_retains_attestation_and_entire_legacy_rule(world):
+    external_world(world).write()
+    before = world.target.read_bytes()
+    admission = world.run().retired_source_admission
+    assert admission["contract"] == "retired-source-external-parameters/v1"
+    assert admission["required_unchanged_rules"] == world.payload["rules"]
+    assert (
+        admission["sources"][-1]["attestation"]["requested_corpus_citation_path"]
+        == EXTERNAL
+    )
+    assert world.target.read_bytes() == before
+    assert find_plural_corpus_citation_path_issues(world.payload)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "release",
+        "alias",
+        "slice",
+        "unproved",
+        "derived",
+        "formula",
+        "table",
+        "wrong_excerpt",
+        "wrong_anchor",
+        "duplicate",
+    ],
+)
+def test_external_scalar_rejects_unbound_or_nonscalar_evidence(world, change):
+    external_world(world)
+    rule = world.payload["rules"][0]
+    source = world.sources[EXTERNAL].resolved_source
+    if change == "release":
+        world.sources[EXTERNAL] = world.unit(
+            replace(source, release_content_sha256="f" * 64)
+        )
+    elif change == "alias":
+        world.sources[EXTERNAL] = world.unit(
+            replace(source, citation_path=EXTERNAL + "/other")
+        )
+    elif change == "slice":
+        world.sources[EXTERNAL] = world.unit(replace(source, slice_required=True))
+    elif change == "unproved":
+        rule["metadata"]["proof"]["atoms"] = []
+    elif change == "derived":
+        rule["kind"] = "derived"
+    elif change == "formula":
+        rule["versions"][0]["formula"] = "6 * 2"
+    elif change == "table":
+        rule["indexed_by"] = "category"
+    elif change == "wrong_excerpt":
+        rule["metadata"]["proof"]["atoms"][0]["source"]["excerpt"] = (
+            "twelve monthly periods"
+        )
+    elif change == "wrong_anchor":
+        rule["metadata"]["proof"]["atoms"][0]["path"] = "source"
+    elif change == "duplicate":
+        world.payload["rules"].append(rule)
+    world.write()
+    with pytest.raises(ValueError):
+        world.run()
+
+
+@pytest.mark.parametrize(
+    "change", ["remove", "value", "date", "unit", "proof", "duplicate"]
+)
+def test_external_obligation_rejects_generated_evidence_loss(world, change):
+    import copy
+
+    from axiom_encode.legacy_external_parameters import (
+        external_parameter_preservation_issues,
+    )
+
+    external_world(world).write()
+    admission = world.run().retired_source_admission
+    generated = copy.deepcopy(world.payload)
+    del generated["module"]["source_verification"]["corpus_citation_paths"]
+    assert not external_parameter_preservation_issues(generated, admission)
+    rule = generated["rules"][0]
+    if change == "remove":
+        generated["rules"] = []
+    elif change == "value":
+        rule["versions"][0]["formula"] = "13"
+    elif change == "date":
+        rule["versions"][0]["effective_from"] = "2026-01-01"
+    elif change == "unit":
+        rule["unit"] = "years"
+    elif change == "proof":
+        rule["metadata"]["proof"]["atoms"] = []
+    elif change == "duplicate":
+        generated["rules"].append(copy.deepcopy(rule))
+    assert external_parameter_preservation_issues(generated, admission)
+
+
+def test_external_scalar_does_not_hide_top_level_derived_proof(world):
+    import copy
+
+    external_world(world)
+    rule = copy.deepcopy(world.payload["rules"][0])
+    rule["name"] = "derived_with_external_proof"
+    rule["kind"] = "derived"
+    rule["proof"] = rule.pop("metadata")["proof"]
+    world.payload["rules"].append(rule)
+    world.write()
+    with pytest.raises(ValueError, match="outside admitted scalar"):
+        world.run()
+
+
+def test_whitespace_containment_retains_replayable_offsets(world):
+    world.sources[CHILD] = world.unit(
+        replace(world.sources[CHILD].resolved_source, body="(1)\n\tFully   insured.")
+    )
+    world.write()
+    admission = world.run().retired_source_admission
+    match = admission["sources"][1]["containment"][0]
+    assert admission["contract"] == "retired-source-containment/v2"
+    assert match["normalization"] == "unicode-whitespace/v1"
+    raw = world.resolved.proof_evidence_segments[0][match["start"] : match["end"]]
+    assert " ".join(raw.split()) == "(1) Fully insured."
+
+
+def test_whitespace_containment_never_normalizes_changed_words(world):
+    world.sources[CHILD] = world.unit(
+        replace(world.sources[CHILD].resolved_source, body="(1)\nNot fully insured.")
+    )
+    world.write()
+    with pytest.raises(ValueError, match="not fully covered"):
+        world.run()
+
+
+@pytest.mark.parametrize("location", ["formula", "metadata"])
+def test_external_preservation_distinguishes_booleans_from_integers(location):
+    import copy
+
+    from axiom_encode.legacy_external_parameters import (
+        external_parameter_preservation_issues,
+    )
+
+    rule = {
+        "name": "scalar",
+        "versions": [{"formula": 1}],
+        "metadata": {"numeric_marker": 1},
+    }
+    changed = copy.deepcopy(rule)
+    if location == "formula":
+        changed["versions"][0]["formula"] = True
+    else:
+        changed["metadata"]["numeric_marker"] = True
+    assert external_parameter_preservation_issues(
+        {"rules": [changed]}, {"required_unchanged_rules": [rule]}
+    )

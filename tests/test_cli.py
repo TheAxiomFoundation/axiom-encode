@@ -16555,9 +16555,22 @@ rules:
             },
         ]
 
+    @pytest.mark.parametrize(
+        "publication_mutation",
+        [
+            None,
+            "rulespec",
+            "companion",
+            "missing",
+            "manifest_identity",
+            "deleted_inventory",
+            "unchanged_companion",
+        ],
+    )
     def test_apply_freshly_replaces_untrusted_v1_at_same_canonical_path(
         self,
         tmp_path,
+        publication_mutation,
     ):
         from axiom_encode.cli import _resolve_legacy_replacement_contract
         from axiom_encode.toolchain import load_rulespec_local_corpus_release
@@ -16579,7 +16592,11 @@ rules:
             "      - us-me/statute/36/5111\n"
             "rules: []\n"
         )
-        target_test.write_text("- name: old manual fixture\n")
+        target_test.write_text(
+            "[]\n"
+            if publication_mutation == "unchanged_companion"
+            else "- name: old manual fixture\n"
+        )
         legacy_files = {
             path.relative_to(checkout).as_posix(): _sha256_file(path)
             for path in (target, target_test)
@@ -16797,6 +16814,37 @@ rules:
         )
         assert issues == [], "\n".join(issues)
         assert verified == outer
+
+        from axiom_encode.prepare_signed_backfill import stage_authorized_changes
+
+        if publication_mutation in {"rulespec", "companion"}:
+            changed_file = target if publication_mutation == "rulespec" else target_test
+            changed_file.write_text(changed_file.read_text() + "# unsigned change\n")
+        elif publication_mutation == "missing":
+            target_test.unlink()
+        elif publication_mutation == "manifest_identity":
+            outer["replacement"]["legacy_manifest_path"] = (
+                ".axiom/encoding-manifests/us-me/policies/income_tax/other.json"
+            )
+            manifest.write_text(json.dumps(outer) + "\n")
+        elif publication_mutation == "deleted_inventory":
+            outer["applied_files"].append(
+                {"path": checkout_relative.as_posix(), "deleted": True}
+            )
+            manifest.write_text(json.dumps(outer) + "\n")
+        if publication_mutation not in {None, "unchanged_companion"}:
+            with pytest.raises(ValueError):
+                stage_authorized_changes(checkout)
+            assert _git(checkout, "diff", "--cached", "--name-only").stdout == ""
+            return
+
+        stage_authorized_changes(checkout)
+        staged = _git(checkout, "diff", "--cached", "--name-only").stdout.splitlines()
+        assert set(staged) == {
+            path.relative_to(checkout).as_posix()
+            for path in applied
+            if publication_mutation != "unchanged_companion" or path != target_test
+        }
 
     @pytest.mark.parametrize("dependent_owner", ["manual", "generated"])
     def test_apply_atomically_migrates_exact_legacy_dependent(
@@ -47288,6 +47336,76 @@ rules: []
             "26",
             "36B.yaml",
         )
+
+    def test_external_scalar_preservation_is_checked_after_overlay_repairs(
+        self, tmp_path
+    ):
+        output_root = tmp_path / "out"
+        policy_repo = _canonical_rulespec_content_root(tmp_path)
+        generated = output_root / "codex-test-model" / "statutes/26/36B.yaml"
+        generated.parent.mkdir(parents=True)
+        rule = {
+            "name": "conversion",
+            "kind": "parameter",
+            "dtype": "Integer",
+            "versions": [{"effective_from": "2026-01-01", "formula": "12"}],
+        }
+        generated.write_text(yaml.safe_dump({"format": "rulespec/v1", "rules": [rule]}))
+        result = SimpleNamespace(
+            output_file=str(generated), runner="codex-test-model", backend="codex"
+        )
+
+        class FakePipeline:
+            def __init__(self, **kwargs):
+                pass
+
+            def validate(self, path, *, skip_reviewers):
+                current = yaml.safe_load(Path(path).read_text())["rules"][0][
+                    "versions"
+                ][0]["formula"]
+                if current == "12":
+                    return SimpleNamespace(
+                        all_passed=False,
+                        results={
+                            "ci": SimpleNamespace(
+                                issues=["Unused import `us:statutes/example#x`."]
+                            )
+                        },
+                    )
+                return SimpleNamespace(all_passed=True, results={})
+
+        def malicious_repair(*, rules_file, validation):
+            payload = yaml.safe_load(rules_file.read_text())
+            payload["rules"][0]["versions"][0]["formula"] = "13"
+            rules_file.write_text(yaml.safe_dump(payload))
+            return ["us:statutes/example#x"]
+
+        with (
+            patch("axiom_encode.cli.ValidatorPipeline", FakePipeline),
+            patch(
+                "axiom_encode.cli._repair_generated_unused_imports_for_apply",
+                side_effect=malicious_repair,
+            ) as repair,
+            patch("axiom_encode.cli._record_successful_apply_validation") as record,
+        ):
+            ok, issues, supplemental = _validate_generated_encoding_in_policy_overlay(
+                result,
+                output_root=output_root,
+                policy_repo_path=policy_repo,
+                axiom_rules_path=tmp_path / "axiom-rules-engine",
+                local_corpus_release=_bind_test_corpus_release(
+                    policy_repo, tmp_path / "axiom-corpus"
+                ),
+                retired_source_admission={"required_unchanged_rules": [rule]},
+            )
+        assert repair.called
+        assert not ok
+        assert any(
+            "preserve the entire legacy scalar rule conversion" in issue
+            for issue in issues
+        )
+        assert supplemental == {}
+        record.assert_not_called()
 
     def test_apply_overlay_dependency_alias_copies_when_canonical_name_differs(
         self, tmp_path
