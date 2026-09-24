@@ -29129,12 +29129,126 @@ def _imported_parameter_formula_is_numeric_literal(formula: Any) -> bool:
     return False
 
 
+class _ImportedEvidenceLoader(yaml.SafeLoader):
+    """Reject duplicate keys before an imported literal table can collapse them."""
+
+
+def _imported_evidence_mapping(loader, node, deep=False):
+    result = {}
+    for key_node, value_node in node.value:
+        if key_node.tag == "tag:yaml.org,2002:merge":
+            raise ValueError("merged imported evidence is ambiguous")
+        key = loader.construct_object(key_node, deep=deep)
+        if key in result:
+            raise ValueError("duplicate imported evidence key")
+        result[key] = loader.construct_object(value_node, deep=deep)
+    return result
+
+
+_ImportedEvidenceLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _imported_evidence_mapping
+)
+
+
+def _closed_imported_table_export(provider, export):
+    """Corroborate a fixed literal cell without importing provider-local names."""
+    if provider.get("imports", []) != [] or export.get("kind") != "derived":
+        return None
+    if any(key in export for key in ("rounding", "effective_from", "effective_to")):
+        return None
+    versions = export.get("versions")
+    if not isinstance(versions, list) or len(versions) != 1:
+        return None
+    version = versions[0]
+    if not isinstance(version, dict) or set(version) != {
+        "formula",
+        "effective_from",
+        "effective_to",
+    }:
+        return None
+    start, end = version["effective_from"], version["effective_to"]
+    if not isinstance(start, str) or not isinstance(end, str):
+        return None
+    if date.fromisoformat(start) > date.fromisoformat(end):
+        return None
+    if not isinstance(version["formula"], str):
+        return None
+    tree = ast.parse(version["formula"], mode="eval").body
+    if not (
+        isinstance(tree, ast.Subscript)
+        and isinstance(tree.value, ast.Name)
+        and isinstance(tree.slice, ast.Constant)
+        and type(tree.slice.value) is int
+    ):
+        return None
+    rules, inputs = provider.get("rules"), provider.get("inputs", [])
+    if not isinstance(rules, list) or not isinstance(inputs, list):
+        return None
+    relevant_names = {export.get("name"), tree.value.id}
+    if any(not isinstance(item, dict) for item in [*rules, *inputs]):
+        return None
+    if any(item.get("name") in relevant_names for item in inputs):
+        return None
+    tables = [item for item in rules if item.get("name") == tree.value.id]
+    if len(tables) != 1:
+        return None
+    table = tables[0]
+    if table.get("kind") != "parameter" or any(
+        key in table
+        for key in ("rounding", "effective_from", "effective_to", "default")
+    ):
+        return None
+    if not isinstance(table.get("indexed_by"), str):
+        return None
+    if export.get("dtype") != table.get("dtype") or export.get("unit") != table.get(
+        "unit"
+    ):
+        return None
+    if export.get("dtype") not in {"Money", "Decimal", "Rate", "Count", "Integer"}:
+        return None
+    if any(
+        table.get(key) not in (None, export.get(key)) for key in ("entity", "period")
+    ):
+        return None
+    table_versions = table.get("versions")
+    if not isinstance(table_versions, list) or len(table_versions) != 1:
+        return None
+    table_version = table_versions[0]
+    if not isinstance(table_version, dict) or set(table_version) != {
+        "values",
+        "effective_from",
+        "effective_to",
+    }:
+        return None
+    if any(
+        table_version[key] != version[key] for key in ("effective_from", "effective_to")
+    ):
+        return None
+    values = table_version["values"]
+    if (
+        not isinstance(values, dict)
+        or not values
+        or not all(
+            type(key) is int and _imported_parameter_formula_is_numeric_literal(value)
+            for key, value in values.items()
+        )
+    ):
+        return None
+    if tree.slice.value not in values:
+        return None
+    return {
+        **export,
+        "kind": "parameter",
+        "versions": [{**version, "formula": str(values[tree.slice.value])}],
+    }
+
+
 def _resolved_imported_parameter_rules(
     payload: dict[str, Any],
     *,
     imported_symbol_contents: Sequence[tuple[str, str]],
 ) -> dict[str, dict[str, Any]]:
-    """Use only unambiguous directly resolved parameter exports, never case values."""
+    """Corroborate literal parameters or fixed table cells, never case values."""
 
     imports = payload.get("imports")
     if not isinstance(imports, list):
@@ -29158,8 +29272,10 @@ def _resolved_imported_parameter_rules(
     for name, content in imported_symbol_contents:
         if counts.get(name) != 1 or name in local_names:
             continue
-        with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
-            imported = yaml.safe_load(content)
+        with contextlib.suppress(
+            yaml.YAMLError, TypeError, ValueError, SyntaxError, RecursionError
+        ):
+            imported = yaml.load(content, Loader=_ImportedEvidenceLoader)
             if (
                 not isinstance(imported, dict)
                 or imported.get("format") != "rulespec/v1"
@@ -29173,13 +29289,18 @@ def _resolved_imported_parameter_rules(
                 for rule in rules
                 if isinstance(rule, dict) and rule.get("name") == name
             ]
-            if len(matches) != 1 or matches[0].get("kind") != "parameter":
+            if len(matches) != 1:
                 continue
-            versions = matches[0].get("versions")
+            resolved = matches[0]
+            if resolved.get("kind") != "parameter":
+                resolved = _closed_imported_table_export(imported, resolved)
+                if resolved is None:
+                    continue
+            versions = resolved.get("versions")
             if not isinstance(versions, list) or not versions:
                 continue
             # Provider-local names must never resolve in the consumer namespace.
-            # This bounded path admits literal numeric parameters only.
+            # Closed table exports have already been reduced to a literal cell.
             if not all(
                 isinstance(version, dict)
                 and _imported_parameter_formula_is_numeric_literal(
@@ -29188,7 +29309,7 @@ def _resolved_imported_parameter_rules(
                 for version in versions
             ):
                 continue
-            candidates.setdefault(name, []).append(matches[0])
+            candidates.setdefault(name, []).append(resolved)
     return {name: rules[0] for name, rules in candidates.items() if len(rules) == 1}
 
 
