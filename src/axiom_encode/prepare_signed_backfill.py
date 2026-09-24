@@ -3103,8 +3103,17 @@ def authorized_changed_paths(
                 old_manifest.get("path"),
                 label=f"{relative} legacy.manifest.path",
             )
+            replaces_manifest_in_place = (
+                isinstance(receipt_replacement.get("source"), str)
+                and receipt_replacement.get("source")
+                == receipt_replacement.get("destination")
+                and old_manifest_path == relative
+            )
             if (
-                old_manifest_path not in deleted_manifests
+                (
+                    old_manifest_path not in deleted_manifests
+                    and not replaces_manifest_in_place
+                )
                 or replacement.get("legacy_manifest_path")
                 != old_manifest_path.as_posix()
                 or replacement.get("legacy_manifest_sha256")
@@ -3783,7 +3792,7 @@ def authorized_changed_paths(
                 *[
                     {"path": item.get("path"), "deleted": True}
                     for item in legacy_files
-                    if isinstance(item, dict)
+                    if isinstance(item, dict) and item.get("path") not in live_paths
                 ],
                 *retained_deleted_files,
             ]
@@ -3820,6 +3829,14 @@ def authorized_changed_paths(
                     raise ValueError(
                         f"legacy replacement live file differs: {live_path}"
                     )
+                if replaces_manifest_in_place and live_path not in changed:
+                    base_raw = _git(repo, "show", f"HEAD:{live_path.as_posix()}")
+                    if hashlib.sha256(base_raw).hexdigest() != item["sha256"]:
+                        raise ValueError(
+                            f"legacy replacement unchanged live base differs: {live_path}"
+                        )
+                    authorized_unchanged.add(live_path)
+                    authenticated_unchanged_claims.add((relative, live_path))
             for index, item in enumerate(legacy_files):
                 if (
                     not isinstance(item, dict)
@@ -3834,7 +3851,9 @@ def authorized_changed_paths(
                     item.get("path"),
                     label=f"{relative} legacy.files[{index}].path",
                 )
-                if (repo / deleted_path).exists() or (repo / deleted_path).is_symlink():
+                if deleted_path.as_posix() not in live_paths and (
+                    (repo / deleted_path).exists() or (repo / deleted_path).is_symlink()
+                ):
                     raise ValueError(
                         f"legacy replacement deleted file still exists: {deleted_path}"
                     )
