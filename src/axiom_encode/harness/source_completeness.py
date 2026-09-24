@@ -20,9 +20,11 @@ import math
 import re
 import textwrap
 from collections.abc import Callable, Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from decimal import (
+    ROUND_CEILING,
+    ROUND_FLOOR,
     ROUND_HALF_EVEN,
     ROUND_HALF_UP,
     Decimal,
@@ -157,6 +159,20 @@ class _FormulaTraceStep:
 
 
 @dataclass(frozen=True)
+class _CurrencyRounding:
+    mode: str
+    minor_units: int
+
+
+class _CurrencyRoundingRule(dict):
+    """A parsed rule with privately resolved module-level currency metadata."""
+
+    def __init__(self, rule: dict[str, Any], rounding: _CurrencyRounding | None):
+        super().__init__(rule)
+        self.resolved_currency_rounding = rounding
+
+
+@dataclass(frozen=True)
 class _FormulaExecution:
     """The selected control-flow path and reconstructed reachable formula."""
 
@@ -165,6 +181,8 @@ class _FormulaExecution:
     evaluated_value: tuple[str, str] | None
     evaluates_to_zero: bool
     constant_environment: dict[str, Any]
+    currency_rounding: _CurrencyRounding | None = None
+    unrounded_value: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -4526,6 +4544,85 @@ def analyze_complete_source_unit(
     return CompleteSourceUnitAnalysis((), (), 0, 0, 0)
 
 
+def _bind_currency_rounding_rules(payload: dict[str, Any]) -> dict[str, Any]:
+    """Resolve explicit currency declarations without trusting model-added fields.
+
+    Unknown defaults, duplicate units and malformed declarations are deliberately
+    unresolved. A rule with unresolved rounding cannot supply execution evidence.
+    The engine remains the authority for complete schema/unit validation.
+    """
+
+    units: dict[str, list[dict[str, Any]]] = {}
+    for unit in (
+        payload.get("units", []) if isinstance(payload.get("units"), list) else []
+    ):
+        if isinstance(unit, dict) and isinstance(unit.get("name"), str):
+            units.setdefault(unit["name"], []).append(unit)
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return payload
+    bound = []
+    for rule in rules:
+        if not isinstance(rule, dict) or rule.get("rounding") is None:
+            bound.append(rule)
+            continue
+        candidates = (
+            units.get(rule.get("unit"), []) if isinstance(rule.get("unit"), str) else []
+        )
+        spec = None
+        if len(candidates) == 1:
+            unit = candidates[0]
+            precision = unit.get("minor_units")
+            mode = rule.get("rounding")
+            if (
+                rule.get("kind") == "derived"
+                and unit.get("kind") == "currency"
+                and type(precision) is int
+                and 0 <= precision <= 28
+                and isinstance(mode, str)
+                and mode in {"half_up", "half_even", "floor", "ceil"}
+            ):
+                spec = _CurrencyRounding(mode, precision)
+        bound.append(_CurrencyRoundingRule(rule, spec))
+    return {**payload, "rules": bound}
+
+
+def _apply_currency_output_rounding(
+    rule: dict[str, Any], execution: _FormulaExecution | None
+) -> _FormulaExecution | None:
+    """Apply native decimal rounding once, at this rule's output boundary."""
+
+    if execution is None or rule.get("rounding") is None:
+        return execution
+    if not isinstance(rule, _CurrencyRoundingRule):
+        return None
+    spec = rule.resolved_currency_rounding
+    raw = _rulespec_runtime_decimal(_formula_execution_runtime_value(execution))
+    if spec is None or raw is None:
+        return None
+    modes = {
+        "half_up": ROUND_HALF_UP,
+        "half_even": ROUND_HALF_EVEN,
+        "floor": ROUND_FLOOR,
+        "ceil": ROUND_CEILING,
+    }
+    try:
+        with localcontext() as context:
+            context.prec = 60
+            rounded = raw.quantize(
+                Decimal(1).scaleb(-spec.minor_units), rounding=modes[spec.mode]
+            )
+    except (InvalidOperation, ValueError, OverflowError):
+        return None
+    return replace(
+        execution,
+        evaluated_value=("Decimal", repr(rounded)),
+        evaluates_to_zero=rounded == 0,
+        currency_rounding=spec,
+        unrounded_value=raw,
+    )
+
+
 def _analyze_rulespec_payload(
     payload: dict[str, Any],
     *,
@@ -4542,6 +4639,7 @@ def _analyze_rulespec_payload(
     authenticated_same_act_aliases: Sequence[str],
     imported_symbol_contents: Sequence[tuple[str, str]],
 ) -> CompleteSourceUnitAnalysis:
+    payload = _bind_currency_rounding_rules(payload)
     branches = recognize_source_structure(source_text)
     (
         all_covered_paths,
@@ -19213,11 +19311,13 @@ def _case_formula_execution(
     formula_text = _rule_formula_text_for_case(rule, case)
     if formula_text is None:
         return None
-    return _execute_formula_text(
+    execution = _execute_formula_text(
         formula_text,
         environment=environment,
         constant_environment=constant_environment,
     )
+
+    return _apply_currency_output_rounding(rule, execution)
 
 
 def _case_input_formula_environment(
@@ -19305,9 +19405,10 @@ def _case_dependency_environment(
                 environment=environment,
                 constant_environment=constants,
             )
+            execution = _apply_currency_output_rounding(rule, execution)
             if execution is None:
                 continue
-            value = _evaluate_formula_selector(execution.leaf, environment)
+            value = _formula_execution_runtime_value(execution)
             if value is _UNRESOLVED_CONDITION_VALUE:
                 if not require_asserted_value:
                     continue
@@ -27916,6 +28017,18 @@ def _closed_rounding_arithmetic_environment(
             value = _evaluate_formula_selector(
                 ast.unparse(expression.body), environment
             )
+            if rules[name].get("rounding") is not None:
+                execution = _apply_currency_output_rounding(
+                    rules[name],
+                    _execute_formula_text(
+                        ast.unparse(expression.body),
+                        environment=environment,
+                        constant_environment=environment,
+                    ),
+                )
+                if execution is None:
+                    continue
+                value = _formula_execution_runtime_value(execution)
             if _rulespec_runtime_decimal(value) is None:
                 continue
             if name in inputs and not _formula_runtime_values_equal(
@@ -27970,6 +28083,17 @@ def _closed_fractional_rounding_operand_witness(
     )
 
 
+def _currency_rounding_matches_direction(
+    spec: _CurrencyRounding | None, direction: str
+) -> bool:
+    return (
+        spec is not None
+        and spec.minor_units == 0
+        and spec.mode
+        == {"nearest": "half_up", "downward": "floor", "upward": "ceil"}.get(direction)
+    )
+
+
 def _rule_implements_rounding(
     rule: dict[str, Any],
     direction: str,
@@ -27977,6 +28101,10 @@ def _rule_implements_rounding(
     environment: dict[str, Any] | None = None,
     case: dict[str, Any] | None = None,
 ) -> bool:
+    if isinstance(rule, _CurrencyRoundingRule) and _currency_rounding_matches_direction(
+        rule.resolved_currency_rounding, direction
+    ):
+        return True
     formula_text = (
         _rule_formula_text(rule)
         if case is None
@@ -28040,6 +28168,15 @@ def _fractional_rounding_case_witnesses(
             environment=parameter_environment,
         ):
             continue
+        metadata_rounding = _currency_rounding_matches_direction(
+            execution.currency_rounding, direction
+        )
+        if metadata_rounding and not _asserted_formula_runtime_values_equal(
+            rule,
+            _formula_execution_runtime_value(execution),
+            _test_case_asserted_output_value(case, rule_name),
+        ):
+            continue
         reached_executions = _asserted_reached_rule_executions(
             rule,
             execution,
@@ -28069,16 +28206,25 @@ def _fractional_rounding_case_witnesses(
         evaluation_environment = dict(execution.constant_environment)
         evaluation_environment.update(dependency_environment)
         evaluation_environment.update(input_environment)
-        for function_name, operand in _rounding_call_operands(
-            operative_leaf,
-            functions=functions,
-            root_only=rounding_refers_to_result,
-            environment=parameter_environment,
-        ):
-            effective_operand = _rounding_demonstrated_operand(
-                operand,
-                direction=direction,
+        rounding_operands = (
+            (("currency_metadata", operative_leaf),)
+            if metadata_rounding
+            else _rounding_call_operands(
+                operative_leaf,
+                functions=functions,
+                root_only=rounding_refers_to_result,
                 environment=parameter_environment,
+            )
+        )
+        for function_name, operand in rounding_operands:
+            effective_operand = (
+                operand
+                if metadata_rounding
+                else _rounding_demonstrated_operand(
+                    operand,
+                    direction=direction,
+                    environment=parameter_environment,
+                )
             )
             if effective_operand is None:
                 continue
@@ -28159,6 +28305,8 @@ def _formula_execution_implements_rounding(
     *,
     environment: dict[str, Any] | None = None,
 ) -> bool:
+    if _currency_rounding_matches_direction(execution.currency_rounding, direction):
+        return True
     if direction == "nearest":
         return any(
             _rounding_demonstrated_operand(
@@ -28293,7 +28441,7 @@ def _expand_reached_formula_dependencies(
                 formula_environment=formula_environment,
                 dependency_environment=dependency_environment,
             )
-            if execution is None:
+            if execution is None or execution.currency_rounding is not None:
                 return node
             try:
                 replacement = ast.parse(
@@ -29063,6 +29211,8 @@ def _constant_rule_environment(payload: dict[str, Any]) -> dict[str, Any]:
     for rule in rules:
         if not isinstance(rule, dict):
             continue
+        if rule.get("rounding") is not None:
+            continue
         name = str(rule.get("name") or "").strip()
         versions = rule.get("versions")
         if (
@@ -29141,6 +29291,7 @@ def _constant_rule_environment(payload: dict[str, Any]) -> dict[str, Any]:
         for rule in rules
         if isinstance(rule, dict)
         and rule.get("kind") == "parameter"
+        and rule.get("rounding") is None
         and str(rule.get("name") or "").strip()
         and str(rule.get("name") or "").strip() not in environment
     }
