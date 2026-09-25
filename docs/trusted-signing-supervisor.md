@@ -439,3 +439,121 @@ key are checked against each other at the broker challenge, a mismatched pair
 fails closed at startup rather than producing an unverifiable manifest. Old
 manifests remain verifiable only while the corresponding public root is still
 published, so rotate the variable and re-verify historical manifests together.
+
+## Offline readiness diagnostic
+
+Use `axiom-encode-signing-supervisor --doctor` before attempting a supervised
+subscription run. It can run from an ordinary local production build; no root
+installation or Python dependencies are needed to run the diagnostic itself.
+The inspected installation remains subject to the production protected-path
+checks. The command does not enter the supervisor's execution path.
+
+```bash
+GOPROXY=off GOTOOLCHAIN=local CGO_ENABLED=0 go build \
+  -trimpath -buildvcs=false -ldflags='-buildid=' \
+  -o build/axiom-encode-signing-supervisor \
+  ./cmd/axiom-encode-signing-supervisor
+build/axiom-encode-signing-supervisor --doctor \
+  --installation /opt/axiom-verification \
+  --expected-encoder-commit APPROVED_40_HEX_COMMIT \
+  --corpus-root /absolute/path/to/axiom-corpus \
+  --release-name RELEASE_FROM_TOOLCHAIN \
+  --release-content-sha256 SHA256_FROM_TOOLCHAIN \
+  --json
+```
+
+The build requires the repository's Go toolchain and dependencies already cached
+when offline. Replace placeholders with the approved immutable encoder revision
+and the selected RuleSpec repository's `.axiom/toolchain.toml` values. No package
+install, download, corpus fetch, or pointer update is performed. Omit `--json` for
+operator-readable explanations. Omit all three release flags together to inspect
+only the installation. `--expected-supervisor-sha256` optionally compares the
+installed native supervisor against an operator-selected approved build hash.
+An expected hash supplied by the caller is not itself authenticated provenance.
+The doctor never parses embedded ELF/Mach-O/Go metadata: even small binaries can
+encode sections that expand beyond an inspection budget. Native magic and a hash
+do not establish executable format validity, production build kind, or provenance.
+
+The default installation layout is the existing provisioner's
+`/opt/axiom-verification`: supervisor and launcher at the root, public
+`signing-trust-roots.json` and `codex-cli.json`, a `python` runtime with its
+`runtime-attestation.json`, and `bin/codex`. The versioned interpreter is read
+from the launcher's isolated shebang to locate the package under
+`python/lib/python3.X/site-packages/axiom_encode`. The launcher body may be a
+short `raise SystemExit('launcher executed')` stub: this is intentional. The
+supervisor validates that launcher and executes the protected bootstrap directly;
+executing the launcher alone does not test the supervised path. Other explicitly
+configured deployment layouts require their owner's actual supervisor preflight;
+the doctor does not search or guess alternative import roots.
+
+The JSON schema is `axiom-encode/runtime-readiness/v1`. Each check carries
+`id`, `status`, `detail`, `owner`, and `action`. The report retains the requested
+encoder/supervisor identities and, when selected, the corpus root/name/digest/object
+path so a saved JSON report identifies exactly what was inspected. Status `observed` means only that
+the named local observation passed; it never means trusted, admitted, or ready
+to sign. `missing`, `malformed`, `untrusted`, `stale`, and `unreadable` identify
+known blockers. `incomplete` identifies an exhausted work budget or unavailable
+dependency; `not_checked` identifies a deliberately untested prerequisite.
+Overall status is `blocked` when a known blocker exists, otherwise
+`indeterminate`. `admission` is always `not_checked`.
+
+Exit codes are **1** for known blockers, **2** for indeterminate readiness,
+**64** for invalid arguments/output errors, and **0** for help. There is no
+successful admission exit code. A present release object with a matching claimed
+envelope identity remains unverified, including when it contains a signature
+field. Only the actual protected broker and corpus resolver can establish the
+signature, content identity, source scope, and artifact integrity.
+
+The diagnostic uses no subprocesses or network, accepts no signer/auth/outbox
+flags, reads no credential files, and creates no scratch homes or output files.
+It emits only fixed explanations, operator-selected paths, and constrained
+public identities/hashes; parser errors and public configuration values are
+suppressed. File opens reject symlinks component by component and reject special
+files. Inspection shares a limit of 50,000 directory entries/read chunks and
+512 MiB of file bytes, a 64-level directory depth limit, and a ten-second elapsed
+work budget. Individual reads have additional size caps. A stalled local
+filesystem syscall is not interruptible, so the elapsed budget is not a hard
+wall-clock timeout; use only locally mounted installation/corpus paths.
+
+The command checks supervisor file protection/header/hash, launcher/interpreter protection,
+runtime tree protection/startup carriers, encoder package bytes against the
+protected attestation, public roots through the production v2/v3 parser, the
+provisioned Git wrapper, and pinned Codex bytes against both config and runtime
+attestation. It does **not** execute dynamic-loader/bootstrap checks, inspect
+the delegated Git binary or all command-specific tools/dependencies, establish
+supervisor build provenance without an approved artifact comparison, assess
+subscription credentials/capacity, verify public roots against custodian policy,
+contact a broker/signer, or verify/admit a corpus release. It reports nonempty
+ambient `CODEX_HOME` as a subscription launch blocker without emitting its value. It is not a policy
+evaluator or a replacement for production preflight.
+
+### Operator handoff
+
+- **Runtime operator / Max's human install custody:** supply or refresh the
+  approved protected runtime and supervisor using the existing provisioner.
+  Keep package, encoder commit, Codex pin and attestation coherent. Do not
+  automate the sudo invocation or overwrite an installation another lane uses.
+- **Trust-root custodian:** supply the approved distinct apply/eval/corpus public
+  roots and required retired corpus verification keys through the protected
+  configuration process. File presence and syntactic validity do not establish
+  that these are the currently approved roots.
+- **Subscription lane operator:** supply the existing credential and refreshed
+  outbox through the documented subscription flags, with ambient `CODEX_HOME`
+  unset. The doctor neither reads nor validates those files. Do not add API keys,
+  spend a reset, or enable overflow to obtain a readiness result.
+- **Corpus release owner:** review/admit candidate sources, cut a signed
+  immutable release, and materialize the selected release plus its artifacts.
+  A checked-in selector or extracted source candidate alone is insufficient.
+  Serving pointers are outside the diagnostic's scope.
+- **Trusted signing/admission owner and production-signing reviewers:** supply
+  the legitimate authorized signer/admission process if signed apply is needed.
+  The documented production apply-signer launcher is CI-bound; installing the
+  subscription client does not create a production local signer. `--allow-local-dev`
+  uses throwaway keys and is not a remedy. Preserve the approval conditions in
+  [the admission charter](https://github.com/TheAxiomFoundation/axiom-encode/issues/1192).
+
+The local supervision report in
+[issue 1301](https://github.com/TheAxiomFoundation/axiom-encode/issues/1301) and
+[subscription runtime PR 1184](https://github.com/TheAxiomFoundation/axiom-encode/pull/1184)
+provide operational context. The diagnostic does not resolve those owners'
+installation, admission, or signing decisions and does not dispatch CI work.
