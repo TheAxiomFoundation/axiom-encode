@@ -141,7 +141,7 @@ REVIEWED_RULESPEC_REFS = frozenset(
         ),
         (
             "us",
-            "8fafc0a3e6e677b5fd9f89c5bfb8185b07efd385",
+            "b5273061fc5765dea04bf36f63de39bf40afc2d8",
         ),
         (
             "ca",
@@ -178,7 +178,7 @@ REVIEWED_RULESPEC_PR_BASES = frozenset(
         ),
         (
             "us",
-            "8fafc0a3e6e677b5fd9f89c5bfb8185b07efd385",
+            "b5273061fc5765dea04bf36f63de39bf40afc2d8",
             "fix/1248-snap-immigration-status",
         ),
     }
