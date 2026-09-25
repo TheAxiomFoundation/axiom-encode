@@ -8097,6 +8097,17 @@ def cmd_promote_reviewed_candidate(args):
                         "reviewed candidate failed current overlay validation: "
                         + "; ".join(validation_issues)
                     )
+                reviewed_artifact_bytes = {
+                    relative_output: generated_file.read_bytes(),
+                    _rulespec_test_path(relative_output): (
+                        generated_companion.read_bytes()
+                    ),
+                }
+                supplemental_files = {
+                    path: content
+                    for path, content in supplemental_files.items()
+                    if reviewed_artifact_bytes.get(path) != content.encode("utf-8")
+                }
                 if supplemental_files:
                     raise RuntimeError(
                         "reviewed candidate validation produced supplemental changes"
