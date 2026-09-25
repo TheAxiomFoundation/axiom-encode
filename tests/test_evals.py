@@ -22464,6 +22464,60 @@ class TestCodexPromptEvalPolicyEngineSkillIsolation:
         assert "PolicyEngine skills" in response.error
         assert response.unexpected_accesses
 
+    def test_run_codex_prompt_eval_explains_chatgpt_account_model_rejection(
+        self, tmp_path
+    ):
+        runner = parse_runner_spec("codex:gpt-6-luna")
+        workspace = prepare_eval_workspace(
+            citation="us-wa/regulation/388/388-478/388-478-0035",
+            runner=runner,
+            output_root=tmp_path / "out",
+            source_text="income limit",
+            axiom_rules_path=_canonical_rulespec_content_root(tmp_path, "us-wa"),
+            mode="cold",
+            extra_context_paths=[],
+        )
+        rejection = (
+            '{"type":"error","status":400,"error":{"type":"invalid_request_error",'
+            '"message":"The \'gpt-6-luna\' model is not supported when using '
+            'Codex with a ChatGPT account."}}'
+        )
+        event_line = json.dumps({"type": "error", "message": rejection})
+
+        class FakePopen:
+            def __init__(self, cmd, stdout, stderr, text, cwd, stdin=None, env=None):
+                self.args = cmd
+                self.returncode = 1
+                stdout.write(event_line + "\n")
+                stdout.flush()
+
+            def poll(self):
+                return self.returncode
+
+            def terminate(self):
+                self.returncode = -15
+
+            def wait(self, timeout=None):
+                return self.returncode
+
+            def kill(self):
+                self.returncode = -9
+
+        with (
+            patch("axiom_encode.harness.evals.subprocess.Popen", FakePopen),
+            patch(
+                "axiom_encode.harness.evals._wait_for_codex_process",
+                return_value=False,
+            ),
+        ):
+            response = _run_codex_prompt_eval(runner, workspace, "prompt")
+
+        assert response.error is not None
+        assert response.error.startswith(rejection)
+        assert "--model gpt-5.6-terra --escalation-model gpt-5.6-sol" in (
+            response.error
+        )
+
 
 class TestUnexpectedAccessDetection:
     def test_flags_parent_directory_traversal(self, tmp_path):
@@ -23934,3 +23988,27 @@ def test_older_openai_models_reuse_stable_prefix_key_across_retries(tmp_path):
     assert evals_module._openai_prompt_cache_key(
         "gpt-5.4", first_prefix
     ) == evals_module._openai_prompt_cache_key("gpt-5.4", retry_prefix)
+
+
+@pytest.mark.parametrize(
+    ("model", "extended", "explicit_cache"),
+    [
+        ("gpt-6-luna", True, True),
+        ("gpt-6-sol", True, True),
+        ("gpt-5.6-terra", True, True),
+        ("gpt-5.4", True, False),
+        ("gpt-60-luna", False, False),
+        ("gpt-4.1", False, False),
+    ],
+)
+def test_openai_generation_gates_cover_gpt_6_models(model, extended, explicit_cache):
+    expected_tokens = (
+        evals_module._OPENAI_EXTENDED_PROMPT_MAX_OUTPUT_TOKENS
+        if extended
+        else evals_module._OPENAI_DEFAULT_PROMPT_MAX_OUTPUT_TOKENS
+    )
+    assert evals_module._openai_prompt_max_output_tokens(model) == expected_tokens
+    assert (
+        evals_module._openai_model_supports_explicit_prompt_cache(model)
+        is explicit_cache
+    )

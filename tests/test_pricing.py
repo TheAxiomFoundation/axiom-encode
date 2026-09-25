@@ -69,6 +69,34 @@ def test_known_models_resolve_via_public_api():
     assert get_model_pricing("gpt-5.6-luna") is None
 
 
+def test_gpt_6_encoder_pair_rates_trace_to_vendor_pages():
+    luna = get_model_pricing("gpt-6-luna")
+    sol = get_model_pricing("gpt-6-sol")
+    assert (
+        luna.input_per_million,
+        luna.output_per_million,
+        luna.cache_read_per_million,
+        luna.cache_create_per_million,
+        luna.max_input_tokens,
+    ) == (0.10, 0.50, 0.01, 0.125, 272000)
+    assert (
+        sol.input_per_million,
+        sol.output_per_million,
+        sol.cache_read_per_million,
+        sol.cache_create_per_million,
+        sol.max_input_tokens,
+    ) == (2.0, 10.0, 0.20, 2.50, 272000)
+    for model, pricing in (("gpt-6-luna", luna), ("gpt-6-sol", sol)):
+        assert pricing.source_url == (
+            f"https://developers.openai.com/api/docs/models/{model}"
+        )
+        assert pricing.captured_at == "2026-09-24"
+        assert pricing.promotional_until is None
+    # Variant boundary: lexical siblings never inherit GPT-6 Sol pricing.
+    assert get_model_pricing("gpt-6-solstice") is None
+    assert get_model_pricing("gpt-6") is None
+
+
 def test_prefix_fallback_requires_variant_boundary():
     # Dash-suffixed variants keep inheriting their family's pricing...
     assert get_model_pricing("gpt-5.6-terra-2") == get_model_pricing("gpt-5.6-terra")

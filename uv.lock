@@ -53,7 +53,7 @@ wheels = [
 
 [[package]]
 name = "axiom-encode"
-version = "0.2.2046"
+version = "0.2.2047"
 source = { editable = "." }
 dependencies = [
     { name = "axiom-oracles" },

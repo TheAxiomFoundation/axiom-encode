@@ -12,6 +12,7 @@ import runpy
 import tarfile
 from pathlib import Path, PurePosixPath
 
+from axiom_encode.constants import DEFAULT_OPENAI_ESCALATION_MODEL
 from axiom_encode.corpus_resolver import require_canonical_corpus_citation_path
 
 SCHEMA = "axiom-encode/failed-reencode-diagnostics/v1"
@@ -37,6 +38,12 @@ RUNNER_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 JURISDICTION_PATTERN = re.compile(r"[a-z]{2,3}(?:-[a-z0-9]+)*")
 VERSION_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9.+_-]{0,127}")
 REPAIR_LANES = frozenset({"target", "dependent"})
+# A source lane that escalated carries both generations; the escalation
+# model's candidate is the final one. Older failed runs escalated to
+# gpt-5.6-sol, so their artifacts stay selectable for repair.
+ESCALATION_RUNNERS = tuple(
+    dict.fromkeys((f"openai-{DEFAULT_OPENAI_ESCALATION_MODEL}", "openai-gpt-5.6-sol"))
+)
 MAX_RETAINED_ISSUES = 4096
 CONTRACT = runpy.run_path(
     Path(__file__).parents[1] / "src/axiom_encode/repair_candidate_contract.py"
@@ -382,8 +389,9 @@ def _source_repair_candidates(
                 in files
             }
         )
-        if "openai-gpt-5.6-sol" in runners:
-            runner = "openai-gpt-5.6-sol"
+        escalated = [name for name in ESCALATION_RUNNERS if name in runners]
+        if escalated:
+            runner = escalated[0]
         elif len(runners) == 1:
             runner = runners[0]
         else:

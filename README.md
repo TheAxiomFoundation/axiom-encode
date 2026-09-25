@@ -104,13 +104,21 @@ rows are rejected as ambiguous. If the named release or an unambiguous provision
 is unavailable, encoding stops before calling a model. Supabase run/session sync
 is a separate telemetry feature and never supplies legal source text.
 
-`encode` defaults to `--backend codex` with `gpt-5.6-terra`. Each section gets
+`encode` defaults to `--backend codex` with `gpt-6-luna`. Each section gets
 up to two validator-rejected generations on that model, then one generation
-with `gpt-5.6-sol`; use
+with `gpt-6-sol`; use
 `--escalate-after`, `--escalation-model`, or `--no-escalation` to override that
-policy. Claude/Fable capacity is reserved for orchestration, gating, and review
-rather than YAML generation. The Codex backend authenticates through the Codex
-CLI's `~/.codex/auth.json`
+policy. On 2026-09-24 ChatGPT-account Codex auth rejected both GPT-6 models
+("not supported when using Codex with a ChatGPT account"); on that auth path pass
+`--model` and `--escalation-model` explicitly (for example `gpt-5.6-terra` and
+`gpt-5.6-sol`) until they are served there. The same default reaches `eval` and
+`eval-source` (default runners `claude:opus` and `codex:gpt-6-luna`; `--runner`
+replaces the whole list, so pass `--runner claude:opus --runner
+codex:gpt-5.6-terra`) and the Codex reviewer (`AXIOM_ENCODE_REVIEWER_CLI=codex`,
+or the fallback when the Claude CLI is missing; set
+`AXIOM_ENCODE_REVIEWER_CODEX_MODEL=gpt-5.6-terra`). Claude/Fable capacity is reserved
+for orchestration, gating, and review rather than YAML generation. The Codex
+backend authenticates through the Codex CLI's `~/.codex/auth.json`
 (created by `codex login`, or an `OPENAI_API_KEY` recorded there); `CODEX_HOME`
 overrides the directory and `OPENAI_API_KEY` in the environment also satisfies
 the check. When neither is present `encode` stops with a clear error before

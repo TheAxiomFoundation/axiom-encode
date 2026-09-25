@@ -1144,9 +1144,23 @@ def test_package_version_metadata_matches_pyproject():
 
 
 def test_openai_encode_model_defaults():
-    assert DEFAULT_OPENAI_MODEL == "gpt-5.6-terra"
-    assert DEFAULT_OPENAI_ESCALATION_MODEL == "gpt-5.6-sol"
+    assert DEFAULT_OPENAI_MODEL == "gpt-6-luna"
+    assert DEFAULT_OPENAI_ESCALATION_MODEL == "gpt-6-sol"
     assert DEFAULT_OPENAI_ESCALATE_AFTER == 2
+
+
+def test_encode_escalation_config_falls_back_to_gpt_6_pair():
+    from types import SimpleNamespace
+
+    from axiom_encode.cli import _resolve_encode_escalation_config
+
+    config = _resolve_encode_escalation_config(SimpleNamespace())
+    assert (
+        config.enabled,
+        config.initial_model,
+        config.escalation_model,
+        config.escalate_after,
+    ) == (True, "gpt-6-luna", "gpt-6-sol", 2)
 
 
 def test_ensure_rulespec_import_preserves_unindented_import_list():

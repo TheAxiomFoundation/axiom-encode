@@ -2846,9 +2846,11 @@ def main():
         choices=["codex", "openai", "claude"],
         default="codex",
         help=(
-            "Backend (default: codex): 'codex' uses the Codex CLI/ChatGPT "
-            f"path with {DEFAULT_OPENAI_MODEL} (auth via ~/.codex/auth.json "
-            "or OPENAI_API_KEY), 'openai' uses OpenAI Responses API, "
+            "Backend (default: codex): 'codex' uses the Codex CLI with "
+            f"{DEFAULT_OPENAI_MODEL} (auth via ~/.codex/auth.json or "
+            "OPENAI_API_KEY; ChatGPT-account Codex rejected the GPT-6 models on "
+            "2026-09-24, so on that auth pass --model/--escalation-model), "
+            "'openai' uses OpenAI Responses API, "
             "'claude' uses Claude CLI. Claude tiers are reserved for "
             "orchestration and review; net-new statutory encoding runs "
             "through codex."
