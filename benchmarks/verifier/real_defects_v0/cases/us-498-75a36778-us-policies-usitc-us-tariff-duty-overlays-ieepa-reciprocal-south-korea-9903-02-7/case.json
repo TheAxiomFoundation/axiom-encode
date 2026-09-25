@@ -1,0 +1,164 @@
+{
+  "id": "us-498-75a36778-us-policies-usitc-us-tariff-duty-overlays-ieepa-reciprocal-south-korea-9903-02-7",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "75a3677870cc38e35dffbe9099f363a82bde53aa",
+  "parent_commit": "91d3b50b9c75b266a1c54596477171fd40cf44d3",
+  "commit_date": "2026-08-02",
+  "commit_subject": "Sol r1 fixes: afghanistan 02.78 exception, five floor modules completed, terminated predecessors, FALSE-origin witnesses",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1197",
+  "module_path": "us/policies/usitc/us-tariff-duty/overlays/ieepa/reciprocal-south-korea-9903-02-79.yaml",
+  "corpus_citation_path": "us/statute/hts/9903.02.79",
+  "corpus_citation_paths_all": [
+    "us/statute/hts/9903.02.79"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.42,
+  "description": "the five floor stub modules are complete encodings",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        8,
+        36
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        8,
+        13
+      ],
+      [
+        15,
+        16
+      ],
+      [
+        59,
+        209
+      ]
+    ],
+    "rule_names": [
+      "reciprocal_south_korea_floor_heading_product_exception_applies",
+      "reciprocal_south_korea_floor_otherwise_provision_exception_applies",
+      "reciprocal_south_korea_floor_met_or_exceeded_applies",
+      "reciprocal_south_korea_floor_general_duty_rate",
+      "reciprocal_south_korea_floor_special_duty_rate",
+      "reciprocal_south_korea_floor_column_2_duty_change"
+    ],
+    "rule_path": "rules[reciprocal_south_korea_floor_met_or_exceeded_applies].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "5617f269737a3e2882db2096f8c555c153b3bfc28064d54a2bcbd7f1c79b4471",
+  "post_fix_artifact_sha256": "3441395a1c1a2a6bde78c91a58d5e943848ddf5c993afbad737b1b10126afc7d",
+  "provision_sha256": "9d9956e509a44ddbae6e080cecf71e0e8a617e3d1bba60310b88651592fe4fee",
+  "provision_chars": 682,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/hts/9903.02.79",
+    "provision_file": "data/corpus/provisions/us/statute/2026-08-03-rulespec-hts-current-with-legacy-aluminum.jsonl",
+    "provision_file_sha256": "7406b42f2f6a35bd43ed67d7fe4d0f7323e12c3e49c67b8d6699f9978d23b770",
+    "line_number": 1239,
+    "record_id": "c6aab424-e5d7-5c52-ae6a-9800253d582b",
+    "stored_body_sha256": "9d9956e509a44ddbae6e080cecf71e0e8a617e3d1bba60310b88651592fe4fee",
+    "resolved_text_sha256": "9d9956e509a44ddbae6e080cecf71e0e8a617e3d1bba60310b88651592fe4fee",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-31",
+    "source_as_of": "2026-08-01",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "05ce3d3dd21b0ced76f9af40c2ecc02c1c57d9c6",
+    "requested_citation_path": "us/statute/hts/9903.02.79",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.79'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.79'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.79'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.79'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.79'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.79'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.79'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.79'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.79'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.79'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.79'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.79'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.79'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.79'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.79'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.79'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "unclear",
+    "pre_fix_wrong_because": "unclear: the pre-fix module encoded only the 15 percent threshold parameter and a threshold-satisfied judgment (both correct as far as they went) and deferred the heading's article scope, its 9903.01.30-.33 / 9903.02.78 / 9903.02.81 and 9903.01.34 / 9903.02.01 exceptions, and its three rate outputs, so those clauses were absent rather than wrong.",
+    "triage_notes": "Same pattern as index 4. Pre-existing rules were left untouched; the diff removes the deferred_outputs block, rewrites the summary to add the subdivision (v)(xxiv)(a) scope language, adds two imports, and appends six rules with the floor_* prefix (sibling-collision rename against the terminated 9903.02.56 exports). Source text for 9903.02.79 not separately re-read; excerpts match the pattern confirmed in the 9903.02.87 read.",
+    "verifier_verdict": "not_a_defect",
+    "verifier_defect_kind": "none",
+    "verifier_confidence": 0.62,
+    "verifier_justification": "The pre-fix module carried a structured `deferred_outputs` block naming all six now-added outputs (the two exception judgments, the floor-applies scope, and the general/special/column-2 rates) and stating each was deferred for an encoder naming-collision reason, so the module explicitly did not claim them — this is new coverage, not a corrected meaning. Nothing that existed pre-fix changed: the diff's second hunk is pure addition after unchanged context, leaving the 0.15 threshold parameter and the `>=` threshold_satisfied formula (both faithful to the corpus text \"equal to or greater than 15 percent\") untouched, and the only edit to existing content is a module-summary rewording plus two new imports. The pinned corpus text does state the 9903.01.30–.33 / 9903.02.78 / 9903.02.81 and 9903.01.34 / 9903.02.01 exceptions, but no pre-fix formula asserted heading applicability without them, and composition.yaml at the parent imported nothing from this module (only `reciprocal-south-korea-9903-02-80`), so no consumer could have obtained an over-broad answer. Under the rubric's own tiebreaker — a change that merely adds outputs or scope the module never claimed is not a defect — this is stub completion rather than a fidelity correction.",
+    "verifier_quote": "-  deferred_outputs:\n-  - output: us:policies/usitc/us-tariff-duty/overlays/ieepa/reciprocal-south-korea-9903-02-79#reciprocal_south_korea_column_2_duty_change\n-    reason: Generated rule used a local name that collides with a sibling RuleSpec\n-      export. This output is deferred until it can be encoded with a semantic branch-specific\n-      name without creating ambiguous sibling imports.",
+    "verifier_notes": "Tension the reviewer should settle as a corpus-policy question: the rubric says unrepresented_clause covers \"a clause the source states was missing from the encoding (the fix adds it),\" which literally fits (the corpus text does carry the exceptions, verified below), but it also says added coverage the module never claimed is not a defect. The `deferred_outputs` block is the module's machine-readable non-claim, and its stated reason is a sibling-export name collision, not a misreading of the source — the fix resolves it by renaming to the `floor_*` prefix, which the commit body describes as \"Sibling-collision renames: 9903.02.79 and 9903.02.87 rules take the floor_* prefix (jp-72/ch-82 precedent) because their terminated predecessors export the plain names.\" If the curator wants declared-stub completions counted as defects, this flips to confirmed/unrepresented_clause; a verifier trained on it would then be expected to flag honestly-deferred outputs as wrong meaning, which seems undesirable.\n\nSource check (pinned release us-rulespec-2026-08-03-ecps-pit-tariff-union, provision us/statute/hts/9903.02.79, body sha256 9d9956e5...): \"Except for products described in headings 9903.01.30–9903.01.33, 9903.02.78, and 9903.02.81, and except as provided for in headings 9903.01.34, 9903.02.01, articles the product of South Korea, with an ad valorem (or ad valorem equivalent) rate of duty under column 1-General or column 1-Special equal to or greater than 15 percent, as provided for in subdivision (v)(xxiv)(a) of U.S. note 2 to this subchapter.\" The surviving pre-fix content matches it: threshold 0.15 and the inclusive `>=` on both column 1-General and column 1-Special. The added rates (general/special = applicable-subheading rate, column-2 change = 0) also match the three \"Rates of duty\" lines.\n\nNot mechanical: the change adds six new rules with real formulas, so encoded meaning is added even though none is changed. The module-summary rewrite alone (adding \"ad valorem (or ad valorem equivalent)\", the note-2 subdivision cite, and the \"(1-General), (1-Special), and (2)\" enumeration) would have been provenance-only.\n\nScope caveat: I adjudicated only module index 7. The same commit's afghanistan 9903.02.02 change (F1, \"heading-product exception now includes 9903.02.78 per the rev12 heading text\") looks like a genuine unrepresented_clause on an already-claimed exception list and is the stronger candidate in this commit; the four terminated-predecessor modules (F3, effective_to added) look like wrong_period_or_effective_date.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Same pattern as index 4. Pre-existing rules were left untouched; the diff removes the deferred_outputs block, rewrites the summary to add the subdivision (v)(xxiv)(a) scope language, adds two imports, and appends six rules with the floor_* prefix (sibling-collision rename against the terminated 9903.02.56 exports). Source text for 9903.02.79 not separately re-read; excerpts match the pattern confirmed in the 9903.02.87 read. | verifier said not_a_defect at 0.62 (below 0.7); kept as unclear",
+  "family_id": "us-75a36778-5738fb1602eb",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

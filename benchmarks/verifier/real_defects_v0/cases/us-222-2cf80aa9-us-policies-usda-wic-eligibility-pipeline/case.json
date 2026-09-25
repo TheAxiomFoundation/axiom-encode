@@ -1,0 +1,92 @@
+{
+  "id": "us-222-2cf80aa9-us-policies-usda-wic-eligibility-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "2cf80aa9710ae63641af658219ac6e05fcf5f719",
+  "parent_commit": "044fe328f2172d1f27e0ab358a1b2210a40f0b34",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Adds a guard on the WIC pregnancy income adjustment: branch/logic correction to an existing module.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1010",
+  "module_path": "us/policies/usda/wic/eligibility_pipeline.yaml",
+  "corpus_citation_path": "us/regulation/7/246/7/c",
+  "corpus_citation_paths_all": [
+    "us/regulation/7/246/7/c",
+    "us/regulation/7/246/7/d",
+    "us/regulation/7/246/7/e"
+  ],
+  "corpus_release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+  "corpus_release_content_sha256": "914c0daedad1eeee96691d7a245420e434b55c971199661f1df140e6ad99699e",
+  "corpus_commit": "cbf3d2492c8077ba454cd49df9676e8265c9b497",
+  "defect_kind": "wrong_entity_or_scope",
+  "other_kind": null,
+  "confidence": 0.49,
+  "description": "unborn-child adjustment gated to the pregnant-woman category",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        162,
+        162
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        140,
+        144
+      ],
+      [
+        167,
+        170
+      ]
+    ],
+    "rule_names": [
+      "wic_income_eligible"
+    ],
+    "rule_path": "rules[wic_income_eligible].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "72824db74807cd3f93e303a68d7e82f26bbd53712ec0ed2485761f35313ea0b4",
+  "post_fix_artifact_sha256": "ac003eacddef86c35a8c387d49645887d099e43421176b10d499d7c465c04451",
+  "provision_sha256": "c2e5acb5c584fb27f5e93574b3a471aad9bb0eb1fd878e3329c701850730a018",
+  "provision_chars": 3543,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/regulation/7/246/7/c",
+    "provision_file": "data/corpus/provisions/us/regulation/2026-07-13-recovery-r2026-07-17-dedup.jsonl",
+    "provision_file_sha256": "9133fa7c05ffc60be99ca8c9363e78cebb13256f853936e13324559b2573085f",
+    "line_number": 324,
+    "record_id": "4a7c9b16-c10d-5205-a27e-dd33595fd0b4",
+    "stored_body_sha256": "c2e5acb5c584fb27f5e93574b3a471aad9bb0eb1fd878e3329c701850730a018",
+    "resolved_text_sha256": "c2e5acb5c584fb27f5e93574b3a471aad9bb0eb1fd878e3329c701850730a018",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "cbf3d2492c8077ba454cd49df9676e8265c9b497",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "b157a201285a90f185903ba8db6aa52497c201b4",
+    "requested_citation_path": "us/regulation/7/246/7/c",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix formula let the imported pregnant_applicant_income_guidelines_satisfied_with_unborn_children disjunct establish WIC income eligibility for any applicant category, although 7 CFR 246.7(d)(2)(vii) (\"Income eligibility of pregnant women. A pregnant woman who is ineligible for participation in the program because she does not meet income guidelines...\") scopes that route to pregnant women only, so a non-pregnant applicant (e.g. an infant) could be passported over the income ceiling.",
+    "triage_notes": "Single-module commit (module + its companion test only); the module diff is exactly two hunks: the added `kind: condition` proof atom (citation us/regulation/7/246/7/c, excerpt \"pregnant women\") and the formula change wrapping the unborn-child disjunct in `wic_applicant_is_pregnant_woman and (...)`. Nothing unrelated changed: no versions, effective dates, parameters, imports, or other rules moved. Provision WAS read through the pinned corpus release (us/regulation/7/246/7/d, expression_date 2026-07-13, fix_time_corpus_match same_body); paragraph (vii) is titled \"Income eligibility of pregnant women\" and its subject is \"A pregnant woman\". The root cause is a composition contamination: the imported 246.7(d) module gates on its own runtime input `applicant_is_pregnant`, while the pipeline carries a separate category input `wic_applicant_is_pregnant_woman`, and pre-fix nothing tied the two, so inconsistent caller facts fired the pregnancy route for a non-pregnant category (exactly the added test case). Kind call is between wrong_entity_or_scope (route applied to the wrong population) and unrepresented_clause (the source's pregnant-woman subject predicate was missing and the fix adds it); I chose wrong_entity_or_scope because the pre-fix defect is the branch reaching applicants outside the paragraph's population, hence confidence 0.65 rather than higher. Note for the reviewer: paragraph (vii) also says \"The same increased family size may also be used for any of the pregnant woman's categorically eligible family members\", which this guard does not encode, but that extension was never encoded in the imported (d) rule either, so it is a pre-existing gap rather than something this commit introduced. This commit is a repair round inside PR #1010 (merged 2026-07-26); the separate blind-review finding about the 185%-FPG vs operative State guideline is fixed by the later commit fc95ef853 \"Fix WIC State eligibility boundaries\", not here. The PR has no formal reviews/review_comments; the only quotable maintainer text is the PR body and one issue comment (blind review) that does not name this particular finding.",
+    "verifier_verdict": "unclear",
+    "verifier_defect_kind": "wrong_entity_or_scope",
+    "verifier_confidence": 0.6,
+    "verifier_justification": "The diff does change encoded meaning (it adds a `wic_applicant_is_pregnant_woman and ...` conjunct to a disjunct of `wic_income_eligible`), but the first reader's premise — that the pre-fix formula let the unborn-child route establish income eligibility \"for any applicant category\" — is only half true: the imported rule it calls, `us:regulations/7-cfr/246/7/d#pregnant_applicant_income_guidelines_satisfied_with_unborn_children` (unchanged by this commit), already begins `applicant_is_pregnant and ...`, so the source's \"A pregnant woman who is ineligible...\" predicate was represented in the encoding before the fix. The route could therefore only fire for a non-pregnant category when the caller supplied contradictory facts across two redundant, separately-declared pregnancy booleans (`#input.applicant_is_pregnant: true` together with `wic_applicant_is_pregnant_woman: false, wic_applicant_is_infant: true`, exactly the added test vector), which reads as cross-module input-coherence hardening at the composed surface rather than a formula that disagrees with the cited text. Cutting the other way, 7 CFR 246.7(d)(2)(vii) in the pinned release adds \"The same increased family size may also be used for any of the pregnant woman's categorically eligible family members,\" so a hard gate to the pregnant-woman category is not obviously closer to the source than the looser pre-fix form; the evidence does not settle whether the old text was wrong.",
+    "verifier_quote": "+          or (\n+            wic_applicant_is_pregnant_woman\n+            and pregnant_applicant_income_guidelines_satisfied_with_unborn_children\n+          )",
+    "verifier_notes": "Refutation evidence, all read this session. (1) `git -C /Users/maxghenis/TheAxiomFoundation/rulespec-us show 044fe328f2:us/regulations/7-cfr/246/7/d.yaml` — rule `pregnant_applicant_income_guidelines_satisfied_with_unborn_children` formula is already `applicant_is_pregnant\\nand applicant_ineligible_only_because_income_guidelines_not_met\\nand income_guidelines_would_be_met_by_increasing_family_size_for_embryos_or_fetuses\\nand not applicant_waives_unborn_child_family_size_increase`; `git diff --stat 044fe328f2 2cf80aa971 -- us/regulations/7-cfr/246/7/d.yaml` is empty, so the pregnancy predicate was present both before and after. (2) The companion test added by the same commit, `unborn_child_adjustment_cannot_passport_nonpregnant_category`, sets `us:regulations/7-cfr/246/7/d#input.applicant_is_pregnant: true` alongside `wic_applicant_is_pregnant_woman: false` / `wic_applicant_is_infant: true` — i.e. the only reachable fail-open needs mutually contradictory caller facts across two duplicate pregnancy inputs the pipeline never bound together. (3) Pinned corpus (release us-rulespec-2026-07-24-cms-435-correction-immutable-scopes, body sha256 38bf1a18f32c3ad0dd5b66296e4467cb6542a3b5e2d598a4f21bfb3d547e28f8) for us/regulation/7/246/7/d, paragraph (vii): \"Income eligibility of pregnant women. A pregnant woman who is ineligible for participation in the program because she does not meet income guidelines shall be considered to have satisfied the income guidelines if the guidelines would be met by increasing the number of individuals in her family by the number of embryos or fetuses in utero. The same increased family size may also be used for any of the pregnant woman's categorically eligible family members.\" That second sentence is the reader's own infant counterexample, permissively allowed by the source — the module has no family-linkage input to represent it either way, so the post-fix hard gate is not demonstrably more faithful. (4) Provenance flag for the reviewer: the proof atom the fix adds grounds the new guard on `us/regulation/7/246/7/c` with `excerpt: \"pregnant women\"`, and that string does not occur in paragraph (c) of the pinned text (it reads \"infants, children, and pregnant, postpartum, and breastfeeding women\"); the scoping language lives in (d)(2)(vii), not (c). (5) The first reader's justification quote, \"unborn-child adjustment gated to the pregnant-woman category\", comes from the PR #1010 body, which describes the shipped post-fix design, not a reviewer finding of a defect; the only review text on the PR (MaxGhenis blind review) raises the 185%-vs-State-guideline issue and never mentions this gate. If a reviewer decides the composed surface is authoritative and counts the unbound duplicate input as a real fail-open, wrong_entity_or_scope is the kind to keep, though \"fail-open disjunct / cross-module input-coherence\" (polarity_or_logic) is the more literal description of what changed.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Single-module commit (module + its companion test only); the module diff is exactly two hunks: the added `kind: condition` proof atom (citation us/regulation/7/246/7/c, excerpt \"pregnant women\") and the formula change wrapping the unborn-child disjunct in `wic_applicant_is_pregnant_woman and (...)`. Nothing unrelated changed: no versions, effective dates, parameters, imports, or other rules moved. Provision WAS read through the pinned corpus release (us/regulation/7/246/7/d, expression_date 2026-07-13, fix_time_corpus_match same_body); paragraph (vii) is titled \"Income eligibility of pregnant women\" and its subject is \"A pregnant woman\". The root cause is a composition contamination: the imported 246.7(d) module gates on its own runtime input `applicant_is_pregnant`, while the pipeline carries a separate category input `wic_applicant_is_pregnant_woman`, and pre-fix nothing tied the two, so inconsistent caller facts fired the pregnancy route for a non-pregnant category (exactly the added test case). Kind call is between wrong_entity_or_scope (route applied to the wrong population) and unrepresented_clause (the source's pregnant-woman subject predicate was missing and the fix adds it); I chose wrong_entity_or_scope because the pre-fix defect is the branch reaching applicants outside the paragraph's population, hence confidence 0.65 rather than higher. Note for the reviewer: paragraph (vii) also says \"The same increased family size may also be used for any of the pregnant woman's categorically eligible family members\", which this guard does not encode, but that extension was never encoded in the imported (d) rule either, so it is a pre-existing gap rather than something this commit introduced. This commit is a repair round inside PR #1010 (merged 2026-07-26); the separate blind-review finding about the 185%-FPG vs operative State guideline is fixed by the later commit fc95ef853 \"Fix WIC State eligibility boundaries\", not here. The PR has no formal reviews/review_comments; the only quotable maintainer text is the PR body and one issue comment (blind review) that does not name this particular finding. | verifier unclear at 0.60",
+  "family_id": "us-2cf80aa9-ab0124b6bfb9",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

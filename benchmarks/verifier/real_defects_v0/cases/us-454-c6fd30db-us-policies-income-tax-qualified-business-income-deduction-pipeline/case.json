@@ -1,0 +1,114 @@
+{
+  "id": "us-454-c6fd30db-us-policies-income-tax-qualified-business-income-deduction-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "c6fd30db55c3e7e96404fbae44c49fdf09228d46",
+  "parent_commit": "598e55889e0eb6b3e5263e280e905a367df7adde",
+  "commit_date": "2026-07-24",
+  "commit_subject": "fix: key QBID phase-in width to return status",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1004",
+  "module_path": "us/policies/income_tax/qualified_business_income_deduction_pipeline.yaml",
+  "corpus_citation_path": "us/statute/26/199A",
+  "corpus_citation_paths_all": [
+    "us/statute/26/199A",
+    "us/guidance/irs/rev-proc-2025-32/page-21",
+    "us/guidance/irs/rev-proc-2025-32/page-22"
+  ],
+  "corpus_release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+  "corpus_release_content_sha256": "cb275c76c4f07f8ad37470a32296bb1763e5db853d152697524ab07021b6d544",
+  "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+  "defect_kind": "wrong_entity_or_scope",
+  "other_kind": null,
+  "confidence": 0.85,
+  "description": "local width mapping ($150k joint / $75k otherwise incl. surviving spouse — upstream width defect #1053)",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        72,
+        72
+      ],
+      [
+        123,
+        128
+      ],
+      [
+        141,
+        141
+      ],
+      [
+        171,
+        176
+      ],
+      [
+        196,
+        196
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        101,
+        131
+      ],
+      [
+        165,
+        165
+      ],
+      [
+        214,
+        214
+      ]
+    ],
+    "rule_names": [
+      "pipeline_qbi_phasein_range",
+      "pipeline_trade_or_business_phasein_reduction",
+      "pipeline_trade_or_business_deductible_amount"
+    ],
+    "rule_path": "rules[pipeline_qbi_phasein_range].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "9e9c792d608d003a7dda51d6dadfadb7d8e60dbd0786b923134f1a736439e4b8",
+  "post_fix_artifact_sha256": "09442dd0c276dc6f6db2e4afc25aead1fb98dd2b6f1a4106e57c9c1b8ffd1b0d",
+  "provision_sha256": "0af6c1cceb7351a690302b8773d7c90d8ed3711df8c3748f3b07603e3c96c53d",
+  "provision_chars": 29125,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/199A",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+    "provision_file_sha256": "03ddda0b2bcd59345ec4efa1daaf1c77b423a5166852fd80bb4cf00c0bd8e461",
+    "line_number": 39,
+    "record_id": "09e89e17-8e86-5caa-b36d-2de501af862d",
+    "stored_body_sha256": "0af6c1cceb7351a690302b8773d7c90d8ed3711df8c3748f3b07603e3c96c53d",
+    "resolved_text_sha256": "0af6c1cceb7351a690302b8773d7c90d8ed3711df8c3748f3b07603e3c96c53d",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "5dfd89d131564e4ee0e1e763571dbb5d7fc7f5e7",
+    "requested_citation_path": "us/statute/26/199A",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pipeline consumed the imported statute rule `qbi_phasein_range`, whose formula `if filing_status == 1 or filing_status == 4: qbi_phasein_range_joint else: qbi_phasein_range_other` handed surviving-spouse returns (status 4) the $150,000 joint phase-in width, but 26 USC 199A(b)(3)(B) allows the $150,000 width only \"in the case of a joint return\" and Rev. Proc. 2025-32 section 4.26 places surviving-spouse returns in the \"All Other Returns\" band ($201,750 threshold / $276,750 top = a $75,000 width).",
+    "triage_notes": "Single rule-module commit; the only behavioral change is filing_status 4 (150000 -> 75000). Statuses 0, 2 and 3 already resolved to 75000 under the imported rule and status 1 stays at 150000, so the new five-arm match is meaning-changing for exactly one status. The commit also drops the `us:statutes/26/199A#qbi_phasein_range` import line and its two import proof atoms (in pipeline_trade_or_business_phasein_reduction and pipeline_trade_or_business_deductible_amount) and repoints both formulas to the local rule — bookkeeping consequent to the fix, not separate changes. The commit message body is empty; the quote comes from the composing PR #1004 body, which names it \"upstream width defect #1053\". The companion test file (not a module, so not quotable here) adds case `qbid-surviving-spouse-uses-all-other-width` with the comment \"Status 4 is a surviving-spouse return, not a joint return\" and asserts pipeline_qbi_phasein_range = 75000 at taxable income $276,750; PROGRESS.md records \"Replaced the imported `{1,4}` QBID width selector with a local five-status rule\". I read the provision through the pinned corpus release (us/statute/26/199A resolved cleanly): the text says \"threshold amount plus $75,000 ($150,000 in the case of a joint return)\" at (b)(3)(B)(i)(I), (b)(3)(B)(ii)(II) and (d)(3), with no surviving-spouse extension; (e)(2) likewise doubles the threshold only \"in the case of a joint return\". The upstream statute module us/statutes/26/199A.yaml still carries `if filing_status == 1 or filing_status == 4` at repo HEAD, so this fix is a local override in the pipeline rather than an upstream repair — a reviewer may want the sibling upstream commit if one ever lands. Kind could alternatively be read as amount_mismatch (150000 where 75000 belongs), but the taxonomy lists filing status under wrong_entity_or_scope and the fix is precisely a re-keying of which return statuses fall in which branch.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_entity_or_scope",
+    "verifier_confidence": 0.88,
+    "verifier_justification": "I tried to refute this and could not: the diff drops the import `us:statutes/26/199A#qbi_phasein_range`, whose formula at the parent commit (598e55889e, us/statutes/26/199A.yaml line 288) reads `if filing_status == 1 or filing_status == 4: qbi_phasein_range_joint else: qbi_phasein_range_other`, and replaces it with a local rule that gives filing_status 4 the $75,000 width — the only substantive value change (0/2/3 keep $75,000, 1 keeps $150,000), so the change is about which filing-status population gets the joint width, not about a number being wrong. Read through the pinned release, 26 USC 199A grants $150,000 only \"in the case of a joint return\" and never mentions surviving spouses, section 2(a), 6013 or 7703 anywhere in its text, and Rev. Proc. 2025-32 section 4.26 has exactly three bands (\"Married Individuals Filing Joint Returns $403,500 $553,500 ... All Other Returns $201,750 $276,750\", a $75,000 width), so a surviving-spouse return had no source basis for the joint width. The module's own input description (\"0 single/other, 1 joint, 2 married filing separately, 3 head of household, 4 surviving spouse\", threshold \"$201,750 otherwise\") shows the pipeline already claimed status-4 coverage and was internally inconsistent pre-fix, which rules out \"new coverage the module never claimed\" and rules out mechanical, since a formula's value changed for a real population.",
+    "verifier_quote": "+          match filing_status:\n+              0 => 75000\n+              1 => 150000\n+              2 => 75000\n+              3 => 75000\n+              4 => 75000",
+    "verifier_notes": "Corroboration beyond the module diff: commit subject \"fix: key QBID phase-in width to return status\", and the companion case added in the same commit, whose comment reads \"Status 4 is a surviving-spouse return, not a joint return.\" (test file, asserting pipeline_qbi_phasein_range: '75000' at the $276,750 all-other band top). Competing kind considered and rejected: untraceable_branch (the `or filing_status == 4` disjunct has no basis in the cited text) is defensible, but the branch it re-grounds lives in the upstream statute module, not in this diff, and \"filing status\" is named explicitly in wrong_entity_or_scope, so that kind is the more specific fit. amount_mismatch does not fit: both $75,000 and $150,000 are correct source amounts; only the population assignment was wrong. Two caveats for a reviewer: (1) this is an intra-PR fix inside PR #1004 — the defective pre-fix text was unmerged work from the same PR, never shipped to main independently; (2) the root cause remains upstream in us/statutes/26/199A.yaml (tracked as width defect #1053), and this commit is a local workaround, so if the corpus also harvests the upstream #1053 fix the two entries would be the same underlying defect. Also note the first reader's quote (\"local width mapping ($150k joint / $75k otherwise incl. surviving spouse — upstream width defect #1053)\") describes the post-fix state of the whole PR rather than the defect; the decisive evidence is the diff plus the commit subject. Rest of the diff (import list entry, two `kind: import` proof atoms, two identifier renames `qbi_phasein_range` → `pipeline_qbi_phasein_range`) is bookkeeping consequential to the local rule.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Single rule-module commit; the only behavioral change is filing_status 4 (150000 -> 75000). Statuses 0, 2 and 3 already resolved to 75000 under the imported rule and status 1 stays at 150000, so the new five-arm match is meaning-changing for exactly one status. The commit also drops the `us:statutes/26/199A#qbi_phasein_range` import line and its two import proof atoms (in pipeline_trade_or_business_phasein_reduction and pipeline_trade_or_business_deductible_amount) and repoints both formulas to the local rule — bookkeeping consequent to the fix, not separate changes. The commit message body is empty; the quote comes from the composing PR #1004 body, which names it \"upstream width defect #1053\". The companion test file (not a module, so not quotable here) adds case `qbid-surviving-spouse-uses-all-other-width` with the comment \"Status 4 is a surviving-spouse return, not a joint return\" and asserts pipeline_qbi_phasein_range = 75000 at taxable income $276,750; PROGRESS.md records \"Replaced the imported `{1,4}` QBID width selector with a local five-status rule\". I read the provision through the pinned corpus release (us/statute/26/199A resolved cleanly): the text says \"threshold amount plus $75,000 ($150,000 in the case of a joint return)\" at (b)(3)(B)(i)(I), (b)(3)(B)(ii)(II) and (d)(3), with no surviving-spouse extension; (e)(2) likewise doubles the threshold only \"in the case of a joint return\". The upstream statute module us/statutes/26/199A.yaml still carries `if filing_status == 1 or filing_status == 4` at repo HEAD, so this fix is a local override in the pipeline rather than an upstream repair — a reviewer may want the sibling upstream commit if one ever lands. Kind could alternatively be read as amount_mismatch (150000 where 75000 belongs), but the taxonomy lists filing status under wrong_entity_or_scope and the fix is precisely a re-keying of which return statuses fall in which branch. | verifier confirmed at 0.88",
+  "family_id": "us-c6fd30db-e6944487b294",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

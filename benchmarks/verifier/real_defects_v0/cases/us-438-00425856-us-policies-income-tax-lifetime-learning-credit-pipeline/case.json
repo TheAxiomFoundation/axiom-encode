@@ -1,0 +1,137 @@
+{
+  "id": "us-438-00425856-us-policies-income-tax-lifetime-learning-credit-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "0042585669441dbc1c08498891b718762fd3b236",
+  "parent_commit": "58a81fbd064190209fa1283448f38b7fb7323706",
+  "commit_date": "2026-07-24",
+  "commit_subject": "fix: require net expenses for LLC",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1004",
+  "module_path": "us/policies/income_tax/lifetime_learning_credit_pipeline.yaml",
+  "corpus_citation_path": "us/statute/26/25A",
+  "corpus_citation_paths_all": [
+    "us/statute/26/25A",
+    "us/statute/26/25A/g/5",
+    "us/statute/26/26"
+  ],
+  "corpus_release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+  "corpus_release_content_sha256": "cb275c76c4f07f8ad37470a32296bb1763e5db853d152697524ab07021b6d544",
+  "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.85,
+  "description": "Section 25A(g)(5) was checked because the imported module does not itself subtract expenses for which another chapter 1 deduction is allowed.",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        22,
+        22
+      ],
+      [
+        67,
+        67
+      ],
+      [
+        93,
+        93
+      ],
+      [
+        145,
+        145
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        14,
+        14
+      ],
+      [
+        24,
+        26
+      ],
+      [
+        34,
+        38
+      ],
+      [
+        73,
+        77
+      ],
+      [
+        81,
+        85
+      ],
+      [
+        108,
+        112
+      ],
+      [
+        116,
+        120
+      ],
+      [
+        167,
+        171
+      ],
+      [
+        177,
+        177
+      ]
+    ],
+    "rule_names": [
+      "federal_lifetime_learning_credit_before_section_26",
+      "federal_lifetime_learning_credit"
+    ],
+    "rule_path": "rules[federal_lifetime_learning_credit].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "6b16c1b560b5adb9407692ee617db276a8a6b3fd84b85e048e6ce2372bbc8326",
+  "post_fix_artifact_sha256": "d329b4bcf640a90db881d7cd6671ee2c1b8bd90b87767c4e63cc9220012b798a",
+  "provision_sha256": "4a4b3164351a7014caf9f745c8f360e8245417412a0a32610c034bcb19b5c1f0",
+  "provision_chars": 12866,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/25A",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+    "provision_file_sha256": "03ddda0b2bcd59345ec4efa1daaf1c77b423a5166852fd80bb4cf00c0bd8e461",
+    "line_number": 12,
+    "record_id": "606a00fd-fb02-57bf-9281-c6cb2c8e2080",
+    "stored_body_sha256": "4a4b3164351a7014caf9f745c8f360e8245417412a0a32610c034bcb19b5c1f0",
+    "resolved_text_sha256": "4a4b3164351a7014caf9f745c8f360e8245417412a0a32610c034bcb19b5c1f0",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "5dfd89d131564e4ee0e1e763571dbb5d7fc7f5e7",
+    "requested_citation_path": "us/statute/26/25A",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "Both pipeline outputs passed the imported 25A credit through unconditionally on gross qualified tuition, so they allowed the Lifetime Learning credit for expenses that 26 USC 25A(g)(5) bars from credit because a deduction is allowed for them under another chapter 1 provision.",
+    "triage_notes": "Read the module diff, the post-fix module, the companion test diff, and PROGRESS.md. Provision was read through the pinned corpus release (us-rulespec-2026-07-24-snap-cms-pit-union, corpus commit 0fd35bfb, fix_time_corpus_match same_body): us/statute/26/25A/g/5 text is verbatim 'No credit shall be allowed under this section for any expense for which a deduction is allowed under any other provision of this chapter.', exactly the excerpt the new proof atoms cite, so the added condition is grounded. Single module in the commit; both changed rules got the identical guard, so one justification covers both. The fix is implemented as a fail-closed TaxUnit attestation boolean (false -> 0, omission unevaluable) plus a redefinition of the qualified_tuition_and_related_expenses input description to mean net-of-deduction amounts, rather than an actual subtraction of deduction-allowed expenses -- a conservative representation of the clause, not a computation of it, which is worth noting for a judge scoring exact fix shape. Other changes in the commit are consistent bookkeeping (citation-path list, upstream_source_check rationale, summary prose, proof atoms, companion case llc-double-benefit-attestation-fails-closed, PROGRESS.md); no formula, parameter, effective date, or unrelated scope change beyond the gate. Commit body is empty; PR #1004 has no reviews or review comments in the bundle, but PROGRESS.md's pre-fix 'Next' list contained 'Add the section 25A(g)(5) double-benefit contract', so this was a known outstanding gap (PR body reports 4 blind review rounds without naming findings).",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.85,
+    "verifier_justification": "The diff changes encoded meaning, not bookkeeping: both TaxUnit outputs move from an unconditional pass-through of the imported 25A results to a gated formula, and a new required Boolean input is added whose false value forces both outputs to zero. The gate is grounded in a clause the pinned corpus confirms verbatim — resolve_provision for us/statute/26/25A/g/5 returns exactly \"No credit shall be allowed under this section for any expense for which a deduction is allowed under any other provision of this chapter.\", matching the added proof atom's excerpt. I checked whether the clause was already covered upstream, which would have made this redundant hardening rather than a defect: the imported module's only expense adjustment is education_credit_adjusted_expenses, source 26 USC 25A(g)(2), formula max(0, qualified_tuition_and_related_expenses - excludable_educational_assistance), so nothing in the composed chain represented (g)(5) before the fix and the pipeline allowed credit on expenses the statute bars. That is a source-stated clause missing from the encoding that the fix adds, so unrepresented_clause fits and no alternative kind (polarity_or_logic has no pre-existing boolean to invert; nothing numeric, scoped, or dated changed).",
+    "verifier_quote": "-        formula: lifetime_learning_credit_potential\n+        formula: |-\n+          if qualified_tuition_and_related_expenses_are_net_of_deduction_allowed_expenses:\n+              lifetime_learning_credit_potential\n+          else:\n+              0",
+    "verifier_notes": "Two caveats a reviewer should see, neither fatal. (1) The fix represents (g)(5) as a fail-closed caller attestation plus a redefined input description (\"after excluding every expense for which another chapter 1 deduction is allowed under section 25A(g)(5)\"), not as a computed subtraction; the arithmetic of the clause is still pushed to the boundary. It nonetheless changes what the module outputs for the same facts (the new companion case llc-double-benefit-attestation-fails-closed asserts the imported 25A outputs stay '2000' while both pipeline outputs become '0'), so it is a meaning change, not provenance. (2) PROGRESS.md in this same commit moves the line \"Add the section 25A(g)(5) double-benefit contract\" out of \"Next\", i.e. the gap was known and closed inside PR #1004 before merge, so the defective state never reached main — if the corpus is meant to hold defects that shipped, this one is intra-PR scope completion. Under the stated rubric (\"a change that ADDS coverage the source requires ... is a fidelity correction\"), the pre-fix encoding still disagreed with the cited source, so I confirm. The attestation survives on main (3 occurrences in the file), so it was not later reverted as an over-reach.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Read the module diff, the post-fix module, the companion test diff, and PROGRESS.md. Provision was read through the pinned corpus release (us-rulespec-2026-07-24-snap-cms-pit-union, corpus commit 0fd35bfb, fix_time_corpus_match same_body): us/statute/26/25A/g/5 text is verbatim 'No credit shall be allowed under this section for any expense for which a deduction is allowed under any other provision of this chapter.', exactly the excerpt the new proof atoms cite, so the added condition is grounded. Single module in the commit; both changed rules got the identical guard, so one justification covers both. The fix is implemented as a fail-closed TaxUnit attestation boolean (false -> 0, omission unevaluable) plus a redefinition of the qualified_tuition_and_related_expenses input description to mean net-of-deduction amounts, rather than an actual subtraction of deduction-allowed expenses -- a conservative representation of the clause, not a computation of it, which is worth noting for a judge scoring exact fix shape. Other changes in the commit are consistent bookkeeping (citation-path list, upstream_source_check rationale, summary prose, proof atoms, companion case llc-double-benefit-attestation-fails-closed, PROGRESS.md); no formula, parameter, effective date, or unrelated scope change beyond the gate. Commit body is empty; PR #1004 has no reviews or review comments in the bundle, but PROGRESS.md's pre-fix 'Next' list contained 'Add the section 25A(g)(5) double-benefit contract', so this was a known outstanding gap (PR body reports 4 blind review rounds without naming findings). | verifier confirmed at 0.85",
+  "family_id": "us-00425856-6b87b61e7963",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

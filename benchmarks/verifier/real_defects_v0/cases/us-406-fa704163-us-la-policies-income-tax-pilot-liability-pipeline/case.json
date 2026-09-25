@@ -1,0 +1,201 @@
+{
+  "id": "us-406-fa704163-us-la-policies-income-tax-pilot-liability-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "fa704163bcdd447cf3c2a4d63869d2e04470f6f7",
+  "parent_commit": "f2e4fc8cd64d56ba8d094734ba0a67a5633a3c25",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Unsure (promote pattern): rewrites existing LA pilot_liability_pipeline.yaml (94 lines, net deletions), adds 47:32 rule, removes oracle-coverage-pending entries.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/962",
+  "module_path": "us-la/policies/income_tax/pilot_liability_pipeline.yaml",
+  "corpus_citation_path": "us-la/statute/47:32",
+  "corpus_citation_paths_all": [
+    "us-la/statute/47:32"
+  ],
+  "corpus_release": "us-rulespec-2026-07-22-current-la-status-fix",
+  "corpus_release_content_sha256": "6bfd97b24cb63cb709fa52e9a5e6764c916dec95c5557447e11f47778ee4768f",
+  "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.6,
+  "description": "encodes the statute-backed 3% rate for 2026 and fails closed outside that year",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        6,
+        26
+      ],
+      [
+        28,
+        35
+      ],
+      [
+        37,
+        37
+      ],
+      [
+        43,
+        43
+      ],
+      [
+        48,
+        65
+      ],
+      [
+        70,
+        70
+      ],
+      [
+        74,
+        77
+      ],
+      [
+        82,
+        94
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        6,
+        6
+      ],
+      [
+        8,
+        20
+      ],
+      [
+        22,
+        22
+      ],
+      [
+        28,
+        28
+      ],
+      [
+        33,
+        37
+      ],
+      [
+        42,
+        42
+      ],
+      [
+        45,
+        45
+      ],
+      [
+        47,
+        49
+      ],
+      [
+        54,
+        54
+      ]
+    ],
+    "rule_names": [
+      "la_pit_pilot_income_tax_liability",
+      "la_pit_pilot_schedule_tax",
+      "la_pit_pilot_taxable_income"
+    ],
+    "rule_path": "rules[la_pit_pilot_income_tax_liability].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "1d08d75306d7be6b32caf9ad3b445b090a6d44418e4cd42da033ab64a11b7df9",
+  "post_fix_artifact_sha256": "986ea6937fe0cadab17acf2a927f5eb9d95d27337bd70a00b10e4099b8cbc551",
+  "provision_sha256": "b9e7c752af88f097d669f8fbfe7048d305d110dadf57c108521a8362a680f37f",
+  "provision_chars": 427,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-la/statute/47:32",
+    "provision_file": "data/corpus/provisions/us-la/statute/2026-07-22-la-title-47-official-current-us-la-title-47.jsonl",
+    "provision_file_sha256": "5718e5920daf430b4529b156bbf88d6a00d00d1df510a91ea1654812989c1f15",
+    "line_number": 19,
+    "record_id": "064aa413-3f0d-5dae-ab7c-669c0090cd40",
+    "stored_body_sha256": "b9e7c752af88f097d669f8fbfe7048d305d110dadf57c108521a8362a680f37f",
+    "resolved_text_sha256": "b9e7c752af88f097d669f8fbfe7048d305d110dadf57c108521a8362a680f37f",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-22",
+    "source_as_of": "2026-07-22",
+    "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 13,
+    "toolchain_corpus_ref": "a6ef35176a5d094c3f3c49e96c9a1b3d06207996",
+    "requested_citation_path": "us-la/statute/47:32",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us-la/statute/47:32'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us-la/statute/47:32'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us-la/statute/47:32'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us-la/statute/47:32'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us-la/statute/47:32'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us-la/statute/47:32'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us-la/statute/47:32'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us-la/statute/47:32'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us-la/statute/47:32'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us-la/statute/47:32'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us-la/statute/47:32'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us-la/statute/47:32'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "Active corpus source 'us-la/statute/47:32' is repealed"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix pipeline encoded a graduated-bracket mechanism (la_pit_pilot_supplied_bracket_base + la_pit_pilot_supplied_marginal_rate * max(0, taxable_income - la_pit_pilot_supplied_bracket_floor)) and an AGI-minus-supplied-subtraction taxable-income step, grounding both on La. R.S. 47:32's flat-rate sentence and 47:294's standard-deduction sentence, even though 47:32 as it reads for 2026 imposes a single flat three percent on net income and its graduated-bracket subsection (B) was repealed by Acts 2024, 3rd Ex. Sess., No. 11 effective Dec. 4, 2024 -- so the bracket base, bracket floor, and marginal-rate branch had no basis in the cited source and the 3% rate itself was never encoded.",
+    "triage_notes": "Provision read through the pinned corpus release (us-rulespec-2026-07-22-current-la-status-fix, provision us-la/statute/47:32): 'A. On individuals. The tax to be assessed, levied, collected, and paid upon the taxable income of an individual shall be computed at the rate of three percent on net income. B. Repealed by Acts 2024, 3rd Ex. Sess., No. 11, 4, eff. Dec. 4, 2024.' Confirms flat rate, no brackets, for 2026. IMPORTANT CAVEAT for the reviewer: the pre-fix companion tests all passed bracket_floor=0, bracket_base=0, marginal_rate=0.03, so the pre-fix module was numerically equivalent to the post-fix one for the tested slice; the defect is structural/grounding (asserted bracket machinery and an unsupported deduction step with no basis in the cited text, and no encoded rate literal) rather than a wrong number. This is the 'promote pattern' the screener flagged, so the fidelity call is judgment: a fidelity judge comparing the pre-fix module to 47:32 would legitimately flag the bracket schedule, but a reader could also read the pre-fix module as a deliberate placeholder that declined to encode any tax-law literal ('The module adds no numeric tax-law literals'). Secondary changes in the same diff that are NOT the decisive defect: (a) effective_to '2026-12-31' added -- this is a fail-closed campaign convention ('so later law is not inferred from this campaign's current-law source window'), not a source-stated sunset, so I did not classify it as wrong_period_or_effective_date; (b) module scope narrowed -- the 47:294 taxable-income construction was removed and replaced by a single caller-supplied completed-return la_pit_pilot_louisiana_taxable_income input, which the post-fix summary says means the module 'makes no independent claim about that chain'; (c) proof atom gained an import atom with hash sha256:76e2500f...; (d) the proof excerpt lost its trailing period. Commit body is empty; PR #962 has no reviews or review comments, only a mainline-refresh issue comment, so the evidence for the kind is the diff plus the PR summary bullet, hence confidence in the 0.5-0.79 band.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "untraceable_branch",
+    "verifier_confidence": 0.62,
+    "verifier_justification": "The pinned corpus text of La. R.S. 47:32 for 2026 reads \"computed at the rate of three percent on net income\" with subsection B \"Repealed by Acts 2024, 3rd Ex. Sess., No. 11, §4, eff. Dec. 4, 2024\", so the provision contains no bracket base, bracket floor, or bracket-specific marginal rate for the encoded period; the pre-fix module nonetheless carried a graduated-bracket formula whose proof atom cited that very flat-rate sentence, and a taxable-income formula (AGI minus one supplied subtraction) grounded on 47:294's \"A standard deduction shall be allowed\", which allows a deduction but does not define taxable income. The fix deletes both rules and re-grounds the single remaining liability formula on a rate imported from a newly encoded 47:32 module, which is the remove-or-re-ground signature of untraceable_branch, including its \"formulas grounded on the wrong provision\" case. I tried amount_mismatch (no law value changed magnitude — 0.03 was supplied before and literal after), wrong_period_or_effective_date (the added effective_to is fail-closed campaign-window discipline; the statute has no 2026 sunset), and mechanical (formulas, rule set, inputs and version window all changed); none fit. The strongest counter-reading, that this merely promotes a declared pilot whose law values were intentionally caller-supplied, fails because the old module affirmatively asserted, via proof atoms, that a bracket mechanism is what 47:32(A) provides.",
+    "verifier_quote": "-          la_pit_pilot_supplied_bracket_base\n-          + la_pit_pilot_supplied_marginal_rate * max(0, la_pit_pilot_taxable_income - la_pit_pilot_supplied_bracket_floor)\n+          max(0, la_pit_pilot_louisiana_taxable_income * individual_income_tax_rate)",
+    "verifier_notes": "Corroborating source read (do not re-derive): resolve_provision.py for us-la/statute/47:32 at rulespec commit fa704163bc resolves to release us-rulespec-2026-07-22-current-la-status-fix, provision line 19, text \"A. On individuals. ... computed at the rate of three percent on net income.\\n\\nB. Repealed by Acts 2024, 3rd Ex. Sess., No. 11, §4, eff. Dec. 4, 2024.\" The resolver had to walk past us-rulespec-2026-07-22-current, which reports 47:32 as \"repealed\" (status fixed in the later release) — worth a reviewer glance if corpus status matters downstream.\n\nResidual uncertainty a reviewer should weigh: the pre-fix bracket mechanism produced numerically correct results at every companion fixture, because all six cases supplied base=0, floor=0, rate=0.03 (see the removed test fixtures, e.g. \"schedule 0 + 0.03 * max(0, 17165 - 0) = 514.95\"). So this is a structural/grounding fidelity defect, not an output-value error: the defect is that the module admitted, and claimed 47:32(A) authority for, a family of graduated-bracket behaviors the 2026 statute does not contain. A reviewer who scores only observable output divergence could downgrade this to unclear.\n\nSecondary changes in the same module that I judged non-decisive: (1) + effective_to: '2026-12-31' — the post 47:32.yaml summary calls it deliberate expiry \"so later law is not inferred from this campaign's current-law source window\", i.e. discipline, not a source date; (2) the input boundary moves from la_pit_pilot_adjusted_gross_income to la_pit_pilot_louisiana_taxable_income, a scope narrowing that follows from deleting the ungrounded derivation rather than an independent wrong_entity_or_scope defect. The commit also drops three us-la pilot entries from oracle-coverage-pending.yaml (ceiling 1584 -> 1581), confirming the deleted rules had never been oracle-validated.\n\nThe first reader's quote (\"encodes the statute-backed 3% rate for 2026 and fails closed outside that year\", pr_body) is weaker than the diff itself; prefer the formula lines above as the evidence of record. No PR review or review comment exists on #962 — the only issue comment is a mainline-refresh note — so nothing in the review record independently characterizes the old encoding as wrong.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Provision read through the pinned corpus release (us-rulespec-2026-07-22-current-la-status-fix, provision us-la/statute/47:32): 'A. On individuals. The tax to be assessed, levied, collected, and paid upon the taxable income of an individual shall be computed at the rate of three percent on net income. B. Repealed by Acts 2024, 3rd Ex. Sess., No. 11, 4, eff. Dec. 4, 2024.' Confirms flat rate, no brackets, for 2026. IMPORTANT CAVEAT for the reviewer: the pre-fix companion tests all passed bracket_floor=0, bracket_base=0, marginal_rate=0.03, so the pre-fix module was numerically equivalent to the post-fix one for the tested slice; the defect is structural/grounding (asserted bracket machinery and an unsupported deduction step with no basis in the cited text, and no encoded rate literal) rather than a wrong number. This is the 'promote pattern' the screener flagged, so the fidelity call is judgment: a fidelity judge comparing the pre-fix module to 47:32 would legitimately flag the bracket schedule, but a reader could also read the pre-fix module as a deliberate placeholder that declined to encode any tax-law literal ('The module adds no numeric tax-law literals'). Secondary changes in the same diff that are NOT the decisive defect: (a) effective_to '2026-12-31' added -- this is a fail-closed campaign convention ('so later law is not inferred from this campaign's current-law source window'), not a source-stated sunset, so I did not classify it as wrong_period_or_effective_date; (b) module scope narrowed -- the 47:294 taxable-income construction was removed and replaced by a single caller-supplied completed-return la_pit_pilot_louisiana_taxable_income input, which the post-fix summary says means the module 'makes no independent claim about that chain'; (c) proof atom gained an import atom with hash sha256:76e2500f...; (d) the proof excerpt lost its trailing period. Commit body is empty; PR #962 has no reviews or review comments, only a mainline-refresh issue comment, so the evidence for the kind is the diff plus the PR summary bullet, hence confidence in the 0.5-0.79 band. | verifier confirmed at 0.62",
+  "family_id": "us-fa704163-5b5ca6144f3e",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

@@ -1,0 +1,231 @@
+{
+  "id": "us-265-a0a2ec59-us-policies-income-tax-additional-medicare-tax-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "a0a2ec5940425bc18a31d25089be6c7864faf934",
+  "parent_commit": "6b0773d3f7fa6719f208154f3e609e292ab7abe7",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) PR #1143 \"Restores the SE leg deliberately withheld from #1003\": merged additional Medicare tax pipeline lacked the §1401(b)(2) self-employment leg; a deliberate deferral rather than an error, flagged for the diff stage.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1143",
+  "module_path": "us/policies/income_tax/additional_medicare_tax_pipeline.yaml",
+  "corpus_citation_path": "us/statute/26/3101",
+  "corpus_citation_paths_all": [
+    "us/statute/26/3101",
+    "us/statute/26/1401",
+    "us/statute/26/1402",
+    "us/regulation/26/1/1401-1/d/2/i"
+  ],
+  "corpus_release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+  "corpus_release_content_sha256": "cb275c76c4f07f8ad37470a32296bb1763e5db853d152697524ab07021b6d544",
+  "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.32,
+  "description": "Restores the SE leg deliberately withheld from #1003, now that the operative coordination authority is in the pinned corpus chain (axiom-corpus#523 → pin PR #1140).",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        20,
+        28
+      ],
+      [
+        32,
+        37
+      ],
+      [
+        46,
+        49
+      ],
+      [
+        51,
+        52
+      ],
+      [
+        54,
+        56
+      ],
+      [
+        58,
+        58
+      ],
+      [
+        99,
+        115
+      ],
+      [
+        125,
+        125
+      ],
+      [
+        134,
+        139
+      ],
+      [
+        143,
+        145
+      ],
+      [
+        147,
+        150
+      ],
+      [
+        157,
+        157
+      ],
+      [
+        162,
+        166
+      ],
+      [
+        168,
+        174
+      ],
+      [
+        294,
+        294
+      ],
+      [
+        299,
+        303
+      ],
+      [
+        305,
+        306
+      ],
+      [
+        386,
+        386
+      ],
+      [
+        460,
+        463
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        10,
+        10
+      ],
+      [
+        17,
+        17
+      ],
+      [
+        22,
+        31
+      ],
+      [
+        35,
+        38
+      ],
+      [
+        47,
+        50
+      ],
+      [
+        52,
+        52
+      ],
+      [
+        54,
+        56
+      ],
+      [
+        58,
+        60
+      ],
+      [
+        110,
+        110
+      ],
+      [
+        122,
+        122
+      ],
+      [
+        130,
+        130
+      ],
+      [
+        135,
+        138
+      ],
+      [
+        140,
+        141
+      ],
+      [
+        261,
+        261
+      ],
+      [
+        266,
+        269
+      ],
+      [
+        271,
+        271
+      ],
+      [
+        351,
+        351
+      ],
+      [
+        425,
+        427
+      ]
+    ],
+    "rule_names": [
+      "additional_medicare_tax_pipeline_self_employment_domain_is_valid",
+      "wages_taken_into_account_for_additional_medicare_tax",
+      "pipeline_reduced_additional_medicare_self_employment_threshold"
+    ],
+    "rule_path": "rules[additional_medicare_tax_pipeline_self_employment_domain_is_valid].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "9d771ad0f4ebf9d5765de29251a63a66b305d74aacb2e8ba44544388c17b8970",
+  "post_fix_artifact_sha256": "82db53d5e529f15740849e4a09b7a419080a669ec36805812e28c1147b2418a3",
+  "provision_sha256": "3fa3fc0b75faa2701c24747d44bf2a351beec597d7ef67823f6b4e78452300a0",
+  "provision_chars": 1694,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/3101",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-19-rulespec-title-26-consolidated.jsonl",
+    "provision_file_sha256": "397ee850815df0a050da457b5d08b557e9130e863a9c1473f19de52b0439ede6",
+    "line_number": 5,
+    "record_id": "600fc3e5-1430-5d90-bdd8-13116a58f062",
+    "stored_body_sha256": "3fa3fc0b75faa2701c24747d44bf2a351beec597d7ef67823f6b4e78452300a0",
+    "resolved_text_sha256": "3fa3fc0b75faa2701c24747d44bf2a351beec597d7ef67823f6b4e78452300a0",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2025-12-03",
+    "source_as_of": "2025-12-03",
+    "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "bf97b17baebfdf12601f7c23697524bf5adcdaed",
+    "requested_citation_path": "us/statute/26/3101",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "unclear",
+    "pre_fix_wrong_because": "unclear: the pre-fix module published $0 for the §1401(b)(2) self-employment leg (and $0 for the combined tax) for any tax unit with positive self-employment income, which disagrees with 26 USC 1401(b)(2) and 26 CFR 1.1401-1(d)(2)(i), but the module declared that restriction openly (waivers, domain-validity Judgment, summary) as a deliberate deferral rather than mis-reading the source.",
+    "triage_notes": "Screen flag is correct: this is a documented deliberate deferral being lifted, not an encoder misreading. Pre-fix evidence that the gap was declared, not accidental: (a) two waiver entries named `wages_taken_into_account_for_additional_medicare_tax` and `federal_additional_medicare_self_employment_tax` as fail-closed pending axiom-corpus#514; (b) the module summary said the combined surface is 'valid only for tax units whose imported federal self-employment income is zero'; (c) a public `additional_medicare_tax_pipeline_self_employment_domain_is_valid` Judgment exposed the invalid domain. Substantive changes in this diff: domain gate loses `and federal_self_employment_income == 0`; `wages_taken_into_account_for_additional_medicare_tax` goes from guarded (wages if valid else 0) to plain `wages` with effective_from 2026-01-01 -> 2013-01-01 and effective_to dropped; `pipeline_reduced_additional_medicare_self_employment_threshold` keeps its max(0, threshold - wages) formula but its proof atom changes from a local import to a formula atom grounded on us/regulation/26/1/1401-1/d/2/i, same window widening. Rate, filing-status thresholds, tax base, SE-leg and combined formulas are byte-identical pre/post; the SE-leg and combined public outputs stay 2026-only. I read the provision: resolve_provision could not isolate us/regulation/26/1/1401-1/d/2/i (missing structural marker in the resolvable releases), but the parent us/regulation/26/1/1401-1 resolved and contains the quoted sentence verbatim ('the applicable threshold specified under section 1401(b)(2)(A) is reduced (but not below zero) by the amount of wages (as defined in section 3121(a)) taken into account in determining Additional Medicare Tax under section 3101(b)(2)'), plus Example 3/4 confirming the wage-reduced threshold, so the post-fix encoding matches the source. The only reason to keep this at 'unclear' rather than 'not a defect' is that the pre-fix combined output `federal_additional_medicare_tax` returned 0 (dropping even the independently valid wage leg) for SE taxpayers, which a fidelity judge could read as an unrepresented §1401(b)(2)/1.1401-1(d)(2)(i) clause; recommend pruning from a real-defect corpus. Companion test file `additional_medicare_tax_pipeline.test.yaml` also changed (adds the $346.725 SE-leg case per the PR body). PR #1143 had no reviews or review comments; the sole issue comment is a CI/oracle-coverage-gate diagnosis unrelated to encoded meaning, and the PR depended on pin-only PR #1140.",
+    "verifier_verdict": "not_a_defect",
+    "verifier_defect_kind": "none",
+    "verifier_confidence": 0.62,
+    "verifier_justification": "Every piece of SE machinery the fix \"adds\" (0.9% rate, filing-status thresholds, the reduced-threshold max(0, ...) formula, the base, the leg, the combined sum) already existed verbatim in the pre-fix module; the only encoded-meaning change is dropping the `and federal_self_employment_income == 0` conjunct from the domain-validity Judgment, un-gating the wages helper, and re-grounding the coordination proof atoms on 26 CFR 1.1401-1(d)(2)(i) — i.e. lifting a guard the module had declared in machine-readable `deferred_outputs` waivers naming exactly the two withheld outputs, plus the summary and a consumer-facing Judgment. I verified the deferral's cause was a genuine corpus gap, not a misreading: at commit a0a2ec5940's toolchain corpus ref (bf97b17b, release us-rulespec-2026-07-24-snap-cms-pit-union) the resolver returns \"No active corpus source found for 'us/regulation/26/1/1401-1/d/2/i'\" for that release and every earlier one, the reg only appears in a later ingest file named `2026-07-24-1401-coordination-repair-title-26-part-1.jsonl`, and the pinned statute row is byte-faithful to the enacted scrivener's error (\"reduced ... by the amount of wages taken into account in determining the tax imposed under section 3121(b)(2)\"), so under `proof_validation: required` there was no operative authority to encode the reduction from. Nothing in the commit subject, PR title, PR body, or the maintainer comment uses error/mistake/correction language — the PR says \"deliberately withheld\" and \"Restores\", and the enabling event is a dependency (axiom-corpus#523 → pin PR #1140), which is coverage the module expressly disclaimed rather than encoded meaning that disagreed with its cited source.",
+    "verifier_quote": "-    - output: us:policies/income_tax/additional_medicare_tax_pipeline#federal_additional_medicare_self_employment_tax\n-      reason: |-\n-        A positive section 1401(b)(2) tax requires the unsupported\n-        section 1401(b)(2)(B) wage coordination. The current pinned record\n-        incorrectly names section 3121(b)(2) instead of section 3101(b)(2);\n-        axiom-corpus#514 and its pending targeted re-ingest track the repair.\n-        The stable public output therefore fails closed to zero until the\n-        repaired corpus release is pinned.",
+    "verifier_notes": "Dissent a reviewer should weigh before dropping this case. (1) The strongest argument for keeping it: the pre-fix module did not merely omit the SE leg — it published `federal_additional_medicare_self_employment_tax` and the combined `federal_additional_medicare_tax` as stable public outputs and the companion tests ENFORCED $0 for positive-SE tax units. The fix flips those enforced expectations: `federal_additional_medicare_tax: '0'` → `'346.725'` (138,525 SE income, 100,000 wages), `'0'` → `'762.3'`, `'0'` → `'243.45'`. A consumer who read the public output without checking the Judgment got a number the law contradicts, so \"published wrong meaning\" is defensible. If a reviewer overrides me, `unrepresented_clause` is the right kind (the 1401(b)(2)(B)/1.1401-1(d)(2)(i) wage-coordination reduction was present but inert), not `wrong_period_or_effective_date`. (2) Against keeping it, and why I landed where I did: the restriction was declared three ways (deferred_outputs waivers on exactly those two outputs, the summary \"the public self-employment leg is a fail-closed zero and the combined surface is valid only for tax units whose imported federal self-employment income is zero\", and the domain-validity Judgment the consumer contract requires checking), and the removed waiver entries are the bulk of the diff's deletions. This is a declared-deferral lift gated on a dependency, so admitting it would teach a verifier that expanding openly-deferred coverage is an encoding defect. (3) Source verification performed: 26 USC 1401 resolved at the fix commit's pin (fix_time_corpus_match: same_body) confirms the enacted \"section 3121(b)(2)\" text; 26 CFR 1.1401-1 read from us-rulespec-2026-08-09-cutover-surface-union matches the fix's proof excerpt verbatim, including the Example 3 arithmetic the new test case reproduces. (4) One genuine sub-correction that is metadata only, not formula: the pre-fix rationale asserted the corpus record was \"corrupted\" pending re-ingest under axiom-corpus#514, which was itself wrong — the enacted statute really says 3121(b)(2); the post-fix rationale corrects this to \"byte-faithful ... retains its enacted section 3121(b)(2) scrivener's error and is documentary only, never operative proof\". That is a provenance/metadata fix, mechanical under the rubric. (5) Two helper version windows widened from 2026-01-01/2026-12-31 to open-ended effective_from '2013-01-01' (`wages_taken_into_account_for_additional_medicare_tax`, `pipeline_reduced_additional_medicare_self_employment_threshold`); this aligns them with the already-2013 sibling rules and follows from un-gating — the public SE and combined outputs stay 2026-only — so it is not an independent period defect.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Screen flag is correct: this is a documented deliberate deferral being lifted, not an encoder misreading. Pre-fix evidence that the gap was declared, not accidental: (a) two waiver entries named `wages_taken_into_account_for_additional_medicare_tax` and `federal_additional_medicare_self_employment_tax` as fail-closed pending axiom-corpus#514; (b) the module summary said the combined surface is 'valid only for tax units whose imported federal self-employment income is zero'; (c) a public `additional_medicare_tax_pipeline_self_employment_domain_is_valid` Judgment exposed the invalid domain. Substantive changes in this diff: domain gate loses `and federal_self_employment_income == 0`; `wages_taken_into_account_for_additional_medicare_tax` goes from guarded (wages if valid else 0) to plain `wages` with effective_from 2026-01-01 -> 2013-01-01 and effective_to dropped; `pipeline_reduced_additional_medicare_self_employment_threshold` keeps its max(0, threshold - wages) formula but its proof atom changes from a local import to a formula atom grounded on us/regulation/26/1/1401-1/d/2/i, same window widening. Rate, filing-status thresholds, tax base, SE-leg and combined formulas are byte-identical pre/post; the SE-leg and combined public outputs stay 2026-only. I read the provision: resolve_provision could not isolate us/regulation/26/1/1401-1/d/2/i (missing structural marker in the resolvable releases), but the parent us/regulation/26/1/1401-1 resolved and contains the quoted sentence verbatim ('the applicable threshold specified under section 1401(b)(2)(A) is reduced (but not below zero) by the amount of wages (as defined in section 3121(a)) taken into account in determining Additional Medicare Tax under section 3101(b)(2)'), plus Example 3/4 confirming the wage-reduced threshold, so the post-fix encoding matches the source. The only reason to keep this at 'unclear' rather than 'not a defect' is that the pre-fix combined output `federal_additional_medicare_tax` returned 0 (dropping even the independently valid wage leg) for SE taxpayers, which a fidelity judge could read as an unrepresented §1401(b)(2)/1.1401-1(d)(2)(i) clause; recommend pruning from a real-defect corpus. Companion test file `additional_medicare_tax_pipeline.test.yaml` also changed (adds the $346.725 SE-leg case per the PR body). PR #1143 had no reviews or review comments; the sole issue comment is a CI/oracle-coverage-gate diagnosis unrelated to encoded meaning, and the PR depended on pin-only PR #1140. | verifier said not_a_defect at 0.62 (below 0.7); kept as unclear",
+  "family_id": "us-a0a2ec59-37caaed3162f",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

@@ -1,0 +1,107 @@
+{
+  "id": "us-443-4507632b-us-policies-income-tax-elderly-disabled-credit-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "4507632bcc62a403b8d6164f630fd702d174b0d7",
+  "parent_commit": "c73258bc3d45af002d80ad455de83ff3673fd4e3",
+  "commit_date": "2026-07-24",
+  "commit_subject": "fix: defer section 22 payment adjustment",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1004",
+  "module_path": "us/policies/income_tax/elderly_disabled_credit_pipeline.yaml",
+  "corpus_citation_path": "us/statute/26/22",
+  "corpus_citation_paths_all": [
+    "us/statute/26/22",
+    "us/statute/26/104"
+  ],
+  "corpus_release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+  "corpus_release_content_sha256": "cb275c76c4f07f8ad37470a32296bb1763e5db853d152697524ab07021b6d544",
+  "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.7,
+  "description": "The section 104(a)(4) exception applies only to the veterans-benefit bucket in section 22(c)(3)(A)(i)(III), while the imported module applies related payments against its combined benefit reduction.",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        19,
+        20
+      ],
+      [
+        25,
+        29
+      ],
+      [
+        62,
+        62
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        19,
+        23
+      ],
+      [
+        28,
+        37
+      ],
+      [
+        67,
+        71
+      ],
+      [
+        75,
+        79
+      ]
+    ],
+    "rule_names": [
+      "federal_elderly_disabled_credit"
+    ],
+    "rule_path": "rules[federal_elderly_disabled_credit].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "cb34b3a5dd62c4fd453182f7b132deb01c8999d881156833ec5ecab54cd0b772",
+  "post_fix_artifact_sha256": "6a10c4ef6f3c1b974e6505265a932bd2e284208471885df7f7f024cd8ac2b74b",
+  "provision_sha256": "01c0c8460ca5ced9b50ef2a6fb27bd620761cf3430738f4b918de7bb8001defa",
+  "provision_chars": 4976,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/22",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+    "provision_file_sha256": "03ddda0b2bcd59345ec4efa1daaf1c77b423a5166852fd80bb4cf00c0bd8e461",
+    "line_number": 10,
+    "record_id": "c29ea54a-3d50-5132-b2c0-a8a60365011d",
+    "stored_body_sha256": "01c0c8460ca5ced9b50ef2a6fb27bd620761cf3430738f4b918de7bb8001defa",
+    "resolved_text_sha256": "01c0c8460ca5ced9b50ef2a6fb27bd620761cf3430738f4b918de7bb8001defa",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "5dfd89d131564e4ee0e1e763571dbb5d7fc7f5e7",
+    "requested_citation_path": "us/statute/26/22",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pipeline published the imported section 22 credit unconditionally, so it never represented section 22(c)(3)(A)'s limitation that the section 104(a)(4) no-reduction exception applies only under clause (i)(III) (Department of Veterans Affairs benefits), and it therefore published credits computed with that exception netted against the entire combined benefit reduction.",
+    "triage_notes": "Single module in the commit; the only other changes are the companion test file and PROGRESS.md. Read the statute through the pinned corpus release (resolve_provision.py, us/statute/26/22): section 22(c)(3)(A) ends \"No reduction shall be made under clause (i)(III) for any amount described in section 104(a)(4).\" Verified the upstream defect by reading us/statutes/26/22.yaml at this commit: rule section_22_service_injury_payment_exclusion = sum(section_22_payment_of_tax_unit.service_injury_pension_excluded_amount), and section_22_nontaxable_pension_benefit_reduction subtracts it from the sum of ALL buckets (title II + RRA + VA + other + workers' comp), not just the VA bucket. The companion case added here is a concrete counterexample: $5,000 title II benefits, $0 VA benefits, and a $5,000 Foreign Service Act section 808 annuity produce $750 from the imported final where the statute gives $0. Diff is consistent with the commit subject and with the PR body line \"104(a)(4) payment relation must be empty (over-application defect #1054)\". Two caveats a reviewer should weigh. (1) The real over-application lives in the imported us/statutes/26/22 module, which this commit does NOT fix (git log shows that file was only ever moved afterward, in 86ec136fd); this pipeline defers/fails closed pending an \"upstream bucket-specific correction\", so a fidelity judge would have to follow the import to see the defect from the pre-fix pipeline alone. (2) Fail-closed-to-zero is the statutory answer in the added test case but is not the statutory answer generally: when VA benefits are nonzero the exception legitimately applies and the post-fix pipeline now under-credits, so the fix removes a wrong published number rather than encoding the correct bucket allocation. Kind is the main uncertainty: unrepresented_clause (the clause-(i)(III) limitation the source states was missing, and the fix adds a condition for it with a proof atom quoting exactly that sentence) versus wrong_entity_or_scope (the exception was applied to the wrong reduction bucket) versus polarity_or_logic (pre-fix fail-open, post-fix fail-closed). I chose unrepresented_clause because the pre-fix formula contained no boolean logic at all and the fix adds a source-grounded condition. Follow-up commit 58a81fbd0 \"fix: require section 22 retirement permanence\" touches the same pipeline for a different defect.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.72,
+    "verifier_justification": "The diff changes encoded meaning: the version formula goes from the bare identity `elderly_disabled_credit` to a conditional that publishes the imported credit only when the section 104(a)(4) payment relation is empty, and a new proof atom of `kind: condition` is grounded on the exact clause that was previously unrepresented (\"No reduction shall be made under clause (i)(III) for any amount described in section 104(a)(4).\"). The pinned corpus text of 26 USC 22(c)(3)(A) confirms that limiting sentence attaches only to clause (i)(III) (Department of Veterans Affairs benefits), and the companion case added in the same commit demonstrates the pre-fix module published $750 for a single aged-66 unit whose entire $5,000 reduction was title II social security while a $5,000 Foreign Service section 808 annuity wrongly cancelled it — the statutory section 22 amount there is $5,000 - $5,000 = $0, so the pre-fix surface disagreed with the source it cites. I tried to refute this as either an upstream-only defect or mere new coverage, but the pre-fix summary claimed the caller supplies \"any section 104(a)(4) payment facts\" and that \"Every expected value is the statutory section 22 credit\", so this module did claim the population it was getting wrong.",
+    "verifier_quote": "-        formula: elderly_disabled_credit\n+        formula: |-\n+          if len(section_22_payment_of_tax_unit) == 0:\n+              elderly_disabled_credit\n+          else:\n+              0",
+    "verifier_notes": "Strongest remaining objection for a reviewer, and the reason I stopped at 0.72 rather than higher: the fix does not actually represent the (i)(III) limitation — it defers it. The module comment says \"Pending an upstream bucket-specific correction, this pipeline therefore fails closed to zero whenever `section_22_payment_of_tax_unit` is nonempty\", and the commit subject is \"fix: defer section 22 payment adjustment\". Post-fix the module is still unfaithful for a unit that has both VA benefits under (i)(III) and a section 104(a)(4) payment: the statute allows a nonzero credit there, the pipeline now returns 0. So the remedy is a scope narrowing (publish only where the import is faithful), which is why a reviewer could argue for wrong_entity_or_scope instead. I kept unrepresented_clause because defect kinds should describe the defect, not the remedy style: the defect is the missing source-stated limitation on the no-reduction exception, and the repo itself grounds the added condition on that clause via the new `kind: condition` proof atom. Corroborating evidence outside the module diff (test file, not quotable as module-diff text): the new case eld-nonempty-section-104-payment-relation-fails-closed asserts `us:statutes/26/22#elderly_disabled_credit: '750'` alongside `...#federal_elderly_disabled_credit: '0'`, i.e. the import is known-wrong and the pipeline suppresses it. PR #1004 labels the root cause \"over-application defect #1054\" in the imported statute module; the import hash (sha256:b8f25c27...) is unchanged in this commit, so the correction is purely at the pipeline's published surface. Not mechanical (formula changed), not test_only, not not_a_defect.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Single module in the commit; the only other changes are the companion test file and PROGRESS.md. Read the statute through the pinned corpus release (resolve_provision.py, us/statute/26/22): section 22(c)(3)(A) ends \"No reduction shall be made under clause (i)(III) for any amount described in section 104(a)(4).\" Verified the upstream defect by reading us/statutes/26/22.yaml at this commit: rule section_22_service_injury_payment_exclusion = sum(section_22_payment_of_tax_unit.service_injury_pension_excluded_amount), and section_22_nontaxable_pension_benefit_reduction subtracts it from the sum of ALL buckets (title II + RRA + VA + other + workers' comp), not just the VA bucket. The companion case added here is a concrete counterexample: $5,000 title II benefits, $0 VA benefits, and a $5,000 Foreign Service Act section 808 annuity produce $750 from the imported final where the statute gives $0. Diff is consistent with the commit subject and with the PR body line \"104(a)(4) payment relation must be empty (over-application defect #1054)\". Two caveats a reviewer should weigh. (1) The real over-application lives in the imported us/statutes/26/22 module, which this commit does NOT fix (git log shows that file was only ever moved afterward, in 86ec136fd); this pipeline defers/fails closed pending an \"upstream bucket-specific correction\", so a fidelity judge would have to follow the import to see the defect from the pre-fix pipeline alone. (2) Fail-closed-to-zero is the statutory answer in the added test case but is not the statutory answer generally: when VA benefits are nonzero the exception legitimately applies and the post-fix pipeline now under-credits, so the fix removes a wrong published number rather than encoding the correct bucket allocation. Kind is the main uncertainty: unrepresented_clause (the clause-(i)(III) limitation the source states was missing, and the fix adds a condition for it with a proof atom quoting exactly that sentence) versus wrong_entity_or_scope (the exception was applied to the wrong reduction bucket) versus polarity_or_logic (pre-fix fail-open, post-fix fail-closed). I chose unrepresented_clause because the pre-fix formula contained no boolean logic at all and the fix adds a source-grounded condition. Follow-up commit 58a81fbd0 \"fix: require section 22 retirement permanence\" touches the same pipeline for a different defect. | verifier confirmed at 0.72",
+  "family_id": "us-4507632b-7d7e1a736a91",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

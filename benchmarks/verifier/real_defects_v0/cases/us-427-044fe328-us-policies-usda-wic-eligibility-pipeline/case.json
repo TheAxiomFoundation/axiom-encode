@@ -1,0 +1,128 @@
+{
+  "id": "us-427-044fe328-us-policies-usda-wic-eligibility-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "044fe328f2172d1f27e0ab358a1b2210a40f0b34",
+  "parent_commit": "2343854f88856170a940dc0f10e403969793d956",
+  "commit_date": "2026-07-23",
+  "commit_subject": "Harden benefit eligibility boundaries",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1010",
+  "module_path": "us/policies/usda/wic/eligibility_pipeline.yaml",
+  "corpus_citation_path": "us/regulation/7/246/7/c",
+  "corpus_citation_paths_all": [
+    "us/regulation/7/246/7/c",
+    "us/regulation/7/246/7/d",
+    "us/regulation/7/246/7/e"
+  ],
+  "corpus_release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+  "corpus_release_content_sha256": "914c0daedad1eeee96691d7a245420e434b55c971199661f1df140e6ad99699e",
+  "corpus_commit": "cbf3d2492c8077ba454cd49df9676e8265c9b497",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.85,
+  "description": "The paragraph-(d)(2)(vii) unborn-child adjustment is an explicit imported income path; the caller supplies its pregnancy, income-only failure, fetus-adjusted-guideline, and waiver facts.",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        24,
+        28
+      ],
+      [
+        112,
+        112
+      ],
+      [
+        184,
+        184
+      ],
+      [
+        190,
+        190
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        24,
+        33
+      ],
+      [
+        35,
+        47
+      ],
+      [
+        58,
+        58
+      ],
+      [
+        131,
+        131
+      ],
+      [
+        146,
+        151
+      ],
+      [
+        162,
+        162
+      ],
+      [
+        210,
+        210
+      ],
+      [
+        216,
+        216
+      ]
+    ],
+    "rule_names": [
+      "wic_income_eligible"
+    ],
+    "rule_path": "rules[wic_income_eligible].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "22b6d13a9ec91c52282eb9dd26bf9829c5c15479e80b8ba76977dac35bba1362",
+  "post_fix_artifact_sha256": "72824db74807cd3f93e303a68d7e82f26bbd53712ec0ed2485761f35313ea0b4",
+  "provision_sha256": "c2e5acb5c584fb27f5e93574b3a471aad9bb0eb1fd878e3329c701850730a018",
+  "provision_chars": 3543,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/regulation/7/246/7/c",
+    "provision_file": "data/corpus/provisions/us/regulation/2026-07-13-recovery-r2026-07-17-dedup.jsonl",
+    "provision_file_sha256": "9133fa7c05ffc60be99ca8c9363e78cebb13256f853936e13324559b2573085f",
+    "line_number": 324,
+    "record_id": "4a7c9b16-c10d-5205-a27e-dd33595fd0b4",
+    "stored_body_sha256": "c2e5acb5c584fb27f5e93574b3a471aad9bb0eb1fd878e3329c701850730a018",
+    "resolved_text_sha256": "c2e5acb5c584fb27f5e93574b3a471aad9bb0eb1fd878e3329c701850730a018",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "cbf3d2492c8077ba454cd49df9676e8265c9b497",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "b157a201285a90f185903ba8db6aa52497c201b4",
+    "requested_citation_path": "us/regulation/7/246/7/c",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "wic_income_eligible tested only adjunctive eligibility or `wic_family_income <= wic_income_limit`, omitting 7 CFR 246.7(d)(2)(vii), which mandates that a pregnant woman who fails the income guidelines \"shall be considered to have satisfied the income guidelines\" if they would be met by increasing her family size by the number of embryos or fetuses in utero, so pregnant applicants entitled to that adjustment were wrongly found income-ineligible.",
+    "triage_notes": "Provision read through the pinned corpus release (us/regulation/7/246/7/d): \"(vii) Income eligibility of pregnant women. A pregnant woman who is ineligible for participation in the program because she does not meet income guidelines shall be considered to have satisfied the income guidelines if the guidelines would be met by increasing the number of individuals in her family by the number of embryos or fetuses in utero... The State agency shall allow applicants to waive this increase in family size.\" Mandatory (\"shall\"), so its absence is a fidelity gap, not optional added scope. Companion test case pregnant_unborn_child_adjustment_overrides_direct_income_ceiling (income 20000, limit 18500) now expects wic_income_eligible: holds — pre-fix it would have been not_holds. The commit also added two deferred_outputs entries for (d)(2)(i) and (d)(2)(ix) plus rewordings of the module summary, the `source:` string, and two input descriptions; those are scope/provenance bookkeeping, and the decisive meaning change is the single `or pregnant_applicant_income_guidelines_satisfied_with_unborn_children` disjunct in wic_income_eligible. Note the new disjunct is ungated at the pipeline level in THIS commit (the imported rule carries its own applicant_is_pregnant input); the later commit 2cf80aa97 \"Guard WIC pregnancy income adjustment\" added the pipeline-level pregnant-woman gate, which is why the PR body's \"gated to the pregnant-woman category\" describes the post-review end state rather than this commit. The biggest WIC defect in MaxGhenis's blind-review comment — using 1.85 x FPG as the operative limit when 7 CFR 246.7(d)(1) makes the State agency's guideline operative — is NOT touched here; it was fixed later in fc95ef853 \"Fix WIC State eligibility boundaries\".",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.9,
+    "verifier_justification": "The diff changes encoded meaning in exactly the way described: `wic_income_eligible`'s formula gains a third disjunct importing `pregnant_applicant_income_guidelines_satisfied_with_unborn_children`, and the rule's `source:` line is extended to add `(d)(2)(vii)`. The pinned release text of 7 CFR 246.7(d)(2)(vii) is mandatory (\"A pregnant woman who is ineligible ... shall be considered to have satisfied the income guidelines if the guidelines would be met by increasing the number of individuals in her family by the number of embryos or fetuses in utero\"), and the target rule already existed in the encoded source module `us/regulations/7-cfr/246/7/d.yaml` at the parent commit — the pipeline neither imported it nor listed it under `deferred_outputs` (only the (e) nutritional-risk output was deferred pre-fix), so this is an omitted mandatory clause, not scope the module disclaimed or new coverage it never claimed. The companion test added in the same commit proves the behavior flip: a pregnant applicant with income 20000 against limit 18500 now yields `wic_income_eligible: holds` where the pre-fix formula returned not_holds.",
+    "verifier_quote": "+          or pregnant_applicant_income_guidelines_satisfied_with_unborn_children",
+    "verifier_notes": "Supporting evidence: (1) rule metadata change `-    source: 7 CFR 246.7(d)(1), (d)(2)(iii), (d)(2)(vi)` → `+    source: 7 CFR 246.7(d)(1), (d)(2)(iii), (d)(2)(vi), (d)(2)(vii)`, plus a new `imports:` entry for the (d)(2)(vii) target. (2) At parent 2343854f88, `us/regulations/7-cfr/246/7/d.yaml` line 71 already defined `pregnant_applicant_income_guidelines_satisfied_with_unborn_children` (source: 7 CFR 246.7(d)(2)(vii)) with the pregnancy / income-only-failure / fetus-adjusted-guideline / not-waived conjunction, so the gating the PR body mentions lives in the imported rule, not in the pipeline disjunct. (3) New companion case `pregnant_unborn_child_adjustment_overrides_direct_income_ceiling` (income 20000, limit 18500) asserts `wic_income_eligible: holds` / `wic_eligible: holds` — a direct outcome flip vs. the pre-fix formula. Caveats a reviewer should weigh: this is an intra-PR correction — the module was created three commits earlier on the same branch (`27c747362 Compose WIC eligibility`) and PR #1010 merged later, so the defect never reached main; and the same file was touched again by `2cf80aa97 Guard WIC pregnancy income adjustment` and `fc95ef853 Fix WIC State eligibility boundaries`, so this commit's fix was itself later tightened. Minor unrelated blemish, not a classification issue: the new proof atom reuses the same import hash `sha256:e4bf3b44...` as the adjunctive import (same target module, so plausibly a module-level hash). The rest of the diff (two new `deferred_outputs` entries for (d)(2)(i) and (d)(2)(ix), summary and input-description rewrites) is documentation/contract bookkeeping and carries no formula change on its own; the first reader's quote came from that prose, but the decisive evidence is the formula line above.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Provision read through the pinned corpus release (us/regulation/7/246/7/d): \"(vii) Income eligibility of pregnant women. A pregnant woman who is ineligible for participation in the program because she does not meet income guidelines shall be considered to have satisfied the income guidelines if the guidelines would be met by increasing the number of individuals in her family by the number of embryos or fetuses in utero... The State agency shall allow applicants to waive this increase in family size.\" Mandatory (\"shall\"), so its absence is a fidelity gap, not optional added scope. Companion test case pregnant_unborn_child_adjustment_overrides_direct_income_ceiling (income 20000, limit 18500) now expects wic_income_eligible: holds — pre-fix it would have been not_holds. The commit also added two deferred_outputs entries for (d)(2)(i) and (d)(2)(ix) plus rewordings of the module summary, the `source:` string, and two input descriptions; those are scope/provenance bookkeeping, and the decisive meaning change is the single `or pregnant_applicant_income_guidelines_satisfied_with_unborn_children` disjunct in wic_income_eligible. Note the new disjunct is ungated at the pipeline level in THIS commit (the imported rule carries its own applicant_is_pregnant input); the later commit 2cf80aa97 \"Guard WIC pregnancy income adjustment\" added the pipeline-level pregnant-woman gate, which is why the PR body's \"gated to the pregnant-woman category\" describes the post-review end state rather than this commit. The biggest WIC defect in MaxGhenis's blind-review comment — using 1.85 x FPG as the operative limit when 7 CFR 246.7(d)(1) makes the State agency's guideline operative — is NOT touched here; it was fixed later in fc95ef853 \"Fix WIC State eligibility boundaries\". | verifier confirmed at 0.90",
+  "family_id": "us-044fe328-aef5a62359c2",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

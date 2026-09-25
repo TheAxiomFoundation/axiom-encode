@@ -1,0 +1,104 @@
+{
+  "id": "us-473-32b2dae5-us-statutes-26-55",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "32b2dae55f1120c67334d7feadf5e98246055e46",
+  "parent_commit": "e851b3067ec75109ac18e4027bf5a65e0bcb4f8c",
+  "commit_date": "2026-07-30",
+  "commit_subject": "fix: compute MFS increment from complete AMTI",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1180",
+  "module_path": "us/statutes/26/55.yaml",
+  "corpus_citation_path": "us/statute/26/26/b",
+  "corpus_citation_paths_all": [
+    "us/statute/26/26/b",
+    "us/statute/26/55/a",
+    "us/statute/26/55/b/1",
+    "us/statute/26/55/b/3",
+    "us/statute/26/55/c/1",
+    "us/statute/26/55/d/1",
+    "us/statute/26/55/d/2",
+    "us/statute/26/55/d/4",
+    "us/statute/26/56/b/1",
+    "us/statute/26/58",
+    "us/statute/26/59",
+    "us/statute/26/68/a",
+    "us/statute/26/151/d/5",
+    "us/statute/26/911/f"
+  ],
+  "corpus_release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+  "corpus_release_content_sha256": "cb275c76c4f07f8ad37470a32296bb1763e5db853d152697524ab07021b6d544",
+  "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.75,
+  "description": "compute MFS increment from complete AMTI",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        202,
+        202
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        202,
+        210
+      ],
+      [
+        320,
+        327
+      ]
+    ],
+    "rule_names": [
+      "amt_separate_addition",
+      "section_55_verified_domain_is_satisfied"
+    ],
+    "rule_path": "rules[amt_separate_addition].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "c2be416c67a65faa3c1239c559890c4bcef7ab079417239f9b8fe06deaa0cc97",
+  "post_fix_artifact_sha256": "c04d2cb76f84763a62ac65d3904271155ed0af99ca00ab54bb31f64658a05302",
+  "provision_sha256": "16b5aa21db04ccbc81392eecf4b915515f856b35530c4fc46ef08f077d30ddee",
+  "provision_chars": 2959,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/26/b",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained-r2026-07-17-dedup.jsonl",
+    "provision_file_sha256": "03ddda0b2bcd59345ec4efa1daaf1c77b423a5166852fd80bb4cf00c0bd8e461",
+    "line_number": 265,
+    "record_id": "bc33522b-51bc-55cc-8f19-a30864cd5090",
+    "stored_body_sha256": "16b5aa21db04ccbc81392eecf4b915515f856b35530c4fc46ef08f077d30ddee",
+    "resolved_text_sha256": "16b5aa21db04ccbc81392eecf4b915515f856b35530c4fc46ef08f077d30ddee",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "0fd35bfbda98836c406ec539a492c4e661c6695d",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "8af592162231e9de748ba6b98792b426ad4fe8b7",
+    "requested_citation_path": "us/statute/26/26/b",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The section 55(d)(2) married-filing-separately increment was taken on a base of `taxable_income + amt_excluded_deductions` only, omitting the section 151 exemption and senior deduction addbacks and the section 57(a)(5), 58(a), 58(b), 59(e), 59(g) and 59(h) amounts that the statute's \"alternative minimum taxable income (determined without regard to this sentence)\" includes, so the increment and the resulting AMTI were understated.",
+    "triage_notes": "Provision read through the pinned corpus release: us/statute/26/55/d/2 flush text says the increment is \"the lesser of (i) 25 percent of the excess of alternative minimum taxable income (determined without regard to this sentence) over the minimum amount of such income (as so determined) for which the exemption amount under paragraph (1)(C) is zero, or (ii) such exemption amount\". The module's own `amt_income` rule (same file, unchanged here) already defines AMTI as taxable_income + amt_excluded_deductions + amt_separate_addition + section_151_exemption_deduction + senior_deduction + the 57/58/59 adjustments, so the pre-fix `amt_separate_addition` base was demonstrably a proper subset of the module's own AMTI, not the statute's. The added terms are exactly the AMTI components other than the increment itself, i.e. the correct \"without regard to this sentence\" base.\n\nTwo hunks in one module. Hunk 2 (amt_separate_addition) is the one the commit subject names and is the decisive change. Hunk 1 adds `taxpayer_is_individual and (filing_status == 0 or 1 or 2 or 3 or 4)` to `section_55_verified_domain_is_satisfied`; on its own that is a second fidelity defect of kind wrong_entity_or_scope (the domain rule already carried the proof atom excerpt \"In the case of a taxpayer other than a corporation\" from us/statute/26/55/b/1 but did not enforce it, and pre-fix it returned `holds` for a non-individual tax unit and for filing_status 9). If the corpus wants one defect per module, unrepresented_clause on the MFS base is the primary; a reviewer may want to split this commit into two labeled defects.\n\nKind doubt: I chose unrepresented_clause because the fix adds statutorily required AMTI components (deductions and section 57/58/59 adjustments) that were absent from this formula. An arguable alternative is `other` (\"incomplete base quantity referenced\"), since the clauses were represented elsewhere in the module (`amt_income`) and the error is that the 55(d)(2) formula reused a partial subtotal. It is not amount_mismatch — no numeric constant, rate, or threshold changed.\n\nCorroborating evidence outside the allowed quote sources: PROGRESS.md in the same commit says \"Changed the section 55(d)(2) base to complete pre-increment AMTI, including the section 151 exemption and senior adjustments and every adopted signed section 57, 58, and 59 amount\" and \"Reproduced the reviewer fixture before repair with exact pinned tools: separate addition `$0`, AMTI `$690,200`, and tentative minimum tax `$190,811`, plus `holds` for both invalid-status and nonindividual cases\"; post-fix the same fixture yields increment $25,000, AMTI $715,200, TMT $197,811. PROGRESS.md is not one of the permitted quote_source values, so the commit subject is quoted instead.\n\nCompanion test file us/statutes/26/55.test.yaml gained three fixtures named `reviewer_mfs_private_activity_preference_affects_separate_addition`, `reviewer_invalid_filing_status_fails_closed`, and `reviewer_nonindividual_tax_unit_fails_closed`, indicating a reviewer-driven repair; the bundle's PR record (#1180) has empty reviews/review_comments/issue_comments, and the PR body covers the whole multi-commit spine PR rather than this commit.\n\nDoubt worth flagging to a reviewer: the added `taxpayer_is_individual` symbol is not in the module's `imports:` list and gained no proof/import atom in this commit (it appears exactly once in the post-fix file, at line 202); the fixtures feed it as `us:statutes/26/151#input.taxpayer_is_individual`. That provenance gap is unrelated to the fidelity defect but may have been cleaned up in a later commit. Only `PROGRESS.md` and the companion test changed alongside the module; no unrelated formula, parameter, effective-date, or metadata edits ride along.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.85,
+    "verifier_justification": "The pinned corpus text of 26 USC 55(d)(2) says the married-filing-separately increment is \"25 percent of the excess of alternative minimum taxable income (determined without regard to this sentence) over the minimum amount of such income (as so determined) for which the exemption amount under paragraph (1)(C) is zero\", so the base must be full AMTI, but the pre-fix `amt_separate_addition` formula used only `taxable_income + amt_excluded_deductions - amt_exemption_complete_phaseout_separate`. The fix adds exactly the AMTI components the module's own `amt_income` rule already carried — the section 151 exemption and senior deduction addbacks (disallowed by section 56(b)(1)) plus the section 57(a)(5), 58(a), 58(b), 59(e), 59(g) and 59(h) amounts — so the added terms are clauses of the AMTI definition that the encoding omitted, i.e. an understated increment and understated AMTI. This is encoded meaning changing in a formula against cited source text, not provenance or bookkeeping, and the added-clause kind fits better than amount_mismatch (no number moved), untraceable_branch (nothing was removed or re-grounded), or boundary/polarity (no comparison or logic flipped).",
+    "verifier_quote": "+                  + section_151_exemption_deduction\n+                  + senior_deduction\n+                  + section_57_a_5_specified_private_activity_bond_interest",
+    "verifier_notes": "Bundle: /private/tmp/claude-501/-Users-maxghenis-TheAxiomFoundation-axiom-encode--claude-worktrees-zealous-heyrovsky-31a96b/86103d8f-b97f-4559-a96c-7e79bdbe616d/scratchpad/inputs/us/32b2dae55f.json; diff 000.diff. Corroboration: at the parent commit e851b3067e, `amt_income` already read `taxable_income + amt_excluded_deductions + amt_separate_addition + section_151_exemption_deduction + senior_deduction + section_57_a_5_... + section_58_a_... + section_58_b_... + section_59_e_... + section_59_g_... + section_59_h_...`, so after the fix the increment base is exactly AMTI minus the increment itself — \"determined without regard to this sentence\". Provision resolved through the pinned release us-rulespec-2026-07-24-snap-cms-pit-union (corpus commit 0fd35bfbda, body sha256 c76398d8..., fix_time_corpus_match \"same_body\"). The defect is not merely intra-PR work-in-progress: the pre-PR main version (86ec136fd) also put `exemptions` in `amt_income` but left it out of the increment base, so the omission predates PR 1180 and only widened when the section 57/58/59 atoms landed. Caveat for the reviewer: the same commit has a second hunk in `section_55_verified_domain_is_satisfied` adding `taxpayer_is_individual and (filing_status == 0 or ... or filing_status == 4)`, a bounded-domain/scope guard that the quoted reason does not cover; if the corpus ever wants one kind per hunk, that one reads closer to wrong_entity_or_scope, but the commit subject (\"compute MFS increment from complete AMTI\") and the meaning-bearing change are the increment base. The companion test file us/statutes/26/55.test.yaml also changed, consistent with a behavioral fix rather than a provenance-only edit.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Provision read through the pinned corpus release: us/statute/26/55/d/2 flush text says the increment is \"the lesser of (i) 25 percent of the excess of alternative minimum taxable income (determined without regard to this sentence) over the minimum amount of such income (as so determined) for which the exemption amount under paragraph (1)(C) is zero, or (ii) such exemption amount\". The module's own `amt_income` rule (same file, unchanged here) already defines AMTI as taxable_income + amt_excluded_deductions + amt_separate_addition + section_151_exemption_deduction + senior_deduction + the 57/58/59 adjustments, so the pre-fix `amt_separate_addition` base was demonstrably a proper subset of the module's own AMTI, not the statute's. The added terms are exactly the AMTI components other than the increment itself, i.e. the correct \"without regard to this sentence\" base.\n\nTwo hunks in one module. Hunk 2 (amt_separate_addition) is the one the commit subject names and is the decisive change. Hunk 1 adds `taxpayer_is_individual and (filing_status == 0 or 1 or 2 or 3 or 4)` to `section_55_verified_domain_is_satisfied`; on its own that is a second fidelity defect of kind wrong_entity_or_scope (the domain rule already carried the proof atom excerpt \"In the case of a taxpayer other than a corporation\" from us/statute/26/55/b/1 but did not enforce it, and pre-fix it returned `holds` for a non-individual tax unit and for filing_status 9). If the corpus wants one defect per module, unrepresented_clause on the MFS base is the primary; a reviewer may want to split this commit into two labeled defects.\n\nKind doubt: I chose unrepresented_clause because the fix adds statutorily required AMTI components (deductions and section 57/58/59 adjustments) that were absent from this formula. An arguable alternative is `other` (\"incomplete base quantity referenced\"), since the clauses were represented elsewhere in the module (`amt_income`) and the error is that the 55(d)(2) formula reused a partial subtotal. It is not amount_mismatch — no numeric constant, rate, or threshold changed.\n\nCorroborating evidence outside the allowed quote sources: PROGRESS.md in the same commit says \"Changed the section 55(d)(2) base to complete pre-increment AMTI, including the section 151 exemption and senior adjustments and every adopted signed section 57, 58, and 59 amount\" and \"Reproduced the reviewer fixture before repair with exact pinned tools: separate addition `$0`, AMTI `$690,200`, and tentative minimum tax `$190,811`, plus `holds` for both invalid-status and nonindividual cases\"; post-fix the same fixture yields increment $25,000, AMTI $715,200, TMT $197,811. PROGRESS.md is not one of the permitted quote_source values, so the commit subject is quoted instead.\n\nCompanion test file us/statutes/26/55.test.yaml gained three fixtures named `reviewer_mfs_private_activity_preference_affects_separate_addition`, `reviewer_invalid_filing_status_fails_closed`, and `reviewer_nonindividual_tax_unit_fails_closed`, indicating a reviewer-driven repair; the bundle's PR record (#1180) has empty reviews/review_comments/issue_comments, and the PR body covers the whole multi-commit spine PR rather than this commit.\n\nDoubt worth flagging to a reviewer: the added `taxpayer_is_individual` symbol is not in the module's `imports:` list and gained no proof/import atom in this commit (it appears exactly once in the post-fix file, at line 202); the fixtures feed it as `us:statutes/26/151#input.taxpayer_is_individual`. That provenance gap is unrelated to the fidelity defect but may have been cleaned up in a later commit. Only `PROGRESS.md` and the companion test changed alongside the module; no unrelated formula, parameter, effective-date, or metadata edits ride along. | verifier confirmed at 0.85",
+  "family_id": "us-32b2dae5-8d84d8de40a6",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

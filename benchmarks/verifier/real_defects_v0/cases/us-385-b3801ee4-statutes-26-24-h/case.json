@@ -1,0 +1,356 @@
+{
+  "id": "us-385-b3801ee4-statutes-26-24-h",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "b3801ee4eb82f8fc2c753d809c8b36d9ae6c42c2",
+  "parent_commit": "2175d5239a22bce42aa7a3b2f5a7c4af4c6940ea",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Wholesale regeneration with semantic corrections to existing modules: 24(d) phase-in threshold 2500 to 3000 and SS-excess gated on 3+ children, 1411 effective_from 2026 to 2013 and estate/trust base, CDCC/22/32/6401/2017(a)/273.10 formulas rewritten.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/25",
+  "module_path": "statutes/26/24/h.yaml",
+  "corpus_citation_path": "us/statute/26/24",
+  "corpus_citation_paths_all": [
+    "us/statute/26/24"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.6,
+  "description": "Subparagraph (A) shall not apply with respect to certain noncitizens.",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        3,
+        8
+      ],
+      [
+        11,
+        19
+      ],
+      [
+        21,
+        21
+      ],
+      [
+        25,
+        25
+      ],
+      [
+        27,
+        28
+      ],
+      [
+        30,
+        32
+      ],
+      [
+        37,
+        37
+      ],
+      [
+        39,
+        39
+      ],
+      [
+        41,
+        44
+      ],
+      [
+        46,
+        47
+      ],
+      [
+        49,
+        49
+      ],
+      [
+        51,
+        53
+      ],
+      [
+        58,
+        58
+      ],
+      [
+        60,
+        62
+      ],
+      [
+        64,
+        65
+      ],
+      [
+        67,
+        75
+      ],
+      [
+        77,
+        79
+      ],
+      [
+        82,
+        82
+      ],
+      [
+        84,
+        85
+      ],
+      [
+        87,
+        87
+      ],
+      [
+        89,
+        107
+      ],
+      [
+        110,
+        110
+      ],
+      [
+        112,
+        113
+      ],
+      [
+        115,
+        115
+      ],
+      [
+        117,
+        139
+      ],
+      [
+        145,
+        145
+      ],
+      [
+        147,
+        147
+      ],
+      [
+        149,
+        154
+      ],
+      [
+        160,
+        160
+      ],
+      [
+        162,
+        164
+      ],
+      [
+        172,
+        173
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        3,
+        4
+      ],
+      [
+        7,
+        8
+      ],
+      [
+        10,
+        10
+      ],
+      [
+        13,
+        13
+      ],
+      [
+        15,
+        19
+      ],
+      [
+        21,
+        49
+      ],
+      [
+        51,
+        127
+      ],
+      [
+        132,
+        145
+      ],
+      [
+        147,
+        147
+      ],
+      [
+        149,
+        154
+      ],
+      [
+        156,
+        157
+      ],
+      [
+        159,
+        167
+      ],
+      [
+        169,
+        174
+      ],
+      [
+        179,
+        187
+      ],
+      [
+        189,
+        194
+      ],
+      [
+        196,
+        197
+      ],
+      [
+        199,
+        217
+      ],
+      [
+        219,
+        228
+      ],
+      [
+        231,
+        231
+      ],
+      [
+        233,
+        241
+      ],
+      [
+        243,
+        243
+      ],
+      [
+        245,
+        247
+      ],
+      [
+        250,
+        250
+      ],
+      [
+        252,
+        260
+      ],
+      [
+        262,
+        262
+      ],
+      [
+        264,
+        266
+      ],
+      [
+        272,
+        290
+      ],
+      [
+        292,
+        292
+      ],
+      [
+        294,
+        299
+      ],
+      [
+        305,
+        313
+      ],
+      [
+        315,
+        320
+      ],
+      [
+        327,
+        334
+      ],
+      [
+        336,
+        338
+      ]
+    ],
+    "rule_names": [
+      "ctc_other_dependent_under_subsection_h",
+      "ctc_child_credit_disallowed_by_ssn_requirement_under_subsection_h",
+      "ctc_child_ssn_requirement_satisfied_under_subsection_h",
+      "ctc_qualifying_child_under_subsection_h",
+      "ctc_child_amount_under_subsection_h",
+      "ctc_refundable_maximum_under_subsection_h"
+    ],
+    "rule_path": "rules[ctc_other_dependent_under_subsection_h].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "c364d9b26c7a7fc9500355078dfd84d26e3f7ed115a07e60cae004b7266eaacd",
+  "post_fix_artifact_sha256": "6589226170a8d201d0b5e035f00ac12530f7043ed31779cb3c1cbdb553a23fd9",
+  "provision_sha256": "646a541a7de0684e472cba321a463df8e074a572eb730a1ead2bb8423d7c8439",
+  "provision_chars": 16265,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/24",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "1b0b185ca3335eb06c4fe10af488a8984bdd2cedd4087badf78583c267af7b7b",
+    "line_number": 12,
+    "record_id": "96d9e9c9-315d-5ccd-aae0-fca1ae79fc66",
+    "stored_body_sha256": "646a541a7de0684e472cba321a463df8e074a572eb730a1ead2bb8423d7c8439",
+    "resolved_text_sha256": "646a541a7de0684e472cba321a463df8e074a572eb730a1ead2bb8423d7c8439",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us/statute/26/24",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/24'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/24'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/24'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/24'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix other-dependent test was just `is_tax_unit_dependent and not ctc_qualifying_child`, omitting 24(h)(4)(B)'s exception for certain noncitizens and 24(h)(4)(C)'s rule that a qualifying child denied the credit by the (h)(7) SSN requirement is nevertheless treated as an other dependent, and its SSN handling collapsed all of 24(h)(7) into one opaque `meets_ctc_child_identification_requirements` input that never required the taxpayer's own SSN or the SSN-validity/timeliness conditions in (h)(7)(B).",
+    "triage_notes": "Provision confirmed from the pinned corpus (us/statute/26/24): (h)(4)(B) and (h)(4)(C) are present verbatim and were absent pre-fix. BUT this module also carries a likely REGRESSION that a reviewer must weigh: every version's effective_from moved 2026-01-01 -> 2018-01-01 while the imported IRS authority `us:policies/irs/rev-proc-2025-32/child-tax-credit` was dropped and the dollar amounts hard-coded as literals (ctc_child_amount 2200, ctc_refundable_per_child_cap 1400). The corpus text of 24(i) says the $1,400 in (h)(5) is indexed for taxable years beginning after 2024 and the $2,200 in (h)(2) is indexed for taxable years beginning after 2025, and the $2,200 figure itself only applies from 2025 (it was $2,000 for 2018-2024) — so dating those two parameters to 2018 encodes superseded/unindexed amounts even though the 2018 date is correct for the structural (h)(3), (h)(4) and (h)(7) provisions. That mix is why I did not make wrong_period_or_effective_date the primary kind. Also re-grounded out of this module: the 24(c)(1) age-17 qualifying-child definition, the 24(b)(1) $50-per-$1,000 phase-out rules, and the `ctc` total — all now expected from elsewhere, leaving the (h) module without a total-credit output.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.7,
+    "verifier_justification": "I tried to refute this as regeneration noise and could not: the pre-fix rule explicitly claimed `source: 26 USC 24(h)(4)` yet encoded the other-dependent test as `is_tax_unit_dependent and not ctc_qualifying_child`, granting the $500 to every non-qualifying-child dependent, while the pinned corpus text of 24(h)(4)(B) states \"Exception for certain noncitizens Subparagraph (A) shall not apply with respect to any individual who would not be a dependent if subparagraph (A) of section 152(b)(3) were applied without regard to all that follows 'resident of the United States'.\" The post-fix formula adds that carve-out as an explicit conjunct plus an (h)(4)(C) disjunct, so the fix adds a condition the source states and that the module's own claimed scope required — the corpus rule's definition of unrepresented_clause. Competing kinds do not fit better: the effective_from shift 2026-01-01 → 2018-01-01 is not a correction in the source's direction (it backdates the post-OBBBA $2,200/$2,500/$400,000 text to years when those amounts did not apply), and the SSN decomposition adds precision behind a previously opaque input rather than removing an ungrounded branch. I hold at 0.7 rather than higher because the commit message is generic (\"Regenerate validated US RuleSpec encodings\", PR titled for 63(c)) and does not name 24(h), so the diff alone carries the finding.",
+    "verifier_quote": "-        formula: is_tax_unit_dependent and not ctc_qualifying_child\n+              and not noncitizen_exception_to_other_dependent_credit_under_subsection_h",
+    "verifier_notes": "Confounders a reviewer should weigh. (1) This is a wholesale regeneration of statutes/26/24/h.yaml (173 → 338 lines): every rule renamed with an `_under_subsection_h` suffix, `member_of_tax_unit` replaced by a `dependent_of_tax_unit` data_relation, proof atoms and `proof_validation.required` added, the rev-proc-2025-32 import dropped, and the module summary replaced by the raw statutory text. The noncitizen carve-out is a real added clause inside that rewrite, not a targeted fix commit. (2) The (h)(4)(C) half of the first reader's justification is weaker than it looks: pre-fix `ctc_qualifying_child` was `is_tax_unit_dependent and age < 17 and meets_ctc_child_identification_requirements`, so a child failing identification already fell out of `ctc_qualifying_child` and into `not ctc_qualifying_child`, i.e. (C)'s outcome was already reached by accident. Only (h)(4)(B) is decisive. (3) Possible regression introduced by the same diff, worth a separate look: all versions move from effective_from '2026-01-01' to '2018-01-01' while carrying the current (post-OBBBA) $2,200 credit amount, $2,500 phase-in threshold and $400,000/$200,000 thresholds, which did not apply for taxable years 2018–2024 — a timeless encoding of the current text back over superseded years (wrong_period_or_effective_date in the new file, not fixed by it). (4) The rewrite also drops `ctc_phase_out_amount`, `ctc_phase_out_increment`, `ctc_phase_out` and the final `ctc` rule, so the module no longer computes the credit itself; that is a scope reduction, not part of this defect. (5) The quoted proof-atom line the first reader used (\"Subparagraph (A) shall not apply with respect to certain noncitizens.\") is a paraphrase written into the module's metadata, not the statute's own words; the statutory wording is in the resolver output cited above.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Provision confirmed from the pinned corpus (us/statute/26/24): (h)(4)(B) and (h)(4)(C) are present verbatim and were absent pre-fix. BUT this module also carries a likely REGRESSION that a reviewer must weigh: every version's effective_from moved 2026-01-01 -> 2018-01-01 while the imported IRS authority `us:policies/irs/rev-proc-2025-32/child-tax-credit` was dropped and the dollar amounts hard-coded as literals (ctc_child_amount 2200, ctc_refundable_per_child_cap 1400). The corpus text of 24(i) says the $1,400 in (h)(5) is indexed for taxable years beginning after 2024 and the $2,200 in (h)(2) is indexed for taxable years beginning after 2025, and the $2,200 figure itself only applies from 2025 (it was $2,000 for 2018-2024) — so dating those two parameters to 2018 encodes superseded/unindexed amounts even though the 2018 date is correct for the structural (h)(3), (h)(4) and (h)(7) provisions. That mix is why I did not make wrong_period_or_effective_date the primary kind. Also re-grounded out of this module: the 24(c)(1) age-17 qualifying-child definition, the 24(b)(1) $50-per-$1,000 phase-out rules, and the `ctc` total — all now expected from elsewhere, leaving the (h) module without a total-credit output. | verifier confirmed at 0.70",
+  "family_id": "us-b3801ee4-d78a73cf80a3",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

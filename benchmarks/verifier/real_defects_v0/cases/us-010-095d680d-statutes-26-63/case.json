@@ -1,0 +1,136 @@
+{
+  "id": "us-010-095d680d-statutes-26-63",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "095d680d471e75d35256db564f5dd547ca248a1e",
+  "parent_commit": "7d6981ae34844c047d9fee10a181438a9b5d6de1",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Bulk mixed refresh whose squash body includes \"Repair RuleSpec validation coverage\" and \"Repair validation tail for refreshed RuleSpecs\"; module diffs carry semantic changes (151 adds a deferred_output making exemption_phaseout_applicable_percentage non-executable because 68(b) no longer defines the applicable amount; 24 rewrites phaseout threshold selection and qualifying-child predicates; 1402/a drops 1401 import proof atoms) alongside text->excerpt format renames and new subsection modules; later stage should read the diff.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/46",
+  "module_path": "statutes/26/63.yaml",
+  "corpus_citation_path": "us/statute/26/63",
+  "corpus_citation_paths_all": [
+    "us/statute/26/63"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.3,
+  "description": "Adds or repairs deferred-output metadata for legacy surfaces that are intentionally not executable yet, especially SNAP regulation sections and cross-subsection 26 USC fragments.",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        2,
+        9
+      ],
+      [
+        18,
+        18
+      ],
+      [
+        24,
+        145
+      ],
+      [
+        147,
+        215
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        3,
+        3
+      ],
+      [
+        8,
+        48
+      ],
+      [
+        52,
+        54
+      ],
+      [
+        60,
+        60
+      ],
+      [
+        62,
+        63
+      ]
+    ],
+    "rule_names": [
+      "taxable_income",
+      "taxable_income_general_rule",
+      "taxable_income_for_individual_who_does_not_itemize",
+      "deductions_referred_to_in_subsection_b",
+      "itemized_deductions",
+      "itemized_deduction_allowed_for_taxable_year"
+    ],
+    "rule_path": "rules[taxable_income].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "27acc790a5318eca2decc92ecbea763e2217b488ce90accd7e13ae4244b828a6",
+  "post_fix_artifact_sha256": "d878f3e8b4afe1e25fd0511d48588bce8f2bec78b102cb9cb2da3615ce421a80",
+  "provision_sha256": "7fa5f5d72de7ef69a3543175d7f57f83aaee5defb237144d85afef68564f153b",
+  "provision_chars": 8017,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/63",
+    "provision_file": "data/corpus/provisions/us/statute/2026-05-10-tax-sections-r2026-07-15-self-contained-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "f48f152a03f99915c6ac9a847986e238ebeddd29ffb4199f0528c5e2a406eae4",
+    "line_number": 3,
+    "record_id": "7acfd1b0-b61a-5a75-ab49-380a365a45a2",
+    "stored_body_sha256": "7fa5f5d72de7ef69a3543175d7f57f83aaee5defb237144d85afef68564f153b",
+    "resolved_text_sha256": "7fa5f5d72de7ef69a3543175d7f57f83aaee5defb237144d85afef68564f153b",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2025-12-03",
+    "source_as_of": "2025-12-03",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us/statute/26/63",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/63'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/63'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/63'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/63'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "unclear",
+    "pre_fix_wrong_because": "unclear: the deleted rules each cited real 63(a)/(b)/(d)/(e) text, but they were all stamped effective_from '2026-01-01' (63(a)'s general definition long predates 2026) and wrapped every definition in a max(0, ...) floor the section never states.",
+    "triage_notes": "Largest change in the chunk: the aggregate section module drops all seven imports and all six rules (rules: []), gains module.status: deferred and seven deferred_outputs entries covering 63(a)-(g), and its summary is refreshed to include the (c) and (f) text plus the 'So in original' editorial note. Because everything was removed at once, no single defect is identifiable; the stated motivation is that the top-level compositions depend on an unencoded gross-income/deduction surface and would duplicate the executable 63(c) and 63(f) subsection modules, i.e. coverage bookkeeping rather than a source-disagreement fix. Kept as unclear only because the deleted rules carried a questionable 2026-01-01 effective date and unsourced max(0,...) floors; a reviewer may well prune this as mechanical/deferral.",
+    "verifier_verdict": "not_a_defect",
+    "verifier_defect_kind": "none",
+    "verifier_confidence": 0.6,
+    "verifier_justification": "The diff does not re-ground or correct any formula: it deletes the section module's entire executable surface (six rules plus a 351-line test file, which becomes `[]`) and replaces it with `status: deferred` plus per-subsection deferred_outputs, and every reason written into the added metadata cites missing dependency surfaces or de-duplication (\"the broader gross-income and deduction surface is available\", \"The chapter-wide deduction inventory is not yet encoded\", \"without duplicating those executable standard-deduction rules\"), never a disagreement with the §63 text. The deleted formulas in fact tracked the resolved corpus text closely — 63(a) gross income minus chapter deductions other than the standard deduction, 63(b)'s seven enumerated subtractions, 63(d)'s exclusion set, 63(e)(1)'s election gate — so \"untraceable_branch\" (a branch with no basis in the source, removed or re-grounded) does not describe what was removed. Corroborating this as a de-scoping rather than a fidelity fix: the module has never been re-encoded (at HEAD it is still `rules: []` deferred, only path-moved by 86ec136fd), the manifest records tool \"axiom-encode deterministic/manual repair\", and the squash bullets are validation-driven (\"Repair RuleSpec validation coverage\"). The remaining substantive edit is the summary being refreshed to match the corpus text verbatim (adding the (c) and (f) text and the \"So in original\" footnote), which is mechanical provenance.",
+    "verifier_quote": "+        Subsection (a) defines taxable income by reference to gross income and\n+        chapter-wide deductions. This top-level composition is deferred until\n+        the broader gross-income and deduction surface is available.\n[...]\n+        deductions. The chapter-wide deduction inventory is not yet encoded.\n[...]\n+rules: []",
+    "verifier_notes": "Refutation of the first reader: the first reader's two observations about the PRE-fix content are factually correct — the resolved provision (release us-rulespec-2026-07-13, expression_date 2025-12-03, text sha 7fa5f5d7...) contains no zero floor anywhere in §63, so `max(0, ...)` in all four money rules was ungrounded, and stamping `effective_from: '2026-01-01'` on 63(a)/(d)/(e) definitions that long predate 2026 is a period error. But neither is what this change addresses: the fix deletes those rules wholesale together with the grounded parts, so the change cannot be attributed to the clamp or the date, and nothing is re-grounded. If a reviewer insists on keeping this row as a defect, wrong_period_or_effective_date is better supported by the deleted content than untraceable_branch (the deleted branches quote §63 nearly verbatim; the 2026-01-01 stamps have no source basis at all) — but both would be inferred by the reader, not evidenced by the fix. Other facts a reviewer may want: 26/63/a, /b, /d, /e subsection modules do not exist at this commit (only 63/c, 63/c/5, 63/f), so the deferred_outputs point at surfaces that are planned, not present; the pre-fix module computed taxable income from free-floating inputs (`gross_income`, `deductions_allowable_under_this_chapter`, `deductions_allowed_by_this_chapter_other_than_standard_deduction`) that were raw test inputs rather than encoded rules, which is an executability/coverage gap rather than a meaning mismatch. Under the task's own definition this change is not mechanical (outputs and formulas were removed), so \"mechanical\" is wrong even though the summary/excerpt part of it is.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Largest change in the chunk: the aggregate section module drops all seven imports and all six rules (rules: []), gains module.status: deferred and seven deferred_outputs entries covering 63(a)-(g), and its summary is refreshed to include the (c) and (f) text plus the 'So in original' editorial note. Because everything was removed at once, no single defect is identifiable; the stated motivation is that the top-level compositions depend on an unencoded gross-income/deduction surface and would duplicate the executable 63(c) and 63(f) subsection modules, i.e. coverage bookkeeping rather than a source-disagreement fix. Kept as unclear only because the deleted rules carried a questionable 2026-01-01 effective date and unsourced max(0,...) floors; a reviewer may well prune this as mechanical/deferral. | verifier said not_a_defect at 0.60 (below 0.7); kept as unclear",
+  "family_id": "us-095d680d-a2cca8c6c39c",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

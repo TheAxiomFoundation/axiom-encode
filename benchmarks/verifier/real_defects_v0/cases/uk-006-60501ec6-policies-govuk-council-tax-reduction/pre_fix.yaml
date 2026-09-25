@@ -1,0 +1,176 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_paths:
+      - uk/statute/ukpga/1992/14/13A
+      - uk/statute/ukpga/1992/14/schedule/1A
+      - uk/regulation/uksi/2012/2885/13
+      - uk/regulation/uksi/2012/2885/schedule/1/paragraph/2
+      - uk/regulation/uksi/2012/2885/schedule/1/paragraph/3
+      - uk/regulation/uksi/2012/2885/schedule/1/paragraph/7
+      - uk/regulation/uksi/2012/2885/schedule/1/paragraph/10
+      - uk/regulation/uksi/2012/2885/schedule/1/paragraph/37
+  summary: |-
+    This PolicyEngine-alignment surface returns the annual Council Tax Reduction amount used by PolicyEngine UK's national CTR framework: supported national schemes simulate a maximum-liability award, subtract the excess-income taper and non-dependant deductions, apply the capital and claim gates, and use reported Council Tax Benefit for unsupported local schemes.
+rules:
+  - name: council_tax_reduction_maximum_support_rate
+    kind: parameter
+    dtype: Rate
+    source: Council Tax Reduction pensioner prescribed requirements maximum support rate
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk/regulation/uksi/2012/2885/schedule/1/paragraph/7
+              excerpt: "100 per cent of the amount A/B"
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          1
+
+  - name: council_tax_reduction_capital_limit
+    kind: parameter
+    dtype: Money
+    period: Year
+    unit: GBP
+    source: PolicyEngine UK national CTR capital-limit parameter, aligned to Schedule 1 capital tariff upper bound
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk/regulation/uksi/2012/2885/schedule/1/paragraph/37
+              excerpt: "not exceeding"
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          16000
+
+  - name: council_tax_reduction_capital_eligible
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Year
+    source: PolicyEngine UK national CTR capital gate over assessed household savings
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk/regulation/uksi/2012/2885/schedule/1/paragraph/37
+              excerpt: "not exceeding"
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          council_tax_reduction_assessed_capital <= council_tax_reduction_capital_limit
+
+  - name: council_tax_reduction_excess_income_for_year
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Year
+    unit: GBP
+    source: PolicyEngine UK national CTR excess-income base over applicable amount
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk/regulation/uksi/2012/2885/schedule/1/paragraph/3
+              excerpt: "difference between his income for the relevant week and his applicable amount"
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          max(0, council_tax_reduction_applicable_income_for_year - council_tax_reduction_applicable_amount_for_year)
+
+  - name: council_tax_reduction_income_taper_deduction_for_year
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Year
+    unit: GBP
+    source: PolicyEngine UK national CTR amount-B income taper projected to annual inputs
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk/regulation/uksi/2012/2885/schedule/1/paragraph/3
+              excerpt: "amount B is 2 6/7 per cent of the difference"
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk/regulation/uksi/2012/2885/schedule/1/paragraph/10
+              excerpt: "deducting amount B from amount A"
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          council_tax_reduction_excess_income_for_year * council_tax_reduction_withdrawal_rate
+
+  - name: simulated_council_tax_reduction_annual_amount
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Year
+    unit: GBP
+    source: PolicyEngine UK simulated_council_tax_reduction_benunit national-scheme formula projected to household annual amount
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk/regulation/uksi/2012/2885/schedule/1/paragraph/7
+              excerpt: "less any deductions in respect of non-dependants"
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk/regulation/uksi/2012/2885/schedule/1/paragraph/10
+              excerpt: "deducting amount B from amount A"
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk/regulation/uksi/2012/2885/schedule/1/paragraph/2
+              excerpt: "who has made an application"
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk/regulation/uksi/2012/2885/13
+              excerpt: "Persons treated as not being in Great Britain"
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          if council_tax_reduction_scheme_supported and would_claim_council_tax_reduction and council_tax_reduction_capital_eligible and not liable_person_subject_to_immigration_control: max(0, council_tax_reduction_maximum_eligible_liability_for_year * council_tax_reduction_maximum_support_rate - council_tax_reduction_income_taper_deduction_for_year - council_tax_reduction_non_dependant_deductions_for_year) else: 0
+
+  - name: council_tax_reduction_annual_amount
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Year
+    unit: GBP
+    source: PolicyEngine UK council_tax_reduction final wrapper over simulated national CTR and reported Council Tax Benefit for unsupported schemes
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk/statute/ukpga/1992/14/13A
+              excerpt: "the amount which a person is liable to pay in respect of council tax"
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk/statute/ukpga/1992/14/schedule/1A
+              excerpt: "must make a scheme"
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          if council_tax_reduction_scheme_supported: simulated_council_tax_reduction_annual_amount else: reported_council_tax_reduction_for_year

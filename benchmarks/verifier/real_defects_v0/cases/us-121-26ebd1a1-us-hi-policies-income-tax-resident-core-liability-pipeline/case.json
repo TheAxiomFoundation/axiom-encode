@@ -1,0 +1,205 @@
+{
+  "id": "us-121-26ebd1a1-us-hi-policies-income-tax-resident-core-liability-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "26ebd1a18ccd9dbbe67597fa83d1234dead1b891",
+  "parent_commit": "a8ca13eee74fe76be29ecd5ab621f2b0cde93068",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Tightens Hawaii tax-table and MFS holds: scope tightening of an existing module.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1035",
+  "module_path": "us-hi/policies/income_tax/resident_core_liability_pipeline.yaml",
+  "corpus_citation_path": "us-hi/statute/235-2.3",
+  "corpus_citation_paths_all": [
+    "us-hi/statute/235-2.3",
+    "us-hi/statute/235-2.4",
+    "us-hi/statute/235-4",
+    "us-hi/statute/235-7",
+    "us-hi/statute/235-54",
+    "us-hi/statute/235-51",
+    "us-hi/statute/235-53",
+    "us-hi/statute/235-55",
+    "us-hi/statute/235-55.6",
+    "us-hi/statute/235-55.7",
+    "us-hi/statute/235-55.75",
+    "us-hi/statute/235-55.85",
+    "us-hi/statute/235-91.5",
+    "us-hi/form/individual-income-tax/2025/n-11-instructions/capital-gains-tax-worksheet"
+  ],
+  "corpus_release": "us-rulespec-2026-07-22-current-la-status-fix",
+  "corpus_release_content_sha256": "6bfd97b24cb63cb709fa52e9a5e6764c916dec95c5557447e11f47778ee4768f",
+  "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.75,
+  "description": "This PR therefore holds **all nonitemizer public tax/liability stages** rather than assuming $20,000 is the ceiling or substituting continuous §235-51 schedules.",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        76,
+        80
+      ],
+      [
+        999,
+        999
+      ],
+      [
+        1237,
+        1237
+      ],
+      [
+        1845,
+        1845
+      ],
+      [
+        2050,
+        2050
+      ],
+      [
+        2094,
+        2094
+      ],
+      [
+        2116,
+        2116
+      ],
+      [
+        2139,
+        2139
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        76,
+        79
+      ],
+      [
+        881,
+        883
+      ],
+      [
+        885,
+        886
+      ],
+      [
+        891,
+        891
+      ],
+      [
+        1004,
+        1011
+      ],
+      [
+        1793,
+        1795
+      ],
+      [
+        1809,
+        1813
+      ],
+      [
+        1861,
+        1863
+      ],
+      [
+        1867,
+        1874
+      ],
+      [
+        1968,
+        1968
+      ],
+      [
+        2001,
+        2001
+      ],
+      [
+        2042,
+        2098
+      ],
+      [
+        2138,
+        2139
+      ],
+      [
+        2183,
+        2184
+      ],
+      [
+        2206,
+        2207
+      ],
+      [
+        2230,
+        2231
+      ],
+      [
+        2267,
+        2276
+      ],
+      [
+        2500,
+        2514
+      ]
+    ],
+    "rule_names": [
+      "hi_pit_2026_tax_table_source_hold_applies",
+      "hi_pit_2026_supported_profile_tax_before_credits",
+      "hi_pit_2026_supported_profile_tax_after_nonrefundable_credits",
+      "hi_pit_2026_supported_profile_net_income_tax_liability",
+      "hi_pit_2026_supported_profile_refundable_excess_before_payments",
+      "hi_pit_2026_supported_profile_applies",
+      "hi_pit_2026_refundable_child_and_dependent_care_credit",
+      "hi_pit_2026_food_credit_qualified_exemption_count",
+      "hi_pit_2026_refundable_food_excise_tax_credit",
+      "hi_pit_2026_refundable_low_income_renter_credit",
+      "hi_pit_2026_input_domain_is_valid"
+    ],
+    "rule_path": "rules[hi_pit_2026_tax_table_source_hold_applies].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "2c8cc0a48a64a299256e21012d75ea19e2ec972b6e031b8985789924ab2e01a9",
+  "post_fix_artifact_sha256": "c5adb2e733cda8c0fb752003e405b66d39ac13176aa93c3dfc9c8becd46eb676",
+  "provision_sha256": "6c6f8287b01947ab63b24191954aaa5a0d95fca6da2062f9a7863671eeb2da1b",
+  "provision_chars": 9910,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-hi/statute/235-2.3",
+    "provision_file": "data/corpus/provisions/us-hi/statute/2026-07-16-pit-east-us-hi-volume-04-chapter-235.jsonl",
+    "provision_file_sha256": "dde47cd1e6e5d988afda0544499740eca3b609235777629ba2d5b477af01a47b",
+    "line_number": 5,
+    "record_id": "8e5277e3-a56c-572c-8936-f61937da94ef",
+    "stored_body_sha256": "6c6f8287b01947ab63b24191954aaa5a0d95fca6da2062f9a7863671eeb2da1b",
+    "resolved_text_sha256": "6c6f8287b01947ab63b24191954aaa5a0d95fca6da2062f9a7863671eeb2da1b",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-05-09",
+    "source_as_of": "2026-05-09",
+    "corpus_commit": "01e00777cb05db84792c0de004b4fa24cfd453c3",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "ddc9b0f95cb0cd7ed24d42bd62fec4dbf0e1b846",
+    "requested_citation_path": "us-hi/statute/235-2.3",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix hold conditioned on `hi_pit_2026_taxable_income <= hi_pit_2026_statutory_minimum_tax_table_ceiling` with that parameter pinned at 20000, i.e. it treated HRS 235-53(a)(2)'s statutory floor (\"the amount (not less than $20,000) determined by the director\") as the Director's actual ceiling, so nonitemizers with taxable income above $20,000 were published a continuous 235-51 schedule tax that the source may instead route to the unpinned Director-prescribed table.",
+    "triage_notes": "Read HRS 235-53, 235-55.6, 235-55.7 and 235-55.85 through the pinned corpus release (resolve_provision.py succeeded for all four). 235-53(a)(1)-(2) confirms the ceiling is a Director-determined amount with only a $20,000 floor, so the pre-fix ceiling value and the branch it gated had no source basis; the fix deletes the conjunct (hold now = `not hi_pit_2026_elects_itemized_deductions`) and re-gates the four public tax/liability stages on `not hi_pit_2026_tax_table_source_hold_applies`. Companion-test deltas corroborate the behavior change: supported_profile_tax_before_credits goes 2024.632 -> 0 (and 3401.264 -> 0, 13046.056 -> 0) with tax_table_source_hold_applies flipping not_holds -> holds, and the 2024.632 value survives only in the new private hi_pit_2026_profile_candidate_* rules. MULTI-DEFECT COMMIT: the same module diff also fixes at least three further fidelity gaps, each an unrepresented_clause if scored separately - (a) hi_pit_2026_refundable_child_and_dependent_care_credit had no marital restriction at all, and the fix adds `(not MFS or mfs_is_legally_separated or mfs_living_apart_conditions_met)` matching 235-55.6(e)(2) \"the credit shall be allowed under subsection (a) only if the taxpayer and the taxpayer's spouse file a joint return\" with the (e)(3)/(e)(4) exceptions; (b) hi_pit_2026_food_credit_qualified_exemption_count omitted 235-55.85(c) \"a minor child receiving support from the department of human services of the State, social security survivor's benefits, and the like, may be considered a dependent and a qualified exemption\", and the fix adds the DHS and SSA-survivor counts plus a hold on the open-ended \"and the like\" category; (c) the food/excise and renter credits ignored the 235-55.85(b) and 235-55.7(e) provisos that separate filers \"shall claim only the tax credit to which they would have been entitled had a joint return been filed\", and the fix fails closed for MFS rather than encoding the counterfactual. I chose the tax-table item as the decisive path because it is first in the commit subject, drives the largest behavioral change, and is the one the PR body explains verbatim; a reviewer preferring the clause-level view could reclassify the kind as unrepresented_clause (or amount_mismatch for the $20,000 ceiling parameter, which the fix leaves in the file at 20000 but no longer uses in the hold). Direction caveat: because the tax-table hold left supported_profile_applies, this commit also NEWLY publishes supported_profile_taxable_income and supported_profile_refundable_credits for nonitemizers (test deltas 0 -> 9000, 0 -> 570, 0 -> 100); that widening is added grounded coverage, not a defect fix. Domain-bound additions to hi_pit_2026_input_domain_is_valid (failure counts bounded by exemption counts, incapable_spouse_count <= 1) are fail-closed hardening rather than a source disagreement. Commit message body is empty; PR #1035 has no reviews or review comments, so the PR body is the only narrative evidence, and it describes the PR's end state rather than this commit alone - hence confidence below 0.8.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "untraceable_branch",
+    "verifier_confidence": 0.78,
+    "verifier_justification": "The pre-fix hold rule conditioned on `hi_pit_2026_taxable_income <= hi_pit_2026_statutory_minimum_tax_table_ceiling` with that parameter pinned at '20000', and because `supported_profile_applies` required `not tax_table_source_hold_applies`, nonitemizers with taxable income above $20,000 were published a continuous §235-51 amount at the public tax, tax-after-nonrefundable-credit, and signed-net stages. HRS 235-53(a)(2) read through the pinned release defines the ceiling as \"the amount (not less than $20,000) determined by the director for the tax rate category in which such taxpayer falls\", so $20,000 is a floor on an unknown, category-specific ceiling, and (a)(1) imposes the Director's table \"[i]n lieu of the tax imposed by section 235-51\" up to that ceiling — the encoded threshold therefore had no basis in the cited source. The fix deletes the comparison outright and re-attaches the hold to the four public tax/liability stages, which is the removal of an ungrounded branch condition rather than a correction of a number or of a comparison's side. amount_mismatch fails because no corrected value replaces 20000, and boundary_direction fails because no strictness or floor/ceiling flip could ground a bound the corpus does not contain.",
+    "verifier_quote": "-          and hi_pit_2026_taxable_income <= hi_pit_2026_statutory_minimum_tax_table_ceiling",
+    "verifier_notes": "Verified against the pinned provision (corpus release us-rulespec-2026-07-22-current-la-status-fix, us-hi/statute/235-53, body sha256 af53064f5b577b40c8fe75855a968f2913a1095d38403da1865d496982b92317): \"(2) Ceiling amount defined. ... the term \\\"ceiling amount\\\" means, with respect to any taxpayer, the amount (not less than $20,000) determined by the director for the tax rate category in which such taxpayer falls.\" Pre-state (a8ca13ee) lines 837-854 pin the parameter to '20000'; lines 1217-1238 hold rule; line 999 places the hold inside supported_profile_applies. Post-state (26ebd1a18c) lines 2139/2184/2207/2231 add `and not hi_pit_2026_tax_table_source_hold_applies` to tax_before_credits, tax_after_nonrefundable_credits, net_income_tax_liability, refundable_excess_before_payments, while supported_profile_taxable_income (2099) and supported_profile_refundable_credits (2144) stay published — the hold is targeted at table-dependent stages, not blanket. Residual issues for a reviewer: (1) the parameter hi_pit_2026_statutory_minimum_tax_table_ceiling ('20000') survives at post line 836 but is referenced by no formula (dead parameter); (2) moving the hold out of supported_profile_applies also newly publishes refundable credits for nonitemizers with taxable income <= $20,000, which is added coverage, not the defect; (3) the commit bundles other, separate fidelity changes outside this rule_path (MFS bar on food/renter credits, §235-55.6 living-apart exception for CDCC, §235-55.85 DHS/SSA-survivor minor-child counts, new input-domain bounds) that would classify as unrepresented_clause / wrong_entity_or_scope if scored on their own; (4) this is a review repair round inside PR #1035, the PR that introduced the module, so the defective state never landed on main. The first reader's PR-body quote (\"rather than assuming $20,000 is the ceiling or substituting continuous §235-51 schedules\") describes exactly the pre-state this commit removed, so the quote corroborates rather than merely restates.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Read HRS 235-53, 235-55.6, 235-55.7 and 235-55.85 through the pinned corpus release (resolve_provision.py succeeded for all four). 235-53(a)(1)-(2) confirms the ceiling is a Director-determined amount with only a $20,000 floor, so the pre-fix ceiling value and the branch it gated had no source basis; the fix deletes the conjunct (hold now = `not hi_pit_2026_elects_itemized_deductions`) and re-gates the four public tax/liability stages on `not hi_pit_2026_tax_table_source_hold_applies`. Companion-test deltas corroborate the behavior change: supported_profile_tax_before_credits goes 2024.632 -> 0 (and 3401.264 -> 0, 13046.056 -> 0) with tax_table_source_hold_applies flipping not_holds -> holds, and the 2024.632 value survives only in the new private hi_pit_2026_profile_candidate_* rules. MULTI-DEFECT COMMIT: the same module diff also fixes at least three further fidelity gaps, each an unrepresented_clause if scored separately - (a) hi_pit_2026_refundable_child_and_dependent_care_credit had no marital restriction at all, and the fix adds `(not MFS or mfs_is_legally_separated or mfs_living_apart_conditions_met)` matching 235-55.6(e)(2) \"the credit shall be allowed under subsection (a) only if the taxpayer and the taxpayer's spouse file a joint return\" with the (e)(3)/(e)(4) exceptions; (b) hi_pit_2026_food_credit_qualified_exemption_count omitted 235-55.85(c) \"a minor child receiving support from the department of human services of the State, social security survivor's benefits, and the like, may be considered a dependent and a qualified exemption\", and the fix adds the DHS and SSA-survivor counts plus a hold on the open-ended \"and the like\" category; (c) the food/excise and renter credits ignored the 235-55.85(b) and 235-55.7(e) provisos that separate filers \"shall claim only the tax credit to which they would have been entitled had a joint return been filed\", and the fix fails closed for MFS rather than encoding the counterfactual. I chose the tax-table item as the decisive path because it is first in the commit subject, drives the largest behavioral change, and is the one the PR body explains verbatim; a reviewer preferring the clause-level view could reclassify the kind as unrepresented_clause (or amount_mismatch for the $20,000 ceiling parameter, which the fix leaves in the file at 20000 but no longer uses in the hold). Direction caveat: because the tax-table hold left supported_profile_applies, this commit also NEWLY publishes supported_profile_taxable_income and supported_profile_refundable_credits for nonitemizers (test deltas 0 -> 9000, 0 -> 570, 0 -> 100); that widening is added grounded coverage, not a defect fix. Domain-bound additions to hi_pit_2026_input_domain_is_valid (failure counts bounded by exemption counts, incapable_spouse_count <= 1) are fail-closed hardening rather than a source disagreement. Commit message body is empty; PR #1035 has no reviews or review comments, so the PR body is the only narrative evidence, and it describes the PR's end state rather than this commit alone - hence confidence below 0.8. | verifier confirmed at 0.78",
+  "family_id": "us-26ebd1a1-9f53fb56ed8e",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

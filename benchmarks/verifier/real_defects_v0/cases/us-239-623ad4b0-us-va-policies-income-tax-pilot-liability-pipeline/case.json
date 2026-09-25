@@ -1,0 +1,152 @@
+{
+  "id": "us-239-623ad4b0-us-va-policies-income-tax-pilot-liability-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "623ad4b0869125a48f7c2015451450ac17964daa",
+  "parent_commit": "06a1cc2e7838823164a0e92481253216fa705ece",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Unsure (promote pattern): rewrites existing VA pilot_liability_pipeline.yaml (165 lines, net deletions) and removes known-validation-gaps and oracle-coverage-pending entries.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/968",
+  "module_path": "us-va/policies/income_tax/pilot_liability_pipeline.yaml",
+  "corpus_citation_path": "us-va/statute/58.1/58.1-320",
+  "corpus_citation_paths_all": [
+    "us-va/statute/58.1/58.1-320"
+  ],
+  "corpus_release": "us-rulespec-2026-07-19-dedup",
+  "corpus_release_content_sha256": "5b52bfb379fcd94250a835a604bb3383991dcca848778e29510c333d5adde731",
+  "corpus_commit": "9bcd8345798c0e0a9b54ab3f5962abbb3663c049",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.55,
+  "description": "cite section 58.1-321 for the no-tax/no-return applicability branch",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        6,
+        34
+      ],
+      [
+        36,
+        57
+      ],
+      [
+        59,
+        77
+      ],
+      [
+        84,
+        84
+      ],
+      [
+        96,
+        99
+      ],
+      [
+        106,
+        106
+      ],
+      [
+        114,
+        114
+      ],
+      [
+        118,
+        118
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        6,
+        6
+      ],
+      [
+        8,
+        29
+      ],
+      [
+        37,
+        37
+      ],
+      [
+        41,
+        82
+      ],
+      [
+        90,
+        90
+      ],
+      [
+        92,
+        95
+      ],
+      [
+        102,
+        102
+      ],
+      [
+        110,
+        110
+      ],
+      [
+        113,
+        113
+      ],
+      [
+        115,
+        127
+      ]
+    ],
+    "rule_names": [
+      "va_pit_pilot_income_tax_liability",
+      "va_pit_pilot_bracket_tax",
+      "va_pit_pilot_taxable_income"
+    ],
+    "rule_path": "rules[va_pit_pilot_income_tax_liability].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "7d06794d17d64d31cf74f856ac50c183eb4f0079a8740cb08ee96ab045f90453",
+  "post_fix_artifact_sha256": "552bc01223f8facefc662377168455571560256cee77910801728f21b31c2164",
+  "provision_sha256": "2932305a6bde04f371d0e799cb7fc2ee918a9203639cb628e2972fd2199b1307",
+  "provision_chars": 1742,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-va/statute/58.1/58.1-320",
+    "provision_file": "data/corpus/provisions/us-va/statute/2026-07-13-recovery.jsonl",
+    "provision_file_sha256": "fd8e4174e4eef71d1ab7e8e348640088f29919dfc80734a1c1d2a203df0ef047",
+    "line_number": 1,
+    "record_id": "c68df443-aa54-5af3-a400-eee7a4737d6d",
+    "stored_body_sha256": "2932305a6bde04f371d0e799cb7fc2ee918a9203639cb628e2972fd2199b1307",
+    "resolved_text_sha256": "2932305a6bde04f371d0e799cb7fc2ee918a9203639cb628e2972fd2199b1307",
+    "slice_required": false,
+    "component_rows": 1,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "9bcd8345798c0e0a9b54ab3f5962abbb3663c049",
+    "fix_time_corpus_match": "row_body_empty_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 0,
+    "toolchain_corpus_ref": "a6ef35176a5d094c3f3c49e96c9a1b3d06207996",
+    "requested_citation_path": "us-va/statute/58.1/58.1-320",
+    "release_errors_before_success": []
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix liability rule returned the § 58.1-320 bracket tax unconditionally, with no representation of § 58.1-321(A)'s exemption, so it imposed Virginia tax on individuals the statute exempts (e.g. a single filer with Virginia AGI of $11,000: pre-fix taxable income 11,000 - 8,750 - 930 = 1,320 and tax $26.40, where § 58.1-321 levies none because VAGI is under $11,950).",
+    "triage_notes": "Only one module file in the commit, so the chunk is complete. Read the pre-fix (06a1cc2e78) and post-fix (623ad4b086) module and both fixture files, and resolved us-va/statute/58.1/58.1-321 through the pinned corpus: § 58.1-321(A) reads 'No tax levied pursuant to § 58.1-320 is imposed, nor any return required to be filed, by: 1. A single individual where the Virginia adjusted gross income ... is less than $11,950 ...' (and $23,900 for an individual and spouse). The pre-fix module listed us-va/statute/58.1/58.1-321 in source_verification.checked_paths and its rationale used it only for the $930 personal exemption, i.e. it claimed to have accounted for 58.1-321 while encoding none of its no-tax rule; the post-fix formula 'if va_pit_pilot_must_file: va_pit_pilot_bracket_tax else: 0' adds that branch. CAVEATS a reviewer should weigh: (1) this is a 'promote' commit that bundles several non-defect changes with the added clause - the derived taxable-income rule (max(0, AGI - supplied deductions - supplied exemptions)) is deleted and replaced by a supplied va_pit_pilot_state_taxable_income boundary, the four bracket floors/rates move from caller-supplied inputs to imports of us-va:statutes/58.1/58/1-320 (a re-grounding that could alternatively be called untraceable_branch), and effective_to '2026-12-31' is added to both rules (could alternatively be called wrong_period_or_effective_date, though bounding a pilot to 2026 is oracle-safety scoping, not something the statute requires). (2) The bracket arithmetic is unchanged in meaning: the old fixtures supply floor_1=0, 3000/5000/17000 and 0.02/0.03/0.05/0.0575, identical to the imported schedule, so no amount changed. (3) The new gate delegates to a caller-supplied boolean rather than encoding § 58.1-321's dollar thresholds, which is why this is a behavioral correction but not a full encoding of the clause. (4) PR #968's body claims the branch was fixed 'to cite section 58.1-321 and add the exact no-tax/no-return condition proof', but the merged content of this commit still cites only 58.1-320 at module level and in the liability proof atom; the 58.1-321 citation and the condition atom with excerpt 'No tax levied pursuant to § 58.1-320 is imposed, nor any return required to be filed' land six minutes later in follow-up commit 0f9550daa 'Cite Virginia no-tax filing threshold', which is citation/provenance-only (mechanical). (5) No PR reviews or review comments were captured in the bundle; the only quoted review finding in the PR body concerns the PR's own new head, not the pre-fix module, which is why confidence sits at 0.55 rather than higher.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.6,
+    "verifier_justification": "I tried to refute and could not break the substantive core: the pre-fix liability rule was `va_pit_pilot_bracket_tax` with no applicability condition, and the fix changes it to `if va_pit_pilot_must_file: va_pit_pilot_bracket_tax else: 0`, which is a real encoded-meaning change in the direction the first reader describes. The pinned corpus text of § 58.1-321(A) is substantive, not merely procedural — \"No tax levied pursuant to § 58.1-320 is imposed, nor any return required to be filed, by: 1. A single individual where the Virginia adjusted gross income ... is less than $11,950\" — so the pre-fix module did impose tax the statute exempts (single, VAGI $11,000: 11,000 − 8,750 − 930 = 1,320 taxable, × 2% = $26.40), and it claimed no such carve-out, asserting instead that \"the composed liability equals PolicyEngine's before-non-refundable-credits value exactly.\" Two things do weaken the first reader's case and should be recorded: the quote it used (\"cite section 58.1-321 for the no-tax/no-return applicability branch\") describes a citation fix made to this PR's own earlier head during its internal review cycle, and the merged module contains no 58.1-321 reference at all (grep for \"321\" returns nothing; corpus_citation_paths_seen is 58.1-320 ×3), so the clause is delegated to a caller-supplied boolean rather than encoded. The kind still fits — a missing statutory exception is now represented as a condition — but the confidence should sit at moderate, not high, because the gate is entangled with a wholesale boundary rewrite.",
+    "verifier_quote": "+          if va_pit_pilot_must_file: va_pit_pilot_bracket_tax else: 0",
+    "verifier_notes": "Quote replacement: drop the pr_body line the first reader used. It refers to a fix applied to an earlier head of PR #968 (\"Independent review of the initial exact head found one medium source-fidelity issue: the filing gate cited only section 58.1-320\"), i.e. a provenance change to new code inside the PR, and the merged module carries no 58.1-321 citation anywhere (module source_verification collapses to `corpus_citation_path: us-va/statute/58.1/58.1-320`; the new `va_pit_pilot_must_file` input has a prose description and no corpus_citation_path). The decisive evidence is the diff line, not the PR bullet.\n\nThis commit is multi-change, not single-defect, and a corpus entry should say so. Besides the applicability gate it: (1) deletes the `va_pit_pilot_taxable_income` rule and replaces the AGI/deduction/exemption chain with a supplied completed-return `va_pit_pilot_state_taxable_income` boundary; (2) re-grounds the bracket schedule from undeclared caller-supplied `va_pit_pilot_supplied_bracket_floor_1..4` / `_rate_1..4` onto seven hashed imports of `us-va:statutes/58.1/58/1-320#...` (a candidate untraceable_branch / re-grounding defect in its own right — the pre-fix rationale openly said \"This pipeline supplies those four floors and rates as declared caller-supplied current-authority inputs ... without importing the encoded bracket rules\"); (3) adds `effective_to: '2026-12-31'` to both rules where the pre-fix windows were open-ended from 2026-01-01 (a weak wrong_period_or_effective_date candidate — § 58.1-320's rates are not indexed, so the open window was not contrary to source; PR frames it as fail-closed hygiene); (4) adds an `inputs:` block the pre-fix file lacked entirely (the pre-fix file, 118 lines, ends at the liability formula with every supplied variable undeclared).\n\nCorroborating context for the \"pre-fix was known-deficient\" reading: this commit removes the module's `known-validation-gaps.yaml` `validate_failures` waiver (fingerprint sha256:a79dd05b..., owner @MaxGhenis, issue #782), so the parent state was a waived validate failure, and the `oracle-coverage-pending.yaml` removal is only the deleted `#va_pit_pilot_taxable_income` legal_id. The manifest is `\"backend\": \"manual\"` with `\"manual_exception\": \"composition\"`, so this is an assembled composition, not encoder output.\n\nResidual doubt for a reviewer (why 0.6 and not 0.8): the dominant motivation in the commit subject and PR summary is oracle re-basing (\"replace the supplied-schedule Virginia pilot with the exact completed-return va_taxable_income and va_must_file boundaries\"), and the fix does not encode § 58.1-321's thresholds ($11,950 / $23,900, VAGI plus the § 58.1-322.03(5) modification) — it accepts PolicyEngine's va_must_file as a boundary. If the corpus rule is that a clause must be *encoded* to count as \"now represented,\" this shades toward unclear/scope-change; if a newly added applicability condition counts, unrepresented_clause holds. I kept confirmed because the pre-fix module claimed exact equality with the before-credits target and cited 58.1-321 in checked_paths while using it only for the $930 personal exemption, so it did claim the coverage it got wrong.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Only one module file in the commit, so the chunk is complete. Read the pre-fix (06a1cc2e78) and post-fix (623ad4b086) module and both fixture files, and resolved us-va/statute/58.1/58.1-321 through the pinned corpus: § 58.1-321(A) reads 'No tax levied pursuant to § 58.1-320 is imposed, nor any return required to be filed, by: 1. A single individual where the Virginia adjusted gross income ... is less than $11,950 ...' (and $23,900 for an individual and spouse). The pre-fix module listed us-va/statute/58.1/58.1-321 in source_verification.checked_paths and its rationale used it only for the $930 personal exemption, i.e. it claimed to have accounted for 58.1-321 while encoding none of its no-tax rule; the post-fix formula 'if va_pit_pilot_must_file: va_pit_pilot_bracket_tax else: 0' adds that branch. CAVEATS a reviewer should weigh: (1) this is a 'promote' commit that bundles several non-defect changes with the added clause - the derived taxable-income rule (max(0, AGI - supplied deductions - supplied exemptions)) is deleted and replaced by a supplied va_pit_pilot_state_taxable_income boundary, the four bracket floors/rates move from caller-supplied inputs to imports of us-va:statutes/58.1/58/1-320 (a re-grounding that could alternatively be called untraceable_branch), and effective_to '2026-12-31' is added to both rules (could alternatively be called wrong_period_or_effective_date, though bounding a pilot to 2026 is oracle-safety scoping, not something the statute requires). (2) The bracket arithmetic is unchanged in meaning: the old fixtures supply floor_1=0, 3000/5000/17000 and 0.02/0.03/0.05/0.0575, identical to the imported schedule, so no amount changed. (3) The new gate delegates to a caller-supplied boolean rather than encoding § 58.1-321's dollar thresholds, which is why this is a behavioral correction but not a full encoding of the clause. (4) PR #968's body claims the branch was fixed 'to cite section 58.1-321 and add the exact no-tax/no-return condition proof', but the merged content of this commit still cites only 58.1-320 at module level and in the liability proof atom; the 58.1-321 citation and the condition atom with excerpt 'No tax levied pursuant to § 58.1-320 is imposed, nor any return required to be filed' land six minutes later in follow-up commit 0f9550daa 'Cite Virginia no-tax filing threshold', which is citation/provenance-only (mechanical). (5) No PR reviews or review comments were captured in the bundle; the only quoted review finding in the PR body concerns the PR's own new head, not the pre-fix module, which is why confidence sits at 0.55 rather than higher. | verifier confirmed at 0.60",
+  "family_id": "us-623ad4b0-6a3edc3dc15d",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

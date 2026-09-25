@@ -1,0 +1,246 @@
+{
+  "id": "us-487-4d2856a9-us-policies-usitc-us-tariff-duty-overlays-ieepa-reciprocal-liechtenstein-9903-02",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "4d2856a9587ea13d74d6321a79dcde956bb239e2",
+  "parent_commit": "75a3677870cc38e35dffbe9099f363a82bde53aa",
+  "commit_date": "2026-08-02",
+  "commit_subject": "Fix sol r2 findings: legal handoff dates and Boolean polarity coverage",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1197",
+  "module_path": "us/policies/usitc/us-tariff-duty/overlays/ieepa/reciprocal-liechtenstein-9903-02-87.yaml",
+  "corpus_citation_path": "us/statute/hts/9903.02.87",
+  "corpus_citation_paths_all": [
+    "us/statute/hts/9903.02.87",
+    "us/rulemaking/federal-register/2025-12-18/2025-23316"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "wrong_period_or_effective_date",
+  "other_kind": null,
+  "confidence": 0.9,
+  "description": "the five successor floor modules (kr-79/80, li-87/88, ch-83) now take effect 2025-11-14, the legal handoff date, instead of the February panel date",
+  "description_source": "commit_message",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        6,
+        6
+      ],
+      [
+        29,
+        29
+      ],
+      [
+        59,
+        59
+      ],
+      [
+        90,
+        90
+      ],
+      [
+        130,
+        130
+      ],
+      [
+        154,
+        154
+      ],
+      [
+        172,
+        172
+      ],
+      [
+        189,
+        189
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        6,
+        8
+      ],
+      [
+        14,
+        17
+      ],
+      [
+        34,
+        43
+      ],
+      [
+        45,
+        45
+      ],
+      [
+        74,
+        83
+      ],
+      [
+        85,
+        85
+      ],
+      [
+        115,
+        124
+      ],
+      [
+        126,
+        126
+      ],
+      [
+        165,
+        174
+      ],
+      [
+        176,
+        176
+      ],
+      [
+        199,
+        208
+      ],
+      [
+        210,
+        210
+      ],
+      [
+        227,
+        236
+      ],
+      [
+        238,
+        238
+      ],
+      [
+        254,
+        263
+      ],
+      [
+        265,
+        265
+      ]
+    ],
+    "rule_names": [
+      "reciprocal_liechtenstein_column_1_general_duty_threshold",
+      "reciprocal_liechtenstein_floor_heading_product_exception_applies",
+      "reciprocal_liechtenstein_floor_otherwise_provision_exception_applies",
+      "reciprocal_liechtenstein_floor_met_or_exceeded_applies",
+      "reciprocal_liechtenstein_floor_general_duty_rate",
+      "reciprocal_liechtenstein_floor_special_duty_rate",
+      "reciprocal_liechtenstein_floor_column_2_duty_change"
+    ],
+    "rule_path": "rules[reciprocal_liechtenstein_floor_general_duty_rate].versions[0].effective_from"
+  },
+  "pre_fix_artifact_sha256": "711c45b98b7f30bab3889044879d645a6b6df76da663581ca5a32ba75c2d964e",
+  "post_fix_artifact_sha256": "793c3adf9ccc18debfb8a64782d63bd06362276935ccc825c2d47edcf531b57f",
+  "provision_sha256": "1a2359c73bcb41012aa459a5dede0000e602db59e1835f33e1760deb7245a640",
+  "provision_chars": 668,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/hts/9903.02.87",
+    "provision_file": "data/corpus/provisions/us/statute/2026-08-03-rulespec-hts-current-with-legacy-aluminum.jsonl",
+    "provision_file_sha256": "7406b42f2f6a35bd43ed67d7fe4d0f7323e12c3e49c67b8d6699f9978d23b770",
+    "line_number": 1247,
+    "record_id": "fdcc5435-3bf1-5d8a-ba1e-01c3fbe6432f",
+    "stored_body_sha256": "1a2359c73bcb41012aa459a5dede0000e602db59e1835f33e1760deb7245a640",
+    "resolved_text_sha256": "1a2359c73bcb41012aa459a5dede0000e602db59e1835f33e1760deb7245a640",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-31",
+    "source_as_of": "2026-08-01",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "05ce3d3dd21b0ced76f9af40c2ecc02c1c57d9c6",
+    "requested_citation_path": "us/statute/hts/9903.02.87",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.87'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.87'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.87'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.87'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.87'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.87'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.87'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.87'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.87'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.87'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.87'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.87'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.87'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.87'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.87'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/hts/9903.02.87'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "All seven rules started at 2026-02-15, a benchmark-panel date with no basis in the source, so the successor heading 9903.02.87 was dormant for the three months (2025-11-14 to 2026-02-14) in which Annex II had actually inserted it.",
+    "triage_notes": "Same defect pattern as indices 4, 5, 6, 9 (successor floor modules moved 2026-02-15 -> 2025-11-14). Source read and confirmed: the FR notice's Annex II preamble ('effective ... on or after 12:01 a.m. eastern time on November 14, 2025') and item 7 ('New headings 9903.02.82-9903.02.91 shall be inserted in numerical sequence'). Diff touches effective_from (7x), module summary, corpus_citation_paths, and two new effective_period proof atoms per rule; formulas untouched. The 44 new Boolean-witness test cases from F2 live in the .test.yaml files, not in this module file.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_period_or_effective_date",
+    "verifier_confidence": 0.94,
+    "verifier_justification": "The refutation attempts fail: the diff is not provenance-only, because every one of the module's seven `versions[0].effective_from` scalars changes from '2026-02-15' to '2025-11-14', which moves the operative window of the parameter, the two exception Judgments, the met-or-exceeded Judgment, and the three duty outputs. The pre-fix value had no source basis — the module's only cited source was `us/statute/hts/9903.02.87`, whose corpus text (resolved through the pinned release us-rulespec-2026-08-03-ecps-pit-tariff-union) contains no date at all, while the FR notice now cited states verbatim \"Effective with respect to goods entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern time on November 14, 2025 ... 7. New headings 9903.02.82-9903.02.91 shall be inserted in numerical sequence\". So the old encoding disagreed with the source on when heading 9903.02.87 exists, and the date-specific kind fits better than untraceable_branch because what was wrong is the version window, not a branch or formula.",
+    "verifier_quote": "-  - effective_from: '2026-02-15'\n+  - effective_from: '2025-11-14'",
+    "verifier_notes": "Source verification (read this session, pinned release us-rulespec-2026-08-03-ecps-pit-tariff-union, corpus commit d9d6fba0): FR Doc 2025-23316 (90 FR 59281, Dec 18 2025) Annex II opens \"Effective with respect to goods entered for consumption ... on or after 12:01 a.m. eastern time on November 14, 2025\", item 1 terminates headings 9903.02.36 and 9903.02.58, and item 7 inserts new headings 9903.02.82-9903.02.91. Both excerpts added as proof atoms in this diff are byte-faithful to that text. The HTS 9903.02.87 provision itself carries no effective date, so nothing grounded the old 2026-02-15 value.\n\nOne correction to the first reader's stated reading, which does not change the verdict or kind: the pre-fix encoding did not leave 2025-11-14 through 2026-02-14 uncovered by a dormant successor. The predecessor module reciprocal-liechtenstein-9903-02-36.yaml carried `effective_to: '2026-02-14'` pre-fix (module index 2 in this commit changes it to '2025-11-13'), so the window was covered — but by the terminated +15% heading rather than by the floor pass-through heading the source actually made effective on 2025-11-14. The defect is therefore a wrong handoff date producing the wrong duty treatment for three months, not a coverage gap. Both sides of the handoff were redated in the same commit, and the module-level summary now states the November 14 ground.\n\nSecondary changes in this diff are provenance (corpus_citation_path -> corpus_citation_paths, two effective_period atoms per rule, summary sentence). Those alone would be mechanical; the effective_from scalars are what make it fidelity. No formula, parameter value, input, output, or entity/scope changed.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Same defect pattern as indices 4, 5, 6, 9 (successor floor modules moved 2026-02-15 -> 2025-11-14). Source read and confirmed: the FR notice's Annex II preamble ('effective ... on or after 12:01 a.m. eastern time on November 14, 2025') and item 7 ('New headings 9903.02.82-9903.02.91 shall be inserted in numerical sequence'). Diff touches effective_from (7x), module summary, corpus_citation_paths, and two new effective_period proof atoms per rule; formulas untouched. The 44 new Boolean-witness test cases from F2 live in the .test.yaml files, not in this module file. | verifier confirmed at 0.94",
+  "family_id": "us-4d2856a9-498874ad9b6f",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

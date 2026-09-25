@@ -1,0 +1,199 @@
+{
+  "id": "us-389-b8f1c1db-us-regulations-45-cfr-1302-12",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "b8f1c1db728d771a79f7385ff629c3e8b92a8825",
+  "parent_commit": "34bc1bf0eaa44ec01803ef43551cfc717b67ea38",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Subject reads as a new encoding, but the diff rewrites the already-merged module us/regulations/45-cfr/1302/12.yaml: the 10 percent over-income exception is removed from the paragraph_c_participant_eligible OR-chain into a new separate rule paragraph_c_overincome_exception_participant_may_be_enrolled, and the companion test that previously expected paragraph_c_participant_eligible: holds under that path is replaced. PR #461 body says only \"Update the generated 45 CFR 1302.12 Head Start eligibility source encoding and companion tests.\" Unsure whether this is a scope/branch correction or a regeneration; flagged for diff review.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/461",
+  "module_path": "us/regulations/45-cfr/1302/12.yaml",
+  "corpus_citation_path": "us/regulation/45/1302/12",
+  "corpus_citation_paths_all": [
+    "us/regulation/45/1302/12"
+  ],
+  "corpus_release": "us-rulespec-foundation-v3-2026-07-15",
+  "corpus_release_content_sha256": "ba72214963f45fea7099a096b943047c5b19da6f976db46225960fdbd9035084",
+  "corpus_commit": "f9b0ab7a08ad46ddd140b692a8c631e5f64871fb",
+  "defect_kind": "wrong_entity_or_scope",
+  "other_kind": null,
+  "confidence": 0.49,
+  "description": "Programs may use a 10 percent over-income exception, a 35 percent additional allowance below 130 percent of poverty, Tribal service-area eligibility notwithstanding paragraph (c), and Migrant or Seasonal eligibility based on agricultural employment and age requirements.",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        7,
+        28
+      ],
+      [
+        30,
+        34
+      ],
+      [
+        72,
+        72
+      ],
+      [
+        81,
+        81
+      ],
+      [
+        89,
+        89
+      ],
+      [
+        114,
+        114
+      ],
+      [
+        117,
+        122
+      ],
+      [
+        131,
+        134
+      ],
+      [
+        146,
+        146
+      ],
+      [
+        149,
+        160
+      ],
+      [
+        165,
+        165
+      ],
+      [
+        180,
+        180
+      ],
+      [
+        184,
+        195
+      ],
+      [
+        200,
+        201
+      ],
+      [
+        213,
+        213
+      ],
+      [
+        233,
+        233
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        8,
+        19
+      ],
+      [
+        57,
+        57
+      ],
+      [
+        66,
+        66
+      ],
+      [
+        74,
+        74
+      ],
+      [
+        99,
+        99
+      ],
+      [
+        110,
+        129
+      ],
+      [
+        141,
+        141
+      ],
+      [
+        148,
+        148
+      ],
+      [
+        163,
+        163
+      ],
+      [
+        171,
+        172
+      ],
+      [
+        184,
+        184
+      ],
+      [
+        204,
+        204
+      ]
+    ],
+    "rule_names": [
+      "paragraph_c_participant_eligible",
+      "paragraph_c_overincome_exception_participant_may_be_enrolled",
+      "report_to_regional_office_required_for_between_100_and_130_percent_enrollment",
+      "additional_allowance_income_limit_multiplier",
+      "reportable_overincome_lower_bound_multiplier"
+    ],
+    "rule_path": "rules[paragraph_c_participant_eligible].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "228a16f4fcb940d482c75bbd11a2dbb3b00c067622fc6ee571b4eac69dc1b623",
+  "post_fix_artifact_sha256": "7fe3e127eee80566c38cf11f0dc974ec5edd152a10c59bcee5e572d6a72bc1bd",
+  "provision_sha256": "ec9bc785086563d88d8b9a790cf33c0b2ece01db539d7231a7c324692df62ccb",
+  "provision_chars": 14890,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/regulation/45/1302/12",
+    "provision_file": "data/corpus/provisions/us/regulation/2026-06-24-title-45-part-1302.jsonl",
+    "provision_file_sha256": "03066141d7d188a79575959c7fc8a7f522562e460ed98b0a47362d2ed3c8b45f",
+    "line_number": 6,
+    "record_id": "2e094665-d964-54fa-b8d0-94d42cc52236",
+    "stored_body_sha256": "ec9bc785086563d88d8b9a790cf33c0b2ece01db539d7231a7c324692df62ccb",
+    "resolved_text_sha256": "ec9bc785086563d88d8b9a790cf33c0b2ece01db539d7231a7c324692df62ccb",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-06-22",
+    "source_as_of": "2026-06-22",
+    "corpus_commit": "f9b0ab7a08ad46ddd140b692a8c631e5f64871fb",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "earliest_release_after_toolchain_corpus_ref",
+    "fallback_index": 1,
+    "toolchain_corpus_ref": "0ed2a7d8a5bf3c8ade5919d4079dedbc424593f7",
+    "requested_citation_path": "us/regulation/45/1302/12",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/regulation/45/1302/12'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix paragraph_c_participant_eligible returned \"holds\" for an over-income child enrolled under the paragraph (c)(2) ten-percent allowance, but the source says such a family \"does not meet a criterion under paragraph (c)(1)\" and only permits the program to enroll the child, so a discretionary program-enrollment permission was encoded as a fifth participant-eligibility path.",
+    "triage_notes": "Provision read through the pinned corpus release (us/regulation/45/1302/12). Decisive source text: \"(2) If the family does not meet a criterion under paragraph (c)(1) of this section, a program may enroll a child who would benefit from services, provided that these participants only make up to 10 percent of a program's enrollment in accordance with paragraph (d) of this section.\" That is an enrollment permission, not eligibility, and it is expressly conditioned on NOT meeting (c)(1); the pre-fix module OR'd it into the eligibility predicate and omitted the family_does_not_meet_paragraph_c_criterion precondition. The post-fix rule name (\"..._may_be_enrolled\") parallels the existing (d)(1) rule, which is why I kinded this wrong_entity_or_scope (wrong output surface / population) rather than polarity_or_logic (OR-chain fires the wrong branch, fail-open eligibility) or untraceable_branch (branch grounded on (c)(2) but attached to the (c)(1) output) — a reviewer may reasonably prefer either of those two; that kind ambiguity is the main reason confidence is 0.6 rather than higher. SECOND meaning change in the same module, not captured by the single rule_path: report_to_regional_office_required_for_between_100_and_130_percent_enrollment changed its upper bound from `family_income < ... * poverty_line_amount` to `family_income <= ... * poverty_line_amount` (boundary_direction), while additional_allowance_participant_may_be_enrolled keeps strict `<`. That now distinguishes (d)(1)'s \"incomes are below 130 percent of the poverty line\" (strict) from (d)(2)'s \"family incomes are between 100 and 130 percent of the poverty line\" (inclusive) — defensible but the inclusive reading of \"between\" is arguable, so I treated it as secondary. NON-meaning churn in the same diff: dtype Rate -> Decimal on the two multiplier parameters, proof-atom kinds condition -> predicate/formula, removal of local import atoms, commutative reordering of `poverty * multiplier` to `multiplier * poverty`, reworded module summary, and renamed/reworded deferred_outputs entries. PROVENANCE CAVEAT: us/.axiom/encoding-manifests/.../12.json shows a fresh generation (workspace /tmp/axiom-encode-head-start-pe-parity-20260626, codex backend), so this is a regeneration whose output happens to be more faithful, not a maintainer-diagnosed repair; no PR reviews, review comments, or issue comments exist on PR #461 and the PR body is generic (\"Update the generated 45 CFR 1302.12 Head Start eligibility source encoding and companion tests.\"). The quote I used is the module's YAML `summary` prose block added in this diff, not a `#` comment — it is verbatim from the diff. Companion test evidence: the pre-fix case `paragraph_c_ten_percent_benefit_allowance_holds` (income 15000 vs poverty 10000, share 0.1) asserted `paragraph_c_participant_eligible: holds`; the post-fix suite replaces it and asserts `paragraph_c_overincome_exception_participant_may_be_enrolled: holds` instead. Pre-fix module came from PR #441 (5eaffda67); no later commit touches either module file, so the post-fix state is current.",
+    "verifier_verdict": "unclear",
+    "verifier_defect_kind": "wrong_entity_or_scope",
+    "verifier_confidence": 0.62,
+    "verifier_justification": "The diff does change encoded meaning — the (c)(2) ten-percent branch leaves the `paragraph_c_participant_eligible` OR-chain and becomes a separate `paragraph_c_overincome_exception_participant_may_be_enrolled` output — but the evidence does not establish that the pre-fix reading disagreed with the source. The pre-fix rule was grounded on `source: 45 CFR 1302.12(c)` (the whole paragraph, not (c)(1)), the new rule carries the identical `source: 45 CFR 1302.12(c)`, and the source itself at (k)(2)(iii)(D) speaks of a family \"determined to be eligible under the criterion in paragraph (c)(2) of this section\", so treating (c)(2) as a fifth paragraph-(c) eligibility path is a defensible reading rather than a demonstrated misencoding. Everything else in the diff is regeneration noise (summary rewritten, all five deferred-output ids renamed, proof-atom kinds condition→predicate/formula, all import atoms dropped, dtype Rate→Decimal, multiplication operands flipped, tests rewritten from 2021 to 2024 periods) with a generic message (\"Update the generated 45 CFR 1302.12 Head Start eligibility source encoding and companion tests\"), and the same regeneration loosened an unrelated bound from `<` to `<=` at 130 percent — a change the source's \"incomes are below 130 percent\" does not support and which is now inconsistent with the `<` retained one rule above. That pattern points to an uncurated re-encode whose output-granularity split may or may not be a fidelity correction, which is exactly the unclear case.",
+    "verifier_quote": "-          and family_income < poverty_line_amount * additional_allowance_income_limit_multiplier\n+          and family_income <= additional_allowance_income_limit_multiplier * poverty_line_amount",
+    "verifier_notes": "Refutation evidence for the reviewer, in priority order. (1) The reader's justifying quote is the module_comment summary, not source text, and its paraphrase \"does not meet a criterion under paragraph (c)(1)\" is verbatim only in the regulation's (c)(2) conditional: \"If the family does not meet a criterion under paragraph (c)(1) of this section, a program may enroll a child who would benefit from services, provided that these participants only make up to 10 percent of a program's enrollment in accordance with paragraph (d) of this section.\" (resolved via corpus release us-rulespec-foundation-v3-2026-07-15, record 2e094665-d964-54fa-b8d0-94d42cc52236). (2) Counter-text the reader did not weigh: 1302.12(k)(2)(iii)(D) requires the record to state whether \"The family was determined to be eligible under the criterion in paragraph (c)(2) of this section\" — the regulation itself calls (c)(2) an eligibility criterion, so the pre-fix fifth disjunct is not plainly contrary to the source. (3) Provenance is unchanged: both the pre-fix rule and the new rule declare `source: 45 CFR 1302.12(c)`, so nothing was re-grounded onto a different provision; only output granularity changed. That is why untraceable_branch does not fit; if a reviewer keeps this as a defect, wrong_entity_or_scope (output surface) remains the best kind. (4) Regeneration signals arguing against a curated fix: whole-module summary rewrite, all five deferred_outputs renamed and re-worded, proof atom kinds condition→predicate/formula, every import atom removed, dtype Rate→Decimal on two parameters, commutative operand flips (diff lines 151/152), and the companion test file rebuilt with different period windows (2021→2024), fewer inputs, new names, and an added `auto_positive_migrant_or_seasonal_participant_eligible` case. PR #461 has no reviews, no review comments, and a body that frames the change as \"a source prerequisite only\". (5) Independent secondary finding worth its own row: at diff lines 182/184 the reporting rule's upper bound moved from `<` to `<=` on 1.30 × poverty line while `additional_allowance_participant_may_be_enrolled` kept `<` at line 152, so a family at exactly 130 percent now triggers regional-office reporting for an allowance it cannot be enrolled under; the source says \"whose incomes are below 130 percent of the poverty line\" for (d)(1) and only \"between 100 and 130 percent\" for (d)(2). If anything this is a boundary_direction regression introduced by the regeneration, not a fix. (6) One point in the classification's favor: the new rule adds the source-stated conjunct `family_does_not_meet_paragraph_c_criterion`, which the pre-fix disjunct omitted — though inside the old OR-chain that conjunct was logically redundant, so it changes no pre-fix truth value.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Provision read through the pinned corpus release (us/regulation/45/1302/12). Decisive source text: \"(2) If the family does not meet a criterion under paragraph (c)(1) of this section, a program may enroll a child who would benefit from services, provided that these participants only make up to 10 percent of a program's enrollment in accordance with paragraph (d) of this section.\" That is an enrollment permission, not eligibility, and it is expressly conditioned on NOT meeting (c)(1); the pre-fix module OR'd it into the eligibility predicate and omitted the family_does_not_meet_paragraph_c_criterion precondition. The post-fix rule name (\"..._may_be_enrolled\") parallels the existing (d)(1) rule, which is why I kinded this wrong_entity_or_scope (wrong output surface / population) rather than polarity_or_logic (OR-chain fires the wrong branch, fail-open eligibility) or untraceable_branch (branch grounded on (c)(2) but attached to the (c)(1) output) — a reviewer may reasonably prefer either of those two; that kind ambiguity is the main reason confidence is 0.6 rather than higher. SECOND meaning change in the same module, not captured by the single rule_path: report_to_regional_office_required_for_between_100_and_130_percent_enrollment changed its upper bound from `family_income < ... * poverty_line_amount` to `family_income <= ... * poverty_line_amount` (boundary_direction), while additional_allowance_participant_may_be_enrolled keeps strict `<`. That now distinguishes (d)(1)'s \"incomes are below 130 percent of the poverty line\" (strict) from (d)(2)'s \"family incomes are between 100 and 130 percent of the poverty line\" (inclusive) — defensible but the inclusive reading of \"between\" is arguable, so I treated it as secondary. NON-meaning churn in the same diff: dtype Rate -> Decimal on the two multiplier parameters, proof-atom kinds condition -> predicate/formula, removal of local import atoms, commutative reordering of `poverty * multiplier` to `multiplier * poverty`, reworded module summary, and renamed/reworded deferred_outputs entries. PROVENANCE CAVEAT: us/.axiom/encoding-manifests/.../12.json shows a fresh generation (workspace /tmp/axiom-encode-head-start-pe-parity-20260626, codex backend), so this is a regeneration whose output happens to be more faithful, not a maintainer-diagnosed repair; no PR reviews, review comments, or issue comments exist on PR #461 and the PR body is generic (\"Update the generated 45 CFR 1302.12 Head Start eligibility source encoding and companion tests.\"). The quote I used is the module's YAML `summary` prose block added in this diff, not a `#` comment — it is verbatim from the diff. Companion test evidence: the pre-fix case `paragraph_c_ten_percent_benefit_allowance_holds` (income 15000 vs poverty 10000, share 0.1) asserted `paragraph_c_participant_eligible: holds`; the post-fix suite replaces it and asserts `paragraph_c_overincome_exception_participant_may_be_enrolled: holds` instead. Pre-fix module came from PR #441 (5eaffda67); no later commit touches either module file, so the post-fix state is current. | verifier unclear at 0.62",
+  "family_id": "us-b8f1c1db-6f41b9999fb0",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

@@ -1,0 +1,111 @@
+format: rulespec/v1
+module:
+  proof_validation:
+    required: true
+  source_verification:
+    corpus_citation_paths:
+      - uk/guidance/mygovscot/scottish-child-payment
+      - uk/guidance/mygovscot/scottish-child-payment/who-should-apply
+      - uk/regulation/uksi/2013/376/schedule/4/paragraph/7
+  summary: |-
+    Scottish child payment as described by mygov.scot guidance: a weekly
+    payment for every child under 16 looked after by an applicant who lives in
+    Scotland and who (or whose partner) gets a qualifying benefit such as
+    universal credit. The weekly amount and maximum child age are those set by
+    the Scottish Child Payment Regulations 2020.
+imports:
+  - uk:regulations/ssi/2020/351/18#scottish_child_payment_maximum_child_age
+  - uk:regulations/ssi/2020/351/20#scottish_child_payment_weekly_amount
+rules:
+  - name: scottish_child_payment_weeks_in_year
+    kind: parameter
+    dtype: Count
+    source: Universal Credit Regulations 2013, Schedule 4 paragraph 7 (weekly amounts converted over 52 weeks)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk/regulation/uksi/2013/376/schedule/4/paragraph/7
+              excerpt: "calculated as a monthly amount"
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          52
+
+  - name: entitled_to_scottish_child_payment_for_child
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Week
+    source: mygov.scot, Scottish Child Payment, "Who should apply"
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk/guidance/mygovscot/scottish-child-payment
+              excerpt: "every child you look after who's under 16 years of age"
+          - path: versions[0].formula
+            kind: condition
+            source:
+              corpus_citation_path: uk/guidance/mygovscot/scottish-child-payment/who-should-apply
+              excerpt: "you or your partner are getting one of the qualifying benefits"
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:regulations/ssi/2020/351/18#scottish_child_payment_maximum_child_age
+              output: scottish_child_payment_maximum_child_age
+              hash: sha256:bc163a0d46f880d868faf6a0dd380e4c2c6c35179e61e28817eb3c73ad7f5ed9
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          person_lives_in_scotland and child_age < scottish_child_payment_maximum_child_age and applicant_or_partner_receives_qualifying_benefit
+
+  - name: scottish_child_payment_weekly_amount_for_child
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Week
+    unit: GBP
+    source: mygov.scot, Scottish Child Payment
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: amount
+            source:
+              corpus_citation_path: uk/guidance/mygovscot/scottish-child-payment
+              excerpt: "£28.20 that you can get for every child you look after"
+          - path: versions[0].formula
+            kind: import
+            import:
+              target: uk:regulations/ssi/2020/351/20#scottish_child_payment_weekly_amount
+              output: scottish_child_payment_weekly_amount
+              hash: sha256:c8b6a8b27d46fe107df35015dd113e2e74b4a07cf100172eb402eec524f6ea5b
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          if entitled_to_scottish_child_payment_for_child: scottish_child_payment_weekly_amount else: 0
+
+  - name: scottish_child_payment_annual_amount
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: GBP
+    source: mygov.scot, Scottish Child Payment (weekly amount annualised over the year)
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: formula
+            source:
+              corpus_citation_path: uk/guidance/mygovscot/scottish-child-payment
+              excerpt: "£28.20 that you can get for every child you look after"
+    versions:
+      - effective_from: '0001-01-01'
+        formula: |-
+          scottish_child_payment_weekly_amount_for_child * scottish_child_payment_weeks_in_year

@@ -1,0 +1,77 @@
+15-30-2101. Definitions. For the purpose of this chapter, unless otherwise required by the context, the following definitions apply:
+(1) "Consumer price index" means the consumer price index, United States city average, for all items, for all urban consumers (CPI-U), using the 1982-84 base of 100, as published by the bureau of labor statistics of the U.S. department of labor.
+(2) "Corporation" or "C. corporation" means a corporation, limited liability company, or other entity:
+(a) that is treated as an association for federal income tax purposes;
+(b) for which a valid election under section 1362 of the Internal Revenue Code (26 U.S.C. 1362) is not in effect; and
+(c) that is not a disregarded entity.
+(3) "Department" means the department of revenue.
+(4) "Disregarded entity" means a business entity:
+(a) that is disregarded as an entity separate from its owner for federal tax purposes, as provided in United States treasury regulations 301.7701-2 or 301.7701-3, 26 CFR 301.7701-2 or 26 CFR 301.7701-3, or as those regulations may be labeled or amended; or
+(b) that is a qualified subchapter S. subsidiary that is not treated as a separate corporation, as provided in section 1361(b)(3) of the Internal Revenue Code (26 U.S.C. 1361(b)(3)).
+(5) "Dividend" means:
+(a) any distribution made by a C. corporation out of its earnings and profits to its shareholders or members, whether in cash or in other property or in stock of the corporation, other than stock dividends; and
+(b) any distribution made by an S. corporation treated as a dividend for federal income tax purposes.
+(6) "Federal adjusted gross income" means adjusted gross income as defined in section 62 of the Internal Revenue Code, 26 U.S.C. 62.
+(7) "Federal taxable income", when referring to an individual, means taxable income as defined and described in section 63 of the Internal Revenue Code, 26 U.S.C. 63, and, when referring to a trust or estate, means taxable income as defined and described in sections 641 through 692 of the Internal Revenue Code, 26 U.S.C. 641 through 692.
+(8) "Fiduciary" means a guardian, trustee, executor, administrator, receiver, conservator, or any person, whether individual or corporate, acting in any fiduciary capacity for any person, trust, or estate.
+(9) "Foreign C. corporation" means a corporation that is not engaged in or doing business in Montana, as provided in 15-31-101.
+(10) "Foreign government" means any jurisdiction other than the one embraced within the United States, its territories, and its possessions.
+(11) "Head of household" means a head of household as defined and described in section 2(b) of the Internal Revenue Code, 26 U.S.C. 2(b).
+(12) "Inflation factor" means a number determined for each tax year by dividing the consumer price index for June of the previous tax year by the consumer price index for June 2023.
+(13) "Information agents" includes all individuals and entities acting in whatever capacity, including lessees or mortgagors of real or personal property, fiduciaries, brokers, real estate brokers, employers, and all officers and employees of the state or of any municipal corporation or political subdivision of the state, having the control, receipt, custody, disposal, or payment of interest, rent, salaries, wages, premiums, annuities, compensations, remunerations, emoluments, or other fixed or determinable annual or periodical gains, profits, and income with respect to which any person or fiduciary is taxable under this chapter.
+(14) "Internal Revenue Code" means the Internal Revenue Code of 1986, as amended, or as it may be labeled or further amended. References to specific provisions of the Internal Revenue Code mean those provisions as they may be otherwise labeled or further amended.
+(15) "Joint return" means one return made jointly by a married individual with that individual's spouse.
+(16) "Knowingly" is as defined in 45-2-101.
+(17) "Limited liability company" means a limited liability company, domestic limited liability company, or a foreign limited liability company as defined in 35-8-102.
+(18) "Limited liability partnership" means a limited liability partnership as defined in 35-10-102.
+(19) "Lottery winnings" means income paid either in lump sum or in periodic payments to:
+(a) a resident taxpayer on a lottery ticket; or
+(b) a nonresident taxpayer on a lottery ticket purchased in Montana.
+(20) "Married individual" means a married individual as defined and described in section 7703 of the Internal Revenue Code, 26 U.S.C. 7703.
+(21) (a) "Montana source income" means:
+(i) wages, salary, tips, and other compensation for services performed in the state or while a resident of the state;
+(ii) gain attributable to the sale or other transfer of tangible property located in the state, sold or otherwise transferred while a resident of the state, or used or held in connection with a trade, business, or occupation carried on in the state;
+(iii) gain attributable to the sale or other transfer of intangible property received or accrued while a resident of the state;
+(iv) interest received or accrued while a resident of the state or from an installment sale of real property or tangible commercial or business personal property located in the state;
+(v) dividends received or accrued while a resident of the state;
+(vi) net income or loss derived from a trade, business, profession, or occupation carried on in the state or while a resident of the state;
+(vii) net income or loss derived from farming activities carried on in the state or while a resident of the state;
+(viii) net rents from real property and tangible personal property located in the state or received or accrued while a resident of the state;
+(ix) net royalties from real property and from tangible real property to the extent the property is used in the state or the net royalties are received or accrued while a resident of the state. The extent of use in the state is determined by multiplying the royalties by a fraction, the numerator of which is the number of days of physical location of the property in the state during the royalty period in the tax year and the denominator of which is the number of days of physical location of the property everywhere during all royalty periods in the tax year. If the physical location is unknown or unascertainable by the taxpayer, the property is considered used in the state in which it was located at the time the person paying the royalty obtained possession.
+(x) patent royalties to the extent the person paying them employs the patent in production, fabrication, manufacturing, or other processing in the state, a patented product is produced in the state, or the royalties are received or accrued while a resident of the state;
+(xi) net copyright royalties to the extent printing or other publication originates in the state or the royalties are received or accrued while a resident of the state;
+(xii) partnership income, gain, loss, deduction, or credit or item of income, gain, loss, deduction, or credit:
+(A) derived from a trade, business, occupation, or profession carried on in the state;
+(B) derived from the sale or other transfer or the rental, lease, or other commercial exploitation of property located in the state; or
+(C) taken into account while a resident of the state;
+(xiii) an S. corporation's separately and nonseparately stated income, gain, loss, deduction, or credit or item of income, gain, loss, deduction, or credit:
+(A) derived from a trade, business, occupation, or profession carried on in the state;
+(B) derived from the sale or other transfer or the rental, lease, or other commercial exploitation of property located in the state; or
+(C) taken into account while a resident of the state;
+(xiv) social security benefits received or accrued while a resident of the state;
+(xv) taxable individual retirement account distributions, annuities, pensions, and other retirement benefits received while a resident of the state;
+(xvi) any other income attributable to the state, including but not limited to lottery winnings, state and federal tax refunds, nonemployee compensation, recapture of tax benefits, and capital loss addbacks; and
+(xvii) in the case of a nonresident who sells the nonresident's interest in a publicly traded partnership doing business in Montana, the gain described in section 751 of the Internal Revenue Code, 26 U.S.C. 751, multiplied by the Montana apportionment factor. If the net gain or loss resulting from the use of the apportionment factor as provided in this subsection (21)(a)(xvii) does not fairly and equitably represent the nonresident taxpayer's business activity interest, then the nonresident taxpayer may petition for, or the department may require with respect to any and all of the partnership interest, the employment of another method to effectuate an equitable allocation or apportionment of the nonresident's income. This subsection (21)(a)(xvii) is intended to preserve the rights and privileges of a nonresident taxpayer and align those rights with taxpayers who are afforded the same rights under 15-1-601 and 15-31-312.
+(b) The term does not include:
+(i) compensation for military service of members of the armed services of the United States who are not Montana residents and who are residing in Montana solely by reason of compliance with military orders and does not include income derived from their personal property located in the state except with respect to personal property used in or arising from a trade or business carried on in Montana; or
+(ii) interest paid on loans held by out-of-state financial institutions recognized as such in the state of their domicile, secured by mortgages, trust indentures, or other security interests on real or personal property located in the state, if the loan is originated by a lender doing business in Montana and assigned out-of-state and there is no activity conducted by the out-of-state lender in Montana except periodic inspection of the security.
+(22) "Montana taxable income" means federal taxable income as determined for federal income tax purposes and adjusted as provided in 15-30-2120.
+(23) "Nonresident" means a natural person who is not a resident.
+(24) "Paid" means paid or accrued or paid or incurred, and the terms "paid or accrued" and "paid or incurred" must be construed according to the method of accounting used to compute federal taxable income.
+(25) "Partner" means a member of a partnership or a manager or member of any other entity, if treated as a partner for federal income tax purposes.
+(26) "Partnership" means a general or limited partnership, limited liability partnership, limited liability company, or other entity, if treated as a partnership for federal income tax purposes.
+(27) "Pass-through entity" means a partnership, an S. corporation, or a disregarded entity.
+(28) "Pension and annuity income" means:
+(a) systematic payments of a definitely determinable amount from a qualified pension plan, as that term is used in section 401 of the Internal Revenue Code (26 U.S.C. 401), or systematic payments received as the result of contributions made to a qualified pension plan that are paid to the recipient or recipient's beneficiary upon the cessation of employment;
+(b) payments received as the result of past service and cessation of employment in the uniformed services of the United States;
+(c) lump-sum distributions from pension or profit-sharing plans to the extent that the distributions are included in federal adjusted gross income;
+(d) distributions from individual retirement, deferred compensation, and self-employed retirement plans recognized under sections 401 through 408 of the Internal Revenue Code (26 U.S.C. 401 through 408) to the extent that the distributions are not considered to be premature distributions for federal income tax purposes; or
+(e) amounts received from fully matured, privately purchased annuity contracts after cessation of regular employment.
+(29) "Purposely" is as defined in 45-2-101.
+(30) "Received" means received or accrued, and the term "received or accrued" must be construed according to the method of accounting used to compute federal taxable income.
+(31) "Resident" applies only to natural persons and includes, for the purpose of determining liability to the tax imposed by this chapter with reference to the income of any taxable year, any person domiciled in the state of Montana and any other person who maintains a permanent place of abode within the state even though temporarily absent from the state and who has not established a residence elsewhere.
+(32) "S. corporation" means an incorporated entity for which a valid election under section 1362 of the Internal Revenue Code, 26 U.S.C. 1362, is in effect.
+(33) "Stock dividends" means new stock issued, for surplus or profits capitalized, to shareholders in proportion to their previous holdings.
+(34) "Surviving spouse" means a surviving spouse as defined and described in section 2(a) of the Internal Revenue Code, 26 U.S.C. 2(a).
+(35) "Tax year" means the taxpayer's taxable year for federal income tax purposes.
+(36) "Taxpayer" includes any person, entity, or fiduciary, resident or nonresident, subject to a tax or other obligation imposed by this chapter and unless otherwise specifically provided does not include a C. corporation.

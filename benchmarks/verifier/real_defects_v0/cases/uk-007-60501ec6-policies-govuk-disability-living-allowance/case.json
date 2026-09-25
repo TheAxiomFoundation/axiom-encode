@@ -1,0 +1,276 @@
+{
+  "id": "uk-007-60501ec6-policies-govuk-disability-living-allowance",
+  "jurisdiction": "uk",
+  "repo": "TheAxiomFoundation/rulespec-uk",
+  "commit": "60501ec6fd17753059cc604f61be7c12096ecff0",
+  "parent_commit": "00faa4332f510bbabbbef5456e057ce83a74da3a",
+  "commit_date": "2026-06-10",
+  "commit_subject": "ground policy surfaces in ingested sources",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-uk/pull/44",
+  "module_path": "policies/govuk/disability-living-allowance.yaml",
+  "corpus_citation_path": "uk/guidance/govuk/disability-living-allowance-children",
+  "corpus_citation_paths_all": [
+    "uk/guidance/govuk/disability-living-allowance-children",
+    "uk/guidance/govuk/disability-living-allowance-children/rates",
+    "uk/regulation/uksi/2013/376/schedule/4/paragraph/7"
+  ],
+  "corpus_release": "uk-rulespec-2026-07-12",
+  "corpus_release_content_sha256": "ec59e4017cd0c9b935ffed9092506fcc15313f58fe1ed18c1af909c8d0cd47e1",
+  "corpus_commit": "3cc9219ac4ce8d6f0bb30ad08960209f699a7ac5",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.6,
+  "description": "rate (children aged 5 or over) or higher rate (children aged 3 or over)",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        7,
+        7
+      ],
+      [
+        10,
+        10
+      ],
+      [
+        20,
+        20
+      ],
+      [
+        22,
+        23
+      ],
+      [
+        28,
+        28
+      ],
+      [
+        31,
+        31
+      ],
+      [
+        33,
+        33
+      ],
+      [
+        37,
+        37
+      ],
+      [
+        43,
+        43
+      ],
+      [
+        65,
+        79
+      ],
+      [
+        81,
+        81
+      ],
+      [
+        83,
+        83
+      ],
+      [
+        85,
+        85
+      ],
+      [
+        91,
+        91
+      ],
+      [
+        108,
+        113
+      ],
+      [
+        115,
+        116
+      ],
+      [
+        118,
+        118
+      ],
+      [
+        120,
+        120
+      ],
+      [
+        128,
+        128
+      ],
+      [
+        133,
+        145
+      ],
+      [
+        147,
+        148
+      ],
+      [
+        150,
+        150
+      ],
+      [
+        152,
+        152
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        7,
+        8
+      ],
+      [
+        11,
+        16
+      ],
+      [
+        27,
+        27
+      ],
+      [
+        32,
+        32
+      ],
+      [
+        35,
+        35
+      ],
+      [
+        37,
+        37
+      ],
+      [
+        41,
+        41
+      ],
+      [
+        47,
+        47
+      ],
+      [
+        51,
+        65
+      ],
+      [
+        85,
+        85
+      ],
+      [
+        87,
+        87
+      ],
+      [
+        89,
+        89
+      ],
+      [
+        95,
+        95
+      ],
+      [
+        99,
+        108
+      ],
+      [
+        121,
+        135
+      ],
+      [
+        137,
+        137
+      ],
+      [
+        139,
+        140
+      ],
+      [
+        142,
+        142
+      ],
+      [
+        144,
+        144
+      ],
+      [
+        152,
+        152
+      ],
+      [
+        157,
+        157
+      ],
+      [
+        159,
+        160
+      ],
+      [
+        162,
+        162
+      ],
+      [
+        164,
+        164
+      ]
+    ],
+    "rule_names": [
+      "dla_mobility_component_weekly_amount",
+      "dla_care_component_weekly_amount",
+      "disability_living_allowance_weekly_amount",
+      "disability_living_allowance_annual_amount"
+    ],
+    "rule_path": "rules[dla_mobility_component_weekly_amount].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "ae8bf1fe696cc60bf9f767faa558455de55815320c744328c99179a56ab3bd51",
+  "post_fix_artifact_sha256": "a31c58e63bd6f381d79e41d8cfe06ec4037a7d140a4ad3ba1a4297ec2ea30ecc",
+  "provision_sha256": "4c0d6413f65222f8a0d006dde22c4d0d5ddedc30c5e876aa6231302e00a44f79",
+  "provision_chars": 169,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "uk/guidance/govuk/disability-living-allowance-children",
+    "provision_file": "data/corpus/provisions/uk/guidance/2026-07-10-uk-rulespec-source-promotion.jsonl",
+    "provision_file_sha256": "91208a858cdfd837af1d01cbcc4bbe7c57e6e37b681b70b02d0489ee3dfebc2b",
+    "line_number": 2,
+    "record_id": "a8f9e870-badf-5c71-9ce6-c0a70c20fc01",
+    "stored_body_sha256": "4c0d6413f65222f8a0d006dde22c4d0d5ddedc30c5e876aa6231302e00a44f79",
+    "resolved_text_sha256": "4c0d6413f65222f8a0d006dde22c4d0d5ddedc30c5e876aa6231302e00a44f79",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-06-10",
+    "source_as_of": "2026-06-10",
+    "corpus_commit": "3cc9219ac4ce8d6f0bb30ad08960209f699a7ac5",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "earliest_release_after_toolchain_corpus_ref",
+    "fallback_index": 1,
+    "toolchain_corpus_ref": "de9b2eb9bcd03356cc8d5855216f2c83e7a085ab",
+    "requested_citation_path": "uk/guidance/govuk/disability-living-allowance-children",
+    "release_errors_before_success": [
+      {
+        "release": "uk-legislation-pilot",
+        "error": "No active corpus source found for 'uk/guidance/govuk/disability-living-allowance-children'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module paid the DLA mobility component from PolicyEngine category inputs at any age, omitting the GOV.UK children's-rates conditions that the lower mobility rate requires the child to be 5 years or over and the higher rate 3 years or over (and that the award is for a child under 16).",
+    "triage_notes": "Provision read: the vendored slice uk/guidance/govuk/disability-living-allowance-children/rates says \"Mobility component weekly rates: lower £30.30 where the child is 5 years or over; higher £80.00 where the child is 3 years or over\", so the age conditions are source-stated clauses the pre-fix encoding lacked - that is the clearest fidelity content here. Caveat for the reviewer: the commit/PR text for this module is generic (\"DLA component rates\"), and the fix simultaneously re-scopes the module from DLA generally (Up-rating Order article 14) to DLA for children, adding `if not child_is_under_16: 0`; that narrowing drops adult legacy-DLA claimants, so someone could argue wrong_entity_or_scope or even call the narrowing a new defect. The quote is taken from the module summary block added in the diff, not a YAML comment. Rates themselves are unchanged (still imported from SI 2026/148 article 14); rule names were renamed (disability_living_allowance_self_care_weekly_amount -> dla_care_component_weekly_amount).",
+    "verifier_verdict": "reclassify",
+    "verifier_defect_kind": "untraceable_branch",
+    "verifier_confidence": 0.6,
+    "verifier_justification": "I could not refute that this is a fidelity correction, but the kind is wrong: the pre-fix formula selected DLA rates from PolicyEngine model inputs (`person_has_higher_rate_dla_mobility_category`), self-described in the module as a \"PolicyEngine UK dla_m category-input wrapper\", and its only legal citation was `uk/regulation/uksi/2026/148/article/14`, which I resolved through the pinned release and which contains nothing but amount substitutions (\"in paragraph (2)(a) for £77.05 substitute £80.00\") — no rate categories, no ages, no eligibility conditions at all. So there was no clause in the cited source that the encoding omitted; every branch condition in the encoding had no basis in the provision it cited, and the fix deletes those branches, swaps `corpus_citation_paths` to newly vendored GOV.UK children's-DLA guidance, and re-grounds the selection there — the harness definition of untraceable_branch (\"formulas grounded on the wrong provision\", \"the fix removes or re-grounds it\"), and exactly what the commit subject \"ground policy surfaces in ingested sources\" and the PR's \"derived from another model rather than from law\" describe. The age gates the first reader quoted are a byproduct of that re-grounding (they arrive with a source slice added in the same commit), not the defect the fix targets; imported rates are byte-identical before and after (114.60/76.70/30.30/80.00), so no amount moved.",
+    "verifier_quote": "-    source: PolicyEngine UK dla_m category-input wrapper over Social Security Benefits Up-rating Order 2026 article 14 mobility rates\n-          if person_has_higher_rate_dla_mobility_category: dla_mobility_higher_weekly_rate else: if person_has_lower_rate_dla_mobility_category: dla_mobility_lower_weekly_rate else: 0",
+    "verifier_notes": "Evidence checked: (1) resolve_provision on the pre-fix citation uk/regulation/uksi/2026/148/article/14 returns only \"In regulation 4 of the Social Security (Disability Living Allowance) Regulations 1991 (rate of benefit)— in paragraph (1)(a) for \"£110.40\" substitute \"£114.60\"; ...\" — amounts only, no conditions, so nothing in the old cited source was \"left out\". (2) The age conditions do exist in the source added by this same commit: data/corpus/provisions/uk/guidance/2026-06-10-uk-govuk-dla-children-rates.jsonl body reads \"Mobility component weekly rates: lower £30.30 where the child is 5 years or over; higher £80.00 where the child is 3 years or over\", and the parent slice reads \"may help with the extra costs of looking after a child who is under 16\" — the post-fix formula matches both. (3) The .test.yaml diff confirms the change is an input-vocabulary swap (person_has_*_dla_*_category → child_is_under_16 / care_component_is_*_rate / child_is_aged_N_or_over) with unchanged rate outputs.\n\nTwo things a reviewer should not let this case hide, both introduced or left standing by the \"fix\":\n- effective_from moves '2026-04-06' → '0001-01-01' on every version while the imported rates are still the 2026 uprating-order values. That makes 2026-only amounts timeless — a wrong_period_or_effective_date regression created by the fix, in the opposite direction from the defect the corpus is cataloguing.\n- disability_living_allowance_weeks_in_year still grounds \"52\" on uk/regulation/uksi/2013/376/schedule/4/paragraph/7, which resolves to the Universal Credit renters' provision (\"weekly payments are multiplied by 52 and divided by 12\" for monthly housing-cost equivalents) — not a DLA annualization rule. The fix only edited the excerpt string (\"weekly payments are multiplied by 52\" → \"calculated as a monthly amount\"); the grounding remains untraceable after the commit. It also drops `entity: Person` and `period: Year` from that parameter.\n\nIf a reviewer applies the harness's strict \"scope the module never claimed\" rule, note the module's pre-fix summary declared itself \"This PolicyEngine-alignment surface ... used by PolicyEngine UK and HBAI\", and the fix both narrows it to children under 16 and adds a new output (disability_living_allowance_weekly_amount); on that reading the case could be pushed to unclear rather than a confirmed fidelity defect. I still call it fidelity because the pre-fix branches were grounded on another model rather than on law, which is a defect against any source, not a scope preference.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Provision read: the vendored slice uk/guidance/govuk/disability-living-allowance-children/rates says \"Mobility component weekly rates: lower £30.30 where the child is 5 years or over; higher £80.00 where the child is 3 years or over\", so the age conditions are source-stated clauses the pre-fix encoding lacked - that is the clearest fidelity content here. Caveat for the reviewer: the commit/PR text for this module is generic (\"DLA component rates\"), and the fix simultaneously re-scopes the module from DLA generally (Up-rating Order article 14) to DLA for children, adding `if not child_is_under_16: 0`; that narrowing drops adult legacy-DLA claimants, so someone could argue wrong_entity_or_scope or even call the narrowing a new defect. The quote is taken from the module summary block added in the diff, not a YAML comment. Rates themselves are unchanged (still imported from SI 2026/148 article 14); rule names were renamed (disability_living_allowance_self_care_weekly_amount -> dla_care_component_weekly_amount). | verifier reclassified unrepresented_clause -> untraceable_branch at 0.60; verifier kind used",
+  "family_id": "uk-60501ec6-39ffa90dd89d",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

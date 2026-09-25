@@ -1,0 +1,227 @@
+{
+  "id": "uk-005-60501ec6-policies-govuk-carers-allowance",
+  "jurisdiction": "uk",
+  "repo": "TheAxiomFoundation/rulespec-uk",
+  "commit": "60501ec6fd17753059cc604f61be7c12096ecff0",
+  "parent_commit": "00faa4332f510bbabbbef5456e057ce83a74da3a",
+  "commit_date": "2026-06-10",
+  "commit_subject": "ground policy surfaces in ingested sources",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-uk/pull/44",
+  "module_path": "policies/govuk/carers-allowance.yaml",
+  "corpus_citation_path": "uk/guidance/govuk/carers-allowance/eligibility",
+  "corpus_citation_paths_all": [
+    "uk/guidance/govuk/carers-allowance/eligibility",
+    "uk/regulation/uksi/2013/376/schedule/4/paragraph/7"
+  ],
+  "corpus_release": "uk-rulespec-2026-07-12",
+  "corpus_release_content_sha256": "ec59e4017cd0c9b935ffed9092506fcc15313f58fe1ed18c1af909c8d0cd47e1",
+  "corpus_commit": "3cc9219ac4ce8d6f0bb30ad08960209f699a7ac5",
+  "defect_kind": "unrepresented_clause",
+  "other_kind": null,
+  "confidence": 0.72,
+  "description": "carer's allowance and carer support payment with the 35-hour and £204 earnings conditions",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        10,
+        10
+      ],
+      [
+        16,
+        16
+      ],
+      [
+        18,
+        19
+      ],
+      [
+        27,
+        27
+      ],
+      [
+        29,
+        29
+      ],
+      [
+        35,
+        35
+      ],
+      [
+        37,
+        38
+      ],
+      [
+        43,
+        43
+      ],
+      [
+        46,
+        46
+      ],
+      [
+        48,
+        48
+      ],
+      [
+        52,
+        52
+      ],
+      [
+        55,
+        58
+      ],
+      [
+        63,
+        67
+      ],
+      [
+        72,
+        72
+      ],
+      [
+        77,
+        77
+      ],
+      [
+        81,
+        82
+      ],
+      [
+        84,
+        84
+      ],
+      [
+        86,
+        86
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        10,
+        17
+      ],
+      [
+        24,
+        24
+      ],
+      [
+        32,
+        32
+      ],
+      [
+        34,
+        34
+      ],
+      [
+        38,
+        55
+      ],
+      [
+        59,
+        59
+      ],
+      [
+        64,
+        64
+      ],
+      [
+        67,
+        67
+      ],
+      [
+        69,
+        69
+      ],
+      [
+        73,
+        73
+      ],
+      [
+        76,
+        78
+      ],
+      [
+        83,
+        86
+      ],
+      [
+        91,
+        91
+      ],
+      [
+        96,
+        142
+      ],
+      [
+        146,
+        147
+      ],
+      [
+        149,
+        149
+      ],
+      [
+        151,
+        151
+      ]
+    ],
+    "rule_names": [
+      "entitled_to_carers_allowance",
+      "carers_allowance_weekly_earnings_limit",
+      "carers_allowance_weekly_amount",
+      "carers_allowance_annual_amount"
+    ],
+    "rule_path": "rules[entitled_to_carers_allowance].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "adbc0d184f9d11441e95f44461eb5225785ef026c7eb95aa9e2a0415b637f435",
+  "post_fix_artifact_sha256": "07727ba164961601b9cbfe22c21590347297369fa970ed163ff0b3a6229f923b",
+  "provision_sha256": "3b46557472e9b270bab4fa7c141e8188da1c45d1c0f092dcc66d99467f9929b9",
+  "provision_chars": 487,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "uk/guidance/govuk/carers-allowance/eligibility",
+    "provision_file": "data/corpus/provisions/uk/guidance/2026-07-10-uk-rulespec-source-promotion.jsonl",
+    "provision_file_sha256": "91208a858cdfd837af1d01cbcc4bbe7c57e6e37b681b70b02d0489ee3dfebc2b",
+    "line_number": 1,
+    "record_id": "373652ec-a2f1-5bd8-ac3b-28c509ec0701",
+    "stored_body_sha256": "3b46557472e9b270bab4fa7c141e8188da1c45d1c0f092dcc66d99467f9929b9",
+    "resolved_text_sha256": "3b46557472e9b270bab4fa7c141e8188da1c45d1c0f092dcc66d99467f9929b9",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-06-10",
+    "source_as_of": "2026-06-10",
+    "corpus_commit": "3cc9219ac4ce8d6f0bb30ad08960209f699a7ac5",
+    "fix_time_corpus_match": "provision_file_absent_at_corpus_ref",
+    "selection_basis": "earliest_release_after_toolchain_corpus_ref",
+    "fallback_index": 1,
+    "toolchain_corpus_ref": "de9b2eb9bcd03356cc8d5855216f2c83e7a085ab",
+    "requested_citation_path": "uk/guidance/govuk/carers-allowance/eligibility",
+    "release_errors_before_success": [
+      {
+        "release": "uk-legislation-pilot",
+        "error": "No active corpus source found for 'uk/guidance/govuk/carers-allowance/eligibility'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module paid carer's allowance whenever the person met the 35-hour test or had a reported carer's allowance amount, omitting the GOV.UK eligibility conditions that the carer be 16 or over, not in full-time education, caring for someone who gets a qualifying disability benefit, and earning £204 or less a week after tax, National Insurance and expenses.",
+    "triage_notes": "Provision read: the vendored slice uk/guidance/govuk/carers-allowance/eligibility says \"All of the following must apply: You're 16 or over. You're not in full-time education. You're not studying for 21 hours a week or more. Your earnings are £204 or less a week after tax, National Insurance and expenses.\" - so the added conditions are source-required. Same pattern as index 0, including the co-occurring untraceable `or reported_carers_allowance_for_year > 0` disjunct that the fix removes. Residual gap after the fix: the \"not studying for 21 hours a week or more\" condition is still unencoded. The Scotland carve-out was kept but re-expressed (`not person_lives_in_scotland` replacing the `carer_support_payment_replaces_carers_allowance` switch). Boundary: source \"£204 or less\" vs encoded <= 204 - consistent.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "unrepresented_clause",
+    "verifier_confidence": 0.82,
+    "verifier_justification": "The pinned-release text of the cited provision (uk/guidance/govuk/carers-allowance/eligibility) states \"All of the following must apply: You're 16 or over. You're not in full-time education. ... Your earnings are £204 or less a week after tax, National Insurance and expenses\", yet the pre-fix formula paid the full annual rate on a 35-hour-or-reported-receipt gate alone, so the encoding disagreed with the source it already cited in module.source_verification and in its proof atoms. The fix adds a new derived rule entitled_to_carers_allowance conjoining age 16+, the qualifying disability benefit of the person cared for, the new £204 carers_allowance_weekly_earnings_limit parameter, and not-in-full-time-education, and gates the weekly/annual amounts on it — an encoded-meaning change, corroborated by the companion test where a carer earning 250 a week now yields 0 instead of 4495.40. The competing kind untraceable_branch is genuinely present (the fix also deletes the ungrounded \"or reported_carers_allowance_for_year > 0\" disjunct whose rule source was \"PolicyEngine UK carers_allowance final receipt wrapper\"), but it covers one removed disjunct while four source-stated conditions were added, and the commit/PR text foregrounds \"the 35-hour and £204 earnings conditions\", so unrepresented_clause remains the better fit.",
+    "verifier_quote": "-          if not (person_is_in_scotland and carer_support_payment_replaces_carers_allowance) and (weekly_care_hours >= carers_allowance_minimum_weekly_care_hours or reported_carers_allowance_for_year > 0): carers_allowance_weekly_rate * carers_allowance_weeks_in_year else: 0\n+          person_is_aged_16_or_over and weekly_care_hours >= carers_allowance_minimum_weekly_care_hours and cared_for_person_receives_qualifying_disability_benefit and weekly_earnings_after_tax_national_insurance_and_expenses <= carers_allowance_weekly_earnings_limit and not person_is_in_full_time_education and not person_lives_in_scotland",
+    "verifier_notes": "Source text resolved through the pinned release (corpus_release uk-rulespec-2026-07-12, record 373652ec-a2f1-5bd8-ac3b-28c509ec0701) reads: \"You could get £86.45 a week if you care for someone at least 35 hours a week and they get certain benefits. ... All of the following must apply: You're 16 or over. You're not in full-time education. You're not studying for 21 hours a week or more. Your earnings are £204 or less a week after tax, National Insurance and expenses. If you live in Scotland, you need to apply for Carer Support Payment instead of Carer's Allowance.\" Note fix_time_corpus_match = provision_file_absent_at_corpus_ref, i.e. the slice was vendored in this same commit, so the pre-fix module cited a path whose text was not yet in-repo — that weakens but does not defeat the fidelity reading, because the pre-fix module already listed that citation path and quoted it in proof atoms.\n\nRefutation lines I considered and rejected: (1) \"new coverage the module never claimed\" — the pre-fix summary self-describes as \"This PolicyEngine-alignment surface\", which is the strongest not_a_defect argument, but the rule outputs carers_allowance_annual_amount and justifies its gate with proof atoms from the eligibility page, so it did claim to encode that source and contradicted it; (2) mechanical — refuted by the test diff, where the deleted case england_reported_receipt_preserves_award asserted 4495.40 for a person with weekly_care_hours: 0.\n\nFor the reviewer: this diff carries a second, co-present defect signature — removal of the untraceable \"or reported_carers_allowance_for_year > 0\" disjunct (source line changed from \"PolicyEngine UK carers_allowance final receipt wrapper\" to \"GOV.UK, Carer's Allowance, \\\"Eligibility\\\"\") — so if the corpus wants one defect per kind, this commit could legitimately be counted under untraceable_branch as well. Also incidental and not part of the claimed defect: effective_from moves from '2026-04-06' to '0001-01-01' on three rules (timeless encoding, arguably a regression in the wrong_period_or_effective_date direction), and the post-fix module still omits the source's \"You're not studying for 21 hours a week or more\" condition, so the unrepresented-clause fix is partial.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Provision read: the vendored slice uk/guidance/govuk/carers-allowance/eligibility says \"All of the following must apply: You're 16 or over. You're not in full-time education. You're not studying for 21 hours a week or more. Your earnings are £204 or less a week after tax, National Insurance and expenses.\" - so the added conditions are source-required. Same pattern as index 0, including the co-occurring untraceable `or reported_carers_allowance_for_year > 0` disjunct that the fix removes. Residual gap after the fix: the \"not studying for 21 hours a week or more\" condition is still unencoded. The Scotland carve-out was kept but re-expressed (`not person_lives_in_scotland` replacing the `carer_support_payment_replaces_carers_allowance` switch). Boundary: source \"£204 or less\" vs encoded <= 204 - consistent. | verifier confirmed at 0.82",
+  "family_id": "uk-60501ec6-04b8ffacd8e3",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

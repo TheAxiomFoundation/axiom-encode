@@ -1,0 +1,222 @@
+{
+  "id": "us-422-5ea2b6c1-us-ga-policies-income-tax-pilot-liability-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "5ea2b6c1a8c34f9ba3c72706de8e57a4decd9c8e",
+  "parent_commit": "fd918bb79f229464558b7e60c65899b15f7d9afa",
+  "commit_date": "2026-07-21",
+  "commit_subject": "Promote Georgia PIT to taxable-income boundary",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/957",
+  "module_path": "us-ga/policies/income_tax/pilot_liability_pipeline.yaml",
+  "corpus_citation_path": "us-ga/statute/48/48-7-20",
+  "corpus_citation_paths_all": [
+    "us-ga/statute/48/48-7-20",
+    "us-ga/statute/session-laws/2026/hb463/document-1"
+  ],
+  "corpus_release": "us-rulespec-2026-07-22-current",
+  "corpus_release_content_sha256": "7b1c6c0ec237dc3767f770fbb30178d6857bbe43fd4d952f57ebfc8409874bcc",
+  "corpus_commit": "c5af541326e024e04cb533bbf5709ae04e6305f6",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.62,
+  "description": "The caller supplies that completed-return Georgia taxable-income amount as the explicit upstream boundary; this module does not claim to reconstruct federal adjusted gross income or the deductions, exemptions, exclusions, and adjustments that produce the boundary under section 48-7-27.",
+  "description_source": "module_comment",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        13,
+        13
+      ],
+      [
+        15,
+        35
+      ],
+      [
+        37,
+        57
+      ],
+      [
+        65,
+        84
+      ],
+      [
+        92,
+        92
+      ],
+      [
+        96,
+        97
+      ],
+      [
+        104,
+        104
+      ],
+      [
+        112,
+        112
+      ],
+      [
+        116,
+        116
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        8,
+        8
+      ],
+      [
+        13,
+        13
+      ],
+      [
+        15,
+        27
+      ],
+      [
+        29,
+        39
+      ],
+      [
+        47,
+        47
+      ],
+      [
+        55,
+        55
+      ],
+      [
+        58,
+        58
+      ],
+      [
+        60,
+        60
+      ],
+      [
+        67,
+        67
+      ],
+      [
+        71,
+        76
+      ],
+      [
+        81,
+        81
+      ],
+      [
+        84,
+        84
+      ],
+      [
+        86,
+        86
+      ]
+    ],
+    "rule_names": [
+      "ga_pit_pilot_taxable_income",
+      "ga_pit_pilot_schedule_tax",
+      "ga_pit_pilot_income_tax_liability"
+    ],
+    "rule_path": "rules[ga_pit_pilot_taxable_income].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "6183f91a5fb818dca80f809cf1119555e68a89d6802227bd76dc8d29d2a029e7",
+  "post_fix_artifact_sha256": "8ef4626e2b59da48464fd6d62c169dbdf09b53e3fe4f1745b95edfe5a261d8b1",
+  "provision_sha256": "0ff18741a54f8e405f02ea04ae2498324dc0c342a5d621d7316062ec132f085b",
+  "provision_chars": 14089,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-ga/statute/48/48-7-20",
+    "provision_file": "data/corpus/provisions/us-ga/statute/2026-07-21-ga-ocga-title-48-release86-us-ga-title-48.jsonl",
+    "provision_file_sha256": "8a56a7bda977c94135ef111f208f36c9984791f3c6a3a265dc4724b36486d4e0",
+    "line_number": 662,
+    "record_id": "746d5069-fc00-50d1-91c9-ad12cba34029",
+    "stored_body_sha256": "0ff18741a54f8e405f02ea04ae2498324dc0c342a5d621d7316062ec132f085b",
+    "resolved_text_sha256": "0ff18741a54f8e405f02ea04ae2498324dc0c342a5d621d7316062ec132f085b",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2022-11-01",
+    "source_as_of": "2022-11-01",
+    "corpus_commit": "c5af541326e024e04cb533bbf5709ae04e6305f6",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 12,
+    "toolchain_corpus_ref": "f66b3628a97c96bb0ab71809434ecaf84b6ad091",
+    "requested_citation_path": "us-ga/statute/48/48-7-20",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-20'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-20'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-20'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-20'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-20'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-20'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-20'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-20'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-20'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-20'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-20'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us-ga/statute/48/48-7-20'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module encoded Georgia taxable net income as `max(0, ga_pit_pilot_adjusted_gross_income - ga_pit_pilot_supplied_standard_deduction)` and grounded it on O.C.G.A. § 48-7-27, but § 48-7-27(a) defines that boundary as federal AGI less the itemized-or-standard deduction *plus* the age-65 and blind additional deductions, the § 48-7-26 exemptions together with the subsection (b) adjustments, and the retirement-income and other exclusions, so the encoded equation states a relation the cited provision does not support; the § 48-7-20 flat rate and bracket mechanics were likewise carried as caller-supplied inputs with no statutory grounding at all.",
+    "triage_notes": "Provisions were read through the pinned release us-rulespec-2026-07-22-current. Verified against corpus: § 48-7-27(a) enumerates the itemized/standard deduction, the age-65 and blind additions, the § 48-7-26 exemptions plus subsection (b) adjustments, and retirement-income exclusions, so AGI minus one supplied standard deduction is not the statutory boundary. The pre-fix proof excerpt \"Georgia taxable net income of an individual is federal adjusted gross income less specified deductions\" is NOT verbatim anywhere in the cited § 48-7-27 text (checked by substring match) — a fabricated paraphrase; the post-fix excerpt \"A tax is imposed upon every resident of this state with respect to the Georgia taxable net income of the taxpayer\" IS verbatim. Corroborating evidence that the pre-fix module was known-bad: the same commit deletes this file's entry from known-validation-gaps.yaml `validate_failures` (fingerprint sha256:561c3b51..., issue #782, which describes waived modules as skipping validate + companion execution entirely). Numerically the liability for a GIVEN taxable income is unchanged (0.0499 * taxable income both before and after, since the supplied bracket base/floor/credit were all zero in fixtures), so the defect is the ungrounded derivation of the boundary and of the schedule, not an arithmetic error — the PR claims population parity over 2,187 certified TaxUnits, which the narrower childless-wage-earner pre-fix slice could not have met. Alternative reading a reviewer may prefer: unrepresented_clause (the omitted § 48-7-26 exemptions / age-65 / blind / retirement-exclusion components of § 48-7-27); I chose untraceable_branch because the fix REMOVES and re-grounds the derivation rather than adding the missing clauses. The commit also removed the intermediate rule ga_pit_pilot_schedule_tax, added effective_to '2026-12-31' to both surviving versions, and added an import proof atom. Minor unrelated note: the post-fix formula atom for the liability rule cites § 48-7-20(b)(1) (\"The tax imposed pursuant to subsection (a) of this Code section shall be computed\"), which in the pinned corpus copy introduces the pre-2024 graduated bracket tables, not the flat rate; the flat rate arrives via the import atom. Follow-up commit 2551dd772 \"Conform Georgia PIT source metadata\" touches only source_verification metadata, summary prose and the import hash (mechanical), and 6ff6a4a8b later consolidates the Georgia 2026 annual surface.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "untraceable_branch",
+    "verifier_confidence": 0.72,
+    "verifier_justification": "The pre-fix rule pinned the formula `max(0, ga_pit_pilot_adjusted_gross_income - ga_pit_pilot_supplied_standard_deduction)` to a proof atom whose corpus_citation_path is us-ga/statute/48/48-7-27, but the pinned corpus text of § 48-7-27(a) defines Georgia taxable net income as the taxpayer's *federal* AGI less the itemized-or-standard deduction, the age-65 and blind additional deductions, \"(2) The exemptions provided for in Code Section 48-7-26 together with the adjustments provided for in subsection (b)\", the jobs-credit add-backs, and the retirement-income exclusions — so the encoded one-subtraction equation states a relation the cited provision does not. The fix does not add the missing subtractions; it deletes the derivation, drops us-ga/statute/48/48-7-27 from corpus_citation_paths, and re-grounds the rule on § 48-7-20 as a caller-supplied boundary, which is exactly the untraceable_branch mechanism (\"the fix removes or re-grounds it\", including formulas grounded on the wrong provision). I tried the not_a_defect reading (an architectural \"promote to boundary\" with caller-supplied values), but it fails: the post rationale expressly disclaims the old claim (\"this module does not claim to reconstruct federal adjusted gross income or the deductions, exemptions, exclusions, and adjustments that produce the boundary under section 48-7-27\"), and the pre-fix rationale's own justifications are contradicted by the pinned text ((a)(1)(B) is \"$3,550.00\" for a married taxpayer filing separately, not the claimed $15,000/$30,000; § 48-7-26 exemptions resolve to $7,400/$2,700/$3,000, not zero). I also weighed reclassifying to unrepresented_clause (rejected: the fix removes rather than adds the clauses) and to wrong_entity_or_scope (rejected: entity stays TaxUnit and the defect is the unsupported grounding, not the population).",
+    "verifier_quote": "-              corpus_citation_path: us-ga/statute/48/48-7-27\n-              excerpt: \"Georgia taxable net income of an individual is federal adjusted gross income less specified deductions\"\n-    versions:\n-      - effective_from: '2026-01-01'\n-        formula: |-\n-          max(0, ga_pit_pilot_adjusted_gross_income - ga_pit_pilot_supplied_standard_deduction)",
+    "verifier_notes": "Evidence read: diff 000.diff; pre file at fd918bb7 and post at 5ea2b6c1a8; provisions resolved through the pinned release us-rulespec-2026-07-22-current (corpus commit c5af5413, fix_time_corpus_match=same_body). (1) The removed proof excerpt was never verbatim — the corpus says \"(a) Georgia taxable net income of an individual shall be the taxpayer's federal adjusted gross income, as defined in the United States Internal Revenue Code of 1986, less:\", so the old atom paraphrased and truncated the chain. (2) The pre formula also started from \"Georgia adjusted gross income\", a starting point § 48-7-27(a) does not use (it starts from federal AGI). (3) The change bundles three secondary, non-decisive components a reviewer should not mistake for the defect: provenance-only excerpt corrections (the § 48-7-20 excerpt is now verbatim: \"A tax is imposed upon every resident of this state with respect to the Georgia taxable net income of the taxpayer\") plus a new import proof atom with sha256 hash; a version-window addition (effective_to '2026-12-31' on both rules, which follows from importing a fixed 2026 rate rather than correcting a wrong window — so wrong_period_or_effective_date is not the primary kind); and an output-target narrowing (the deleted ga_pit_pilot_schedule_tax rule and the dropped `- ga_pit_pilot_supplied_nonrefundable_credit` subtraction move the target to before-credit). (4) Second-best kind if a reviewer disagrees: wrong_entity_or_scope on the output-surface prong, since the input surface collapses from AGI/deduction/rate/bracket-floor/bracket-base/credit to one supplied ga_pit_pilot_state_taxable_income; I rank it below untraceable_branch because the reason the old surface was wrong is the unsupported § 48-7-27 grounding. (5) Unrelated inconsistency worth flagging upstream: PR #957's body says \"encodes the 5.19% statutory rate\" while both module files in the commit say 4.99 per cent; the module text is internally consistent, so this is a PR-body error, not a module defect. (6) Caveat on the corpus: § 48-7-20, § 48-7-26, and § 48-7-27 all resolve to the expression dated 2022-11-01 (selection_basis latest_release_at_or_before_toolchain_corpus_ref), i.e. the pre-2024 flat-rate-less text, so the \"exemptions are nonzero in 2026\" point rests on the expression the encoder itself resolves rather than on a 2026 expression; the structural point (the boundary has subtractions beyond the standard deduction) holds in every expression of § 48-7-27(a).",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "keyword"
+  },
+  "triage_notes": "Provisions were read through the pinned release us-rulespec-2026-07-22-current. Verified against corpus: § 48-7-27(a) enumerates the itemized/standard deduction, the age-65 and blind additions, the § 48-7-26 exemptions plus subsection (b) adjustments, and retirement-income exclusions, so AGI minus one supplied standard deduction is not the statutory boundary. The pre-fix proof excerpt \"Georgia taxable net income of an individual is federal adjusted gross income less specified deductions\" is NOT verbatim anywhere in the cited § 48-7-27 text (checked by substring match) — a fabricated paraphrase; the post-fix excerpt \"A tax is imposed upon every resident of this state with respect to the Georgia taxable net income of the taxpayer\" IS verbatim. Corroborating evidence that the pre-fix module was known-bad: the same commit deletes this file's entry from known-validation-gaps.yaml `validate_failures` (fingerprint sha256:561c3b51..., issue #782, which describes waived modules as skipping validate + companion execution entirely). Numerically the liability for a GIVEN taxable income is unchanged (0.0499 * taxable income both before and after, since the supplied bracket base/floor/credit were all zero in fixtures), so the defect is the ungrounded derivation of the boundary and of the schedule, not an arithmetic error — the PR claims population parity over 2,187 certified TaxUnits, which the narrower childless-wage-earner pre-fix slice could not have met. Alternative reading a reviewer may prefer: unrepresented_clause (the omitted § 48-7-26 exemptions / age-65 / blind / retirement-exclusion components of § 48-7-27); I chose untraceable_branch because the fix REMOVES and re-grounds the derivation rather than adding the missing clauses. The commit also removed the intermediate rule ga_pit_pilot_schedule_tax, added effective_to '2026-12-31' to both surviving versions, and added an import proof atom. Minor unrelated note: the post-fix formula atom for the liability rule cites § 48-7-20(b)(1) (\"The tax imposed pursuant to subsection (a) of this Code section shall be computed\"), which in the pinned corpus copy introduces the pre-2024 graduated bracket tables, not the flat rate; the flat rate arrives via the import atom. Follow-up commit 2551dd772 \"Conform Georgia PIT source metadata\" touches only source_verification metadata, summary prose and the import hash (mechanical), and 6ff6a4a8b later consolidates the Georgia 2026 annual surface. | verifier confirmed at 0.72",
+  "family_id": "us-5ea2b6c1-b0f10f023313",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

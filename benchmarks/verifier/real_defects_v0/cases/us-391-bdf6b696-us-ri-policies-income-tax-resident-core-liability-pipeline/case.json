@@ -1,0 +1,201 @@
+{
+  "id": "us-391-bdf6b696-us-ri-policies-income-tax-resident-core-liability-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "bdf6b6965839e6fcec5609237e427447705173e7",
+  "parent_commit": "cfdc84cf75c3cd1b2cca8f587338a18127f4b9c2",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Constrains Rhode Island opportunity-zone investment grain: entity/grain correction.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1032",
+  "module_path": "us-ri/policies/income_tax/resident_core_liability_pipeline.yaml",
+  "corpus_citation_path": "us-ri/guidance/tax/adv-2025-22/page-1",
+  "corpus_citation_paths_all": [
+    "us-ri/guidance/tax/adv-2025-22/page-1",
+    "us-ri/guidance/tax/adv-2025-22/page-2",
+    "us-ri/statute/44-30-1",
+    "us-ri/statute/44-30-1.1",
+    "us-ri/statute/44-30-2.6",
+    "us-ri/statute/44-30-2.8",
+    "us-ri/statute/44-30-3",
+    "us-ri/statute/44-30-5",
+    "us-ri/statute/44-30-11",
+    "us-ri/statute/44-30-12",
+    "us-ri/statute/44-30-15",
+    "us-ri/statute/44-30-17",
+    "us-ri/statute/44-30-18",
+    "us-ri/statute/44-30-25",
+    "us-ri/statute/44-30-25.1",
+    "us-ri/statute/44-30-32",
+    "us-ri/statute/44-30-87.1"
+  ],
+  "corpus_release": "us-rulespec-2026-08-03-ecps-pit-tariff-union",
+  "corpus_release_content_sha256": "aa034219ef1519a31c0f354149bfd4b873fb5d8f2804b5cfe78c2813ee8af4e5",
+  "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+  "defect_kind": "wrong_entity_or_scope",
+  "other_kind": null,
+  "confidence": 0.76,
+  "description": "fail closed for unsupported/ambiguous credit ordering and multi-investment opportunity-zone facts rather than accepting completed legal results",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        429,
+        430
+      ],
+      [
+        727,
+        727
+      ],
+      [
+        730,
+        731
+      ],
+      [
+        1331,
+        1333
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        429,
+        430
+      ],
+      [
+        524,
+        524
+      ],
+      [
+        552,
+        552
+      ],
+      [
+        729,
+        729
+      ],
+      [
+        732,
+        733
+      ],
+      [
+        1333,
+        1336
+      ]
+    ],
+    "rule_names": [
+      "ri_pit_2026_profile_candidate_other_statutory_subtractions",
+      "ri_pit_2026_supported_profile_applies",
+      "ri_pit_2026_input_domain_is_valid"
+    ],
+    "rule_path": "rules[ri_pit_2026_supported_profile_applies].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "46138320ed34b429ed4e30ab83cdb2a27b38b71c3bf0d9d92cb56b3e7a107e0f",
+  "post_fix_artifact_sha256": "072877539db53e7dfb787fbd38b926902fb2beeb2cd8fe371d1bcd2845bf6e8f",
+  "provision_sha256": "722a95947b5c8b600c908f1c8ba26a9ac325107e1c6488e18f26fd2d1ad896bb",
+  "provision_chars": 2342,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-ri/guidance/tax/adv-2025-22/page-1",
+    "provision_file": "data/corpus/provisions/us-ri/guidance/2026-07-23-ri-pit-adv-2025-22.jsonl",
+    "provision_file_sha256": "a17f13201e4a0dcc4c174694897720fbf749405ecc2ac67151a70867c4654f59",
+    "line_number": 2,
+    "record_id": "17dc0fdf-ad4d-535b-bfd9-efd3f496fdab",
+    "stored_body_sha256": "722a95947b5c8b600c908f1c8ba26a9ac325107e1c6488e18f26fd2d1ad896bb",
+    "resolved_text_sha256": "722a95947b5c8b600c908f1c8ba26a9ac325107e1c6488e18f26fd2d1ad896bb",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2025-11-03",
+    "source_as_of": "2026-07-23",
+    "corpus_commit": "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 16,
+    "toolchain_corpus_ref": "ddc9b0f95cb0cd7ed24d42bd62fec4dbf0e1b846",
+    "requested_citation_path": "us-ri/guidance/tax/adv-2025-22/page-1",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-2026-07-22-current-la-status-fix",
+        "error": "No active corpus source found for 'us-ri/guidance/tax/adv-2025-22/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-22-current",
+        "error": "No active corpus source found for 'us-ri/guidance/tax/adv-2025-22/page-1'"
+      },
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us-ri/guidance/tax/adv-2025-22/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us-ri/guidance/tax/adv-2025-22/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us-ri/guidance/tax/adv-2025-22/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us-ri/guidance/tax/adv-2025-22/page-1'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us-ri/guidance/tax/adv-2025-22/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us-ri/guidance/tax/adv-2025-22/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us-ri/guidance/tax/adv-2025-22/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us-ri/guidance/tax/adv-2025-22/page-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us-ri/guidance/tax/adv-2025-22/page-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us-ri/guidance/tax/adv-2025-22/page-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us-ri/guidance/tax/adv-2025-22/page-1'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us-ri/guidance/tax/adv-2025-22/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-cms-435-correction-immutable-scopes",
+        "error": "No active corpus source found for 'us-ri/guidance/tax/adv-2025-22/page-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-24-snap-cms-pit-union",
+        "error": "No active corpus source found for 'us-ri/guidance/tax/adv-2025-22/page-1'"
+      }
+    ]
+  },
+  "fix_stage": "pre_merge_review",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "The pre-fix module measured the 44-30-12(c)(10) subtraction at taxpayer-level aggregate grain — the whole federal 1400Z-2(b)(2)(B)(iv) and 1400Z-2(c) benefit gated by one taxpayer-wide seven-year flag — so a taxpayer with several Rhode Island opportunity-zone investments, or with mixed per-investment holding periods, would subtract the incremental benefit of investments the statute does not qualify, because the statute allows the modification only 'in the case of any investment in a Rhode Island opportunity zone by the taxpayer for at least seven (7) years'.",
+    "triage_notes": "Provision read: resolve_provision.py on us-ri/statute/44-30-12 returns subsection (c)(10) verbatim — 'Modification for Rhode Island investment in opportunity zones. For purposes of a taxpayer's state tax liability, in the case of any investment in a Rhode Island opportunity zone by the taxpayer for at least seven (7) years, a modification to income shall be allowed for the incremental difference between the benefit allowed under 26 U.S.C. § 1400Z-2(b)(2)(B)(iv) and the federal benefit allowed under 26 U.S.C. § 1400Z-2(c)' — which confirms the eligibility condition attaches to the individual investment, not to the taxpayer's aggregate position. Three hunks in the module: (a) input renames from ri_pit_2026_federal_opportunity_zone_benefit_{b2biv,c} / ri_pit_2026_ri_opportunity_zone_investment_held_at_least_seven_years to ri_pit_2026_sole_ri_opportunity_zone_investment_* with narrowed descriptions ('attributable only to the taxpayer's sole Rhode Island opportunity-zone investment'), propagated into ri_pit_2026_input_domain_is_valid and ri_pit_2026_profile_candidate_other_statutory_subtractions; (b) a new Judgment input ri_pit_2026_has_multiple_or_mixed_ri_opportunity_zone_investments added as a fail-closed conjunct in ri_pit_2026_supported_profile_applies; (c) a new proof atom under that rule citing us-ri/statute/44-30-12 excerpt 'in the case of any investment in a Rhode Island opportunity zone by the taxpayer for at least seven (7) years'. Rename-only edits would be mechanical on their own, but the new guard plus the narrowed input contract change computed meaning: the companion test adds a case with the new flag true asserting supported_profile_applies: not_holds and the opportunity-zone subtraction 0 through bounded_net_income_tax_liability_candidate, so behavior differs. Chunk covers the only module file in the commit; the other two changed files are the companion .test.yaml (input renames across all 73 cases plus the new mixed-investment hold case) and the .axiom encoding manifest, both out of scope here. rule_path points at the supported-profile guard because that is where new computed behavior appears; the alternative decisive path is rules[ri_pit_2026_profile_candidate_other_statutory_subtractions].versions[0].formula, where the benefit grain itself was narrowed. Kind doubt: wrong_entity_or_scope (the encoded scope of the subtraction was taxpayer-aggregate rather than per-qualifying-investment) is the best fit and matches the commit subject 'Constrain Rhode Island opportunity-zone investment grain'; unrepresented_clause is a defensible alternative since the fix adds representation of the statute's per-investment seven-year condition, though it does so by holding rather than by computing per investment. Commit body is empty; evidence comes from the subject line, the PR #1032 body, and the diff. The only PR comment is a rebase note stating the RI module/test/manifest hashes were unchanged by the rebase, so this is the reviewed content.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_entity_or_scope",
+    "verifier_confidence": 0.78,
+    "verifier_justification": "R.I. Gen. Laws 44-30-12(c)(10), read through the pinned corpus (release us-rulespec-2026-07-22-current-la-status-fix), allows the modification only \"in the case of any investment in a Rhode Island opportunity zone by the taxpayer for at least seven (7) years\", i.e. per qualifying RI investment, yet the pre-fix module fed the subtraction two taxpayer-level inputs described merely as \"Federal benefit allowed under section 1400Z-2(b)(2)(B)(iv)\" and \"...under section 1400Z-2(c)\" — unrestricted as to Rhode Island and as to which investment produced them — gated by one taxpayer-wide seven-year flag. That is a genuine scope error against the source in two directions (federal opportunity-zone benefit from non-RI zones could be subtracted, and in a mixed-holding-period case the whole aggregate benefit was gated by a single boolean), not merely added precision: the pre-fix supported-profile guard admitted multi-investment taxpayers and computed a liability for them. The fix re-scopes both money inputs and the holding flag to \"the taxpayer's sole Rhode Island opportunity-zone investment\", adds `ri_pit_2026_has_multiple_or_mixed_ri_opportunity_zone_investments` as a new `not` conjunct in ri_pit_2026_supported_profile_applies (so those taxpayers now reach the module's typed hold instead of a computed number), and anchors it with a verbatim (c)(10) proof atom — an encoded-meaning change of entity/grain and geographic scope, so the first reader's kind stands.",
+    "verifier_quote": "+          and not ri_pit_2026_has_multiple_or_mixed_ri_opportunity_zone_investments\n+  - {name: ri_pit_2026_sole_ri_opportunity_zone_investment_federal_benefit_b2biv, entity: TaxUnit, dtype: Money, period: Year, unit: USD, description: Federal section 1400Z-2(b)(2)(B)(iv) benefit attributable only to the taxpayer's sole Rhode Island opportunity-zone investment.}",
+    "verifier_notes": "Verified against the statute, not just the PR prose. Corpus resolution: us-ri/statute/44-30-12, provision file data/corpus/provisions/us-ri/statute/2026-07-16-pit-west-us-ri-chapter-44-30.jsonl, body sha256 daf838d1..., expression date 2026-05-06; (c)(10) text quoted above. The added proof-atom excerpt is verbatim from that text.\n\nRefutation lines I tested and rejected: (1) \"mechanical rename\" — no: three inputs change meaning (two money inputs narrow from all federal 1400Z-2 benefit to the sole RI investment's), one new Judgment input is added, and a new conjunct enters the supported-profile formula, so behavior changes for the multi/mixed population. (2) \"not a defect, just a new fail-closed hold / added precision\" — the closest call: the arithmetic for a single-investment taxpayer is byte-identical after the rename, so the only behavioral delta is that multi/mixed taxpayers now fall out of the supported profile. But the pre-fix module did claim that population (no gate excluded it) and would have subtracted benefit the statute does not qualify, including benefit from non-Rhode-Island zones, so the old text was wrong against the source, not merely less complete. (3) \"unrepresented_clause fits better\" — weaker: the seven-year condition was already represented pre-fix (atom excerpt \"investment in a Rhode Island opportunity zone by the taxpayer for at least seven (7) years\" at pre line 714 plus the holding flag); what was wrong was the grain and geographic scope of the quantities that clause gated. (4) \"polarity_or_logic (fail-open vs fail-closed)\" — the added guard is the remedy, but no pre-existing boolean was inverted or mis-combined, so the root defect is scope.\n\nCaveats for the reviewer: this is an intra-PR repair commit inside PR #1032 (the commit that first adds the whole RI module), so the defective state never reached main; the PR body's review-fix cycle lists \"opportunity-zone per-investment eligibility\" among findings fixed, which corroborates provenance. The PR-body quote the first reader used (\"fail closed for unsupported/ambiguous credit ordering and multi-investment opportunity-zone facts...\") is a PR-level design summary, not a fix message; the decisive evidence is the diff plus the statutory text, which I read directly.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Provision read: resolve_provision.py on us-ri/statute/44-30-12 returns subsection (c)(10) verbatim — 'Modification for Rhode Island investment in opportunity zones. For purposes of a taxpayer's state tax liability, in the case of any investment in a Rhode Island opportunity zone by the taxpayer for at least seven (7) years, a modification to income shall be allowed for the incremental difference between the benefit allowed under 26 U.S.C. § 1400Z-2(b)(2)(B)(iv) and the federal benefit allowed under 26 U.S.C. § 1400Z-2(c)' — which confirms the eligibility condition attaches to the individual investment, not to the taxpayer's aggregate position. Three hunks in the module: (a) input renames from ri_pit_2026_federal_opportunity_zone_benefit_{b2biv,c} / ri_pit_2026_ri_opportunity_zone_investment_held_at_least_seven_years to ri_pit_2026_sole_ri_opportunity_zone_investment_* with narrowed descriptions ('attributable only to the taxpayer's sole Rhode Island opportunity-zone investment'), propagated into ri_pit_2026_input_domain_is_valid and ri_pit_2026_profile_candidate_other_statutory_subtractions; (b) a new Judgment input ri_pit_2026_has_multiple_or_mixed_ri_opportunity_zone_investments added as a fail-closed conjunct in ri_pit_2026_supported_profile_applies; (c) a new proof atom under that rule citing us-ri/statute/44-30-12 excerpt 'in the case of any investment in a Rhode Island opportunity zone by the taxpayer for at least seven (7) years'. Rename-only edits would be mechanical on their own, but the new guard plus the narrowed input contract change computed meaning: the companion test adds a case with the new flag true asserting supported_profile_applies: not_holds and the opportunity-zone subtraction 0 through bounded_net_income_tax_liability_candidate, so behavior differs. Chunk covers the only module file in the commit; the other two changed files are the companion .test.yaml (input renames across all 73 cases plus the new mixed-investment hold case) and the .axiom encoding manifest, both out of scope here. rule_path points at the supported-profile guard because that is where new computed behavior appears; the alternative decisive path is rules[ri_pit_2026_profile_candidate_other_statutory_subtractions].versions[0].formula, where the benefit grain itself was narrowed. Kind doubt: wrong_entity_or_scope (the encoded scope of the subtraction was taxpayer-aggregate rather than per-qualifying-investment) is the best fit and matches the commit subject 'Constrain Rhode Island opportunity-zone investment grain'; unrepresented_clause is a defensible alternative since the fix adds representation of the statute's per-investment seven-year condition, though it does so by holding rather than by computing per investment. Commit body is empty; evidence comes from the subject line, the PR #1032 body, and the diff. The only PR comment is a rebase note stating the RI module/test/manifest hashes were unchanged by the rebase, so this is the reviewed content. | verifier confirmed at 0.78",
+  "family_id": "us-bdf6b696-f0a8ddac7421",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

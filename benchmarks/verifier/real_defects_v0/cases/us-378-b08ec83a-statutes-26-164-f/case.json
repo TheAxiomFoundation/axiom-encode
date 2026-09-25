@@ -1,0 +1,120 @@
+{
+  "id": "us-378-b08ec83a-statutes-26-164-f",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "b08ec83a3aa16da237ee8ed6d49382ed4359dd74",
+  "parent_commit": "eba8177ebf4ab85a98c89b7f27fa262e8aa54813",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Regenerate of existing 164(f) module changes entity TaxUnit -> Person, re-anchors imports from us:statutes/26/1401#self_employment_oasdi_tax / #self_employment_hospital_insurance_tax to us:statutes/26/1401/a#old_age_survivors_and_disability_insurance_tax and us:statutes/26/1401/b/1#self_employment_income_tax, adds proof spans, and rewrites the companion test.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/60",
+  "module_path": "statutes/26/164/f.yaml",
+  "corpus_citation_path": "us/statute/26/164",
+  "corpus_citation_paths_all": [
+    "us/statute/26/164"
+  ],
+  "corpus_release": "us-rulespec-2026-07-13",
+  "corpus_release_content_sha256": "542c27c419bd5926690cf188fce30f3f937088e1a68005f909f4e834ca25374f",
+  "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+  "defect_kind": "wrong_entity_or_scope",
+  "other_kind": null,
+  "confidence": 0.72,
+  "description": "Replace parent 1401 tax imports with child 1401(a) OASDI and 1401(b)(1) Medicare SECA imports.",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        3,
+        4
+      ],
+      [
+        10,
+        11
+      ],
+      [
+        13,
+        91
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        3,
+        4
+      ],
+      [
+        10,
+        17
+      ],
+      [
+        19,
+        88
+      ]
+    ],
+    "rule_names": [
+      "self_employment_tax_deduction",
+      "self_employment_tax_deduction_attributable_to_nonemployee_trade_or_business"
+    ],
+    "rule_path": "rules[self_employment_tax_deduction].entity"
+  },
+  "pre_fix_artifact_sha256": "b1c8c148b8d29e00f293505ab52239455738a03b0c89f70e3747edd6d67839a7",
+  "post_fix_artifact_sha256": "055d0c4806dc4349728227e1a2decc76cea915f3b902596e819248c617cc751d",
+  "provision_sha256": "fca6a83e91d36ae72784e62f3490fd2462768aa8f5948088677fceb487ab1102",
+  "provision_chars": 12597,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us/statute/26/164",
+    "provision_file": "data/corpus/provisions/us/statute/2026-07-13-recovery-r2026-07-15-self-contained.jsonl",
+    "provision_file_sha256": "1b0b185ca3335eb06c4fe10af488a8984bdd2cedd4087badf78583c267af7b7b",
+    "line_number": 37,
+    "record_id": "adcdb93a-c0f8-50e2-b044-3dae29c63fb8",
+    "stored_body_sha256": "fca6a83e91d36ae72784e62f3490fd2462768aa8f5948088677fceb487ab1102",
+    "resolved_text_sha256": "fca6a83e91d36ae72784e62f3490fd2462768aa8f5948088677fceb487ab1102",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-07-13",
+    "source_as_of": "2026-07-13",
+    "corpus_commit": "612d20ca4325a9f27ccfe33482b5ea5d1ef89e4e",
+    "fix_time_corpus_match": "no_corpus_ref",
+    "selection_basis": "no_toolchain_corpus_pin",
+    "fallback_index": 4,
+    "toolchain_corpus_ref": null,
+    "requested_citation_path": "us/statute/26/164",
+    "release_errors_before_success": [
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/164'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/164'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/164'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us/statute/26/164'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "fidelity",
+  "triage": {
+    "classification": "fidelity",
+    "pre_fix_wrong_because": "26 USC 164(f)(1) allows the half-of-SECA deduction \"In the case of an individual\" against taxes section 1401 imposes \"on the self-employment income of every individual\", but the pre-fix module encoded both derived rules at entity TaxUnit and drew their SECA amounts from the household-scoped parent 1401 module, so the deduction was computed once per tax unit on an aggregate, uncapped base rather than per individual.",
+    "triage_notes": "Statute text read through the pinned corpus release (resolve_provision on us/statute/26/164) and confirms the operative phrase \"In the case of an individual\"; the new import targets statutes/26/1401/a.yaml and statutes/26/1401/b/1.yaml were read at this commit and are both entity: Person, while the old target statutes/26/1401.yaml (still present at both parent and commit) is entity: TaxUnit throughout. Three real changes land together in this one module and I had to pick one kind: (a) entity TaxUnit -> Person, chosen as decisive because the source phrase settles it; (b) the import re-anchoring from the parent 1401 module onto the 1401(a)/1401(b)(1) children, which could equally be read as untraceable_branch (formula grounded on a coarser/stale provision module); (c) the amount consequence -- the companion test expectation moved 7650 -> 7064.775, i.e. 0.5*0.153*100000 versus 0.5*0.153*(0.9235*100000), because the new chain routes through 1402(a)/(b) net earnings and the section 230 contribution-and-benefit base, which the old parent 1401 module ignored (it multiplied a raw self_employment_income input by the rates). The encoder run root is named \"164-f-seca-wage-base-v8\", which supports the SECA-base motivation. The 'other than the taxes imposed by section 1401(b)(2)' carve-out was already correctly represented pre-fix (additional Medicare tax was never summed), so this is not an unrepresented_clause. Non-fidelity noise in the same diff: proof spans added, import hashes updated, block-style YAML reflowed to flow style, the third rule's local sha256:local import proof atom dropped, and the module summary regressed to a typo (\"In the case of an an individual\") while dropping the \"(1) In general\" heading. No PR reviews or comments exist on PR #60 (reviews, review_comments, issue_comments all empty) and the commit body is empty, so the defect is evidenced by the diff plus the statute rather than named by a maintainer; the PR body's \"Keep the deduction person-scoped\" reads as a description of the result, not an admission that the prior encoding was TaxUnit-scoped, which is why confidence is below 0.8. PR body also notes a 32(c)(2) regeneration in the same effort was blocked and is not in this commit.",
+    "verifier_verdict": "confirmed",
+    "verifier_defect_kind": "wrong_entity_or_scope",
+    "verifier_confidence": 0.86,
+    "verifier_justification": "The pinned corpus text of 26 USC 164(f)(1) reads \"In the case of an individual ... an amount equal to one-half of the taxes imposed by section 1401\", and section 1401 imposes its tax \"on the self-employment income of every individual\", so the deduction is per-individual; the pre-fix module declared both derived rules at `entity: TaxUnit` and drew their SECA components from the parent `statutes/26/1401.yaml` rules `self_employment_oasdi_tax` / `self_employment_hospital_insurance_tax`, which I confirmed are themselves `entity: TaxUnit` and are computed on an aggregate `taxable_self_employment_income_for_section_1401` with no per-person contribution base. The fix changes both rules to `entity: Person` and re-anchors the imports to `us:statutes/26/1401/a#old_age_survivors_and_disability_insurance_tax` and `us:statutes/26/1401/b/1#self_employment_income_tax`, which are `entity: Person` and run off 1402(a)/1402(b) per-individual net earnings and the section 230 contribution base — the companion test expectation moves 7650 -> 7064.775 accordingly. That is a change to the encoded entity, population and input surface, not bookkeeping, and no competing kind fits better: the 1/2 parameter, the 1401(b)(2) carve-out, the `if taxpayer_is_individual ... else: 0` logic, and the 1990-01-01 effective date are all unchanged, and the pre-fix formula was grounded on the correct provision (section 1401) merely at the wrong scope, so untraceable_branch and amount_mismatch do not apply.",
+    "verifier_quote": "-    entity: TaxUnit\n+  entity: Person",
+    "verifier_notes": "Two corrections to the first reader's write-up, neither of which changes the kind: (1) the parent 1401 module's rules are TaxUnit-scoped, not \"household-scoped\" — verified at eba8177e:statutes/26/1401.yaml, where self_employment_oasdi_tax and self_employment_hospital_insurance_tax both carry `entity: TaxUnit`; (2) the reader's quote is from the PR body's import bullet, which is weaker evidence than the diff, and the same PR body also says \"Keep the deduction person-scoped\", which mischaracterizes its own change since the diff plainly flips `entity: TaxUnit` -> `entity: Person` on both derived rules. A better quote is the entity line itself. The pre-fix base also lacked 1402(a)'s net-earnings reduction and 1402(b)'s cap (hence 7650 vs 7064.775 in the test), but that defect lives in statutes/26/1401.yaml; 164/f.yaml's own defect is the entity and the import scope. Remaining diff content is cosmetic or provenance: added proof spans, YAML reflow from block scalars to flow style, removal of the `sha256:local` self-import proof atom, and a new \"an an individual\" typo plus a dropped \"(1) In general\" in the module summary — the summary typo is worth a reviewer note as a regeneration-quality nit, not a fidelity issue.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Statute text read through the pinned corpus release (resolve_provision on us/statute/26/164) and confirms the operative phrase \"In the case of an individual\"; the new import targets statutes/26/1401/a.yaml and statutes/26/1401/b/1.yaml were read at this commit and are both entity: Person, while the old target statutes/26/1401.yaml (still present at both parent and commit) is entity: TaxUnit throughout. Three real changes land together in this one module and I had to pick one kind: (a) entity TaxUnit -> Person, chosen as decisive because the source phrase settles it; (b) the import re-anchoring from the parent 1401 module onto the 1401(a)/1401(b)(1) children, which could equally be read as untraceable_branch (formula grounded on a coarser/stale provision module); (c) the amount consequence -- the companion test expectation moved 7650 -> 7064.775, i.e. 0.5*0.153*100000 versus 0.5*0.153*(0.9235*100000), because the new chain routes through 1402(a)/(b) net earnings and the section 230 contribution-and-benefit base, which the old parent 1401 module ignored (it multiplied a raw self_employment_income input by the rates). The encoder run root is named \"164-f-seca-wage-base-v8\", which supports the SECA-base motivation. The 'other than the taxes imposed by section 1401(b)(2)' carve-out was already correctly represented pre-fix (additional Medicare tax was never summed), so this is not an unrepresented_clause. Non-fidelity noise in the same diff: proof spans added, import hashes updated, block-style YAML reflowed to flow style, the third rule's local sha256:local import proof atom dropped, and the module summary regressed to a typo (\"In the case of an an individual\") while dropping the \"(1) In general\" heading. No PR reviews or comments exist on PR #60 (reviews, review_comments, issue_comments all empty) and the commit body is empty, so the defect is evidenced by the diff plus the statute rather than named by a maintainer; the PR body's \"Keep the deduction person-scoped\" reads as a description of the result, not an admission that the prior encoding was TaxUnit-scoped, which is why confidence is below 0.8. PR body also notes a 32(c)(2) regeneration in the same effort was blocked and is not in this commit. | verifier confirmed at 0.86",
+  "family_id": "us-b08ec83a-c18a8cb0c38c",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}

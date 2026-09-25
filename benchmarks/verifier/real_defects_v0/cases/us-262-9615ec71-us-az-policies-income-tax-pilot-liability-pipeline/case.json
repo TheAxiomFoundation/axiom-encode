@@ -1,0 +1,233 @@
+{
+  "id": "us-262-9615ec71-us-az-policies-income-tax-pilot-liability-pipeline",
+  "jurisdiction": "us",
+  "repo": "TheAxiomFoundation/rulespec-us",
+  "commit": "9615ec7118971cf6aff8a2d12208edafd4fcd24a",
+  "parent_commit": "7c0ebc4eb4370ae2f27e37e2d1e5e9573ae2d797",
+  "commit_date": "",
+  "commit_subject": "(screen-flagged) Unsure (promote pattern): restructures AZ pipeline (108 lines) to import the rate from a new 2026_rate module; not inspected line by line.",
+  "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/967",
+  "module_path": "us-az/policies/income_tax/pilot_liability_pipeline.yaml",
+  "corpus_citation_path": "us-az/form/individual-income-tax/2026/140es-booklet/document-1",
+  "corpus_citation_paths_all": [
+    "us-az/form/individual-income-tax/2026/140es-booklet/document-1"
+  ],
+  "corpus_release": "us-rulespec-2026-07-22-current",
+  "corpus_release_content_sha256": "7b1c6c0ec237dc3767f770fbb30178d6857bbe43fd4d952f57ebfc8409874bcc",
+  "corpus_commit": "c5af541326e024e04cb533bbf5709ae04e6305f6",
+  "defect_kind": "untraceable_branch",
+  "other_kind": null,
+  "confidence": 0.42,
+  "description": "promotes Arizona 2026 individual income tax before nonrefundable credits at the completed-return `az_taxable_income` boundary",
+  "description_source": "pr_body",
+  "locator": {
+    "pre_fix_lines": [
+      [
+        6,
+        8
+      ],
+      [
+        10,
+        10
+      ],
+      [
+        13,
+        13
+      ],
+      [
+        15,
+        33
+      ],
+      [
+        35,
+        54
+      ],
+      [
+        62,
+        62
+      ],
+      [
+        69,
+        70
+      ],
+      [
+        74,
+        75
+      ],
+      [
+        81,
+        81
+      ],
+      [
+        88,
+        89
+      ],
+      [
+        93,
+        96
+      ],
+      [
+        101,
+        113
+      ]
+    ],
+    "post_fix_lines": [
+      [
+        6,
+        6
+      ],
+      [
+        8,
+        8
+      ],
+      [
+        12,
+        16
+      ],
+      [
+        18,
+        29
+      ],
+      [
+        37,
+        37
+      ],
+      [
+        44,
+        45
+      ],
+      [
+        48,
+        48
+      ],
+      [
+        50,
+        51
+      ],
+      [
+        57,
+        57
+      ],
+      [
+        61,
+        66
+      ],
+      [
+        70,
+        71
+      ],
+      [
+        74,
+        74
+      ],
+      [
+        76,
+        78
+      ],
+      [
+        83,
+        83
+      ]
+    ],
+    "rule_names": [
+      "az_pit_pilot_taxable_income",
+      "az_pit_pilot_schedule_tax",
+      "az_pit_pilot_income_tax_liability"
+    ],
+    "rule_path": "rules[az_pit_pilot_income_tax_liability].versions[0].formula"
+  },
+  "pre_fix_artifact_sha256": "29942392a1afc8d052e428a8fed82f09c1d19a2031ba5f388649b0fb5ee688c2",
+  "post_fix_artifact_sha256": "8754a04763b492ce1632404f8a60b87f3736c8c6ded1c7ceb76744af4cc541fc",
+  "provision_sha256": "6bdbb61f6b44f9a876b8191f190bf02adff5043de7363ed04b604af7a9bc89f1",
+  "provision_chars": 23915,
+  "provision_resolution": {
+    "mode": "axiom_encode_resolver",
+    "resolved_citation_path": "us-az/form/individual-income-tax/2026/140es-booklet/document-1",
+    "provision_file": "data/corpus/provisions/us-az/form/2026-07-21-az-140es-2026.jsonl",
+    "provision_file_sha256": "0cbaec8d1d919dee0cfa034d8913a8607e17b6f94dce19f946371ea496b480f4",
+    "line_number": 2,
+    "record_id": "a7477ce3-359e-5e64-9ca5-bbdcf31bf90a",
+    "stored_body_sha256": "6bdbb61f6b44f9a876b8191f190bf02adff5043de7363ed04b604af7a9bc89f1",
+    "resolved_text_sha256": "6bdbb61f6b44f9a876b8191f190bf02adff5043de7363ed04b604af7a9bc89f1",
+    "slice_required": false,
+    "component_rows": 0,
+    "expression_date": "2026-01-01",
+    "source_as_of": "2026-07-21",
+    "corpus_commit": "c5af541326e024e04cb533bbf5709ae04e6305f6",
+    "fix_time_corpus_match": "same_body",
+    "selection_basis": "latest_release_at_or_before_toolchain_corpus_ref",
+    "fallback_index": 12,
+    "toolchain_corpus_ref": "abeab6a9f4ec432eb8fb7bb131f561cb3bcf6181",
+    "requested_citation_path": "us-az/form/individual-income-tax/2026/140es-booklet/document-1",
+    "release_errors_before_success": [
+      {
+        "release": "us-rulespec-snap-2026-07-21",
+        "error": "No active corpus source found for 'us-az/form/individual-income-tax/2026/140es-booklet/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19-dedup",
+        "error": "No active corpus source found for 'us-az/form/individual-income-tax/2026/140es-booklet/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-19",
+        "error": "No active corpus source found for 'us-az/form/individual-income-tax/2026/140es-booklet/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-18",
+        "error": "No active corpus source found for 'us-az/form/individual-income-tax/2026/140es-booklet/document-1'"
+      },
+      {
+        "release": "us-rulespec-ny-snap-2026-07-17",
+        "error": "No active corpus source found for 'us-az/form/individual-income-tax/2026/140es-booklet/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-17",
+        "error": "No active corpus source found for 'us-az/form/individual-income-tax/2026/140es-booklet/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-16",
+        "error": "No active corpus source found for 'us-az/form/individual-income-tax/2026/140es-booklet/document-1'"
+      },
+      {
+        "release": "us-rulespec-2026-07-13",
+        "error": "No active corpus source found for 'us-az/form/individual-income-tax/2026/140es-booklet/document-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v5-2026-07-15",
+        "error": "No active corpus source found for 'us-az/form/individual-income-tax/2026/140es-booklet/document-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v4-2026-07-15",
+        "error": "No active corpus source found for 'us-az/form/individual-income-tax/2026/140es-booklet/document-1'"
+      },
+      {
+        "release": "us-rulespec-foundation-v3-2026-07-15",
+        "error": "No active corpus source found for 'us-az/form/individual-income-tax/2026/140es-booklet/document-1'"
+      },
+      {
+        "release": "us-sc-snap-2026-07-15",
+        "error": "No active corpus source found for 'us-az/form/individual-income-tax/2026/140es-booklet/document-1'"
+      }
+    ]
+  },
+  "fix_stage": "post_merge",
+  "triage_status": "unclear",
+  "triage": {
+    "classification": "unclear",
+    "pre_fix_wrong_because": "unclear: the pre-fix rules asserted a bracket-base-plus-marginal flat tax and an 'Arizona taxable income = AGI - supplied standard deduction' derivation whose proof atoms cited provisions that do not establish them (43-1011's constitutional cap 'the combined tax rate ... may not exceed four and one-half percent' and a stale 43-1041 snapshot 'the standard deduction is $12,200'), so the operative rate and deduction had no basis in the cited source; but every numeric was an openly declared caller-supplied input, so the module asserted no wrong value.",
+    "triage_notes": "Read the full pre-fix file at parent 7c0ebc4eb4 and the post-fix file. Three substantive deltas, any of which could be argued as the kind: (1) re-grounding - formulas previously proven by the 43-1011 4.5% combined-rate cap and the stale 43-1041 $12,200 deduction excerpt now import an encoded rate and cite Form 140ES worksheet line 19 (this is why I chose untraceable_branch, and the PR's stated reason is source grounding); (2) scope - az_pit_pilot_schedule_tax is deleted, the AGI->taxable-income derivation is replaced by a supplied completed-return taxable income, and az_pit_pilot_income_tax_liability keeps its name but no longer subtracts the supplied nonrefundable credit, so it now means tax before credits (alternate kind wrong_entity_or_scope); (3) periods - both rules gain effective_to 2026-12-31 where pre-fix they ran open-ended from 2026-01-01 (alternate kind wrong_period_or_effective_date; PR: 'uses a singular controlling numeric source and limits both modules exactly to tax year 2026'). Arithmetic for the covered slice is unchanged (2.5% flat), and the test fixtures were rewritten to the new boundary rather than corrected in value, which is the main reason I did not call this fidelity. The manifest records manual_exception=composition, i.e. this is an assembled pipeline, not encoder output, and the commit retires its known-validation-gaps 'validate_failures' waiver (issue 782 is about the waiver mechanism generally, not about this module's defect). I read the source: worksheet line 18 subtracts total deductions and exemptions from line 14, so the pre-fix 'AGI minus standard deduction' derivation also omitted exemptions and itemized deductions - the fix removes that derivation rather than correcting it. Caution for reviewers: this commit itself introduces a bad proof excerpt - 'Figure this tax on your estimated Arizona taxable income.' does not appear in the pinned document (the actual sentence is 'Figure this tax on your total annual income.'), and follow-up commit a76b6afda 'Tighten Arizona taxable-income boundary proof' (17 minutes later) replaces it with 'Step 1 Estimated Arizona Taxable Income'. PR #967 has no reviews or review comments, only author status comments about rebases; the commit body is empty.",
+    "verifier_verdict": "not_a_defect",
+    "verifier_defect_kind": "none",
+    "verifier_confidence": 0.58,
+    "verifier_justification": "The pre-fix module contained no numeric of its own — bracket base, bracket floor, marginal rate, standard deduction and nonrefundable credit were all declared caller inputs, and the removed rationale says so outright, so with the parameters the fixtures actually supplied (base 0, floor 0, rate 0.025) it computed exactly the flat 2.5% liability the new module computes; nothing in the diff corrects a value, a strictness, a date window that fired wrongly, or a branch that produced a wrong answer. What the diff does is re-scope: the upstream boundary moves from AGI-minus-supplied-deduction to a completed-return `az_pit_pilot_state_taxable_income` input, the output narrows from after-credit liability to before nonrefundable credits for PolicyEngine parity, and the rate is newly grounded in an imported 2026 Form 140ES rate module — i.e. claims are removed and precision is added, which this rubric says is not a defect. The commit subject is \"Promote Arizona 2026 PIT encoding\", the PR has zero reviews and no correction language (its only \"fixed\" line refers to an intra-PR review of the *new* modules), and the same commit retires this module's `known-validation-gaps.yaml` waiver, so the pre-fix file was an openly declared non-validating pilot, not a believed-correct encoding later found wrong. The first reader's basis — that the removed proof atoms cited 43-1011(E)'s 4.5% surcharge cap and 43-1041(A)(1)'s \"$12,200\" — is a choice-of-source/excerpt problem (I resolved both provisions at the pinned release and both excerpts are present in the cited text, the 43-1011 one with an ellipsis), which the rubric classifies as provenance, not fidelity.",
+    "verifier_quote": "-        caller-supplied inputs. The pipeline adds no numeric literals of its own;",
+    "verifier_notes": "Verification done: pinned release us-rulespec-snap-2026-07-21 (corpus commit 1979c15c65). us-az/statute/43-1011 in that snapshot stops at subsection A paragraph 6 (graduated 2.59/3.34/4.17/4.50 brackets by filing status, post-2018) plus subsection E's combined-rate cap; it contains no flat 2.5% rate. us-az/statute/43-1041(A)(1) does contain the verbatim string \"the standard deduction is $12,200\", subject to subsection H inflation indexing, and 43-1041(B) states deductions \"are to be subtracted from Arizona adjusted gross income in computing taxable income\" — so the removed AGI-minus-deduction derivation was itself traceable to the cited statute, just not to the excerpt chosen.\n\nStrongest surviving counter-case, if a reviewer wants to keep this as untraceable_branch: under the pinned snapshot, 43-1011 prescribes a four-bracket filing-status-dependent schedule, yet the pre-fix `az_pit_pilot_schedule_tax` encoded a single supplied-bracket form and its `source:` line asserted \"43-1011, flat tax\" while its only proof atom quoted the surcharge cap. The sibling new module concedes \"the pinned statute snapshot predates the live flat-rate schedule and does not establish the tax-year-2026 numeric rate\". If you treat the pinned snapshot (not real 2026 Arizona law) as the yardstick, the pre-fix formula did disagree with its cited text and the fix re-grounds it — that reading is defensible, which is why my confidence is 0.58 rather than higher.\n\nWhy I still say prune: (1) the pre-fix module disclosed every limitation in its own rationale and shipped under a `validate_failures` waiver (issue 782, expires 2026-10-08) retired by this same commit — the diff line removed is `  \"us-az/policies/income_tax/pilot_liability_pipeline.yaml\":` with `fingerprint: \"sha256:be4718240767ca7ec8c3576518d48d33eaf6e043913cf1278647cf66dd4d43ff\"`; (2) the pre-fix file declared no `inputs:` block at all, so the promotion is also schema hardening; (3) old and new never disagree on a computed quantity for the same real-world facts — they compute different quantities (after-credit vs before-credit liability) from different boundaries.\n\nRunner-up kind if the reviewer overrides to a fidelity verdict: I would take untraceable_branch over the alternatives, with wrong_period_or_effective_date a distant second (both rules gain `effective_to: '2026-12-31'` so 2027 fails closed; but the pre-fix open window carried no year-specific literal, so calling it wrong against the source is weak).\n\nScreen note accuracy: the \"108 lines\" figure is the file-level stat (108 changed lines in pilot_liability_pipeline.yaml); the new 2026_rate.yaml is a separate added module (index 0) carrying the only numeric literal in the change, 0.025.",
+    "verifier_inferred_from_module_index": null,
+    "candidate_source": "screen"
+  },
+  "triage_notes": "Read the full pre-fix file at parent 7c0ebc4eb4 and the post-fix file. Three substantive deltas, any of which could be argued as the kind: (1) re-grounding - formulas previously proven by the 43-1011 4.5% combined-rate cap and the stale 43-1041 $12,200 deduction excerpt now import an encoded rate and cite Form 140ES worksheet line 19 (this is why I chose untraceable_branch, and the PR's stated reason is source grounding); (2) scope - az_pit_pilot_schedule_tax is deleted, the AGI->taxable-income derivation is replaced by a supplied completed-return taxable income, and az_pit_pilot_income_tax_liability keeps its name but no longer subtracts the supplied nonrefundable credit, so it now means tax before credits (alternate kind wrong_entity_or_scope); (3) periods - both rules gain effective_to 2026-12-31 where pre-fix they ran open-ended from 2026-01-01 (alternate kind wrong_period_or_effective_date; PR: 'uses a singular controlling numeric source and limits both modules exactly to tax year 2026'). Arithmetic for the covered slice is unchanged (2.5% flat), and the test fixtures were rewritten to the new boundary rather than corrected in value, which is the main reason I did not call this fidelity. The manifest records manual_exception=composition, i.e. this is an assembled pipeline, not encoder output, and the commit retires its known-validation-gaps 'validate_failures' waiver (issue 782 is about the waiver mechanism generally, not about this module's defect). I read the source: worksheet line 18 subtracts total deductions and exemptions from line 14, so the pre-fix 'AGI minus standard deduction' derivation also omitted exemptions and itemized deductions - the fix removes that derivation rather than correcting it. Caution for reviewers: this commit itself introduces a bad proof excerpt - 'Figure this tax on your estimated Arizona taxable income.' does not appear in the pinned document (the actual sentence is 'Figure this tax on your total annual income.'), and follow-up commit a76b6afda 'Tighten Arizona taxable-income boundary proof' (17 minutes later) replaces it with 'Step 1 Estimated Arizona Taxable Income'. PR #967 has no reviews or review comments, only author status comments about rebases; the commit body is empty. | verifier said not_a_defect at 0.58 (below 0.7); kept as unclear",
+  "family_id": "us-9615ec71-3a61c884ffdc",
+  "family_size": 1,
+  "family_representative": true,
+  "artifacts_shipped": true
+}
