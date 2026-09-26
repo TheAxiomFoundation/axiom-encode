@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -12,7 +13,12 @@ import yaml
 
 from axiom_encode.ci_parity import (
     CI_GATE_REGISTRY,
+    LEGACY_GATE_ORDER,
     SUPPORTED_WORKFLOW_PINS,
+    WORKFLOW_DIRECTORY,
+    WORKFLOW_ENVIRONMENT_STEPS,
+    WORKFLOW_GATE_STEPS,
+    WORKFLOW_RESOLUTION_STEPS,
     CallerConfig,
     DependencyMismatch,
     Selection,
@@ -21,6 +27,7 @@ from axiom_encode.ci_parity import (
     ci_verdict,
     encoder_version_at_pin,
     execute_gates,
+    gate_registry_for_pin,
     parse_caller_workflow,
     run_ci,
     select_targets,
@@ -29,6 +36,7 @@ from axiom_encode.ci_parity import (
     workflow_axiom_invocations,
     workflow_gate_contract,
     workflow_gate_coverage,
+    workflow_steps,
 )
 from axiom_encode.toolchain import (
     RuleSpecToolchain,
@@ -37,6 +45,14 @@ from axiom_encode.toolchain import (
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "ci_parity"
+PIN_0EFFA6A5 = "0effa6a5b05e7fac53902df7d523e909bd7fc48a"
+PIN_6F11BE26 = "6f11be2655f79dd0a3b582db46525f58332ca120"
+EMBEDDED_PINS = (PIN_0EFFA6A5, PIN_6F11BE26)
+LEGACY_PINS = tuple(
+    sha
+    for sha, pin in SUPPORTED_WORKFLOW_PINS.items()
+    if not pin.gate_parameters.embedded_scripts
+)
 WORKFLOW_GATE_STEP_SHA256 = {
     "Run repository tests": "6c998d6153fad095d24fdbc61edf089128945c10992b6575626d14baca4abefa",
     "Reject obsolete generated files": "976cd71e74efc5ecb2697afb7e43f7e53f52b425fefe40657b417e64b8e38232",
@@ -53,7 +69,7 @@ WORKFLOW_GATE_STEP_SHA256 = {
     "Install changed-file oracle coverage classifier": "5f6aa72a94fc7ba127fe3586c08ee29f4f23c604fec14d311878e17abd1f82f9",
     "Validate changed PolicyEngine oracle coverage classification": "0c907a7dfece8a50df6b6acb368a5fb312a59e965b36d964588bbd6a9f5ff878",
 }
-WORKFLOW_GATE_STEP_SHA256_BY_PIN = {
+LEGACY_WORKFLOW_GATE_STEP_SHA256_BY_PIN = {
     sha: {
         **WORKFLOW_GATE_STEP_SHA256,
         **(
@@ -66,14 +82,140 @@ WORKFLOW_GATE_STEP_SHA256_BY_PIN = {
             else {}
         ),
     }
-    for sha in SUPPORTED_WORKFLOW_PINS
+    for sha in LEGACY_PINS
+}
+# Pins executed from their own scripts pin the contract of every gate and
+# resolution step, in every job, so a reviewed step cannot change silently.
+_EMBEDDED_STEP_SHA256_0EFFA6A5 = {
+    (
+        "shards",
+        "Reject unsupported tracked paths",
+    ): "93843d86eb362d1e2de59c5807d2dc4d1ed31454e36ecd134da163888c3cf1d7",
+    (
+        "shards",
+        "Compute validation shards",
+    ): "38c184853751743abd01c4edefb3d4e8e47e6acbae5b0ee27f7322f58ce5baaa",
+    (
+        "validate",
+        "Authorize exact reviewed migration",
+    ): "084b170a6171d7f12a88ff8b0369a500aa00da43d981b7c98c9f63f8f4365feb",
+    (
+        "validate",
+        "Resolve shard validation roots",
+    ): "3d4d83ce6556d35a14168397d9ef62142ebbe0097b66435194617dc0d7c50246",
+    (
+        "validate",
+        "Resolve RuleSpec toolchain",
+    ): "04274474877e4963c66c8096e287c01f022c70f7434a2ffeb5575b944cad54b1",
+    (
+        "validate",
+        "Validate immutable dependency inputs",
+    ): "b1147f0029933d3653c755743fe212b5d56724b9e998ba58272d4289fc19c7cf",
+    (
+        "validate",
+        "Authenticate dependency commits",
+    ): "06f68d360ce87c102d5692be546a4253bfbe4fdcacb3efd5c206a7b3655e9426",
+    (
+        "validate",
+        "Verify immutable retired-schema freeze",
+    ): "c3982557d4ce436f245b64cae80fd2125283d41372de193954da7f2a07090682",
+    (
+        "validate",
+        "Fetch pinned signed corpus release object",
+    ): "b54f38d1baa7bdc14a3404c70ce5fd28a5960be890413c71b808824c34579653",
+    (
+        "validate",
+        "Authenticate signed corpus provenance commit",
+    ): "9656f2345039be2894ce99026655150cc290aacdd4a09856eb226dfed77376c1",
+    (
+        "validate",
+        "Provision protected verification supervisor",
+    ): "dd5319276783009459a99fdaf34c72bd1d971e030fbbb0e5412fe3b8c120e124",
+    (
+        "validate",
+        "Reject obsolete generated files",
+    ): "c8a4c06b488a9db0dcfadebf3b52e4ea77ed6c8137f7950f08664c77a3f45584",
+    (
+        "validate",
+        "Reject disallowed repository layout",
+    ): "d0e767ae0760977f83fe515067572e5cb688194b01ed2f883591e56828555797",
+    (
+        "validate",
+        "Enforce validation waiver ratchet",
+    ): "72deb905139b65819f099fd1b83c34295b32d41edbafa190215b00a4a2b1a01c",
+    (
+        "validate",
+        "Reject manual RuleSpec changes",
+    ): "c09cb67218deeda3c268a07728a87d6eae23dc4b1bbae76b4d787a646cc3f85f",
+    (
+        "validate",
+        "Select RuleSpec validation targets",
+    ): "ce1177fcab04ba891b9fbb9b99a3f588b4bf05ef0eb8041d125093451e77f1c5",
+    (
+        "validate",
+        "Validate RuleSpec YAML",
+    ): "b39680e20f44a686474d05b93543265a06ec99ce225a3cb1bbaac6aace845611",
+    (
+        "validate",
+        "Execute RuleSpec companion tests",
+    ): "413a0a4e0813298aeab4c4add235fcbd09d764f14922f869c983844db6ebf9b1",
+    (
+        "validate",
+        "Validate RuleSpec proofs and claims",
+    ): "faabcaf910c244b0b1f84d390a270103d88ae6a6d9dbea0dee5b490b86ed928a",
+    (
+        "validate",
+        "Require money proof atoms",
+    ): "aea32962eb031c449a57cbde6190fcffa8f445963e8949913bbf16b6f846e117",
+    (
+        "validate",
+        "Validate PolicyEngine oracle coverage classification",
+    ): "8efd481643d6b96595081d04ea71b40e8af3d240581f3581b9f4aec866971e00",
+    (
+        "validate",
+        "Checkout changed-file oracle coverage classifier",
+    ): "6e3ad52edd7822839a7e7fc01eb575f503804ef5b84932efe66c7bd73fc5afcf",
+    (
+        "validate",
+        "Install changed-file oracle coverage classifier",
+    ): "6dcc9505ab6000d52cb9ba741ef2bceafaa61f91bd1fe2fdfefb80b1cc93a456",
+    (
+        "validate",
+        "Validate changed PolicyEngine oracle coverage classification",
+    ): "a509396097ec732fe87e93b49e82687120a6a90a05e6a8f003cd5c0b351a3fe3",
+    (
+        "validate",
+        "Run repository tests",
+    ): "12a68768654ddab5af24648d857e1724128ee1cbd21208f738c837c7d3fe7b85",
+    (
+        "validate-complete",
+        "Check validation matrix result",
+    ): "f04c58656f9a15ec96afc4bc9060e09a53a8f80017c6f863ad3984c537ade185",
+}
+EMBEDDED_STEP_SHA256_BY_PIN = {
+    PIN_0EFFA6A5: _EMBEDDED_STEP_SHA256_0EFFA6A5,
+    PIN_6F11BE26: {
+        **_EMBEDDED_STEP_SHA256_0EFFA6A5,
+        (
+            "shards",
+            "Reject unmanifested RuleSpec content",
+        ): "d2b2a9b7d7cd22bc7c9dbaa948b85a8d91231eeb7c27f515ac13cd9b52d90aa7",
+        (
+            "validate",
+            "Enforce validation waiver ratchet",
+        ): "238fe2b702f04c786bd30a4828efc74c1150b25e4b22c10de7ef272d334e56bc",
+        (
+            "validate",
+            "Reject manual RuleSpec changes",
+        ): "360e35f95d3f4bca21754b5b0ce5da7cb631e77bf7d8e833cb8961bc0500033e",
+    },
 }
 
 
 @pytest.fixture(params=SUPPORTED_WORKFLOW_PINS.items(), ids=lambda item: item[0][:8])
 def supported_workflow(request: pytest.FixtureRequest):
     sha, pin = request.param
-    return sha, pin, FIXTURES / pin.fixture
+    return sha, pin, WORKFLOW_DIRECTORY / pin.fixture
 
 
 def test_real_lane_callers_parse() -> None:
@@ -88,7 +230,8 @@ def test_real_lane_callers_parse() -> None:
 
 
 def test_gate_order_is_stable() -> None:
-    assert [gate.key for gate in CI_GATE_REGISTRY] == [
+    assert [gate.key for gate in CI_GATE_REGISTRY] == list(LEGACY_GATE_ORDER)
+    assert list(LEGACY_GATE_ORDER) == [
         "repository_tests",
         "obsolete_files",
         "repository_layout",
@@ -102,15 +245,45 @@ def test_gate_order_is_stable() -> None:
         "oracle_coverage",
         "changed_oracle_coverage",
     ]
+    # validate-rulespec@0effa6a5 adds three gates and moves repository tests,
+    # which now run after every trusted gate, to the end.
+    assert [gate.key for gate in gate_registry_for_pin(PIN_0EFFA6A5)] == [
+        "unsupported_paths",
+        "migration_authorization",
+        "retired_schema_freeze",
+        "obsolete_files",
+        "repository_layout",
+        "validation_waivers",
+        "guard_generated",
+        "select_targets",
+        "validate",
+        "companion_tests",
+        "proof_validate",
+        "money_atoms",
+        "oracle_coverage",
+        "changed_oracle_coverage",
+        "repository_tests",
+    ]
+    assert [gate.key for gate in gate_registry_for_pin(PIN_6F11BE26)] == [
+        "unsupported_paths",
+        "unmanifested_rulespec",
+        *[
+            gate.key
+            for gate in gate_registry_for_pin(PIN_0EFFA6A5)
+            if gate.key != "unsupported_paths"
+        ],
+    ]
+    for sha, pin in SUPPORTED_WORKFLOW_PINS.items():
+        assert tuple(gate.key for gate in gate_registry_for_pin(sha)) == pin.gates
 
 
 def test_workflow_axiom_commands_are_covered_by_gate_registry(
     supported_workflow,
 ) -> None:
-    _, _, fixture = supported_workflow
+    sha, _, fixture = supported_workflow
     invocations = workflow_axiom_invocations(fixture)
     registry: dict[str, list[set[str]]] = {}
-    for gate in CI_GATE_REGISTRY:
+    for gate in gate_registry_for_pin(sha):
         command = gate.subcommand.split()[0]
         registry.setdefault(command, []).append(
             {flag for flag in gate.flags if flag.startswith("--")}
@@ -126,11 +299,10 @@ def test_workflow_axiom_commands_are_covered_by_gate_registry(
 
 
 def test_every_workflow_gate_step_is_covered_exactly(supported_workflow) -> None:
-    _, _, fixture = supported_workflow
+    sha, pin, fixture = supported_workflow
     coverage = workflow_gate_coverage(fixture)
-    registered = {gate.key for gate in CI_GATE_REGISTRY}
-
-    assert set(coverage) == {
+    registered = {gate.key for gate in gate_registry_for_pin(sha)}
+    expected = {
         "Run repository tests",
         "Reject obsolete generated files",
         "Reject disallowed repository layout",
@@ -146,12 +318,92 @@ def test_every_workflow_gate_step_is_covered_exactly(supported_workflow) -> None
         "Install changed-file oracle coverage classifier",
         "Validate changed PolicyEngine oracle coverage classification",
     }
+    if pin.gate_parameters.embedded_scripts:
+        expected |= {
+            "Reject unsupported tracked paths",
+            "Authorize exact reviewed migration",
+            "Verify immutable retired-schema freeze",
+        }
+    if pin.gate_parameters.unmanifested_precheck:
+        expected.add("Reject unmanifested RuleSpec content")
+
+    assert set(coverage) == expected
     assert {gate for gates in coverage.values() for gate in gates} == registered
+
+
+def test_every_pinned_workflow_step_is_accounted_for(supported_workflow) -> None:
+    # A step a future pin adds is unaccounted for until it is reviewed and
+    # classified as a gate, a resolution step or provisioned environment.
+    _, _, fixture = supported_workflow
+    classified = (
+        WORKFLOW_GATE_STEPS.keys()
+        | WORKFLOW_RESOLUTION_STEPS.keys()
+        | WORKFLOW_ENVIRONMENT_STEPS.keys()
+    )
+    names = {step.get("name") for _, step in workflow_steps(fixture)}
+
+    assert names - classified == set()
+    assert not (WORKFLOW_GATE_STEPS.keys() & WORKFLOW_RESOLUTION_STEPS.keys())
+    assert not (WORKFLOW_GATE_STEPS.keys() & WORKFLOW_ENVIRONMENT_STEPS.keys())
+    assert not (WORKFLOW_RESOLUTION_STEPS.keys() & WORKFLOW_ENVIRONMENT_STEPS.keys())
+
+
+def test_packaged_workflows_are_the_pinned_blobs(supported_workflow) -> None:
+    _, pin, fixture = supported_workflow
+    data = fixture.read_bytes()
+
+    assert hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest() == (
+        pin.workflow_blob
+    )
+
+
+def test_pin_input_declarations_match_packaged_workflow(supported_workflow) -> None:
+    _, pin, fixture = supported_workflow
+    payload = yaml.safe_load(fixture.read_text())
+    declared = payload.get("on", payload.get(True))["workflow_call"]["inputs"]
+
+    assert list(declared) == list(pin.inputs)
+    for name, declaration in declared.items():
+        expected = pin.inputs[name]
+        assert declaration["type"] == expected.type, name
+        assert bool(declaration.get("required", False)) is expected.required, name
+        assert declaration.get("default") == expected.default, name
+
+
+def test_gate_registry_lines_start_at_their_workflow_steps(supported_workflow) -> None:
+    sha, _, fixture = supported_workflow
+    if sha == "34bcfab235c585c47292c95f51be1a4f4f91d29e":
+        pytest.skip("the legacy registry's line ranges refer to 615c1df9")
+    lines = fixture.read_text().split("\n")
+    step_lines = {
+        line.strip().removeprefix("- name: "): number
+        for number, line in enumerate(lines, start=1)
+        if line.startswith("      - name: ")
+    }
+    coverage = workflow_gate_coverage(fixture)
+    for gate in gate_registry_for_pin(sha):
+        first_step = min(
+            step_lines[name] for name, keys in coverage.items() if gate.key in keys
+        )
+        assert int(gate.workflow_lines.split("-")[0]) == first_step, gate.key
 
 
 def test_workflow_gate_step_semantics_match_pinned_contract(supported_workflow) -> None:
     sha, pin, fixture = supported_workflow
     payload = yaml.safe_load(fixture.read_text())
+    if pin.gate_parameters.embedded_scripts:
+        actual = {
+            (job, step["name"]): hashlib.sha256(
+                yaml.safe_dump(
+                    workflow_gate_contract(step, payload, job), sort_keys=True
+                ).encode()
+            ).hexdigest()
+            for job, step in workflow_steps(fixture)
+            if step.get("name") in WORKFLOW_GATE_STEPS
+            or step.get("name") in WORKFLOW_RESOLUTION_STEPS
+        }
+        assert actual == EMBEDDED_STEP_SHA256_BY_PIN[sha]
+        return
     actual = {}
     for step in payload["jobs"]["validate"]["steps"]:
         name = step.get("name")
@@ -161,7 +413,7 @@ def test_workflow_gate_step_semantics_match_pinned_contract(supported_workflow) 
             ).encode()
             actual[name] = hashlib.sha256(canonical).hexdigest()
 
-    assert actual == WORKFLOW_GATE_STEP_SHA256_BY_PIN[sha]
+    assert actual == LEGACY_WORKFLOW_GATE_STEP_SHA256_BY_PIN[sha]
     money_atom_run = next(
         step["run"]
         for step in payload["jobs"]["validate"]["steps"]
@@ -174,7 +426,7 @@ def test_workflow_gate_step_semantics_match_pinned_contract(supported_workflow) 
 
 def test_supported_workflow_fixtures_have_only_known_divergence() -> None:
     fixtures = {
-        sha: yaml.safe_load((FIXTURES / pin.fixture).read_text())
+        sha: yaml.safe_load((WORKFLOW_DIRECTORY / pin.fixture).read_text())
         for sha, pin in SUPPORTED_WORKFLOW_PINS.items()
     }
     old = fixtures["34bcfab235c585c47292c95f51be1a4f4f91d29e"]
@@ -195,6 +447,28 @@ def test_supported_workflow_fixtures_have_only_known_divergence() -> None:
         == old_step["run"]
     )
     new_step["run"] = old_step["run"]
+    assert new == old
+
+
+def test_embedded_workflow_pins_have_only_known_divergence() -> None:
+    old = yaml.safe_load(
+        (WORKFLOW_DIRECTORY / SUPPORTED_WORKFLOW_PINS[PIN_0EFFA6A5].fixture).read_text()
+    )
+    new = yaml.safe_load(
+        (WORKFLOW_DIRECTORY / SUPPORTED_WORKFLOW_PINS[PIN_6F11BE26].fixture).read_text()
+    )
+    added = new["jobs"]["shards"]["steps"].pop(2)
+    assert added["name"] == "Reject unmanifested RuleSpec content"
+    for name in ("Enforce validation waiver ratchet", "Reject manual RuleSpec changes"):
+        old_step = next(
+            step for step in old["jobs"]["validate"]["steps"] if step["name"] == name
+        )
+        new_step = next(
+            step for step in new["jobs"]["validate"]["steps"] if step["name"] == name
+        )
+        assert new_step["run"] != old_step["run"]
+        new_step["run"] = old_step["run"]
+
     assert new == old
 
 
@@ -292,10 +566,15 @@ def test_ambient_encoder_mismatch_fails_closed_or_is_qualified(
 ) -> None:
     pin = "1" * 40
     head = "2" * 40
-    monkeypatch.setattr(
-        "axiom_encode.ci_parity._git",
-        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 0, head + "\n", ""),
-    )
+
+    def fake_git(repo, *args, **_kwargs):
+        if args == ("rev-parse", "--show-toplevel"):
+            return subprocess.CompletedProcess([], 0, f"{repo}\n", "")
+        return subprocess.CompletedProcess(
+            [], 0, "" if args[0] == "status" else head + "\n", ""
+        )
+
+    monkeypatch.setattr("axiom_encode.ci_parity._git", fake_git)
 
     with pytest.raises(ValueError, match="--allow-encoder-mismatch") as error:
         verify_ambient_encoder(
@@ -479,8 +758,23 @@ def test_unknown_workflow_pin_fails_closed(
         True,
         False,
     )
-    monkeypatch.setattr("axiom_encode.ci_parity.find_caller_workflow", lambda _: caller)
-    args = Namespace(repo=repo, json=False)
+    monkeypatch.setattr(
+        "axiom_encode.ci_parity.find_caller_workflow", lambda *_a, **_k: caller
+    )
+
+    @contextlib.contextmanager
+    def passthrough_checkout(source, head=None, base=None):
+        yield source
+
+    monkeypatch.setattr("axiom_encode.ci_parity.resolve_commit", lambda _repo, ref: ref)
+
+    monkeypatch.setattr(
+        "axiom_encode.ci_parity.committed_checkout", passthrough_checkout
+    )
+    monkeypatch.setattr(
+        "axiom_encode.ci_parity.uncommitted_changes_note", lambda _source: None
+    )
+    args = Namespace(repo=repo, json=False, base_ref="origin/main")
 
     assert run_ci(args) == 1
     output = capsys.readouterr().err
