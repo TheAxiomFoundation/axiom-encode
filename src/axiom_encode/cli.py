@@ -453,6 +453,7 @@ from .toolchain import (
     VALIDATION_WAIVER_SET_SHA256_FIELD,
     load_rulespec_local_corpus_release,
     load_rulespec_toolchain,
+    local_signing_public_key,
     verify_rulespec_validation_waiver_set,
 )
 
@@ -26626,6 +26627,10 @@ def _raw_ed25519_public_key(public_key: Ed25519PublicKey) -> bytes:
 def _applied_encoding_manifest_verifier() -> Ed25519PublicKey | None:
     """Load the protected broker trust root for persisted apply manifests."""
 
+    # `axiom-encode ci` supplies a verification-only root explicitly.
+    local_public_key = local_signing_public_key("apply")
+    if local_public_key is not None:
+        return Ed25519PublicKey.from_public_bytes(local_public_key)
     try:
         broker = get_signing_broker()
     except SigningBrokerError:
