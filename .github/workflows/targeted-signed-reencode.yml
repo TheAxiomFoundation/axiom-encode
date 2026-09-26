@@ -152,6 +152,7 @@ jobs:
           CITATION: ${{ inputs.citation }}
           QUEUE_ID: ${{ inputs.queue_id }}
           REPAIR_RUN_ID: ${{ inputs.repair_run_id }}
+          SOURCE_BUNDLE_JSON: ${{ inputs.source_bundle_json }}
           ATTEMPT_BUDGET: ${{ vars.ATTEMPT_BUDGET }}
           ATTEMPT_BUDGET_OVERRIDE: ${{ vars.ATTEMPT_BUDGET_OVERRIDE }}
           ATTEMPT_BUDGET_BY_CITATION_JSON: ${{ vars.ATTEMPT_BUDGET_BY_CITATION_JSON }}
@@ -724,7 +725,83 @@ jobs:
           echo "tests_sha256=$(jq -r '.tests_sha256' "$RUNNER_TEMP/repair-candidate.json")" \
             >> "$GITHUB_OUTPUT"
 
+      # A legacy successor repoint carries its whole authority in the bounded
+      # source input, so it needs no new dispatch input (the list is at
+      # GitHub's hard cap of 25). It is model-free and mutually exclusive with
+      # every other mode this workflow can run, and it resolves before the
+      # model-lane source validation, which it replaces.
+      - name: Resolve successor repoint request
+        id: successor_repoint_request
+        env:
+          ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
+          CITATION: ${{ inputs.citation }}
+          DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
+          DEPENDENT_REVIEW_FINDING: ${{ inputs.dependent_review_finding }}
+          EXISTING_SIGNED_IMPORTS_JSON: ${{ inputs.existing_signed_imports_json }}
+          LEGACY_EXACT_DEPENDENT_RULESPEC_PATH: ${{ inputs.legacy_exact_dependent_rulespec_path }}
+          LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON: ${{ inputs.legacy_retained_successor_rulespec_paths_json }}
+          QUEUE_DISPATCHER_RUN_ID: ${{ inputs.queue_dispatcher_run_id }}
+          QUEUE_ID: ${{ inputs.queue_id }}
+          QUEUE_ITEM_GENERATION_SHA256: ${{ inputs.queue_item_generation_sha256 }}
+          QUEUE_ITEM_ID: ${{ inputs.queue_item_id }}
+          QUEUE_MANIFEST_SHA256: ${{ inputs.queue_manifest_sha256 }}
+          REPAIR_RUN_ID: ${{ inputs.repair_run_id }}
+          REPLACE_LEGACY_RULESPEC_PATH: ${{ inputs.replace_legacy_rulespec_path }}
+          REPLACE_RULESPEC_PATH: ${{ inputs.replace_rulespec_path }}
+          REVIEW_FINDING: ${{ inputs.review_finding }}
+          RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
+          SECOND_DEPENDENT_CITATION: ${{ inputs.second_dependent_citation }}
+          SECOND_DEPENDENT_REVIEW_FINDING: ${{ inputs.second_dependent_review_finding }}
+          SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH: ${{ inputs.second_legacy_exact_dependent_rulespec_path }}
+        run: |
+          set -euo pipefail
+          axiom-encode/.venv/bin/python \
+            axiom-encode/scripts/prepare_signed_backfill.py \
+            successor-repoint-request "${ATOMIC_SOURCE_JSON:-[]}" \
+            > "$RUNNER_TEMP/successor-repoint-request.json"
+          if [ ! -s "$RUNNER_TEMP/successor-repoint-request.json" ]; then
+            rm -f "$RUNNER_TEMP/successor-repoint-request.json"
+            echo "successor_repoint=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -n "${REPLACE_RULESPEC_PATH:-}" ] || \
+             [ -n "${REPLACE_LEGACY_RULESPEC_PATH:-}" ] || \
+             [ -n "${LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
+             [ -n "${SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
+             [ -n "${DEPENDENT_CITATION:-}" ] || \
+             [ -n "${SECOND_DEPENDENT_CITATION:-}" ] || \
+             [ -n "${REVIEW_FINDING:-}" ] || \
+             [ -n "${DEPENDENT_REVIEW_FINDING:-}" ] || \
+             [ -n "${SECOND_DEPENDENT_REVIEW_FINDING:-}" ] || \
+             [ -n "${REPAIR_RUN_ID:-}" ] || \
+             [ -n "${QUEUE_ID:-}" ] || \
+             [ -n "${QUEUE_ITEM_ID:-}" ] || \
+             [ -n "${QUEUE_MANIFEST_SHA256:-}" ] || \
+             [ -n "${QUEUE_ITEM_GENERATION_SHA256:-}" ] || \
+             [ -n "${QUEUE_DISPATCHER_RUN_ID:-}" ] || \
+             ! jq -e 'type == "array" and length == 0' \
+               <<< "${LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON:-[]}" \
+               > /dev/null || \
+             ! jq -e 'type == "array" and length == 0' \
+               <<< "${EXISTING_SIGNED_IMPORTS_JSON:-[]}" > /dev/null; then
+            echo "successor repoints carry their whole authority in source_bundle_json and cannot mix with replacement, dependent, retained-successor, review-finding, repair, queue, or existing-import inputs" >&2
+            exit 1
+          fi
+          # The dispatch citation labels the run and keys the failed-attempt
+          # budget; bind it to the successor's own corpus citation.
+          expected_citation="$(axiom-encode/.venv/bin/python \
+            axiom-encode/scripts/prepare_signed_backfill.py \
+            successor-repoint-citation \
+            --repo "$RULESPEC_CHECKOUT" \
+            --request "$RUNNER_TEMP/successor-repoint-request.json")"
+          if [ "$CITATION" != "$expected_citation" ]; then
+            echo "successor repoint dispatches must use the successor's corpus citation: ${expected_citation}" >&2
+            exit 1
+          fi
+          echo "successor_repoint=true" >> "$GITHUB_OUTPUT"
+
       - name: Validate atomic source inputs
+        if: steps.successor_repoint_request.outputs.successor_repoint != 'true'
         env:
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
           CITATION: ${{ inputs.citation }}
@@ -862,7 +939,6 @@ jobs:
             echo "queue-authorized re-encodes cannot add source inputs until queue generation identity binds them" >&2
             exit 1
           fi
-
       - name: Fetch pinned signed corpus release object
         shell: bash
         env:
@@ -1211,8 +1287,40 @@ jobs:
           PY
           fi
 
+      - name: Repoint legacy successor
+        id: successor_repoint
+        if: steps.successor_repoint_request.outputs.successor_repoint == 'true'
+        env:
+          PYTHONUNBUFFERED: "1"
+          AXIOM_ENCODE_APPLY_SIGNING_KEY: ${{ secrets.AXIOM_ENCODE_APPLY_SIGNING_KEY }}
+          RULESPEC_CHECKOUT: ${{ github.workspace }}/rulespec-${{ inputs.country }}
+        run: |
+          set -euo pipefail
+          # Deterministic, model-free transaction: no model credential or
+          # Supabase secret is set for this step, and repoint-legacy-successor
+          # never invokes a backend. The supervisor refuses a private key in
+          # its environment, so the key reaches it only through the same
+          # workflow-bound apply signer the model lane uses.
+          /opt/axiom-verification/axiom-encode-apply-signer run \
+            --scope apply_ed25519 \
+            --key-env AXIOM_ENCODE_APPLY_SIGNING_KEY \
+            --supervisor /opt/axiom-verification/axiom-encode-signing-supervisor \
+            --trusted-signing-roots /opt/axiom-verification/signing-trust-roots.json \
+            --trusted-python-runtime-root /opt/axiom-verification/python \
+            --trusted-python-import-root /opt/axiom-verification/python/lib/python3.13/site-packages \
+            --trusted-python-package-root /opt/axiom-verification/python/lib/python3.13/site-packages/axiom_encode \
+            --expected-github-repository TheAxiomFoundation/axiom-encode \
+            --allowed-workflow-ref TheAxiomFoundation/axiom-encode/.github/workflows/targeted-signed-reencode.yml@refs/heads/main \
+            --allowed-event-name workflow_dispatch \
+            -- /opt/axiom-verification/axiom-encode repoint-legacy-successor \
+            --request "$RUNNER_TEMP/successor-repoint-request.json" \
+            --policy-repo-path "$RULESPEC_CHECKOUT" \
+            --axiom-rules-engine-path "$GITHUB_WORKSPACE/axiom-rules-engine" \
+            --corpus-path "$GITHUB_WORKSPACE/axiom-corpus"
+
       - name: Encode, review, validate, and apply
         id: encode_apply
+        if: steps.successor_repoint_request.outputs.successor_repoint != 'true'
         env:
           # Flush encoder output as it is produced so a timeout or crash
           # still leaves attempt records in the job log.
@@ -2160,8 +2268,72 @@ jobs:
             "$RUNNER_TEMP/existing-signed-import-inventory.json" \
             "$RUNNER_TEMP/existing-signed-import-inventory-final.json"
 
+      # A successor repoint has no citation or context manifest; its whole
+      # change set is bound to its signed receipt instead.
+      - name: Package successor repoint changes
+        id: package_successor_repoint_changes
+        if: steps.successor_repoint_request.outputs.successor_repoint == 'true'
+        env:
+          RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
+          RULESPEC_REF: ${{ inputs.rulespec_ref }}
+          CORPUS_REF: ${{ inputs.corpus_ref }}
+          RULES_ENGINE_REF: ${{ inputs.rules_engine_ref }}
+        run: |
+          set -euo pipefail
+          workflow_python=(/opt/axiom-verification/python/bin/python -I)
+          if [ ! -x "${workflow_python[0]}" ]; then
+            workflow_python=("${AXIOM_TEST_PYTHON:-python}")
+          fi
+          artifact="$RUNNER_TEMP/targeted-reencode"
+          mkdir -p "$artifact"
+          "${workflow_python[@]}" \
+            axiom-encode/scripts/prepare_signed_backfill.py \
+            successor-repoint-changes \
+            --repo "$RULESPEC_CHECKOUT" \
+            --base-ref "$RULESPEC_REF" \
+            --request "$RUNNER_TEMP/successor-repoint-request.json" \
+            > "$artifact/successor-repoint-changes.json"
+          receipt_path="$(jq -r '.receipt_path' \
+            "$artifact/successor-repoint-changes.json")"
+          cp "$RULESPEC_CHECKOUT/$receipt_path" \
+            "$artifact/successor-repoint-receipt.json"
+          cp "$RUNNER_TEMP/successor-repoint-request.json" \
+            "$artifact/successor-repoint-request.json"
+          cp "$RUNNER_TEMP/guard-generated.json" "$artifact/guard-generated.json"
+          git -C "$RULESPEC_CHECKOUT" diff --binary --full-index \
+            "$RULESPEC_REF" > "$artifact/tracked.patch"
+          git -C "$RULESPEC_CHECKOUT" ls-files --others --exclude-standard -z \
+            | tar -C "$RULESPEC_CHECKOUT" --null -czf "$artifact/untracked.tar.gz" --files-from -
+          git -C "$RULESPEC_CHECKOUT" status --short > "$artifact/status.txt"
+          jq -n \
+            --slurpfile changes "$artifact/successor-repoint-changes.json" \
+            --arg rulespec_base "$RULESPEC_REF" \
+            --arg rulespec_generated_head "$(git -C "$RULESPEC_CHECKOUT" rev-parse HEAD)" \
+            --arg encoder_commit "$(git -C axiom-encode rev-parse HEAD)" \
+            --arg corpus_commit "$(git -C axiom-corpus rev-parse HEAD)" \
+            --arg rules_engine_commit "$(git -C axiom-rules-engine rev-parse HEAD)" \
+            --arg workflow_run_id "$GITHUB_RUN_ID" \
+            --argjson workflow_run_attempt "$GITHUB_RUN_ATTEMPT" \
+            '{
+              schema: "axiom-encode/successor-repoint-artifact/v1",
+              legacy_primary: $changes[0].legacy_primary,
+              successor_primary: $changes[0].successor_primary,
+              request_sha256: $changes[0].request_sha256,
+              receipt_path: $changes[0].receipt_path,
+              receipt_sha256: $changes[0].receipt_sha256,
+              rulespec_base: $rulespec_base,
+              rulespec_generated_head: $rulespec_generated_head,
+              encoder_commit: $encoder_commit,
+              corpus_commit: $corpus_commit,
+              rules_engine_commit: $rules_engine_commit,
+              workflow_run_id: $workflow_run_id,
+              workflow_run_attempt: $workflow_run_attempt
+            }' > "$artifact/metadata.json"
+          test -s "$artifact/status.txt"
+
       - name: Package exact generated changes
         id: package_exact_generated_changes
+        if: steps.successor_repoint_request.outputs.successor_repoint != 'true'
         env:
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
           CITATION: ${{ inputs.citation }}
@@ -3631,7 +3803,7 @@ jobs:
 
       - name: Commit reviewed lane changes locally
         id: commit_reviewed_lane_changes
-        if: ${{ inputs.open_pr }}
+        if: ${{ inputs.open_pr && steps.successor_repoint_request.outputs.successor_repoint != 'true' }}
         env:
           ATOMIC_SOURCE_JSON: ${{ inputs.source_bundle_json }}
           COUNTRY: ${{ inputs.country }}
@@ -3678,7 +3850,7 @@ jobs:
 
       - name: Push lane branch and open draft pull request
         id: publish_lane_pull_request
-        if: ${{ inputs.open_pr }}
+        if: ${{ inputs.open_pr && steps.successor_repoint_request.outputs.successor_repoint != 'true' }}
         env:
           GH_TOKEN: ${{ secrets.AXIOM_REPO_TOKEN }}
           COUNTRY: ${{ inputs.country }}
@@ -3767,6 +3939,157 @@ jobs:
           cp "$RUNNER_TEMP/lane-pull-request.json" \
             "$RUNNER_TEMP/targeted-reencode/lane-pull-request.json"
 
+      - name: Commit successor repoint locally
+        id: commit_successor_repoint
+        if: ${{ inputs.open_pr && steps.successor_repoint_request.outputs.successor_repoint == 'true' }}
+        env:
+          COUNTRY: ${{ inputs.country }}
+          RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
+          RULESPEC_REF: ${{ inputs.rulespec_ref }}
+        run: |
+          set -euo pipefail
+          workflow_python=(/opt/axiom-verification/python/bin/python -I)
+          if [ ! -x "${workflow_python[0]}" ]; then
+            workflow_python=("${AXIOM_TEST_PYTHON:-python}")
+          fi
+          inventory="$RUNNER_TEMP/targeted-reencode/successor-repoint-changes.json"
+          branch="$("${workflow_python[@]}" \
+            axiom-encode/scripts/prepare_signed_backfill.py branch-name \
+            "$COUNTRY" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT")"
+          git -C "$RULESPEC_CHECKOUT" switch -c "$branch"
+          # The packaged inventory proved the working tree is exactly the
+          # receipt; stage exactly those paths, literally, and nothing else.
+          jq -j '.changes[] | "\(.path)\u0000"' "$inventory" \
+            > "$RUNNER_TEMP/successor-repoint-paths"
+          jq -j '.changes[] | "\(.status)\u0000\(.path)\u0000"' "$inventory" \
+            > "$RUNNER_TEMP/successor-repoint-expected"
+          GIT_LITERAL_PATHSPECS=1 git -C "$RULESPEC_CHECKOUT" add -A \
+            --pathspec-from-file="$RUNNER_TEMP/successor-repoint-paths" \
+            --pathspec-file-nul
+          git -C "$RULESPEC_CHECKOUT" diff --cached --name-status --no-renames -z \
+            "$RULESPEC_REF" > "$RUNNER_TEMP/successor-repoint-staged"
+          cmp "$RUNNER_TEMP/successor-repoint-expected" \
+            "$RUNNER_TEMP/successor-repoint-staged"
+          status="$(git -C "$RULESPEC_CHECKOUT" status --porcelain --no-renames \
+            --untracked-files=all)"
+          unstaged="$(printf '%s\n' "$status" | grep -v '^[AMD]  ' || true)"
+          test -z "$unstaged"
+          legacy="$(jq -r '.legacy_primary' "$inventory")"
+          successor="$(jq -r '.successor_primary' "$inventory")"
+          git -C "$RULESPEC_CHECKOUT" \
+            -c core.hooksPath=/dev/null \
+            -c user.name=axiom-encode-bot \
+            -c user.email=axiom-encode-bot@users.noreply.github.com \
+            commit -m "Repoint ${legacy} onto ${successor}"
+          committed_status="$(git -C "$RULESPEC_CHECKOUT" status --porcelain \
+            --no-renames --untracked-files=all)"
+          test -z "$committed_status"
+          # The committed tree itself, not the working tree, is exactly the
+          # receipt: the same path set and every committed blob digest.
+          git -C "$RULESPEC_CHECKOUT" diff --name-status --no-renames -z \
+            "$RULESPEC_REF" HEAD > "$RUNNER_TEMP/successor-repoint-committed"
+          cmp "$RUNNER_TEMP/successor-repoint-expected" \
+            "$RUNNER_TEMP/successor-repoint-committed"
+          jq -r '.changes[] | select(.status != "D") | "\(.sha256) \(.path)"' \
+            "$inventory" \
+            | while read -r digest path; do
+                committed="$(git -C "$RULESPEC_CHECKOUT" cat-file blob "HEAD:${path}" \
+                  | "${workflow_python[@]}" -c \
+                    'import hashlib, sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())')"
+                test "$committed" = "$digest"
+              done
+          "${workflow_python[@]}" \
+            axiom-encode/scripts/prepare_signed_backfill.py \
+            successor-repoint-changes \
+            --repo "$RULESPEC_CHECKOUT" \
+            --base-ref "$RULESPEC_REF" \
+            --request "$RUNNER_TEMP/successor-repoint-request.json" \
+            | cmp - "$inventory"
+
+      - name: Push successor repoint branch and open draft pull request
+        id: publish_successor_repoint_pull_request
+        if: ${{ inputs.open_pr && steps.successor_repoint_request.outputs.successor_repoint == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.AXIOM_REPO_TOKEN }}
+          COUNTRY: ${{ inputs.country }}
+          RULESPEC_REF: ${{ inputs.rulespec_ref }}
+          PR_BASE_BRANCH: ${{ inputs.pr_base_branch }}
+          RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN"
+          workflow_python=(/opt/axiom-verification/python/bin/python -I)
+          if [ ! -x "${workflow_python[0]}" ]; then
+            workflow_python=("${AXIOM_TEST_PYTHON:-python}")
+          fi
+          artifact="$RUNNER_TEMP/targeted-reencode"
+          inventory="$artifact/successor-repoint-changes.json"
+          receipt="$artifact/successor-repoint-receipt.json"
+          repo="TheAxiomFoundation/rulespec-${COUNTRY}"
+          git -C "$RULESPEC_CHECKOUT" fetch --no-tags origin \
+            "+refs/heads/${PR_BASE_BRANCH}:refs/remotes/origin/${PR_BASE_BRANCH}"
+          test "$(git -C "$RULESPEC_CHECKOUT" rev-parse \
+            "refs/remotes/origin/${PR_BASE_BRANCH}")" = "$RULESPEC_REF"
+          branch="$("${workflow_python[@]}" \
+            axiom-encode/scripts/prepare_signed_backfill.py branch-name \
+            "$COUNTRY" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT")"
+          legacy="$(jq -r '.legacy_primary' "$inventory")"
+          successor="$(jq -r '.successor_primary' "$inventory")"
+          receipt_path="$(jq -r '.receipt_path' "$inventory")"
+          receipt_sha256="$(jq -r '.receipt_sha256' "$inventory")"
+          window="$(jq -r \
+            '.semantics.successor_window | "\(.effective_from) to \(.effective_to // "open")"' \
+            "$receipt")"
+          behavior_change="$(jq -r \
+            '.semantics.behavior_change_outside_successor_window' "$receipt")"
+          changed_files="$(jq -r '.changes[] | "- `\(.status)` `\(.path)`"' "$inventory")"
+          body="$(printf '%s\n' \
+            '## Legacy successor repoint' \
+            '' \
+            "Legacy module: \`${legacy}\`" \
+            "Successor module: \`${successor}\`" \
+            "Receipt: \`${receipt_path}\` (sha256 \`${receipt_sha256}\`)" \
+            "Successor validity window: \`${window}\`" \
+            "Dependent behavior changes outside that window: \`${behavior_change}\`" \
+            "Base commit: \`${RULESPEC_REF}\`" \
+            "Base branch: \`${PR_BASE_BRANCH}\`" \
+            "Axiom Encode run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            '' \
+            '### Changed files (exactly the receipt)' \
+            '' \
+            "$changed_files" \
+            '' \
+            'This draft PR was produced by the protected, model-free successor-repoint lane of the signed-apply workflow. Review every RuleSpec, manifest, and metadata change before marking it ready.')"
+          gh auth setup-git
+          git -C "$RULESPEC_CHECKOUT" -c core.hooksPath=/dev/null push \
+            "https://github.com/${repo}.git" "HEAD:refs/heads/${branch}"
+          gh api --method POST "repos/${repo}/pulls" \
+            -f title="Repoint ${legacy} onto ${successor}" \
+            -f head="TheAxiomFoundation:${branch}" \
+            -f base="$PR_BASE_BRANCH" \
+            -f body="$body" \
+            -F draft=true > "$RUNNER_TEMP/lane-pull-request.json"
+          if ! jq -e \
+            --arg branch "$PR_BASE_BRANCH" \
+            --arg sha "$RULESPEC_REF" \
+            '.base.ref == $branch and .base.sha == $sha' \
+            "$RUNNER_TEMP/lane-pull-request.json" > /dev/null; then
+            pr_number="$(jq -r '.number // empty' \
+              "$RUNNER_TEMP/lane-pull-request.json")"
+            if test -n "$pr_number"; then
+              gh api --method PATCH "repos/${repo}/pulls/${pr_number}" \
+                -f state=closed || echo "warning: failed to close stale-base PR" >&2
+            fi
+            git -C "$RULESPEC_CHECKOUT" push \
+              "https://github.com/${repo}.git" \
+              ":refs/heads/${branch}" ||
+              echo "warning: failed to delete stale-base lane branch" >&2
+            echo "created pull request does not target the reviewed base SHA" >&2
+            exit 1
+          fi
+          cp "$RUNNER_TEMP/lane-pull-request.json" \
+            "$artifact/lane-pull-request.json"
+
       - name: Finalize signed re-encode artifact checksums
         id: finalize_signed_reencode_artifact
         run: |
@@ -3797,6 +4120,16 @@ jobs:
           DEPENDENT_CITATION: ${{ inputs.dependent_citation }}
           ENCODE_APPLY_CONCLUSION: ${{ steps.encode_apply.conclusion }}
           ENCODE_APPLY_OUTCOME: ${{ steps.encode_apply.outcome }}
+          SUCCESSOR_REPOINT_REQUEST_CONCLUSION: ${{ steps.successor_repoint_request.conclusion }}
+          SUCCESSOR_REPOINT_REQUEST_OUTCOME: ${{ steps.successor_repoint_request.outcome }}
+          SUCCESSOR_REPOINT_CONCLUSION: ${{ steps.successor_repoint.conclusion }}
+          SUCCESSOR_REPOINT_OUTCOME: ${{ steps.successor_repoint.outcome }}
+          PACKAGE_SUCCESSOR_REPOINT_CHANGES_CONCLUSION: ${{ steps.package_successor_repoint_changes.conclusion }}
+          PACKAGE_SUCCESSOR_REPOINT_CHANGES_OUTCOME: ${{ steps.package_successor_repoint_changes.outcome }}
+          COMMIT_SUCCESSOR_REPOINT_CONCLUSION: ${{ steps.commit_successor_repoint.conclusion }}
+          COMMIT_SUCCESSOR_REPOINT_OUTCOME: ${{ steps.commit_successor_repoint.outcome }}
+          PUBLISH_SUCCESSOR_REPOINT_PULL_REQUEST_CONCLUSION: ${{ steps.publish_successor_repoint_pull_request.conclusion }}
+          PUBLISH_SUCCESSOR_REPOINT_PULL_REQUEST_OUTCOME: ${{ steps.publish_successor_repoint_pull_request.outcome }}
           EXISTING_SIGNED_IMPORTS_JSON: ${{ inputs.existing_signed_imports_json }}
           FINALIZE_SIGNED_REENCODE_ARTIFACT_CONCLUSION: ${{ steps.finalize_signed_reencode_artifact.conclusion }}
           FINALIZE_SIGNED_REENCODE_ARTIFACT_OUTCOME: ${{ steps.finalize_signed_reencode_artifact.outcome }}
@@ -4102,6 +4435,15 @@ jobs:
                   "VERIFY_EXISTING_SIGNED_IMPORT_INTEGRITY"
               ),
               "verify_generated_provenance": "VERIFY_GENERATED_PROVENANCE",
+              "successor_repoint_request": "SUCCESSOR_REPOINT_REQUEST",
+              "successor_repoint": "SUCCESSOR_REPOINT",
+              "package_successor_repoint_changes": (
+                  "PACKAGE_SUCCESSOR_REPOINT_CHANGES"
+              ),
+              "commit_successor_repoint": "COMMIT_SUCCESSOR_REPOINT",
+              "publish_successor_repoint_pull_request": (
+                  "PUBLISH_SUCCESSOR_REPOINT_PULL_REQUEST"
+              ),
           }
           step_outcomes = {}
           for step_id, env_prefix in step_env_prefixes.items():

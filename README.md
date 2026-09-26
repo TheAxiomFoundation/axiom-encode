@@ -316,6 +316,144 @@ It signs a plan/HEAD/tree/corpus/waiver/hash-bound receipt under
 replacement manifest, and installs moves, reference rewrites, receipts, and
 manifests in one recoverable transaction.
 
+### Repointing a legacy module onto an existing signed successor
+
+Sometimes a legacy v1 module has no path problem at all: its concepts already
+exist, value-identical, in a signed-v5 module encoded from a *different* corpus
+page, at an unrelated canonical path. `migrate-rulespec-paths` cannot express
+that (its destination must be the normalization of its source) and a fresh
+model re-encode of the dependent is the wrong tool when the change is a handful
+of symbol renames. `repoint-legacy-successor` is the model-free transaction for
+exactly that case.
+
+Authority is one exact JSON envelope:
+
+```json
+{
+  "schema": "axiom-encode/legacy-successor-repoint/v1",
+  "legacy_primary": "us/policies/irs/rev-proc-2025-32/earned-income-credit.yaml",
+  "successor_primary": "us/policies/irs/rev-proc-2025-32/page-15.yaml",
+  "dependents": ["us/statutes/26/32.yaml"],
+  "concept_map": [
+    {"from": "eitc_earned_income_amounts", "to": "earned_income_credit_earned_income_amounts"},
+    {"from": "eitc_maximum_credit_amounts", "to": "earned_income_credit_maximum_credit_amounts"},
+    {"from": "eitc_threshold_phaseout_amounts_joint", "to": "earned_income_credit_phaseout_threshold_joint_amounts"},
+    {"from": "eitc_threshold_phaseout_amounts_other", "to": "earned_income_credit_phaseout_threshold_other_amounts"},
+    {"from": "eitc_completed_phaseout_amounts_joint", "to": "earned_income_credit_completed_phaseout_joint_amounts"},
+    {"from": "eitc_completed_phaseout_amounts_other", "to": "earned_income_credit_completed_phaseout_other_amounts"},
+    {"from": "eitc_maximum_investment_income", "to": "earned_income_credit_maximum_investment_income"}
+  ],
+  "program_scope_updates": [
+    {"program_spec": "programs/us/fiit/fy-2026.yaml", "scope": "federal"}
+  ]
+}
+```
+
+```bash
+axiom-encode repoint-legacy-successor \
+  --request /tmp/repoint.json \
+  --policy-repo-path ~/TheAxiomFoundation/rulespec-us \
+  --axiom-rules-engine-path ~/TheAxiomFoundation/axiom-rules-engine \
+  --corpus-path ~/TheAxiomFoundation/axiom-corpus
+```
+
+Every declared rename is proved before anything is written: identical
+`kind`/`dtype`/`unit`/`entity`/`period`, identical table key sets, and equal
+values at every version boundary **inside the successor's validity window**.
+`indexed_by` names may differ only when every dependent formula use is a
+literal integer subscript the successor table defines throughout its window,
+and a formula symbol is renamed only where the dependent imports the legacy
+module (or that exact concept of it); `x.name` is never a use of `name`, and
+strings, docstrings and `#` comments are lexed as the rules engine lexes them
+and never rewritten. Through a whole-module import, every legacy export a
+formula uses must be mapped, and the dependent may neither use nor define a
+name the successor exports unmapped, so nothing silently rebinds. Dependents are rewritten by
+exact tokens on five surfaces only -- the module import,
+`module.deferred_outputs[].blocked_by`, proof import `target`/`output`/`hash`,
+and unquoted formula symbols -- and the postimage is proved equal to the
+preimage with only those replacements applied. Any other occurrence of the
+retired module in any reference form (durable identity, jurisdiction-prefixed
+or jurisdiction-less path with or without a suffix, companion, manifest path,
+ProgramSpec scope entry) fails closed.
+
+The reference inventory scans every tracked file at clean HEAD with one
+`git grep` for the module's path stem. A hit is owned only when the transaction
+retires the file, rewrites it (a declared dependent), or reconciles it (a
+declared ProgramSpec or one of the six metadata files below). Signed
+provenance, `oracle-coverage-pending.yaml`, `.axiom/retired-schema-freeze.json`,
+`tests/`, undeclared protected modules or ProgramSpecs, and anything else are
+refusals: a repoint never leaves a stale reference behind.
+
+Legacy ownership is bound to digests: every v1 manifest of the retired group
+must bind exactly that group's bytes. A dependent is rewritten rather than
+retired, so its v1 manifests may be a superseded manifest plus a later partial
+re-attestation (as rulespec-us's `us/statutes/26/32.yaml` has), but together
+they must bind its exact current bytes and cover nothing outside it. The
+receipt records each v1 manifest's owner class (generated, manual, or
+deterministic repair), and no signature-valid v5 manifest, from any encoder
+version, may still claim a retired or rewritten file.
+
+The successor's validity window governs: after the repoint a dependent has no
+value outside that window, where a legacy module with no `effective_to` silently
+extended its amounts forever. The receipt records each dependent use window
+with `precedes_successor_window` and `extends_past_successor_window`, the
+`pre_window_behavior_change` / `post_window_behavior_change` flags and their
+union `behavior_change_outside_successor_window`, and per concept how the rules
+engine lowers it and the error evaluation raises outside the window. Read from
+axiom-rules-engine `af6e4ea` (rulespec-us's pinned `axiom_rules_engine_ref`): a
+parameter with a values table lowers to an indexed parameter
+(`src/rulespec.rs:2001-2009`); a no-entity literal parameter lowers to a scalar
+parameter keyed `0` (`src/formula.rs:1183-1217`); both fail with
+`EvalError::MissingParameterValue` when no version `applies_at` the period
+(`src/engine.rs:1165-1194`), and a parameter with an entity would lower to a
+derived rule and fail with `EvalError::MissingDerivedFormulaVersion`.
+Compilation succeeds either way; evaluation for that period fails loudly.
+
+The transaction validates the rewritten dependents and their transitive
+dependents on an isolated overlay, then installs in one recoverable transaction:
+the rewritten dependents, the reconciled metadata
+(`known-validation-gaps.yaml`, `.axiom/toolchain.toml`,
+`.axiom/index/provisions_to_rules.json`,
+`.axiom/pending-validation-fingerprints.json`,
+`.axiom/upstream-source-check-baseline.txt`, `known-missing-money-atoms.yaml`)
+and the declared ProgramSpec scopes, the deletion of the legacy group and every
+v1 ownership manifest of the legacy group and dependents, one signed receipt
+under `.axiom/legacy-successor-repoints/`, and two signed manifest classes:
+
+- a **dependent** manifest per rewritten dependent, owning its live files;
+- a **retired** manifest at the legacy primary's canonical manifest path,
+  owning only the deletion of the legacy group.
+
+The successor keeps its own signed-v5 model manifest untouched. Every receipt
+claim (ownership evidence, proofs, rewrites, metadata and ProgramSpec
+postimages, the post-repoint waiver digest, and the corpus release) is
+re-derived by `guard-generated` from the receipt's base commit, never compared
+with live shared files, so a later unrelated edit to the waiver set, the
+toolchain, the provisions index or a ProgramSpec cannot make a repoint manifest
+stale. The live tree must equal the receipt's postimage only in the change set
+that introduces the receipt; a receipt lands only with its transaction's
+protected changes and is never edited or removed, and a repoint manifest may
+change only in the change set that introduces its receipt, so a transaction
+cannot be split across pull requests or restored later. A dependent manifest
+also re-verifies the
+successor's own model manifest (signature, schema, source attestation, live
+digests) and requires the successor primary to still have the bytes its
+repointed proof imports bind.
+
+The successor's model manifest must verify against the checkout's current
+waiver set and corpus release when the repoint runs, exactly as a retained
+successor must; refresh it first (a manifest-only refresh) if its bindings are
+older.
+
+In the protected `targeted-signed-reencode.yml` workflow a repoint is
+dispatched with the envelope as `source_bundle_json`, `citation` set to the
+successor's own corpus citation (the resolver refuses any other), and every
+other mode input empty: replacement, dependent, retained-successor, review
+finding, repair, queue, and existing-import inputs are all refused. The lane
+signs through the workflow-bound apply signer with no model credential, then
+packages, commits and opens the draft pull request for exactly the receipt's
+change set.
+
 Repository CI should run:
 
 ```bash
