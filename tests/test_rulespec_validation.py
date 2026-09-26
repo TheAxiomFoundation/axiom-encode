@@ -6668,7 +6668,7 @@ def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2056"')
+        .startswith('__version__ = "0.2.2057"')
     )
 
 
@@ -6900,13 +6900,13 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2056"
+    assert encoder_package["version"] == "0.2.2057"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2056"
+    assert project["project"]["version"] == "0.2.2057"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2056"')
+        .startswith('__version__ = "0.2.2057"')
     )
 
 
@@ -7168,13 +7168,13 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2056"
+    assert encoder_package["version"] == "0.2.2057"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2056"
+    assert project["project"]["version"] == "0.2.2057"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2056"')
+        .startswith('__version__ = "0.2.2057"')
     )
 
 
