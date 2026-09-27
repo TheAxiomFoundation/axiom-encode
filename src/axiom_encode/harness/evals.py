@@ -32,7 +32,10 @@ from axiom_oracles.bridges.registry import load_policyengine_registry
 
 from axiom_encode import __version__
 from axiom_encode import corpus_resolver as _corpus_resolver
-from axiom_encode.codex_cli import resolve_codex_cli
+from axiom_encode.codex_cli import (
+    resolve_codex_cli,
+    with_codex_model_availability_hint,
+)
 from axiom_encode.concepts.jurisdiction import jurisdiction_prefix
 from axiom_encode.concepts.registry import (
     Concept,
@@ -345,8 +348,8 @@ _OPENAI_REQUEST_MAX_ATTEMPTS = 6
 _OPENAI_REQUEST_BACKOFF_SECONDS = (1, 2, 4, 8, 10)
 _OPENAI_DEFAULT_PROMPT_MAX_OUTPUT_TOKENS = 16384
 _OPENAI_EXTENDED_PROMPT_MAX_OUTPUT_TOKENS = 32768
-_OPENAI_EXTENDED_OUTPUT_MODEL_PREFIXES = ("gpt-5.4", "gpt-5.5", "gpt-5.6")
-_OPENAI_EXPLICIT_PROMPT_CACHE_MODEL_PREFIXES = ("gpt-5.6",)
+_OPENAI_EXTENDED_OUTPUT_MODEL_PREFIXES = ("gpt-5.4", "gpt-5.5", "gpt-5.6", "gpt-6")
+_OPENAI_EXPLICIT_PROMPT_CACHE_MODEL_PREFIXES = ("gpt-5.6", "gpt-6")
 _OPENAI_PROMPT_CACHE_SCHEMA = "rulespec-authoring-v1"
 EVAL_EXECUTION_IDENTITY_SCHEMA = "axiom-encode/eval-execution-identity/v3"
 _EVAL_CASE_DEADLINE_MONOTONIC: ContextVar[float | None] = ContextVar(
@@ -14876,6 +14879,7 @@ def _run_codex_prompt_eval(
         and not ((terminated_after_output and final_text) or (timed_out and final_text))
     ):
         error = (stdout_text + stderr_text).strip() or "Codex eval failed"
+    error = with_codex_model_availability_hint(error)
 
     return EvalPromptResponse(
         text=final_text,
@@ -15208,7 +15212,7 @@ def _openai_prompt_max_output_tokens(model: str) -> int:
 
 
 def _openai_model_supports_explicit_prompt_cache(model: str) -> bool:
-    """Return whether the model supports GPT-5.6 prompt-cache breakpoints."""
+    """Return whether the model supports GPT-5.6-and-later prompt-cache breakpoints."""
 
     return any(
         model == prefix or model.startswith(f"{prefix}-")

@@ -557,7 +557,16 @@ def test_extracts_replayed_final_composition_without_redundant_preflight(tmp_pat
     assert result["runner"] == "openai-gpt-5.6-sol"
 
 
-def test_extracts_digest_bound_source_candidates_from_final_composition(tmp_path):
+@pytest.mark.parametrize(
+    ("initial_runner", "escalation_runner"),
+    [
+        ("openai-gpt-5.6-terra", "openai-gpt-5.6-sol"),
+        ("openai-gpt-6-luna", "openai-gpt-6-sol"),
+    ],
+)
+def test_extracts_digest_bound_source_candidates_from_final_composition(
+    tmp_path, initial_runner, escalation_runner
+):
     source_citations = [
         "us/statute/7/2015/f",
         "us/guidance/usda/fns/snap-obbb-alien-eligibility-implementation-memo",
@@ -586,12 +595,12 @@ def test_extracts_digest_bound_source_candidates_from_final_composition(tmp_path
     source_one = b"format: rulespec/v1\n# final statute source\nrules: []\n"
     source_two = b"format: rulespec/v1\n# final guidance source\nrules: []\n"
     payloads = {
-        "source-01/openai-gpt-5.6-terra/statutes/7/2015/f.yaml": b"older\n",
-        "source-01/openai-gpt-5.6-terra/statutes/7/2015/f.test.yaml": b"[]\n",
-        "source-01/openai-gpt-5.6-sol/statutes/7/2015/f.yaml": source_one,
-        "source-01/openai-gpt-5.6-sol/statutes/7/2015/f.test.yaml": b"[]\n",
-        "source-02/openai-gpt-5.6-sol/policies/usda/fns/snap-obbb-alien-eligibility-implementation-memo.yaml": source_two,
-        "source-02/openai-gpt-5.6-sol/policies/usda/fns/snap-obbb-alien-eligibility-implementation-memo.test.yaml": b"[]\n",
+        f"source-01/{initial_runner}/statutes/7/2015/f.yaml": b"older\n",
+        f"source-01/{initial_runner}/statutes/7/2015/f.test.yaml": b"[]\n",
+        f"source-01/{escalation_runner}/statutes/7/2015/f.yaml": source_one,
+        f"source-01/{escalation_runner}/statutes/7/2015/f.test.yaml": b"[]\n",
+        f"source-02/{escalation_runner}/policies/usda/fns/snap-obbb-alien-eligibility-implementation-memo.yaml": source_two,
+        f"source-02/{escalation_runner}/policies/usda/fns/snap-obbb-alien-eligibility-implementation-memo.test.yaml": b"[]\n",
     }
     replacement = _add_generated_payloads(
         archive,
@@ -613,7 +622,7 @@ def test_extracts_digest_bound_source_candidates_from_final_composition(tmp_path
         source_citations
     )
     first, second = result["source_candidates"]
-    assert first["runner"] == "openai-gpt-5.6-sol"
+    assert first["runner"] == escalation_runner
     assert (Path(first["root"]) / first["path"]).read_bytes() == source_one
     assert (Path(second["root"]) / second["path"]).read_bytes() == source_two
 
