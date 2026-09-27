@@ -13,7 +13,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import posixpath
 import re
+import shlex
 import sqlite3
 import sys
 import types
@@ -1856,7 +1858,51 @@ _TREE_HARDENING = (
     f"sudo chown -R 0:0 {_VERIFICATION_TREE}",
     f"sudo chmod -R go-w {_VERIFICATION_TREE}",
 )
-_OPT_PERMISSION_CHANGE = re.compile(r"\bch(?:mod|own|grp)\b.*\s/opt/?(?:\s|$)")
+_PERMISSION_PROGRAMS = frozenset({"chgrp", "chmod", "chown", "install", "setfacl"})
+_PERMISSION_PROGRAM_WORD = re.compile(r"\b(?:chgrp|chmod|chown|install|setfacl)\b")
+_SHELL_OPERATORS = frozenset(";&|()")
+
+
+def _opt_permission_changes(run):
+    """Return each command in ``run`` that changes /opt or one of its ancestors.
+
+    Commands are shell-tokenized so quoting, separators, ``sudo`` prefixes and
+    line continuations cannot hide a change; a line that cannot be tokenized is
+    returned verbatim so it fails closed.
+    """
+
+    changes = []
+    for line in run.replace("\\\n", " ").splitlines():
+        if not _PERMISSION_PROGRAM_WORD.search(line):
+            continue
+        lexer = shlex.shlex(line, posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        try:
+            tokens = list(lexer)
+        except ValueError:
+            changes.append((line.strip(),))
+            continue
+        command = []
+        for token in [*tokens, ";"]:
+            if token and set(token) <= _SHELL_OPERATORS:
+                programs = [
+                    index
+                    for index, word in enumerate(command)
+                    if posixpath.basename(word) in _PERMISSION_PROGRAMS
+                ]
+                if programs:
+                    program, *arguments = command[programs[0] :]
+                    targets = {
+                        "/" + posixpath.normpath(argument).lstrip("/")
+                        for argument in arguments
+                        if argument.startswith("/")
+                    }
+                    if targets & {"/", "/opt"}:
+                        changes.append((posixpath.basename(program), *arguments))
+                command = []
+            else:
+                command.append(token)
+    return changes
 
 
 def _verification_tree_jobs():
@@ -1921,15 +1967,55 @@ def test_verification_tree_provisioning_tightens_opt(workflow_name, job_name, st
     assert all(lines.index(command) > provisioner_line for command in _TREE_HARDENING)
     opt_positions = [lines.index(command) for command in _OPT_HARDENING]
     assert opt_positions == sorted(opt_positions)
-    # The tightening commands are the only permission changes to /opt itself
-    # anywhere in the job, so nothing loosens it again before the supervisor runs.
+    # The tightening commands are the only permission changes to /opt or an
+    # ancestor anywhere in the job, so nothing loosens it again before the
+    # supervisor runs.
     opt_changes = [
-        line.strip()
+        change
         for step in steps
-        for line in step.get("run", "").splitlines()
-        if _OPT_PERMISSION_CHANGE.search(line)
+        for change in _opt_permission_changes(step.get("run", ""))
     ]
-    assert opt_changes == list(_OPT_HARDENING[:2])
+    assert opt_changes == [("chown", "0:0", "/opt"), ("chmod", "go-w", "/opt")]
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "sudo chmod g+w /opt",
+        'sudo chmod g+w "/opt"',
+        "sudo chmod g+w '/opt'",
+        "sudo chmod g+w /opt;",
+        "sudo chmod g+w /opt/",
+        "sudo chmod g+w /opt/../opt",
+        "sudo -- chmod 775 /opt",
+        "true && sudo chgrp runner /opt || exit 1",
+        "sudo chmod \\\n  g+w /opt",
+        "sudo chmod -R g+w /",
+        "sudo /bin/chmod 1777 //opt",
+        "sudo setfacl -m g:runner:rwx /opt",
+        "sudo install -d -m 0777 /opt",
+        "sudo chmod g+w '/opt",
+    ],
+)
+def test_opt_permission_change_detection_sees_through_shell_syntax(command):
+    assert _opt_permission_changes(f"echo before\n{command}\necho after\n")
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        f"sudo chmod -R go-w {_VERIFICATION_TREE}",
+        f"sudo chown -R 0:0 {_VERIFICATION_TREE}",
+        f"sudo install -o root -g root -m 0755 signer {_VERIFICATION_TREE}/signer",
+        'test -z "$(find /opt -maxdepth 0 -perm /022)"',
+        "# sudo chmod g+w /opt",
+        "sudo mkdir -p /opt",
+        "ls -ld /opt",
+        "uv pip install --target /opt/axiom-verification/site .",
+    ],
+)
+def test_opt_permission_change_detection_ignores_other_paths(command):
+    assert _opt_permission_changes(command) == []
 
 
 _UNSAFE_DRIFT_CODE_POINTS = (0xD800, 0x202E, 0x009B, 0x007F, 0x2028)
