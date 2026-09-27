@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "axiom-encode"
-version = "0.2.2049"
+version = "0.2.2051"
 description = "AI-assisted RuleSpec encoding infrastructure - fully self-contained"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -43,7 +43,7 @@ dependencies = [
 [project.optional-dependencies]
 api = [
     "anthropic>=0.40.0",
-    "claude-agent-sdk>=0.1.0",
+    "claude-agent-sdk>=0.2.160",
 ]
 observability = [
     "opentelemetry-api>=1.28.0",
