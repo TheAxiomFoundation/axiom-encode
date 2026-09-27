@@ -1414,7 +1414,7 @@ def test_verification_only_supervisor_accepts_retired_release_key_from_v3_keyrin
     }
 
 
-def test_protected_supervisor_stages_authenticated_v7_exact_dependent_transaction(
+def test_protected_supervisor_stages_authenticated_v8_exact_dependent_transaction(
     signing_supervisor: Path,
     tmp_path_factory: pytest.TempPathFactory,
     monkeypatch: pytest.MonkeyPatch,
