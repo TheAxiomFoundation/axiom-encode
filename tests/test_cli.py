@@ -18033,7 +18033,9 @@ rules:
         outer = json.loads(destination_manifest.read_text())
         receipt_path = checkout / outer["replacement"]["receipt_path"]
         receipt = json.loads(receipt_path.read_text())
-        assert receipt["schema_version"] == "axiom-encode/legacy-fresh-reencode-receipt/v8"
+        assert (
+            receipt["schema_version"] == "axiom-encode/legacy-fresh-reencode-receipt/v8"
+        )
         assert len(receipt["replacement"]["retained_successors"]) == 4
         assert {
             item["destination"]
