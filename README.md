@@ -54,9 +54,8 @@ uv sync --locked --extra dev
 
 This installs exactly what `uv.lock` pins, including the test and lint tools.
 CI builds its test environment with `uv sync --locked --python 3.13 --extra dev`.
-Without
-[uv](https://docs.astral.sh/uv/), create and activate a virtualenv, then
-`pip install -e ".[dev]"`, which resolves the latest compatible releases
+Without [uv](https://docs.astral.sh/uv/), create and activate a virtualenv,
+then `pip install -e ".[dev]"`, which resolves the latest compatible releases
 rather than the locked set.
 
 ## Usage
