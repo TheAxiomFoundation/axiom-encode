@@ -1033,6 +1033,8 @@ jobs:
             ./cmd/axiom-encode-apply-signer
           sudo chown 0:0 /opt
           sudo chmod go-w /opt
+          test "$(stat -c '%u' /opt)" = "0"
+          test -z "$(find /opt -maxdepth 0 -perm /022)"
           sudo rm -rf /opt/axiom-verification
           sudo .venv/bin/python scripts/provision_verification_supervisor.py \
             --destination /opt/axiom-verification \

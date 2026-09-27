@@ -1840,6 +1840,98 @@ def test_bulk_worklist_workflow_has_no_legacy_generation_lane():
     )
 
 
+_VERIFICATION_TREE = "/opt/axiom-verification"
+# The signing supervisor rejects any ancestor of its executable that is
+# group- or other-writable (validateTrustedAncestors in
+# cmd/axiom-encode-signing-supervisor/execution_trust.go), and GitHub's ubuntu
+# runner image ships /opt group-writable. Every step that provisions the
+# protected tree must also tighten /opt itself, then fail closed if it did not.
+_OPT_HARDENING = (
+    "sudo chown 0:0 /opt",
+    "sudo chmod go-w /opt",
+    'test "$(stat -c \'%u\' /opt)" = "0"',
+    'test -z "$(find /opt -maxdepth 0 -perm /022)"',
+)
+_TREE_HARDENING = (
+    f"sudo chown -R 0:0 {_VERIFICATION_TREE}",
+    f"sudo chmod -R go-w {_VERIFICATION_TREE}",
+)
+_OPT_PERMISSION_CHANGE = re.compile(r"\bch(?:mod|own|grp)\b.*\s/opt/?(?:\s|$)")
+
+
+def _verification_tree_jobs():
+    workflows_dir = Path(__file__).parents[1] / ".github" / "workflows"
+    jobs = []
+    for path in sorted(workflows_dir.glob("*.y*ml")):
+        workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+        for job_name, job in workflow["jobs"].items():
+            steps = job.get("steps", [])
+            if any(_VERIFICATION_TREE in step.get("run", "") for step in steps):
+                jobs.append((path.name, job_name, steps))
+    return jobs
+
+
+def test_verification_tree_discovery_covers_every_known_provisioner():
+    discovered = {workflow for workflow, _job, _steps in _verification_tree_jobs()}
+
+    assert {
+        "bulk-encode.yml",
+        "golden-regeneration.yml",
+        "signed-apply-reusable.yml",
+        "targeted-signed-reencode.yml",
+    } <= discovered
+
+
+@pytest.mark.parametrize(
+    ("workflow_name", "job_name", "steps"),
+    [pytest.param(*job, id=f"{job[0]}:{job[1]}") for job in _verification_tree_jobs()],
+)
+def test_verification_tree_provisioning_tightens_opt(workflow_name, job_name, steps):
+    tree_indexes = [
+        index
+        for index, step in enumerate(steps)
+        if _VERIFICATION_TREE in step.get("run", "")
+    ]
+    provision_run = steps[tree_indexes[0]]["run"]
+    lines = [line.strip() for line in provision_run.splitlines()]
+    provisioner_line = next(
+        (
+            index
+            for index, line in enumerate(lines)
+            if "provision_verification_supervisor.py" in line
+        ),
+        None,
+    )
+
+    # The first step in the job that touches the tree is the one provisioning
+    # it, so no earlier step can run anything from it.
+    assert provisioner_line is not None, (
+        f"{workflow_name}:{job_name} uses {_VERIFICATION_TREE} before provisioning it"
+    )
+    assert f"--destination {_VERIFICATION_TREE}" in provision_run
+    missing = [
+        command
+        for command in (*_TREE_HARDENING, *_OPT_HARDENING)
+        if command not in lines
+    ]
+    assert not missing, (
+        f"{workflow_name}:{job_name} provisions {_VERIFICATION_TREE} "
+        f"without hardening it and /opt: {missing}"
+    )
+    assert all(lines.index(command) > provisioner_line for command in _TREE_HARDENING)
+    opt_positions = [lines.index(command) for command in _OPT_HARDENING]
+    assert opt_positions == sorted(opt_positions)
+    # The tightening commands are the only permission changes to /opt itself
+    # anywhere in the job, so nothing loosens it again before the supervisor runs.
+    opt_changes = [
+        line.strip()
+        for step in steps
+        for line in step.get("run", "").splitlines()
+        if _OPT_PERMISSION_CHANGE.search(line)
+    ]
+    assert opt_changes == list(_OPT_HARDENING[:2])
+
+
 _UNSAFE_DRIFT_CODE_POINTS = (0xD800, 0x202E, 0x009B, 0x007F, 0x2028)
 
 
