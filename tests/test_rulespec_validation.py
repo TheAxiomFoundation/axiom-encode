@@ -6497,7 +6497,7 @@ def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2053"')
+        .startswith('__version__ = "0.2.2054"')
     )
 
 
@@ -6729,13 +6729,13 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2053"
+    assert encoder_package["version"] == "0.2.2054"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2053"
+    assert project["project"]["version"] == "0.2.2054"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2053"')
+        .startswith('__version__ = "0.2.2054"')
     )
 
 
@@ -6997,13 +6997,13 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2053"
+    assert encoder_package["version"] == "0.2.2054"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2053"
+    assert project["project"]["version"] == "0.2.2054"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2053"')
+        .startswith('__version__ = "0.2.2054"')
     )
 
 
@@ -51568,3 +51568,82 @@ def test_numeric_inventory_does_not_sum_flattened_child_count_columns():
     # turn adjacent labels into an invented substantive amount.
     assert 6 not in values
     assert 6 not in extract_numbers_from_text(source)
+
+
+@pytest.mark.parametrize("row_ordered", [False, True])
+@pytest.mark.parametrize(
+    "mutation, expected_issue",
+    [
+        ("duplicate_id", "ambiguous runtime output reference"),
+        ("key_id_collision", "ambiguous runtime output reference"),
+        ("reversed_key_id_collision", "ambiguous runtime output reference"),
+        ("extra_result", "returned 2 row result(s), expected 1"),
+        ("malformed_row", "malformed result row"),
+        ("duplicate_json_key", "duplicate response key"),
+    ],
+)
+def test_rulespec_companion_rejects_ambiguous_runtime_response(
+    monkeypatch, tmp_path, row_ordered, mutation, expected_issue
+):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=_canonical_rulespec_content_root(tmp_path / "repos", "us"),
+        axiom_rules_path=tmp_path / "missing-engine",
+        enable_oracles=False,
+    )
+    legal_id = "us:policies/example/rules#benefit"
+    scalar = {
+        "kind": "scalar",
+        "id": legal_id,
+        "value": {"kind": "integer", "value": 42},
+    }
+    output_map = {"benefit": scalar}
+    if mutation == "duplicate_id":
+        # Identical values still have two distinct response identities.
+        output_map["another_output"] = dict(scalar)
+    elif mutation in {"key_id_collision", "reversed_key_id_collision"}:
+        output_map[legal_id] = {
+            "kind": "scalar",
+            "id": "us:policies/other/rules#benefit",
+            "value": {"kind": "integer", "value": 42},
+        }
+        if mutation == "reversed_key_id_collision":
+            output_map = dict(reversed(list(output_map.items())))
+    results = [{"outputs": output_map}]
+    if mutation == "extra_result":
+        results.append({"outputs": output_map})
+    elif mutation == "malformed_row":
+        results = [None]
+    response = json.dumps({"results": results})
+    if mutation == "duplicate_json_key":
+        value = json.dumps(scalar)
+        response = (
+            '{"results":[{"outputs":{"benefit":'
+            + value
+            + ',"benefit":'
+            + value
+            + "}}]}"
+        )
+
+    def fake_run(command, **kwargs):
+        return subprocess.CompletedProcess(command, 0, stdout=response, stderr="")
+
+    monkeypatch.setattr(validator_pipeline.subprocess, "run", fake_run)
+    case = {"input": {}, "output": {"benefit": [42] if row_ordered else 42}}
+    if row_ordered:
+        case["tables"] = {"Person": [{"person_id": "person-1"}]}
+    outputs, issues = pipeline._run_rulespec_derived_test_case(
+        binary=tmp_path / "engine",
+        compiled_path=tmp_path / "compiled.json",
+        case=case,
+        case_name="runtime_identity",
+        case_index=1,
+        period={"period_kind": "tax_year", "start": "2026-01-01", "end": "2026-12-31"},
+        output_names=["benefit"],
+        derived_by_key={"benefit": {"entity": "Person"}},
+        require_legal_input_keys=False,
+        legal_ids_by_friendly_name={},
+        declared_relation_names=set(),
+        module_target=None,
+    )
+    assert outputs is None
+    assert any(expected_issue in issue for issue in issues), issues
