@@ -32,6 +32,13 @@ LOCKED_DEV_SYNC = re.compile(
     r"uv sync --locked --python (?:3\.13|\$\{\{ matrix\.python-version \}\})"
     r" --extra dev"
 )
+# uv subcommands that re-resolve unless pinned to the lock, and the flags that
+# layer unlocked or upgraded packages over it even with --locked/--frozen.
+LOCK_READERS = re.compile(r"\buv (?:sync|run|export)\b")
+LOCK_OVERRIDES = re.compile(
+    r"(?:^|\s)(?:--with(?:-requirements|-editable)?|--upgrade(?:-package)?|-U)"
+    r"(?=[\s=]|$)"
+)
 # Commands that build a Python environment without reading uv.lock.
 UNLOCKED_INSTALLERS = re.compile(r"\b(?:uv (?:pip|venv|tool|add)|uvx|pip3? install)\b")
 
@@ -122,16 +129,24 @@ def test_every_setup_uv_step_pins_the_same_exact_uv_release():
     assert len(set(versions.values())) == 1, versions
 
 
-def test_every_uv_sync_and_run_reads_the_lock():
-    unlocked = []
+def test_every_uv_sync_run_and_export_installs_exactly_the_lock():
+    offenders = []
     for name, job, index, step in _steps():
         for line in _logical_lines(step.get("run", "")):
+            # `uv lock --offline` (finalize-signed-snap-queue.yml, after a version
+            # bump) cannot fetch newer releases; a networked `uv lock` can.
+            if re.search(r"\buv lock\b", line) and not re.search(
+                r"--(?:check|offline)\b", line
+            ):
+                offenders.append(f"{name}:{job}[{index}] {line}")
             for command in re.split(r"&&|\|\||;|\|", line):
-                if re.search(r"\buv (?:sync|run)\b", command) and not re.search(
-                    r"--(?:locked|frozen)\b", command
+                if not LOCK_READERS.search(command):
+                    continue
+                if not re.search(r"--(?:locked|frozen)\b", command) or (
+                    LOCK_OVERRIDES.search(command)
                 ):
-                    unlocked.append(f"{name}:{job}[{index}] {command.strip()}")
-    assert unlocked == []
+                    offenders.append(f"{name}:{job}[{index}] {command.strip()}")
+    assert offenders == []
 
 
 @pytest.mark.parametrize(
