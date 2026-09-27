@@ -52,14 +52,23 @@ def evaluate(tmp_path, monkeypatch):
     pipeline = vp.ValidatorPipeline(
         axiom_rules_path=tmp_path,
         policy_repo_path=tmp_path,
+        local_corpus_release=None,
+        enable_oracles=False,
         source_citation_path=CITATION,
         require_complete_source_unit=True,
     )
     monkeypatch.setattr(pipeline, "_validation_source_root", lambda _: tmp_path)
 
-    def run(candidate=None, source_text=None, *, available=True):
+    def run(candidate=None, source_text=None, *, available=True, provider_content=None):
         if not available:
             providers.clear()
+        if provider_content is not None:
+            for provider in providers.values():
+                provider.write_text(
+                    provider_content(provider.read_text())
+                    if callable(provider_content)
+                    else provider_content
+                )
         content = yaml.safe_dump(candidate if candidate is not None else payload)
         rules_file = tmp_path / "child-tax-credit.yaml"
         rules_file.write_text(content)
@@ -78,12 +87,19 @@ def _paired(issues):
 
 
 def test_real_precise_deferral_candidate_needs_no_paired_witnesses(evaluate):
-    assert not _paired(evaluate())
+    assert evaluate() == []
 
 
 @pytest.mark.parametrize(
     "mutation",
-    ["vague", "wrong_section", "unknown_output", "missing_symbol", "wrong_module"],
+    [
+        "vague",
+        "wrong_section",
+        "wrong_major",
+        "unknown_output",
+        "missing_symbol",
+        "wrong_module",
+    ],
 )
 def test_imprecise_definition_deferrals_still_require_witnesses(evaluate, mutation):
     payload, _, _ = _candidate()
@@ -92,6 +108,8 @@ def test_imprecise_definition_deferrals_still_require_witnesses(evaluate, mutati
             record["reason"] = "Already handled elsewhere."
         elif mutation == "wrong_section":
             record["reason"] = record["reason"].replace("3.06(1)", "3.05(1)")
+        elif mutation == "wrong_major":
+            record["reason"] = record["reason"].replace("3.06(1)", "99.06(1)")
         elif mutation == "unknown_output":
             record["blocked_by"] = [record["blocked_by"][0] + "_nonexistent"]
         elif mutation == "missing_symbol":
@@ -105,6 +123,50 @@ def test_imprecise_definition_deferrals_still_require_witnesses(evaluate, mutati
 
 def test_deferral_requires_resolved_existing_upstream_outputs(evaluate):
     assert _paired(evaluate(available=False))
+
+
+def test_precise_definition_deferrals_also_accept_canonical_branch_paths(evaluate):
+    payload, _, _ = _candidate()
+    for record in payload["module"]["deferred_outputs"]:
+        if record["output"].partition("#")[2] in {
+            "threshold_phaseout_amount_definition",
+            "completed_phaseout_amount_definition",
+        }:
+            record["output"] = record["output"].replace(
+                "/child-tax-credit#", "/page-14/06/1#"
+            )
+    assert evaluate(payload) == []
+
+
+@pytest.mark.parametrize(
+    "provider_content",
+    [
+        '{"format": "rulespec/v1", "rules": [{"name": "unrelated", "kind": "derived"}]}',
+        '{"format": "rulespec/v1", "rules": [{"name": "eitc_phase_out_income", "kind": "input"}]}',
+        "format: rulespec/v1\nrules: []\nrules: [{name: eitc_phase_out_income, kind: derived}]",
+        '{"format": "rulespec/v1", "rules": [{"name": "eitc_phase_out_income", "kind": "derived"}, {"name": "eitc_phase_out_income", "kind": "derived"}]}',
+        "rules: [",
+    ],
+)
+def test_provider_file_must_export_each_exact_unambiguous_output(
+    evaluate, provider_content
+):
+    assert _paired(evaluate(provider_content=provider_content))
+
+
+@pytest.mark.parametrize("mutation", ["input", "duplicate_rule", "wrong_format"])
+def test_resolved_symbol_must_be_an_unambiguous_output(evaluate, mutation):
+    def corrupt(content):
+        provider = json.loads(content)
+        if mutation == "input":
+            provider["rules"][0]["kind"] = "input"
+        elif mutation == "duplicate_rule":
+            provider["rules"].append(copy.deepcopy(provider["rules"][0]))
+        else:
+            provider["format"] = "untrusted/v1"
+        return json.dumps(provider)
+
+    assert _paired(evaluate(provider_content=corrupt))
 
 
 @pytest.mark.parametrize("removed", ["threshold", "completed"])
@@ -138,3 +200,27 @@ def test_existing_but_unrelated_provider_cannot_defer_a_definition(evaluate):
         if "phaseout_amount_definition" in record["output"]:
             record["blocked_by"] = sibling_targets
     assert _paired(evaluate(payload))
+
+
+def test_unrelated_arithmetic_in_the_same_paragraph_is_not_deferred(evaluate):
+    _, _, source = _candidate()
+    source += " The additional credit equals twice the qualifying expenses."
+    issues = evaluate(source_text=source)
+    assert any("complete-source-unit:formula" in issue for issue in issues)
+
+
+def test_unrelated_condition_within_a_definition_sentence_is_not_deferred(evaluate):
+    _, _, source = _candidate()
+    source = source.replace(
+        "begins to phase out.",
+        "begins to phase out, but if the taxpayer is disqualified, no credit is allowed.",
+    )
+    assert "taxpayer is disqualified" in " ".join(_paired(evaluate(source_text=source)))
+
+
+@pytest.mark.parametrize(
+    "heading", ["SECTION 4. OTHER ADJUSTMENTS.", "Section 4. Other Adjustments."]
+)
+def test_conflicting_explicit_major_section_is_not_deferred(evaluate, heading):
+    _, _, source = _candidate()
+    assert _paired(evaluate(source_text=heading + " " + source))
