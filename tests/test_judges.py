@@ -1864,22 +1864,60 @@ _SHELLS = frozenset({"bash", "dash", "sh", "zsh"})
 # Operators that end one command; a pipe does not, so `echo /opt | xargs chmod`
 # is judged as one unit.
 _COMMAND_SEPARATORS = frozenset({";", "&", "&&", "||", "(", ")", ";;"})
+# A line ending in one of these continues onto the next, as in bash.
+_CONTINUED_LINE = re.compile(r"(?:\|\||&&|\|)\s*\Z")
+
+
+def _logical_shell_lines(run):
+    """Split ``run`` into the command lines bash would read."""
+
+    lines = []
+    pending = ""
+    for line in run.replace("\\\n", "").splitlines():
+        pending = f"{pending} {line}" if pending else line
+        if not _CONTINUED_LINE.search(line):
+            lines.append(pending)
+            pending = ""
+    if pending:
+        lines.append(pending)
+    return lines
+
+
+def _shell_c_script(arguments):
+    """Return the script a shell runs via ``-c``, skipping its other options."""
+
+    skip_option_argument = False
+    for position, word in enumerate(arguments):
+        if skip_option_argument:
+            skip_option_argument = False
+        elif word.startswith("--"):
+            continue
+        elif re.fullmatch(r"[-+][A-Za-z]+", word):
+            if word[0] == "-" and "c" in word[1:]:
+                following = arguments[position + 1 : position + 2]
+                return following[0] if following else None
+            # `-o pipefail` and clusters ending in o take the next word.
+            skip_option_argument = word.endswith("o")
+        else:
+            return None
+    return None
 
 
 def _opt_permission_changes(run):
     """Return each command in ``run`` that changes /opt or one of its ancestors.
 
-    Lines are shell-tokenized after removing backslash-newline continuations the
-    way bash does, so quoting, separators, ``sudo`` prefixes, continuations
-    (even inside a word), ``sh -c`` scripts, ``find -exec`` and ``xargs``
-    pipelines cannot hide a change. A line that cannot be tokenized is returned
-    verbatim so it fails closed. Relative paths and shell variables are not
-    resolved: this guards the workflows against accidental edits, and the
-    supervisor's own ancestor check still refuses to start on a loose /opt.
+    Commands are shell-tokenized after joining lines the way bash does
+    (backslash-newline, even inside a word, and a trailing ``|``, ``||`` or
+    ``&&``), so quoting, separators, ``sudo`` prefixes, ``sh -c`` scripts,
+    ``find -exec`` and ``xargs`` pipelines cannot hide a change. A command that
+    cannot be tokenized is returned verbatim so it fails closed. Relative paths
+    and shell variables are not resolved: this guards the workflows against
+    accidental edits, and the supervisor's own ancestor check still refuses to
+    start on a loose /opt.
     """
 
     changes = []
-    for line in run.replace("\\\n", "").splitlines():
+    for line in _logical_shell_lines(run):
         if not _PERMISSION_PROGRAM_WORD.search(line):
             continue
         lexer = shlex.shlex(line, posix=True, punctuation_chars=True)
@@ -1895,11 +1933,11 @@ def _opt_permission_changes(run):
                 command.append(token)
                 continue
             names = [posixpath.basename(word) for word in command]
-            for index, name in enumerate(names[:-1]):
-                flag = command[index + 1]
-                if name in _SHELLS and re.fullmatch(r"-[a-z]*c[a-z]*", flag):
-                    if index + 2 < len(command):
-                        changes.extend(_opt_permission_changes(command[index + 2]))
+            for index, name in enumerate(names):
+                if name in _SHELLS:
+                    script = _shell_c_script(command[index + 1 :])
+                    if script is not None:
+                        changes.extend(_opt_permission_changes(script))
             programs = [
                 i for i, name in enumerate(names) if name in _PERMISSION_PROGRAMS
             ]
@@ -2009,6 +2047,12 @@ def test_verification_tree_provisioning_tightens_opt(workflow_name, job_name, st
         'sudo bash -ec "true; chmod 775 /opt"',
         "sudo find /opt -maxdepth 0 -exec chmod g+w {} +",
         "echo /opt | sudo xargs chmod g+w",
+        "echo /opt |\n  sudo xargs chmod g+w",
+        "true &&\n  sudo chmod g+w /opt",
+        "sudo bash -e -c 'chmod g+w /opt'",
+        "sudo bash -euo pipefail -c 'chmod 775 /opt'",
+        "sudo bash --noprofile --norc -eo pipefail -c 'chmod g+w /opt'",
+        "sudo sh -c 'sh -c \"chmod g+w /opt\"'",
     ],
 )
 def test_opt_permission_change_detection_sees_through_shell_syntax(command):
@@ -2029,6 +2073,9 @@ def test_opt_permission_change_detection_sees_through_shell_syntax(command):
         "echo /opt | grep opt",
         f'sudo sh -c "chmod -R go-w {_VERIFICATION_TREE}"',
         "ls -ld /opt; sudo chmod -R go-w /opt/axiom-verification",
+        "sudo bash -euo pipefail -c 'ls -ld /opt'",
+        "sudo bash scripts/install.sh",
+        "ls /opt |\n  grep hostedtoolcache",
     ],
 )
 def test_opt_permission_change_detection_ignores_other_paths(command):
