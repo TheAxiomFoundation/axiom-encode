@@ -267,6 +267,7 @@ class _ExceptionWitness:
     relational_transitions: tuple[tuple[str, str, str], ...] = ()
     case_pair_identity: tuple[int, ...] = ()
     calendar_attainment_age: int | None = None
+    maximum_transitions: tuple[tuple[str, str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -2259,8 +2260,91 @@ def _glued_section_sentence_matches(text: str) -> tuple[re.Match[str], ...]:
     return tuple(matches)
 
 
-def recognize_source_structure(source_text: str) -> tuple[SourceStructureBranch, ...]:
+_IRS_REVENUE_PROCEDURE_CITATION = re.compile(
+    r"us/guidance/irs/rev-proc-\d{4}-\d+(?:/page-\d+)?"
+)
+_IRS_REVENUE_PROCEDURE_SUBSECTION = re.compile(
+    r"(?:^|(?<=[.!?])\s+|\n[ \t]*)"
+    r"(?P<marker>\.(?P<label>\d{2})[ \t]+[A-Z][A-Za-z'-]*"
+    r"(?:[ \t]+(?:[A-Z][A-Za-z'-]*|as|of|for|and|or|the|to|in)){1,15}\.)"
+)
+_IRS_REVENUE_PROCEDURE_PARAGRAPH = re.compile(
+    r"(?:^|(?<=[.!?])\s+|\n[ \t]*)"
+    r"(?P<marker>\((?P<label>\d+[a-z]?)\))(?=\s+[A-Z])"
+)
+
+
+def _irs_revenue_procedure_structure(
+    source_text: str,
+) -> tuple[SourceStructureBranch, ...]:
+    """Recognize titled .NN sections and printed paragraphs after PDF flattening."""
+
+    headings = tuple(_IRS_REVENUE_PROCEDURE_SUBSECTION.finditer(source_text))
+    branches: list[SourceStructureBranch] = []
+    containers: list[tuple[tuple[str, ...], int, int]] = [
+        ((), 0, headings[0].start("marker") if headings else len(source_text))
+    ]
+    for index, heading in enumerate(headings):
+        start = heading.start("marker")
+        end = (
+            headings[index + 1].start("marker")
+            if index + 1 < len(headings)
+            else len(source_text)
+        )
+        path = (heading.group("label"),)
+        branches.append(
+            SourceStructureBranch(
+                path,
+                "guidance-subsection",
+                heading.group("marker"),
+                source_text[start:end].strip(),
+                start,
+                end,
+            )
+        )
+        containers.append((path, start, end))
+    for path, start, end in containers:
+        # Restore only authenticated PDF-flattened paragraph boundaries, with
+        # identical offsets. Parse the whole subsection once so nested numeric
+        # markers retain their U.S. outline ancestors rather than becoming roots.
+        local_source = source_text[start:end]
+        paragraph_boundaries = {
+            match.start("marker") - 1
+            for match in _IRS_REVENUE_PROCEDURE_PARAGRAPH.finditer(local_source)
+            if match.start("marker") > 0
+            and local_source[match.start("marker") - 1].isspace()
+        }
+        outlined_source = "".join(
+            "\n" if index in paragraph_boundaries else char
+            for index, char in enumerate(local_source)
+        )
+        for nested in recognize_source_structure(outlined_source):
+            if nested.kind != "sentence":
+                branches.append(
+                    replace(
+                        nested,
+                        path=(*path, *nested.path),
+                        text=source_text[
+                            start + nested.start : start + nested.end
+                        ].strip(),
+                        start=start + nested.start,
+                        end=start + nested.end,
+                        structural_numeric_spans=tuple(
+                            (start + span_start, start + span_end)
+                            for span_start, span_end in nested.structural_numeric_spans
+                        ),
+                    )
+                )
+    return tuple(sorted(branches, key=lambda branch: (branch.start, len(branch.path))))
+
+
+def recognize_source_structure(
+    source_text: str, *, corpus_citation_path: str = ""
+) -> tuple[SourceStructureBranch, ...]:
     """Recognize paragraph, list, letter, and glued German sentence markers."""
+
+    if _IRS_REVENUE_PROCEDURE_CITATION.fullmatch(corpus_citation_path):
+        return _irs_revenue_procedure_structure(source_text)
 
     branches: list[SourceStructureBranch] = []
     paragraph_segments: list[tuple[tuple[str, ...], int, int, str]] = []
@@ -4508,6 +4592,7 @@ def analyze_complete_source_unit(
     artifact_numeric_bindings: Sequence[tuple[str, float]] | None = None,
     authenticated_same_act_aliases: Sequence[str] = (),
     imported_symbol_contents: Sequence[tuple[str, str]] = (),
+    resolved_dependency_outputs: Sequence[str] = (),
 ) -> CompleteSourceUnitAnalysis:
     """Analyze one artifact against its authoritative, resolver-owned body."""
 
@@ -4539,6 +4624,7 @@ def analyze_complete_source_unit(
                 artifact_numeric_bindings=artifact_numeric_bindings,
                 authenticated_same_act_aliases=authenticated_same_act_aliases,
                 imported_symbol_contents=imported_symbol_contents,
+                resolved_dependency_outputs=resolved_dependency_outputs,
             )
 
     return CompleteSourceUnitAnalysis((), (), 0, 0, 0)
@@ -4638,9 +4724,12 @@ def _analyze_rulespec_payload(
     artifact_numeric_bindings: Sequence[tuple[str, float]] | None,
     authenticated_same_act_aliases: Sequence[str],
     imported_symbol_contents: Sequence[tuple[str, str]],
+    resolved_dependency_outputs: Sequence[str],
 ) -> CompleteSourceUnitAnalysis:
     payload = _bind_currency_rounding_rules(payload)
-    branches = recognize_source_structure(source_text)
+    branches = recognize_source_structure(
+        source_text, corpus_citation_path=corpus_citation_path
+    )
     (
         all_covered_paths,
         principal_paths,
@@ -4659,13 +4748,19 @@ def _analyze_rulespec_payload(
     }
     test_cases = _typed_numeric_expected_cases(test_cases, named_rules)
     test_cases = _typed_date_cases(test_cases, payload)
+    deferred_clauses: list[SourceStructureBranch] = []
     deferred_paths, imprecise_deferrals = _deferred_coverage(
         payload,
         corpus_citation_path=corpus_citation_path,
         source_text=source_text,
         branches=branches,
         authenticated_same_act_aliases=authenticated_same_act_aliases,
+        resolved_dependency_outputs=resolved_dependency_outputs,
+        deferred_clauses=deferred_clauses,
     )
+    # Like a source-bound proof excerpt, a precise clause accounts for its
+    # structural owner. It does not defer that owner's other obligations.
+    all_covered_paths.update(clause.path for clause in deferred_clauses)
     issues: list[str] = []
     issues.extend(imprecise_deferrals)
     issues.extend(
@@ -4768,6 +4863,7 @@ def _analyze_rulespec_payload(
         deferred_paths=deferred_paths,
         formula_branches=formula_branches,
         extract_numeric_occurrences=extract_numeric_occurrences,
+        deferred_clauses=deferred_clauses,
     )
     principal_formula_clause_rules = _principal_formula_clause_rules(
         formula_branches,
@@ -4914,6 +5010,7 @@ def _analyze_rulespec_payload(
                 source_text=source_text,
                 corpus_citation_path=corpus_citation_path,
                 deferred_paths=deferred_paths,
+                deferred_clauses=deferred_clauses,
                 test_cases=test_cases,
                 extract_numeric_occurrences=extract_numeric_grounding_occurrences,
                 numeric_value_is_grounded=numeric_value_is_grounded,
@@ -5422,6 +5519,8 @@ def _deferred_coverage(
     source_text: str,
     branches: Sequence[SourceStructureBranch],
     authenticated_same_act_aliases: Sequence[str] = (),
+    resolved_dependency_outputs: Sequence[str] = (),
+    deferred_clauses: list[SourceStructureBranch] | None = None,
 ) -> tuple[set[tuple[str, ...]], list[str]]:
     module = payload.get("module")
     records = module.get("deferred_outputs") if isinstance(module, dict) else None
@@ -5432,6 +5531,17 @@ def _deferred_coverage(
     issues: list[str] = []
     for index, record in enumerate(records):
         if not isinstance(record, dict):
+            continue
+        definition_clauses = _resolved_definition_deferral_clauses(
+            record,
+            payload=payload,
+            corpus_citation_path=corpus_citation_path,
+            source_text=source_text,
+            branches=branches,
+            resolved_dependency_outputs=resolved_dependency_outputs,
+        )
+        if definition_clauses and deferred_clauses is not None:
+            deferred_clauses.extend(definition_clauses)
             continue
         output = str(record.get("output") or "").strip()
         output_path = output.split("#", 1)[0]
@@ -5703,6 +5813,140 @@ def _deferred_coverage(
                 f"{retry_shape}"
             )
     return covered, issues
+
+
+def _definition_words(text: str) -> set[str]:
+    normalized = re.sub(r"[^a-z0-9]+", " ", text.lower())
+    normalized = re.sub(r"\bphase out\b", "phaseout", normalized)
+    return set(normalized.split()) - {"the", "amount", "definition", "income", "credit"}
+
+
+def _resolved_definition_deferral_clauses(
+    record: dict[str, Any],
+    *,
+    payload: dict[str, Any],
+    corpus_citation_path: str,
+    source_text: str,
+    branches: Sequence[SourceStructureBranch],
+    resolved_dependency_outputs: Sequence[str],
+) -> tuple[SourceStructureBranch, ...]:
+    """Bind an IRS definition delegated to existing outputs to its own clause.
+
+    A preserved module filename need not equal the corpus page filename. The
+    resolver, never the candidate's own metadata, supplies output existence.
+    Missing-dependency deferrals retain their separate, existing precision rules.
+    Rev. Proc. 2025-32's flattened .NN adjustment headings belong to Section 3.
+    Other instruments require resolver-owned major-section context before using
+    this deferral profile; a generic taxable-year phrase is not that evidence.
+    """
+
+    page = re.fullmatch(
+        r"us/guidance/irs/(?P<document>rev-proc-\d{4}-\d+)/page-(?P<page>\d+)",
+        corpus_citation_path,
+    )
+    if page is None or page.group("document") != "rev-proc-2025-32":
+        return ()
+    if re.search(r"\bSECTION\s+(?!3\b)\d+\b", source_text, re.I) or not re.search(
+        r"\bFor taxable years beginning in\b", source_text
+    ):
+        return ()
+    verification = payload.get("module", {}).get("source_verification", {})
+    if (
+        not isinstance(verification, dict)
+        or verification.get("corpus_citation_path") != corpus_citation_path
+    ):
+        return ()
+    document_target = f"us:policies/irs/{page.group('document')}"
+    output = record.get("output")
+    if (
+        not isinstance(output, str)
+        or re.fullmatch(
+            rf"{re.escape(document_target)}/[A-Za-z0-9_/-]+#[A-Za-z_][A-Za-z0-9_]*",
+            output,
+        )
+        is None
+    ):
+        return ()
+    targets = record.get("blocked_by")
+    if (
+        not isinstance(targets, list)
+        or not targets
+        or any(
+            not isinstance(target, str) or target not in resolved_dependency_outputs
+            for target in targets
+        )
+        or output in targets
+    ):
+        return ()
+    reason = record.get("reason")
+    if not isinstance(reason, str) or not re.search(
+        r"\b(?:are|is)\s+(?:already\s+)?encoded\b", reason, re.I
+    ):
+        return ()
+    reference = re.search(r"\bSection\s+3\.(\d{2})\((\d+)\)(?!\s*\()", reason, re.I)
+    if reference is None:
+        return ()
+    owners = [branch for branch in branches if branch.path == reference.groups()]
+    if len(owners) != 1:
+        return ()
+    owner = owners[0]
+    output_path = output.partition("#")[0]
+    relative_path = output_path[len(document_target) + 1 :]
+    if "/" in relative_path and output_path != (
+        f"{_rulespec_target_base(corpus_citation_path)}/{'/'.join(owner.path)}"
+    ):
+        return ()
+    next_page = int(page.group("page")) + 1
+    for target in targets:
+        path, separator, symbol = target.partition("#")
+        if not separator or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", symbol):
+            return ()
+        statute = re.fullmatch(r"us:statutes/26/(\d+[A-Za-z]?)", path)
+        if statute is not None:
+            section = re.escape(statute.group(1))
+            if not (
+                re.search(rf"§\s*{section}(?![A-Za-z0-9])", owner.text)
+                and re.search(rf"\b26\s+USC\s+{section}(?![A-Za-z0-9])", reason, re.I)
+            ):
+                return ()
+        elif not (
+            path == f"{document_target}/page-{next_page}"
+            and re.search(rf"\bpage-{next_page}(?![A-Za-z0-9])", reason, re.I)
+            and re.search(r"\btable below\b", owner.text, re.I)
+        ):
+            return ()
+    clauses = []
+    for start, end, text in _source_clause_spans(source_text, branches=branches):
+        if not (owner.start <= start and end <= owner.end):
+            continue
+        definition = re.match(
+            r'\s*The\s+["“](?P<term>[^"”]+)["”]\s+is\s+the\s+amount\b', text, re.I
+        )
+        if definition is None:
+            continue
+        # Naming a definition does not account for a second independent
+        # condition appended to the same printed sentence.
+        if len(_source_exception_or_applicability_matches(text)) > 1:
+            continue
+        term = definition.group("term")
+        symbol = re.sub(r"[^a-z0-9]+", "_", term.lower()).strip("_") + "_definition"
+        if output.partition("#")[2] != symbol or not re.search(
+            rf"\bdefines\s+the\s+{re.escape(term)}\s+term\b", reason, re.I
+        ):
+            continue
+        # Sharing a statute number alone does not connect an unrelated upstream
+        # output to this definition. At least one exact export must name its term.
+        if not any(
+            _definition_words(term) & _definition_words(target.partition("#")[2])
+            for target in targets
+        ):
+            continue
+        clauses.append(
+            SourceStructureBranch(
+                owner.path, "deferred-definition", owner.label, text, start, end
+            )
+        )
+    return tuple(clauses)
 
 
 def _deferred_source_scope_text(
@@ -12187,6 +12431,8 @@ def _is_marker_only_container(
     if not direct_child_starts:
         return False
     chapeau = source_text[branch.start : min(direct_child_starts)]
+    if branch.kind == "guidance-subsection" and chapeau.strip() == branch.label:
+        return True
     return re.search(r"\w", _strip_source_clause_marker(chapeau)) is None
 
 
@@ -12218,6 +12464,13 @@ def _branch_citation(
 ) -> str:
     if not branch.path:
         return f"{corpus_citation_path} [source unit]"
+    if corpus_citation_path.startswith("us/guidance/"):
+        components = [
+            f"{'subsection' if len(branch.path) > 1 else 'paragraph'} {branch.path[0]}",
+            *(f"paragraph {component}" for component in branch.path[1:]),
+        ]
+        path = "".join(f"({component})" for component in branch.path)
+        return f"{corpus_citation_path}{path} [{', '.join(components)}]"
     citation = corpus_citation_path
     components: list[str] = []
     for index, component in enumerate(branch.path):
@@ -12410,7 +12663,9 @@ def authoritative_numeric_recall_text(
         # Strip only authenticated sentence labels, before removing the section
         # citation that distinguishes `2§ 64` from a substantive number 2.
         marker_spans = []
-        for branch in recognize_source_structure(cleaned):
+        for branch in recognize_source_structure(
+            cleaned, corpus_citation_path=corpus_citation_path
+        ):
             if branch.kind != "sentence":
                 continue
             match = _GLUED_SECTION_SENTENCE_MARKER.match(cleaned, branch.start)
@@ -15464,6 +15719,7 @@ def _companion_test_issues(
     source_bound_constant_occurrences: dict[str, tuple[NumericOccurrenceLike, ...]],
     declared_input_names: set[str],
     calendar_date_declarations: Mapping[str, bool] | None = None,
+    deferred_clauses: Sequence[SourceStructureBranch] = (),
 ) -> list[str]:
     issues: list[str] = []
     cases = [case for case in (test_cases or ()) if isinstance(case, dict)]
@@ -15671,6 +15927,7 @@ def _companion_test_issues(
         active_branches=active_branches,
         deferred_paths=deferred_paths,
         formula_branches=formula_branches,
+        deferred_clauses=deferred_clauses,
     )
     if exception_branches:
         independently_covered_paths = {
@@ -16105,6 +16362,7 @@ def _source_control_branches(
     deferred_paths: set[tuple[str, ...]],
     formula_branches: Sequence[SourceStructureBranch],
     extract_numeric_occurrences: NumericOccurrenceExtractor,
+    deferred_clauses: Sequence[SourceStructureBranch] = (),
 ) -> tuple[SourceStructureBranch, ...]:
     """Return active boundary, exception, and applicability control clauses."""
 
@@ -16130,6 +16388,7 @@ def _source_control_branches(
             active_branches=active_branches,
             deferred_paths=deferred_paths,
             formula_branches=formula_branches,
+            deferred_clauses=deferred_clauses,
         )
     )
     return tuple(
@@ -23772,7 +24031,10 @@ def _rule_numeric_selector_names(rule: dict[str, Any]) -> set[str]:
             continue
         names.update(
             node.id
-            for operands in _formula_positive_part_operands(expression)
+            for operands in (
+                *_formula_positive_part_operands(expression),
+                *_formula_maximum_operands(expression),
+            )
             for operand in operands
             for node in ast.walk(operand)
             if isinstance(node, ast.Name)
@@ -23870,6 +24132,7 @@ def _source_exception_branches(
     active_branches: Sequence[SourceStructureBranch],
     deferred_paths: set[tuple[str, ...]],
     formula_branches: Sequence[SourceStructureBranch] = (),
+    deferred_clauses: Sequence[SourceStructureBranch] = (),
 ) -> tuple[SourceStructureBranch, ...]:
     obligations: list[SourceStructureBranch] = []
     source_clauses = tuple(_source_clause_spans(source_text, branches=branches))
@@ -23878,6 +24141,11 @@ def _source_exception_branches(
         list[re.Match[str]],
     ] = {}
     for match in _source_exception_or_applicability_matches(source_text):
+        if any(
+            clause.start <= match.start() and match.end() <= clause.end
+            for clause in deferred_clauses
+        ):
+            continue
         if _span_is_deferred(
             match.start(),
             match.end(),
@@ -25006,6 +25274,9 @@ def _source_exception_condition_text(text: str) -> str:
     """Return the condition region without the ordinary claim subject."""
 
     clause = _strip_source_clause_marker(text)
+    if _source_has_greater_alternative_condition(clause):
+        # The operand preceding the parenthesis is part of the condition too.
+        return clause
     medical_age_condition = re.fullmatch(
         r"Aus der Bescheinigung bzw\. dem Gutachten muss Folgendes hervorgehen: "
         r"[−–-] Vorliegen der Behinderung, "
@@ -25100,6 +25371,11 @@ def _source_exception_effect_requirement(text: str) -> str:
     """Classify the minimum isolated effect expressly required by one clause."""
 
     collapsed = _collapse_text(text)
+    if _source_has_greater_alternative_condition(collapsed):
+        # Selecting the greater amount is an arithmetic condition.  The
+        # principal predicate can change in either direction, depending on
+        # which operand the otherwise identical cases vary.
+        return "change"
     numeric_zero = r"(?<![\d,.])0+(?:[,.]0+)?(?![\d,.])"
     if re.search(
         rf"\b(?:"
@@ -25985,6 +26261,16 @@ def _numeric_exception_witness_matches_source(
     extract_numeric_occurrences: NumericOccurrenceExtractor,
 ) -> bool:
     source_text = _collapse_text(_strip_source_clause_marker(branch.text)).lower()
+    if re.search(r"\(\s*or\s*,\s*if\s+greater\s*,", source_text):
+        # This condition compares the two income operands, not either income
+        # with the phaseout threshold.  Ordinary threshold crossings cannot
+        # demonstrate which operand of max() controls the principal output.
+        return any(
+            _source_or_if_greater_relation_matches(
+                source_text, left_name=left, relation=relation, right_name=right
+            )
+            for left, relation, right in witness.maximum_transitions
+        )
     matched_source_relation = False
     for left_name, relation, right_name in witness.relational_transitions:
         relation_indices = _source_relational_exception_match_indices(
@@ -26024,6 +26310,50 @@ def _numeric_exception_witness_matches_source(
     ordinary_value, exception_value = transition
     return not _interval_contains(interval, ordinary_value) and _interval_contains(
         interval, exception_value
+    )
+
+
+def _source_has_greater_alternative_condition(text: str) -> bool:
+    """Identify an isolated parenthetical comparison, preserving other cues."""
+
+    conditions = _source_exception_or_applicability_matches(text)
+    return len(conditions) == 1 and any(
+        match.start() <= conditions[0].start() < match.end()
+        for match in re.finditer(
+            r"\(\s*or\s*,\s*if\s+greater\s*,[^()]+\)",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _source_or_if_greater_relation_matches(
+    text: str,
+    *,
+    left_name: str,
+    relation: str,
+    right_name: str,
+) -> bool:
+    """Bind ``A (or, if greater, B)`` to the directional relation B > A."""
+
+    if relation == "<":
+        left_name, relation, right_name = right_name, ">", left_name
+    if relation != ">":
+        return False
+
+    def operand_pattern(name: str) -> str:
+        return r"\s+".join(
+            re.escape(token) for token in _normalized_selector_name(name).split("_")
+        )
+
+    return bool(
+        re.search(
+            rf"\b{operand_pattern(right_name)}\s*"
+            rf"\(\s*or\s*,\s*if\s+greater\s*,\s*"
+            rf"{operand_pattern(left_name)}\s*\)",
+            _collapse_text(text),
+            flags=re.IGNORECASE,
+        )
     )
 
 
@@ -26871,6 +27201,7 @@ def _composed_numeric_dependency_witnesses(
                     dependency_witness.numeric_transition,
                     dependency_witness.relational_transitions,
                     witness.case_pair_identity,
+                    maximum_transitions=dependency_witness.maximum_transitions,
                 )
             )
     return composed
@@ -27023,9 +27354,12 @@ def _toggled_formula_numeric_selectors(
                 (
                     left_to_right_relations,
                     right_to_left_relations,
+                    left_to_right_maxima,
+                    right_to_left_maxima,
                 ) = _formula_relational_transitions(
                     left_execution,
                     right_execution,
+                    rule=rule,
                     left_case=left_case,
                     right_case=right_case,
                     left_dependencies=left_dependencies,
@@ -27033,9 +27367,9 @@ def _toggled_formula_numeric_selectors(
                     formula_environment=formula_environment,
                     changed_names=changed_names,
                 )
-                positive_part_relations = _formula_positive_part_relation_descriptors(
+                arithmetic_relations = _formula_arithmetic_relation_descriptors(
                     left_execution.leaf
-                ) | _formula_positive_part_relation_descriptors(right_execution.leaf)
+                ) | _formula_arithmetic_relation_descriptors(right_execution.leaf)
                 if (
                     (left_execution.trace or right_execution.trace)
                     and _formula_leaf_semantic_key(
@@ -27046,8 +27380,13 @@ def _toggled_formula_numeric_selectors(
                         right_execution.leaf,
                         formula_environment=right_execution.constant_environment,
                     )
-                    and not positive_part_relations.intersection(
-                        (*left_to_right_relations, *right_to_left_relations)
+                    and not arithmetic_relations.intersection(
+                        (
+                            *left_to_right_relations,
+                            *right_to_left_relations,
+                            *left_to_right_maxima,
+                            *right_to_left_maxima,
+                        )
                     )
                 ):
                     continue
@@ -27095,6 +27434,8 @@ def _toggled_formula_numeric_selectors(
                             for left_name, _relation, right_name in (
                                 *left_to_right_relations,
                                 *right_to_left_relations,
+                                *left_to_right_maxima,
+                                *right_to_left_maxima,
                             )
                         )
                     ):
@@ -27105,6 +27446,7 @@ def _toggled_formula_numeric_selectors(
                         ordinary_value,
                         exception_value,
                         relational_transitions,
+                        maximum_transitions,
                     ) in (
                         (
                             left_runtime,
@@ -27112,6 +27454,7 @@ def _toggled_formula_numeric_selectors(
                             selector_values[selector_name][0],
                             selector_values[selector_name][1],
                             left_to_right_relations,
+                            left_to_right_maxima,
                         ),
                         (
                             right_runtime,
@@ -27119,6 +27462,7 @@ def _toggled_formula_numeric_selectors(
                             selector_values[selector_name][1],
                             selector_values[selector_name][0],
                             right_to_left_relations,
+                            right_to_left_maxima,
                         ),
                     ):
                         witnesses.add(
@@ -27138,6 +27482,7 @@ def _toggled_formula_numeric_selectors(
                                 (ordinary_value, exception_value),
                                 relational_transitions,
                                 _case_pair_identity(left_case, right_case),
+                                maximum_transitions=maximum_transitions,
                             )
                         )
     return witnesses
@@ -27197,6 +27542,7 @@ def _formula_relational_transitions(
     left_execution: _FormulaExecution,
     right_execution: _FormulaExecution,
     *,
+    rule: dict[str, Any],
     left_case: dict[str, Any],
     right_case: dict[str, Any],
     left_dependencies: dict[str, Any],
@@ -27204,6 +27550,8 @@ def _formula_relational_transitions(
     formula_environment: dict[str, Any],
     changed_names: set[str],
 ) -> tuple[
+    tuple[tuple[str, str, str], ...],
+    tuple[tuple[str, str, str], ...],
     tuple[tuple[str, str, str], ...],
     tuple[tuple[str, str, str], ...],
 ]:
@@ -27220,7 +27568,7 @@ def _formula_relational_transitions(
         formula_environment=formula_environment,
     )
     if left_environment is None or right_environment is None:
-        return (), ()
+        return (), (), (), ()
     left_relations = _formula_execution_relational_values(
         left_execution,
         environment=left_environment,
@@ -27231,7 +27579,37 @@ def _formula_relational_transitions(
         environment=right_environment,
         changed_names=changed_names,
     )
+    maximum_pairs = _formula_execution_maximum_pairs(
+        left_execution, environment=left_environment
+    ) & _formula_execution_maximum_pairs(right_execution, environment=right_environment)
+    left_maxima: dict[tuple[str, str, str], bool] = {}
+    right_maxima: dict[tuple[str, str, str], bool] = {}
+    for first, second in maximum_pairs:
+        if not changed_names.intersection((first, second)):
+            continue
+        if not _maximum_changes_principal_output(
+            rule,
+            names=(first, second),
+            cases=(left_case, right_case),
+            executions=(left_execution, right_execution),
+            environments=(left_environment, right_environment),
+        ):
+            continue
+        for left, right in ((first, second), (second, first)):
+            comparison = ast.Compare(
+                left=ast.Name(id=left),
+                ops=[ast.Gt()],
+                comparators=[ast.Name(id=right)],
+            )
+            for relations, environment in (
+                (left_maxima, left_environment),
+                (right_maxima, right_environment),
+            ):
+                value = _evaluate_condition_expression(comparison, environment)
+                if isinstance(value, bool):
+                    relations[(left, ">", right)] = value
     shared = set(left_relations) & set(right_relations)
+    shared_maxima = set(left_maxima) & set(right_maxima)
     return (
         tuple(
             sorted(
@@ -27249,7 +27627,113 @@ def _formula_relational_transitions(
                 and left_relations[relation] is True
             )
         ),
+        tuple(
+            sorted(
+                relation
+                for relation in shared_maxima
+                if left_maxima[relation] is False and right_maxima[relation] is True
+            )
+        ),
+        tuple(
+            sorted(
+                relation
+                for relation in shared_maxima
+                if right_maxima[relation] is False and left_maxima[relation] is True
+            )
+        ),
     )
+
+
+def _formula_execution_maximum_pairs(
+    execution: _FormulaExecution,
+    *,
+    environment: dict[str, Any],
+) -> set[tuple[str, str]]:
+    """Return the named maxima reached by this particular execution."""
+
+    texts = [selector for step in execution.trace for selector in step.selectors]
+    texts.append(execution.leaf)
+    return {
+        tuple(sorted((left.id, right.id)))
+        for text in texts
+        if "max" in text
+        if (expression := _parse_formula_expression(text)) is not None
+        for left, right in _formula_maximum_operands(
+            expression, environment=environment
+        )
+    }
+
+
+def _maximum_changes_principal_output(
+    rule: dict[str, Any],
+    *,
+    names: tuple[str, str],
+    cases: tuple[dict[str, Any], dict[str, Any]],
+    executions: tuple[_FormulaExecution, _FormulaExecution],
+    environments: tuple[dict[str, Any], dict[str, Any]],
+) -> bool:
+    """Freeze only max() to the other case's value and replay the full output.
+
+    Changing a numeric input can affect unrelated arithmetic in the same
+    formula.  The maximum itself must explain an output change; an inert
+    ``0 * max(A, B) + B`` is not a witness for the maximum's binding.
+    """
+
+    formula = _rule_formula_text_for_case(rule, cases[0])
+    if formula is None or formula != _rule_formula_text_for_case(rule, cases[1]):
+        return False
+    masked = _mask_formula_strings_and_comments(formula)
+    spans: list[tuple[int, int]] = []
+    for match in re.finditer(r"\bmax\s*\(", masked):
+        depth = 1
+        end = match.end()
+        while end < len(masked) and depth:
+            depth += (masked[end] == "(") - (masked[end] == ")")
+            end += 1
+        if depth:
+            continue
+        expression = _parse_formula_expression(masked[match.start() : end])
+        if (
+            isinstance(expression, ast.Call)
+            and len(expression.args) == 2
+            and not expression.keywords
+            and all(isinstance(argument, ast.Name) for argument in expression.args)
+            and {argument.id for argument in expression.args} == set(names)
+        ):
+            spans.append((match.start(), end))
+    if not spans:
+        return False
+    maximum_values = tuple(
+        _rulespec_runtime_decimal(
+            _evaluate_rulespec_formula(
+                f"max({names[0]}, {names[1]})", environment=environment
+            )
+        )
+        for environment in environments
+    )
+    if any(value is None or not value.is_finite() for value in maximum_values):
+        return False
+    for index, (execution, environment) in enumerate(zip(executions, environments)):
+        rewritten = formula
+        # Freeze all occurrences, including reversed arguments, so duplicated
+        # terms that cancel cannot manufacture an isolated max effect.
+        frozen = f"({maximum_values[1 - index]:f})"
+        for start, end in reversed(spans):
+            rewritten = rewritten[:start] + frozen + rewritten[end:]
+        counterfactual = _apply_currency_output_rounding(
+            rule,
+            _execute_formula_text(
+                rewritten,
+                environment=environment,
+                constant_environment=execution.constant_environment,
+            ),
+        )
+        if counterfactual is not None and _exception_effect_changes(
+            _formula_execution_runtime_value(execution),
+            _formula_execution_runtime_value(counterfactual),
+        ):
+            return True
+    return False
 
 
 def _formula_case_runtime_environment(
@@ -27334,6 +27818,48 @@ def _formula_relational_expressions(
         yield left, ">", right
 
 
+def _formula_maximum_operands(
+    expression: ast.AST,
+    *,
+    environment: dict[str, Any] | None = None,
+) -> Iterable[tuple[ast.Name, ast.Name]]:
+    """Yield named alternatives of reached binary maxima, in formula order."""
+
+    if isinstance(expression, ast.BoolOp) and environment is not None:
+        for value in expression.values:
+            yield from _formula_maximum_operands(value, environment=environment)
+            boolean = _boolean_value(_evaluate_condition_expression(value, environment))
+            if boolean is None or boolean == isinstance(expression.op, ast.Or):
+                break
+        return
+    if isinstance(expression, ast.Compare) and environment is not None:
+        left = expression.left
+        yield from _formula_maximum_operands(left, environment=environment)
+        for operator, right in zip(expression.ops, expression.comparators):
+            yield from _formula_maximum_operands(right, environment=environment)
+            comparison = ast.Compare(left=left, ops=[operator], comparators=[right])
+            if (
+                _boolean_value(_evaluate_condition_expression(comparison, environment))
+                is not True
+            ):
+                break
+            left = right
+        return
+    if (
+        isinstance(expression, ast.Call)
+        and isinstance(expression.func, ast.Name)
+        and expression.func.id == "max"
+        and len(expression.args) == 2
+        and not expression.keywords
+        and isinstance(expression.args[0], ast.Name)
+        and isinstance(expression.args[1], ast.Name)
+        and expression.args[0].id != expression.args[1].id
+    ):
+        yield expression.args[0], expression.args[1]
+    for child in ast.iter_child_nodes(expression):
+        yield from _formula_maximum_operands(child, environment=environment)
+
+
 def _formula_positive_part_operands(
     expression: ast.AST,
 ) -> Iterable[tuple[ast.expr, ast.expr]]:
@@ -27365,7 +27891,7 @@ def _formula_positive_part_operands(
             yield positive_part.left, positive_part.right
 
 
-def _formula_positive_part_relation_descriptors(
+def _formula_arithmetic_relation_descriptors(
     text: str,
 ) -> set[tuple[str, str, str]]:
     expression = _parse_formula_expression(text)
@@ -27377,6 +27903,9 @@ def _formula_positive_part_relation_descriptors(
         right_name = _formula_operand_concept_name(right)
         if left_name is not None and right_name is not None:
             descriptors.add((left_name, ">", right_name))
+    for left, right in _formula_maximum_operands(expression):
+        descriptors.add((left.id, ">", right.id))
+        descriptors.add((right.id, ">", left.id))
     return descriptors
 
 
