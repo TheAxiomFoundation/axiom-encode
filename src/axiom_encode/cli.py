@@ -1681,6 +1681,11 @@ def main():
         help="Fail oracle validation when oracle coverage reports unclassified legal IDs",
     )
     _add_complete_source_unit_argument(validate_parser)
+    validate_parser.add_argument(
+        "--axiom-compose-path",
+        type=Path,
+        help="Exact axiom-compose executable for composition modules (no discovery)",
+    )
     _add_rulespec_dependency_root_argument(validate_parser)
 
     validation_waivers_parser = subparsers.add_parser(
@@ -1725,6 +1730,11 @@ def main():
         "--json",
         action="store_true",
         help="Output deterministic outcomes and fingerprints as JSON",
+    )
+    validation_waivers_fingerprint_parser.add_argument(
+        "--axiom-compose-path",
+        type=Path,
+        help="Exact axiom-compose executable for composition modules (no discovery)",
     )
     _add_rulespec_dependency_root_argument(validation_waivers_fingerprint_parser)
 
@@ -1778,6 +1788,11 @@ def main():
         "--json",
         action="store_true",
         help="Output the complete audit report as JSON",
+    )
+    validation_waivers_audit_parser.add_argument(
+        "--axiom-compose-path",
+        type=Path,
+        help="Exact axiom-compose executable for composition modules (no discovery)",
     )
     _add_rulespec_dependency_root_argument(validation_waivers_audit_parser)
 
@@ -2755,6 +2770,11 @@ def main():
         help="Exact axiom-rules-engine checkout (no sibling discovery)",
     )
     test_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    test_parser.add_argument(
+        "--axiom-compose-path",
+        type=Path,
+        help="Exact axiom-compose executable for composition modules (no discovery)",
+    )
     _add_rulespec_dependency_root_argument(test_parser)
 
     # compile command
@@ -2784,6 +2804,11 @@ def main():
             "Full 40-hex axiom-rules-engine commit that overrides the "
             "toolchain-declared engine pin"
         ),
+    )
+    compile_parser.add_argument(
+        "--axiom-compose-path",
+        type=Path,
+        help="Exact axiom-compose executable for composition modules (no discovery)",
     )
     _add_rulespec_dependency_root_argument(compile_parser)
 
@@ -3809,6 +3834,9 @@ def _cmd_validate_with_resolution_cache(args):
             pipeline = ValidatorPipeline(
                 policy_repo_path=policy_repo_root,
                 axiom_rules_path=axiom_rules_path,
+                axiom_compose_path=_resolve_optional_axiom_compose_path(
+                    getattr(args, "axiom_compose_path", None)
+                ),
                 enable_oracles=enable_oracles,
                 oracle_validators=oracle_validators,
                 policyengine_runtime=policyengine_runtime,
@@ -4050,6 +4078,7 @@ def _validation_waiver_companion_outcome(
     root: Path,
     policy_repo_path: Path,
     binary: Path,
+    pipeline: ValidatorPipeline | None = None,
     axiom_rules_path: Path,
     env: dict[str, str],
     rulespec_roots: Sequence[Path],
@@ -4076,6 +4105,7 @@ def _validation_waiver_companion_outcome(
         result = _execute_rulespec_test_file(
             companion,
             binary=binary,
+            pipeline=pipeline,
             axiom_rules_path=axiom_rules_path,
             env=env,
             rulespec_roots=rulespec_roots,
@@ -4151,6 +4181,10 @@ def _validation_waiver_path_replacements(
     for binary in binaries:
         add_path(binary, "<engine-binary>", override=True)
     add_path(tmp_path, "<tmp>", override=True)
+    for pipeline in pipelines:
+        compose_path = getattr(pipeline, "axiom_compose_path", None)
+        if compose_path is not None:
+            add_path(compose_path, "<axiom-compose>", override=True)
     return dict(sorted(replacements.items(), key=lambda item: (-len(item[0]), item[0])))
 
 
@@ -4160,6 +4194,7 @@ def _fingerprint_validation_waiver_modules(
     root: Path,
     corpus_path: Path,
     axiom_rules_path: Path,
+    axiom_compose_path: Path | None = None,
     rulespec_dependency_roots: Sequence[Path] = (),
     corpus_release: LocalCorpusRelease | None = None,
 ) -> list[dict[str, Any]]:
@@ -4185,6 +4220,7 @@ def _fingerprint_validation_waiver_modules(
             root=root,
             corpus_path=corpus_path,
             axiom_rules_path=axiom_rules_path,
+            axiom_compose_path=axiom_compose_path,
             rulespec_dependency_roots=rulespec_dependency_roots,
             corpus_release=corpus_release,
         )
@@ -4196,6 +4232,7 @@ def _fingerprint_validation_waiver_modules_impl(
     root: Path,
     corpus_path: Path,
     axiom_rules_path: Path,
+    axiom_compose_path: Path | None = None,
     rulespec_dependency_roots: Sequence[Path] = (),
     corpus_release: LocalCorpusRelease | None = None,
 ) -> list[dict[str, Any]]:
@@ -4230,6 +4267,7 @@ def _fingerprint_validation_waiver_modules_impl(
         content_root: ValidatorPipeline(
             policy_repo_path=content_root,
             axiom_rules_path=engine_root,
+            axiom_compose_path=axiom_compose_path,
             enable_oracles=False,
             local_corpus_release=corpus_release,
             rulespec_dependency_roots=rulespec_dependency_roots,
@@ -4277,6 +4315,7 @@ def _fingerprint_validation_waiver_modules_impl(
                 root=root,
                 policy_repo_path=content_root,
                 binary=binary,
+                pipeline=pipeline,
                 axiom_rules_path=engine_root,
                 env=env,
                 rulespec_roots=rulespec_roots,
@@ -4334,6 +4373,7 @@ def _fingerprint_waiver_chunk(
     axiom_rules_path: str,
     rulespec_dependency_roots: tuple[str, ...],
     release_identity: tuple[str, str, str, object],
+    axiom_compose_path: str | None = None,
 ) -> list[dict[str, Any]]:
     """Worker entrypoint: fingerprint one chunk against a pre-attested release.
 
@@ -4354,6 +4394,7 @@ def _fingerprint_waiver_chunk(
         root=Path(root),
         corpus_path=Path(corpus_path),
         axiom_rules_path=Path(axiom_rules_path),
+        axiom_compose_path=Path(axiom_compose_path) if axiom_compose_path else None,
         rulespec_dependency_roots=tuple(
             Path(path) for path in rulespec_dependency_roots
         ),
@@ -4367,6 +4408,7 @@ def _fingerprint_validation_waiver_modules_parallel(
     root: Path,
     corpus_path: Path,
     axiom_rules_path: Path,
+    axiom_compose_path: Path | None = None,
     rulespec_dependency_roots: Sequence[Path] = (),
 ) -> list[dict[str, Any]]:
     """Fingerprint waiver modules across worker processes.
@@ -4386,6 +4428,7 @@ def _fingerprint_validation_waiver_modules_parallel(
             root=root,
             corpus_path=corpus_path,
             axiom_rules_path=axiom_rules_path,
+            axiom_compose_path=axiom_compose_path,
             rulespec_dependency_roots=rulespec_dependency_roots,
         )
 
@@ -4416,6 +4459,7 @@ def _fingerprint_validation_waiver_modules_parallel(
                 str(axiom_rules_path),
                 dependency_roots,
                 release_identity,
+                str(axiom_compose_path) if axiom_compose_path else None,
             )
             for chunk in chunks
         ]
@@ -4494,6 +4538,9 @@ def _cmd_validation_waivers_fingerprint(args) -> int:
         root=root,
         corpus_path=args.corpus_path,
         axiom_rules_path=args.axiom_rules_path,
+        axiom_compose_path=_resolve_optional_axiom_compose_path(
+            getattr(args, "axiom_compose_path", None)
+        ),
         rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
     )
     if args.json:
@@ -4656,6 +4703,9 @@ def _cmd_validation_waivers_audit(args) -> int:
             root=root,
             corpus_path=args.corpus_path,
             axiom_rules_path=args.axiom_rules_path,
+            axiom_compose_path=_resolve_optional_axiom_compose_path(
+                getattr(args, "axiom_compose_path", None)
+            ),
             rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
         )
         if executable_paths
@@ -4706,6 +4756,9 @@ def _cmd_validation_waivers_audit(args) -> int:
             root=root,
             corpus_path=args.corpus_path,
             axiom_rules_path=args.axiom_rules_path,
+            axiom_compose_path=_resolve_optional_axiom_compose_path(
+                getattr(args, "axiom_compose_path", None)
+            ),
             rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
         )
         for result in rechecked:
@@ -5157,6 +5210,9 @@ def cmd_test(args):
     pipeline = ValidatorPipeline(
         policy_repo_path=root,
         axiom_rules_path=axiom_rules_path,
+        axiom_compose_path=_resolve_optional_axiom_compose_path(
+            getattr(args, "axiom_compose_path", None)
+        ),
         local_corpus_release=None,
         enable_oracles=False,
         rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
@@ -5175,6 +5231,7 @@ def cmd_test(args):
             result = _execute_rulespec_test_file(
                 test_file,
                 binary=binary,
+                pipeline=pipeline,
                 axiom_rules_path=Path(axiom_rules_path),
                 env=rulespec_env,
                 rulespec_roots=rulespec_roots,
@@ -5272,6 +5329,7 @@ def _execute_rulespec_test_file(
     test_file: Path,
     *,
     binary: Path,
+    pipeline: ValidatorPipeline | None = None,
     axiom_rules_path: Path,
     env: dict[str, str],
     rulespec_roots: Sequence[Path],
@@ -5305,14 +5363,25 @@ def _execute_rulespec_test_file(
             else program_file
         )
         compiled_path = tmp_path / (_safe_artifact_stem(program_file) + ".json")
-        result = run_rulespec_compile(
-            binary=binary,
-            program=compile_file,
-            rulespec_roots=rulespec_roots,
-            output=compiled_path,
-            cwd=axiom_rules_path if axiom_rules_path.exists() else None,
-            env=env,
-        )
+        payload = _safe_load_unique_keys(compile_file.read_text())
+        module = payload.get("module") if isinstance(payload, dict) else None
+        if isinstance(module, dict) and module.get("kind") == "composition":
+            if pipeline is None:
+                raise ValueError(
+                    "composition companion requires an explicit validation pipeline"
+                )
+            result, _artifact = pipeline._compile_rulespec_to_artifact(
+                program_file, compiled_path
+            )
+        else:
+            result = run_rulespec_compile(
+                binary=binary,
+                program=compile_file,
+                rulespec_roots=rulespec_roots,
+                output=compiled_path,
+                cwd=axiom_rules_path if axiom_rules_path.exists() else None,
+                env=env,
+            )
         if result.returncode != 0:
             return {
                 "cases": 0,
@@ -5989,6 +6058,9 @@ def cmd_compile(args):
         pipeline = ValidatorPipeline(
             policy_repo_path=policy_repo_path,
             axiom_rules_path=axiom_rules_path,
+            axiom_compose_path=_resolve_optional_axiom_compose_path(
+                getattr(args, "axiom_compose_path", None)
+            ),
             local_corpus_release=None,
             enable_oracles=False,
             rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
@@ -17522,11 +17594,13 @@ def _rulespec_companion_test_failures(
     *,
     root: Path,
     axiom_rules_path: Path,
+    axiom_compose_path: Path | None = None,
     rulespec_dependency_roots: Sequence[Path] = (),
 ) -> list[dict[str, str | None]]:
     pipeline = ValidatorPipeline(
         policy_repo_path=root,
         axiom_rules_path=axiom_rules_path,
+        axiom_compose_path=axiom_compose_path,
         local_corpus_release=None,
         enable_oracles=False,
         rulespec_dependency_roots=rulespec_dependency_roots,
@@ -17538,6 +17612,7 @@ def _rulespec_companion_test_failures(
         result = _execute_rulespec_test_file(
             test_file,
             binary=binary,
+            pipeline=pipeline,
             axiom_rules_path=Path(axiom_rules_path),
             env=rulespec_env,
             rulespec_roots=rulespec_roots,
