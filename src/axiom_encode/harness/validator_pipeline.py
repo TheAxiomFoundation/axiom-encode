@@ -8813,10 +8813,12 @@ class _IntervalSelectorBound:
     formula: str
 
 
+_PE_UNSUPPORTED_SCENARIO_MARKER = "PolicyEngineUnsupportedScenario"
 _PE_UNSUPPORTED_ERROR_PATTERNS = (
     re.compile(r"ParameterNotFoundError"),
     re.compile(r"VariableNotFoundError"),
     re.compile(r"was not found in the .*tax and benefit system", re.IGNORECASE),
+    re.compile(_PE_UNSUPPORTED_SCENARIO_MARKER),
 )
 _APPLIED_ENCODING_MANIFEST_DIR = Path(".axiom") / "encoding-manifests"
 _DEFINITION_CROSS_REFERENCE_PATTERN = re.compile(
@@ -9399,6 +9401,9 @@ def _infer_us_state_code_from_rulespec_path(
         match = re.fullmatch(r"us-([a-z]{2})", content_root.name)
         if match:
             return match.group(1).upper()
+        if content_root.name == "us":
+            # A federal module's jurisdiction is not a state it mentions.
+            return None
 
     source_text = rulespec_source_content.lower()
     match = re.search(r"\bus-([a-z]{2}):", source_text)
@@ -39616,14 +39621,24 @@ Output ONLY valid JSON:
                     coverage.unsupported += 1
                     continue
             else:
-                scenario_script = self._build_pe_scenario_script(
-                    pe_var,
-                    inputs_with_period,
-                    year,
-                    expected,
-                    country=country,
-                    rule_name=pe_var,
-                )
+                try:
+                    scenario_script = self._build_pe_scenario_script(
+                        pe_var,
+                        inputs_with_period,
+                        year,
+                        expected,
+                        country=country,
+                        rule_name=pe_var,
+                    )
+                except ValueError as exc:
+                    issues.append(
+                        "PolicyEngine adapter error for "
+                        f"'{test.get('name', test_rule_name)}' "
+                        f"({raw_test_rule_name} -> {pe_target}): {exc}"
+                    )
+                    coverage.adapter_errors += 1
+                    total += 1
+                    continue
             output = self._run_pe_subprocess_detailed(scenario_script)
 
             if output.returncode != 0:
@@ -42237,8 +42252,11 @@ print(f'RESULT:{{float(value)}}')
             household_state = adapter.default_state_code
         if adapter is not None and adapter.state_code_from_boolean_input is not None:
             input_key, true_state, false_state = adapter.state_code_from_boolean_input
-            if input_key in inputs:
-                household_state = true_state if bool(inputs[input_key]) else false_state
+            election = self._rulespec_test_input_value(inputs, input_key)
+            if election is not None:
+                household_state = (
+                    true_state if _is_truthy_fact_value(election) else false_state
+                )
         utility_region = None
         if "snap_utility_region" in inputs:
             utility_region = str(inputs["snap_utility_region"])
@@ -42313,28 +42331,44 @@ print(f'RESULT:{{float(value)}}')
                 )
         household_extra = ", ".join(household_extra_parts)
 
-        if adapter is not None and adapter.parameter_path is not None:
-            parameter_period = self._normalize_monthly_pe_period(
-                inputs.get("period"), year, "01"
-            )
-            value_expr = f"params.{adapter.parameter_path}[{repr(household_state)}]"
-            if adapter.parameter_value_mode == "float":
-                return f"""
-from policyengine_us import CountryTaxBenefitSystem
+        parameter_period = self._normalize_monthly_pe_period(
+            inputs.get("period"), year, "01"
+        )
+        election_check = self._pe_us_boolean_input_parameter_check(
+            adapter,
+            inputs,
+            household_state=household_state,
+            parameter_period=parameter_period,
+        )
 
-system = CountryTaxBenefitSystem()
-params = system.parameters('{parameter_period}')
-val = float({value_expr})
-print(f'RESULT:{{val}}')
-"""
+        if adapter is not None and adapter.parameter_path is not None:
+            value_expr = f"params.{adapter.parameter_path}[{repr(household_state)}]"
+            value_exprs = {
+                "bool": f"1.0 if bool({value_expr}) else 0.0",
+                "inverted_bool": f"0.0 if bool({value_expr}) else 1.0",
+                "float": f"float({value_expr})",
+            }
+            if adapter.parameter_value_mode not in value_exprs:
+                raise ValueError(
+                    f"PolicyEngine adapter for {pe_var} has unsupported "
+                    f"parameter_value_mode {adapter.parameter_value_mode!r}"
+                )
             return f"""
 from policyengine_us import CountryTaxBenefitSystem
 
 system = CountryTaxBenefitSystem()
 params = system.parameters('{parameter_period}')
-val = 1.0 if bool({value_expr}) else 0.0
+{election_check}
+val = {value_exprs[adapter.parameter_value_mode]}
 print(f'RESULT:{{val}}')
 """
+
+        if election_check:
+            election_check = (
+                "from policyengine_us import CountryTaxBenefitSystem\n\n"
+                f"params = CountryTaxBenefitSystem().parameters('{parameter_period}')\n"
+                f"{election_check}"
+            )
 
         result_index = 0
         if targets_child_person:
@@ -42343,6 +42377,7 @@ print(f'RESULT:{{val}}')
                 result_index = members.index(child_member)
 
         script = f"""
+{election_check}
 from policyengine_us import Simulation
 
 situation = {{
@@ -42361,6 +42396,45 @@ val = float(result[result_index]) if hasattr(result, '__len__') and len(result) 
 print(f'RESULT:{{val}}')
 """
         return script
+
+    def _pe_us_boolean_input_parameter_check(
+        self,
+        adapter: PolicyEngineUSVarAdapter | None,
+        inputs: dict,
+        *,
+        household_state: str,
+        parameter_period: str,
+    ) -> str:
+        """Return script lines that stop a replay PolicyEngine cannot represent.
+
+        PolicyEngine models some elections as state parameters, not household
+        inputs. When the test supplies the election and the replay state's
+        parameter disagrees, the script exits with a marker that
+        ``_is_pe_unsupported_error`` classifies as unsupported instead of a
+        mismatch. The lines read an existing ``params`` object.
+        """
+        check = adapter.boolean_input_parameter_check if adapter else None
+        if check is None:
+            return ""
+        input_key, parameter_path, value_mode = check
+        value = self._rulespec_test_input_value(inputs, input_key)
+        if value is None:
+            return ""
+        reading = f"bool(params.{parameter_path}[{repr(household_state)}])"
+        if value_mode == "inverted_bool":
+            reading = f"not {reading}"
+        elif value_mode != "bool":
+            raise ValueError(
+                f"PolicyEngine adapter for {adapter.pe_var} has unsupported "
+                f"boolean_input_parameter_check mode {value_mode!r}"
+            )
+        election = _is_truthy_fact_value(value)
+        message = (
+            f"{_PE_UNSUPPORTED_SCENARIO_MARKER}: {input_key}={election} but "
+            f"PolicyEngine {parameter_path} for {household_state} in "
+            f"{parameter_period} reads {not election} under {value_mode}"
+        )
+        return f"if ({reading}) != {election}:\n    raise SystemExit({repr(message)})\n"
 
     @staticmethod
     def _us_tax_relation_member_age(row: dict, default: int) -> int:

@@ -8330,6 +8330,313 @@ def test_policyengine_us_state_inference_uses_rulespec_repo_path(tmp_path):
     )
 
 
+def test_policyengine_us_state_inference_keeps_federal_modules_stateless(tmp_path):
+    rules_file = _canonical_rulespec_content_root(tmp_path, "us") / "regulations"
+    rules_file = rules_file / "rules.yaml"
+    rules_file.parent.mkdir(parents=True)
+    text = "# States elect with sets relations, e.g. us-ga:policies/example\n"
+    rules_file.write_text(text)
+
+    assert _infer_us_state_code_from_rulespec_path(rules_file, text) is None
+
+
+_SNAP_CHILD_SUPPORT_D5 = "us:regulations/7-cfr/273/9/d/5"
+_SNAP_CHILD_SUPPORT_C17 = "us:regulations/7-cfr/273/9/c/17"
+_SNAP_CHILD_SUPPORT_PARAMETER = "gov.usda.snap.income.deductions.child_support"
+
+
+def _snap_child_support_inputs(
+    payment: float, election: bool, *, alimony: float | None = None
+) -> dict:
+    inputs = {
+        "period": "2026-01",
+        f"{_SNAP_CHILD_SUPPORT_D5}#input.snap_legally_obligated_child_support_payments_to_nonhousehold_members": payment,
+        f"{_SNAP_CHILD_SUPPORT_D5}#input.snap_state_agency_chose_child_support_deduction": election,
+    }
+    if alimony is not None:
+        inputs[
+            f"{_SNAP_CHILD_SUPPORT_D5}#input.snap_alimony_payments_to_nonhousehold_members"
+        ] = alimony
+    return inputs
+
+
+@pytest.mark.parametrize(
+    ("pe_var", "election", "state"),
+    [
+        ("snap_child_support_gross_income_deduction", True, "TX"),
+        ("snap_child_support_gross_income_deduction", False, "CA"),
+        ("snap_child_support_deduction", True, "TX"),
+        ("snap_child_support_deduction", False, "CA"),
+    ],
+)
+def test_policyengine_snap_child_support_replays_the_election_state(
+    tmp_path, pe_var, election, state
+):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    # Legal-id keys only: the election must not depend on bare aliases.
+    script = pipeline._build_pe_us_scenario_script(
+        pe_var,
+        _snap_child_support_inputs(300, election, alimony=250),
+        "2026",
+    )
+
+    assert f"'state_code_str': {{'2026': '{state}'}}" in script
+    assert "'child_support_expense': {'2026': 3600.0}" in script
+    assert "'alimony_expense': {'2026': 3000.0}" in script
+    assert "'snap_countable_child_support_expense': {'2026-01': 300}" in script
+    assert f"sim.calculate('{pe_var}', '2026-01')" in script
+    check = (
+        f"if (not bool(params.{_SNAP_CHILD_SUPPORT_PARAMETER}['{state}'])) "
+        f"!= {election}:"
+    )
+    assert check in script
+    assert script.index(check) < script.index("sim = Simulation(")
+
+
+def test_policyengine_snap_child_support_election_reads_parameter_inverted(
+    tmp_path,
+):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    script = pipeline._build_pe_us_scenario_script(
+        "snap_state_agency_provides_child_support_deduction",
+        _snap_child_support_inputs(300, True),
+        "2026",
+    )
+
+    assert "params = system.parameters('2026-01')" in script
+    assert (
+        f"val = 0.0 if bool(params.{_SNAP_CHILD_SUPPORT_PARAMETER}['TX']) else 1.0"
+        in script
+    )
+    assert "Simulation" not in script
+
+
+def test_policyengine_snap_child_support_module_jurisdiction_beats_election(
+    tmp_path,
+):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+
+    # _run_policyengine_bound injects state_code_str from a state module path.
+    script = pipeline._build_pe_us_scenario_script(
+        "snap_child_support_deduction",
+        {**_snap_child_support_inputs(300, False), "state_code_str": "GA"},
+        "2026",
+    )
+
+    assert "'state_code_str': {'2026': 'GA'}" in script
+    assert f"params.{_SNAP_CHILD_SUPPORT_PARAMETER}['GA']" in script
+    assert "'CA'" not in script
+
+
+def test_policyengine_snap_child_support_check_skips_without_election(tmp_path):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+    inputs = _snap_child_support_inputs(300, True)
+    del inputs[
+        f"{_SNAP_CHILD_SUPPORT_D5}#input.snap_state_agency_chose_child_support_deduction"
+    ]
+
+    script = pipeline._build_pe_us_scenario_script(
+        "snap_child_support_deduction", {**inputs, "state_code_str": "GA"}, "2026"
+    )
+
+    assert "PolicyEngineUnsupportedScenario" not in script
+    assert "CountryTaxBenefitSystem" not in script
+
+
+def test_policyengine_rejects_unknown_parameter_value_mode(tmp_path, monkeypatch):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+    adapter = pipeline._get_pe_us_var_adapter(
+        "snap_state_agency_provides_child_support_deduction"
+    )
+    broken = copy.copy(adapter)
+    object.__setattr__(broken, "parameter_value_mode", "inverted")
+    monkeypatch.setattr(pipeline, "_get_pe_us_var_adapter", lambda _name: broken)
+
+    with pytest.raises(ValueError, match="parameter_value_mode 'inverted'"):
+        pipeline._build_pe_us_scenario_script(
+            "snap_state_agency_provides_child_support_deduction",
+            _snap_child_support_inputs(300, True),
+            "2026",
+        )
+
+
+def _snap_child_support_d5_module(tmp_path: Path) -> tuple[Path, Path]:
+    policy_repo, rules_file = _canonical_rulespec_test_file(
+        tmp_path, relative="regulations/7-cfr/273/9/d/5.yaml"
+    )
+    rules_file.write_text("format: rulespec/v1\n")
+    prefix = f"{_SNAP_CHILD_SUPPORT_D5}#input."
+    cases = []
+    for name, payment, alimony, election, hook, deduction in [
+        ("deduction_when_state_chose_deduction", 300, 0, True, "holds", 300),
+        ("no_deduction_under_default_exclusion", 300, 0, False, "not_holds", 0),
+        ("alimony_does_not_add_to_child_support", 300, 250, True, "holds", 300),
+    ]:
+        cases.append(
+            f"""- name: {name}
+  period: 2026-01
+  input:
+    {prefix}snap_legally_obligated_child_support_payments_to_nonhousehold_members: {payment}
+    {prefix}snap_alimony_payments_to_nonhousehold_members: {alimony}
+    {prefix}snap_state_agency_chose_child_support_deduction: {str(election).lower()}
+  output:
+    {_SNAP_CHILD_SUPPORT_D5}#snap_state_agency_provides_child_support_deduction: {hook}
+    {_SNAP_CHILD_SUPPORT_D5}#snap_child_support_deduction_for_net_income: {deduction}
+"""
+        )
+    rules_file.with_name("5.test.yaml").write_text("".join(cases))
+    return policy_repo, rules_file
+
+
+def test_policyengine_snap_child_support_d5_outputs_reach_their_adapters(tmp_path):
+    policy_repo, rules_file = _snap_child_support_d5_module(tmp_path)
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=True,
+        oracle_validators=("policyengine",),
+    )
+    scripts = []
+
+    def fake_run(script, *_args, **_kwargs):
+        scripts.append(script)
+        if "sim.calculate('snap_child_support_deduction'" in script:
+            value = 300 if "'TX'" in script else 0
+        else:
+            value = 1 if "'TX'" in script else 0
+        return OracleSubprocessResult(returncode=0, stdout=f"RESULT:{value}\n")
+
+    pipeline._run_pe_subprocess_detailed = fake_run
+
+    result = pipeline._run_policyengine(rules_file)
+
+    assert result.issues == []
+    assert result.details["coverage"]["comparable"] == 6
+    assert result.details["coverage"]["passed"] == 6
+    assert sum("'TX'" in script for script in scripts) == 4
+    assert sum("'CA'" in script for script in scripts) == 2
+    assert all("PolicyEngineUnsupportedScenario" in script for script in scripts)
+
+
+def test_policyengine_snap_child_support_election_mismatch_is_unsupported(
+    tmp_path,
+):
+    policy_repo, rules_file = _snap_child_support_d5_module(tmp_path)
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=True,
+        oracle_validators=("policyengine",),
+    )
+
+    def fake_run(script, *_args, **_kwargs):
+        # A pre-#9586 PolicyEngine, where TX excludes and CA deducts.
+        return OracleSubprocessResult(
+            returncode=1,
+            stdout="",
+            stderr=(
+                "PolicyEngineUnsupportedScenario: "
+                "snap_state_agency_chose_child_support_deduction=True but ..."
+            ),
+        )
+
+    pipeline._run_pe_subprocess_detailed = fake_run
+
+    result = pipeline._run_policyengine(rules_file)
+
+    coverage = result.details["coverage"]
+    assert coverage["unsupported"] == 6
+    assert coverage["failed"] == 0
+    assert coverage["adapter_errors"] == 0
+    assert result.passed is False
+    assert all("PolicyEngine unavailable for" in issue for issue in result.issues)
+
+
+def _policyengine_test_python() -> str:
+    python = os.environ.get("AXIOM_ENCODE_TEST_POLICYENGINE_PYTHON")
+    if not python:
+        pytest.skip(
+            "set AXIOM_ENCODE_TEST_POLICYENGINE_PYTHON to a python with "
+            "policyengine-us>=2.11.4 to run generated scripts"
+        )
+    return python
+
+
+@pytest.mark.parametrize(
+    ("pe_var", "payment", "alimony", "election", "state_code", "expected"),
+    [
+        ("snap_child_support_deduction", 300, 0, True, None, 300.0),
+        ("snap_child_support_deduction", 300, 0, False, None, 0.0),
+        ("snap_child_support_deduction", 300, 250, True, None, 300.0),
+        ("snap_child_support_deduction", 0, 250, True, None, 0.0),
+        ("snap_child_support_deduction", 125.5, 0, True, None, 125.5),
+        ("snap_child_support_gross_income_deduction", 300, 0, False, None, 300.0),
+        ("snap_child_support_gross_income_deduction", 300, 0, True, None, 0.0),
+        ("snap_child_support_gross_income_deduction", 125.5, 0, False, None, 125.5),
+        ("snap_state_agency_provides_child_support_deduction", 300, 0, True, None, 1.0),
+        (
+            "snap_state_agency_provides_child_support_deduction",
+            300,
+            0,
+            False,
+            None,
+            0.0,
+        ),
+        # GA deducts, so a GA module's test that says "exclude" is unsupported.
+        ("snap_child_support_deduction", 300, 0, False, "GA", None),
+        ("snap_child_support_deduction", 300, 0, True, "GA", 300.0),
+    ],
+)
+def test_policyengine_snap_child_support_scripts_run_in_policyengine(
+    tmp_path, pe_var, payment, alimony, election, state_code, expected
+):
+    python = _policyengine_test_python()
+    pipeline = ValidatorPipeline(
+        policy_repo_path=tmp_path,
+        axiom_rules_path=AXIOM_RULES_PATH,
+        enable_oracles=False,
+    )
+    inputs = _snap_child_support_inputs(payment, election, alimony=alimony)
+    if state_code is not None:
+        inputs["state_code_str"] = state_code
+    script = pipeline._build_pe_us_scenario_script(pe_var, inputs, "2026")
+
+    completed = subprocess.run(
+        [python, "-c", script], capture_output=True, text=True, timeout=600
+    )
+
+    if expected is None:
+        assert completed.returncode != 0
+        assert pipeline._is_pe_unsupported_error(completed.stderr)
+        return
+    assert completed.returncode == 0, completed.stderr[-2000:]
+    result = re.search(r"RESULT:(\S+)", completed.stdout)
+    assert result is not None
+    assert float(result.group(1)) == pytest.approx(expected, abs=0.01)
+
+
 def test_policyengine_snap_input_aliases_derive_standard_pe_inputs():
     aliases = _policyengine_us_snap_input_aliases(
         {
