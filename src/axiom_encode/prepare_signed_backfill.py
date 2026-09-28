@@ -145,6 +145,10 @@ REVIEWED_RULESPEC_REFS = frozenset(
             "b5273061fc5765dea04bf36f63de39bf40afc2d8",
         ),
         (
+            "us",
+            "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
+        ),
+        (
             "ca",
             "f60f7a84c30e38c7d4961d70647eb0457e7d76c2",
         ),
@@ -181,6 +185,11 @@ REVIEWED_RULESPEC_PR_BASES = frozenset(
             "us",
             "b5273061fc5765dea04bf36f63de39bf40afc2d8",
             "fix/1248-snap-immigration-status",
+        ),
+        (
+            "us",
+            "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
+            "codex/az-nested-engine-pin",
         ),
     }
 )
