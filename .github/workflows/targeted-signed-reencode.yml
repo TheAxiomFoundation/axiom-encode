@@ -401,6 +401,53 @@ jobs:
           git -C axiom-corpus merge-base --is-ancestor HEAD refs/remotes/origin/main
           git -C axiom-rules-engine merge-base --is-ancestor HEAD refs/remotes/origin/main
 
+      - name: Checkout RuleSpec-pinned axiom-compose
+        id: axiom_compose
+        env:
+          GH_TOKEN: ${{ secrets.AXIOM_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+          RULESPEC_CHECKOUT: rulespec-${{ inputs.country }}
+        run: |
+          set -euo pipefail
+          compose_ref="$(python - "$RULESPEC_CHECKOUT/.axiom/workflow-toolchain.toml" <<'PY'
+          import pathlib
+          import re
+          import sys
+          import tomllib
+
+          path = pathlib.Path(sys.argv[1])
+          payload = tomllib.loads(path.read_text())
+          workflow_toolchain = payload.get("workflow_toolchain")
+          value = (
+              workflow_toolchain.get("axiom_compose_ref")
+              if isinstance(workflow_toolchain, dict)
+              else None
+          )
+          if value is None:
+              print("")
+              raise SystemExit(0)
+          if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{40}", value) is None:
+              raise SystemExit("workflow toolchain must declare a full axiom_compose_ref")
+          print(value)
+          PY
+          )"
+          if [ -z "$compose_ref" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "ref=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          gh repo clone TheAxiomFoundation/axiom-compose axiom-compose \
+            -- --no-checkout
+          git -C axiom-compose checkout --detach "$compose_ref"
+          test "$(git -C axiom-compose rev-parse HEAD)" = "$compose_ref"
+          test -z "$(git -C axiom-compose status --porcelain)"
+          test "$(git -C axiom-compose remote get-url origin)" = \
+            "https://github.com/TheAxiomFoundation/axiom-compose.git"
+          git -C axiom-compose fetch origin main
+          git -C axiom-compose merge-base --is-ancestor \
+            "$compose_ref" refs/remotes/origin/main
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+          echo "ref=$compose_ref" >> "$GITHUB_OUTPUT"
+
       - name: Install uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
@@ -413,7 +460,7 @@ jobs:
           cache: false
 
       - name: Set up Python
-        run: uv python install 3.13
+        run: uv python install 3.13 3.14
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
@@ -431,6 +478,35 @@ jobs:
           rm -rf "$RUNNER_TEMP/axiom-verification-site-packages"
           uv pip install --python .venv/bin/python \
             --target "$RUNNER_TEMP/axiom-verification-site-packages" ".[api]"
+
+      - name: Build protected axiom-compose runtime
+        if: ${{ steps.axiom_compose.outputs.enabled == 'true' }}
+        env:
+          AXIOM_COMPOSE_REF: ${{ steps.axiom_compose.outputs.ref }}
+        run: |
+          set -euo pipefail
+          uv venv --python 3.14 "$RUNNER_TEMP/axiom-compose-build"
+          uv export \
+            --project ./axiom-compose \
+            --locked \
+            --no-dev \
+            --no-emit-project \
+            --format requirements.txt \
+            --output-file "$RUNNER_TEMP/axiom-compose-requirements.txt"
+          uv pip install \
+            --python "$RUNNER_TEMP/axiom-compose-build/bin/python" \
+            --target "$RUNNER_TEMP/axiom-compose-site-packages" \
+            --requirement "$RUNNER_TEMP/axiom-compose-requirements.txt"
+          sudo rm -rf /opt/axiom-compose-verification
+          sudo "$RUNNER_TEMP/axiom-compose-build/bin/python" \
+            axiom-encode/scripts/provision_axiom_compose_runtime.py \
+            --destination /opt/axiom-compose-verification \
+            --site-packages "$RUNNER_TEMP/axiom-compose-site-packages" \
+            --compose-checkout axiom-compose \
+            --compose-ref "$AXIOM_COMPOSE_REF"
+          sudo chown -R 0:0 /opt/axiom-compose-verification
+          sudo chmod -R go-w /opt/axiom-compose-verification
+          /opt/axiom-compose-verification/axiom-compose --help > /dev/null
 
       - name: Resolve trusted prior-run repair candidate
         id: repair_candidate
@@ -753,6 +829,32 @@ jobs:
           primary_required_test_cases_json="$(jq -cer \
             '.primary_required_test_cases' <<< "$atomic_source_payload")"
           canonical_refresh_primary_required_test_cases_json="$primary_required_test_cases_json"
+          # Fresh legacy generation keeps required tests in the signing contract;
+          # it must not turn the legacy target into a canonical-refresh target.
+          if [ -n "${REPLACE_LEGACY_RULESPEC_PATH:-}" ] && \
+             [ "$primary_required_test_cases_json" != "[]" ]; then
+            if [ -z "${REPLACE_RULESPEC_PATH:-}" ] || \
+               [ "$REPLACE_RULESPEC_PATH" != "$REPLACE_LEGACY_RULESPEC_PATH" ] || \
+               [ -n "${REPAIR_RUN_ID:-}" ] || \
+               [ "${REPAIR_TESTS_ONLY:-false}" = "true" ] || \
+               [ -n "${QUEUE_ID:-}" ] || \
+               [ -n "${DEPENDENT_CITATION:-}" ] || \
+               [ -n "${SECOND_DEPENDENT_CITATION:-}" ] || \
+               [ -n "${LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
+               [ -n "${SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
+               ! jq -e '
+                 .source_bundle == [] and .canonical_refresh_bundle == [] and
+                 .require_complete_source_unit == true and
+                 (.manifest_only_refresh // false) == false and
+                 (.reviewed_candidate_promotion // false) == false
+               ' <<< "$atomic_source_payload" > /dev/null || \
+               ! jq -e '. == []' <<< "${EXISTING_SIGNED_IMPORTS_JSON:-[]}" > /dev/null || \
+               ! jq -e '. == []' <<< "${LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON:-[]}" > /dev/null; then
+              echo "required tests on fresh legacy replacements cannot mix transaction modes" >&2
+              exit 1
+            fi
+            canonical_refresh_primary_required_test_cases_json="[]"
+          fi
           if [ -n "${REPAIR_RUN_ID:-}" ]; then
             canonical_refresh_primary_required_test_cases_json="[]"
           fi
@@ -949,6 +1051,11 @@ jobs:
             /opt/axiom-verification/axiom-encode-apply-signer
           sudo chown -R 0:0 /opt/axiom-verification
           sudo chmod -R go-w /opt/axiom-verification
+          if [ -d /opt/axiom-compose-verification ]; then
+            sudo chown -R 0:0 /opt/axiom-compose-verification
+            sudo chmod -R go-w /opt/axiom-compose-verification
+            /opt/axiom-compose-verification/axiom-compose --help > /dev/null
+          fi
 
       - name: Verify protected RuleSpec routing
         env:
@@ -1075,6 +1182,8 @@ jobs:
           LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON: ${{ inputs.legacy_retained_successor_rulespec_paths_json }}
           REPLACE_LEGACY_RULESPEC_PATH: ${{ inputs.replace_legacy_rulespec_path }}
           REPLACE_RULESPEC_PATH: ${{ inputs.replace_rulespec_path }}
+          QUEUE_ID: ${{ inputs.queue_id }}
+          REPAIR_RUN_ID: ${{ inputs.repair_run_id }}
           REPAIR_TESTS_ONLY: ${{ steps.repair_candidate.outputs.tests_only }}
           RULESPEC_CHECKOUT: ${{ github.workspace }}/rulespec-${{ inputs.country }}
           RULESPEC_REF: ${{ inputs.rulespec_ref }}
@@ -1095,6 +1204,32 @@ jobs:
           primary_required_test_cases_json="$(jq -cer \
             '.primary_required_test_cases' <<< "$atomic_source_payload")"
           canonical_refresh_primary_required_test_cases_json="$primary_required_test_cases_json"
+          # Fresh legacy generation keeps required tests in the signing contract;
+          # it must not turn the legacy target into a canonical-refresh target.
+          if [ -n "${REPLACE_LEGACY_RULESPEC_PATH:-}" ] && \
+             [ "$primary_required_test_cases_json" != "[]" ]; then
+            if [ -z "${REPLACE_RULESPEC_PATH:-}" ] || \
+               [ "$REPLACE_RULESPEC_PATH" != "$REPLACE_LEGACY_RULESPEC_PATH" ] || \
+               [ -n "${REPAIR_RUN_ID:-}" ] || \
+               [ "${REPAIR_TESTS_ONLY:-false}" = "true" ] || \
+               [ -n "${QUEUE_ID:-}" ] || \
+               [ -n "${DEPENDENT_CITATION:-}" ] || \
+               [ -n "${SECOND_DEPENDENT_CITATION:-}" ] || \
+               [ -n "${LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
+               [ -n "${SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
+               ! jq -e '
+                 .source_bundle == [] and .canonical_refresh_bundle == [] and
+                 .require_complete_source_unit == true and
+                 (.manifest_only_refresh // false) == false and
+                 (.reviewed_candidate_promotion // false) == false
+               ' <<< "$atomic_source_payload" > /dev/null || \
+               ! jq -e '. == []' <<< "${EXISTING_SIGNED_IMPORTS_JSON:-[]}" > /dev/null || \
+               ! jq -e '. == []' <<< "${LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON:-[]}" > /dev/null; then
+              echo "required tests on fresh legacy replacements cannot mix transaction modes" >&2
+              exit 1
+            fi
+            canonical_refresh_primary_required_test_cases_json="[]"
+          fi
           if [ "${REPAIR_TESTS_ONLY:-false}" = "true" ]; then
             canonical_refresh_primary_required_test_cases_json="[]"
           fi
@@ -1317,6 +1452,10 @@ jobs:
               --db "$RUNNER_TEMP/encodings.db"
               --apply
             )
+            if [ -x /opt/axiom-compose-verification/axiom-compose ]; then
+              args+=(--axiom-compose-path \
+                /opt/axiom-compose-verification/axiom-compose)
+            fi
             case "$require_complete_source_unit" in
               true)
                 args+=(--require-complete-source-unit)
@@ -1642,6 +1781,32 @@ jobs:
               ;;
           esac
           canonical_refresh_primary_required_test_cases_json="$primary_required_test_cases_json"
+          # Fresh legacy generation keeps required tests in the signing contract;
+          # it must not turn the legacy target into a canonical-refresh target.
+          if [ -n "${REPLACE_LEGACY_RULESPEC_PATH:-}" ] && \
+             [ "$primary_required_test_cases_json" != "[]" ]; then
+            if [ -z "${REPLACE_RULESPEC_PATH:-}" ] || \
+               [ "$REPLACE_RULESPEC_PATH" != "$REPLACE_LEGACY_RULESPEC_PATH" ] || \
+               [ -n "${REPAIR_RUN_ID:-}" ] || \
+               [ "${REPAIR_TESTS_ONLY:-false}" = "true" ] || \
+               [ -n "${QUEUE_ID:-}" ] || \
+               [ -n "${DEPENDENT_CITATION:-}" ] || \
+               [ -n "${SECOND_DEPENDENT_CITATION:-}" ] || \
+               [ -n "${LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
+               [ -n "${SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
+               ! jq -e '
+                 .source_bundle == [] and .canonical_refresh_bundle == [] and
+                 .require_complete_source_unit == true and
+                 (.manifest_only_refresh // false) == false and
+                 (.reviewed_candidate_promotion // false) == false
+               ' <<< "$atomic_source_payload" > /dev/null || \
+               ! jq -e '. == []' <<< "${EXISTING_SIGNED_IMPORTS_JSON:-[]}" > /dev/null || \
+               ! jq -e '. == []' <<< "${LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON:-[]}" > /dev/null; then
+              echo "required tests on fresh legacy replacements cannot mix transaction modes" >&2
+              exit 1
+            fi
+            canonical_refresh_primary_required_test_cases_json="[]"
+          fi
           if [ "$REPAIR_TESTS_ONLY" = "true" ]; then
             canonical_refresh_primary_required_test_cases_json="[]"
           fi
@@ -1918,6 +2083,10 @@ jobs:
               --corpus-path "$GITHUB_WORKSPACE/axiom-corpus"
               --run-id "$GITHUB_RUN_ID"
             )
+            if [ -x /opt/axiom-compose-verification/axiom-compose ]; then
+              promotion_args+=(--axiom-compose-path \
+                /opt/axiom-compose-verification/axiom-compose)
+            fi
             /opt/axiom-verification/axiom-encode-apply-signer run \
               --scope apply_ed25519 \
               --key-env AXIOM_ENCODE_APPLY_SIGNING_KEY \
@@ -1983,6 +2152,10 @@ jobs:
               --corpus-path "$GITHUB_WORKSPACE/axiom-corpus"
               --run-id "$GITHUB_RUN_ID"
             )
+            if [ -x /opt/axiom-compose-verification/axiom-compose ]; then
+              refresh_args+=(--axiom-compose-path \
+                /opt/axiom-compose-verification/axiom-compose)
+            fi
             /opt/axiom-verification/axiom-encode-apply-signer run \
               --scope apply_ed25519 \
               --key-env AXIOM_ENCODE_APPLY_SIGNING_KEY \

@@ -417,6 +417,175 @@ def _canonical_rulespec_test_file(
     return policy_repo, rules_file
 
 
+def _composition_validation_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
+    checkout = tmp_path / "rulespec-us"
+    policy_repo = checkout / "us-az"
+    rules_file = policy_repo / "policies/example/composition.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  kind: composition
+rules: []
+"""
+    )
+    program_spec = checkout / "programs/us-az/snap/fy-2026.yaml"
+    program_spec.parent.mkdir(parents=True)
+    program_spec.write_text(
+        """program: us-az/snap
+period: 2026-01
+outputs: [result]
+scope:
+  federal: []
+  state:
+    - policies/example/composition
+"""
+    )
+    return policy_repo, rules_file, program_spec
+
+
+def test_composition_module_requires_explicit_compose_executable(tmp_path):
+    policy_repo, rules_file, _program_spec = _composition_validation_fixture(tmp_path)
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "engine",
+        enable_oracles=False,
+    )
+    pipeline._axiom_rules_binary = lambda: tmp_path / "engine"
+
+    result = pipeline._run_rulespec_compile_check(rules_file)
+
+    assert not result.passed
+    assert "requires an explicit axiom-compose executable" in result.issues[0]
+
+
+def test_composition_module_is_composed_before_engine_compile(tmp_path):
+    policy_repo, rules_file, program_spec = _composition_validation_fixture(tmp_path)
+    compose = tmp_path / "axiom-compose"
+    compose.write_text(
+        f"""#!{sys.executable}
+import pathlib
+import sys
+args = sys.argv[1:]
+output = pathlib.Path(args[args.index('-o') + 1])
+output.write_text('format: rulespec/v1\\nrules: []\\n')
+"""
+    )
+    compose.chmod(0o755)
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "engine",
+        axiom_compose_path=compose,
+        enable_oracles=False,
+    )
+    pipeline._axiom_rules_binary = lambda: tmp_path / "engine"
+    observed: dict[str, object] = {}
+
+    def fake_compile(*, program, output, rulespec_roots, **_kwargs):
+        observed["program"] = program
+        observed["roots"] = rulespec_roots
+        observed["composed"] = _kwargs["composed"]
+        output.write_text(
+            json.dumps({"program": {"parameters": [], "derived": [], "relations": []}})
+        )
+        return subprocess.CompletedProcess([], 0, "", "")
+
+    with patch.object(validator_pipeline, "run_rulespec_compile", fake_compile):
+        result = pipeline._run_rulespec_compile_check(rules_file)
+
+    assert result.passed
+    assert Path(observed["program"]).name == "composed-program.yaml"
+    assert observed["roots"] == (policy_repo.parent,)
+    assert observed["composed"] is True
+    assert pipeline._owning_program_specs(rules_file) == (program_spec,)
+
+
+def test_composition_owner_normalizes_qualified_fragment_scope_target(tmp_path):
+    policy_repo, rules_file, program_spec = _composition_validation_fixture(tmp_path)
+    program_spec.write_text(
+        program_spec.read_text().replace(
+            "- policies/example/composition",
+            "- us-az:policies/example/composition#result",
+        )
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "engine",
+        enable_oracles=False,
+    )
+
+    assert pipeline._owning_program_specs(rules_file) == (program_spec,)
+
+
+def test_composition_owner_follows_transitive_composition_imports(tmp_path):
+    policy_repo, nested_rules, program_spec = _composition_validation_fixture(tmp_path)
+    outer_rules = policy_repo / "policies/example/outer-composition.yaml"
+    outer_rules.write_text(
+        """format: rulespec/v1
+module:
+  kind: composition
+imports:
+  - us-az:policies/example/composition
+"""
+    )
+    program_spec.write_text(
+        program_spec.read_text().replace(
+            "- policies/example/composition",
+            "- policies/example/outer-composition",
+        )
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "engine",
+        enable_oracles=False,
+    )
+
+    assert pipeline._owning_program_specs(nested_rules) == (program_spec,)
+
+
+def test_composition_uses_explicit_roots_and_credential_free_environment(
+    tmp_path,
+    monkeypatch,
+):
+    policy_repo, rules_file, program_spec = _composition_validation_fixture(tmp_path)
+    compose = tmp_path / "axiom-compose"
+    compose.write_text("#!/bin/sh\nexit 0\n")
+    compose.chmod(0o755)
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "engine",
+        axiom_compose_path=compose,
+        enable_oracles=False,
+    )
+    observed: dict[str, object] = {}
+
+    def fake_run(command, **kwargs):
+        observed["command"] = command
+        observed["env"] = kwargs["env"]
+        output = Path(command[command.index("-o") + 1])
+        output.write_text("format: rulespec/v1\nrules: []\n")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setenv("OPENAI_API_KEY", "must-not-reach-composer")
+    monkeypatch.setenv("AXIOM_RULESPEC_REPO_ROOTS", "/untrusted/root")
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    result, composed = pipeline._compose_rulespec_module(rules_file, tmp_path)
+
+    assert result.returncode == 0
+    assert composed == tmp_path / "composed-program.yaml"
+    assert observed["command"] == [
+        str(compose),
+        str(program_spec),
+        "-o",
+        str(composed),
+        "--rulespec-root",
+        str(policy_repo.parent),
+    ]
+    assert "OPENAI_API_KEY" not in observed["env"]
+    assert "AXIOM_RULESPEC_REPO_ROOTS" not in observed["env"]
+
+
 def _admitted_runtime_stub(
     root: Path,
     *,
@@ -1268,13 +1437,14 @@ def test_rulespec_validation_run_compiled_scrubs_ambient_root_env(
                 {
                     "results": [
                         {
+                            **json.loads(kwargs["input"])["queries"][0],
                             "outputs": {
                                 "us:statutes/1/1#benefit": {
                                     "kind": "scalar",
                                     "id": "us:statutes/1/1#benefit",
                                     "value": {"kind": "integer", "value": 6},
                                 }
-                            }
+                            },
                         }
                     ]
                 }
@@ -2332,13 +2502,14 @@ def test_rulespec_companion_runner_uses_rows_for_absolute_list_outputs(
                 {
                     "results": [
                         {
+                            **json.loads(kwargs["input"])["queries"][0],
                             "outputs": {
                                 "excluded_from_wages": {
                                     "kind": "scalar",
                                     "id": "us:statutes/26/3121/a/6#excluded_from_wages",
                                     "value": {"kind": "money", "value": 300},
                                 }
-                            }
+                            },
                         }
                     ]
                 }
@@ -6497,7 +6668,7 @@ def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2052"')
+        .startswith('__version__ = "0.2.2057"')
     )
 
 
@@ -6729,13 +6900,13 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2052"
+    assert encoder_package["version"] == "0.2.2057"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2052"
+    assert project["project"]["version"] == "0.2.2057"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2052"')
+        .startswith('__version__ = "0.2.2057"')
     )
 
 
@@ -6997,13 +7168,13 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2052"
+    assert encoder_package["version"] == "0.2.2057"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2052"
+    assert project["project"]["version"] == "0.2.2057"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2052"')
+        .startswith('__version__ = "0.2.2057"')
     )
 
 
@@ -51568,3 +51739,211 @@ def test_numeric_inventory_does_not_sum_flattened_child_count_columns():
     # turn adjacent labels into an invented substantive amount.
     assert 6 not in values
     assert 6 not in extract_numbers_from_text(source)
+
+
+@pytest.mark.parametrize("row_ordered", [False, True])
+@pytest.mark.parametrize(
+    "mutation, expected_issue",
+    [
+        ("duplicate_id", "ambiguous runtime output reference"),
+        ("key_id_collision", "ambiguous runtime output reference"),
+        ("reversed_key_id_collision", "ambiguous runtime output reference"),
+        ("extra_result", "returned 2 row result(s), expected 1"),
+        ("malformed_row", "malformed result row"),
+        ("duplicate_json_key", "duplicate response key"),
+    ],
+)
+def test_rulespec_companion_rejects_ambiguous_runtime_response(
+    monkeypatch, tmp_path, row_ordered, mutation, expected_issue
+):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=_canonical_rulespec_content_root(tmp_path / "repos", "us"),
+        axiom_rules_path=tmp_path / "missing-engine",
+        enable_oracles=False,
+    )
+    legal_id = "us:policies/example/rules#benefit"
+    scalar = {
+        "kind": "scalar",
+        "id": legal_id,
+        "value": {"kind": "integer", "value": 42},
+    }
+    output_map = {"benefit": scalar}
+    if mutation == "duplicate_id":
+        # Identical values still have two distinct response identities.
+        output_map["another_output"] = dict(scalar)
+    elif mutation in {"key_id_collision", "reversed_key_id_collision"}:
+        output_map[legal_id] = {
+            "kind": "scalar",
+            "id": "us:policies/other/rules#benefit",
+            "value": {"kind": "integer", "value": 42},
+        }
+        if mutation == "reversed_key_id_collision":
+            output_map = dict(reversed(list(output_map.items())))
+    results = [{"outputs": output_map}]
+    if mutation == "extra_result":
+        results.append({"outputs": output_map})
+    elif mutation == "malformed_row":
+        results = [None]
+    response = json.dumps({"results": results})
+    if mutation == "duplicate_json_key":
+        value = json.dumps(scalar)
+        response = (
+            '{"results":[{"outputs":{"benefit":'
+            + value
+            + ',"benefit":'
+            + value
+            + "}}]}"
+        )
+
+    def fake_run(command, **kwargs):
+        if mutation != "duplicate_json_key":
+            query = json.loads(kwargs["input"])["queries"][0]
+            bound_results = [
+                {**query, **row} if isinstance(row, dict) else row for row in results
+            ]
+            return subprocess.CompletedProcess(
+                command, 0, stdout=json.dumps({"results": bound_results}), stderr=""
+            )
+        return subprocess.CompletedProcess(command, 0, stdout=response, stderr="")
+
+    monkeypatch.setattr(validator_pipeline.subprocess, "run", fake_run)
+    case = {"input": {}, "output": {"benefit": [42] if row_ordered else 42}}
+    if row_ordered:
+        case["tables"] = {"Person": [{"person_id": "person-1"}]}
+    outputs, issues = pipeline._run_rulespec_derived_test_case(
+        binary=tmp_path / "engine",
+        compiled_path=tmp_path / "compiled.json",
+        case=case,
+        case_name="runtime_identity",
+        case_index=1,
+        period={"period_kind": "tax_year", "start": "2026-01-01", "end": "2026-12-31"},
+        output_names=["benefit"],
+        derived_by_key={"benefit": {"entity": "Person"}},
+        require_legal_input_keys=False,
+        legal_ids_by_friendly_name={},
+        declared_relation_names=set(),
+        module_target=None,
+    )
+    assert outputs is None
+    assert any(expected_issue in issue for issue in issues), issues
+
+
+@pytest.mark.parametrize("row_ordered", [False, True])
+@pytest.mark.parametrize(
+    "period",
+    [
+        {"period_kind": "month", "start": "2026-01-01", "end": "2026-01-31"},
+        {"period_kind": "tax_year", "start": "2026-01-01", "end": "2026-12-31"},
+        {
+            "period_kind": "custom",
+            "name": "assessment_window",
+            "start": "2026-01-01",
+            "end": "2026-01-15",
+        },
+    ],
+)
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        None,
+        "null_assessment",
+        "wrong_entity",
+        "missing_entity",
+        "numeric_entity",
+        "missing_period",
+        "malformed_period",
+        "missing_start",
+        "wrong_start",
+        "wrong_end",
+        "wrong_kind",
+        "wrong_custom_name",
+        "unexpected_assessment",
+        "repeated_entity",
+        "swapped_rows",
+    ],
+)
+def test_rulespec_companion_binds_response_to_query(
+    monkeypatch, tmp_path, row_ordered, period, mutation
+):
+    if mutation in {"repeated_entity", "swapped_rows"} and not row_ordered:
+        pytest.skip("requires multiple query rows")
+    pipeline = ValidatorPipeline(
+        policy_repo_path=_canonical_rulespec_content_root(tmp_path / "repos", "us"),
+        axiom_rules_path=tmp_path / "missing-engine",
+        enable_oracles=False,
+    )
+
+    def fake_run(command, **kwargs):
+        request = json.loads(kwargs["input"])
+        rows = [
+            {
+                "entity_id": query["entity_id"],
+                "period": dict(query["period"]),
+                "outputs": {
+                    "benefit": {
+                        "kind": "scalar",
+                        "value": {"kind": "integer", "value": 42},
+                    }
+                },
+            }
+            for query in request["queries"]
+        ]
+        row = rows[-1]
+        if mutation == "null_assessment":
+            row["assessment_date"] = None
+        elif mutation == "wrong_entity":
+            row["entity_id"] = "someone-else"
+        elif mutation == "missing_entity":
+            del row["entity_id"]
+        elif mutation == "numeric_entity":
+            row["entity_id"] = 1
+        elif mutation == "missing_period":
+            del row["period"]
+        elif mutation == "malformed_period":
+            row["period"] = list(row["period"].values())
+        elif mutation == "missing_start":
+            del row["period"]["start"]
+        elif mutation in {"wrong_start", "wrong_end"}:
+            row["period"][mutation.removeprefix("wrong_")] = "2025-01-01"
+        elif mutation == "wrong_kind":
+            row["period"]["period_kind"] = "benefit_week"
+        elif mutation == "wrong_custom_name":
+            row["period"]["name"] = "different_window"
+        elif mutation == "unexpected_assessment":
+            row["assessment_date"] = "2026-02-01"
+        elif mutation == "repeated_entity":
+            row["entity_id"] = rows[0]["entity_id"]
+        elif mutation == "swapped_rows":
+            rows.reverse()
+        return subprocess.CompletedProcess(
+            command, 0, stdout=json.dumps({"results": rows}), stderr=""
+        )
+
+    monkeypatch.setattr(validator_pipeline.subprocess, "run", fake_run)
+    case = {"input": {}, "output": {"benefit": [42, 42] if row_ordered else 42}}
+    if row_ordered:
+        case["tables"] = {
+            "Person": [{"person_id": "person-1"}, {"person_id": "person-2"}]
+        }
+    outputs, issues = pipeline._run_rulespec_derived_test_case(
+        binary=tmp_path / "engine",
+        compiled_path=tmp_path / "compiled.json",
+        case=case,
+        case_name="query_identity",
+        case_index=1,
+        period=period,
+        output_names=["benefit"],
+        derived_by_key={"benefit": {"entity": "Person"}},
+        require_legal_input_keys=False,
+        legal_ids_by_friendly_name={},
+        declared_relation_names=set(),
+        module_target=None,
+    )
+    if mutation in {None, "null_assessment"}:
+        assert not issues
+        assert outputs is not None
+    else:
+        assert outputs is None
+        assert any("does not match its execution query" in issue for issue in issues), (
+            issues
+        )

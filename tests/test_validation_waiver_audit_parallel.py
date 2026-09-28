@@ -164,14 +164,16 @@ def test_single_worker_delegates_to_serial(monkeypatch):
             root=Path("/repo"),
             corpus_path=Path("/corpus"),
             axiom_rules_path=Path("/engine"),
+            axiom_compose_path=Path("/composer"),
         )
     assert result == sentinel
     assert serial.call_count == 1
+    assert serial.call_args.kwargs["axiom_compose_path"] == Path("/composer")
     # The serial path receives the same sorted order the parallel path uses.
     assert [str(p) for p in serial.call_args.args[0]] == ["us/a.yaml", "us/b.yaml"]
 
 
-def _run_parallel(paths, monkeypatch, workers="2"):
+def _run_parallel(paths, monkeypatch, workers="2", composer=None):
     monkeypatch.setenv(cli._WAIVER_AUDIT_WORKERS_ENV, workers)
     with (
         patch.object(
@@ -184,6 +186,7 @@ def _run_parallel(paths, monkeypatch, workers="2"):
             root=Path("/repo"),
             corpus_path=Path("/corpus"),
             axiom_rules_path=Path("/engine"),
+            axiom_compose_path=composer,
         )
 
 
@@ -198,7 +201,9 @@ def test_parallel_results_are_merged_and_sorted(monkeypatch):
             {"path": path, "passed": False, "fingerprint": f"fp-{path}"}
             for path in reversed(piece)
         ]
-    results = _run_parallel(list(reversed(paths)), monkeypatch)
+    results = _run_parallel(
+        list(reversed(paths)), monkeypatch, composer=Path("/composer")
+    )
     assert [row["path"] for row in results] == sorted(paths)
     submitted_paths = [
         path for _fn, chunk_paths, _args in _FakePool.submitted for path in chunk_paths
@@ -211,6 +216,7 @@ def test_parallel_results_are_merged_and_sorted(monkeypatch):
             "/engine",
             (),
             _RELEASE_IDENTITY,
+            "/composer",
         )
 
 
@@ -359,11 +365,13 @@ def test_audit_rechecks_discrepant_results_in_isolation(monkeypatch, capsys):
 
     monkeypatch.setenv(cli._WAIVER_AUDIT_WORKERS_ENV, "1")
     calls = []
+    composer = None
 
     fp_good = "sha256:" + "a" * 64
     fp_flake = "sha256:" + "b" * 64
 
     def fake_parallel(modules, **kwargs):
+        assert kwargs["axiom_compose_path"] == composer.resolve()
         calls.append(("parallel", [str(m) for m in modules]))
         return [
             {
@@ -375,6 +383,7 @@ def test_audit_rechecks_discrepant_results_in_isolation(monkeypatch, capsys):
         ]
 
     def fake_serial(modules, **kwargs):
+        assert kwargs["axiom_compose_path"] == composer.resolve()
         calls.append(("serial", [str(m) for m in modules]))
         return [
             {
@@ -412,6 +421,13 @@ def test_audit_rechecks_discrepant_results_in_isolation(monkeypatch, capsys):
         base.write_text(_yaml.safe_dump(ledger))
         changed = _P(td) / "changed.txt"
         changed.write_text("")
+        composer = _P(td) / "composer"
+        composer.write_text("#!/bin/sh\nexit 0\n")
+        composer.chmod(0o755)
+        args = _audit_args(
+            td, root, _P(td) / "corpus", _P(td) / "engine", base, changed
+        )
+        args.axiom_compose_path = composer
 
         with (
             patch.object(
@@ -419,11 +435,7 @@ def test_audit_rechecks_discrepant_results_in_isolation(monkeypatch, capsys):
             ),
             patch.object(cli, "_fingerprint_validation_waiver_modules", fake_serial),
         ):
-            code = cli._cmd_validation_waivers_audit(
-                _audit_args(
-                    td, root, _P(td) / "corpus", _P(td) / "engine", base, changed
-                )
-            )
+            code = cli._cmd_validation_waivers_audit(args)
 
     assert code == 0
     assert [c[0] for c in calls] == ["parallel", "serial"]
