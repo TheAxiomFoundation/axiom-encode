@@ -417,6 +417,175 @@ def _canonical_rulespec_test_file(
     return policy_repo, rules_file
 
 
+def _composition_validation_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
+    checkout = tmp_path / "rulespec-us"
+    policy_repo = checkout / "us-az"
+    rules_file = policy_repo / "policies/example/composition.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  kind: composition
+rules: []
+"""
+    )
+    program_spec = checkout / "programs/us-az/snap/fy-2026.yaml"
+    program_spec.parent.mkdir(parents=True)
+    program_spec.write_text(
+        """program: us-az/snap
+period: 2026-01
+outputs: [result]
+scope:
+  federal: []
+  state:
+    - policies/example/composition
+"""
+    )
+    return policy_repo, rules_file, program_spec
+
+
+def test_composition_module_requires_explicit_compose_executable(tmp_path):
+    policy_repo, rules_file, _program_spec = _composition_validation_fixture(tmp_path)
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "engine",
+        enable_oracles=False,
+    )
+    pipeline._axiom_rules_binary = lambda: tmp_path / "engine"
+
+    result = pipeline._run_rulespec_compile_check(rules_file)
+
+    assert not result.passed
+    assert "requires an explicit axiom-compose executable" in result.issues[0]
+
+
+def test_composition_module_is_composed_before_engine_compile(tmp_path):
+    policy_repo, rules_file, program_spec = _composition_validation_fixture(tmp_path)
+    compose = tmp_path / "axiom-compose"
+    compose.write_text(
+        f"""#!{sys.executable}
+import pathlib
+import sys
+args = sys.argv[1:]
+output = pathlib.Path(args[args.index('-o') + 1])
+output.write_text('format: rulespec/v1\\nrules: []\\n')
+"""
+    )
+    compose.chmod(0o755)
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "engine",
+        axiom_compose_path=compose,
+        enable_oracles=False,
+    )
+    pipeline._axiom_rules_binary = lambda: tmp_path / "engine"
+    observed: dict[str, object] = {}
+
+    def fake_compile(*, program, output, rulespec_roots, **_kwargs):
+        observed["program"] = program
+        observed["roots"] = rulespec_roots
+        observed["composed"] = _kwargs["composed"]
+        output.write_text(
+            json.dumps({"program": {"parameters": [], "derived": [], "relations": []}})
+        )
+        return subprocess.CompletedProcess([], 0, "", "")
+
+    with patch.object(validator_pipeline, "run_rulespec_compile", fake_compile):
+        result = pipeline._run_rulespec_compile_check(rules_file)
+
+    assert result.passed
+    assert Path(observed["program"]).name == "composed-program.yaml"
+    assert observed["roots"] == (policy_repo.parent,)
+    assert observed["composed"] is True
+    assert pipeline._owning_program_specs(rules_file) == (program_spec,)
+
+
+def test_composition_owner_normalizes_qualified_fragment_scope_target(tmp_path):
+    policy_repo, rules_file, program_spec = _composition_validation_fixture(tmp_path)
+    program_spec.write_text(
+        program_spec.read_text().replace(
+            "- policies/example/composition",
+            "- us-az:policies/example/composition#result",
+        )
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "engine",
+        enable_oracles=False,
+    )
+
+    assert pipeline._owning_program_specs(rules_file) == (program_spec,)
+
+
+def test_composition_owner_follows_transitive_composition_imports(tmp_path):
+    policy_repo, nested_rules, program_spec = _composition_validation_fixture(tmp_path)
+    outer_rules = policy_repo / "policies/example/outer-composition.yaml"
+    outer_rules.write_text(
+        """format: rulespec/v1
+module:
+  kind: composition
+imports:
+  - us-az:policies/example/composition
+"""
+    )
+    program_spec.write_text(
+        program_spec.read_text().replace(
+            "- policies/example/composition",
+            "- policies/example/outer-composition",
+        )
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "engine",
+        enable_oracles=False,
+    )
+
+    assert pipeline._owning_program_specs(nested_rules) == (program_spec,)
+
+
+def test_composition_uses_explicit_roots_and_credential_free_environment(
+    tmp_path,
+    monkeypatch,
+):
+    policy_repo, rules_file, program_spec = _composition_validation_fixture(tmp_path)
+    compose = tmp_path / "axiom-compose"
+    compose.write_text("#!/bin/sh\nexit 0\n")
+    compose.chmod(0o755)
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "engine",
+        axiom_compose_path=compose,
+        enable_oracles=False,
+    )
+    observed: dict[str, object] = {}
+
+    def fake_run(command, **kwargs):
+        observed["command"] = command
+        observed["env"] = kwargs["env"]
+        output = Path(command[command.index("-o") + 1])
+        output.write_text("format: rulespec/v1\nrules: []\n")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setenv("OPENAI_API_KEY", "must-not-reach-composer")
+    monkeypatch.setenv("AXIOM_RULESPEC_REPO_ROOTS", "/untrusted/root")
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    result, composed = pipeline._compose_rulespec_module(rules_file, tmp_path)
+
+    assert result.returncode == 0
+    assert composed == tmp_path / "composed-program.yaml"
+    assert observed["command"] == [
+        str(compose),
+        str(program_spec),
+        "-o",
+        str(composed),
+        "--rulespec-root",
+        str(policy_repo.parent),
+    ]
+    assert "OPENAI_API_KEY" not in observed["env"]
+    assert "AXIOM_RULESPEC_REPO_ROOTS" not in observed["env"]
+
+
 def _admitted_runtime_stub(
     root: Path,
     *,
@@ -6499,7 +6668,7 @@ def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2055"')
+        .startswith('__version__ = "0.2.2056"')
     )
 
 
@@ -6731,13 +6900,13 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2055"
+    assert encoder_package["version"] == "0.2.2056"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2055"
+    assert project["project"]["version"] == "0.2.2056"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2055"')
+        .startswith('__version__ = "0.2.2056"')
     )
 
 
@@ -6999,13 +7168,13 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2055"
+    assert encoder_package["version"] == "0.2.2056"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2055"
+    assert project["project"]["version"] == "0.2.2056"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2055"')
+        .startswith('__version__ = "0.2.2056"')
     )
 
 

@@ -2004,6 +2004,46 @@ def test_targeted_signed_reencode_shell_steps_have_valid_syntax(tmp_path: Path) 
             subprocess.run(["bash", "-n", str(script)], check=True)
 
 
+def test_targeted_signed_reencode_binds_protected_composer_to_rulespec_pin() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    steps = workflow["jobs"]["encode"]["steps"]
+    checkout = next(
+        step
+        for step in steps
+        if step.get("name") == "Checkout RuleSpec-pinned axiom-compose"
+    )["run"]
+    build = next(
+        step
+        for step in steps
+        if step.get("name") == "Build protected axiom-compose runtime"
+    )["run"]
+    encode = next(
+        step
+        for step in steps
+        if step.get("name") == "Encode, review, validate, and apply"
+    )["run"]
+
+    assert 'workflow_toolchain.get("axiom_compose_ref")' in checkout
+    assert 'git -C axiom-compose checkout --detach "$compose_ref"' in checkout
+    assert 'test "$(git -C axiom-compose rev-parse HEAD)" = "$compose_ref"' in checkout
+    assert "git -C axiom-compose merge-base --is-ancestor" in checkout
+    assert "uv export" in build
+    assert "--locked" in build
+    assert "--no-emit-project" in build
+    assert "provision_axiom_compose_runtime.py" in build
+    assert '--compose-ref "$AXIOM_COMPOSE_REF"' in build
+    assert "--destination /opt/axiom-compose-verification" in build
+    assert all(
+        'mv "$RUNNER_TEMP/axiom-compose-verification"' not in step.get("run", "")
+        for step in steps
+    )
+    assert "--axiom-compose-path" in encode
+    assert "/opt/axiom-compose-verification/axiom-compose" in encode
+    assert encode.count("--axiom-compose-path") == 3
+
+
 def test_targeted_signed_reencode_only_allows_audited_legacy_index_shrink() -> None:
     workflow = yaml.safe_load(
         (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()

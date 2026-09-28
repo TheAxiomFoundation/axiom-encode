@@ -20,15 +20,20 @@ def run_rulespec_compile(
     cwd: Path | None,
     env: Mapping[str, str],
     timeout: int = 60,
+    composed: bool = False,
 ) -> subprocess.CompletedProcess[str]:
-    """Compile with the current root contract or its prior exclusive form."""
+    """Compile with the current root contract or its prior exclusive form.
+
+    Composer output is originless and must use the engine's dedicated
+    ``compile-composed`` surface.  That surface has no legacy fallback.
+    """
 
     roots = tuple(Path(root) for root in rulespec_roots)
     if not roots:
         raise ValueError("RuleSpec engine compilation requires an explicit root")
     base_command = [
         str(binary),
-        "compile",
+        "compile-composed" if composed else "compile",
         "--program",
         str(program),
     ]
@@ -50,7 +55,7 @@ def run_rulespec_compile(
         env=clean_env,
     )
     output_text = result.stdout + result.stderr
-    if not (
+    if composed or not (
         result.returncode != 0
         and _UNKNOWN_EXPLICIT_ROOT_FLAG in output_text
         and _LEGACY_EXCLUSIVE_ROOT_FLAG in output_text
