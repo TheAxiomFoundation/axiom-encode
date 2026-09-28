@@ -1813,20 +1813,40 @@ def _slice_us_legal_hierarchy(
         top_level_kind = _legal_marker_kind_for_level(0, document_class=document_class)
         top_level_ordinal = dict(marker_kind_ordinals).get(top_level_kind)
         unambiguous_top_level_token = len(marker_kind_ordinals) == 1
+        next_strong_top_level_sibling = (
+            last_strong_top_level_ordinal is not None
+            and top_level_ordinal == last_strong_top_level_ordinal + 1
+        )
+        recover_roman_collision = (
+            next_strong_top_level_sibling
+            and not begins_roman_sequence
+            and (
+                assigned is None
+                or (assigned[0] > 0 and assigned[1] in {"lower_roman", "upper_roman"})
+            )
+        )
         if (
-            assigned is None
-            and directly_structural
+            directly_structural
             and has_strong_boundary
-            and unambiguous_top_level_token
             and top_level_ordinal is not None
             and (
-                last_strong_top_level_ordinal is None
-                or top_level_ordinal > last_strong_top_level_ordinal
+                recover_roman_collision
+                or (
+                    assigned is None
+                    and unambiguous_top_level_token
+                    and (
+                        last_strong_top_level_ordinal is None
+                        or top_level_ordinal > last_strong_top_level_ordinal
+                    )
+                )
             )
         ):
             # Weak inline Roman/alpha collisions can temporarily corrupt the
             # inferred stack in flattened text. A later strongly anchored,
             # advancing top-level marker re-establishes the provision boundary.
+            # An ambiguous letter must be the next strong top-level sibling;
+            # a corroborated Roman sequence (such as (i), (ii)) retains its
+            # child interpretation. Structural/reference vetoes still run below.
             assigned = (0, top_level_kind, top_level_ordinal)
         if assigned is None:
             if (
@@ -1934,8 +1954,16 @@ def _slice_us_legal_hierarchy(
         stack.append((kind, token, ordinal))
         last_structural_end = match.end("marker")
         path = tuple(item[1] for item in stack)
+        # A nonconsecutive Roman/alpha collision must not replace the last
+        # proven boundary and prevent a later sibling from recovering the stack.
         proves_top_level_boundary = (
-            level == 0 and has_strong_boundary and unambiguous_top_level_token
+            level == 0
+            and has_strong_boundary
+            and (
+                unambiguous_top_level_token
+                or next_strong_top_level_sibling
+                or last_strong_top_level_ordinal is None
+            )
         )
         if proves_top_level_boundary:
             last_strong_top_level_ordinal = ordinal

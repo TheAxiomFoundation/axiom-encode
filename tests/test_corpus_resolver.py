@@ -8,6 +8,8 @@ import os
 from pathlib import Path
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from axiom_encode import corpus_resolver
 from axiom_encode.corpus_resolver import (
@@ -2027,6 +2029,202 @@ def test_us_hierarchy_reestablishes_unambiguous_top_level_boundary(
     resolved = resolve_local_corpus_source(f"{parent}/{requested}", _release(tmp_path))
 
     assert resolved.body == expected
+
+
+@pytest.mark.parametrize("requested", ["c", "d", "c/2", "d/5", "d/6/iii"])
+def test_us_cfr_hierarchy_recovers_roman_ambiguous_top_level_letters(
+    requested: str,
+):
+    paragraphs: dict[str, str] = {}
+    for letter in "abcde":
+        children = []
+        for number in range(1, 7):
+            clauses = []
+            for roman in ("i", "ii", "iii"):
+                path = f"{letter}/{number}/{roman}"
+                paragraphs[path] = f"({roman}) Clause {path}."
+                clauses.append(paragraphs[path])
+            path = f"{letter}/{number}"
+            paragraphs[path] = "\n\n".join([f"({number}) Paragraph {path}.", *clauses])
+            children.append(paragraphs[path])
+        paragraphs[letter] = "\n\n".join([f"({letter}) Heading {letter}.", *children])
+    body = "\n\n".join(paragraphs[letter] for letter in "abcde")
+
+    actual = corpus_resolver._slice_parent_body(
+        body,
+        requested_path=f"us/regulation/7/999/1/{requested}",
+        resolved_path="us/regulation/7/999/1",
+    )
+
+    assert actual == paragraphs[requested]
+
+
+@pytest.mark.parametrize(
+    "previous, target",
+    [
+        ("b", "c"),
+        ("c", "d"),
+        ("h", "i"),
+        ("u", "v"),
+        ("w", "x"),
+        ("k", "l"),
+        ("l", "m"),
+    ],
+)
+def test_us_cfr_hierarchy_recovers_each_roman_ambiguous_successor(
+    previous: str,
+    target: str,
+):
+    expected = f"({target}) Target paragraph.\n\n(1) Target child."
+    body = (
+        f"({previous}) Previous paragraph.\n\n(1) Nested paragraph.\n\n"
+        "(i) First clause.\n\n(ii) Second clause.\n\n"
+        f"{expected}\n\n({chr(ord(target) + 1)}) Following paragraph."
+    )
+
+    actual = corpus_resolver._slice_parent_body(
+        body,
+        requested_path=f"us/regulation/7/999/1/{target}",
+        resolved_path="us/regulation/7/999/1",
+    )
+
+    assert actual == expected
+
+
+def test_us_cfr_hierarchy_does_not_promote_non_successor_roman_letter():
+    body = (
+        "(a) First paragraph.\n\n(1) Numeric child.\n\n"
+        "(i) First roman clause.\n\n(ii) Second roman clause.\n\n"
+        "(c) Later roman clause.\n\n(b) Next paragraph."
+    )
+
+    assert (
+        corpus_resolver._slice_us_legal_hierarchy(
+            body, ("c",), document_class="regulation"
+        )
+        is None
+    )
+    assert (
+        corpus_resolver._slice_parent_body(
+            body,
+            requested_path="us/regulation/7/999/1/a/1/c",
+            resolved_path="us/regulation/7/999/1",
+        )
+        == "(c) Later roman clause."
+    )
+
+
+@pytest.mark.parametrize("separator", [" ", "\n\n"])
+def test_us_cfr_hierarchy_preserves_roman_children_through_ten(separator: str):
+    romans = ("i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x")
+    clauses = [f"({roman}) In general .— Clause {roman}." for roman in romans]
+    expected = "(b) Benefits.\n\n(1) General rules.\n\n" + separator.join(clauses)
+    body = f"(a) Earlier paragraph.\n\n{expected}\n\n(c) Next paragraph."
+
+    assert (
+        corpus_resolver._slice_parent_body(
+            body,
+            requested_path="us/regulation/7/999/1/b",
+            resolved_path="us/regulation/7/999/1",
+        )
+        == expected
+    )
+    for roman, clause in zip(romans, clauses, strict=True):
+        assert (
+            corpus_resolver._slice_parent_body(
+                body,
+                requested_path=f"us/regulation/7/999/1/b/1/{roman}",
+                resolved_path="us/regulation/7/999/1",
+            )
+            == clause
+        )
+
+
+@pytest.mark.parametrize("requested", ["c/16", "c/17", "c/18", "d/4", "d/5", "d/6"])
+def test_us_cfr_hierarchy_slices_verbatim_snap_income_excerpt(requested: str):
+    # Excerpted verbatim from the 2026-05-10 SNAP corpus section body:
+    # b/c/d headings, c(16)-(18), d(4)-(5), and the opening paragraph of d(6).
+    # The remainder of d(6) is intentionally omitted to keep this fixture small.
+    body = (
+        Path(__file__).parent / "fixtures" / "cfr_273_9_income_excerpt.txt"
+    ).read_text(encoding="utf-8")
+    section, number = requested.split("/")
+    section_body = body.split(f"\n\n({section}) ", 1)[1]
+    if section == "c":
+        section_body = section_body.split("\n\n(d) ", 1)[0]
+    expected = f"({number}) " + section_body.split(f"\n\n({number}) ", 1)[1]
+    if requested not in {"c/18", "d/6"}:
+        expected = expected.split(f"\n\n({int(number) + 1}) ", 1)[0]
+
+    actual = corpus_resolver._slice_parent_body(
+        body,
+        requested_path=f"us/regulation/7/273/9/{requested}",
+        resolved_path="us/regulation/7/273/9",
+    )
+
+    assert actual == expected.strip()
+
+
+@st.composite
+def _well_formed_cfr_hierarchies(draw):
+    marker_levels = (
+        tuple("abcdefgh"),
+        ("1", "2", "3"),
+        ("i", "ii", "iii"),
+        ("A", "B", "C"),
+    )
+    expected: dict[tuple[str, ...], str] = {}
+
+    def render(path: tuple[str, ...]) -> str:
+        parts = [f"({path[-1]}) Paragraph {'/'.join(path)}."]
+        if len(path) < 4:
+            child_count = draw(st.integers(min_value=0, max_value=3))
+            if path[0] == "h":
+                # Existing ambiguity tests deliberately read a lone (i) after
+                # (h) as the next top-level letter. Give Roman groups under h
+                # immediate (i), (ii) evidence; later clauses may branch to A-C.
+                if len(path) == 2 and child_count:
+                    child_count = max(2, child_count)
+                elif len(path) == 3 and path[-1] == "i":
+                    child_count = 0
+            parts.extend(
+                render((*path, marker))
+                for marker in marker_levels[len(path)][:child_count]
+            )
+        text = "\n\n".join(parts)
+        expected[path] = text
+        return text
+
+    top_count = draw(st.integers(min_value=1, max_value=8))
+    body = "\n\n".join(render((letter,)) for letter in marker_levels[0][:top_count])
+    absent = [("i",)]
+    for path in expected:
+        # The next sibling after the generated range is a valid marker, but
+        # cannot name an existing paragraph in this generated hierarchy.
+        missing_marker = ("i", "4", "iv", "D")[len(path) - 1]
+        absent.append((*path[:-1], missing_marker))
+    missing = draw(st.sampled_from(absent))
+    return body, expected, missing
+
+
+@settings(max_examples=60, deadline=None)
+@given(_well_formed_cfr_hierarchies())
+def test_us_cfr_hierarchy_round_trips_generated_paragraphs(hierarchy):
+    body, expected, missing = hierarchy
+
+    for path, paragraph in expected.items():
+        actual = corpus_resolver._slice_us_legal_hierarchy(
+            body, path, document_class="regulation"
+        )
+        assert actual is not None, path
+        assert actual.strip() == paragraph, path
+    assert missing not in expected
+    assert (
+        corpus_resolver._slice_us_legal_hierarchy(
+            body, missing, document_class="regulation"
+        )
+        is None
+    )
 
 
 @pytest.mark.parametrize(
