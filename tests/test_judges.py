@@ -15,7 +15,6 @@ import hashlib
 import json
 import posixpath
 import re
-import shlex
 import sqlite3
 import sys
 import types
@@ -1858,98 +1857,47 @@ _TREE_HARDENING = (
     f"sudo chown -R 0:0 {_VERIFICATION_TREE}",
     f"sudo chmod -R go-w {_VERIFICATION_TREE}",
 )
-_PERMISSION_PROGRAMS = frozenset({"chgrp", "chmod", "chown", "install", "setfacl"})
 _PERMISSION_PROGRAM_WORD = re.compile(r"\b(?:chgrp|chmod|chown|install|setfacl)\b")
-_SHELLS = frozenset({"bash", "dash", "sh", "zsh"})
-# Operators that end one command; a pipe does not, so `echo /opt | xargs chmod`
-# is judged as one unit.
-_COMMAND_SEPARATORS = frozenset({";", "&", "&&", "||", "(", ")", ";;"})
-# A line ending in one of these continues onto the next, as in bash.
-_CONTINUED_LINE = re.compile(r"(?:\|\||&&|\|)\s*\Z")
+# A literal absolute path: not the tail of a word, variable, URL or longer path.
+_LITERAL_PATH = re.compile(r"(?<![\w.$/-])(/[\w./-]*)")
 
 
-def _logical_shell_lines(run):
-    """Split ``run`` into the command lines bash would read."""
+def _opt_permission_suspects(run, env=None):
+    """Return the lines of a step that could change the permissions of /opt or /.
 
-    lines = []
-    pending = ""
-    for line in run.replace("\\\n", "").splitlines():
-        pending = f"{pending} {line}" if pending else line
-        if not _CONTINUED_LINE.search(line):
-            lines.append(pending)
-            pending = ""
-    if pending:
-        lines.append(pending)
-    return lines
-
-
-def _shell_c_script(arguments):
-    """Return the script a shell runs via ``-c``, skipping its other options."""
-
-    skip_option_argument = False
-    for position, word in enumerate(arguments):
-        if skip_option_argument:
-            skip_option_argument = False
-        elif word.startswith("--"):
-            continue
-        elif re.fullmatch(r"[-+][A-Za-z]+", word):
-            if word[0] == "-" and "c" in word[1:]:
-                following = arguments[position + 1 : position + 2]
-                return following[0] if following else None
-            # `-o pipefail` and clusters ending in o take the next word.
-            skip_option_argument = word.endswith("o")
-        else:
-            return None
-    return None
-
-
-def _opt_permission_changes(run):
-    """Return each command in ``run`` that changes /opt or one of its ancestors.
-
-    Commands are shell-tokenized after joining lines the way bash does
-    (backslash-newline, even inside a word, and a trailing ``|``, ``||`` or
-    ``&&``), so quoting, separators, ``sudo`` prefixes, ``sh -c`` scripts,
-    ``find -exec`` and ``xargs`` pipelines cannot hide a change. A command that
-    cannot be tokenized is returned verbatim so it fails closed. Relative paths
-    and shell variables are not resolved: this guards the workflows against
-    accidental edits, and the supervisor's own ancestor check still refuses to
-    start on a loose /opt.
+    Deliberately conservative rather than a shell parser: when a step names a
+    permission program anywhere (its ``env:`` values included), every command
+    line holding a literal path that normalizes to /opt or / is a suspect, so
+    quoting, separators, comments, continuations, ``sh -c`` wrappers, pipelines,
+    ``cd /`` and ``D=/opt`` all fail closed. Comment-only lines are skipped
+    because they never execute. A path assembled at run time is out of scope:
+    this guards against accidental edits, and the supervisor's own ancestor
+    check still refuses to start on a loose /opt.
     """
 
-    changes = []
-    for line in _logical_shell_lines(run):
-        if not _PERMISSION_PROGRAM_WORD.search(line):
+    lines = [f"{name}={value}" for name, value in (env or {}).items()]
+    pending = ""
+    for line in run.splitlines():
+        if not pending and line.lstrip().startswith("#"):
+            continue  # bash ends a comment at the newline, even after a backslash
+        if line.endswith("\\"):
+            pending += line[:-1]
             continue
-        lexer = shlex.shlex(line, posix=True, punctuation_chars=True)
-        lexer.whitespace_split = True
-        try:
-            tokens = list(lexer)
-        except ValueError:
-            changes.append((line.strip(),))
-            continue
-        command = []
-        for token in [*tokens, ";"]:
-            if token not in _COMMAND_SEPARATORS:
-                command.append(token)
-                continue
-            names = [posixpath.basename(word) for word in command]
-            for index, name in enumerate(names):
-                if name in _SHELLS:
-                    script = _shell_c_script(command[index + 1 :])
-                    if script is not None:
-                        changes.extend(_opt_permission_changes(script))
-            programs = [
-                i for i, name in enumerate(names) if name in _PERMISSION_PROGRAMS
-            ]
-            targets = {
-                "/" + posixpath.normpath(word).lstrip("/")
-                for word in command
-                if word.startswith("/")
-            }
-            if programs and targets & {"/", "/opt"}:
-                changes.append((names[programs[0]], *command[programs[0] + 1 :]))
-            command = []
-    return changes
+        lines.append(pending + line)
+        pending = ""
+    if pending:
+        lines.append(pending)
+    if not _PERMISSION_PROGRAM_WORD.search("\n".join(lines)):
+        return []
+    return [
+        line.strip()
+        for line in lines
+        if not line.strip().startswith("#")
+        and any(
+            "/" + posixpath.normpath(path).lstrip("/") in {"/", "/opt"}
+            for path in _LITERAL_PATH.findall(line)
+        )
+    ]
 
 
 def _verification_tree_jobs():
@@ -2014,15 +1962,15 @@ def test_verification_tree_provisioning_tightens_opt(workflow_name, job_name, st
     assert all(lines.index(command) > provisioner_line for command in _TREE_HARDENING)
     opt_positions = [lines.index(command) for command in _OPT_HARDENING]
     assert opt_positions == sorted(opt_positions)
-    # The tightening commands are the only permission changes to /opt or an
-    # ancestor anywhere in the job, so nothing loosens it again before the
-    # supervisor runs.
-    opt_changes = [
-        change
+    # The hardening lines are the only lines anywhere in the job that could
+    # change the permissions of /opt or /, so nothing loosens /opt again before
+    # the supervisor runs.
+    suspects = [
+        line
         for step in steps
-        for change in _opt_permission_changes(step.get("run", ""))
+        for line in _opt_permission_suspects(step.get("run", ""), step.get("env"))
     ]
-    assert opt_changes == [("chown", "0:0", "/opt"), ("chmod", "go-w", "/opt")]
+    assert suspects == list(_OPT_HARDENING)
 
 
 @pytest.mark.parametrize(
@@ -2037,26 +1985,36 @@ def test_verification_tree_provisioning_tightens_opt(workflow_name, job_name, st
         "sudo -- chmod 775 /opt",
         "true && sudo chgrp runner /opt || exit 1",
         "sudo chmod \\\n  g+w /opt",
+        "sudo chmod g+w /op\\\nt",
         "sudo chmod -R g+w /",
         "sudo /bin/chmod 1777 //opt",
         "sudo setfacl -m g:runner:rwx /opt",
         "sudo install -d -m 0777 /opt",
         "sudo chmod g+w '/opt",
-        "sudo chmod g+w /op\\\nt",
         "sudo sh -c 'chmod g+w /opt'",
+        "sudo sh -c 'sh -c \"chmod g+w /opt\"'",
         'sudo bash -ec "true; chmod 775 /opt"',
+        "sudo bash -euo pipefail -c 'chmod 775 /opt'",
+        "sudo bash -O extglob -c 'chmod g+w /opt'",
+        "sudo bash --rcfile /dev/null -c 'chmod g+w /opt'",
         "sudo find /opt -maxdepth 0 -exec chmod g+w {} +",
         "echo /opt | sudo xargs chmod g+w",
         "echo /opt |\n  sudo xargs chmod g+w",
-        "true &&\n  sudo chmod g+w /opt",
-        "sudo bash -e -c 'chmod g+w /opt'",
-        "sudo bash -euo pipefail -c 'chmod 775 /opt'",
-        "sudo bash --noprofile --norc -eo pipefail -c 'chmod g+w /opt'",
-        "sudo sh -c 'sh -c \"chmod g+w /opt\"'",
+        "echo /opt | # keep runner access\n  sudo xargs chmod g+w",
+        "echo /opt |\n\n  sudo xargs chmod g+w",
+        "(( ${#x[@]} )) && sudo chmod g+w /opt",
+        "# a &&\nsudo chmod g+w /opt",
+        "# note \\\nsudo chmod g+w /opt",
+        "cd / && sudo chmod g+w opt",
+        'D=/opt; sudo chmod g+w "$D"',
     ],
 )
-def test_opt_permission_change_detection_sees_through_shell_syntax(command):
-    assert _opt_permission_changes(f"echo before\n{command}\necho after\n")
+def test_opt_permission_suspects_see_through_shell_syntax(command):
+    assert _opt_permission_suspects(f"echo before\n{command}\necho after\n")
+
+
+def test_opt_permission_suspects_include_step_environment():
+    assert _opt_permission_suspects('sudo chmod g+w "$TARGET"', {"TARGET": "/opt"})
 
 
 @pytest.mark.parametrize(
@@ -2065,21 +2023,30 @@ def test_opt_permission_change_detection_sees_through_shell_syntax(command):
         f"sudo chmod -R go-w {_VERIFICATION_TREE}",
         f"sudo chown -R 0:0 {_VERIFICATION_TREE}",
         f"sudo install -o root -g root -m 0755 signer {_VERIFICATION_TREE}/signer",
+        f'sudo sh -c "chmod -R go-w {_VERIFICATION_TREE}"',
         'test -z "$(find /opt -maxdepth 0 -perm /022)"',
         "# sudo chmod g+w /opt",
         "sudo mkdir -p /opt",
         "ls -ld /opt",
-        "uv pip install --target /opt/axiom-verification/site .",
         "echo /opt | grep opt",
-        f'sudo sh -c "chmod -R go-w {_VERIFICATION_TREE}"',
-        "ls -ld /opt; sudo chmod -R go-w /opt/axiom-verification",
+        "ls /opt |\n  grep hostedtoolcache",
         "sudo bash -euo pipefail -c 'ls -ld /opt'",
         "sudo bash scripts/install.sh",
-        "ls /opt |\n  grep hostedtoolcache",
+        "uv pip install --target /opt/axiom-verification/site .",
+        'chmod 0644 "$RUNNER_TEMP/opt"',
+        "sudo chmod 0755 /usr/local/bin/tool 2>/dev/null",
     ],
 )
-def test_opt_permission_change_detection_ignores_other_paths(command):
-    assert _opt_permission_changes(command) == []
+def test_opt_permission_suspects_ignore_other_paths(command):
+    assert _opt_permission_suspects(command) == []
+
+
+def test_opt_permission_suspects_flag_any_literal_opt_beside_a_permission_change():
+    # Intended false positive: a harmless `ls /opt` on a line with a chmod is
+    # still a suspect, so the guard never has to decide what a line does.
+    run = f"ls -ld /opt; sudo chmod -R go-w {_VERIFICATION_TREE}"
+
+    assert _opt_permission_suspects(run) == [run]
 
 
 _UNSAFE_DRIFT_CODE_POINTS = (0xD800, 0x202E, 0x009B, 0x007F, 0x2028)
