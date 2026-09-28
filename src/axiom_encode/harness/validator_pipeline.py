@@ -34526,6 +34526,7 @@ class ValidatorPipeline:
         policy_repo_path: Path,
         axiom_rules_path: Path,
         *,
+        axiom_compose_path: Path | None = None,
         local_corpus_release: LocalCorpusRelease | None,
         enable_oracles: bool = True,
         oracle_validators: tuple[str, ...] | None = None,
@@ -34548,6 +34549,9 @@ class ValidatorPipeline:
     ):
         self.policy_repo_path = Path(policy_repo_path)
         self.axiom_rules_path = Path(axiom_rules_path)
+        self.axiom_compose_path = (
+            Path(axiom_compose_path) if axiom_compose_path is not None else None
+        )
         self._axiom_rules_engine_pin_override = (
             EnginePin(
                 sha=require_engine_ref_sha(
@@ -35337,6 +35341,19 @@ class ValidatorPipeline:
             rules_file,
             self.policy_repo_path,
         )
+        payload = _safe_load_unique_keys(compile_file.read_text())
+        module = payload.get("module") if isinstance(payload, dict) else None
+        is_composition = (
+            isinstance(module, dict) and module.get("kind") == "composition"
+        )
+        if is_composition:
+            compose_result, composed_file = self._compose_rulespec_module(
+                compile_file,
+                output_path.parent,
+            )
+            if compose_result.returncode != 0 or composed_file is None:
+                return compose_result, None
+            compile_file = composed_file
         result = run_rulespec_compile(
             binary=binary,
             program=compile_file,
@@ -35344,10 +35361,175 @@ class ValidatorPipeline:
             output=output_path,
             cwd=self.axiom_rules_path if self.axiom_rules_path.exists() else None,
             env=self._rulespec_engine_env(),
+            composed=is_composition,
         )
         if result.returncode != 0:
             return result, None
         return result, json.loads(output_path.read_text())
+
+    def _compose_rulespec_module(
+        self,
+        rules_file: Path,
+        output_directory: Path,
+    ) -> tuple[subprocess.CompletedProcess[str], Path | None]:
+        """Compose one composition module through its owning ProgramSpec."""
+
+        if self.axiom_compose_path is None:
+            message = (
+                "composition RuleSpec validation requires an explicit "
+                "axiom-compose executable"
+            )
+            return subprocess.CompletedProcess([], 1, "", message), None
+        compose_binary = self.axiom_compose_path.resolve(strict=True)
+        if not compose_binary.is_file() or not os.access(compose_binary, os.X_OK):
+            message = f"axiom-compose executable is not executable: {compose_binary}"
+            return subprocess.CompletedProcess([], 1, "", message), None
+
+        program_specs = self._owning_program_specs(rules_file)
+        if len(program_specs) != 1:
+            relative = rules_file.relative_to(self.policy_repo_path).as_posix()
+            if program_specs:
+                checkout_root = _rulespec_checkout_root_for_active_path(
+                    self.policy_repo_path
+                )
+                owners = ", ".join(
+                    path.relative_to(checkout_root).as_posix() for path in program_specs
+                )
+                message = (
+                    f"composition module {relative} has multiple owning "
+                    f"ProgramSpecs: {owners}"
+                )
+            else:
+                message = (
+                    f"composition module {relative} is not in any ProgramSpec scope"
+                )
+            return subprocess.CompletedProcess([], 1, "", message), None
+
+        composed_file = output_directory / "composed-program.yaml"
+        command = [str(compose_binary), str(program_specs[0]), "-o", str(composed_file)]
+        for root in self._rulespec_compile_roots():
+            command.extend(("--rulespec-root", str(root)))
+        try:
+            result = subprocess.run(
+                command,
+                cwd=self.policy_repo_path,
+                env=self._rulespec_engine_env(),
+                capture_output=True,
+                text=True,
+                timeout=300,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            message = f"axiom-compose timed out after {exc.timeout} seconds"
+            return subprocess.CompletedProcess(command, 1, "", message), None
+        except OSError as exc:
+            return subprocess.CompletedProcess(command, 1, "", str(exc)), None
+        if result.returncode != 0:
+            detail = result.stderr.strip() or result.stdout.strip()
+            return subprocess.CompletedProcess(
+                command,
+                result.returncode,
+                result.stdout,
+                f"axiom-compose failed: {detail}",
+            ), None
+        if not composed_file.is_file() or composed_file.is_symlink():
+            message = "axiom-compose succeeded without a regular output file"
+            return subprocess.CompletedProcess(command, 1, result.stdout, message), None
+        return result, composed_file
+
+    def _owning_program_specs(self, rules_file: Path) -> tuple[Path, ...]:
+        """Return ProgramSpecs whose transitive import scope contains ``rules_file``."""
+
+        root = _rulespec_checkout_root_for_active_path(self.policy_repo_path)
+        module_relative = rules_file.resolve().relative_to(root)
+        module_target = (
+            f"{module_relative.parts[0]}:"
+            f"{Path(*module_relative.parts[1:]).with_suffix('').as_posix()}"
+        )
+        owners: list[Path] = []
+        for candidate in sorted(root.rglob("*.yaml")):
+            relative = candidate.relative_to(root)
+            if "programs" not in relative.parts:
+                continue
+            if candidate.is_symlink() or not candidate.is_file():
+                continue
+            try:
+                payload = _safe_load_unique_keys(candidate.read_text())
+            except (OSError, ValueError, yaml.YAMLError):
+                continue
+            if not isinstance(payload, dict):
+                continue
+            program = payload.get("program")
+            scope = payload.get("scope")
+            if not isinstance(program, str) or not isinstance(scope, dict):
+                continue
+            jurisdiction = program.strip().split("/", 1)[0]
+            country = jurisdiction.split("-", 1)[0]
+            scoped_targets: set[str] = set()
+            for scope_name, entries in scope.items():
+                if scope_name in {"exclude", "include", "jurisdictions"}:
+                    continue
+                if not isinstance(scope_name, str) or not isinstance(entries, list):
+                    continue
+                prefix = (
+                    country
+                    if scope_name == "federal"
+                    else jurisdiction
+                    if scope_name == "state"
+                    else scope_name
+                )
+                for entry in entries:
+                    if not isinstance(entry, str):
+                        continue
+                    raw_target = entry.strip()
+                    target_ref = _parse_rulespec_target(
+                        raw_target if ":" in raw_target else f"{prefix}:{raw_target}"
+                    )
+                    if target_ref is not None:
+                        scoped_targets.add(
+                            f"{target_ref.prefix}:"
+                            f"{target_ref.relative_path.with_suffix('').as_posix()}"
+                        )
+            pending = list(scoped_targets)
+            reachable: set[str] = set()
+            while pending:
+                target = pending.pop()
+                if target in reachable:
+                    continue
+                reachable.add(target)
+                target_ref = _parse_rulespec_target(target)
+                if target_ref is None:
+                    continue
+                target_file = _resolve_rulespec_target_file(
+                    target_ref,
+                    self.policy_repo_path,
+                    rulespec_dependency_roots=self.rulespec_dependency_roots,
+                )
+                if target_file is None:
+                    continue
+                try:
+                    target_payload = _safe_load_unique_keys(target_file.read_text())
+                except (OSError, ValueError, yaml.YAMLError):
+                    continue
+                imports = (
+                    target_payload.get("imports")
+                    if isinstance(target_payload, dict)
+                    else None
+                )
+                if not isinstance(imports, list):
+                    continue
+                for imported in imports:
+                    if not isinstance(imported, str):
+                        continue
+                    imported_ref = _parse_rulespec_target(imported)
+                    if imported_ref is not None:
+                        pending.append(
+                            f"{imported_ref.prefix}:"
+                            f"{imported_ref.relative_path.with_suffix('').as_posix()}"
+                        )
+            if module_target in reachable:
+                owners.append(candidate)
+        return tuple(owners)
 
     def _rulespec_compile_success_output(self, payload: Any) -> str:
         """Return a concise successful compile summary for validator output."""

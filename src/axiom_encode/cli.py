@@ -691,6 +691,23 @@ def _resolve_explicit_existing_directory(raw_path: Path, *, label: str) -> Path:
     return resolved
 
 
+def _resolve_optional_axiom_compose_path(raw_path: object) -> Path | None:
+    """Resolve an explicitly supplied composer executable, when present."""
+
+    if raw_path is None:
+        return None
+    if not isinstance(raw_path, (str, Path)):
+        # argparse supplies only strings or None. Some embedders and older
+        # tests pass dynamic namespace mocks whose missing attributes create a
+        # MagicMock instead of returning None; that is an absent option, not a
+        # filesystem authority.
+        return None
+    resolved = Path(raw_path).resolve(strict=True)
+    if not resolved.is_file() or not os.access(resolved, os.X_OK):
+        raise ValueError("--axiom-compose-path must name an executable regular file")
+    return resolved
+
+
 def _load_policyengine_runtime_for_rulespec_roots(
     raw_runtime_root: object,
     policy_repo_roots: Sequence[Path],
@@ -2433,6 +2450,11 @@ def main():
         required=True,
         help="Exact axiom-rules-engine checkout (no sibling discovery)",
     )
+    refresh_applied_manifest_parser.add_argument(
+        "--axiom-compose-path",
+        type=Path,
+        help="Explicit axiom-compose executable for composition modules",
+    )
     _add_required_corpus_path_argument(refresh_applied_manifest_parser)
     _add_rulespec_dependency_root_argument(refresh_applied_manifest_parser)
     refresh_applied_manifest_parser.add_argument(
@@ -2476,6 +2498,11 @@ def main():
         type=Path,
         required=True,
         help="Exact axiom-rules-engine checkout (no sibling discovery)",
+    )
+    promote_reviewed_candidate_parser.add_argument(
+        "--axiom-compose-path",
+        type=Path,
+        help="Explicit axiom-compose executable for composition modules",
     )
     _add_required_corpus_path_argument(promote_reviewed_candidate_parser)
     _add_rulespec_dependency_root_argument(promote_reviewed_candidate_parser)
@@ -2872,6 +2899,14 @@ def main():
         type=Path,
         required=True,
         help="Exact axiom-rules-engine checkout (no sibling discovery)",
+    )
+    encode_parser.add_argument(
+        "--axiom-compose-path",
+        type=Path,
+        help=(
+            "Explicit axiom-compose executable required when validating a "
+            "module with module.kind: composition"
+        ),
     )
     encode_parser.add_argument(
         "--policy-repo-path",
@@ -7715,6 +7750,9 @@ def cmd_refresh_applied_manifest(args):
         args.axiom_rules_path,
         label="Axiom rules engine",
     )
+    axiom_compose_path = _resolve_optional_axiom_compose_path(
+        getattr(args, "axiom_compose_path", None)
+    )
     corpus_path = _resolve_explicit_existing_directory(
         args.corpus_path,
         label="Axiom Corpus",
@@ -7833,6 +7871,7 @@ def cmd_refresh_applied_manifest(args):
                         output_root=output_root,
                         policy_repo_path=content_root,
                         axiom_rules_path=axiom_rules_path,
+                        axiom_compose_path=axiom_compose_path,
                         local_corpus_release=local_corpus_release,
                         rulespec_dependency_roots=dependency_roots,
                     )
@@ -7922,6 +7961,9 @@ def cmd_promote_reviewed_candidate(args):
     axiom_rules_path = _resolve_explicit_existing_directory(
         args.axiom_rules_path,
         label="Axiom rules engine",
+    )
+    axiom_compose_path = _resolve_optional_axiom_compose_path(
+        getattr(args, "axiom_compose_path", None)
     )
     corpus_path = _resolve_explicit_existing_directory(
         args.corpus_path,
@@ -8090,6 +8132,7 @@ def cmd_promote_reviewed_candidate(args):
                         output_root=output_root,
                         policy_repo_path=content_root,
                         axiom_rules_path=axiom_rules_path,
+                        axiom_compose_path=axiom_compose_path,
                         local_corpus_release=local_corpus_release,
                         rulespec_dependency_roots=dependency_roots,
                         require_complete_source_unit=True,
@@ -31126,6 +31169,9 @@ def _run_encode_attempt(
         )
     runner = f"{args.backend}:{model}"
     rulespec_dependency_roots = _rulespec_dependency_roots_from_args(args)
+    axiom_compose_path = _resolve_optional_axiom_compose_path(
+        getattr(args, "axiom_compose_path", None)
+    )
     if args.backend == "codex":
         auth_error = codex_auth_error()
         if auth_error:
@@ -31229,6 +31275,7 @@ def _run_encode_attempt(
             output_root=output_root,
             policy_repo_path=policy_repo_path,
             axiom_rules_path=axiom_rules_path,
+            axiom_compose_path=axiom_compose_path,
             local_corpus_release=corpus_release,
             validate_dependents=validate_dependents,
             scheduled_dependent_rulespec_paths=tuple(
@@ -31272,6 +31319,7 @@ def _run_encode_attempt(
         output_root=args.output,
         policy_path=policy_repo_path,
         runtime_axiom_rules_path=axiom_rules_path,
+        axiom_compose_path=axiom_compose_path,
         corpus_release=corpus_release,
         mode=args.mode,
         extra_context_paths=extra_context_paths,
@@ -56701,6 +56749,7 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
     output_root: Path,
     policy_repo_path: Path,
     axiom_rules_path: Path,
+    axiom_compose_path: Path | None = None,
     local_corpus_release: LocalCorpusRelease,
     validate_dependents: bool = True,
     scheduled_dependent_rulespec_paths: Sequence[Path] = (),
@@ -57026,6 +57075,7 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
         pipeline = ValidatorPipeline(
             policy_repo_path=overlay_content_root,
             axiom_rules_path=axiom_rules_path,
+            axiom_compose_path=axiom_compose_path,
             enable_oracles=False,
             require_policy_proofs=True,
             local_corpus_release=local_corpus_release,
@@ -57058,6 +57108,7 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
                 overlay_pipeline=ValidatorPipeline(
                     policy_repo_path=overlay_content_root,
                     axiom_rules_path=axiom_rules_path,
+                    axiom_compose_path=axiom_compose_path,
                     enable_oracles=False,
                     enforce_repository_layout=False,
                     local_corpus_release=local_corpus_release,
@@ -57066,6 +57117,7 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
                 baseline_pipeline=ValidatorPipeline(
                     policy_repo_path=policy_content_root,
                     axiom_rules_path=axiom_rules_path,
+                    axiom_compose_path=axiom_compose_path,
                     enable_oracles=False,
                     enforce_repository_layout=False,
                     local_corpus_release=local_corpus_release,
@@ -57631,6 +57683,7 @@ def _run_generated_encoding_overlay_validation(
     output_root: Path,
     policy_repo_path: Path,
     axiom_rules_path: Path,
+    axiom_compose_path: Path | None = None,
     local_corpus_release: LocalCorpusRelease,
     validate_dependents: bool = True,
     scheduled_dependent_rulespec_paths: Sequence[Path] = (),
@@ -57647,6 +57700,7 @@ def _run_generated_encoding_overlay_validation(
         output_root=output_root,
         policy_repo_path=policy_repo_path,
         axiom_rules_path=axiom_rules_path,
+        axiom_compose_path=axiom_compose_path,
         local_corpus_release=local_corpus_release,
         validate_dependents=validate_dependents,
         scheduled_dependent_rulespec_paths=scheduled_dependent_rulespec_paths,

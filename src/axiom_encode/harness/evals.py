@@ -1580,6 +1580,7 @@ def run_model_eval(
     validation_retry_feedback: Sequence[str] = (),
     required_deferred_output_contracts: Sequence[tuple[str, str]] = (),
     required_test_case_contracts: Sequence[Mapping[str, object]] = (),
+    axiom_compose_path: Path | None = None,
     required_import_targets: Sequence[str] = (),
     legacy_replacement: LegacyReplacementContract | None = None,
     replacement_overlay_scope: bool = False,
@@ -1637,6 +1638,7 @@ def run_model_eval(
                         output_root=output_root,
                         policy_path=policy_path,
                         runtime_axiom_rules_path=runtime_axiom_rules_path,
+                        axiom_compose_path=axiom_compose_path,
                         corpus_release=corpus_release,
                         mode=mode,
                         extra_context_paths=extra_context_paths or [],
@@ -7286,6 +7288,7 @@ def evaluate_artifact(
     amendment_documents: Sequence[CorpusAmendmentDocument] = (),
     legacy_replacement: LegacyReplacementContract | None = None,
     replacement_overlay_scope: bool = False,
+    axiom_compose_path: Path | None = None,
 ) -> EvalArtifactMetrics:
     """Evaluate an artifact inside one exact named corpus release."""
 
@@ -7306,6 +7309,7 @@ def evaluate_artifact(
             rulespec_file=rulespec_file,
             policy_repo_root=policy_repo_root,
             axiom_rules_path=axiom_rules_path,
+            axiom_compose_path=axiom_compose_path,
             source_text=source_text,
             oracle=oracle,
             policyengine_runtime=policyengine_runtime,
@@ -7464,6 +7468,7 @@ def _evaluate_artifact_in_scope(
     amendment_documents: Sequence[CorpusAmendmentDocument] = (),
     legacy_replacement: LegacyReplacementContract | None = None,
     replacement_overlay_scope: bool = False,
+    axiom_compose_path: Path | None = None,
 ) -> EvalArtifactMetrics:
     """Evaluate one RuleSpec artifact with deterministic checks plus optional oracles."""
     existing_target_oracle_contract: ExistingTargetOracleContract | None = None
@@ -7500,6 +7505,7 @@ def _evaluate_artifact_in_scope(
         pipeline = ValidatorPipeline(
             policy_repo_path=validation_policy_repo_root,
             axiom_rules_path=axiom_rules_path,
+            axiom_compose_path=axiom_compose_path,
             enable_oracles=oracle != "none",
             policyengine_runtime=policyengine_runtime,
             policyengine_rule_hint=policyengine_rule_hint,
@@ -7871,6 +7877,7 @@ def _evaluate_generated_artifact_with_repairs(
     legacy_replacement: LegacyReplacementContract | None = None,
     replacement_overlay_scope: bool = False,
     allow_artifact_repairs: bool = True,
+    axiom_compose_path: Path | None = None,
 ) -> EvalArtifactMetrics | None:
     evaluated_states: set[tuple[bytes | None, bytes | None]] = set()
     for _repair_round in range(_GENERATED_EVAL_REPAIR_LIMIT + 1):
@@ -7883,6 +7890,7 @@ def _evaluate_generated_artifact_with_repairs(
             rulespec_file=rulespec_file,
             policy_repo_root=policy_repo_root,
             axiom_rules_path=axiom_rules_path,
+            axiom_compose_path=axiom_compose_path,
             source_text=source_text,
             oracle=oracle,
             policyengine_runtime=policyengine_runtime,
@@ -8917,6 +8925,7 @@ def _run_single_eval(
     validation_retry_candidate: ValidationRetryCandidate | None = None,
     repair_candidate_tests_only: bool = False,
     accept_valid_retry_candidate: bool = False,
+    axiom_compose_path: Path | None = None,
 ) -> EvalResult:
     include_tests = include_tests or require_complete_source_unit
     if source_unit is None:
@@ -9027,6 +9036,7 @@ def _run_single_eval(
             rulespec_file=output_file,
             policy_repo_root=policy_path,
             axiom_rules_path=runtime_axiom_rules_path,
+            axiom_compose_path=axiom_compose_path,
             source_text=source_text,
             oracle=oracle,
             policyengine_runtime=policyengine_runtime,
@@ -9063,6 +9073,7 @@ def _run_single_eval(
                 rulespec_file=output_file,
                 policy_repo_root=policy_path,
                 axiom_rules_path=runtime_axiom_rules_path,
+                axiom_compose_path=axiom_compose_path,
                 source_text=source_text,
                 oracle=oracle,
                 policyengine_runtime=policyengine_runtime,
@@ -9232,6 +9243,7 @@ def _run_single_eval(
             rulespec_file=output_file,
             policy_repo_root=policy_path,
             axiom_rules_path=runtime_axiom_rules_path,
+            axiom_compose_path=axiom_compose_path,
             source_text=source_text,
             oracle=oracle,
             policyengine_runtime=policyengine_runtime,
