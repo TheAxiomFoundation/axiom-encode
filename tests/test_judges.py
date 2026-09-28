@@ -1857,25 +1857,56 @@ _TREE_HARDENING = (
     f"sudo chown -R 0:0 {_VERIFICATION_TREE}",
     f"sudo chmod -R go-w {_VERIFICATION_TREE}",
 )
-_PERMISSION_PROGRAM_WORD = re.compile(r"\b(?:chgrp|chmod|chown|install|setfacl)\b")
-# A literal absolute path: not the tail of a word, variable, URL or longer path.
-_LITERAL_PATH = re.compile(r"(?<![\w.$/-])(/[\w./-]*)")
+# Programs that can change a directory's mode or owner (tar and rsync copy an
+# archive's metadata onto an existing directory), and the files through which a
+# step hands values to later steps.
+_PERMISSION_TRIGGER = re.compile(
+    r"\b(?:chgrp|chmod|chown|install|rsync|setfacl|tar)\b|\bGITHUB_(?:ENV|OUTPUT)\b"
+)
+_ROOT_TRIGGER = re.compile(rf"{_PERMISSION_TRIGGER.pattern}|\b(?:cd|pushd)\b")
+# A literal absolute path starts a word: at line start, after whitespace or a
+# shell operator (including `-` for `${VAR:-/opt}`), or after a quote that
+# does. `"$VAR"/x`, `$VAR/x`, `a/b` and URLs' later slashes are not literals.
+_PATH_BOUNDARY = r"[\s=(;|&<>:,{`-]"
+_LITERAL_PATH = re.compile(
+    rf"(?:(?<=^)|(?<={_PATH_BOUNDARY})|(?<={_PATH_BOUNDARY}[\"'])|(?<=^[\"']))"
+    r"(/[\w./-]*)"
+)
 
 
-def _opt_permission_suspects(run, env=None):
+def _literal_paths(line):
+    return {
+        "/" + posixpath.normpath(path).lstrip("/")
+        for path in _LITERAL_PATH.findall(line)
+    }
+
+
+def _opt_permission_suspects(run, env=None, working_directory=None):
     """Return the lines of a step that could change the permissions of /opt or /.
 
-    Deliberately conservative rather than a shell parser: when a step names a
-    permission program anywhere (its ``env:`` values included), every command
-    line holding a literal path that normalizes to /opt or / is a suspect, so
-    quoting, separators, comments, continuations, ``sh -c`` wrappers, pipelines,
-    ``cd /`` and ``D=/opt`` all fail closed. Comment-only lines are skipped
-    because they never execute. A path assembled at run time is out of scope:
-    this guards against accidental edits, and the supervisor's own ancestor
-    check still refuses to start on a loose /opt.
+    Deliberately conservative rather than a shell parser. When a step names a
+    permission program or writes ``$GITHUB_ENV``/``$GITHUB_OUTPUT`` anywhere
+    (its effective ``env:`` and ``working-directory`` included), a suspect is:
+
+    * a context line (``env`` value or working directory) naming /opt or /;
+    * a command line holding a literal path that normalizes to /opt;
+    * a command line holding a literal / (or //) that itself runs one of those
+      programs, ``cd`` or ``pushd``. The root check is per line because ``/``
+      and ``//`` are also Python and jq operators.
+
+    Quoting, separators, comments, continuations, ``sh -c`` wrappers,
+    pipelines, ``${VAR:-/opt}``, ``cd /``, ``D=/opt`` and hand-offs through
+    ``$GITHUB_ENV`` therefore fail closed. Comment-only lines are skipped
+    because they never execute; backslash-newline joins code lines but never
+    extends a comment, as in bash. A path assembled at run time is out of
+    scope: this guards against accidental edits, and the supervisor's own
+    ancestor check still refuses to start on a loose /opt.
     """
 
-    lines = [f"{name}={value}" for name, value in (env or {}).items()]
+    context = [f"{name}={value}" for name, value in (env or {}).items()]
+    if working_directory:
+        context.append(f"working-directory={working_directory}")
+    code = []
     pending = ""
     for line in run.splitlines():
         if not pending and line.lstrip().startswith("#"):
@@ -1883,21 +1914,18 @@ def _opt_permission_suspects(run, env=None):
         if line.endswith("\\"):
             pending += line[:-1]
             continue
-        lines.append(pending + line)
+        code.append(pending + line)
         pending = ""
     if pending:
-        lines.append(pending)
-    if not _PERMISSION_PROGRAM_WORD.search("\n".join(lines)):
+        code.append(pending)
+    if not _PERMISSION_TRIGGER.search("\n".join(context + code)):
         return []
-    return [
-        line.strip()
-        for line in lines
-        if not line.strip().startswith("#")
-        and any(
-            "/" + posixpath.normpath(path).lstrip("/") in {"/", "/opt"}
-            for path in _LITERAL_PATH.findall(line)
-        )
-    ]
+    suspects = [line for line in context if _literal_paths(line) & {"/", "/opt"}]
+    for line in code:
+        paths = _literal_paths(line)
+        if "/opt" in paths or ("/" in paths and _ROOT_TRIGGER.search(line)):
+            suspects.append(line.strip())
+    return suspects
 
 
 def _verification_tree_jobs():
@@ -1907,13 +1935,29 @@ def _verification_tree_jobs():
         workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
         for job_name, job in workflow["jobs"].items():
             steps = job.get("steps", [])
-            if any(_VERIFICATION_TREE in step.get("run", "") for step in steps):
-                jobs.append((path.name, job_name, steps))
+            if not any(_VERIFICATION_TREE in step.get("run", "") for step in steps):
+                continue
+            defaults = [
+                (scope.get("defaults") or {}).get("run") or {}
+                for scope in (job, workflow)
+            ]
+            context = {
+                "env": {**(workflow.get("env") or {}), **(job.get("env") or {})},
+                "working_directory": next(
+                    (
+                        d["working-directory"]
+                        for d in defaults
+                        if "working-directory" in d
+                    ),
+                    None,
+                ),
+            }
+            jobs.append((path.name, job_name, steps, context))
     return jobs
 
 
 def test_verification_tree_discovery_covers_every_known_provisioner():
-    discovered = {workflow for workflow, _job, _steps in _verification_tree_jobs()}
+    discovered = {workflow for workflow, *_rest in _verification_tree_jobs()}
 
     assert {
         "bulk-encode.yml",
@@ -1924,10 +1968,12 @@ def test_verification_tree_discovery_covers_every_known_provisioner():
 
 
 @pytest.mark.parametrize(
-    ("workflow_name", "job_name", "steps"),
+    ("workflow_name", "job_name", "steps", "context"),
     [pytest.param(*job, id=f"{job[0]}:{job[1]}") for job in _verification_tree_jobs()],
 )
-def test_verification_tree_provisioning_tightens_opt(workflow_name, job_name, steps):
+def test_verification_tree_provisioning_tightens_opt(
+    workflow_name, job_name, steps, context
+):
     tree_indexes = [
         index
         for index, step in enumerate(steps)
@@ -1968,7 +2014,11 @@ def test_verification_tree_provisioning_tightens_opt(workflow_name, job_name, st
     suspects = [
         line
         for step in steps
-        for line in _opt_permission_suspects(step.get("run", ""), step.get("env"))
+        for line in _opt_permission_suspects(
+            step.get("run", ""),
+            {**context["env"], **(step.get("env") or {})},
+            step.get("working-directory") or context["working_directory"],
+        )
     ]
     assert suspects == list(_OPT_HARDENING)
 
@@ -2007,14 +2057,96 @@ def test_verification_tree_provisioning_tightens_opt(workflow_name, job_name, st
         "# note \\\nsudo chmod g+w /opt",
         "cd / && sudo chmod g+w opt",
         'D=/opt; sudo chmod g+w "$D"',
+        'sudo chmod g+w "${TARGET:-/opt}"',
+        'sudo chmod g+w "${TARGET-/opt}"',
+        'sudo chmod g+w "${TARGET:-/}"',
+        'echo "TARGET=/opt" >> "$GITHUB_ENV"',
+        'echo "target=/" >> "$GITHUB_OUTPUT"',
+        "sudo tar -xzf tool.tgz -C /opt",
+        "sudo rsync -a vendor/ /opt/",
+        "cd /\nsudo chmod g+w opt",
     ],
 )
 def test_opt_permission_suspects_see_through_shell_syntax(command):
     assert _opt_permission_suspects(f"echo before\n{command}\necho after\n")
 
 
-def test_opt_permission_suspects_include_step_environment():
+def test_opt_permission_suspects_include_step_context():
     assert _opt_permission_suspects('sudo chmod g+w "$TARGET"', {"TARGET": "/opt"})
+    assert _opt_permission_suspects("sudo chmod g+w opt", working_directory="/")
+    assert not _opt_permission_suspects("ls", {"TARGET": "/opt"})
+
+
+def _golden_drift_job():
+    return next(
+        job
+        for job in _verification_tree_jobs()
+        if job[:2] == ("golden-regeneration.yml", "drift")
+    )
+
+
+@pytest.mark.parametrize(
+    ("workflow_env", "job_env", "defaults", "added_steps"),
+    [
+        pytest.param(
+            {},
+            {},
+            None,
+            [
+                {"run": 'echo "TARGET=/opt" >> "$GITHUB_ENV"'},
+                {"run": 'sudo chmod g+w "$TARGET"'},
+            ],
+            id="github-env-hand-off",
+        ),
+        pytest.param(
+            {},
+            {},
+            None,
+            [{"working-directory": "/", "run": "sudo chmod g+w opt"}],
+            id="step-working-directory",
+        ),
+        pytest.param(
+            {},
+            {"TOOL_ROOT": "/opt"},
+            None,
+            [{"run": 'sudo chmod -R g+w "$TOOL_ROOT"'}],
+            id="job-env",
+        ),
+        pytest.param(
+            {"TOOL_ROOT": "/opt"},
+            {},
+            None,
+            [{"run": 'sudo chmod -R g+w "$TOOL_ROOT"'}],
+            id="workflow-env",
+        ),
+        pytest.param(
+            {},
+            {},
+            "/",
+            [{"run": "sudo chmod g+w opt"}],
+            id="defaults-working-directory",
+        ),
+    ],
+)
+def test_verification_tree_guard_sees_job_context(
+    workflow_env, job_env, defaults, added_steps
+):
+    workflow_name, job_name, steps, context = _golden_drift_job()
+    provision = next(
+        index
+        for index, step in enumerate(steps)
+        if _VERIFICATION_TREE in step.get("run", "")
+    )
+    mutated = [*steps[: provision + 1], *added_steps, *steps[provision + 1 :]]
+    mutated_context = {
+        "env": {**context["env"], **workflow_env, **job_env},
+        "working_directory": defaults or context["working_directory"],
+    }
+
+    with pytest.raises(AssertionError):
+        test_verification_tree_provisioning_tightens_opt(
+            workflow_name, job_name, mutated, mutated_context
+        )
 
 
 @pytest.mark.parametrize(
@@ -2035,17 +2167,25 @@ def test_opt_permission_suspects_include_step_environment():
         "uv pip install --target /opt/axiom-verification/site .",
         'chmod 0644 "$RUNNER_TEMP/opt"',
         "sudo chmod 0755 /usr/local/bin/tool 2>/dev/null",
+        'rsync -a src "$GITHUB_WORKSPACE"/',
+        "chmod 0644 out.json\nflag=\"$(jq -r '.flag // false' out.json)\"",
     ],
 )
 def test_opt_permission_suspects_ignore_other_paths(command):
     assert _opt_permission_suspects(command) == []
 
 
-def test_opt_permission_suspects_flag_any_literal_opt_beside_a_permission_change():
-    # Intended false positive: a harmless `ls /opt` on a line with a chmod is
-    # still a suspect, so the guard never has to decide what a line does.
-    run = f"ls -ld /opt; sudo chmod -R go-w {_VERIFICATION_TREE}"
-
+@pytest.mark.parametrize(
+    "run",
+    [
+        f"ls -ld /opt; sudo chmod -R go-w {_VERIFICATION_TREE}",
+        'echo "path=$(python -c \'print(root / name)\')" >> "$GITHUB_OUTPUT"',
+    ],
+)
+def test_opt_permission_suspects_are_conservative(run):
+    # Intended false positives: a harmless `ls /opt` beside a chmod, or a
+    # division operator on a line that writes $GITHUB_OUTPUT, is still a
+    # suspect, so the guard never has to decide what a line does.
     assert _opt_permission_suspects(run) == [run]
 
 
