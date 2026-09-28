@@ -1860,19 +1860,26 @@ _TREE_HARDENING = (
 )
 _PERMISSION_PROGRAMS = frozenset({"chgrp", "chmod", "chown", "install", "setfacl"})
 _PERMISSION_PROGRAM_WORD = re.compile(r"\b(?:chgrp|chmod|chown|install|setfacl)\b")
-_SHELL_OPERATORS = frozenset(";&|()")
+_SHELLS = frozenset({"bash", "dash", "sh", "zsh"})
+# Operators that end one command; a pipe does not, so `echo /opt | xargs chmod`
+# is judged as one unit.
+_COMMAND_SEPARATORS = frozenset({";", "&", "&&", "||", "(", ")", ";;"})
 
 
 def _opt_permission_changes(run):
     """Return each command in ``run`` that changes /opt or one of its ancestors.
 
-    Commands are shell-tokenized so quoting, separators, ``sudo`` prefixes and
-    line continuations cannot hide a change; a line that cannot be tokenized is
-    returned verbatim so it fails closed.
+    Lines are shell-tokenized after removing backslash-newline continuations the
+    way bash does, so quoting, separators, ``sudo`` prefixes, continuations
+    (even inside a word), ``sh -c`` scripts, ``find -exec`` and ``xargs``
+    pipelines cannot hide a change. A line that cannot be tokenized is returned
+    verbatim so it fails closed. Relative paths and shell variables are not
+    resolved: this guards the workflows against accidental edits, and the
+    supervisor's own ancestor check still refuses to start on a loose /opt.
     """
 
     changes = []
-    for line in run.replace("\\\n", " ").splitlines():
+    for line in run.replace("\\\n", "").splitlines():
         if not _PERMISSION_PROGRAM_WORD.search(line):
             continue
         lexer = shlex.shlex(line, posix=True, punctuation_chars=True)
@@ -1884,24 +1891,26 @@ def _opt_permission_changes(run):
             continue
         command = []
         for token in [*tokens, ";"]:
-            if token and set(token) <= _SHELL_OPERATORS:
-                programs = [
-                    index
-                    for index, word in enumerate(command)
-                    if posixpath.basename(word) in _PERMISSION_PROGRAMS
-                ]
-                if programs:
-                    program, *arguments = command[programs[0] :]
-                    targets = {
-                        "/" + posixpath.normpath(argument).lstrip("/")
-                        for argument in arguments
-                        if argument.startswith("/")
-                    }
-                    if targets & {"/", "/opt"}:
-                        changes.append((posixpath.basename(program), *arguments))
-                command = []
-            else:
+            if token not in _COMMAND_SEPARATORS:
                 command.append(token)
+                continue
+            names = [posixpath.basename(word) for word in command]
+            for index, name in enumerate(names[:-1]):
+                flag = command[index + 1]
+                if name in _SHELLS and re.fullmatch(r"-[a-z]*c[a-z]*", flag):
+                    if index + 2 < len(command):
+                        changes.extend(_opt_permission_changes(command[index + 2]))
+            programs = [
+                i for i, name in enumerate(names) if name in _PERMISSION_PROGRAMS
+            ]
+            targets = {
+                "/" + posixpath.normpath(word).lstrip("/")
+                for word in command
+                if word.startswith("/")
+            }
+            if programs and targets & {"/", "/opt"}:
+                changes.append((names[programs[0]], *command[programs[0] + 1 :]))
+            command = []
     return changes
 
 
@@ -1995,6 +2004,11 @@ def test_verification_tree_provisioning_tightens_opt(workflow_name, job_name, st
         "sudo setfacl -m g:runner:rwx /opt",
         "sudo install -d -m 0777 /opt",
         "sudo chmod g+w '/opt",
+        "sudo chmod g+w /op\\\nt",
+        "sudo sh -c 'chmod g+w /opt'",
+        'sudo bash -ec "true; chmod 775 /opt"',
+        "sudo find /opt -maxdepth 0 -exec chmod g+w {} +",
+        "echo /opt | sudo xargs chmod g+w",
     ],
 )
 def test_opt_permission_change_detection_sees_through_shell_syntax(command):
@@ -2012,6 +2026,9 @@ def test_opt_permission_change_detection_sees_through_shell_syntax(command):
         "sudo mkdir -p /opt",
         "ls -ld /opt",
         "uv pip install --target /opt/axiom-verification/site .",
+        "echo /opt | grep opt",
+        f'sudo sh -c "chmod -R go-w {_VERIFICATION_TREE}"',
+        "ls -ld /opt; sudo chmod -R go-w /opt/axiom-verification",
     ],
 )
 def test_opt_permission_change_detection_ignores_other_paths(command):
