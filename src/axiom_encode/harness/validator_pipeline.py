@@ -36237,19 +36237,32 @@ class ValidatorPipeline:
                 placeholder=_VALIDATION_TEMP_ROOT_PLACEHOLDER,
             )
             return None, [f"Test case `{case_name}` execution failed: {detail}"]
+
+        def unique_response_object(pairs):
+            result = {}
+            for key, value in pairs:
+                if key in result:
+                    raise ValueError(f"duplicate response key `{key}`")
+                result[key] = value
+            return result
+
         try:
-            response = json.loads(result.stdout)
-        except json.JSONDecodeError as exc:
+            response = json.loads(
+                result.stdout, object_pairs_hook=unique_response_object
+            )
+        except ValueError as exc:
             return None, [f"Test case `{case_name}` response JSON parse failed: {exc}"]
         results = response.get("results") if isinstance(response, dict) else None
         if not isinstance(results, list) or not results:
             return None, [f"Test case `{case_name}` returned no results."]
+        if len(results) != len(query_entity_ids):
+            return None, [
+                f"Test case `{case_name}` returned {len(results)} row result(s), "
+                f"expected {len(query_entity_ids)}."
+            ]
+        if any(not isinstance(row, dict) for row in results):
+            return None, [f"Test case `{case_name}` returned a malformed result row."]
         if row_ordered_outputs:
-            if len(results) != len(query_entity_ids):
-                return None, [
-                    f"Test case `{case_name}` returned {len(results)} row result(s), "
-                    f"expected {len(query_entity_ids)}."
-                ]
             aggregated_outputs: dict[str, list[Any]] = {
                 output_name: [] for output_name in output_names
             }
@@ -36260,7 +36273,10 @@ class ValidatorPipeline:
                         f"Test case `{case_name}` row #{row_index} returned no "
                         "output map."
                     ]
-                row_outputs = self._rulespec_outputs_by_reference(outputs)
+                try:
+                    row_outputs = self._rulespec_outputs_by_reference(outputs)
+                except ValueError as exc:
+                    return None, [f"Test case `{case_name}` row #{row_index}: {exc}"]
                 for output_name in output_names:
                     actual_output = row_outputs.get(output_name)
                     if actual_output is None:
@@ -36273,17 +36289,27 @@ class ValidatorPipeline:
         outputs = results[0].get("outputs")
         if not isinstance(outputs, dict):
             return None, [f"Test case `{case_name}` returned no output map."]
-        return self._rulespec_outputs_by_reference(outputs), []
+        try:
+            return self._rulespec_outputs_by_reference(outputs), []
+        except ValueError as exc:
+            return None, [f"Test case `{case_name}`: {exc}"]
 
     def _rulespec_outputs_by_reference(self, outputs: dict[str, Any]) -> dict[str, Any]:
         """Index runtime outputs by response key and durable id only."""
         outputs_by_reference: dict[str, Any] = {}
+        owners: dict[str, str] = {}
         for output_key, output in outputs.items():
-            outputs_by_reference[str(output_key)] = output
-            if not isinstance(output, dict):
-                continue
-            reference = str(output.get("id") or "").strip()
-            if reference:
+            references = {str(output_key)}
+            if isinstance(output, dict):
+                reference = str(output.get("id") or "").strip()
+                if reference:
+                    references.add(reference)
+            for reference in sorted(references):
+                if reference in owners and owners[reference] != output_key:
+                    raise ValueError(
+                        f"ambiguous runtime output reference `{reference}`"
+                    )
+                owners[reference] = output_key
                 outputs_by_reference[reference] = output
         return outputs_by_reference
 
