@@ -753,6 +753,32 @@ jobs:
           primary_required_test_cases_json="$(jq -cer \
             '.primary_required_test_cases' <<< "$atomic_source_payload")"
           canonical_refresh_primary_required_test_cases_json="$primary_required_test_cases_json"
+          # Fresh legacy generation keeps required tests in the signing contract;
+          # it must not turn the legacy target into a canonical-refresh target.
+          if [ -n "${REPLACE_LEGACY_RULESPEC_PATH:-}" ] && \
+             [ "$primary_required_test_cases_json" != "[]" ]; then
+            if [ -z "${REPLACE_RULESPEC_PATH:-}" ] || \
+               [ "$REPLACE_RULESPEC_PATH" != "$REPLACE_LEGACY_RULESPEC_PATH" ] || \
+               [ -n "${REPAIR_RUN_ID:-}" ] || \
+               [ "${REPAIR_TESTS_ONLY:-false}" = "true" ] || \
+               [ -n "${QUEUE_ID:-}" ] || \
+               [ -n "${DEPENDENT_CITATION:-}" ] || \
+               [ -n "${SECOND_DEPENDENT_CITATION:-}" ] || \
+               [ -n "${LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
+               [ -n "${SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
+               ! jq -e '
+                 .source_bundle == [] and .canonical_refresh_bundle == [] and
+                 .require_complete_source_unit == true and
+                 (.manifest_only_refresh // false) == false and
+                 (.reviewed_candidate_promotion // false) == false
+               ' <<< "$atomic_source_payload" > /dev/null || \
+               ! jq -e '. == []' <<< "${EXISTING_SIGNED_IMPORTS_JSON:-[]}" > /dev/null || \
+               ! jq -e '. == []' <<< "${LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON:-[]}" > /dev/null; then
+              echo "required tests on fresh legacy replacements cannot mix transaction modes" >&2
+              exit 1
+            fi
+            canonical_refresh_primary_required_test_cases_json="[]"
+          fi
           if [ -n "${REPAIR_RUN_ID:-}" ]; then
             canonical_refresh_primary_required_test_cases_json="[]"
           fi
@@ -1075,6 +1101,8 @@ jobs:
           LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON: ${{ inputs.legacy_retained_successor_rulespec_paths_json }}
           REPLACE_LEGACY_RULESPEC_PATH: ${{ inputs.replace_legacy_rulespec_path }}
           REPLACE_RULESPEC_PATH: ${{ inputs.replace_rulespec_path }}
+          QUEUE_ID: ${{ inputs.queue_id }}
+          REPAIR_RUN_ID: ${{ inputs.repair_run_id }}
           REPAIR_TESTS_ONLY: ${{ steps.repair_candidate.outputs.tests_only }}
           RULESPEC_CHECKOUT: ${{ github.workspace }}/rulespec-${{ inputs.country }}
           RULESPEC_REF: ${{ inputs.rulespec_ref }}
@@ -1095,6 +1123,32 @@ jobs:
           primary_required_test_cases_json="$(jq -cer \
             '.primary_required_test_cases' <<< "$atomic_source_payload")"
           canonical_refresh_primary_required_test_cases_json="$primary_required_test_cases_json"
+          # Fresh legacy generation keeps required tests in the signing contract;
+          # it must not turn the legacy target into a canonical-refresh target.
+          if [ -n "${REPLACE_LEGACY_RULESPEC_PATH:-}" ] && \
+             [ "$primary_required_test_cases_json" != "[]" ]; then
+            if [ -z "${REPLACE_RULESPEC_PATH:-}" ] || \
+               [ "$REPLACE_RULESPEC_PATH" != "$REPLACE_LEGACY_RULESPEC_PATH" ] || \
+               [ -n "${REPAIR_RUN_ID:-}" ] || \
+               [ "${REPAIR_TESTS_ONLY:-false}" = "true" ] || \
+               [ -n "${QUEUE_ID:-}" ] || \
+               [ -n "${DEPENDENT_CITATION:-}" ] || \
+               [ -n "${SECOND_DEPENDENT_CITATION:-}" ] || \
+               [ -n "${LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
+               [ -n "${SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
+               ! jq -e '
+                 .source_bundle == [] and .canonical_refresh_bundle == [] and
+                 .require_complete_source_unit == true and
+                 (.manifest_only_refresh // false) == false and
+                 (.reviewed_candidate_promotion // false) == false
+               ' <<< "$atomic_source_payload" > /dev/null || \
+               ! jq -e '. == []' <<< "${EXISTING_SIGNED_IMPORTS_JSON:-[]}" > /dev/null || \
+               ! jq -e '. == []' <<< "${LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON:-[]}" > /dev/null; then
+              echo "required tests on fresh legacy replacements cannot mix transaction modes" >&2
+              exit 1
+            fi
+            canonical_refresh_primary_required_test_cases_json="[]"
+          fi
           if [ "${REPAIR_TESTS_ONLY:-false}" = "true" ]; then
             canonical_refresh_primary_required_test_cases_json="[]"
           fi
@@ -1642,6 +1696,32 @@ jobs:
               ;;
           esac
           canonical_refresh_primary_required_test_cases_json="$primary_required_test_cases_json"
+          # Fresh legacy generation keeps required tests in the signing contract;
+          # it must not turn the legacy target into a canonical-refresh target.
+          if [ -n "${REPLACE_LEGACY_RULESPEC_PATH:-}" ] && \
+             [ "$primary_required_test_cases_json" != "[]" ]; then
+            if [ -z "${REPLACE_RULESPEC_PATH:-}" ] || \
+               [ "$REPLACE_RULESPEC_PATH" != "$REPLACE_LEGACY_RULESPEC_PATH" ] || \
+               [ -n "${REPAIR_RUN_ID:-}" ] || \
+               [ "${REPAIR_TESTS_ONLY:-false}" = "true" ] || \
+               [ -n "${QUEUE_ID:-}" ] || \
+               [ -n "${DEPENDENT_CITATION:-}" ] || \
+               [ -n "${SECOND_DEPENDENT_CITATION:-}" ] || \
+               [ -n "${LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
+               [ -n "${SECOND_LEGACY_EXACT_DEPENDENT_RULESPEC_PATH:-}" ] || \
+               ! jq -e '
+                 .source_bundle == [] and .canonical_refresh_bundle == [] and
+                 .require_complete_source_unit == true and
+                 (.manifest_only_refresh // false) == false and
+                 (.reviewed_candidate_promotion // false) == false
+               ' <<< "$atomic_source_payload" > /dev/null || \
+               ! jq -e '. == []' <<< "${EXISTING_SIGNED_IMPORTS_JSON:-[]}" > /dev/null || \
+               ! jq -e '. == []' <<< "${LEGACY_RETAINED_SUCCESSOR_RULESPEC_PATHS_JSON:-[]}" > /dev/null; then
+              echo "required tests on fresh legacy replacements cannot mix transaction modes" >&2
+              exit 1
+            fi
+            canonical_refresh_primary_required_test_cases_json="[]"
+          fi
           if [ "$REPAIR_TESTS_ONLY" = "true" ]; then
             canonical_refresh_primary_required_test_cases_json="[]"
           fi
