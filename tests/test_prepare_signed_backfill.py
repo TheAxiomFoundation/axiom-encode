@@ -4172,9 +4172,13 @@ def test_validate_rulespec_base_accepts_exact_reviewed_protected_branch_tip(
             "b5273061fc5765dea04bf36f63de39bf40afc2d8",
             "fix/1248-snap-immigration-status",
         ),
+        (
+            "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
+            "codex/az-nested-engine-pin",
+        ),
     ],
 )
-def test_validate_rulespec_base_accepts_reviewed_immigration_repair_branch_tip(
+def test_validate_rulespec_base_accepts_reviewed_protected_branch_tip(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     reviewed_ref: str,
