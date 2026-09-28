@@ -36262,6 +36262,19 @@ class ValidatorPipeline:
             ]
         if any(not isinstance(row, dict) for row in results):
             return None, [f"Test case `{case_name}` returned a malformed result row."]
+        for row_index, (row, query) in enumerate(
+            zip(results, request["queries"], strict=True), 1
+        ):
+            if (
+                row.get("entity_id") != query["entity_id"]
+                or row.get("period") != query["period"]
+                or row.get("assessment_date") != query.get("assessment_date")
+            ):
+                return None, [
+                    f"Test case `{case_name}` row #{row_index} returned an "
+                    "entity, period, or assessment date that does not match "
+                    "its execution query."
+                ]
         if row_ordered_outputs:
             aggregated_outputs: dict[str, list[Any]] = {
                 output_name: [] for output_name in output_names

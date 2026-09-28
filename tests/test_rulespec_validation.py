@@ -1268,13 +1268,14 @@ def test_rulespec_validation_run_compiled_scrubs_ambient_root_env(
                 {
                     "results": [
                         {
+                            **json.loads(kwargs["input"])["queries"][0],
                             "outputs": {
                                 "us:statutes/1/1#benefit": {
                                     "kind": "scalar",
                                     "id": "us:statutes/1/1#benefit",
                                     "value": {"kind": "integer", "value": 6},
                                 }
-                            }
+                            },
                         }
                     ]
                 }
@@ -2332,13 +2333,14 @@ def test_rulespec_companion_runner_uses_rows_for_absolute_list_outputs(
                 {
                     "results": [
                         {
+                            **json.loads(kwargs["input"])["queries"][0],
                             "outputs": {
                                 "excluded_from_wages": {
                                     "kind": "scalar",
                                     "id": "us:statutes/26/3121/a/6#excluded_from_wages",
                                     "value": {"kind": "money", "value": 300},
                                 }
-                            }
+                            },
                         }
                     ]
                 }
@@ -6497,7 +6499,7 @@ def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2054"')
+        .startswith('__version__ = "0.2.2055"')
     )
 
 
@@ -6729,13 +6731,13 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2054"
+    assert encoder_package["version"] == "0.2.2055"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2054"
+    assert project["project"]["version"] == "0.2.2055"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2054"')
+        .startswith('__version__ = "0.2.2055"')
     )
 
 
@@ -6997,13 +6999,13 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2054"
+    assert encoder_package["version"] == "0.2.2055"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2054"
+    assert project["project"]["version"] == "0.2.2055"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2054"')
+        .startswith('__version__ = "0.2.2055"')
     )
 
 
@@ -51625,6 +51627,14 @@ def test_rulespec_companion_rejects_ambiguous_runtime_response(
         )
 
     def fake_run(command, **kwargs):
+        if mutation != "duplicate_json_key":
+            query = json.loads(kwargs["input"])["queries"][0]
+            bound_results = [
+                {**query, **row} if isinstance(row, dict) else row for row in results
+            ]
+            return subprocess.CompletedProcess(
+                command, 0, stdout=json.dumps({"results": bound_results}), stderr=""
+            )
         return subprocess.CompletedProcess(command, 0, stdout=response, stderr="")
 
     monkeypatch.setattr(validator_pipeline.subprocess, "run", fake_run)
@@ -51647,3 +51657,124 @@ def test_rulespec_companion_rejects_ambiguous_runtime_response(
     )
     assert outputs is None
     assert any(expected_issue in issue for issue in issues), issues
+
+
+@pytest.mark.parametrize("row_ordered", [False, True])
+@pytest.mark.parametrize(
+    "period",
+    [
+        {"period_kind": "month", "start": "2026-01-01", "end": "2026-01-31"},
+        {"period_kind": "tax_year", "start": "2026-01-01", "end": "2026-12-31"},
+        {
+            "period_kind": "custom",
+            "name": "assessment_window",
+            "start": "2026-01-01",
+            "end": "2026-01-15",
+        },
+    ],
+)
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        None,
+        "null_assessment",
+        "wrong_entity",
+        "missing_entity",
+        "numeric_entity",
+        "missing_period",
+        "malformed_period",
+        "missing_start",
+        "wrong_start",
+        "wrong_end",
+        "wrong_kind",
+        "wrong_custom_name",
+        "unexpected_assessment",
+        "repeated_entity",
+        "swapped_rows",
+    ],
+)
+def test_rulespec_companion_binds_response_to_query(
+    monkeypatch, tmp_path, row_ordered, period, mutation
+):
+    if mutation in {"repeated_entity", "swapped_rows"} and not row_ordered:
+        pytest.skip("requires multiple query rows")
+    pipeline = ValidatorPipeline(
+        policy_repo_path=_canonical_rulespec_content_root(tmp_path / "repos", "us"),
+        axiom_rules_path=tmp_path / "missing-engine",
+        enable_oracles=False,
+    )
+
+    def fake_run(command, **kwargs):
+        request = json.loads(kwargs["input"])
+        rows = [
+            {
+                "entity_id": query["entity_id"],
+                "period": dict(query["period"]),
+                "outputs": {
+                    "benefit": {
+                        "kind": "scalar",
+                        "value": {"kind": "integer", "value": 42},
+                    }
+                },
+            }
+            for query in request["queries"]
+        ]
+        row = rows[-1]
+        if mutation == "null_assessment":
+            row["assessment_date"] = None
+        elif mutation == "wrong_entity":
+            row["entity_id"] = "someone-else"
+        elif mutation == "missing_entity":
+            del row["entity_id"]
+        elif mutation == "numeric_entity":
+            row["entity_id"] = 1
+        elif mutation == "missing_period":
+            del row["period"]
+        elif mutation == "malformed_period":
+            row["period"] = list(row["period"].values())
+        elif mutation == "missing_start":
+            del row["period"]["start"]
+        elif mutation in {"wrong_start", "wrong_end"}:
+            row["period"][mutation.removeprefix("wrong_")] = "2025-01-01"
+        elif mutation == "wrong_kind":
+            row["period"]["period_kind"] = "benefit_week"
+        elif mutation == "wrong_custom_name":
+            row["period"]["name"] = "different_window"
+        elif mutation == "unexpected_assessment":
+            row["assessment_date"] = "2026-02-01"
+        elif mutation == "repeated_entity":
+            row["entity_id"] = rows[0]["entity_id"]
+        elif mutation == "swapped_rows":
+            rows.reverse()
+        return subprocess.CompletedProcess(
+            command, 0, stdout=json.dumps({"results": rows}), stderr=""
+        )
+
+    monkeypatch.setattr(validator_pipeline.subprocess, "run", fake_run)
+    case = {"input": {}, "output": {"benefit": [42, 42] if row_ordered else 42}}
+    if row_ordered:
+        case["tables"] = {
+            "Person": [{"person_id": "person-1"}, {"person_id": "person-2"}]
+        }
+    outputs, issues = pipeline._run_rulespec_derived_test_case(
+        binary=tmp_path / "engine",
+        compiled_path=tmp_path / "compiled.json",
+        case=case,
+        case_name="query_identity",
+        case_index=1,
+        period=period,
+        output_names=["benefit"],
+        derived_by_key={"benefit": {"entity": "Person"}},
+        require_legal_input_keys=False,
+        legal_ids_by_friendly_name={},
+        declared_relation_names=set(),
+        module_target=None,
+    )
+    if mutation in {None, "null_assessment"}:
+        assert not issues
+        assert outputs is not None
+    else:
+        assert outputs is None
+        assert any("does not match its execution query" in issue for issue in issues), (
+            issues
+        )
