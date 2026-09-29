@@ -902,9 +902,10 @@ def test_coordinated_excerpt_retains_its_trailing_condition(excerpt: str):
     assert len(completeness_module._source_conjunctive_fact_gates(clauses[0].text)) == 2
 
 
-def test_coordinated_consequence_retains_preposed_conditions():
+@pytest.mark.parametrize("prefix", ["If", "Only if", "(a) If"])
+def test_coordinated_consequence_retains_preposed_conditions(prefix: str):
     source = (
-        "If the applicant is a resident and the applicant is a citizen, the "
+        f"{prefix} the applicant is a resident and the applicant is a citizen, the "
         "agency approves the application and pays the credit."
     )
     excerpt = "pays the credit"

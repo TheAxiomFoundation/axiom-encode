@@ -13921,7 +13921,8 @@ def _excerpt_is_conjunction_delimited_subclause(
     excerpt = text[excerpt_start:excerpt_end]
     after = text[excerpt_end:proposition_end]
     if re.match(
-        r"^\s*(?:if|unless|when|whenever|where|provided\s+that)\b",
+        r"^\s*(?:(?:\([^)]+\)|[A-Za-z0-9]+[.)])\s*)*"
+        r"(?:only\s+)?(?:if|unless|when|whenever|where|provided\s+that)\b",
         before,
         flags=re.IGNORECASE,
     ) and re.search(r",|\bthen\b", before, flags=re.IGNORECASE):
