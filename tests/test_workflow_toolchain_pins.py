@@ -14,10 +14,12 @@ Commands are found with ``tests/workflow_shell.py``, which reads each ``run:``
 script as bash does and parses uv calls against the pinned uv's option table.
 A script it cannot follow fails the suite rather than being skipped.
 
-Out of scope: what ``uv pip install --target`` stages for the verification and
-axiom-compose runtimes (the verification tree is locked by
-``test_verification_site_packages_lock.py`` once #1712 lands), and
-``uv version --bump``, which re-locks without ``--frozen``.
+Out of scope:
+- what ``uv pip install --target`` stages for the verification and
+  axiom-compose runtimes (the verification tree is locked by
+  ``test_verification_site_packages_lock.py`` once #1712 lands);
+- ``uv version --bump``, which re-locks without ``--frozen`` (#1730);
+- programs named by a variable, such as ``"$PYBIN" -m pip``.
 """
 
 from __future__ import annotations
@@ -49,23 +51,30 @@ LOCKED_DEV_SYNCS = {
     for python in ("3.13", "${{matrix.python-version}}")
 }
 ACTION_PIN = re.compile(r"[^@\s]+@[0-9a-f]{40}|docker://[^@\s]+@sha256:[0-9a-f]{64}")
-# Options that layer unlocked or upgraded packages over the lock even when the
-# command also passes --locked or --frozen.
+# Options (long names; the reader maps short ones) that add packages, upgrade
+# them, or change how they resolve, whether or not the lock is also enforced.
 LOCK_OVERRIDES = frozenset(
     {
-        "-P",
-        "-U",
-        "-w",
+        "--build-constraints",
+        "--constraints",
+        "--exclude-newer",
+        "--exclude-newer-package",
+        "--no-sources",
+        "--no-sources-package",
+        "--overrides",
+        "--prerelease",
+        "--resolution",
         "--upgrade",
+        "--upgrade-group",
         "--upgrade-package",
         "--with",
         "--with-editable",
+        "--with-executables-from",
         "--with-requirements",
     }
 )
-TOOLS = re.compile(
-    r"pytest|py\.test|ruff|towncrier|pre-commit|python[0-9.]*|pip[0-9.]*"
-)
+TOOLS = re.compile(r"pytest|py\.test|ruff|towncrier|pre-commit|python[0-9.]*")
+PIP = re.compile(r"pip[0-9.]*")
 VENV_TOOL = re.compile(r"(?:\./)?\.venv/bin/\S+")
 
 
@@ -79,7 +88,8 @@ def _workflows() -> tuple[tuple[str, dict], ...]:
 
 @functools.cache
 def _script_commands(script: str) -> tuple[Command, ...]:
-    return tuple(workflow_shell.commands(script))
+    """What ``script`` runs, including what its ``uv run`` calls launch."""
+    return tuple(workflow_shell.expand(workflow_shell.commands(script), UV_OPTIONS))
 
 
 def _steps():
@@ -119,13 +129,37 @@ def _job_steps(workflow_name: str, job_name: str):
 def _uv(script: str) -> list[tuple[str, tuple[str, ...]]]:
     return [
         (invocation.subcommand, invocation.options)
-        for command in workflow_shell.commands(script)
+        for command in workflow_shell.expand(
+            workflow_shell.commands(script), UV_OPTIONS
+        )
         if (invocation := workflow_shell.uv_invocation(command, UV_OPTIONS))
     ]
 
 
 def _programs(script: str) -> list[str]:
-    return [command.program for command in workflow_shell.commands(script)]
+    return [
+        command.program
+        for command in workflow_shell.expand(
+            workflow_shell.commands(script), UV_OPTIONS
+        )
+        if command.words
+    ]
+
+
+def _runs_pip(command: Command) -> bool:
+    """Whether ``command`` runs pip, directly or as ``python -m pip``."""
+    if PIP.fullmatch(command.program):
+        return True
+    return bool(
+        re.fullmatch(r"python[0-9.]*", command.program)
+        and re.search(
+            r"(?:^|\s)-[A-Za-z]*m\s?pip[0-9.]*(?:\s|$)", " ".join(command.words)
+        )
+    )
+
+
+def _pip_installs(command: Command) -> bool:
+    return _runs_pip(command) and "install" in command.words
 
 
 def test_every_run_script_is_analyzable():
@@ -166,7 +200,7 @@ def test_discovery_is_not_vacuous():
     } <= found
 
 
-# script -> the uv calls it makes, as (subcommand, canonical options).
+# script -> the uv calls it makes, as (subcommand, long option names).
 READER_CASES = {
     "uv sync --locked --python 3.13 --extra dev": [
         ("sync", ("--locked", "--python", "--extra"))
@@ -177,53 +211,89 @@ READER_CASES = {
     "uv run --frozen --python 3.13 python s.py -P --upgrade": [
         ("run", ("--frozen", "--python"))
     ],
-    # A valued option is not mistaken for uv run's command.
+    # A valued option is not mistaken for uv run's command, even a quoted `>`.
     "uv run --frozen --link-mode copy --with requests python s.py": [
         ("run", ("--frozen", "--link-mode", "--with"))
     ],
     'uv run --frozen --env-file "my settings.env" --with requests python s.py': [
         ("run", ("--frozen", "--env-file", "--with"))
     ],
-    # Attached values and clustered short flags.
-    "uv run --frozen -wrequests python s.py": [("run", ("--frozen", "-w"))],
-    "uv sync --frozen -Pcryptography": [("sync", ("--frozen", "-P"))],
-    "uv sync --frozen -qU": [("sync", ("--frozen", "-q", "-U"))],
-    "uv sync --frozen --upgrade-package=ruff": [
-        ("sync", ("--frozen", "--upgrade-package"))
+    "uv run --frozen --env-file '>' --with requests python s.py": [
+        ("run", ("--frozen", "--env-file", "--with"))
     ],
+    # Short options: attached values and clusters, reported by long name.
+    "uv run --frozen -wrequests python s.py": [("run", ("--frozen", "--with"))],
+    "uv sync --frozen -Pcryptography": [("sync", ("--frozen", "--upgrade-package"))],
+    "uv sync --frozen -qU": [("sync", ("--frozen", "--quiet", "--upgrade"))],
+    "uv sync --frozen --upgrade-group=dev": [("sync", ("--frozen", "--upgrade-group"))],
     # A hidden alias resolves to its option.
     "uv pip install --target t --requirement r.txt": [
         ("pip install", ("--target", "--requirements"))
     ],
-    # Comments, including a `#` inside quotes.
+    # Comments and quoted operators are data.
     "uv sync --python 3.13  # --frozen": [("sync", ("--python",))],
     'echo "step #1"; uv sync --python 3.13': [("sync", ("--python",))],
     'echo "documentation # text"; uv tool run ruff': [("tool run", ())],
-    # Substitutions, wrappers and nested shells run their commands.
+    "echo ';' uv sync": [],
+    'echo "example; uv tool run ruff"': [],
+    # Substitutions, including inside arithmetic, run.
     'x="$(uv export --no-dev | grep y)"': [("export", ("--no-dev",))],
     "cat <(uv export --locked)": [("export", ("--locked",))],
-    "`uv lock`": [("lock", ())],
+    "echo `uv lock`": [("lock", ())],
+    "echo $(( $(uv sync) + 1 ))": [("sync", ())],
+    # Wrappers.
     "timeout -k 5 600 uv sync": [("sync", ())],
     "sudo -E -u runner env -i PATH=/bin A=1 uv lock --offline": [
         ("lock", ("--offline",))
     ],
     "nice -n 5 nohup uv sync": [("sync", ())],
+    "command -- uv sync": [("sync", ())],
+    "printf '%s\\n' r.txt | xargs -n 1 uv pip sync": [("pip sync", ())],
+    "env -S'uv sync'": [("sync", ())],
+    "env --split-string='uv sync --frozen'": [("sync", ("--frozen",))],
+    # Nested scripts: shells with -c, su -c, eval, trap, find -exec.
     "bash -c 'uv pip sync requirements.txt'": [("pip sync", ())],
     'sh -ec "uv sync --frozen"': [("sync", ("--frozen",))],
-    "printf '%s\\n' r.txt | xargs -n 1 uv pip sync": [("pip sync", ())],
+    "bash -o pipefail -c 'uv pip install x'": [("pip install", ())],
+    'bash -euo pipefail -c "uv sync"': [("sync", ())],
+    "bash -c -e 'uv lock'": [("lock", ())],
+    "su -c 'uv sync' runner": [("sync", ())],
+    "eval 'uv sync'": [("sync", ())],
+    "trap 'uv lock' EXIT": [("lock", ())],
+    "trap - EXIT": [],
+    "find . -name x -exec uv sync \\;": [("sync", ())],
+    # Grouping, functions and control flow.
     "{ uv sync; }": [("sync", ())],
     "f() { uv sync; }": [("sync", ())],
+    "function setup { uv sync; }; setup": [("sync", ())],
     "if ! uv export --locked --no-dev; then exit 1; fi": [
         ("export", ("--locked", "--no-dev"))
     ],
-    "uvx ruff": [("uvx", ())],
+    # A case pattern is data; its arm runs.
+    "case x in a|uv) uv lock ;; *) echo ;; esac": [("lock", ())],
+    'case "$(uv version --short)" in\n  1.*) echo one ;;\nesac': [
+        ("version", ("--short",))
+    ],
+    # What `uv run` and `uvx` launch is read too.
+    "uv run --frozen uv pip install requests": [
+        ("run", ("--frozen",)),
+        ("pip install", ()),
+    ],
+    "uv run --frozen bash -c 'uv pip sync r.txt'": [
+        ("run", ("--frozen",)),
+        ("pip sync", ()),
+    ],
+    "uvx --from ruff ruff check": [("uvx", ("--from",))],
     # Text that mentions uv runs nothing.
     "echo uv sync": [],
     "printf '%s\\n' 'uv sync'": [],
-    'echo "example; uv tool run ruff"': [],
     "command -v uv": [],
     "echo $(( 1 + 2 ))": [],
     "cat <<'DOC'\nuv sync\nDOC\necho done": [],
+    # Heredoc terminators match whole lines, as in bash.
+    "cat <<'DOC'\nuv sync\nDOC \nDOC\necho done": [],
+    "cat <<'DOC'\n  DOC\nDOC\nuv lock": [("lock", ())],
+    "cat <<-'DOC'\nuv sync\n\tDOC\nuv lock": [("lock", ())],
     # An unquoted heredoc body is data, but its substitutions run.
     "cat <<DOC\nuv sync\n$(uv lock)\nDOC": [("lock", ())],
     "a=1 \\\n  uv sync --frozen": [("sync", ("--frozen",))],
@@ -241,11 +311,22 @@ def test_reader_finds_the_uv_calls_a_script_makes(script, expected):
         "uv sync --frozen --no-such-option",
         "uv run --frozen --no-such-option value python s.py",
         "uv sync -Z",
+        "uv --preview sync --frozen",
         "uv cache clean",
         "echo 'unterminated",
         "x=$(uv sync",
         "cat <<EOF\nno terminator",
+        # A shell that reads its script from stdin or a file.
         "bash -c",
+        "bash <<'EOF'\nuv sync\nEOF",
+        "bash <<< 'uv sync'",
+        'sh <<< "uv tool run ruff"',
+        "echo uv sync | bash",
+        "bash script.sh",
+        "su root",
+        # A program produced by a substitution.
+        "$(command -v uv) sync",
+        "`uv lock`",
     ],
 )
 def test_reader_fails_closed_on_what_it_cannot_follow(script):
@@ -261,6 +342,17 @@ def test_reader_resolves_the_program_behind_quotes_and_wrappers():
         "python3",
     ]
     assert _programs("cmd 2>&1 | tee log >/dev/null") == ["cmd", "tee"]
+    assert _programs("uv run --frozen --module pip install x") == [
+        "uv",
+        "python",
+    ]
+    # A substitution runs just before the command that contains it.
+    assert _programs('uv sync; echo "$(.venv/bin/python --version)"') == [
+        "uv",
+        "python",
+        "echo",
+    ]
+    assert _programs("case x in a|pytest) echo ok;; esac") == ["echo"]
 
 
 @pytest.mark.skipif(shutil.which("uv") is None, reason="uv is not installed")
@@ -351,6 +443,59 @@ def test_no_workflow_runs_an_unpinned_uv_tool_or_edits_the_dependencies():
     assert offenders == []
 
 
+def test_every_package_install_stages_a_target_directory():
+    # Only a staged runtime tree may be installed outside the lock; an install
+    # into an environment (`uv venv && uv pip install -e .`) may not.
+    offenders = []
+    for where, command in _commands(_steps()):
+        invocation = workflow_shell.uv_invocation(command, UV_OPTIONS)
+        if invocation is not None and invocation.subcommand in {
+            "pip install",
+            "pip sync",
+        }:
+            staged = "--target" in invocation.options
+        elif _pip_installs(command):
+            staged = any(
+                word in {"-t", "--target"} or word.startswith("--target=")
+                for word in command.words
+            )
+        else:
+            continue
+        if not staged:
+            offenders.append(f"{where} {command.line}")
+    assert offenders == []
+
+
+def test_no_workflow_sets_uv_environment_variables():
+    # UV_UPGRADE, UV_OFFLINE, UV_FROZEN and the rest change how every later
+    # uv call resolves, invisibly to the option checks above.
+    uv_variable = re.compile(r"UV_[A-Z0-9_]+")
+    offenders = [
+        f"{name} env: {key}"
+        for name, workflow in _workflows()
+        for scope in [
+            workflow,
+            *workflow["jobs"].values(),
+            *(
+                step
+                for job in workflow["jobs"].values()
+                for step in job.get("steps", [])
+            ),
+        ]
+        for key in (scope.get("env") or {})
+        if uv_variable.fullmatch(key)
+    ]
+    offenders += [
+        f"{where} {command.line}"
+        for where, command in _commands(_steps())
+        if any(
+            re.match(r"UV_[A-Z0-9_]+=", word)
+            for word in (*command.assignments, *command.words)
+        )
+    ]
+    assert offenders == []
+
+
 @pytest.mark.parametrize(
     ("workflow_name", "job_name"),
     sorted(
@@ -361,7 +506,9 @@ def test_no_workflow_runs_an_unpinned_uv_tool_or_edits_the_dependencies():
 )
 def test_test_environment_is_the_locked_dev_set(workflow_name, job_name):
     commands = [
-        command for _, command in _commands(_job_steps(workflow_name, job_name))
+        command
+        for _, command in _commands(_job_steps(workflow_name, job_name))
+        if command.words
     ]
     invocations = [
         (position, invocation)
@@ -378,19 +525,15 @@ def test_test_environment_is_the_locked_dev_set(workflow_name, job_name):
     sync_position, sync_words = syncs[0]
     assert sync_words in LOCKED_DEV_SYNCS, sync_words
 
-    # Nothing else builds or changes a Python environment in these jobs.
+    # Nothing else builds or changes a Python environment in these jobs,
+    # including through the command a `uv run` launches.
     assert [
         invocation.command.line
         for _, invocation in invocations
         if invocation.subcommand.split()[0]
         in {"add", "pip", "remove", "tool", "uvx", "venv"}
     ] == []
-    assert [
-        command.line
-        for command in commands
-        if re.fullmatch(r"python[0-9.]*", command.program)
-        and re.search(r"(?:^| )-m ?pip (?:install|download)\b", " ".join(command.words))
-    ] == []
+    assert [command.line for command in commands if _runs_pip(command)] == []
 
     # Every tool the job runs comes from the synced .venv, after the sync.
     venv_uses = [

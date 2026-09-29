@@ -21,6 +21,13 @@
     "-q",
     "-v"
    ],
+   "short": {
+    "-V": "--version",
+    "-h": "--help",
+    "-n": "--no-cache",
+    "-q": "--quiet",
+    "-v": "--verbose"
+   },
    "valued": [
     "--allow-insecure-host",
     "--cache-dir",
@@ -72,6 +79,21 @@
     "-q",
     "-v"
    ],
+   "short": {
+    "-C": "--config-setting",
+    "-P": "--upgrade-package",
+    "-U": "--upgrade",
+    "-c": "--constraints",
+    "-f": "--find-links",
+    "-h": "--help",
+    "-i": "--index-url",
+    "-m": "--marker",
+    "-n": "--no-cache",
+    "-p": "--python",
+    "-q": "--quiet",
+    "-r": "--requirements",
+    "-v": "--verbose"
+   },
    "valued": [
     "--allow-insecure-host",
     "--bounds",
@@ -168,6 +190,19 @@
     "-q",
     "-v"
    ],
+   "short": {
+    "-C": "--config-setting",
+    "-P": "--upgrade-package",
+    "-U": "--upgrade",
+    "-f": "--find-links",
+    "-h": "--help",
+    "-i": "--index-url",
+    "-n": "--no-cache",
+    "-o": "--output-file",
+    "-p": "--python",
+    "-q": "--quiet",
+    "-v": "--verbose"
+   },
    "valued": [
     "--allow-insecure-host",
     "--cache-dir",
@@ -247,6 +282,18 @@
     "-q",
     "-v"
    ],
+   "short": {
+    "-C": "--config-setting",
+    "-P": "--upgrade-package",
+    "-U": "--upgrade",
+    "-f": "--find-links",
+    "-h": "--help",
+    "-i": "--index-url",
+    "-n": "--no-cache",
+    "-p": "--python",
+    "-q": "--quiet",
+    "-v": "--verbose"
+   },
    "valued": [
     "--allow-insecure-host",
     "--cache-dir",
@@ -326,6 +373,21 @@
     "-q",
     "-v"
    ],
+   "short": {
+    "-C": "--config-setting",
+    "-P": "--upgrade-package",
+    "-U": "--upgrade",
+    "-b": "--build-constraints",
+    "-c": "--constraints",
+    "-f": "--find-links",
+    "-h": "--help",
+    "-i": "--index-url",
+    "-n": "--no-cache",
+    "-o": "--output-file",
+    "-p": "--python",
+    "-q": "--quiet",
+    "-v": "--verbose"
+   },
    "valued": [
     "--allow-insecure-host",
     "--annotation-style",
@@ -402,6 +464,14 @@
     "-q",
     "-v"
    ],
+   "short": {
+    "-h": "--help",
+    "-n": "--no-cache",
+    "-p": "--python",
+    "-q": "--quiet",
+    "-t": "--target",
+    "-v": "--verbose"
+   },
    "valued": [
     "--allow-insecure-host",
     "--cache-dir",
@@ -461,6 +531,23 @@
     "-q",
     "-v"
    ],
+   "short": {
+    "-C": "--config-setting",
+    "-P": "--upgrade-package",
+    "-U": "--upgrade",
+    "-b": "--build-constraints",
+    "-c": "--constraints",
+    "-e": "--editable",
+    "-f": "--find-links",
+    "-h": "--help",
+    "-i": "--index-url",
+    "-n": "--no-cache",
+    "-p": "--python",
+    "-q": "--quiet",
+    "-r": "--requirements",
+    "-t": "--target",
+    "-v": "--verbose"
+   },
    "valued": [
     "--allow-insecure-host",
     "--build-constraints",
@@ -540,6 +627,15 @@
     "-q",
     "-v"
    ],
+   "short": {
+    "-f": "--files",
+    "-h": "--help",
+    "-n": "--no-cache",
+    "-p": "--python",
+    "-q": "--quiet",
+    "-t": "--target",
+    "-v": "--verbose"
+   },
    "valued": [
     "--allow-insecure-host",
     "--cache-dir",
@@ -589,6 +685,19 @@
     "-q",
     "-v"
    ],
+   "short": {
+    "-C": "--config-setting",
+    "-b": "--build-constraints",
+    "-c": "--constraints",
+    "-f": "--find-links",
+    "-h": "--help",
+    "-i": "--index-url",
+    "-n": "--no-cache",
+    "-p": "--python",
+    "-q": "--quiet",
+    "-t": "--target",
+    "-v": "--verbose"
+   },
    "valued": [
     "--allow-insecure-host",
     "--build-constraints",
@@ -655,6 +764,15 @@
     "-q",
     "-v"
    ],
+   "short": {
+    "-h": "--help",
+    "-n": "--no-cache",
+    "-p": "--python",
+    "-q": "--quiet",
+    "-r": "--requirements",
+    "-t": "--target",
+    "-v": "--verbose"
+   },
    "valued": [
     "--allow-insecure-host",
     "--cache-dir",
@@ -701,6 +819,16 @@
     "-r",
     "-v"
    ],
+   "short": {
+    "-U": "--upgrade",
+    "-f": "--force",
+    "-h": "--help",
+    "-i": "--install-dir",
+    "-n": "--no-cache",
+    "-q": "--quiet",
+    "-r": "--reinstall",
+    "-v": "--verbose"
+   },
    "valued": [
     "--allow-insecure-host",
     "--cache-dir",
@@ -749,6 +877,18 @@
     "-q",
     "-v"
    ],
+   "short": {
+    "-C": "--config-setting",
+    "-P": "--upgrade-package",
+    "-U": "--upgrade",
+    "-f": "--find-links",
+    "-h": "--help",
+    "-i": "--index-url",
+    "-n": "--no-cache",
+    "-p": "--python",
+    "-q": "--quiet",
+    "-v": "--verbose"
+   },
    "valued": [
     "--allow-insecure-host",
     "--cache-dir",
@@ -840,6 +980,21 @@
     "-s",
     "-v"
    ],
+   "short": {
+    "-C": "--config-setting",
+    "-P": "--upgrade-package",
+    "-U": "--upgrade",
+    "-f": "--find-links",
+    "-h": "--help",
+    "-i": "--index-url",
+    "-m": "--module",
+    "-n": "--no-cache",
+    "-p": "--python",
+    "-q": "--quiet",
+    "-s": "--script",
+    "-v": "--verbose",
+    "-w": "--with"
+   },
    "valued": [
     "--allow-insecure-host",
     "--cache-dir",
@@ -935,6 +1090,18 @@
     "-q",
     "-v"
    ],
+   "short": {
+    "-C": "--config-setting",
+    "-P": "--upgrade-package",
+    "-U": "--upgrade",
+    "-f": "--find-links",
+    "-h": "--help",
+    "-i": "--index-url",
+    "-n": "--no-cache",
+    "-p": "--python",
+    "-q": "--quiet",
+    "-v": "--verbose"
+   },
    "valued": [
     "--allow-insecure-host",
     "--cache-dir",
@@ -1016,6 +1183,22 @@
     "-q",
     "-v"
    ],
+   "short": {
+    "-C": "--config-setting",
+    "-P": "--upgrade-package",
+    "-U": "--upgrade",
+    "-b": "--build-constraints",
+    "-c": "--constraints",
+    "-e": "--editable",
+    "-f": "--find-links",
+    "-h": "--help",
+    "-i": "--index-url",
+    "-n": "--no-cache",
+    "-p": "--python",
+    "-q": "--quiet",
+    "-v": "--verbose",
+    "-w": "--with"
+   },
    "valued": [
     "--allow-insecure-host",
     "--build-constraints",
@@ -1099,6 +1282,21 @@
     "-q",
     "-v"
    ],
+   "short": {
+    "-C": "--config-setting",
+    "-P": "--upgrade-package",
+    "-U": "--upgrade",
+    "-b": "--build-constraints",
+    "-c": "--constraints",
+    "-f": "--find-links",
+    "-h": "--help",
+    "-i": "--index-url",
+    "-n": "--no-cache",
+    "-p": "--python",
+    "-q": "--quiet",
+    "-v": "--verbose",
+    "-w": "--with"
+   },
    "valued": [
     "--allow-insecure-host",
     "--build-constraints",
@@ -1178,6 +1376,16 @@
     "-q",
     "-v"
    ],
+   "short": {
+    "-c": "--clear",
+    "-f": "--find-links",
+    "-h": "--help",
+    "-i": "--index-url",
+    "-n": "--no-cache",
+    "-p": "--python",
+    "-q": "--quiet",
+    "-v": "--verbose"
+   },
    "valued": [
     "--allow-insecure-host",
     "--cache-dir",
@@ -1238,6 +1446,18 @@
     "-q",
     "-v"
    ],
+   "short": {
+    "-C": "--config-setting",
+    "-P": "--upgrade-package",
+    "-U": "--upgrade",
+    "-f": "--find-links",
+    "-h": "--help",
+    "-i": "--index-url",
+    "-n": "--no-cache",
+    "-p": "--python",
+    "-q": "--quiet",
+    "-v": "--verbose"
+   },
    "valued": [
     "--allow-insecure-host",
     "--bump",
