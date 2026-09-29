@@ -472,7 +472,10 @@ def test_all_state_preparation_uses_authenticated_release_builder() -> None:
     assert "NEXT_PUBLIC_SUPABASE_ANON_KEY" in workflow
     assert "--state paused" in workflow
     assert '--pr-base-branch "$PR_BASE_BRANCH"' in workflow
-    assert "PR_BASE_BRANCH: ${{ inputs.pr_base_branch }}" in workflow
+    # The base branch is a pin beside RULESPEC_REF, not a dispatch-time choice:
+    # a queue on main needs main's tip, which only a pin edit can supply.
+    assert "PR_BASE_BRANCH: hard-cut/canonical-layout-us" in workflow
+    assert "inputs." not in workflow
     assert "d9d6fba0b9069c7e0f0ed4255817b3e78c00dd64" in workflow
     assert "4658144031f8ef1b39a971eb7002997fa0880b5a" in workflow
     assert "38ddc92d4160a0d39af13bfe232a446b554a15c5" in workflow
@@ -511,10 +514,7 @@ def test_all_state_queue_repin_is_regenerated_from_authenticated_inputs() -> Non
     assert ".release != $previous[0].release" in workflow
     assert "cmp --silent" in workflow
     assert '"$QUEUE_PATH" "$generated_queue"' in workflow
-    assert (
-        "rulespec-us/git/ref/heads/${{ steps.transition.outputs.pr_base_branch }}"
-        in workflow
-    )
+    assert "rulespec-us/git/ref/heads/$PR_BASE_BRANCH" in workflow
     assert "initial-axiom-rules-engine merge-base --is-ancestor" in workflow
     assert "rules-engine-check-runs.json" in workflow
     assert "($checks | length) > 0" in workflow
@@ -543,6 +543,7 @@ def test_protected_workflows_take_the_base_branch_from_the_queue_manifest() -> N
         "for field in corpus_ref rules_engine_ref rulespec_ref pr_base_branch"
         in validate
     )
-    assert (
-        '--pr-base-branch "${{ steps.transition.outputs.pr_base_branch }}"' in validate
-    )
+    assert '--pr-base-branch "$PR_BASE_BRANCH"' in validate
+    # The branch name reaches the regeneration script through env only.
+    assert "PR_BASE_BRANCH: ${{ steps.transition.outputs.pr_base_branch }}" in validate
+    assert validate.count("steps.transition.outputs.pr_base_branch") == 1

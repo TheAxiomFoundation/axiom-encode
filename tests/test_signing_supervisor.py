@@ -4554,9 +4554,9 @@ def test_snap_queue_activation_checks_and_merge_revalidate_live_state() -> None:
     assert "unsupported initial SNAP queue" in provenance_command
     assert "--state paused" in provenance_command
     assert "cmp --silent" in provenance_command
-    assert (
-        "rulespec-us/git/ref/heads/${{ steps.transition.outputs.pr_base_branch }}"
-        in (provenance_command)
+    assert "rulespec-us/git/ref/heads/$PR_BASE_BRANCH" in provenance_command
+    assert provenance["env"]["PR_BASE_BRANCH"] == (
+        "${{ steps.transition.outputs.pr_base_branch }}"
     )
     assert "initial-axiom-rules-engine merge-base --is-ancestor" in (provenance_command)
     assert "rules-engine-check-runs.json" in provenance_command

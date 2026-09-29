@@ -1880,11 +1880,68 @@ def test_paused_transition_may_move_to_main_only_with_a_full_repin(
         verify_paused_transition(current, previous_queue_path=previous)
 
 
-def _never_activated_main_fixture(tmp_path: Path) -> tuple[dict, Path, str]:
-    """A pristine paused queue already repinned to main's exact tip."""
+def test_paused_transition_to_main_requires_a_pristine_unsuspended_queue(
+    tmp_path: Path,
+) -> None:
+    def full_repin_to_main(payload: dict) -> dict:
+        repinned = copy.deepcopy(payload)
+        repinned["dispatch"].update(
+            {
+                "corpus_ref": "1" * 40,
+                "pr_base_branch": "main",
+                "rules_engine_ref": "2" * 40,
+                "rulespec_ref": "3" * 40,
+            }
+        )
+        repinned["release"] = {
+            "content_sha256": "4" * 64,
+            "manifest_sha256": "5" * 64,
+            "name": "replacement-signed-release",
+        }
+        return repinned
+
+    previous = tmp_path / "previous.json"
+    current = tmp_path / "current.json"
+
+    worked = record_disposition(
+        _queue(active=False),
+        item_id="ut-0001",
+        status="retryable",
+        evidence_url=(
+            "https://github.com/TheAxiomFoundation/axiom-encode/issues/"
+            "1257#issuecomment-123"
+        ),
+        note="Recorded disposition.",
+    )
+    previous.write_text(json.dumps(worked), encoding="utf-8")
+    current.write_text(json.dumps(full_repin_to_main(worked)), encoding="utf-8")
+    with pytest.raises(ValueError, match="toolchain repin requires pristine items"):
+        verify_paused_transition(current, previous_queue_path=previous)
+
+    active = _queue()
+    suspended = pause_queue(
+        active,
+        reason="Tranche dispatched; awaiting finalization.",
+        active_queue_sha256=queue_object_file_sha256(active),
+    )
+    assert suspended["suspension"] is not None
+    assert all(
+        item["status"] == "pending" and item["attempt"] == 1
+        for item in suspended["items"]
+    )
+    previous.write_text(json.dumps(suspended), encoding="utf-8")
+    current.write_text(json.dumps(full_repin_to_main(suspended)), encoding="utf-8")
+    with pytest.raises(ValueError, match="suspended queue cannot use a pristine"):
+        verify_paused_transition(current, previous_queue_path=previous)
+
+
+def _never_activated_fixture(
+    tmp_path: Path, pr_base_branch: str = "main"
+) -> tuple[dict, Path, str]:
+    """A pristine paused queue already repinned to its base branch's exact tip."""
 
     payload = _queue(active=False)
-    payload["dispatch"]["pr_base_branch"] = "main"
+    payload["dispatch"]["pr_base_branch"] = pr_base_branch
     rulespec = tmp_path / "rulespec"
     toolchain = rulespec / ".axiom/toolchain.toml"
     toolchain.parent.mkdir(parents=True)
@@ -1918,7 +1975,14 @@ def _never_activated_main_fixture(tmp_path: Path) -> tuple[dict, Path, str]:
         text=True,
     ).strip()
     subprocess.run(
-        ["git", "-C", rulespec, "update-ref", "refs/remotes/origin/main", tip],
+        [
+            "git",
+            "-C",
+            rulespec,
+            "update-ref",
+            f"refs/remotes/origin/{pr_base_branch}",
+            tip,
+        ],
         check=True,
     )
     payload["dispatch"]["rulespec_ref"] = tip
@@ -1934,7 +1998,7 @@ def _never_activated_main_fixture(tmp_path: Path) -> tuple[dict, Path, str]:
 def test_finalize_repin_first_activation_may_use_the_repinned_tip(
     tmp_path: Path,
 ) -> None:
-    payload, rulespec, tip = _never_activated_main_fixture(tmp_path)
+    payload, rulespec, tip = _never_activated_fixture(tmp_path)
 
     updated = finalize_and_repin(
         payload,
@@ -1956,13 +2020,38 @@ def test_finalize_repin_first_activation_may_use_the_repinned_tip(
     assert updated["items"] == payload["items"]
 
 
+def test_finalize_repin_first_activation_off_main_still_requires_allowlist(
+    tmp_path: Path,
+) -> None:
+    payload, rulespec, tip = _never_activated_fixture(
+        tmp_path, pr_base_branch="hard-cut/canonical-layout-us"
+    )
+    arguments = {
+        "rulespec_root": rulespec,
+        "pull_requests": [],
+        "workflow_runs": [],
+        "new_rulespec_ref": tip,
+        **_finalizer_evidence(),
+    }
+
+    with pytest.raises(ValueError, match="not independently reviewed and allowlisted"):
+        finalize_and_repin(payload, reviewed_rulespec_refs=frozenset(), **arguments)
+
+    updated = finalize_and_repin(
+        payload, reviewed_rulespec_refs=frozenset({("us", tip)}), **arguments
+    )
+    assert updated["state"] == "active"
+    assert updated["dispatch"]["pr_base_branch"] == "hard-cut/canonical-layout-us"
+    assert updated["activation"]["rulespec_ref"] == tip
+
+
 def test_finalize_repin_first_activation_still_requires_live_green_tip(
     tmp_path: Path,
 ) -> None:
-    payload, rulespec, tip = _never_activated_main_fixture(tmp_path)
+    payload, rulespec, tip = _never_activated_fixture(tmp_path)
     red = _finalizer_evidence()
     red["check_runs"][0]["check_runs"][0]["conclusion"] = "failure"
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="does not have green check runs: validate"):
         finalize_and_repin(
             payload,
             rulespec_root=rulespec,
@@ -2017,7 +2106,7 @@ def test_finalize_repin_first_activation_still_requires_live_green_tip(
 def test_finalize_repin_must_advance_once_any_item_has_a_disposition(
     tmp_path: Path, status: str
 ) -> None:
-    payload, rulespec, tip = _never_activated_main_fixture(tmp_path)
+    payload, rulespec, tip = _never_activated_fixture(tmp_path)
     payload = record_disposition(
         payload,
         item_id="ut-0001",

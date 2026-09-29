@@ -216,6 +216,7 @@ jobs:
         env:
           CORPUS_RELEASE_PUBLIC_KEY: ${{ vars.AXIOM_CORPUS_RELEASE_PUBLIC_KEY }}
           GH_TOKEN: ${{ github.token }}
+          PR_BASE_BRANCH: ${{ steps.transition.outputs.pr_base_branch }}
           QUEUE_PATH: ${{ steps.transition.outputs.queue_path }}
           RELEASE_NAME: ${{ steps.transition.outputs.release_name }}
           RELEASE_SHA: ${{ steps.transition.outputs.release_sha }}
@@ -235,7 +236,7 @@ jobs:
           test "$(gh api \
             --header "Accept: application/vnd.github+json" \
             --header "X-GitHub-Api-Version: $api_version" \
-            "repos/TheAxiomFoundation/rulespec-us/git/ref/heads/${{ steps.transition.outputs.pr_base_branch }}" \
+            "repos/TheAxiomFoundation/rulespec-us/git/ref/heads/$PR_BASE_BRANCH" \
             --jq '.object.sha')" = "${{ steps.transition.outputs.rulespec_ref }}"
           git -C initial-axiom-rules-engine merge-base --is-ancestor \
             "${{ steps.transition.outputs.rules_engine_ref }}" \
@@ -286,7 +287,7 @@ jobs:
             --corpus-ref "${{ steps.transition.outputs.corpus_ref }}" \
             --rulespec-ref "${{ steps.transition.outputs.rulespec_ref }}" \
             --rules-engine-ref "${{ steps.transition.outputs.rules_engine_ref }}" \
-            --pr-base-branch "${{ steps.transition.outputs.pr_base_branch }}" \
+            --pr-base-branch "$PR_BASE_BRANCH" \
             --release-name "$RELEASE_NAME" \
             --release-content-sha256 "$RELEASE_SHA" \
             --release-object "$release_object" \
