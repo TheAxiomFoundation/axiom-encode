@@ -742,19 +742,32 @@ def _read_wrapper_options(name: str, spec: _Wrapper, words: list[str]) -> int:
 
 
 _ENV_FLAGS = frozenset({"-", "--debug", "--ignore-environment", "--null"})
-# NAME=value where NAME is built from an expansion: `"${p}_X=1"`.
-_COMPUTED_ASSIGNMENT = re.compile(r"[^=\s]*[$`\ue000][^=\s]*=")
 _ENV_VALUED = frozenset({"--chdir", "--unset"})
+
+
+def _command_assignments(name: str, args: list[str]) -> tuple[list[str], list[str]]:
+    """Split leading NAME=VALUE words, as env and sudo read them, from the rest.
+
+    Any word with `=` counts, not only a shell identifier (`FOO-BAR=1`). A
+    name built from an expansion (`"${p}_X=1"`) raises.
+    """
+    assignments: list[str] = []
+    while args and "=" in args[0]:
+        if re.search(r"[$`\ue000]", args[0].partition("=")[0]):
+            raise UnanalyzableScript(f"{name} assigns a computed name: {args[0]!r}")
+        assignments.append(args[0])
+        args = args[1:]
+    return assignments, args
 
 
 def _env_command(words: list[str]) -> tuple[list[str], list[str]]:
     """Split ``env ...`` into its assignments and the command it runs.
 
-    Options are read in order as GNU env does. `-S` splits its value into
-    words that are read as if they had been written in its place.
+    Options are read in order as GNU env does, up to `--` or the first
+    other word. `-S` splits its value into words that are read as if they
+    had been written in its place. Assignments follow the options.
     """
     args = list(words[1:])
-    assignments: list[str] = []
     while args:
         arg = args[0]
         if arg == "--":
@@ -790,14 +803,9 @@ def _env_command(words: list[str]) -> tuple[list[str], list[str]]:
                     rest = [*_split(value), *rest]
                 break
             args = rest
-        elif _ASSIGNMENT.fullmatch(arg):
-            assignments.append(arg)
-            args = args[1:]
-        elif _COMPUTED_ASSIGNMENT.match(arg):
-            raise UnanalyzableScript(f"env assigns a computed name: {arg!r}")
         else:
             break
-    return assignments, args
+    return _command_assignments("env", args)
 
 
 def _shell_script(words: list[str]) -> str:
@@ -912,17 +920,11 @@ def _unwrap(words: list[str]) -> list[tuple[list[str], list[str]] | _Script]:
         elif name in _WRAPPERS:
             spec = _WRAPPERS[name]
             index = _read_wrapper_options(name, spec, words)
-            while index < len(words) and name == "sudo":
-                if _ASSIGNMENT.fullmatch(words[index]):
-                    assignments.append(words[index])
-                    index += 1
-                elif _COMPUTED_ASSIGNMENT.match(words[index]):
-                    raise UnanalyzableScript(
-                        f"sudo assigns a computed name: {words[index]!r}"
-                    )
-                else:
-                    break
-            words = words[index + spec.positionals :]
+            words = words[index:]
+            if name == "sudo":
+                sudo_assignments, words = _command_assignments("sudo", words)
+                assignments.extend(sudo_assignments)
+            words = words[spec.positionals :]
         else:
             if _PLACEHOLDER.search(word):
                 raise UnanalyzableScript(

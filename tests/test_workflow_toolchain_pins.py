@@ -36,6 +36,7 @@ from __future__ import annotations
 import copy
 import functools
 import importlib.metadata
+import json
 import os
 import re
 import shutil
@@ -383,6 +384,10 @@ READER_CASES = {
     ],
     "xargs -i uv sync --directory {}": [("sync", ("--directory",))],
     "xargs --max-lines=1 uv sync": [("sync", ())],
+    # env and sudo read any NAME=VALUE word as an assignment, also after --.
+    'env "FOO-BAR=1" uv sync': [("sync", ())],
+    "env -i -- A=1 B-C=2 uv sync": [("sync", ())],
+    "sudo FOO-BAR=1 uv sync": [("sync", ())],
     "cat <<END-OF\nuv sync\nEND-OF\nuv lock": [("lock", ())],
     "uv --version": [("", ("--version",))],
     "echo \"$(echo 'if case x in')\"": [],
@@ -436,6 +441,8 @@ def test_reader_finds_the_uv_calls_a_script_makes(script, expected):
         "env -S 'uv sync # --frozen'",
         'env "${p}_X=1" uv sync',
         'sudo "${p}_X=1" uv sync',
+        'env -- "${p}_X=1" uv sync',
+        'sudo -E "${p}-X=1" uv sync',
         # A uv option missing its value.
         "uv --directory",
         "uv sync --frozen --python",
@@ -509,6 +516,9 @@ def test_nested_scripts_inherit_assignments():
         # ...but any unreviewed step writing $GITHUB_ENV fails.
         ('echo "LOCKED_UV_VERSION=0.11.7" >> "$GITHUB_ENV"', True),
         ('echo "VENV=.venv" >> "$GITHUB_ENV"', True),
+        # Round 12: $GITHUB_ENV under its context name, and $GITHUB_PATH.
+        ("printf 'A=1\\n' >> \"${{ github.env }}\"", True),
+        ('echo "$HOME/bin" >> "$GITHUB_PATH"', True),
         ("echo {PIP,POETRY}_INDEX_URL", False),
         # Round 10: computed names, quote splitting, continuations, printf
         # precision, and escaped letters.
@@ -778,7 +788,7 @@ def test_no_workflow_sets_uv_environment_variables():
 
     This is a lint with enumerated coverage, not a proof that no UV_*
     variable can be set; what it misses in the test jobs, the runtime
-    locked-set check catches. On top of the name rule: case conversion
+    locked-set check catches, and every test job runs that check. On top of the name rule: case conversion
     (`${x^^}`, `declare -u`, `tr a-z A-Z`, `toupper`, `\\U`) fails closed,
     computed names in export/declare/env/sudo fail closed, and only the
     reviewed steps in GITHUB_ENV_WRITERS may write $GITHUB_ENV, whatever
@@ -799,8 +809,9 @@ def test_no_workflow_sets_uv_environment_variables():
     ]
     for name, job, index, step in _steps():
         for command in _script_commands(step.get("run", "")):
-            # The same rule on the words bash sees after quote removal and
-            # $'...' decoding, so `U"V_X"=1` and `$'\\x55V_X'` count too.
+            # The same rule on each command's words and assignments after
+            # quote removal and $'...' decoding, so `U"V_X"=1` and
+            # `$'\\x55V_X'` count too.
             offenders += [
                 f"{name}:{job}[{index}] {found}"
                 for text in (*command.words, *command.assignments)
@@ -831,8 +842,11 @@ def test_no_workflow_sets_uv_environment_variables():
                 ]
         if CASE_CONVERSION.search(step.get("run", "")):
             offenders.append(f"{name}:{job}[{index}] converts case")
+        # $GITHUB_ENV is also `${{ github.env }}`, and a step can pass either
+        # through env:, so every string in the step is searched.
+        step_text = "\n".join(_strings(step))
         if (
-            "GITHUB_ENV" in step.get("run", "")
+            re.search(r"GITHUB_ENV|github\.env\b", step_text)
             and (
                 name,
                 job,
@@ -841,6 +855,9 @@ def test_no_workflow_sets_uv_environment_variables():
             not in GITHUB_ENV_WRITERS
         ):
             offenders.append(f"{name}:{job}[{index}] writes $GITHUB_ENV unreviewed")
+        # A $GITHUB_PATH write could put another `uv` or `python` first on PATH.
+        if re.search(r"GITHUB_PATH|github\.path\b", step_text):
+            offenders.append(f"{name}:{job}[{index}] writes $GITHUB_PATH")
     assert offenders == []
 
 
@@ -863,12 +880,20 @@ def test_reviewed_github_env_writers_set_only_their_names():
 
 
 def _site_distributions() -> dict[str, str]:
-    """Distributions installed in this interpreter's own site-packages."""
+    """Distributions in this interpreter's own site-packages, by version.
+
+    A distribution installed from git is given as `git:<commit>`, from its
+    PEP 610 direct_url.json.
+    """
     paths = sorted({sysconfig.get_path("purelib"), sysconfig.get_path("platlib")})
-    return {
-        canonicalize_name(dist.metadata["Name"]): dist.version
-        for dist in importlib.metadata.distributions(path=paths)
-    }
+    found = {}
+    for dist in importlib.metadata.distributions(path=paths):
+        version = dist.version
+        direct_url = json.loads(dist.read_text("direct_url.json") or "{}")
+        if "vcs_info" in direct_url:
+            version = "git:" + direct_url["vcs_info"]["commit_id"]
+        found[canonicalize_name(dist.metadata["Name"])] = version
+    return found
 
 
 def test_the_test_environment_is_exactly_the_locked_set():
@@ -890,7 +915,7 @@ def test_the_test_environment_is_exactly_the_locked_set():
         text=True,
         check=True,
     ).stdout
-    locked: dict[str, str | None] = {}
+    locked: dict[str, str] = {}
     for line in exported.splitlines():
         if not line.strip() or line.lstrip().startswith("#"):
             continue
@@ -898,16 +923,20 @@ def test_the_test_environment_is_exactly_the_locked_set():
         if requirement.marker is not None and not requirement.marker.evaluate():
             continue
         specifier = str(requirement.specifier)
+        # A registry package by version; a git dependency by its commit.
         locked[canonicalize_name(requirement.name)] = (
-            specifier[2:] if specifier.startswith("==") else None
+            specifier[2:]
+            if specifier.startswith("==")
+            else "git:" + requirement.url.rpartition("@")[2]
         )
     installed = _site_distributions()
     installed.pop("axiom-encode", None)
+    assert len(locked) >= 50
     assert sorted(installed) == sorted(locked)
     assert {
         name: (version, locked[name])
         for name, version in installed.items()
-        if locked[name] is not None and version != locked[name]
+        if version != locked[name]
     } == {}
 
 
@@ -1138,6 +1167,18 @@ def test_test_environment_is_the_locked_dev_set(workflow_name, job_name):
         for command in commands
         if _runs_pip(command) or command.program in {"pipx", "pip-sync"}
     ] == []
+
+    # The runtime locked-set check runs in this job, after the sync.
+    runtime_check = (
+        "tests/test_workflow_toolchain_pins.py"
+        "::test_the_test_environment_is_exactly_the_locked_set"
+    )
+    assert any(
+        command.program == "pytest"
+        and position > sync_position
+        and (runtime_check in command.words or "tests/" in command.words)
+        for position, command in enumerate(commands)
+    ), f"{workflow_name}:{job_name} does not run {runtime_check}"
 
     # Every tool the job runs comes from the synced .venv, after the sync.
     venv_uses = [

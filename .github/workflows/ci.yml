@@ -57,6 +57,11 @@ jobs:
       - name: Install locked dependencies
         run: uv sync --locked --python 3.13 --extra dev
 
+      - name: Check the environment is the locked set
+        run: >-
+          .venv/bin/pytest -q -o addopts=''
+          tests/test_workflow_toolchain_pins.py::test_the_test_environment_is_exactly_the_locked_set
+
       - name: Lint
         run: .venv/bin/ruff check src/ tests/
 
