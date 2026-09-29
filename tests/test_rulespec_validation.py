@@ -7036,7 +7036,7 @@ def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2064"')
+        .startswith('__version__ = "0.2.2065"')
     )
 
 
@@ -7268,13 +7268,13 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2064"
+    assert encoder_package["version"] == "0.2.2065"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2064"
+    assert project["project"]["version"] == "0.2.2065"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2064"')
+        .startswith('__version__ = "0.2.2065"')
     )
 
 
@@ -7536,13 +7536,13 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2064"
+    assert encoder_package["version"] == "0.2.2065"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2064"
+    assert project["project"]["version"] == "0.2.2065"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2064"')
+        .startswith('__version__ = "0.2.2065"')
     )
 
 
@@ -52444,3 +52444,148 @@ def test_rulespec_companion_binds_response_to_query(
         assert any("does not match its execution query" in issue for issue in issues), (
             issues
         )
+
+
+def test_composition_owner_stops_at_match_but_preserves_multiple_owners(
+    tmp_path, monkeypatch
+):
+    policy_repo, rules_file, program_spec = _composition_validation_fixture(tmp_path)
+    second = program_spec.with_name("second.yaml")
+    second.write_text(program_spec.read_text())
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "engine",
+        enable_oracles=False,
+    )
+
+    def unexpected_resolution(*args, **kwargs):
+        raise AssertionError("direct membership does not require descendant traversal")
+
+    monkeypatch.setattr(
+        validator_pipeline, "_resolve_rulespec_target_file", unexpected_resolution
+    )
+    assert set(pipeline._owning_program_specs(rules_file)) == {program_spec, second}
+
+
+@pytest.mark.parametrize(
+    "mutation", ["program_edit", "module_edit", "new_program", "module_symlink"]
+)
+def test_composition_owner_snapshot_rejects_mutation(tmp_path, monkeypatch, mutation):
+    policy_repo, rules_file, program_spec = _composition_validation_fixture(tmp_path)
+    outer = policy_repo / "policies/example/outer.yaml"
+    outer.write_text("imports:\n  - us-az:policies/example/composition\n")
+    program_spec.write_text(
+        program_spec.read_text().replace(
+            "- policies/example/composition", "- policies/example/outer"
+        )
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "engine",
+        enable_oracles=False,
+    )
+    original = validator_pipeline._resolve_rulespec_target_file
+
+    def resolve(*args, **kwargs):
+        result = original(*args, **kwargs)
+        if mutation == "program_edit":
+            program_spec.write_text(program_spec.read_text() + "\n# changed\n")
+        elif mutation == "module_edit":
+            rules_file.write_text(rules_file.read_text() + "\n# changed\n")
+        elif mutation == "new_program":
+            program_spec.with_name("new.yaml").write_text(program_spec.read_text())
+        else:
+            rules_file.unlink()
+            rules_file.symlink_to(outer)
+        return result
+
+    monkeypatch.setattr(validator_pipeline, "_resolve_rulespec_target_file", resolve)
+    with pytest.raises(validator_pipeline.UnsafeRulespecContextPath):
+        pipeline._owning_program_specs(rules_file)
+
+
+def test_composition_owner_snapshot_rejects_final_admission_mutation(
+    tmp_path, monkeypatch
+):
+    policy_repo, rules_file, program_spec = _composition_validation_fixture(tmp_path)
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "engine",
+        enable_oracles=False,
+    )
+    original = validator_pipeline._rulespec_checkout_root_for_active_path
+    calls = 0
+
+    def admit(path):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            program_spec.with_name("late.yaml").write_text(program_spec.read_text())
+        return original(path)
+
+    monkeypatch.setattr(
+        validator_pipeline, "_rulespec_checkout_root_for_active_path", admit
+    )
+    with pytest.raises(validator_pipeline.UnsafeRulespecContextPath):
+        pipeline._owning_program_specs(rules_file)
+
+
+def test_composition_owner_snapshot_tracks_failed_reads(tmp_path, monkeypatch):
+    policy_repo, rules_file, program_spec = _composition_validation_fixture(tmp_path)
+    second = program_spec.with_name("zz-second.yaml")
+    second.write_text(program_spec.read_text())
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "engine",
+        enable_oracles=False,
+    )
+    original = Path.read_text
+    failed = False
+
+    def read(path, *args, **kwargs):
+        nonlocal failed
+        if path == program_spec:
+            failed = True
+            raise OSError("simulated unreadable ProgramSpec")
+        if path == second and failed:
+            program_spec.write_text("program: changed\n")
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", read)
+    with pytest.raises(validator_pipeline.UnsafeRulespecContextPath):
+        pipeline._owning_program_specs(rules_file)
+
+
+def test_composition_owner_snapshot_deduplicates_shared_cycle_and_refreshes(
+    tmp_path, monkeypatch
+):
+    policy_repo, rules_file, program_spec = _composition_validation_fixture(tmp_path)
+    outer = policy_repo / "policies/example/outer.yaml"
+    outer.write_text(
+        "imports:\n  - us-az:policies/example/outer\n  - us-az:policies/example/composition\n"
+    )
+    program_spec.write_text(
+        program_spec.read_text().replace(
+            "- policies/example/composition", "- policies/example/outer"
+        )
+    )
+    second = program_spec.with_name("second.yaml")
+    second.write_text(program_spec.read_text())
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "engine",
+        enable_oracles=False,
+    )
+    original = validator_pipeline._resolve_rulespec_target_file
+    calls = []
+
+    def resolve(*args, **kwargs):
+        calls.append(args[0])
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(validator_pipeline, "_resolve_rulespec_target_file", resolve)
+    assert set(pipeline._owning_program_specs(rules_file)) == {program_spec, second}
+    assert len(calls) == 1
+    outer.write_text("imports: []\n")
+    assert pipeline._owning_program_specs(rules_file) == ()
+    assert len(calls) == 2
