@@ -7036,7 +7036,7 @@ def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2062"')
+        .startswith('__version__ = "0.2.2063"')
     )
 
 
@@ -7268,13 +7268,13 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2062"
+    assert encoder_package["version"] == "0.2.2063"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2062"
+    assert project["project"]["version"] == "0.2.2063"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2062"')
+        .startswith('__version__ = "0.2.2063"')
     )
 
 
@@ -7536,13 +7536,13 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2062"
+    assert encoder_package["version"] == "0.2.2063"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2062"
+    assert project["project"]["version"] == "0.2.2063"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2062"')
+        .startswith('__version__ = "0.2.2063"')
     )
 
 
@@ -40803,6 +40803,64 @@ rules:
         formula: |-
           len(member_of_household) > 0
           and count_where(member_of_household, t_snap_member_snap_ineligibility_criterion) == len(member_of_household)
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
+def test_source_scope_consistency_allows_nested_person_helper_for_participant_aggregate():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Basic categorical eligibility exists when all budgetary unit participants
+    receive a listed benefit or status.
+rules:
+  - name: member_of_budgetary_unit
+    kind: data_relation
+    data_relation:
+      predicate: member_of_budgetary_unit
+      arity: 2
+      arguments: [Person, Household]
+  - name: participant_receives_tanf_cash_assistance_for_bce
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: Arizona DES FAA5
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: definition
+            source:
+              excerpt: The budgetary unit is CA eligible, but no CA benefit is being paid.
+    versions:
+      - effective_from: '2025-10-01'
+        formula: participant_is_in_ca_eligible_unit_without_payment
+  - name: participant_receives_bce_qualifying_status
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: Arizona DES FAA5
+    versions:
+      - effective_from: '2025-10-01'
+        formula: participant_receives_tanf_cash_assistance_for_bce
+      - effective_from: '2026-10-01'
+        formula: participant_receives_other_bce_status
+  - name: all_budgetary_unit_participants_receive_bce_status
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    source: Arizona DES FAA5
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          count_where(
+            member_of_budgetary_unit,
+            participant_receives_bce_qualifying_status
+          ) == len(member_of_budgetary_unit)
 """
 
     assert find_source_scope_consistency_issues(content) == []
