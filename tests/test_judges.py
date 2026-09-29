@@ -2010,6 +2010,12 @@ _ERREXIT_OFF = re.compile(
 )
 
 
+# An early successful exit skips the checks ("already provisioned");
+# `exit 1` still fails closed.
+_EARLY_SUCCESS_EXIT = re.compile(r"\b(?:exit|return)(?:\s+0)?\s*(?=$|[;&|)])")
+_STARTUP_FILE_ENV = frozenset({"BASH_ENV", "ENV"})
+
+
 def _bash_top_level_commands(run):
     """Return the commands bash itself places at the top level of ``run``.
 
@@ -2017,8 +2023,8 @@ def _bash_top_level_commands(run):
     commands sit at four spaces, anything inside a group, pipeline, ``if``,
     loop or nested function sits deeper or shares a line with its operator.
     A ``( ... )`` subshell is the exception: bash prints its body at the
-    enclosing indent, so every line from a four-space ``(`` until its
-    parentheses balance again counts as nested. Heredoc bodies are printed
+    enclosing indent, and counting parentheses is fooled by ``case``
+    patterns and quoted text, so nothing after a four-space ``(`` counts. Heredoc bodies are printed
     verbatim, so they never count either (``bash <<'X'`` runs them without
     ``-e``).
     Defining the function runs nothing; the shell is restricted with an empty
@@ -2044,7 +2050,7 @@ def _bash_top_level_commands(run):
     )
     assert result.returncode == 0, result.stderr
     top_level = set()
-    subshell_depth = 0
+    after_subshell = False
     heredoc_ends = []
     for line in result.stdout.splitlines():
         if heredoc_ends:
@@ -2055,11 +2061,8 @@ def _bash_top_level_commands(run):
             delimiter for _quote, delimiter in _HEREDOC_OPERATOR.findall(line)
         )
         four_spaces = line.startswith("    ") and not line.startswith("     ")
-        if subshell_depth or (four_spaces and line[4:].startswith("(")):
-            subshell_depth += line.count("(") - line.count(")")
-            subshell_depth = max(subshell_depth, 0)
-            continue
-        if four_spaces:
+        after_subshell = after_subshell or (four_spaces and line[4:].startswith("("))
+        if four_spaces and not after_subshell:
             top_level.add(" ".join(line[4:].rstrip().rstrip(";").split()))
     return top_level
 
@@ -2162,6 +2165,17 @@ def test_verification_tree_provisioning_tightens_opt(
     assert not provision_step.get("continue-on-error")
     assert not context["continue_on_error"]
     assert not _ERREXIT_OFF.search(provision_run)
+    assert not _STARTUP_FILE_ENV & {
+        *context["env"],
+        *(provision_step.get("env") or {}),
+    }
+    last_check = max(lines.index(command) for command in _OPT_HARDENING)
+    early_exits = [
+        line
+        for line in lines[:last_check]
+        if not line.startswith("#") and _EARLY_SUCCESS_EXIT.search(line)
+    ]
+    assert not early_exits, early_exits
     # The hardening lines are the only lines anywhere in the job that could
     # change the permissions of /opt or /, so nothing loosens /opt again before
     # the supervisor runs.
@@ -2464,6 +2478,15 @@ def test_opt_permission_suspects_ignore_other_paths(command):
         pytest.param({}, {}, "set -x +e\n", id="set-x-plus-e"),
         pytest.param({}, {}, "set -x +o errexit\n", id="set-x-plus-o-errexit"),
         pytest.param({}, {}, "shopt -u -o errexit\n", id="shopt-unset-errexit"),
+        pytest.param(
+            {},
+            {},
+            "if [ -x /opt/axiom-verification/axiom-encode ]; then exit 0; fi\n",
+            id="early-exit-if-provisioned",
+        ),
+        pytest.param({}, {}, "true || exit\n", id="early-bare-exit"),
+        pytest.param({"env": {"BASH_ENV": "./relax.sh"}}, {}, "", id="step-bash-env"),
+        pytest.param({}, {"env": {"BASH_ENV": "./relax.sh"}}, "", id="job-bash-env"),
     ],
 )
 def test_verification_tree_fail_closed_checks_cannot_be_neutralized(
@@ -2498,6 +2521,13 @@ def test_verification_tree_fail_closed_checks_cannot_be_neutralized(
         pytest.param(
             lambda run: f"(\n{run}\n) 2>&1 | tee provisioning.log\n", id="subshell-tee"
         ),
+        pytest.param(
+            lambda run: (
+                '(\necho "1) Provision the verification tree"\n'
+                f"{run}\n) 2>&1 | tee provisioning.log\n"
+            ),
+            id="subshell-quoted-paren",
+        ),
         pytest.param(lambda run: f"if true; then\n{run}\nfi\n", id="if"),
         pytest.param(
             lambda run: (
@@ -2527,6 +2557,7 @@ def test_verification_tree_fail_closed_checks_cannot_be_neutralized(
     [
         pytest.param(("golden-regeneration.yml", "drift"), id="checks-last"),
         pytest.param(("targeted-signed-reencode.yml", "encode"), id="checks-mid-step"),
+        pytest.param(("signed-apply-reusable.yml", "encode"), id="checks-after-case"),
     ],
 )
 def test_verification_tree_hardening_must_run_at_top_level(wrap, job_key):
