@@ -88,7 +88,7 @@ observability = [
 
 [package.metadata]
 requires-dist = [
-    { name = "anthropic", marker = "extra == 'api'", specifier = ">=0.40.0" },
+    { name = "anthropic", marker = "extra == 'api'", specifier = ">=0.83.0" },
     { name = "axiom-encode", extras = ["api", "dev", "observability"], marker = "extra == 'all'" },
     { name = "axiom-oracles", git = "https://github.com/TheAxiomFoundation/axiom-oracles?rev=e1374eb30c582639f8f71f9bf9c22ba93b6e36f4" },
     { name = "cryptography", specifier = ">=46.0" },

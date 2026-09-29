@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from .client import JudgeClient, truncate_provision
+from .client import JudgeClient, truncate_provision, with_call_diagnostics
 from .run_log import (
     Finding,
     JudgeEvent,
@@ -165,7 +165,7 @@ def run(
             subject_ref=subject,
         )
     verdict = Verdict.FLAG if (raw_verdict == "flag" or findings) else Verdict.PASS
-    return JudgeEvent(
+    event = JudgeEvent(
         stage=JudgeStage.STATUTORY_FIDELITY,
         verdict=verdict,
         confidence=coerce_confidence(payload.get("confidence")),
@@ -178,6 +178,7 @@ def run(
         run_id=run_id,
         subject_ref=subject,
     )
+    return with_call_diagnostics(event, call)
 
 
 def needs_review_label(event: JudgeEvent) -> Optional[str]:

@@ -189,7 +189,13 @@ def install_fake_anthropic(monkeypatch, responses):
 
     class _Response:
         def __init__(
-            self, text, *, stop_reason="end_turn", category=None, thinking=False
+            self,
+            text,
+            *,
+            stop_reason="end_turn",
+            category=None,
+            thinking=False,
+            stop_details_as_dict=False,
         ):
             blocks = [_ThinkingBlock()] if thinking else []
             if text is not None:
@@ -197,9 +203,13 @@ def install_fake_anthropic(monkeypatch, responses):
             self.content = blocks
             self.usage = _Usage()
             self.stop_reason = stop_reason
-            self.stop_details = (
-                _StopDetails(category) if stop_reason == "refusal" else None
-            )
+            if stop_reason != "refusal":
+                self.stop_details = None
+            elif stop_details_as_dict:
+                # SDKs without the typed field keep it as a plain dict extra.
+                self.stop_details = {"type": "refusal", "category": category}
+            else:
+                self.stop_details = _StopDetails(category)
 
     mod.calls = []
 
@@ -215,6 +225,7 @@ def install_fake_anthropic(monkeypatch, responses):
                     stop_reason=item.get("stop_reason", "end_turn"),
                     category=item.get("category"),
                     thinking=item.get("thinking", False),
+                    stop_details_as_dict=item.get("stop_details_as_dict", False),
                 )
             return _Response(item)
 
@@ -423,6 +434,237 @@ def test_client_effort_passed_only_when_configured(monkeypatch):
     assert mod.calls[2]["output_config"]["effort"] == "low"
     # the structured-output format is always requested alongside effort
     assert mod.calls[2]["output_config"]["format"]["type"] == "json_schema"
+
+
+def _clear_judge_env(monkeypatch):
+    for name in (
+        "AXIOM_JUDGE_EFFORT",
+        "AXIOM_JUDGE_ESCALATION_EFFORT",
+        "AXIOM_JUDGE_MAX_TOKENS",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+
+def test_client_invalid_effort_is_config_error_without_api_call(monkeypatch):
+    _clear_judge_env(monkeypatch)
+    mod = install_fake_anthropic(monkeypatch, ['{"a": 1}'])
+    client = JudgeClient(model="claude-sonnet-5-5", api_key="test", effort="hgih")
+    call = client.call(system="s", user_prompt="p", schema={})
+    assert not call.ok
+    assert call.error.type == "config_error"
+    assert "AXIOM_JUDGE_EFFORT" in call.error.message
+    assert mod.calls == []
+
+
+def test_client_invalid_escalation_effort_is_config_error(monkeypatch):
+    _clear_judge_env(monkeypatch)
+    monkeypatch.setenv("AXIOM_JUDGE_ESCALATION_EFFORT", "extreme")
+    install_fake_anthropic(monkeypatch, [])
+    call = JudgeClient(model="claude-sonnet-5-5", api_key="test").call(
+        system="s", user_prompt="p", schema={}
+    )
+    assert call.error.type == "config_error"
+    assert "AXIOM_JUDGE_ESCALATION_EFFORT" in call.error.message
+
+
+def test_client_effort_is_case_and_space_insensitive(monkeypatch):
+    _clear_judge_env(monkeypatch)
+    mod = install_fake_anthropic(monkeypatch, ['{"a": 1}'])
+    JudgeClient(model="claude-sonnet-5-5", api_key="test", effort=" XHigh ").call(
+        system="s", user_prompt="p", schema={}
+    )
+    assert mod.calls[0]["output_config"]["effort"] == "xhigh"
+
+
+def test_client_max_tokens_above_nonstreaming_ceiling_is_config_error(monkeypatch):
+    from axiom_encode.judges.client import MAX_NONSTREAMING_TOKENS
+
+    _clear_judge_env(monkeypatch)
+    mod = install_fake_anthropic(monkeypatch, ['{"a": 1}'])
+    call = JudgeClient(
+        model="claude-sonnet-5-5",
+        api_key="test",
+        max_tokens=MAX_NONSTREAMING_TOKENS + 1,
+    ).call(system="s", user_prompt="p", schema={})
+    assert call.error.type == "config_error"
+    assert "AXIOM_JUDGE_MAX_TOKENS" in call.error.message
+    assert mod.calls == []
+
+
+def test_client_max_tokens_error_names_the_ceiling(monkeypatch):
+    from axiom_encode.judges.client import MAX_NONSTREAMING_TOKENS
+
+    _clear_judge_env(monkeypatch)
+    install_fake_anthropic(monkeypatch, [{"text": "{", "stop_reason": "max_tokens"}])
+    call = JudgeClient(model="claude-sonnet-5-5", api_key="test").call(
+        system="s", user_prompt="p", schema={}
+    )
+    assert call.error.type == "max_tokens"
+    assert str(MAX_NONSTREAMING_TOKENS) in call.error.message
+
+
+def test_escalation_uses_escalation_effort_high_by_default(monkeypatch):
+    _clear_judge_env(monkeypatch)
+    mod = install_fake_anthropic(
+        monkeypatch,
+        [
+            '{"verdict": "pass", "confidence": 0.2}',
+            '{"verdict": "pass", "confidence": 0.9}',
+        ],
+    )
+    client = JudgeClient(
+        model="claude-sonnet-5-5", escalation_model="claude-opus-5-5", api_key="test"
+    )
+    call = client.call(system="s", user_prompt="p", schema={})
+    assert call.ok and call.escalated
+    assert mod.calls[0]["model"] == "claude-sonnet-5-5"
+    assert "effort" not in mod.calls[0]["output_config"]
+    assert mod.calls[1]["model"] == "claude-opus-5-5"
+    assert mod.calls[1]["output_config"]["effort"] == "high"
+
+
+def test_escalation_effort_empty_env_means_model_default(monkeypatch):
+    _clear_judge_env(monkeypatch)
+    monkeypatch.setenv("AXIOM_JUDGE_ESCALATION_EFFORT", "")
+    mod = install_fake_anthropic(
+        monkeypatch,
+        [
+            '{"verdict": "pass", "confidence": 0.2}',
+            '{"verdict": "pass", "confidence": 0.9}',
+        ],
+    )
+    JudgeClient(
+        model="claude-sonnet-5-5", escalation_model="claude-opus-5-5", api_key="test"
+    ).call(system="s", user_prompt="p", schema={})
+    assert "effort" not in mod.calls[1]["output_config"]
+
+
+def test_bad_request_fallback_keeps_effort(monkeypatch):
+    _clear_judge_env(monkeypatch)
+    mod = install_fake_anthropic(
+        monkeypatch, [FakeBadRequestError("schema not supported"), '{"a": 1}']
+    )
+    call = JudgeClient(model="claude-sonnet-5-5", api_key="test", effort="medium").call(
+        system="s", user_prompt="p", schema={}
+    )
+    assert call.ok
+    assert call.request_shape == "effort_only"
+    assert mod.calls[1]["output_config"] == {"effort": "medium"}
+
+
+def test_type_error_fallback_keeps_effort(monkeypatch):
+    _clear_judge_env(monkeypatch)
+    mod = install_fake_anthropic(
+        monkeypatch, [TypeError("unexpected keyword 'format'"), '{"a": 1}']
+    )
+    call = JudgeClient(model="claude-sonnet-5-5", api_key="test", effort="low").call(
+        system="s", user_prompt="p", schema={}
+    )
+    assert call.ok
+    assert call.request_shape == "effort_only"
+    assert mod.calls[1]["output_config"] == {"effort": "low"}
+
+
+def test_fallback_without_effort_is_plain(monkeypatch):
+    _clear_judge_env(monkeypatch)
+    mod = install_fake_anthropic(
+        monkeypatch, [FakeBadRequestError("schema not supported"), '{"a": 1}']
+    )
+    call = JudgeClient(model="claude-sonnet-5-5", api_key="test").call(
+        system="s", user_prompt="p", schema={}
+    )
+    assert call.ok
+    assert call.request_shape == "plain"
+    assert "output_config" not in mod.calls[1]
+
+
+def test_effort_rejected_on_every_shape_fails_closed(monkeypatch):
+    _clear_judge_env(monkeypatch)
+    mod = install_fake_anthropic(
+        monkeypatch,
+        [FakeBadRequestError("bad effort"), FakeBadRequestError("bad effort")],
+    )
+    call = JudgeClient(
+        model="claude-sonnet-5-5", api_key="test", effort="max", max_attempts=2
+    ).call(system="s", user_prompt="p", schema={})
+    assert not call.ok
+    assert call.error.type == "effort_rejected"
+    # not retried: a rejected configuration will not fix itself
+    assert len(mod.calls) == 2
+
+
+def test_structured_request_records_shape(monkeypatch):
+    _clear_judge_env(monkeypatch)
+    install_fake_anthropic(monkeypatch, ['{"a": 1}'])
+    call = JudgeClient(model="claude-sonnet-5-5", api_key="test").call(
+        system="s", user_prompt="p", schema={}
+    )
+    assert call.request_shape == "structured"
+
+
+@pytest.mark.parametrize("stop_reason", ["refusal", "max_tokens"])
+def test_failed_escalation_is_recorded_and_first_verdict_stands(
+    monkeypatch, stop_reason
+):
+    _clear_judge_env(monkeypatch)
+    install_fake_anthropic(
+        monkeypatch,
+        [
+            '{"verdict": "flag", "confidence": 0.3}',
+            {"text": None, "stop_reason": stop_reason, "category": "bio"},
+        ],
+    )
+    call = JudgeClient(
+        model="claude-sonnet-5-5", escalation_model="claude-opus-5-5", api_key="test"
+    ).call(system="s", user_prompt="p", schema={})
+    assert call.ok
+    assert call.escalated is False
+    assert call.model == "claude-sonnet-5-5"
+    assert call.payload["verdict"] == "flag"
+    assert call.escalation_error is not None
+    assert call.escalation_error.type == stop_reason
+    # tokens include the failed escalation attempt
+    assert call.tokens.input == 22
+
+
+def test_refusal_category_read_from_dict_stop_details(monkeypatch):
+    _clear_judge_env(monkeypatch)
+    install_fake_anthropic(
+        monkeypatch,
+        [
+            {
+                "text": None,
+                "stop_reason": "refusal",
+                "category": "bio",
+                "stop_details_as_dict": True,
+            }
+        ],
+    )
+    call = JudgeClient(model="claude-sonnet-5-5", api_key="test").call(
+        system="s", user_prompt="p", schema={}
+    )
+    assert call.error.type == "refusal"
+    assert "bio" in call.error.message
+
+
+def test_call_diagnostics_reach_the_event_extra():
+    payload = {"verdict": "pass", "confidence": 0.3, "findings": []}
+    result = _ok_call(payload)
+    result.request_shape = "effort_only"
+    result.escalation_error = JudgeError(type="refusal", message="declined")
+    ev = statutory_fidelity.run("prov", "rule", citation="c", client=FakeClient(result))
+    assert ev.extra["request_shape"] == "effort_only"
+    assert ev.extra["escalation_error"] == {"type": "refusal", "message": "declined"}
+    assert validate_event_dict(ev.to_dict()) == []
+
+
+def test_call_diagnostics_absent_in_the_normal_case():
+    payload = {"verdict": "pass", "confidence": 0.9, "findings": []}
+    result = _ok_call(payload)
+    result.request_shape = "structured"
+    ev = statutory_fidelity.run("prov", "rule", citation="c", client=FakeClient(result))
+    assert "request_shape" not in ev.extra
+    assert "escalation_error" not in ev.extra
 
 
 def test_client_api_failure_retries_then_errors(monkeypatch):
@@ -3439,6 +3681,30 @@ def test_calibration_counts_error_separately_not_as_pass():
     assert report.false_negative == 0
     assert report.false_positive == 0
     assert report.true_negative == 0
+
+
+def test_calibration_breaks_errors_out_by_type():
+    cases = [
+        calibration.CalibrationCase("g1", "c", "good", "prov", "rule"),
+        calibration.CalibrationCase("b1", "c", "bad", "prov", "rule"),
+    ]
+    report = calibration.run_calibration(
+        cases, client=FakeClient(_err_call("refusal", "declined"))
+    )
+    assert report.errors_by_type == {"refusal": 2}
+    assert report.to_dict()["errors_by_type"] == {"refusal": 2}
+    assert "refusal=2" in report.summary()
+    assert {c["error_type"] for c in report.per_case} == {"refusal"}
+    assert {c["judge_model"] for c in report.per_case} == {"claude-sonnet-5-5"}
+
+
+def test_calibration_per_case_error_type_is_none_on_success():
+    cases = [calibration.CalibrationCase("g1", "c", "good", "prov", "rule")]
+    payload = {"verdict": "pass", "confidence": 0.9, "findings": []}
+    report = calibration.run_calibration(cases, client=FakeClient(_ok_call(payload)))
+    assert report.errors_by_type == {}
+    assert report.per_case[0]["error_type"] is None
+    assert "(" not in report.summary().splitlines()[1]
 
 
 def _make_db(path: Path):
