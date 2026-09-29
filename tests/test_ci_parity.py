@@ -459,6 +459,66 @@ def test_offline_requires_present_release_object(tmp_path: Path) -> None:
         )
 
 
+@pytest.mark.parametrize("offline", [True, False])
+def test_offline_binds_the_corpus_release_without_remote_fetch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, offline: bool
+) -> None:
+    """--offline keeps corpus materialization to the cache and git objects."""
+
+    from contextlib import nullcontext
+
+    from axiom_encode import ci_parity, corpus_materialize
+
+    repo = tmp_path / "rulespec-dk"
+    repo.mkdir()
+    pin = next(iter(SUPPORTED_WORKFLOW_PINS))
+    caller = CallerConfig(
+        tmp_path / "caller.yml",
+        pin,
+        {name: "a" * 40 for name in ("encode", "engine", "corpus", "rulespec_us")},
+        "dk",
+        True,
+        False,
+    )
+    remote_disabled: list[bool] = []
+    stubs = {
+        "find_caller_workflow": lambda _repo: caller,
+        "verify_toolchain_base_binding": lambda *_a: None,
+        "load_rulespec_toolchain": lambda _repo: None,
+        "verify_rulespec_validation_waiver_set": lambda _repo: None,
+        "resolve_dependency_paths": lambda *_a: {
+            name: tmp_path for name in ("encode", "engine", "corpus", "rulespec_us")
+        },
+        "verify_dependency_checkout": lambda *_a, **_k: None,
+        "encoder_version_at_pin": lambda *_a: "0",
+        "verify_ambient_encoder": lambda *_a, **_k: None,
+        "acquire_release_object": lambda *_a, **_k: tmp_path / "release.json",
+        "authenticate_release_provenance": lambda *_a: "b" * 40,
+        "resolve_roots": lambda *_a: ("dk",),
+        "local_corpus_release_verification": lambda _key: nullcontext(),
+        "load_rulespec_local_corpus_release": lambda *_a: remote_disabled.append(
+            corpus_materialize._REMOTE_FETCH_DISABLED.get()
+        ),
+        "execute_gates": lambda *_a: [],
+    }
+    for name, stub in stubs.items():
+        monkeypatch.setattr(ci_parity, name, stub)
+    args = Namespace(
+        repo=repo,
+        json=True,
+        base_ref="origin/main",
+        roots=None,
+        offline=offline,
+        corpus_release_public_key="unused",
+        allow_ref_mismatch=False,
+        allow_encoder_mismatch=False,
+    )
+
+    assert run_ci(args) == 0
+    assert remote_disabled == [offline]
+    assert corpus_materialize._REMOTE_FETCH_DISABLED.get() is False
+
+
 def test_ci_parser_contract_has_no_environment_public_key() -> None:
     # The public root is intentionally an explicit CLI-only value.  This test
     # guards against quietly reintroducing the forbidden environment fallback.

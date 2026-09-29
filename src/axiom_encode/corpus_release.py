@@ -79,6 +79,8 @@ class VerifiedCorpusReleaseObject:
     selector_sha256: str
     scopes: tuple[VerifiedReleaseScope, ...]
     artifacts: tuple[VerifiedReleaseArtifact, ...]
+    git_commit: str
+    r2_bucket: str
 
 
 def canonical_release_object_bytes(payload: Mapping[str, Any]) -> bytes:
@@ -141,6 +143,29 @@ def verify_release_object(
         break
     else:
         raise CorpusReleaseObjectError("release object signature is invalid")
+    return verified
+
+
+def verify_pinned_release_object_content(
+    payload: Mapping[str, Any],
+    *,
+    name: str,
+    content_sha256: str,
+) -> VerifiedCorpusReleaseObject:
+    """Validate a release object's schema and bind it to a pinned content digest.
+
+    This does not check the signature. It is for callers that already hold
+    the exact content digest from a trusted pin (a RuleSpec
+    ``.axiom/toolchain.toml``): the digest covers every artifact's sha256, so
+    it alone binds the artifact bytes. Anything that reads corpus text must
+    still use :func:`verify_release_object`.
+    """
+
+    verified = _validate_unsigned_release_object(copy.deepcopy(dict(payload)))
+    if verified.name != name or verified.content_sha256 != content_sha256:
+        raise CorpusReleaseObjectError(
+            "release object does not match the pinned name and content digest"
+        )
     return verified
 
 
@@ -283,6 +308,8 @@ def _validate_unsigned_release_object(
         selector_sha256=selector_sha256,
         scopes=scopes,
         artifacts=artifacts,
+        git_commit=git["commit"],
+        r2_bucket=r2["bucket"],
     )
 
 

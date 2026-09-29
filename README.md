@@ -107,6 +107,11 @@ rows are rejected as ambiguous. If the named release or an unambiguous provision
 is unavailable, encoding stops before calling a model. Supabase run/session sync
 is a separate telemetry feature and never supplies legal source text.
 
+A corpus checkout that keeps its bytes outside git (`.axiom/corpus-locks/`) gets
+the pinned release's provisions placed on binding, each file verified against the
+release's sha256; `axiom-encode corpus-fetch` does the same explicitly. See
+[docs/corpus-bytes-outside-git.md](docs/corpus-bytes-outside-git.md).
+
 `encode` defaults to `--backend codex` with `gpt-6-luna`. Each section gets
 up to two validator-rejected generations on that model, then one generation
 with `gpt-6-sol`; use

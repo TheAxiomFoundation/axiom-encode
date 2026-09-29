@@ -12,6 +12,7 @@ import json
 import os
 import re
 import stat
+import sys
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, field, replace
 from itertools import islice
@@ -19,8 +20,16 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import AbstractSet, Any, Literal
 
+from axiom_encode.corpus_materialize import (
+    CorpusMaterializationError,
+    corpus_uses_lock_files,
+    fetch_disabled,
+    materialize_release_artifacts,
+    release_sources,
+)
 from axiom_encode.corpus_release import (
     CorpusReleaseObjectError,
+    VerifiedCorpusReleaseObject,
     VerifiedReleaseArtifact,
     verify_release_object,
 )
@@ -117,6 +126,10 @@ class InvalidCorpusReleaseError(CorpusResolutionError):
 
 class UnsafeCorpusPathError(CorpusResolutionError):
     """A corpus path is indirect, unbounded, or escapes the explicit root."""
+
+
+class UnmaterializedCorpusReleaseError(CorpusResolutionError):
+    """A lock-file corpus checkout cannot supply a release's exact artifact bytes."""
 
 
 class CorpusSourceSliceError(CorpusResolutionError):
@@ -322,11 +335,16 @@ class LocalCorpusRelease:
             raise InvalidCorpusReleaseError(
                 "Corpus release content_sha256 must be a lowercase sha256 digest"
             )
-        root, provisions_root, repository_root = _resolve_corpus_layout(self.root)
-        if repository_root != root:
-            raise CorpusLayoutError(
-                "Local corpus releases require the canonical repository root"
-            )
+        root = _resolve_corpus_root(self.root)
+        # A checkout with .axiom/corpus-locks/ keeps corpus bytes outside git,
+        # so data/corpus may be absent until the verified release is placed.
+        uses_corpus_locks = corpus_uses_lock_files(root)
+        if not uses_corpus_locks:
+            root, provisions_root, repository_root = _resolve_corpus_layout(root)
+            if repository_root != root:
+                raise CorpusLayoutError(
+                    "Local corpus releases require the canonical repository root"
+                )
         release_object_path = root / "releases" / name / f"{self.content_sha256}.json"
         release_object_file = _safe_file(
             root,
@@ -362,6 +380,9 @@ class LocalCorpusRelease:
             raise InvalidCorpusReleaseError(
                 "Corpus release object does not match its configured name and content digest"
             )
+        if uses_corpus_locks:
+            _materialize_release_provisions(root, verified)
+            root, provisions_root, repository_root = _resolve_corpus_layout(root)
         object.__setattr__(self, "root", root)
         object.__setattr__(self, "name", name)
         object.__setattr__(self, "provisions_root", provisions_root)
@@ -909,7 +930,45 @@ def _resolved_source(
     )
 
 
-def _resolve_corpus_layout(corpus_root: Path) -> tuple[Path, Path, Path]:
+def _materialize_release_provisions(
+    root: Path, verified: VerifiedCorpusReleaseObject
+) -> None:
+    """Place the release's provisions artifacts, the only bytes this module reads.
+
+    Every placed file hashes to the signed release's sha256 and byte count;
+    anything missing that no source can supply fails closed here.
+    """
+
+    if fetch_disabled():
+        return
+    try:
+        report = materialize_release_artifacts(
+            root,
+            (a for a in verified.artifacts if a.artifact_class == "provisions"),
+            sources=lambda: release_sources(
+                root, git_commit=verified.git_commit, r2_bucket=verified.r2_bucket
+            ),
+        )
+    except CorpusMaterializationError as exc:
+        raise UnmaterializedCorpusReleaseError(str(exc)) from exc
+    if report.materialized:
+        print(
+            f"axiom-encode: placed {len(report.materialized)} corpus release "
+            f"artifact(s) ({report.bytes_materialized:,} bytes) for {verified.name} "
+            "from " + ", ".join(f"{k} {v}" for k, v in report.source_counts().items()),
+            file=sys.stderr,
+        )
+    if not report.ok:
+        raise UnmaterializedCorpusReleaseError(
+            f"Cannot place {len(report.failed)} of {report.selected} provisions "
+            f"artifact(s) of corpus release {verified.name} in {root}; run "
+            "`axiom-corpus-ingest corpus fetch --release "
+            f"{verified.name}` or `axiom-encode corpus-fetch` with R2 read "
+            "credentials:\n" + report.describe_failures()
+        )
+
+
+def _resolve_corpus_root(corpus_root: Path) -> Path:
     raw_root = Path(os.path.abspath(Path(corpus_root).expanduser()))
     if raw_root.is_symlink():
         raise UnsafeCorpusPathError(f"corpus root is a symlink: {raw_root}")
@@ -919,6 +978,11 @@ def _resolve_corpus_layout(corpus_root: Path) -> tuple[Path, Path, Path]:
         raise CorpusLayoutError(f"corpus root does not exist: {raw_root}") from exc
     if not root.is_dir():
         raise UnsafeCorpusPathError(f"corpus root is not a directory: {raw_root}")
+    return root
+
+
+def _resolve_corpus_layout(corpus_root: Path) -> tuple[Path, Path, Path]:
+    root = _resolve_corpus_root(corpus_root)
     provisions_root = _safe_directory(
         root,
         root / "data" / "corpus" / "provisions",
