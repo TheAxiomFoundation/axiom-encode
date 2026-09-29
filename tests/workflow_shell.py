@@ -913,7 +913,9 @@ def _unwrap(words: list[str]) -> list[tuple[list[str], list[str]] | _Script]:
             raise UnanalyzableScript(f"{name} -C runs a callback: {' '.join(words)!r}")
         elif name == "builtin":
             words = words[2:] if words[1:2] == ["--"] else words[1:]
-        elif word.startswith("${{"):
+        elif "${{" in word:
+            # GitHub fills it in before bash runs (`python${{ matrix.v }}`), so
+            # the program is unknown here.
             raise UnanalyzableScript(
                 f"the program comes from a workflow expression: {' '.join(words)!r}"
             )

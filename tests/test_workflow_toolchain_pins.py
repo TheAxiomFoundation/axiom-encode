@@ -421,6 +421,8 @@ def test_reader_finds_the_uv_calls_a_script_makes(script, expected):
         # A program produced by a substitution.
         "$(command -v uv) sync",
         "`uv lock`",
+        "python${{ matrix.python-version }} -m pip install requests",
+        "/usr/bin/${{ matrix.python }} -m pip install requests",
         # Unknown options to a wrapper, and runners this reader cannot follow.
         "sudo --bogus uv sync",
         "xargs -Z uv pip sync",
@@ -546,6 +548,10 @@ def test_nested_scripts_inherit_assignments():
             True,
         ),
         ('echo "PIP_INDEX_URL=x" >> "$GITHUB_ENV"', True),
+        ("tr a-z A-Z < names", True),
+        # Sanitizing with tr converts no case.
+        ("slug=$(printf '%s' \"$REF\" | tr -cs 'a-z0-9' '-')", False),
+        ("tr -d 'A-Z' < names", False),
         ("printf 'a\\tUV_X=1'", True),
         # Brace expansions and escapes spell a name too.
         ("export {UV,PIP}_INDEX_URL=https://example.com/simple", True),
@@ -750,7 +756,25 @@ CASE_CONVERSION = re.compile(
     r"\$\{[#!]?[A-Za-z_][A-Za-z0-9_]*(?:\[[^]]*\])?(?:\^|,|@[uUL])"
     r"|\b(?:toupper|tolower)\b|\\[UL]"
 )
-CASE_CLASSES = re.compile(r"\[:(?:lower|upper):\]|a-z|A-Z")
+LOWER_SET = re.compile(r"\[:lower:\]|a-z")
+UPPER_SET = re.compile(r"\[:upper:\]|A-Z")
+
+
+def _tr_converts_case(words: tuple[str, ...]) -> bool:
+    """Whether `tr SET1 SET2` translates between lower and upper case.
+
+    Deleting or squeezing (`tr -cs 'a-z0-9' '-'`) converts nothing.
+    """
+    if not words or words[0].rsplit("/", 1)[-1] != "tr":
+        return False
+    sets = [word for word in words[1:] if not word.startswith("-")]
+    return len(sets) >= 2 and any(
+        (LOWER_SET.search(a) and UPPER_SET.search(b))
+        or (UPPER_SET.search(a) and LOWER_SET.search(b))
+        for a, b in [(sets[0], sets[1])]
+    )
+
+
 # Steps that may write $GITHUB_ENV, which sets variables for every later step,
 # and the only names each writes. A new writer needs a reviewed entry here.
 GITHUB_ENV_WRITERS = {
@@ -783,8 +807,9 @@ def test_no_workflow_sets_uv_environment_variables():
     where each script's output goes, the rule is textual and conservative:
     no key or string anywhere in a workflow may contain a UV_* name,
     including one spelled with a brace expansion or after an escape, nor the
-    word UV on its own; the words bash sees after quote removal are checked
-    the same way; and export/declare may not compute a variable's name.
+    word UV on its own; each command's words and assignments, after quote
+    removal, are checked the same way; and export/declare may not compute a
+    variable's name.
 
     This is a lint with enumerated coverage, not a proof that no UV_*
     variable can be set; what it misses in the test jobs, the runtime
@@ -820,10 +845,7 @@ def test_no_workflow_sets_uv_environment_variables():
                 )
             ]
             # Case conversion builds an upper-case name the rule cannot see.
-            if (
-                command.program == "tr"
-                and any(CASE_CLASSES.search(word) for word in command.words[1:])
-            ) or (
+            if _tr_converts_case(command.words) or (
                 command.program in {"declare", "local", "typeset"}
                 and any(
                     re.fullmatch(r"[-+][A-Za-z]*[luc][A-Za-z]*", word)
@@ -948,6 +970,18 @@ def test_setup_uv_takes_only_a_version():
         for name, job, index, step in _action_steps()
         if step["uses"].startswith("astral-sh/setup-uv@")
         and set(step.get("with") or {}) != {"version"}
+    ]
+    assert inputs == []
+
+
+def test_setup_python_takes_only_a_python_version():
+    # Its pip-install input installs packages with pip, outside the lock and
+    # outside every run-script check.
+    inputs = [
+        f"{name}:{job}[{index}] {sorted(step.get('with') or {})}"
+        for name, job, index, step in _action_steps()
+        if step["uses"].startswith("actions/setup-python@")
+        and not set(step.get("with") or {}) <= {"python-version"}
     ]
     assert inputs == []
 
@@ -1168,17 +1202,29 @@ def test_test_environment_is_the_locked_dev_set(workflow_name, job_name):
         if _runs_pip(command) or command.program in {"pipx", "pip-sync"}
     ] == []
 
-    # The runtime locked-set check runs in this job, after the sync.
+    # The runtime locked-set check runs in this job, after the sync: a
+    # pytest over it or over all of tests/, with no flag that deselects
+    # tests, in a step that cannot be skipped or allowed to fail.
     runtime_check = (
         "tests/test_workflow_toolchain_pins.py"
         "::test_the_test_environment_is_exactly_the_locked_set"
     )
-    assert any(
-        command.program == "pytest"
-        and position > sync_position
+    selecting = re.compile(
+        r"-k.*|-m.*|--deselect.*|--ignore.*|--lf|--last-failed|--co|"
+        r"--collect-only|--sw|--stepwise"
+    )
+    runs_check = [
+        commands.index(command)
+        for _, _, _, step in _job_steps(workflow_name, job_name)
+        if "if" not in step and "continue-on-error" not in step
+        for command in _script_commands(step.get("run", ""))
+        if command.program == "pytest"
         and (runtime_check in command.words or "tests/" in command.words)
-        for position, command in enumerate(commands)
-    ), f"{workflow_name}:{job_name} does not run {runtime_check}"
+        and not any(selecting.fullmatch(word) for word in command.words[1:])
+    ]
+    assert any(position > sync_position for position in runs_check), (
+        f"{workflow_name}:{job_name} does not run {runtime_check}"
+    )
 
     # Every tool the job runs comes from the synced .venv, after the sync.
     venv_uses = [
