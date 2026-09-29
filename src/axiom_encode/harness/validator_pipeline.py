@@ -23257,8 +23257,8 @@ def _unit_relation_aggregate_helper_names_by_rule(
     fallback_source_text: str,
 ) -> set[str]:
     formulas_by_name: dict[str, list[str]] = defaultdict(list)
-    for name, kind, formula, _rule_source, _rule in (
-        _rulespec_rule_formula_rule_records(payload)
+    for name, kind, formula, _rule_source, _rule in _rulespec_rule_formula_rule_records(
+        payload
     ):
         if kind == "derived":
             formulas_by_name[name].append(formula)
