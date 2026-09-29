@@ -13918,7 +13918,10 @@ def _excerpt_is_conjunction_delimited_subclause(
     if (excerpt_start, excerpt_end) == (proposition_start, proposition_end):
         return False
     before = text[proposition_start:excerpt_start]
+    excerpt = text[excerpt_start:excerpt_end]
     after = text[excerpt_end:proposition_end]
+    if re.search(r"\b(?:and|but|or)\b", excerpt, flags=re.IGNORECASE):
+        return False
     begins_after_coordinator = re.search(
         r"(?:,\s*)?\b(?:and|but|or)\s*$",
         before,
