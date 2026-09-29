@@ -97,6 +97,16 @@ jobs:
             --git /usr/bin/git
           sudo chown -R 0:0 /opt/axiom-verification
           sudo chmod -R go-w /opt/axiom-verification
+          # The supervisor rejects any ancestor of its executable that is not
+          # root-owned or is group/other-writable, and GitHub's runner image
+          # ships /opt itself group-writable, so tighten that one directory.
+          # Toolcache reads under /opt only need read/execute.
+          sudo chown 0:0 /opt
+          sudo chmod go-w /opt
+          # Fail closed here rather than inside the supervisor. `find -perm
+          # /022` prints the path iff group- OR other-write is set.
+          test "$(stat -c '%u' /opt)" = "0"
+          test -z "$(find /opt -maxdepth 0 -perm /022)"
 
       - name: Pre-classify the worklist (cheap pre-step, before generation)
         env:
