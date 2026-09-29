@@ -22442,7 +22442,10 @@ _HEAD_OF_HOUSEHOLD_FILING_STATUS_PATTERN = re.compile(
     r"(?:\s+|\s*[-‐‑‒–—―−]\s*)household\b",
     flags=re.IGNORECASE,
 )
-_HOUSEHOLD_UNIT_SOURCE_TOKEN = r"\bhousehold\b(?!\s+members?\b)"
+_HOUSEHOLD_UNIT_SOURCE_TOKEN = (
+    r"(?:\bhousehold\b(?!\s+members?\b)|"
+    r"\bbudgetary\s+unit\b(?!\s+(?:members?|participants?)\b))"
+)
 _UNIT_SCOPE_SOURCE_PATTERN = re.compile(
     r"(?:"
     + _HOUSEHOLD_UNIT_SOURCE_TOKEN
@@ -22451,7 +22454,7 @@ _UNIT_SCOPE_SOURCE_PATTERN = re.compile(
     r"\bfamily\b(?!\s+members?\b)|\bspm\s+unit\b)"
     r"[\s\S]{0,180}\b"
     r"(?:eligible|eligibility|test|requirement|resources?|income|standard|"
-    r"benefit|allotment)\b",
+    r"benefit|allotment|disqualif\w*)\b",
     flags=re.IGNORECASE,
 )
 _UNIT_SOURCE_ENTITY_PATTERNS = (
@@ -22578,8 +22581,9 @@ _SHARED_STATUTORY_RATE_SECTION_PREFIX_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 _HOUSEHOLD_MEMBER_MIXED_SCOPE_PATTERN = re.compile(
-    r"\bhousehold\b(?!\s+members?\b)[\s\S]{0,180}"
-    r"\b(?:each|every|all|no)\s+(?:household\s+)?member\b"
+    r"(?:\bhousehold\b(?!\s+members?\b)|\bbudgetary\s+unit\b)"
+    r"[\s\S]{0,180}\b(?:each|every|all|no|an?)\s+"
+    r"(?:(?:household|budgetary\s+unit)\s+)?(?:members?|participants?)\b"
     r"|"
     r"\b(?:individuals?|persons?|clients?|participants?|recipients?)\b"
     r"[\s\S]{0,80}\b(?:resid(?:e|es|ing)|liv(?:e|es|ing))\s+with\s+"
