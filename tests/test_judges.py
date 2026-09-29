@@ -2006,6 +2006,9 @@ def _bash_top_level_commands(run):
     bash re-indents a function body canonically in ``declare -f``: top-level
     commands sit at four spaces, anything inside a group, pipeline, ``if``,
     loop or nested function sits deeper or shares a line with its operator.
+    A ``( ... )`` subshell is the exception: bash prints its body at the
+    enclosing indent, so every line from a four-space ``(`` until its
+    parentheses balance again counts as nested.
     Defining the function runs nothing; the shell is restricted with an empty
     PATH in case a stray ``}`` closes it early.
     """
@@ -2028,11 +2031,17 @@ def _bash_top_level_commands(run):
         check=False,
     )
     assert result.returncode == 0, result.stderr
-    return {
-        " ".join(line[4:].rstrip().rstrip(";").split())
-        for line in result.stdout.splitlines()
-        if line.startswith("    ") and not line.startswith("     ")
-    }
+    top_level = set()
+    subshell_depth = 0
+    for line in result.stdout.splitlines():
+        four_spaces = line.startswith("    ") and not line.startswith("     ")
+        if subshell_depth or (four_spaces and line[4:].startswith("(")):
+            subshell_depth += line.count("(") - line.count(")")
+            subshell_depth = max(subshell_depth, 0)
+            continue
+        if four_spaces:
+            top_level.add(" ".join(line[4:].rstrip().rstrip(";").split()))
+    return top_level
 
 
 def _verification_tree_jobs():
@@ -2231,12 +2240,14 @@ def test_opt_permission_suspects_include_step_context():
     assert not _opt_permission_suspects("ls", {"TARGET": "/opt"})
 
 
-def _golden_drift_job():
+def _verification_tree_job(workflow_name, job_name):
     return next(
-        job
-        for job in _verification_tree_jobs()
-        if job[:2] == ("golden-regeneration.yml", "drift")
+        job for job in _verification_tree_jobs() if job[:2] == (workflow_name, job_name)
     )
+
+
+def _golden_drift_job():
+    return _verification_tree_job("golden-regeneration.yml", "drift")
 
 
 @pytest.mark.parametrize(
@@ -2461,6 +2472,9 @@ def test_verification_tree_fail_closed_checks_cannot_be_neutralized(
             lambda run: f"{{\n{run}\n}} 2>&1 | tee provisioning.log\n", id="tee"
         ),
         pytest.param(lambda run: f"{{\n{run}\n}} || echo warn\n", id="or-echo"),
+        pytest.param(
+            lambda run: f"(\n{run}\n) 2>&1 | tee provisioning.log\n", id="subshell-tee"
+        ),
         pytest.param(lambda run: f"if true; then\n{run}\nfi\n", id="if"),
         pytest.param(lambda run: f"harden() {{\n{run}\n}}\nharden\n", id="function"),
         pytest.param(
@@ -2477,8 +2491,15 @@ def test_verification_tree_fail_closed_checks_cannot_be_neutralized(
         ),
     ],
 )
-def test_verification_tree_hardening_must_run_at_top_level(wrap):
-    workflow_name, job_name, steps, context = _golden_drift_job()
+@pytest.mark.parametrize(
+    "job_key",
+    [
+        pytest.param(("golden-regeneration.yml", "drift"), id="checks-last"),
+        pytest.param(("targeted-signed-reencode.yml", "encode"), id="checks-mid-step"),
+    ],
+)
+def test_verification_tree_hardening_must_run_at_top_level(wrap, job_key):
+    workflow_name, job_name, steps, context = _verification_tree_job(*job_key)
     provision = next(
         index
         for index, step in enumerate(steps)
