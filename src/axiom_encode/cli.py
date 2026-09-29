@@ -248,6 +248,7 @@ from .harness.validator_pipeline import (
     _SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS,
     _US_TAX_JOINT_ONLY_ANY_OTHER_CASE_TEXT_PATTERN,
     _US_TAX_JOINT_SURVIVING_SPOUSE_GROUP_TEXT_PATTERN,
+    ExistingTargetOracleContract,
     ValidatorPipeline,
     _authoritative_corpus_scope,
     _authoritative_rulespec_dependency_scope,
@@ -57140,6 +57141,12 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
             )
 
         supplemental_files: dict[Path, str] = {}
+        mapped_shape_repairs = _repair_existing_target_oracle_shape_contracts(
+            rules_file=overlay_target,
+            contract=existing_target_oracle_contract,
+        )
+        if mapped_shape_repairs:
+            supplemental_files[relative_output] = overlay_target.read_text()
         repaired_import_symbols = _repair_generated_import_symbol_near_misses(
             rules_file=overlay_target,
             repo_path=overlay_content_root,
@@ -57815,6 +57822,80 @@ def _stage_apply_overlay_dependency_roots(
         staged_names.add(dependency_root.name)
         staged.append(target)
     return tuple(staged)
+
+
+def _repair_existing_target_oracle_shape_contracts(
+    *,
+    rules_file: Path,
+    contract: ExistingTargetOracleContract | None,
+) -> list[str]:
+    """Restore exact mapped schemas while leaving generated policy logic intact.
+
+    Replacement generation may legitimately rewrite formulas, but an exact oracle
+    mapping makes the exported rule schema immutable except for a validator-proven
+    ``replacement_entity``.  Repair those mechanical fields deterministically so
+    a model cannot accidentally migrate an otherwise valid mapped helper while
+    correcting a neighbouring legacy entity defect.
+    """
+
+    if contract is None or not rules_file.exists():
+        return []
+    try:
+        payload = _safe_load_unique_keys(rules_file.read_text())
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    raw_rules = payload.get("rules")
+    if not isinstance(raw_rules, list):
+        return []
+    rules = {
+        str(rule.get("name") or "").strip(): rule
+        for rule in raw_rules
+        if isinstance(rule, dict) and str(rule.get("name") or "").strip()
+    }
+
+    repaired: list[str] = []
+    for expected in contract.surfaces:
+        rule = rules.get(expected.name)
+        if not isinstance(rule, dict):
+            continue
+        changed = False
+        protected_fields: dict[str, object] = {
+            "kind": expected.kind,
+            "entity": expected.replacement_entity or expected.entity,
+            "dtype": expected.dtype,
+            "period": expected.period,
+            "unit": expected.unit,
+            "indexed_by": list(expected.indexed_by),
+        }
+        for field, value in protected_fields.items():
+            if value == "" or value == () or value == []:
+                if field in rule:
+                    rule.pop(field, None)
+                    changed = True
+                continue
+            if rule.get(field) != value:
+                rule[field] = value
+                changed = True
+        metadata = rule.get("metadata")
+        if expected.private:
+            if not isinstance(metadata, dict):
+                metadata = {}
+                rule["metadata"] = metadata
+            if metadata.get("private") is not True:
+                metadata["private"] = True
+                changed = True
+        elif isinstance(metadata, dict) and "private" in metadata:
+            metadata.pop("private", None)
+            changed = True
+        if changed:
+            repaired.append(expected.name)
+
+    if not repaired:
+        return []
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
+    return repaired
 
 
 _APPLY_OVERLAY_IGNORED_NAMES = frozenset(
