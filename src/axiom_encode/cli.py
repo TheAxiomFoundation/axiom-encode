@@ -60031,6 +60031,7 @@ def _finalize_legacy_exact_dependents_from_overlay(
 
 _MISSING_INPUT_RE = re.compile(
     r"(?:Test case `)?(?P<case>[^`:]+)`?(?: execution failed)?: "
+    r"(?:(?!Test case `)[^\n]*\n)*?"
     r"missing input `(?P<input>[^`]+)`"
     r"(?: for entity `(?P<entity>[^`]+)`)?"
 )

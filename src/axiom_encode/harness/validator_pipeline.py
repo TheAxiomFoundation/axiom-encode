@@ -33,7 +33,7 @@ import time
 import unicodedata
 from bisect import bisect_left, bisect_right
 from calendar import monthrange
-from collections import Counter
+from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -22754,15 +22754,20 @@ _HOUSEHOLD_MEMBER_MIXED_SCOPE_PATTERN = re.compile(
 )
 _UNIT_MEMBER_AGGREGATE_HELPER_SOURCE_PATTERN = re.compile(
     r"\b(?:households?|snap\s+units?|food\s+assistance\s+units?|"
-    r"assistance\s+units?|tax\s+units?|filing\s+units?|famil(?:y|ies)|"
+    r"assistance\s+units?|budgetary\s+units?|tax\s+units?|filing\s+units?|famil(?:y|ies)|"
     r"spm\s+units?)\b[\s\S]{0,240}\b(?:all|each|every|no)\s+"
-    r"(?:individuals?|persons?|(?:household\s+|family\s+)?members?)\b"
+    r"(?:individuals?|persons?|participants?|members?|"
+    r"(?:household|family|budgetary\s+unit)\s+(?:members?|participants?))\b"
     r"|"
     r"\b(?:all|each|every|no)\s+"
-    r"(?:individuals?|persons?|(?:household\s+|family\s+)?members?)\b"
+    r"(?:individuals?|persons?|participants?|members?|"
+    r"(?:household|family|budgetary\s+unit)\s+(?:members?|participants?))\b"
     r"[\s\S]{0,240}\b(?:households?|snap\s+units?|food\s+assistance\s+"
-    r"units?|assistance\s+units?|tax\s+units?|filing\s+units?|"
+    r"units?|assistance\s+units?|budgetary\s+units?|tax\s+units?|filing\s+units?|"
     r"famil(?:y|ies)|spm\s+units?)\b"
+    r"|"
+    r"\b(?:all|each|every|no)\s+(?:budgetary\s+unit|household|family)\s+"
+    r"(?:members?|participants?)\b"
     r"|"
     r"\ball[-\s]+member[-\s]+(?:disqualif|ineligib|exclud)"
     r"[\s\S]{0,120}\b(?:households?|snap\s+units?|food\s+assistance\s+"
@@ -23251,6 +23256,12 @@ def _unit_relation_aggregate_helper_names_by_rule(
     payload: dict[str, Any],
     fallback_source_text: str,
 ) -> set[str]:
+    formulas_by_name: dict[str, list[str]] = defaultdict(list)
+    for name, kind, formula, _rule_source, _rule in _rulespec_rule_formula_rule_records(
+        payload
+    ):
+        if kind == "derived":
+            formulas_by_name[name].append(formula)
     helper_names: set[str] = set()
     for _name, kind, formula, _rule_source, rule in _rulespec_rule_formula_rule_records(
         payload
@@ -23269,6 +23280,21 @@ def _unit_relation_aggregate_helper_names_by_rule(
         ):
             continue
         helper_names.update(_relation_aggregate_helper_identifiers(formula))
+    pending = list(helper_names)
+    while pending:
+        helper_name = pending.pop()
+        helper_formulas = formulas_by_name.get(helper_name)
+        if not helper_formulas:
+            continue
+        for helper_formula in helper_formulas:
+            for dependency_name in _formula_local_identifiers(helper_formula):
+                if (
+                    dependency_name not in formulas_by_name
+                    or dependency_name in helper_names
+                ):
+                    continue
+                helper_names.add(dependency_name)
+                pending.append(dependency_name)
     return helper_names
 
 
@@ -23324,8 +23350,8 @@ def _person_rule_can_use_unit_member_aggregate_source(
     if str(rule.get("dtype") or "").strip().lower() != "judgment":
         return False
     source_contexts = _rule_proof_source_excerpts(rule)
-    if not source_contexts and fallback_source_text:
-        source_contexts = [fallback_source_text]
+    if fallback_source_text:
+        source_contexts.append(fallback_source_text)
     return any(
         _UNIT_MEMBER_AGGREGATE_HELPER_SOURCE_PATTERN.search(text)
         for text in source_contexts
