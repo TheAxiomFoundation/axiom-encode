@@ -557,6 +557,7 @@ def test_nested_scripts_inherit_assignments():
         ),
         ('echo "PIP_INDEX_URL=x" >> "$GITHUB_ENV"', True),
         ("tr a-z A-Z < names", True),
+        ('f=GITHUB_ENV; echo "A=1" >> "${!f}"', True),
         # Sanitizing with tr converts no case.
         ("slug=$(printf '%s' \"$REF\" | tr -cs 'a-z0-9' '-')", False),
         ("tr -d 'A-Z' < names", False),
@@ -872,6 +873,9 @@ def test_no_workflow_sets_uv_environment_variables():
                 ]
         if CASE_CONVERSION.search(step.get("run", "")):
             offenders.append(f"{name}:{job}[{index}] converts case")
+        # `${!name}` reads a variable whose name is itself computed.
+        if "${!" in step.get("run", ""):
+            offenders.append(f"{name}:{job}[{index}] uses indirect expansion")
         # $GITHUB_ENV is also `${{ github.env }}`, and a step can pass either
         # through env:, so every string in the step is searched.
         step_text = "\n".join(_strings(step))
@@ -941,10 +945,13 @@ def test_the_test_environment_is_exactly_the_locked_set():
         or os.environ.get("AXIOM_CHECK_LOCKED_ENV")
     ):
         pytest.skip("runs in CI, or with AXIOM_CHECK_LOCKED_ENV=1")
+    # The reference comes from this repository's lock, whatever UV_* the step
+    # inherited (UV_PROJECT, UV_PROJECT_ENVIRONMENT, ...).
     exported = subprocess.run(
-        ["uv", "export", "--locked", "--extra", "dev", "--no-hashes"]
-        + ["--no-header", "--no-annotate", "--no-emit-project"],
+        ["uv", "export", "--project", str(ROOT), "--locked", "--extra", "dev"]
+        + ["--no-hashes", "--no-header", "--no-annotate", "--no-emit-project"],
         cwd=ROOT,
+        env={k: v for k, v in os.environ.items() if not k.startswith("UV_")},
         capture_output=True,
         text=True,
         check=True,
@@ -1219,15 +1226,20 @@ def test_test_environment_is_the_locked_dev_set(workflow_name, job_name):
     # export or unset around it), no option that could deselect it, and no
     # `if:`, `env:`, `shell:` or `continue-on-error:` on the step. The job has
     # no `if:` or `continue-on-error:`, and nothing in scope overrides CI,
-    # GITHUB_ACTIONS or pytest's options. Runner-provided CI can then only be
-    # changed through $GITHUB_ENV, which only reviewed steps may write.
+    # GITHUB_ACTIONS, pytest's options, or how the step's shell or Python
+    # starts (BASH_ENV is sourced before every step). Runner-provided CI can
+    # then only be changed through $GITHUB_ENV, which only reviewed steps may
+    # write.
     workflow = dict(_workflows())[workflow_name]
     job = workflow["jobs"][job_name]
     assert "if" not in job and "continue-on-error" not in job, job_name
-    overrides = {"CI", "GITHUB_ACTIONS", "PYTEST_ADDOPTS", "PYTEST_PLUGINS"}
+    overrides = re.compile(
+        r"CI|GITHUB_ACTIONS|BASH_ENV|ENV|SHELLOPTS|BASHOPTS|PYTEST_\w+|PYTHON\w*|UV_\w+"
+    )
     for scope in (workflow, job):
         env = scope.get("env") or {}
-        assert isinstance(env, dict) and not set(env) & overrides, env
+        assert isinstance(env, dict), env
+        assert [key for key in env if overrides.fullmatch(key)] == [], env
         shell = ((scope.get("defaults") or {}).get("run") or {}).get("shell")
         assert shell in {None, "bash"}, shell
     steps = job["steps"]
