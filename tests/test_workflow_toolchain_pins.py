@@ -364,6 +364,7 @@ READER_CASES = {
     "builtin eval 'uv sync'": [("sync", ())],
     "cat <<END-OF\nuv sync\nEND-OF\nuv lock": [("lock", ())],
     "uv --version": [("", ("--version",))],
+    "echo \"$(echo 'if case x in')\"": [],
 }
 
 
@@ -407,6 +408,10 @@ def test_reader_finds_the_uv_calls_a_script_makes(script, expected):
         ". ./env.sh",
         "${{ inputs.cmd }} sync",
         'env -S "uv \'sync"',
+        # A uv option missing its value.
+        "uv --directory",
+        "uv sync --frozen --python",
+        "uv run --frozen -p",
     ],
 )
 def test_reader_fails_closed_on_what_it_cannot_follow(script):
@@ -459,7 +464,17 @@ def test_nested_scripts_inherit_assignments():
         ("bash -c 'echo UV_UPGRADE=1' >> \"$GITHUB_ENV\"", True),
         ("printf '%s=1\\n' UV_UPGRADE >> \"$GITHUB_ENV\"", True),
         ("cat >> \"$GITHUB_ENV\" <<'EOF'\nUV_NO_SYNC=1\nEOF", True),
+        ('{ echo "UV_NO_SYNC<<EOF"; echo 1; echo EOF; } >> "$GITHUB_ENV"', True),
+        ("cat >> \"$GITHUB_ENV\" <<'X'\nUV_NO_SYNC<<EOF\n1\nEOF\nX", True),
+        ('( echo UV_UPGRADE=1 ) >> "$GITHUB_ENV"', True),
+        ('exec >> "$GITHUB_ENV"\necho UV_UPGRADE=1', True),
+        ('while false; do :; done; echo UV_X=1 | tee "$GITHUB_ENV"', True),
         ('echo "LOCKED_UV_VERSION=0.11.7" >> "$GITHUB_ENV"', False),
+        (
+            'echo "UV_CACHE_DIR=$UV_CACHE_DIR"\necho "VENV=.venv" >> "$GITHUB_ENV"',
+            False,
+        ),
+        ('echo UV_X=1 | grep -c X >> "$GITHUB_ENV"', False),
         ('echo "CACHE=$UV_CACHE_DIR" >> "$GITHUB_ENV"', False),
         ("echo UV_CACHE_DIR=/tmp", False),
     ],
@@ -615,7 +630,8 @@ def test_no_workflow_sets_uv_environment_variables():
     # UV_UPGRADE, UV_OFFLINE, UV_FROZEN and the rest change how every later
     # uv call resolves, invisibly to the option checks above.
     uv_variable = re.compile(r"UV_[A-Z0-9_]+")
-    uv_assignment = re.compile(r"UV_[A-Z0-9_]+\+?=")
+    # NAME=value, or GitHub's multiline NAME<<DELIMITER form.
+    uv_assignment = re.compile(r"UV_[A-Z0-9_]+(?:\+?=|<<)")
     offenders = []
     for name, workflow in _workflows():
         jobs = list(workflow["jobs"].values())
@@ -659,28 +675,20 @@ def test_no_workflow_sets_uv_environment_variables():
                 if any(uv_assignment.match(word) for word in command.words[1:]):
                     offenders.append(f"{where} {command.line}")
         # A write to $GITHUB_ENV sets a variable for every later step. The
-        # write can be grouped (`{ ...; } >> "$GITHUB_ENV"`), go through tee,
-        # or come from a heredoc, so a step that writes it may not name a
-        # UV_* variable as a word or as a heredoc line being set.
-        writes_env = any(
-            any("GITHUB_ENV" in target for target in command.redirects)
-            or (
-                command.program == "tee"
-                and any("GITHUB_ENV" in w for w in command.words)
-            )
-            for command in step_commands
-        )
-        names_uv_variable = any(
-            uv_variable.fullmatch(word) or uv_assignment.match(word)
-            for command in step_commands
-            for word in command.words
-        ) or any(
-            re.search(r"(?m)^\s*(?:export\s+)?UV_[A-Z0-9_]+\+?=", text)
-            for command in step_commands
-            for text in command.stdin_text
-        )
-        if writes_env and names_uv_variable:
-            offenders.append(f"{where} writes a UV_* variable to $GITHUB_ENV")
+        # reader attaches a group's, a pipe-to-tee's or an `exec`'s redirection
+        # to each command whose output it receives, so each command is judged
+        # by where its own output goes.
+        for command in step_commands:
+            if not any("GITHUB_ENV" in target for target in command.redirects):
+                continue
+            if any(
+                uv_variable.fullmatch(word) or uv_assignment.match(word)
+                for word in command.words[1:]
+            ) or any(
+                re.search(r"(?m)^\s*(?:export\s+)?UV_[A-Z0-9_]+(?:\+?=|<<)", text)
+                for text in command.stdin_text
+            ):
+                offenders.append(f"{where} {command.line}")
     assert offenders == []
 
 
@@ -708,6 +716,44 @@ def test_every_step_runs_under_bash():
         if shell is not None and not re.fullmatch(r"bash(?:\s.*)?", shell)
     ]
     assert shells == []
+
+
+def test_no_job_runs_on_windows():
+    # Windows runs `run:` steps under pwsh by default, which the reader does
+    # not follow.
+    runners = [
+        f"{name}:{job_name} {runner}"
+        for name, workflow in _workflows()
+        for job_name, job in workflow["jobs"].items()
+        for runner in [
+            job.get("runs-on"),
+            *((job.get("strategy") or {}).get("matrix") or {}).get("os", []),
+        ]
+        if runner and "windows" in str(runner).lower()
+    ]
+    assert runners == []
+
+
+def test_no_python_file_declares_inline_script_dependencies():
+    # `uv run script.py` resolves a PEP 723 `# /// script` block outside
+    # uv.lock.
+    tracked = subprocess.run(
+        ["git", "ls-files", "*.py"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()
+    assert tracked
+    inline = [
+        path
+        for path in tracked
+        if re.search(
+            r"(?m)^# /// script$",
+            (ROOT / path).read_text(encoding="utf-8", errors="ignore"),
+        )
+    ]
+    assert inline == []
 
 
 def test_job_containers_are_pinned_by_digest():

@@ -51,7 +51,7 @@ import json
 import re
 import shlex
 import subprocess
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 UV_OPTIONS_PATH = Path(__file__).parent / "fixtures" / "uv_cli_options.json"
@@ -612,9 +612,11 @@ def _split(value: str) -> list[str]:
 def _open_cases(text: str) -> bool:
     """Whether ``text`` opens more ``case`` statements than it closes.
 
-    Only words in command position count, so `printf 'use case'` does not.
+    Only unquoted words in command position count, so `printf 'use case'`
+    and `echo "if case x in"` do not.
     """
-    words = _CASE_WORD.findall(text)
+    unquoted = re.sub(r"'[^']*'|\"(?:\\\\.|[^\"\\\\])*\"", "''", text)
+    words = _CASE_WORD.findall(unquoted)
     return words.count("case") > words.count("esac")
 
 
@@ -909,12 +911,31 @@ def _unwrap(words: list[str]) -> list[tuple[list[str], list[str]] | _Script]:
     return [([], assignments)] if assignments else []
 
 
+_OPENERS = {
+    "{": "}",
+    "if": "fi",
+    "for": "done",
+    "select": "done",
+    "until": "done",
+    "while": "done",
+}
+_CLOSERS = frozenset(_OPENERS.values())
+
+
 def _commands_in(
     lines: list[str],
     registry: list[_Substitution],
     scope: int,
     inherited: tuple[str, ...],
 ) -> list[Command]:
+    """The commands in ``lines``.
+
+    A redirection is attached to every command whose output it receives:
+    the command it follows, every command in a group or compound command it
+    closes (`{ ...; } >> f`, `fi >> f`, `( ... ) >> f`, `esac >> f`), the
+    command before a pipe into `tee FILE`, and, after `exec >> f`, every later
+    command.
+    """
     found: list[Command] = []
     words: list[str] = []
     redirects: list[str] = []
@@ -924,6 +945,10 @@ def _commands_in(
     in_pattern = False  # a case pattern, up to its `)`
     closer: str | None = None  # `)` of an array literal or `]]` of a test
     depth = 0  # nested `case` statements
+    groups: list[tuple[str, int]] = []  # (closing word, start in `found`)
+    closed: tuple[int, int] | None = None  # the compound command just closed
+    piped: tuple[int, int] | None = None  # commands whose output is piped here
+    persistent: list[str] = []  # `exec >> file` redirections
 
     def run(text: str) -> None:
         for placeholder_scope, index in _PLACEHOLDER.findall(text):
@@ -936,15 +961,44 @@ def _commands_in(
                 stdin_text.append(substitution.body)
             found.extend(_commands_in(substitution.lines, registry, scope, inherited))
 
+    def attach(span: tuple[int, int], targets: list[str]) -> None:
+        for position in range(*span):
+            command = found[position]
+            found[position] = replace(command, redirects=(*command.redirects, *targets))
+
+    def close(closing: str) -> tuple[int, int] | None:
+        for position in range(len(groups) - 1, -1, -1):
+            if groups[position][0] == closing:
+                start = groups[position][1]
+                del groups[position:]
+                return start, len(found)
+        return None
+
     def at_start() -> bool:
         return all(word in _KEYWORDS for word in words)
 
-    def finish() -> None:
-        nonlocal words, redirects, stdin_text
+    def finish(operator: str | None = None) -> None:
+        nonlocal words, redirects, stdin_text, closed, piped
+        start = len(found)
+        span = closed if not words else None
+        closed = None
+        for word in words:
+            if word in _OPENERS:
+                groups.append((_OPENERS[word], len(found)))
+            elif word in _CLOSERS:
+                span = close(word) or span
+            elif word not in _KEYWORDS:
+                break
         if words or redirects:
             for word in words:
                 run(word)
             items = _unwrap(words)
+            if (
+                words
+                and words[0].rsplit("/", 1)[-1] == "exec"
+                and not any(isinstance(item, tuple) and item[0] for item in items)
+            ):
+                persistent.extend(redirects)  # `exec >> f` redirects what follows
             if not items and (redirects or stdin_text):
                 # `} >> "$GITHUB_ENV"` or `fi > log`: the redirection still applies.
                 items = [([], [])]
@@ -957,7 +1011,7 @@ def _commands_in(
                                 command.words,
                                 command.line,
                                 (*inherited, *item.assignments, *command.assignments),
-                                (*redirects, *command.redirects),
+                                (*persistent, *redirects, *command.redirects),
                                 (*stdin_text, *command.stdin_text),
                             )
                         )
@@ -968,10 +1022,17 @@ def _commands_in(
                             tuple(program),
                             line.strip(),
                             (*inherited, *assignments),
-                            tuple(redirects),
+                            (*persistent, *redirects),
                             tuple(stdin_text),
                         )
                     )
+        if span is not None and redirects:
+            attach(span, redirects)  # a compound command's redirection
+        own = span or (start, len(found))
+        if piped is not None and found[start:] and found[-1].program == "tee":
+            files = [w for w in found[-1].words[1:] if not w.startswith("-")]
+            attach(piped, files)  # `... | tee FILE` writes that output to FILE
+        piped = own if operator in {"|", "|&"} else None
         words, redirects, stdin_text = [], [], []
 
     for line in lines:
@@ -994,6 +1055,7 @@ def _commands_in(
                 if not token.operator and token.text == "esac":
                     depth -= 1
                     in_pattern = False
+                    closed = close("esac")
                 elif token.operator and token.text == ")":
                     in_pattern = False
             elif token.operator and any(ch in token.text for ch in "<>"):
@@ -1014,14 +1076,22 @@ def _commands_in(
                 and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*\+?=", words[-1])
             ):
                 closer = ")"  # an array literal: data
+            elif token.operator and token.text == "(":
+                finish(token.text)
+                groups.append((")", len(found)))  # a subshell
+            elif token.operator and token.text == ")":
+                finish(token.text)
+                closed = close(")")
             elif token.operator:
-                finish()
+                finish(token.text)
                 in_pattern = depth > 0 and token.text in _CASE_ARM_ENDS
             elif at_start() and token.text == "case":
                 depth += 1
                 in_header = True
+                groups.append(("esac", len(found)))
             elif at_start() and token.text == "esac" and depth:
                 depth -= 1
+                closed = close("esac")
             elif at_start() and token.text == "[[":
                 words.append(token.text)
                 closer = "]]"  # a test: its operators are data
@@ -1159,6 +1229,8 @@ def _read_option(
         name, has_value, _ = arg.partition("=")
         name = table.get("aliases", {}).get(name, name)
         if name in table["valued"]:
+            if not has_value and index + 1 >= len(args):
+                raise UnanalyzableScript(f"uv option {arg!r} needs a value: {where!r}")
             options.append(name)
             return index + (1 if has_value else 2)
         if name in table["flags"] and not has_value:
@@ -1173,8 +1245,11 @@ def _read_option(
         name = "-" + letter
         canonical = table.get("short", {}).get(name, name)
         if name in table["valued"]:
+            attached = offset < len(arg) - 1
+            if not attached and index + 1 >= len(args):
+                raise UnanalyzableScript(f"uv option {name!r} needs a value: {where!r}")
             options.append(canonical)
-            return index + (1 if offset < len(arg) - 1 else 2)
+            return index + (1 if attached else 2)
         if name not in table["flags"]:
             raise UnanalyzableScript(
                 f"unknown uv option {name!r} in {where!r}; if the pinned uv "
