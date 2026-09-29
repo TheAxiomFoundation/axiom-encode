@@ -113,6 +113,48 @@ def test_accepts_state_jurisdiction_repository_path(tmp_path: Path) -> None:
     )
 
 
+def test_accepts_exact_base_for_legacy_target_without_manifest(tmp_path: Path) -> None:
+    repository, source_ref = _repository(
+        tmp_path,
+        candidate_path="policies/des/faa5/basic-categorical-eligibility.yaml",
+        jurisdiction="us-az",
+    )
+    manifest = Path(
+        ".axiom/encoding-manifests/us-az/policies/des/faa5/"
+        "basic-categorical-eligibility.json"
+    )
+    subprocess.run(
+        ["git", "-C", str(repository), "rm", "-q", "--", str(manifest)],
+        check=True,
+    )
+    source_ref = _commit(repository, "legacy source without manifest")
+
+    verify_base_advance(
+        repository,
+        country="us",
+        source_ref=source_ref,
+        current_ref=source_ref,
+        candidate_path="policies/des/faa5/basic-categorical-eligibility.yaml",
+        rulespec_path=(
+            "us-az/policies/des/faa5/basic-categorical-eligibility.yaml"
+        ),
+    )
+
+    (repository / "unrelated.txt").write_text("advance\n", encoding="utf-8")
+    current_ref = _commit(repository, "advance without manifest")
+    with pytest.raises(ValueError, match="missing at its source RuleSpec base"):
+        verify_base_advance(
+            repository,
+            country="us",
+            source_ref=source_ref,
+            current_ref=current_ref,
+            candidate_path="policies/des/faa5/basic-categorical-eligibility.yaml",
+            rulespec_path=(
+                "us-az/policies/des/faa5/basic-categorical-eligibility.yaml"
+            ),
+        )
+
+
 def test_rejects_mismatched_state_candidate_repository_path(
     tmp_path: Path,
 ) -> None:
@@ -177,7 +219,6 @@ def test_rejects_noncanonical_state_repository_path(
     [
         "us/statutes/42/1437c-1.yaml",
         "us/statutes/42/1437c-1.test.yaml",
-        ".axiom/encoding-manifests/us/statutes/42/1437c-1.json",
     ],
 )
 def test_rejects_target_identity_missing_at_source_base(
