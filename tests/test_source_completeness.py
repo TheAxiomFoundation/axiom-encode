@@ -869,12 +869,18 @@ def test_multi_conjunct_excerpt_retains_conditional_context():
     assert len(completeness_module._source_conjunctive_fact_gates(clauses[0].text)) == 3
 
 
-def test_coordinated_excerpt_retains_its_trailing_condition():
+@pytest.mark.parametrize(
+    "excerpt",
+    [
+        "the spouse qualifies",
+        "the spouse qualifies if the spouse is a resident",
+    ],
+)
+def test_coordinated_excerpt_retains_its_trailing_condition(excerpt: str):
     source = (
         "The taxpayer must file and the spouse qualifies if the spouse is a "
         "resident and the spouse is a citizen."
     )
-    excerpt = "the spouse qualifies"
     rule = _ky_derived_rule(
         "spouse_qualifies",
         source="Arizona DES FAA5",
