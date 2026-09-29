@@ -2177,6 +2177,21 @@ def _bash_structure(run):
     return structure
 
 
+def _bash_errexit_disablers(run):
+    """Return main-shell commands in ``run`` that switch errexit off.
+
+    Reads bash's comment-free text with quote characters removed, so quoted
+    spellings (``set +o "errexit"``, ``set +'e'``) reduce to the plain form.
+    """
+
+    return [
+        command
+        for command, opened, _top, main_text in _bash_structure(run)
+        if set(opened) <= _MAIN_SHELL_CONTEXTS
+        and _ERREXIT_OFF.search(re.sub(r"[\"']", "", main_text))
+    ]
+
+
 def _bash_top_level_commands(run):
     """Return the commands bash runs at the top level of ``run``."""
 
@@ -2305,7 +2320,7 @@ def test_verification_tree_provisioning_tightens_opt(
     assert "shell" not in provision_step and context["shell"] is None
     assert not provision_step.get("continue-on-error")
     assert not context["continue_on_error"]
-    assert not _ERREXIT_OFF.search(provision_run)
+    assert not _bash_errexit_disablers(provision_run)
     assert not _STARTUP_FILE_ENV & {
         *context["env"],
         *(provision_step.get("env") or {}),
@@ -2614,6 +2629,9 @@ def test_opt_permission_suspects_ignore_other_paths(command):
         pytest.param({}, {}, "set +e\n", id="set-plus-e"),
         pytest.param({}, {}, "set +o errexit\n", id="set-plus-o-errexit"),
         pytest.param({}, {}, "set -x +e\n", id="set-x-plus-e"),
+        pytest.param({}, {}, 'set +o "errexit"\n', id="set-plus-o-quoted-errexit"),
+        pytest.param({}, {}, "set +'e'\n", id="set-plus-quoted-e"),
+        pytest.param({}, {}, "shopt -u -o 'errexit'\n", id="shopt-quoted-errexit"),
         pytest.param({}, {}, "set -x +o errexit\n", id="set-x-plus-o-errexit"),
         pytest.param({}, {}, "shopt -u -o errexit\n", id="shopt-unset-errexit"),
         pytest.param(
