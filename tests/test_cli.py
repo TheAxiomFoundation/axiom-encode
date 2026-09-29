@@ -151,6 +151,7 @@ from axiom_encode.cli import (
     _repair_colorado_tax_subsection_2_import,
     _repair_colorado_tax_subsection_2_test_inputs,
     _repair_employer_scoped_entities,
+    _repair_existing_target_oracle_shape_contracts,
     _repair_float_keyed_indexed_parameter_values,
     _repair_future_effective_output_tests,
     _repair_generated_import_symbol_near_misses,
@@ -47323,7 +47324,81 @@ inputs:
         assert supplemental == {}
         assert observed_contracts == [standalone_contract]
         assert [issue.partition(": ci: ")[2] for issue in overlay_issues] == (
-            standalone_issues
+            standalone_issues[1:]
+        )
+
+    def test_repairs_exact_mapped_shapes_without_rewriting_formulas(self, tmp_path):
+        rules_file = tmp_path / "replacement.yaml"
+        rules_file.write_text(
+            """format: rulespec/v1
+rules:
+  - name: valid_person_helper
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    metadata:
+      private: true
+      proof: preserved
+    versions:
+      - effective_from: '2026-01-01'
+        formula: generated_person_formula
+  - name: aggregate_helper
+    kind: derived
+    entity: Member
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: count_where(membership, predicate) > 0
+"""
+        )
+        contract = SimpleNamespace(
+            surfaces=(
+                SimpleNamespace(
+                    name="valid_person_helper",
+                    kind="derived",
+                    entity="Person",
+                    replacement_entity="",
+                    dtype="Judgment",
+                    period="Month",
+                    unit="",
+                    indexed_by=(),
+                    private=False,
+                ),
+                SimpleNamespace(
+                    name="aggregate_helper",
+                    kind="derived",
+                    entity="Member",
+                    replacement_entity="Household",
+                    dtype="Judgment",
+                    period="Month",
+                    unit="",
+                    indexed_by=(),
+                    private=False,
+                ),
+            )
+        )
+
+        repaired = _repair_existing_target_oracle_shape_contracts(
+            rules_file=rules_file,
+            contract=contract,
+        )
+
+        payload = yaml.safe_load(rules_file.read_text())
+        rules = {rule["name"]: rule for rule in payload["rules"]}
+        assert repaired == ["valid_person_helper", "aggregate_helper"]
+        assert rules["valid_person_helper"]["entity"] == "Person"
+        assert "private" not in rules["valid_person_helper"]["metadata"]
+        assert rules["valid_person_helper"]["metadata"]["proof"] == "preserved"
+        assert (
+            rules["valid_person_helper"]["versions"][0]["formula"]
+            == "generated_person_formula"
+        )
+        assert rules["aggregate_helper"]["entity"] == "Household"
+        assert (
+            rules["aggregate_helper"]["versions"][0]["formula"]
+            == "count_where(membership, predicate) > 0"
         )
 
     def test_apply_overlay_scopes_authenticated_canonical_replacement(self, tmp_path):

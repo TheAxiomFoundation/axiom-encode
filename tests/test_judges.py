@@ -13,8 +13,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import posixpath
 import re
+import shutil
 import sqlite3
+import subprocess
 import sys
 import types
 from pathlib import Path, PurePosixPath
@@ -1838,6 +1841,986 @@ def test_bulk_worklist_workflow_has_no_legacy_generation_lane():
         for step in workflow["jobs"]["preclassify"]["steps"]
         if "uses" in step
     )
+
+
+_VERIFICATION_TREE = "/opt/axiom-verification"
+# The signing supervisor rejects any ancestor of its executable that is
+# group- or other-writable (validateTrustedAncestors in
+# cmd/axiom-encode-signing-supervisor/execution_trust.go), and GitHub's ubuntu
+# runner image ships /opt group-writable. Every step that provisions the
+# protected tree must also tighten /opt itself, then fail closed if it did not.
+_OPT_HARDENING = (
+    "sudo chown 0:0 /opt",
+    "sudo chmod go-w /opt",
+    'test "$(stat -c \'%u\' /opt)" = "0"',
+    'test -z "$(find /opt -maxdepth 0 -perm /022)"',
+)
+_TREE_HARDENING = (
+    f"sudo chown -R 0:0 {_VERIFICATION_TREE}",
+    f"sudo chmod -R go-w {_VERIFICATION_TREE}",
+)
+# Programs that can change a directory's mode or owner (tar and rsync copy an
+# archive's metadata onto an existing directory), and the files through which a
+# step hands values to later steps.
+_PERMISSION_PROGRAM = re.compile(
+    r"\b(?:chgrp|chmod|chown|cp|cpio|install|rsync|setfacl|(?:bsd|g)?tar)\b"
+)
+_PERMISSION_TRIGGER = re.compile(
+    rf"{_PERMISSION_PROGRAM.pattern}|\bGITHUB_(?:ENV|OUTPUT)\b"
+)
+# The operand of `cd`/`pushd`, after any options (`cd -- /`, `cd -P ..`).
+_CD_OPERAND = re.compile(
+    r"\b(?:cd|pushd)(?:\s+-[-A-Za-z]*)*\s+(?:\$?[\"'])?([^\s\"';&|)]+)"
+)
+# A literal absolute path starts a word: at line start, after whitespace or a
+# shell operator (including `-` and `+` for `${VAR:-/opt}`), after a quote,
+# possibly escaped, that does, or attached to a short-option cluster (`-C/opt`,
+# `-xzfC/opt`). `"$VAR"/x`, `$VAR/x`, `a/b` and URLs' later slashes are not.
+_PATH_BOUNDARY = r"[\s=(;|&<>:,{`\[+-]"
+# `$'/opt'` (ANSI-C quoting) counts as a quote too.
+_ATTACHED_OPTION = "|".join(
+    rf"(?<={start}-[A-Za-z]{{{width}}}{quote})"
+    for width in range(1, 7)
+    for start in (r"\s", "^")
+    for quote in ("", "[\"']", "\\\\[\"']")
+)
+_LITERAL_PATH = re.compile(
+    rf"(?:(?<=^)|(?<={_PATH_BOUNDARY})|(?<={_PATH_BOUNDARY}[\"'])"
+    rf"|(?<={_PATH_BOUNDARY}\\[\"'])|(?<=^[\"'])|(?<={_PATH_BOUNDARY}\$')"
+    rf"|(?<=^\$')|{_ATTACHED_OPTION})"
+    r"(/[\w./-]*)"
+)
+# `X=/` assigns the root even on a line that runs nothing; `..` climbs out of
+# a working directory the guard cannot otherwise resolve.
+_ROOT_ASSIGNMENT = re.compile(r"=[\"']?/+(?:[\"'\s;]|$)")
+# `..` that is not part of a longer name (`a..b`, `{1..5}`, `...`).
+_PARENT_OPERAND = re.compile(r"(?<![\w.])\.\.(?![\w.])")
+
+
+def _literal_paths(line):
+    return {
+        "/" + posixpath.normpath(path).lstrip("/")
+        for path in _LITERAL_PATH.findall(line)
+    }
+
+
+def _cd_moves(line):
+    """Return (changes to the root, climbs with ``..``) for a line's cd/pushd."""
+
+    operands = _CD_OPERAND.findall(line)
+    to_root = any(
+        operand.startswith("/") and posixpath.normpath("/" + operand.lstrip("/")) == "/"
+        for operand in operands
+    )
+    climbs = any(
+        not operand.startswith("/") and ".." in operand.split("/")
+        for operand in operands
+    )
+    return to_root, climbs
+
+
+def _at_or_under_opt(paths):
+    return any(path == "/opt" or path.startswith("/opt/") for path in paths)
+
+
+def _opt_permission_suspects(run, env=None, working_directory=None):
+    """Return the lines of a step that could change the permissions of /opt or /.
+
+    Deliberately conservative rather than a shell parser. When a step names a
+    permission program or writes ``$GITHUB_ENV``/``$GITHUB_OUTPUT`` anywhere
+    (its effective ``env:`` and ``working-directory`` included), a suspect is:
+
+    * a context line naming /opt or /, or a working directory at or under /opt;
+    * a command line holding a literal path that normalizes to /opt;
+    * a command line assigning the root (``X=/``), changing to it (``cd /``,
+      ``cd -- /``, ``cd /usr/..``),
+      or holding a literal / (or //) while itself running one of those
+      programs. The root check is otherwise per line because ``/`` and ``//``
+      are also Python and jq operators, and ``tr -d '/'`` is not a path;
+    * a command line with a ``..`` operand that runs one of those programs,
+      or that changes to ``..``, in a step whose context or code names a path
+      at or under /opt, since a ``cd`` on an earlier line may have moved there.
+
+    Quoting (escaped or not), separators, comments, continuations, ``sh -c``
+    wrappers, pipelines, ``${VAR:-/opt}``, ``cd /``, ``D=/opt``, ``X=/``,
+    ``chmod ..`` below /opt and hand-offs through ``$GITHUB_ENV`` therefore
+    fail closed. Comment-only lines are skipped
+    because they never execute; backslash-newline joins code lines but never
+    extends a comment, as in bash. A path assembled at run time is out of
+    scope: this guards against accidental edits, and the supervisor's own
+    ancestor check still refuses to start on a loose /opt.
+    """
+
+    context = [f"{name}={value}" for name, value in (env or {}).items()]
+    if working_directory:
+        context.append(f"working-directory={working_directory}")
+    code = []
+    pending = ""
+    for line in run.splitlines():
+        if not pending and line.lstrip().startswith("#"):
+            continue  # bash ends a comment at the newline, even after a backslash
+        if line.endswith("\\"):
+            pending += line[:-1]
+            continue
+        code.append(pending + line)
+        pending = ""
+    if pending:
+        code.append(pending)
+    if not _PERMISSION_TRIGGER.search("\n".join(context + code)):
+        return []
+    below_opt = bool(working_directory) and _at_or_under_opt(
+        _literal_paths(f" {working_directory}")
+    )
+    suspects = [line for line in context if _literal_paths(line) & {"/", "/opt"}]
+    if below_opt and context[-1] not in suspects:
+        suspects.append(context[-1])
+    names_under_opt = below_opt or any(
+        _at_or_under_opt(_literal_paths(line)) for line in context + code
+    )
+    for line in code:
+        paths = _literal_paths(line)
+        cd_to_root, cd_climbs = _cd_moves(line)
+        if (
+            "/opt" in paths
+            or _ROOT_ASSIGNMENT.search(line)
+            or cd_to_root
+            or ("/" in paths and _PERMISSION_PROGRAM.search(line))
+            or (
+                names_under_opt
+                and (
+                    cd_climbs
+                    or (
+                        _PARENT_OPERAND.search(line)
+                        and _PERMISSION_PROGRAM.search(line)
+                    )
+                )
+            )
+        ):
+            suspects.append(line.strip())
+    return suspects
+
+
+_HEREDOC_OPERATOR = re.compile(r"(?<!<)<<(?!<)-?\s*([\"']?)([^\s\"';&|<>()]+)\1")
+# `set +e`, `set -x +e`, `set +o errexit`, `shopt -u -o errexit`: anything that
+# switches errexit off before the fail-closed checks.
+_ERREXIT_OFF = re.compile(
+    r"\bset\b[^;&|\n]*\s\+[A-Za-z]*e"
+    r"|\bset\b[^;&|\n]*\s\+o\s+errexit\b"
+    r"|\bshopt\b[^;&|\n]*\s-[A-Za-z]*u[^;&|\n]*\berrexit\b"
+)
+
+
+# An early successful exit skips the checks ("already provisioned"); only
+# `exit`/`return` with a literal status that is non-zero modulo 256 still fails
+# closed. This also covers `trap 'exit 0' ERR`. `exec` with a command replaces
+# the shell; a redirect-only `exec >log` does not. `--exit-code` is not an exit.
+_EXIT_OR_RETURN = re.compile(r"(?<![\w-])(?:exit|return)\b(?!-)(?:\s+(\d+)\b)?")
+_EXEC_COMMAND = re.compile(r"(?<![\w-])exec\s+(?![0-9]*[<>&])\S")
+
+
+def _ends_successfully(text):
+    return bool(_EXEC_COMMAND.search(text)) or any(
+        status is None or int(status) % 256 == 0
+        for status in (match.group(1) for match in _EXIT_OR_RETURN.finditer(text))
+    )
+
+
+_STARTUP_FILE_ENV = frozenset({"BASH_ENV", "ENV"})
+_WORD_BREAK = " \t;&|()"
+# Text read in the main shell: quoted text counts (a `trap 'exit 0'` action),
+# the inside of `$(...)`, backticks, `(...)` and `$((...))` does not.
+_MAIN_SHELL_CONTEXTS = frozenset({"case", "'", '"', "$'"})
+
+
+def _bash_declared_lines(run):
+    """Return ``run`` as bash itself prints it from ``declare -f``.
+
+    bash re-parses the text and prints it canonically: comments dropped and
+    compound commands re-indented. Defining the function runs nothing; the
+    shell is restricted with an empty PATH in case a stray ``}`` closes the
+    function early.
+    """
+
+    bash = shutil.which("bash")
+    assert bash, "bash is required to check the provisioning step's structure"
+    result = subprocess.run(
+        [
+            bash,
+            "--noprofile",
+            "--norc",
+            "-r",
+            "-c",
+            f"__provision_step() {{\n{run}\n}}\ndeclare -f __provision_step\n",
+        ],
+        capture_output=True,
+        text=True,
+        env={"PATH": ""},
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    return result.stdout.splitlines()
+
+
+def _bash_line_contexts(lines):
+    """Pair each printed line with the constructs open where it starts.
+
+    Each entry is (line, constructs open at its start, the line's main-shell
+    text).
+
+    Tracks quotes (``'``, ``"``, ``$'``), command substitutions (``$(``,
+    backticks), arithmetic (``$((``), subshells (``(``), ``case`` bodies (whose
+    pattern ``)`` closes nothing) and heredoc bodies (``<<``). bash prints the
+    bodies of subshells, substitutions and heredocs at the enclosing indent or
+    verbatim, so indentation alone cannot tell they are nested.
+    """
+
+    stack = []
+    pending_heredocs = []
+    heredoc_end = None
+    contexts = []
+    for line in lines:
+        if heredoc_end is not None:
+            contexts.append((line, ("<<",), ""))
+            if line.lstrip("\t") == heredoc_end:
+                heredoc_end = pending_heredocs.pop(0) if pending_heredocs else None
+            continue
+        opened = tuple(stack)
+        main_text = []
+        index = 0
+        while index < len(line):
+            char = line[index]
+            if set(stack) <= _MAIN_SHELL_CONTEXTS:
+                main_text.append(char)
+            top = stack[-1] if stack else None
+            at_word = index == 0 or line[index - 1] in _WORD_BREAK
+            if top in ("'",):
+                if char == "'":
+                    stack.pop()
+            elif top in ("$'", '"', "`"):
+                closer = {"$'": "'", '"': '"', "`": "`"}[top]
+                if char == "\\":
+                    index += 1
+                elif char == closer:
+                    stack.pop()
+                elif top == '"' and line.startswith("$(", index):
+                    stack.append("$(")
+                    index += 1
+                elif top == '"' and char == "`":
+                    stack.append("`")
+            elif char == "\\":
+                index += 1
+            elif char == "#" and at_word:
+                break
+            elif line.startswith("$'", index):
+                stack.append("$'")
+                index += 1
+            elif char in "'\"`":
+                stack.append(char)
+            elif line.startswith("$((", index):
+                stack.append("$((")
+                index += 2
+            elif line.startswith("$(", index):
+                stack.append("$(")
+                index += 1
+            elif char == "(":
+                stack.append("(")
+            elif char == ")":
+                if top == "$((" and line.startswith("))", index):
+                    stack.pop()
+                    index += 1
+                elif top in ("$(", "(", "$(("):
+                    stack.pop()
+            elif at_word and re.match(r"case(?=[ \t])", line[index:]):
+                stack.append("case")
+                index += 3
+            elif at_word and re.match(r"esac(?=$|[ \t;&|)])", line[index:]):
+                while stack and stack.pop() != "case":
+                    pass
+                index += 3
+            elif line.startswith("<<", index) and not line.startswith("<<<", index):
+                heredoc = _HEREDOC_OPERATOR.match(line, index)
+                if heredoc:
+                    pending_heredocs.append(heredoc.group(2))
+                    index = heredoc.end() - 1
+            index += 1
+        contexts.append((line, opened, "".join(main_text)))
+        if pending_heredocs and heredoc_end is None:
+            heredoc_end = pending_heredocs.pop(0)
+    return contexts
+
+
+def _bash_structure(run):
+    """Return (command, open constructs, is top level, main-shell text).
+
+    A line is top level when bash prints it at four spaces with nothing open.
+    Nothing after a four-space ``(`` counts either, so a subshell wrapper stays
+    nested even if the scanner misreads its contents.
+    """
+
+    structure = []
+    after_subshell = False
+    for line, opened, main_text in _bash_line_contexts(_bash_declared_lines(run)):
+        four_spaces = line.startswith("    ") and not line.startswith("     ")
+        after_subshell = after_subshell or (
+            four_spaces and not opened and line[4:].startswith("(")
+        )
+        command = " ".join(line.strip().rstrip(";").split())
+        structure.append(
+            (
+                command,
+                opened,
+                four_spaces and not opened and not after_subshell,
+                main_text,
+            )
+        )
+    return structure
+
+
+def _bash_errexit_disablers(run):
+    """Return main-shell commands in ``run`` that switch errexit off.
+
+    Reads bash's comment-free text with quote characters removed, so quoted
+    spellings (``set +o "errexit"``, ``set +'e'``) reduce to the plain form.
+    """
+
+    return [
+        command
+        for command, opened, _top, main_text in _bash_structure(run)
+        if set(opened) <= _MAIN_SHELL_CONTEXTS
+        and _ERREXIT_OFF.search(re.sub(r"[\"']", "", main_text))
+    ]
+
+
+def _bash_top_level_commands(run):
+    """Return the commands bash runs at the top level of ``run``."""
+
+    return {command for command, _opened, top, _text in _bash_structure(run) if top}
+
+
+def _bash_early_success_exits(run, commands):
+    """Return lines that could end ``run`` successfully before ``commands``.
+
+    Exits inside a substitution, subshell or heredoc end only that child, so
+    they are ignored; exits in the main shell (including inside an ``if``,
+    ``case`` or ``trap`` action) count.
+    """
+
+    structure = _bash_structure(run)
+    normalized = {" ".join(command.split()) for command in commands}
+    last = max(
+        (
+            index
+            for index, (command, _opened, top, _text) in enumerate(structure)
+            if top and command in normalized
+        ),
+        default=len(structure),
+    )
+    return [
+        command
+        for command, opened, _top, main_text in structure[:last]
+        if set(opened) <= _MAIN_SHELL_CONTEXTS and _ends_successfully(main_text)
+    ]
+
+
+def _verification_tree_jobs():
+    workflows_dir = Path(__file__).parents[1] / ".github" / "workflows"
+    jobs = []
+    for path in sorted(workflows_dir.glob("*.y*ml")):
+        workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+        for job_name, job in workflow["jobs"].items():
+            steps = job.get("steps", [])
+            if not any(_VERIFICATION_TREE in step.get("run", "") for step in steps):
+                continue
+            defaults = [
+                (scope.get("defaults") or {}).get("run") or {}
+                for scope in (job, workflow)
+            ]
+            context = {
+                "env": {**(workflow.get("env") or {}), **(job.get("env") or {})},
+                "working_directory": next(
+                    (
+                        d["working-directory"]
+                        for d in defaults
+                        if "working-directory" in d
+                    ),
+                    None,
+                ),
+                "shell": next((d["shell"] for d in defaults if "shell" in d), None),
+                "continue_on_error": job.get("continue-on-error", False),
+            }
+            jobs.append((path.name, job_name, steps, context))
+    return jobs
+
+
+def test_verification_tree_discovery_covers_every_known_provisioner():
+    discovered = {workflow for workflow, *_rest in _verification_tree_jobs()}
+
+    assert {
+        "bulk-encode.yml",
+        "golden-regeneration.yml",
+        "signed-apply-reusable.yml",
+        "targeted-signed-reencode.yml",
+    } <= discovered
+
+
+@pytest.mark.parametrize(
+    ("workflow_name", "job_name", "steps", "context"),
+    [pytest.param(*job, id=f"{job[0]}:{job[1]}") for job in _verification_tree_jobs()],
+)
+def test_verification_tree_provisioning_tightens_opt(
+    workflow_name, job_name, steps, context
+):
+    tree_indexes = [
+        index
+        for index, step in enumerate(steps)
+        if _VERIFICATION_TREE in step.get("run", "")
+    ]
+    provision_step = steps[tree_indexes[0]]
+    provision_run = provision_step["run"]
+    lines = [line.strip() for line in provision_run.splitlines()]
+    provisioner_line = next(
+        (
+            index
+            for index, line in enumerate(lines)
+            if "provision_verification_supervisor.py" in line
+        ),
+        None,
+    )
+
+    # The first step in the job that touches the tree is the one provisioning
+    # it, so no earlier step can run anything from it.
+    assert provisioner_line is not None, (
+        f"{workflow_name}:{job_name} uses {_VERIFICATION_TREE} before provisioning it"
+    )
+    assert f"--destination {_VERIFICATION_TREE}" in provision_run
+    missing = [
+        command
+        for command in (*_TREE_HARDENING, *_OPT_HARDENING)
+        if command not in lines
+    ]
+    assert not missing, (
+        f"{workflow_name}:{job_name} provisions {_VERIFICATION_TREE} "
+        f"without hardening it and /opt: {missing}"
+    )
+    assert all(lines.index(command) > provisioner_line for command in _TREE_HARDENING)
+    opt_positions = [lines.index(command) for command in _OPT_HARDENING]
+    assert opt_positions == sorted(opt_positions)
+    # The fail-closed checks only fail the job as top-level commands under the
+    # default `bash -e` shell, with no `set +e` and no continue-on-error: inside
+    # a `{ ...; } | tee` or `{ ...; } || echo` group, an `if` or a function, or
+    # after a `\\` or `||` carried from the line before, bash ignores -e.
+    top_level = _bash_top_level_commands(provision_run)
+    nested = [
+        command
+        for command in _OPT_HARDENING
+        if " ".join(command.split()) not in top_level
+    ]
+    assert not nested, f"{workflow_name}:{job_name} nests {nested}"
+    assert "shell" not in provision_step and context["shell"] is None
+    assert not provision_step.get("continue-on-error")
+    assert not context["continue_on_error"]
+    assert not _bash_errexit_disablers(provision_run)
+    assert not _STARTUP_FILE_ENV & {
+        *context["env"],
+        *(provision_step.get("env") or {}),
+    }
+    # Nor may any step hand one to later steps through $GITHUB_ENV.
+    assert not any(re.search(r"\bBASH_ENV\b", step.get("run", "")) for step in steps)
+    early_exits = _bash_early_success_exits(provision_run, _OPT_HARDENING)
+    assert not early_exits, early_exits
+    # The hardening lines are the only lines anywhere in the job that could
+    # change the permissions of /opt or /, so nothing loosens /opt again before
+    # the supervisor runs.
+    suspects = [
+        line
+        for step in steps
+        for line in _opt_permission_suspects(
+            step.get("run", ""),
+            {**context["env"], **(step.get("env") or {})},
+            step.get("working-directory") or context["working_directory"],
+        )
+    ]
+    assert suspects == list(_OPT_HARDENING)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "sudo chmod g+w /opt",
+        'sudo chmod g+w "/opt"',
+        "sudo chmod g+w '/opt'",
+        "sudo chmod g+w /opt;",
+        "sudo chmod g+w /opt/",
+        "sudo chmod g+w /opt/../opt",
+        "sudo -- chmod 775 /opt",
+        "true && sudo chgrp runner /opt || exit 1",
+        "sudo chmod \\\n  g+w /opt",
+        "sudo chmod g+w /op\\\nt",
+        "sudo chmod -R g+w /",
+        "sudo /bin/chmod 1777 //opt",
+        "sudo setfacl -m g:runner:rwx /opt",
+        "sudo install -d -m 0777 /opt",
+        "sudo chmod g+w '/opt",
+        "sudo sh -c 'chmod g+w /opt'",
+        "sudo sh -c 'sh -c \"chmod g+w /opt\"'",
+        'sudo bash -ec "true; chmod 775 /opt"',
+        "sudo bash -euo pipefail -c 'chmod 775 /opt'",
+        "sudo bash -O extglob -c 'chmod g+w /opt'",
+        "sudo bash --rcfile /dev/null -c 'chmod g+w /opt'",
+        "sudo find /opt -maxdepth 0 -exec chmod g+w {} +",
+        "echo /opt | sudo xargs chmod g+w",
+        "echo /opt |\n  sudo xargs chmod g+w",
+        "echo /opt | # keep runner access\n  sudo xargs chmod g+w",
+        "echo /opt |\n\n  sudo xargs chmod g+w",
+        "(( ${#x[@]} )) && sudo chmod g+w /opt",
+        "# a &&\nsudo chmod g+w /opt",
+        "# note \\\nsudo chmod g+w /opt",
+        "cd / && sudo chmod g+w opt",
+        'D=/opt; sudo chmod g+w "$D"',
+        'sudo chmod g+w "${TARGET:-/opt}"',
+        'sudo chmod g+w "${TARGET-/opt}"',
+        'sudo chmod g+w "${TARGET:-/}"',
+        'echo "TARGET=/opt" >> "$GITHUB_ENV"',
+        'echo "target=/" >> "$GITHUB_OUTPUT"',
+        "sudo tar -xzf tool.tgz -C /opt",
+        "sudo rsync -a vendor/ /opt/",
+        "cd /\nsudo chmod g+w opt",
+        'sudo sh -c "chmod g+w \\"/opt\\""',
+        'TARGET=/\nsudo chmod g+w "$TARGET"opt',
+        'cat >> "$GITHUB_ENV" <<EOF\nTARGET=/\nEOF',
+        "cd /opt/hostedtoolcache && sudo chmod g+w ..",
+        "cd /opt/hostedtoolcache\nsudo chmod g+w ..",
+        "pushd /opt/hostedtoolcache\nsudo chmod g+w ..",
+        'D=/opt/hostedtoolcache; sudo chmod g+w "$D/.."',
+        "cd /opt/hostedtoolcache\ncd ..\nsudo chmod g+w .",
+        "sudo tar -xzf tool.tgz -C/opt",
+        "sudo tar -xzfC/opt tool.tgz",
+        'sudo tar -xzf tool.tgz -C"/opt"',
+        "sudo tar -xzf tool.tgz -C'/opt'",
+        "(cd /opt/hostedtoolcache && sudo chmod g+w ..)",
+        "sudo bsdtar -xf tool.tar -C /opt",
+        "cd -- /\nsudo chmod g+w opt",
+        "pushd -- /\nsudo chmod g+w opt",
+        "cd /usr/..\nsudo chmod g+w opt",
+        "cd /opt/hostedtoolcache\ncd -- ..\nsudo chmod g+w .",
+        "cd -P /opt/hostedtoolcache/..\nsudo chmod g+w .",
+        "sudo chmod g+w $'/opt'",
+        "sudo cp -a tool/. /opt/",
+        'sudo chmod g+w "${TARGET:+/opt}"',
+        "python -c 'import os; [os.chmod(p, 0o775) for p in [\"/opt\"]]'",
+    ],
+)
+def test_opt_permission_suspects_see_through_shell_syntax(command):
+    assert _opt_permission_suspects(f"echo before\n{command}\necho after\n")
+
+
+def test_opt_permission_suspects_include_step_context():
+    assert _opt_permission_suspects('sudo chmod g+w "$TARGET"', {"TARGET": "/opt"})
+    assert _opt_permission_suspects("sudo chmod g+w opt", working_directory="/")
+    assert _opt_permission_suspects(
+        "sudo chmod g+w ..", working_directory="/opt/hostedtoolcache"
+    )
+    assert _opt_permission_suspects(
+        'cd "$TOOLCACHE" && sudo chmod g+w ..', {"TOOLCACHE": "/opt/hostedtoolcache"}
+    )
+    assert not _opt_permission_suspects("ls", {"TARGET": "/opt"})
+
+
+def _verification_tree_job(workflow_name, job_name):
+    return next(
+        job for job in _verification_tree_jobs() if job[:2] == (workflow_name, job_name)
+    )
+
+
+def _golden_drift_job():
+    return _verification_tree_job("golden-regeneration.yml", "drift")
+
+
+@pytest.mark.parametrize(
+    ("workflow_env", "job_env", "defaults", "added_steps"),
+    [
+        pytest.param(
+            {},
+            {},
+            None,
+            [
+                {"run": 'echo "TARGET=/opt" >> "$GITHUB_ENV"'},
+                {"run": 'sudo chmod g+w "$TARGET"'},
+            ],
+            id="github-env-hand-off",
+        ),
+        pytest.param(
+            {},
+            {},
+            None,
+            [{"working-directory": "/", "run": "sudo chmod g+w opt"}],
+            id="step-working-directory",
+        ),
+        pytest.param(
+            {},
+            {"TOOL_ROOT": "/opt"},
+            None,
+            [{"run": 'sudo chmod -R g+w "$TOOL_ROOT"'}],
+            id="job-env",
+        ),
+        pytest.param(
+            {"TOOL_ROOT": "/opt"},
+            {},
+            None,
+            [{"run": 'sudo chmod -R g+w "$TOOL_ROOT"'}],
+            id="workflow-env",
+        ),
+        pytest.param(
+            {},
+            {},
+            "/",
+            [{"run": "sudo chmod g+w opt"}],
+            id="defaults-working-directory",
+        ),
+        pytest.param(
+            {},
+            {},
+            None,
+            [
+                {
+                    "working-directory": "/opt/hostedtoolcache",
+                    "run": "sudo chmod g+w ..",
+                }
+            ],
+            id="parent-of-working-directory",
+        ),
+        pytest.param(
+            {},
+            {},
+            None,
+            [{"run": "cd /opt/hostedtoolcache\nsudo chmod g+w .."}],
+            id="parent-after-multiline-cd",
+        ),
+        pytest.param(
+            {},
+            {},
+            None,
+            [
+                {
+                    "env": {"TOOLCACHE": "/opt/hostedtoolcache"},
+                    "run": 'cd "$TOOLCACHE" && sudo chmod g+w ..',
+                }
+            ],
+            id="parent-through-step-env",
+        ),
+        pytest.param(
+            {},
+            {},
+            None,
+            [{"run": "cd /opt/hostedtoolcache\ncd ..\nsudo chmod g+w ."}],
+            id="cd-parent-then-dot",
+        ),
+        pytest.param(
+            {},
+            {},
+            None,
+            [{"run": "sudo tar -xzf tool.tgz -C/opt"}],
+            id="attached-short-option",
+        ),
+        pytest.param(
+            {},
+            {},
+            None,
+            [{"run": 'sudo tar -xzf tool.tgz -C"/opt"'}],
+            id="quoted-attached-short-option",
+        ),
+        pytest.param(
+            {},
+            {},
+            None,
+            [{"run": "(cd /opt/hostedtoolcache && sudo chmod g+w ..)"}],
+            id="parent-in-subshell",
+        ),
+        pytest.param(
+            {},
+            {},
+            None,
+            [{"run": "cd -- /\nsudo chmod g+w opt"}],
+            id="cd-double-dash-root",
+        ),
+        pytest.param(
+            {},
+            {},
+            None,
+            [{"run": "cd /opt/hostedtoolcache\ncd -- ..\nsudo chmod g+w ."}],
+            id="cd-double-dash-parent",
+        ),
+        pytest.param(
+            {},
+            {},
+            None,
+            [
+                {"run": 'cat >> "$GITHUB_ENV" <<EOF\nTARGET=/\nEOF'},
+                {"run": 'sudo chmod g+w "$TARGET"opt'},
+            ],
+            id="root-through-github-env-heredoc",
+        ),
+    ],
+)
+def test_verification_tree_guard_sees_job_context(
+    workflow_env, job_env, defaults, added_steps
+):
+    workflow_name, job_name, steps, context = _golden_drift_job()
+    provision = next(
+        index
+        for index, step in enumerate(steps)
+        if _VERIFICATION_TREE in step.get("run", "")
+    )
+    mutated = [*steps[: provision + 1], *added_steps, *steps[provision + 1 :]]
+    mutated_context = {
+        **context,
+        "env": {**context["env"], **workflow_env, **job_env},
+        "working_directory": defaults or context["working_directory"],
+    }
+
+    with pytest.raises(AssertionError):
+        test_verification_tree_provisioning_tightens_opt(
+            workflow_name, job_name, mutated, mutated_context
+        )
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        f"sudo chmod -R go-w {_VERIFICATION_TREE}",
+        f"sudo chown -R 0:0 {_VERIFICATION_TREE}",
+        f"sudo install -o root -g root -m 0755 signer {_VERIFICATION_TREE}/signer",
+        f'sudo sh -c "chmod -R go-w {_VERIFICATION_TREE}"',
+        'test -z "$(find /opt -maxdepth 0 -perm /022)"',
+        "# sudo chmod g+w /opt",
+        "sudo mkdir -p /opt",
+        "ls -ld /opt",
+        "echo /opt | grep opt",
+        "ls /opt |\n  grep hostedtoolcache",
+        "sudo bash -euo pipefail -c 'ls -ld /opt'",
+        "sudo bash scripts/install.sh",
+        "uv pip install --target /opt/axiom-verification/site .",
+        'chmod 0644 "$RUNNER_TEMP/opt"',
+        "sudo chmod 0755 /usr/local/bin/tool 2>/dev/null",
+        'rsync -a src "$GITHUB_WORKSPACE"/',
+        'cp -a "$RUNNER_TEMP/staged/." "$out/"',
+        'echo "path=$(python -c \'print(root / name)\')" >> "$GITHUB_OUTPUT"',
+        'jurs="$(cd "$genroot" && ls -d */ | tr -d \'/\')"\ncp -a a b',
+        "cd .. && chmod 0644 notes.txt",
+        'gcc -I/usr/include -L"$RUNNER_TEMP"/lib -o out main.c && chmod 755 out',
+        'for i in {1..5}; do chmod 0644 "part-$i"; done',
+        'cd -- "$GITHUB_WORKSPACE" && chmod 0644 notes.txt',
+        "cd /usr/local\nchmod 755 bin/tool",
+        "chmod 0644 out.json\nflag=\"$(jq -r '.flag // false' out.json)\"",
+    ],
+)
+def test_opt_permission_suspects_ignore_other_paths(command):
+    assert _opt_permission_suspects(command) == []
+
+
+@pytest.mark.parametrize(
+    ("step_changes", "context_changes", "prefix"),
+    [
+        pytest.param({"continue-on-error": True}, {}, "", id="step-continue-on-error"),
+        pytest.param({"shell": "bash {0}"}, {}, "", id="step-shell-without-e"),
+        pytest.param({}, {"shell": "bash {0}"}, "", id="defaults-shell"),
+        pytest.param({}, {"continue_on_error": True}, "", id="job-continue-on-error"),
+        pytest.param({}, {}, "set +e\n", id="set-plus-e"),
+        pytest.param({}, {}, "set +o errexit\n", id="set-plus-o-errexit"),
+        pytest.param({}, {}, "set -x +e\n", id="set-x-plus-e"),
+        pytest.param({}, {}, 'set +o "errexit"\n', id="set-plus-o-quoted-errexit"),
+        pytest.param({}, {}, "set +'e'\n", id="set-plus-quoted-e"),
+        pytest.param({}, {}, "shopt -u -o 'errexit'\n", id="shopt-quoted-errexit"),
+        pytest.param({}, {}, "set -x +o errexit\n", id="set-x-plus-o-errexit"),
+        pytest.param({}, {}, "shopt -u -o errexit\n", id="shopt-unset-errexit"),
+        pytest.param(
+            {},
+            {},
+            "if [ -x /opt/axiom-verification/axiom-encode ]; then exit 0; fi\n",
+            id="early-exit-if-provisioned",
+        ),
+        pytest.param({}, {}, "true || exit\n", id="early-bare-exit"),
+        pytest.param(
+            {},
+            {},
+            "if [ -x /opt/axiom-verification/axiom-encode ]; then\n"
+            "  exit 0  # already provisioned\n"
+            "fi\n",
+            id="early-exit-with-comment",
+        ),
+        pytest.param({}, {}, "trap 'exit 0' ERR\n", id="trap-exit-zero"),
+        pytest.param({}, {}, 'true || exit "0"\n', id="early-quoted-zero"),
+        pytest.param({}, {}, "trap '\n  exit 0\n' ERR\n", id="multiline-trap"),
+        pytest.param({}, {}, "true || exit 256\n", id="exit-256-wraps-to-zero"),
+        pytest.param(
+            {},
+            {},
+            "if [ -x /opt/axiom-verification/axiom-encode ]; then exec true; fi\n",
+            id="exec-replaces-shell",
+        ),
+        pytest.param({"env": {"BASH_ENV": "./relax.sh"}}, {}, "", id="step-bash-env"),
+        pytest.param({}, {"env": {"BASH_ENV": "./relax.sh"}}, "", id="job-bash-env"),
+    ],
+)
+def test_verification_tree_fail_closed_checks_cannot_be_neutralized(
+    step_changes, context_changes, prefix
+):
+    workflow_name, job_name, steps, context = _golden_drift_job()
+    provision = next(
+        index
+        for index, step in enumerate(steps)
+        if _VERIFICATION_TREE in step.get("run", "")
+    )
+    mutated = [dict(step) for step in steps]
+    mutated[provision] = {
+        **mutated[provision],
+        **step_changes,
+        "run": prefix + mutated[provision]["run"],
+    }
+
+    with pytest.raises(AssertionError):
+        test_verification_tree_provisioning_tightens_opt(
+            workflow_name, job_name, mutated, {**context, **context_changes}
+        )
+
+
+def test_verification_tree_rejects_bash_env_hand_off_from_an_earlier_step():
+    workflow_name, job_name, steps, context = _golden_drift_job()
+    mutated = [
+        {"run": 'echo "BASH_ENV=$RUNNER_TEMP/relax.sh" >> "$GITHUB_ENV"'},
+        *steps,
+    ]
+
+    with pytest.raises(AssertionError):
+        test_verification_tree_provisioning_tightens_opt(
+            workflow_name, job_name, mutated, context
+        )
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        pytest.param(
+            "ver=\"$(python -c 'import sys; sys.exit(0)')\"\n", id="substitution"
+        ),
+        pytest.param("python <<'PY'\nimport sys\nsys.exit(0)\nPY\n", id="heredoc"),
+        pytest.param(
+            'case "$x" in\n  a) echo bad; exit 1 ;;\nesac\n', id="nonzero-exit"
+        ),
+        pytest.param("git diff --exit-code -- uv.lock\n", id="exit-code-flag"),
+        pytest.param(
+            'exec > >(tee -a "$RUNNER_TEMP/provision.log") 2>&1\n', id="exec-redirect"
+        ),
+    ],
+)
+def test_verification_tree_allows_exits_that_cannot_skip_the_checks(prefix):
+    workflow_name, job_name, steps, context = _golden_drift_job()
+    provision = next(
+        index
+        for index, step in enumerate(steps)
+        if _VERIFICATION_TREE in step.get("run", "")
+    )
+    mutated = [dict(step) for step in steps]
+    mutated[provision] = {
+        **mutated[provision],
+        "run": prefix + mutated[provision]["run"],
+    }
+
+    test_verification_tree_provisioning_tightens_opt(
+        workflow_name, job_name, mutated, context
+    )
+
+
+@pytest.mark.parametrize(
+    "wrap",
+    [
+        pytest.param(
+            lambda run: f"{{\n{run}\n}} 2>&1 | tee provisioning.log\n", id="tee"
+        ),
+        pytest.param(lambda run: f"{{\n{run}\n}} || echo warn\n", id="or-echo"),
+        pytest.param(
+            lambda run: f"(\n{run}\n) 2>&1 | tee provisioning.log\n", id="subshell-tee"
+        ),
+        pytest.param(
+            lambda run: (
+                '(\necho "1) Provision the verification tree"\n'
+                f"{run}\n) 2>&1 | tee provisioning.log\n"
+            ),
+            id="subshell-quoted-paren",
+        ),
+        pytest.param(lambda run: f"if true; then\n{run}\nfi\n", id="if"),
+        pytest.param(
+            lambda run: (
+                'provision_log="$(\n'
+                + "".join(f"    {line}\n" for line in run.splitlines())
+                + ')"\necho "$provision_log"\n'
+            ),
+            id="command-substitution-log",
+        ),
+        pytest.param(
+            lambda run: (
+                "bash <<'BASH'\n"
+                + "".join(f"    {line}\n" for line in run.splitlines())
+                + "BASH\n"
+            ),
+            id="heredoc-bash",
+        ),
+        pytest.param(lambda run: f"harden() {{\n{run}\n}}\nharden\n", id="function"),
+        pytest.param(
+            lambda run: run.replace(
+                "sudo chown 0:0 /opt\n", "echo \\\nsudo chown 0:0 /opt\n"
+            ),
+            id="backslash-carry",
+        ),
+        pytest.param(
+            lambda run: run.replace(
+                "sudo chmod go-w /opt\n", "true ||\nsudo chmod go-w /opt\n"
+            ),
+            id="or-carry",
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    "job_key",
+    [
+        pytest.param(("golden-regeneration.yml", "drift"), id="checks-last"),
+        pytest.param(("targeted-signed-reencode.yml", "encode"), id="checks-mid-step"),
+        pytest.param(("signed-apply-reusable.yml", "encode"), id="checks-after-case"),
+    ],
+)
+def test_verification_tree_hardening_must_run_at_top_level(wrap, job_key):
+    workflow_name, job_name, steps, context = _verification_tree_job(*job_key)
+    provision = next(
+        index
+        for index, step in enumerate(steps)
+        if _VERIFICATION_TREE in step.get("run", "")
+    )
+    mutated = [dict(step) for step in steps]
+    mutated[provision] = {
+        **mutated[provision],
+        "run": wrap(mutated[provision]["run"]),
+    }
+    assert mutated[provision]["run"] != steps[provision]["run"]
+
+    with pytest.raises(AssertionError):
+        test_verification_tree_provisioning_tightens_opt(
+            workflow_name, job_name, mutated, context
+        )
+
+
+@pytest.mark.parametrize(
+    "run",
+    [
+        f"ls -ld /opt; sudo chmod -R go-w {_VERIFICATION_TREE}",
+        f"cd {_VERIFICATION_TREE}/python && sudo chmod -R go-w ..",
+    ],
+)
+def test_opt_permission_suspects_are_conservative(run):
+    # Intended false positives: a harmless `ls /opt` beside a chmod, or a `..`
+    # that stays inside the tree, is still a suspect, so the guard never has to
+    # decide what a line does.
+    assert _opt_permission_suspects(run) == [run]
 
 
 _UNSAFE_DRIFT_CODE_POINTS = (0xD800, 0x202E, 0x009B, 0x007F, 0x2028)
