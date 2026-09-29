@@ -61197,7 +61197,19 @@ def _insert_input_default_in_relation_rows(
                     rendered = rendered_value
                 indent = " " * (item_indent + 2)
                 newline = "\n" if lines[index].endswith("\n") else ""
-                insertions.setdefault(index + 1, []).append(
+                insertion_index = index + 1
+                if (
+                    re.match(r"^\s*-\s+\?\s+", lines[index])
+                    and insertion_index < item_end
+                    and re.match(r"^\s+:\s+", lines[insertion_index])
+                ):
+                    # PyYAML renders canonical RuleSpec references longer than
+                    # 127 characters as an explicit ``? key`` / ``: value``
+                    # pair.  Keep that pair contiguous: inserting between the
+                    # two lines produces invalid YAML on the next validation
+                    # pass.
+                    insertion_index += 1
+                insertions.setdefault(insertion_index, []).append(
                     f"{indent}{input_ref}: {rendered}{newline}"
                 )
             index = item_end
