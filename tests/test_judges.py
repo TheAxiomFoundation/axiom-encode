@@ -2011,9 +2011,20 @@ _ERREXIT_OFF = re.compile(
 
 
 # An early successful exit skips the checks ("already provisioned"); only
-# `exit`/`return` with a non-zero literal status still fails closed. This also
-# covers `trap 'exit 0' ERR`.
-_EARLY_SUCCESS_EXIT = re.compile(r"\b(?:exit|return)\b(?!\s+[1-9]\d*\b)")
+# `exit`/`return` with a literal status that is non-zero modulo 256 still fails
+# closed. This also covers `trap 'exit 0' ERR`. `exec` with a command replaces
+# the shell; a redirect-only `exec >log` does not. `--exit-code` is not an exit.
+_EXIT_OR_RETURN = re.compile(r"(?<![\w-])(?:exit|return)\b(?!-)(?:\s+(\d+)\b)?")
+_EXEC_COMMAND = re.compile(r"(?<![\w-])exec\s+(?![0-9]*[<>&])\S")
+
+
+def _ends_successfully(text):
+    return bool(_EXEC_COMMAND.search(text)) or any(
+        status is None or int(status) % 256 == 0
+        for status in (match.group(1) for match in _EXIT_OR_RETURN.finditer(text))
+    )
+
+
 _STARTUP_FILE_ENV = frozenset({"BASH_ENV", "ENV"})
 _WORD_BREAK = " \t;&|()"
 # Text read in the main shell: quoted text counts (a `trap 'exit 0'` action),
@@ -2193,7 +2204,7 @@ def _bash_early_success_exits(run, commands):
     return [
         command
         for command, opened, _top, main_text in structure[:last]
-        if set(opened) <= {"case"} and _EARLY_SUCCESS_EXIT.search(main_text)
+        if set(opened) <= _MAIN_SHELL_CONTEXTS and _ends_successfully(main_text)
     ]
 
 
@@ -2299,6 +2310,8 @@ def test_verification_tree_provisioning_tightens_opt(
         *context["env"],
         *(provision_step.get("env") or {}),
     }
+    # Nor may any step hand one to later steps through $GITHUB_ENV.
+    assert not any(re.search(r"\bBASH_ENV\b", step.get("run", "")) for step in steps)
     early_exits = _bash_early_success_exits(provision_run, _OPT_HARDENING)
     assert not early_exits, early_exits
     # The hardening lines are the only lines anywhere in the job that could
@@ -2620,6 +2633,14 @@ def test_opt_permission_suspects_ignore_other_paths(command):
         ),
         pytest.param({}, {}, "trap 'exit 0' ERR\n", id="trap-exit-zero"),
         pytest.param({}, {}, 'true || exit "0"\n', id="early-quoted-zero"),
+        pytest.param({}, {}, "trap '\n  exit 0\n' ERR\n", id="multiline-trap"),
+        pytest.param({}, {}, "true || exit 256\n", id="exit-256-wraps-to-zero"),
+        pytest.param(
+            {},
+            {},
+            "if [ -x /opt/axiom-verification/axiom-encode ]; then exec true; fi\n",
+            id="exec-replaces-shell",
+        ),
         pytest.param({"env": {"BASH_ENV": "./relax.sh"}}, {}, "", id="step-bash-env"),
         pytest.param({}, {"env": {"BASH_ENV": "./relax.sh"}}, "", id="job-bash-env"),
     ],
@@ -2646,6 +2667,19 @@ def test_verification_tree_fail_closed_checks_cannot_be_neutralized(
         )
 
 
+def test_verification_tree_rejects_bash_env_hand_off_from_an_earlier_step():
+    workflow_name, job_name, steps, context = _golden_drift_job()
+    mutated = [
+        {"run": 'echo "BASH_ENV=$RUNNER_TEMP/relax.sh" >> "$GITHUB_ENV"'},
+        *steps,
+    ]
+
+    with pytest.raises(AssertionError):
+        test_verification_tree_provisioning_tightens_opt(
+            workflow_name, job_name, mutated, context
+        )
+
+
 @pytest.mark.parametrize(
     "prefix",
     [
@@ -2655,6 +2689,10 @@ def test_verification_tree_fail_closed_checks_cannot_be_neutralized(
         pytest.param("python <<'PY'\nimport sys\nsys.exit(0)\nPY\n", id="heredoc"),
         pytest.param(
             'case "$x" in\n  a) echo bad; exit 1 ;;\nesac\n', id="nonzero-exit"
+        ),
+        pytest.param("git diff --exit-code -- uv.lock\n", id="exit-code-flag"),
+        pytest.param(
+            'exec > >(tee -a "$RUNNER_TEMP/provision.log") 2>&1\n', id="exec-redirect"
         ),
     ],
 )
