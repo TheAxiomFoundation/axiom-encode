@@ -1868,19 +1868,23 @@ _PERMISSION_TRIGGER = re.compile(
 )
 _CD_ROOT = re.compile(r"\b(?:cd|pushd)\s+[\"']?/+(?=[\"'\s;&|)]|$)")
 # A literal absolute path starts a word: at line start, after whitespace or a
-# shell operator (including `-` and `+` for `${VAR:-/opt}`), or after a quote,
-# possibly escaped, that does. `"$VAR"/x`, `$VAR/x`, `a/b` and URLs' later
-# slashes are not literals.
+# shell operator (including `-` and `+` for `${VAR:-/opt}`), after a quote,
+# possibly escaped, that does, or attached to a short-option cluster (`-C/opt`,
+# `-xzfC/opt`). `"$VAR"/x`, `$VAR/x`, `a/b` and URLs' later slashes are not.
 _PATH_BOUNDARY = r"[\s=(;|&<>:,{`\[+-]"
+_ATTACHED_OPTION = "|".join(
+    rf"(?<=\s-[A-Za-z]{{{width}}})|(?<=^-[A-Za-z]{{{width}}})" for width in range(1, 7)
+)
 _LITERAL_PATH = re.compile(
     rf"(?:(?<=^)|(?<={_PATH_BOUNDARY})|(?<={_PATH_BOUNDARY}[\"'])"
-    rf"|(?<={_PATH_BOUNDARY}\\[\"'])|(?<=^[\"']))"
+    rf"|(?<={_PATH_BOUNDARY}\\[\"'])|(?<=^[\"'])|{_ATTACHED_OPTION})"
     r"(/[\w./-]*)"
 )
 # `X=/` assigns the root even on a line that runs nothing; `..` climbs out of
 # a working directory the guard cannot otherwise resolve.
 _ROOT_ASSIGNMENT = re.compile(r"=[\"']?/+(?:[\"'\s;]|$)")
 _PARENT_OPERAND = re.compile(r"(?:^|[\s=\"'/])\.\.(?:/|[\s\"';]|$)")
+_CD_PARENT = re.compile(r"\b(?:cd|pushd)\s+[\"']?\.\.(?=[/\"'\s;&|)]|$)")
 
 
 def _literal_paths(line):
@@ -1907,9 +1911,9 @@ def _opt_permission_suspects(run, env=None, working_directory=None):
       or holding a literal / (or //) while itself running one of those
       programs. The root check is otherwise per line because ``/`` and ``//``
       are also Python and jq operators, and ``tr -d '/'`` is not a path;
-    * a command line with a ``..`` operand that runs one of those programs
-      in a step whose context or code names a path at or under /opt, since a
-      ``cd`` on an earlier line may have moved there.
+    * a command line with a ``..`` operand that runs one of those programs,
+      or that changes to ``..``, in a step whose context or code names a path
+      at or under /opt, since a ``cd`` on an earlier line may have moved there.
 
     Quoting (escaped or not), separators, comments, continuations, ``sh -c``
     wrappers, pipelines, ``${VAR:-/opt}``, ``cd /``, ``D=/opt``, ``X=/``,
@@ -1955,9 +1959,14 @@ def _opt_permission_suspects(run, env=None, working_directory=None):
             or _CD_ROOT.search(line)
             or ("/" in paths and _PERMISSION_PROGRAM.search(line))
             or (
-                _PARENT_OPERAND.search(line)
-                and _PERMISSION_PROGRAM.search(line)
-                and names_under_opt
+                names_under_opt
+                and (
+                    _CD_PARENT.search(line)
+                    or (
+                        _PARENT_OPERAND.search(line)
+                        and _PERMISSION_PROGRAM.search(line)
+                    )
+                )
             )
         ):
             suspects.append(line.strip())
@@ -2108,6 +2117,9 @@ def test_verification_tree_provisioning_tightens_opt(
         "cd /opt/hostedtoolcache\nsudo chmod g+w ..",
         "pushd /opt/hostedtoolcache\nsudo chmod g+w ..",
         'D=/opt/hostedtoolcache; sudo chmod g+w "$D/.."',
+        "cd /opt/hostedtoolcache\ncd ..\nsudo chmod g+w .",
+        "sudo tar -xzf tool.tgz -C/opt",
+        "sudo tar -xzfC/opt tool.tgz",
         "sudo cp -a tool/. /opt/",
         'sudo chmod g+w "${TARGET:+/opt}"',
         "python -c 'import os; [os.chmod(p, 0o775) for p in [\"/opt\"]]'",
@@ -2213,6 +2225,20 @@ def _golden_drift_job():
             {},
             {},
             None,
+            [{"run": "cd /opt/hostedtoolcache\ncd ..\nsudo chmod g+w ."}],
+            id="cd-parent-then-dot",
+        ),
+        pytest.param(
+            {},
+            {},
+            None,
+            [{"run": "sudo tar -xzf tool.tgz -C/opt"}],
+            id="attached-short-option",
+        ),
+        pytest.param(
+            {},
+            {},
+            None,
             [
                 {"run": 'cat >> "$GITHUB_ENV" <<EOF\nTARGET=/\nEOF'},
                 {"run": 'sudo chmod g+w "$TARGET"opt'},
@@ -2265,6 +2291,7 @@ def test_verification_tree_guard_sees_job_context(
         'echo "path=$(python -c \'print(root / name)\')" >> "$GITHUB_OUTPUT"',
         'jurs="$(cd "$genroot" && ls -d */ | tr -d \'/\')"\ncp -a a b',
         "cd .. && chmod 0644 notes.txt",
+        'gcc -I/usr/include -L"$RUNNER_TEMP"/lib -o out main.c && chmod 755 out',
         "chmod 0644 out.json\nflag=\"$(jq -r '.flag // false' out.json)\"",
     ],
 )
