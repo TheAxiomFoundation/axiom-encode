@@ -1860,18 +1860,27 @@ _TREE_HARDENING = (
 # Programs that can change a directory's mode or owner (tar and rsync copy an
 # archive's metadata onto an existing directory), and the files through which a
 # step hands values to later steps.
-_PERMISSION_TRIGGER = re.compile(
-    r"\b(?:chgrp|chmod|chown|install|rsync|setfacl|tar)\b|\bGITHUB_(?:ENV|OUTPUT)\b"
+_PERMISSION_PROGRAM = re.compile(
+    r"\b(?:chgrp|chmod|chown|cp|install|rsync|setfacl|tar)\b"
 )
-_ROOT_TRIGGER = re.compile(rf"{_PERMISSION_TRIGGER.pattern}|\b(?:cd|pushd)\b")
+_PERMISSION_TRIGGER = re.compile(
+    rf"{_PERMISSION_PROGRAM.pattern}|\bGITHUB_(?:ENV|OUTPUT)\b"
+)
+_CD_ROOT = re.compile(r"\b(?:cd|pushd)\s+[\"']?/+(?=[\"'\s;&|)]|$)")
 # A literal absolute path starts a word: at line start, after whitespace or a
-# shell operator (including `-` for `${VAR:-/opt}`), or after a quote that
-# does. `"$VAR"/x`, `$VAR/x`, `a/b` and URLs' later slashes are not literals.
-_PATH_BOUNDARY = r"[\s=(;|&<>:,{`-]"
+# shell operator (including `-` and `+` for `${VAR:-/opt}`), or after a quote,
+# possibly escaped, that does. `"$VAR"/x`, `$VAR/x`, `a/b` and URLs' later
+# slashes are not literals.
+_PATH_BOUNDARY = r"[\s=(;|&<>:,{`\[+-]"
 _LITERAL_PATH = re.compile(
-    rf"(?:(?<=^)|(?<={_PATH_BOUNDARY})|(?<={_PATH_BOUNDARY}[\"'])|(?<=^[\"']))"
+    rf"(?:(?<=^)|(?<={_PATH_BOUNDARY})|(?<={_PATH_BOUNDARY}[\"'])"
+    rf"|(?<={_PATH_BOUNDARY}\\[\"'])|(?<=^[\"']))"
     r"(/[\w./-]*)"
 )
+# `X=/` assigns the root even on a line that runs nothing; `..` climbs out of
+# a working directory the guard cannot otherwise resolve.
+_ROOT_ASSIGNMENT = re.compile(r"=[\"']?/+(?:[\"'\s;]|$)")
+_PARENT_OPERAND = re.compile(r"(?:^|[\s=\"'])\.\.(?:/|[\s\"';]|$)")
 
 
 def _literal_paths(line):
@@ -1881,6 +1890,10 @@ def _literal_paths(line):
     }
 
 
+def _at_or_under_opt(paths):
+    return any(path == "/opt" or path.startswith("/opt/") for path in paths)
+
+
 def _opt_permission_suspects(run, env=None, working_directory=None):
     """Return the lines of a step that could change the permissions of /opt or /.
 
@@ -1888,15 +1901,19 @@ def _opt_permission_suspects(run, env=None, working_directory=None):
     permission program or writes ``$GITHUB_ENV``/``$GITHUB_OUTPUT`` anywhere
     (its effective ``env:`` and ``working-directory`` included), a suspect is:
 
-    * a context line (``env`` value or working directory) naming /opt or /;
+    * a context line naming /opt or /, or a working directory at or under /opt;
     * a command line holding a literal path that normalizes to /opt;
-    * a command line holding a literal / (or //) that itself runs one of those
-      programs, ``cd`` or ``pushd``. The root check is per line because ``/``
-      and ``//`` are also Python and jq operators.
+    * a command line assigning the root (``X=/``), changing to it (``cd /``),
+      or holding a literal / (or //) while itself running one of those
+      programs. The root check is otherwise per line because ``/`` and ``//``
+      are also Python and jq operators, and ``tr -d '/'`` is not a path;
+    * a command line with a ``..`` operand that runs one of those programs
+      while it, or the working directory, names a path at or under /opt.
 
-    Quoting, separators, comments, continuations, ``sh -c`` wrappers,
-    pipelines, ``${VAR:-/opt}``, ``cd /``, ``D=/opt`` and hand-offs through
-    ``$GITHUB_ENV`` therefore fail closed. Comment-only lines are skipped
+    Quoting (escaped or not), separators, comments, continuations, ``sh -c``
+    wrappers, pipelines, ``${VAR:-/opt}``, ``cd /``, ``D=/opt``, ``X=/``,
+    ``chmod ..`` below /opt and hand-offs through ``$GITHUB_ENV`` therefore
+    fail closed. Comment-only lines are skipped
     because they never execute; backslash-newline joins code lines but never
     extends a comment, as in bash. A path assembled at run time is out of
     scope: this guards against accidental edits, and the supervisor's own
@@ -1920,10 +1937,25 @@ def _opt_permission_suspects(run, env=None, working_directory=None):
         code.append(pending)
     if not _PERMISSION_TRIGGER.search("\n".join(context + code)):
         return []
+    below_opt = bool(working_directory) and _at_or_under_opt(
+        _literal_paths(f" {working_directory}")
+    )
     suspects = [line for line in context if _literal_paths(line) & {"/", "/opt"}]
+    if below_opt and context[-1] not in suspects:
+        suspects.append(context[-1])
     for line in code:
         paths = _literal_paths(line)
-        if "/opt" in paths or ("/" in paths and _ROOT_TRIGGER.search(line)):
+        if (
+            "/opt" in paths
+            or _ROOT_ASSIGNMENT.search(line)
+            or _CD_ROOT.search(line)
+            or ("/" in paths and _PERMISSION_PROGRAM.search(line))
+            or (
+                _PARENT_OPERAND.search(line)
+                and _PERMISSION_PROGRAM.search(line)
+                and (below_opt or _at_or_under_opt(paths))
+            )
+        ):
             suspects.append(line.strip())
     return suspects
 
@@ -2065,6 +2097,13 @@ def test_verification_tree_provisioning_tightens_opt(
         "sudo tar -xzf tool.tgz -C /opt",
         "sudo rsync -a vendor/ /opt/",
         "cd /\nsudo chmod g+w opt",
+        'sudo sh -c "chmod g+w \\"/opt\\""',
+        'TARGET=/\nsudo chmod g+w "$TARGET"opt',
+        'cat >> "$GITHUB_ENV" <<EOF\nTARGET=/\nEOF',
+        "cd /opt/hostedtoolcache && sudo chmod g+w ..",
+        "sudo cp -a tool/. /opt/",
+        'sudo chmod g+w "${TARGET:+/opt}"',
+        "python -c 'import os; [os.chmod(p, 0o775) for p in [\"/opt\"]]'",
     ],
 )
 def test_opt_permission_suspects_see_through_shell_syntax(command):
@@ -2074,6 +2113,9 @@ def test_opt_permission_suspects_see_through_shell_syntax(command):
 def test_opt_permission_suspects_include_step_context():
     assert _opt_permission_suspects('sudo chmod g+w "$TARGET"', {"TARGET": "/opt"})
     assert _opt_permission_suspects("sudo chmod g+w opt", working_directory="/")
+    assert _opt_permission_suspects(
+        "sudo chmod g+w ..", working_directory="/opt/hostedtoolcache"
+    )
     assert not _opt_permission_suspects("ls", {"TARGET": "/opt"})
 
 
@@ -2126,6 +2168,28 @@ def _golden_drift_job():
             [{"run": "sudo chmod g+w opt"}],
             id="defaults-working-directory",
         ),
+        pytest.param(
+            {},
+            {},
+            None,
+            [
+                {
+                    "working-directory": "/opt/hostedtoolcache",
+                    "run": "sudo chmod g+w ..",
+                }
+            ],
+            id="parent-of-working-directory",
+        ),
+        pytest.param(
+            {},
+            {},
+            None,
+            [
+                {"run": 'cat >> "$GITHUB_ENV" <<EOF\nTARGET=/\nEOF'},
+                {"run": 'sudo chmod g+w "$TARGET"opt'},
+            ],
+            id="root-through-github-env-heredoc",
+        ),
     ],
 )
 def test_verification_tree_guard_sees_job_context(
@@ -2168,6 +2232,10 @@ def test_verification_tree_guard_sees_job_context(
         'chmod 0644 "$RUNNER_TEMP/opt"',
         "sudo chmod 0755 /usr/local/bin/tool 2>/dev/null",
         'rsync -a src "$GITHUB_WORKSPACE"/',
+        'cp -a "$RUNNER_TEMP/staged/." "$out/"',
+        'echo "path=$(python -c \'print(root / name)\')" >> "$GITHUB_OUTPUT"',
+        'jurs="$(cd "$genroot" && ls -d */ | tr -d \'/\')"\ncp -a a b',
+        "cd .. && chmod 0644 notes.txt",
         "chmod 0644 out.json\nflag=\"$(jq -r '.flag // false' out.json)\"",
     ],
 )
@@ -2179,13 +2247,13 @@ def test_opt_permission_suspects_ignore_other_paths(command):
     "run",
     [
         f"ls -ld /opt; sudo chmod -R go-w {_VERIFICATION_TREE}",
-        'echo "path=$(python -c \'print(root / name)\')" >> "$GITHUB_OUTPUT"',
+        f"cd {_VERIFICATION_TREE}/python && sudo chmod -R go-w ..",
     ],
 )
 def test_opt_permission_suspects_are_conservative(run):
-    # Intended false positives: a harmless `ls /opt` beside a chmod, or a
-    # division operator on a line that writes $GITHUB_OUTPUT, is still a
-    # suspect, so the guard never has to decide what a line does.
+    # Intended false positives: a harmless `ls /opt` beside a chmod, or a `..`
+    # that stays inside the tree, is still a suspect, so the guard never has to
+    # decide what a line does.
     assert _opt_permission_suspects(run) == [run]
 
 
