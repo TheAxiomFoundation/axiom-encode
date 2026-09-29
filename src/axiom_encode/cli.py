@@ -101,6 +101,7 @@ from axiom_encode import __version__
 
 from . import validation_waivers as _validation_waivers
 from .codex_cli import codex_auth_error
+from .companion_relations import CompanionRelations
 from .concepts import (
     audit_corpus as audit_concept_corpus,
 )
@@ -5446,6 +5447,7 @@ def _execute_rulespec_test_file(
                     derived_by_id=derived_by_id,
                     declared_relation_names=declared_relation_names,
                     policy_repo_path=item_policy_repo_path,
+                    program=artifact.get("program", {}),
                 )
             )
         except Exception as error:
@@ -5484,6 +5486,7 @@ def _execute_rulespec_test_case(
     derived_by_id: dict[str, dict],
     declared_relation_names: set[str],
     policy_repo_path: Path,
+    program: dict | None = None,
 ) -> list[dict[str, str | None]]:
     failures: list[dict[str, str | None]] = []
     period = _rulespec_period_spec(case.get("period", "2026-01"))
@@ -5492,11 +5495,24 @@ def _execute_rulespec_test_case(
     inputs: list[dict] = []
     relations: list[dict] = []
     flat_inputs: dict[str, object] = {}
+    companion_relations = CompanionRelations(program or {})
+    owner_kinds = {
+        item["entity"]
+        for output in (case.get("output") or {})
+        if (item := derived_by_id.get(str(output), {})).get("entity")
+        and item["entity"] != "Scalar"
+    }
+    owner = next(iter(owner_kinds)) if len(owner_kinds) == 1 else None
+    root_entity = owner if companion_relations.typed and owner else "Entity"
+    relation_index = 0
 
     for key, value in (case.get("input") or {}).items():
         key = str(key)
         flat_inputs[key] = value
         if isinstance(value, list) and "#relation." in key:
+            if not value:
+                relation_index += 1
+                continue
             relation_name = _rulespec_test_relation_request_name(
                 key,
                 policy_repo_path=policy_repo_path,
@@ -5510,15 +5526,29 @@ def _execute_rulespec_test_case(
                     and unqualified_name not in relation_names
                 ):
                     relation_names.append(unqualified_name)
+            if companion_relations.typed:
+                relation_names = [
+                    next(
+                        (
+                            name
+                            for name in relation_names
+                            if name in declared_relation_names
+                        ),
+                        relation_name,
+                    )
+                ]
+            layout = companion_relations.layout(relation_names, owner)
             for row_index, row in enumerate(value):
-                related_id = f"related_{row_index}"
-                # The current relation slot convention is related entity first,
-                # enclosing entity second.
+                related_id = (
+                    f"related_{relation_index}_{row_index}"
+                    if companion_relations.typed
+                    else f"related_{row_index}"
+                )
                 for current_relation_name in relation_names:
                     relations.append(
                         {
                             "name": current_relation_name,
-                            "tuple": [related_id, root_entity_id],
+                            "tuple": layout.tuple(root_entity_id, related_id),
                             "interval": interval,
                         }
                     )
@@ -5535,17 +5565,18 @@ def _execute_rulespec_test_case(
                     inputs.append(
                         {
                             "name": str(row_key),
-                            "entity": "Entity",
+                            "entity": layout.related_entity,
                             "entity_id": related_id,
                             "interval": interval,
                             "value": _rulespec_scalar_value(row_value),
                         }
                     )
+            relation_index += 1
         else:
             inputs.append(
                 {
                     "name": key,
-                    "entity": "Entity",
+                    "entity": root_entity,
                     "entity_id": root_entity_id,
                     "interval": interval,
                     "value": _rulespec_scalar_value(value),
