@@ -869,6 +869,33 @@ def test_multi_conjunct_excerpt_retains_conditional_context():
     assert len(completeness_module._source_conjunctive_fact_gates(clauses[0].text)) == 3
 
 
+def test_coordinated_excerpt_retains_its_trailing_condition():
+    source = (
+        "The taxpayer must file and the spouse qualifies if the spouse is a "
+        "resident and the spouse is a citizen."
+    )
+    excerpt = "the spouse qualifies"
+    rule = _ky_derived_rule(
+        "spouse_qualifies",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="spouse_is_resident and spouse_is_citizen",
+        excerpt=excerpt,
+    )
+
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path="us-az/manual/des/faa5/na-categorical-eligibility/block-3",
+    )
+
+    assert not ambiguous
+    assert [clause.text for clause in clauses] == [source]
+    assert len(completeness_module._source_conjunctive_fact_gates(clauses[0].text)) == 2
+
+
 def test_data_relation_is_structural_during_conjunctive_gate_expansion():
     citation_path = "us-az/manual/des/faa5/na-categorical-eligibility/block-3"
     source = (

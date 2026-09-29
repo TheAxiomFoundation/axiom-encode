@@ -13937,7 +13937,11 @@ def _excerpt_is_conjunction_delimited_subclause(
         after,
         flags=re.IGNORECASE,
     )
-    return begins_after_coordinator is not None or (
+    ends_at_proposition_boundary = not after.strip(" \t\r\n.,;:!?")
+    return (
+        begins_after_coordinator is not None
+        and (ends_before_coordinator is not None or ends_at_proposition_boundary)
+    ) or (
         begins_after_condition_introducer is not None
         and ends_before_coordinator is not None
     )
