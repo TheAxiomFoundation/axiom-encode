@@ -35501,6 +35501,15 @@ class ValidatorPipeline:
         rules_file: Path,
         output_path: Path,
     ) -> tuple[subprocess.CompletedProcess[str], dict[str, Any] | None]:
+        """Compile with resolution caches scoped to this single operation."""
+        with _rulespec_resolution_cache_scope():
+            return self._compile_rulespec_to_artifact_impl(rules_file, output_path)
+
+    def _compile_rulespec_to_artifact_impl(
+        self,
+        rules_file: Path,
+        output_path: Path,
+    ) -> tuple[subprocess.CompletedProcess[str], dict[str, Any] | None]:
         """Compile RuleSpec YAML to an Axiom rules engine artifact JSON file."""
         binary = self._axiom_rules_binary()
         compile_file = _canonical_rulespec_compile_path(
@@ -35606,7 +35615,54 @@ class ValidatorPipeline:
     def _owning_program_specs(self, rules_file: Path) -> tuple[Path, ...]:
         """Return ProgramSpecs whose transitive import scope contains ``rules_file``."""
 
+        with _rulespec_resolution_cache_scope():
+            return self._owning_program_specs_snapshot(rules_file)
+
+    def _owning_program_specs_snapshot(self, rules_file: Path) -> tuple[Path, ...]:
         root = _rulespec_checkout_root_for_active_path(self.policy_repo_path)
+        cache = _RULESPEC_RESOLUTION_CACHE.get()
+        assert cache is not None
+        directory_stamps: dict[Path, _PathMutationStamp] = {}
+        file_stamps: dict[Path, _PathMutationStamp] = {}
+        admitted_roots: set[Path] = set()
+
+        def capture_audits() -> None:
+            for checkout, audit in cache.symlink_audits.items():
+                admitted_roots.add(checkout)
+                for directory, stamp in audit.directory_stamps:
+                    previous = directory_stamps.setdefault(directory, stamp)
+                    if previous != stamp:
+                        raise UnsafeRulespecContextPath(
+                            "Program ownership checkout changed during discovery"
+                        )
+
+        def read_payload(path: Path) -> Any:
+            before = _path_mutation_stamp(path)
+            if before is None or path.is_symlink():
+                raise UnsafeRulespecContextPath(
+                    "Program ownership file changed during discovery"
+                )
+            if file_stamps.setdefault(path, before) != before:
+                raise UnsafeRulespecContextPath(
+                    "Program ownership file changed during discovery"
+                )
+            try:
+                text = path.read_text()
+            finally:
+                if before != _path_mutation_stamp(path):
+                    raise UnsafeRulespecContextPath(
+                        "Program ownership file changed during discovery"
+                    )
+            return _safe_load_unique_keys(text)
+
+        capture_audits()
+        requested_stamp = _path_mutation_stamp(rules_file)
+        if requested_stamp is None or rules_file.is_symlink():
+            raise UnsafeRulespecContextPath(
+                "Program ownership requested file is unsafe"
+            )
+        file_stamps[rules_file] = requested_stamp
+        resolved_imports: dict[str, tuple[str, ...]] = {}
         module_relative = rules_file.resolve().relative_to(root)
         module_target = (
             f"{module_relative.parts[0]}:"
@@ -35620,7 +35676,9 @@ class ValidatorPipeline:
             if candidate.is_symlink() or not candidate.is_file():
                 continue
             try:
-                payload = _safe_load_unique_keys(candidate.read_text())
+                payload = read_payload(candidate)
+            except UnsafeRulespecContextPath:
+                raise
             except (OSError, ValueError, yaml.YAMLError):
                 continue
             if not isinstance(payload, dict):
@@ -35656,13 +35714,20 @@ class ValidatorPipeline:
                             f"{target_ref.prefix}:"
                             f"{target_ref.relative_path.with_suffix('').as_posix()}"
                         )
-            pending = list(scoped_targets)
+            pending = sorted(scoped_targets - {module_target})
+            if module_target in scoped_targets:
+                pending.append(module_target)
             reachable: set[str] = set()
             while pending:
                 target = pending.pop()
                 if target in reachable:
                     continue
                 reachable.add(target)
+                if target == module_target:
+                    break
+                if target in resolved_imports:
+                    pending.extend(resolved_imports[target])
+                    continue
                 target_ref = _parse_rulespec_target(target)
                 if target_ref is None:
                     continue
@@ -35671,10 +35736,13 @@ class ValidatorPipeline:
                     self.policy_repo_path,
                     rulespec_dependency_roots=self.rulespec_dependency_roots,
                 )
+                capture_audits()
                 if target_file is None:
                     continue
                 try:
-                    target_payload = _safe_load_unique_keys(target_file.read_text())
+                    target_payload = read_payload(target_file)
+                except UnsafeRulespecContextPath:
+                    raise
                 except (OSError, ValueError, yaml.YAMLError):
                     continue
                 imports = (
@@ -35683,18 +35751,42 @@ class ValidatorPipeline:
                     else None
                 )
                 if not isinstance(imports, list):
+                    resolved_imports[target] = ()
                     continue
+                edges: list[str] = []
                 for imported in imports:
                     if not isinstance(imported, str):
                         continue
                     imported_ref = _parse_rulespec_target(imported)
                     if imported_ref is not None:
-                        pending.append(
+                        edges.append(
                             f"{imported_ref.prefix}:"
                             f"{imported_ref.relative_path.with_suffix('').as_posix()}"
                         )
+                resolved_imports[target] = tuple(edges)
+                pending.extend(edges)
             if module_target in reachable:
                 owners.append(candidate)
+        if _rulespec_checkout_root_for_active_path(self.policy_repo_path) != root:
+            raise UnsafeRulespecContextPath(
+                "Program ownership root changed during discovery"
+            )
+        for checkout in admitted_roots:
+            _reject_rulespec_checkout_symlinks(
+                checkout, label="Program ownership checkout"
+            )
+        capture_audits()
+        # Freeze first-observed evidence; resolver caches may refresh on mutation.
+        for directory, stamp in directory_stamps.items():
+            if _path_mutation_stamp(directory) != stamp:
+                raise UnsafeRulespecContextPath(
+                    "Program ownership checkout changed during discovery"
+                )
+        for path, stamp in file_stamps.items():
+            if path.is_symlink() or _path_mutation_stamp(path) != stamp:
+                raise UnsafeRulespecContextPath(
+                    "Program ownership file changed during discovery"
+                )
         return tuple(owners)
 
     def _rulespec_compile_success_output(self, payload: Any) -> str:
