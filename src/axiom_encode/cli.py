@@ -40050,12 +40050,11 @@ def _relation_row_replacement_from_companion_tests(
             return copy.deepcopy(row)
     if isinstance(scalar_value, bool):
         template = copy.deepcopy(exemplar_rows[0])
-        changed = False
-        for key, value in list(template.items()):
-            if isinstance(value, bool):
-                template[key] = scalar_value
-                changed = True
-        if changed:
+        boolean_keys = [
+            key for key, value in template.items() if isinstance(value, bool)
+        ]
+        if len(boolean_keys) == 1:
+            template[boolean_keys[0]] = scalar_value
             return template
     return None
 
@@ -40145,7 +40144,8 @@ def _relation_row_matches_scalar_value(
     scalar_value: object,
 ) -> bool:
     if isinstance(scalar_value, bool):
-        return any(value is scalar_value for value in row.values())
+        boolean_values = [value for value in row.values() if isinstance(value, bool)]
+        return len(boolean_values) == 1 and boolean_values[0] is scalar_value
     return False
 
 

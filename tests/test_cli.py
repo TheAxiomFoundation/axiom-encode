@@ -46073,6 +46073,65 @@ rules:
             {"us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled": True}
         ]
 
+    def test_repair_scalar_relation_rows_rejects_ambiguous_boolean_row(
+        self, tmp_path
+    ):
+        policy_repo = tmp_path / "rulespec-us" / "us-az"
+        policy_repo.mkdir(parents=True)
+        dependency_root = tmp_path / "rulespec-us"
+        dependency_module = (
+            dependency_root
+            / "us-az"
+            / "policies"
+            / "des"
+            / "faa5"
+            / "categorical.yaml"
+        )
+        dependency_module.parent.mkdir(parents=True)
+        dependency_module.write_text("format: rulespec/v1\nrules: []\n")
+        companion_test = dependency_module.with_name("categorical.test.yaml")
+        relation_ref = (
+            "us-az:policies/des/faa5/categorical#relation.member_of_budgetary_unit"
+        )
+        companion_test.write_text(
+            f"""- name: tanf_services_member
+  period: 2026-07
+  input:
+    {relation_ref}:
+      - us-az:policies/des/faa5/categorical#input.receives_tanf_services: true
+        us-az:policies/des/faa5/categorical#input.is_elderly_or_disabled: false
+  output: {{}}
+"""
+        )
+        test_file = tmp_path / "generated" / "categorical.test.yaml"
+        test_file.parent.mkdir()
+        test_file.write_text(
+            f"""- name: elderly_or_disabled_special_considerations
+  period: 2026-07
+  input:
+    {relation_ref}:
+      - true
+  output: {{}}
+"""
+        )
+
+        with _authoritative_rulespec_dependency_scope((dependency_root,)):
+            repaired = _repair_scalar_relation_rows(
+                test_file=test_file,
+                policy_repo_path=policy_repo,
+                parsed_issues=[
+                    (
+                        "elderly_or_disabled_special_considerations",
+                        relation_ref,
+                        1,
+                    )
+                ],
+            )
+
+        assert repaired == []
+        [case] = yaml.safe_load(test_file.read_text())
+        assert case["input"][relation_ref] == [True]
+
     def test_repair_scalar_relation_rows_from_generated_formula(self, tmp_path):
         policy_repo = tmp_path / "rulespec-uk" / "uk"
         policy_repo.mkdir(parents=True)
