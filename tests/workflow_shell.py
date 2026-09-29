@@ -860,6 +860,14 @@ def _unwrap(words: list[str]) -> list[tuple[list[str], list[str]] | _Script]:
             words = words[2:] if words[2:3] == ["{"] else words[1:]
         elif word in _HEADERS:
             return []
+        elif "${{" in word or _PLACEHOLDER.search(word):
+            # A program, or a wrapper's directory (`${{ x }}/env`,
+            # `$(printf /bin)/bash`), that GitHub or a substitution fills in
+            # before bash runs it is unknown here.
+            raise UnanalyzableScript(
+                f"the program comes from an expression or substitution: "
+                f"{' '.join(words)!r}"
+            )
         elif name in UNSUPPORTED_RUNNERS:
             raise UnanalyzableScript(f"{name} runs a command this reader cannot follow")
         elif name in _SHELLS:

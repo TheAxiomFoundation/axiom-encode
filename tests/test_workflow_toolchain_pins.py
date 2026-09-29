@@ -422,6 +422,8 @@ def test_reader_finds_the_uv_calls_a_script_makes(script, expected):
         "$(command -v uv) sync",
         "`uv lock`",
         "python${{ matrix.python-version }} -m pip install requests",
+        "${{ matrix.tool_dir }}/env uv sync --locked",
+        '$(printf /bin)/bash -c "uv sync --locked"',
         "/usr/bin/${{ matrix.python }} -m pip install requests",
         # Unknown options to a wrapper, and runners this reader cannot follow.
         "sudo --bogus uv sync",
@@ -927,7 +929,11 @@ def test_the_test_environment_is_exactly_the_locked_set():
     `uv sync --locked --extra dev`; locally, set AXIOM_CHECK_LOCKED_ENV=1 in
     an environment synced the same way.
     """
-    if not (os.environ.get("CI") or os.environ.get("AXIOM_CHECK_LOCKED_ENV")):
+    if not (
+        os.environ.get("CI")
+        or os.environ.get("GITHUB_ACTIONS") == "true"
+        or os.environ.get("AXIOM_CHECK_LOCKED_ENV")
+    ):
         pytest.skip("runs in CI, or with AXIOM_CHECK_LOCKED_ENV=1")
     exported = subprocess.run(
         ["uv", "export", "--locked", "--extra", "dev", "--no-hashes"]
@@ -1202,25 +1208,48 @@ def test_test_environment_is_the_locked_dev_set(workflow_name, job_name):
         if _runs_pip(command) or command.program in {"pipx", "pip-sync"}
     ] == []
 
-    # The runtime locked-set check runs in this job, after the sync: a
-    # pytest over it or over all of tests/, with no flag that deselects
-    # tests, in a step that cannot be skipped or allowed to fail.
+    # The runtime locked-set check runs in this job, after the sync: a pytest
+    # over that test or over all of tests/, passing only options that cannot
+    # deselect it (an allowlist, since pytest reads options in many forms),
+    # with no PYTEST_ADDOPTS/PYTEST_PLUGINS or CI override in scope, in a step
+    # that cannot be skipped or allowed to fail. The job itself has no `if:`.
     runtime_check = (
         "tests/test_workflow_toolchain_pins.py"
         "::test_the_test_environment_is_exactly_the_locked_set"
     )
-    selecting = re.compile(
-        r"-k.*|-m.*|--deselect.*|--ignore.*|--lf|--last-failed|--co|"
-        r"--collect-only|--sw|--stepwise"
-    )
+    workflow = dict(_workflows())[workflow_name]
+    job = workflow["jobs"][job_name]
+    assert "if" not in job, f"{workflow_name}:{job_name} has a job-level if:"
+    overrides = {"CI", "GITHUB_ACTIONS", "PYTEST_ADDOPTS", "PYTEST_PLUGINS"}
+
+    def keeps_the_check(step: dict, command: Command) -> bool:
+        args = command.words[1:]
+        if runtime_check not in args and "tests/" not in args:
+            return False
+        index = 0
+        while index < len(args):
+            arg = args[index]
+            if arg in {"-o", "--override-ini"}:
+                if args[index + 1 : index + 2] != ("addopts=",):
+                    return False  # only the empty addopts override
+                index += 2
+                continue
+            if arg.startswith("-") and not (
+                arg in {"-q", "-qq", "-v", "-vv"} or re.fullmatch(r"--tb=\w+", arg)
+            ):
+                return False
+            index += 1
+        names = {a.partition("=")[0] for a in command.assignments}
+        names |= set(workflow.get("env") or {}) | set(job.get("env") or {})
+        names |= set(step.get("env") or {})
+        return not names & overrides
+
     runs_check = [
         commands.index(command)
         for _, _, _, step in _job_steps(workflow_name, job_name)
         if "if" not in step and "continue-on-error" not in step
         for command in _script_commands(step.get("run", ""))
-        if command.program == "pytest"
-        and (runtime_check in command.words or "tests/" in command.words)
-        and not any(selecting.fullmatch(word) for word in command.words[1:])
+        if command.program == "pytest" and keeps_the_check(step, command)
     ]
     assert any(position > sync_position for position in runs_check), (
         f"{workflow_name}:{job_name} does not run {runtime_check}"
