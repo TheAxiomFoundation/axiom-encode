@@ -13762,6 +13762,7 @@ def _source_condition_clauses_owned_by_excerpt(
     source_text: str,
     branches: Sequence[SourceStructureBranch],
     corpus_citation_path: str,
+    narrow_conjunctive_excerpt: bool = True,
 ) -> tuple[tuple[_SourceConditionClause, ...], bool]:
     """Resolve exact proof text to rule-cited propositions, reporting ambiguity."""
 
@@ -13878,6 +13879,14 @@ def _source_condition_clauses_owned_by_excerpt(
             local_start,
             local_end,
         )
+        if narrow_conjunctive_excerpt and _excerpt_is_conjunction_delimited_subclause(
+            container_text,
+            excerpt_start=local_start,
+            excerpt_end=local_end,
+            proposition_start=proposition_start,
+            proposition_end=proposition_end,
+        ):
+            proposition_start, proposition_end = local_start, local_end
         absolute_start = container_start + proposition_start
         absolute_end = container_start + proposition_end
         identity = (branch_path, absolute_start, absolute_end)
@@ -13894,6 +13903,76 @@ def _source_condition_clauses_owned_by_excerpt(
     return (
         ordered,
         citation_mismatch or ambiguous_inline_ownership or len(ordered) != 1,
+    )
+
+
+def _excerpt_is_conjunction_delimited_subclause(
+    text: str,
+    *,
+    excerpt_start: int,
+    excerpt_end: int,
+    proposition_start: int,
+    proposition_end: int,
+) -> bool:
+    """Return whether an exact proof excerpt owns one side of a conjunction."""
+
+    if (excerpt_start, excerpt_end) == (proposition_start, proposition_end):
+        return False
+    before = text[proposition_start:excerpt_start]
+    excerpt = text[excerpt_start:excerpt_end]
+    after = text[excerpt_end:proposition_end]
+    if "," in excerpt:
+        return False
+    preceding_condition = re.search(
+        r"\b(?:if|unless|when|whenever|where|provided\s+that)\b",
+        before,
+        flags=re.IGNORECASE,
+    )
+    if preceding_condition is not None:
+        conditional_tail = before[preceding_condition.end() :]
+        comma_tails = (
+            conditional_tail[comma.end() :]
+            for comma in re.finditer(",", conditional_tail)
+        )
+        if re.search(r"\bthen\b", conditional_tail, flags=re.IGNORECASE) or any(
+            re.fullmatch(r"\s*(?:and|but|or)\s*", tail, flags=re.IGNORECASE) is None
+            for tail in comma_tails
+        ):
+            return False
+    if re.search(
+        r"\b(?:and|but|or|if|unless|when|whenever|where|then|provided\s+that)\b",
+        excerpt,
+        flags=re.IGNORECASE,
+    ):
+        return False
+    if re.search(
+        r"\b(?:if|unless|when|whenever|where|provided\s+that)\b",
+        after,
+        flags=re.IGNORECASE,
+    ):
+        return False
+    begins_after_coordinator = re.search(
+        r"(?:,\s*)?\b(?:and|but|or)\s*$",
+        before,
+        flags=re.IGNORECASE,
+    )
+    begins_after_condition_introducer = re.search(
+        r"\b(?:if|unless|when|whenever|where)\s*$",
+        before,
+        flags=re.IGNORECASE,
+    )
+    ends_before_coordinator = re.match(
+        r"^\s*,?\s*\b(?:and|but|or)\b",
+        after,
+        flags=re.IGNORECASE,
+    )
+    ends_at_proposition_boundary = not after.strip(" \t\r\n.,;:!?")
+    return (
+        begins_after_coordinator is not None
+        and (ends_before_coordinator is not None or ends_at_proposition_boundary)
+    ) or (
+        begins_after_condition_introducer is not None
+        and ends_before_coordinator is not None
     )
 
 
@@ -14291,6 +14370,8 @@ def _opaque_same_source_condition_input_issues(
             if dependency is None:
                 dependency_budget_cache[cache_key] = False
                 return False
+            if str(dependency.get("kind") or "").strip().lower() == "data_relation":
+                continue
             if name in active_names:
                 dependency_budget_cache[cache_key] = False
                 return False
@@ -14410,6 +14491,8 @@ def _opaque_same_source_condition_input_issues(
         dependency = named_rules.get(name)
         if dependency is None:
             return (_TerminalGateAlternative(frozenset(), start, end, False),)
+        if str(dependency.get("kind") or "").strip().lower() == "data_relation":
+            return (_TerminalGateAlternative(frozenset(), start, end),)
         choices: list[_TerminalGateAlternative] = []
         saw_overlap = False
         for version_index, formula, version_start, version_end in interval_cache.get(
@@ -14552,6 +14635,7 @@ def _opaque_same_source_condition_input_issues(
                     source_text=source_text,
                     branches=branches,
                     corpus_citation_path=corpus_citation_path,
+                    narrow_conjunctive_excerpt=len(excerpts) == 1,
                 )
                 excerpt_has_gates = False
                 for clause in owned_clauses:

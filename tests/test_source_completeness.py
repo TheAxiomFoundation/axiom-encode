@@ -814,6 +814,305 @@ def test_parent_chapeau_proof_does_not_absorb_first_structural_child():
     assert not completeness_module._source_conjunctive_fact_gates(clauses[0].text)
 
 
+def test_exact_conjunct_excerpt_owns_only_its_source_subclause():
+    source = (
+        "Basic categorical eligibility exists when the budgetary unit does not "
+        "have a disqualified participant, and all budgetary unit participants "
+        "receive a listed benefit."
+    )
+    excerpt = "all budgetary unit participants receive a listed benefit"
+    rule = _ky_derived_rule(
+        "all_participants_receive_listed_benefit",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="all_participants_receive_listed_benefit_fact",
+        excerpt=excerpt,
+    )
+
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path="us-az/manual/des/faa5/na-categorical-eligibility/block-3",
+    )
+
+    assert not ambiguous
+    assert [clause.text for clause in clauses] == [excerpt]
+    assert not completeness_module._source_conjunctive_fact_gates(clauses[0].text)
+
+
+def test_multi_conjunct_excerpt_retains_conditional_context():
+    source = (
+        "Applicants are eligible when the applicant is a resident and the "
+        "applicant is a citizen and the applicant has income."
+    )
+    excerpt = "the applicant is a citizen and the applicant has income"
+    rule = _ky_derived_rule(
+        "citizens_with_income_are_eligible",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="applicant_is_a_citizen and applicant_has_income",
+        excerpt=excerpt,
+    )
+
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path="us-az/manual/des/faa5/na-categorical-eligibility/block-3",
+    )
+
+    assert not ambiguous
+    assert [clause.text for clause in clauses] == [source]
+    assert len(completeness_module._source_conjunctive_fact_gates(clauses[0].text)) == 3
+
+
+@pytest.mark.parametrize(
+    "excerpt",
+    [
+        "the spouse qualifies",
+        "the spouse qualifies if the spouse is a resident",
+    ],
+)
+def test_coordinated_excerpt_retains_its_trailing_condition(excerpt: str):
+    source = (
+        "The taxpayer must file and the spouse qualifies if the spouse is a "
+        "resident and the spouse is a citizen."
+    )
+    rule = _ky_derived_rule(
+        "spouse_qualifies",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="spouse_is_resident and spouse_is_citizen",
+        excerpt=excerpt,
+    )
+
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path="us-az/manual/des/faa5/na-categorical-eligibility/block-3",
+    )
+
+    assert not ambiguous
+    assert [clause.text for clause in clauses] == [source]
+    assert len(completeness_module._source_conjunctive_fact_gates(clauses[0].text)) == 2
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    ["If", "Only if", "(a) If", "For this program, if"],
+)
+def test_coordinated_consequence_retains_preposed_conditions(prefix: str):
+    source = (
+        f"{prefix} the applicant is a resident and the applicant is a citizen, the "
+        "agency approves the application and pays the credit."
+    )
+    excerpt = "pays the credit"
+    rule = _ky_derived_rule(
+        "credit_is_paid",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="external_conditions_hold",
+        excerpt=excerpt,
+    )
+
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path="us-az/manual/des/faa5/na-categorical-eligibility/block-3",
+    )
+
+    assert not ambiguous
+    assert [clause.text for clause in clauses] == [source]
+    assert len(completeness_module._source_conjunctive_fact_gates(clauses[0].text)) == 2
+
+
+def test_excerpt_crossing_into_consequence_retains_preposed_conditions():
+    source = (
+        "If the applicant is a resident and the applicant is a citizen, the "
+        "agency approves the application and pays the credit."
+    )
+    excerpt = "the applicant is a citizen, the agency approves the application"
+    rule = _ky_derived_rule(
+        "application_is_approved",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="external_conditions_hold",
+        excerpt=excerpt,
+    )
+
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path="us-az/manual/des/faa5/na-categorical-eligibility/block-3",
+    )
+
+    assert not ambiguous
+    assert [clause.text for clause in clauses] == [source]
+    assert len(completeness_module._source_conjunctive_fact_gates(clauses[0].text)) == 2
+
+
+def test_coordinated_consequence_retains_shared_trailing_conditions():
+    source = (
+        "The agency accepts the application and approves the benefit and pays "
+        "the credit if the applicant is a resident and the applicant is a citizen."
+    )
+    excerpt = "approves the benefit"
+    rule = _ky_derived_rule(
+        "benefit_is_approved",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="external_conditions_hold",
+        excerpt=excerpt,
+    )
+
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path="us-az/manual/des/faa5/na-categorical-eligibility/block-3",
+    )
+
+    assert not ambiguous
+    assert [clause.text for clause in clauses] == [source]
+    assert len(completeness_module._source_conjunctive_fact_gates(clauses[0].text)) == 2
+
+
+def test_data_relation_is_structural_during_conjunctive_gate_expansion():
+    citation_path = "us-az/manual/des/faa5/na-categorical-eligibility/block-3"
+    source = (
+        "Basic categorical eligibility exists when the budgetary unit does not "
+        "have a disqualified participant, and all budgetary unit participants "
+        "receive a listed benefit."
+    )
+    first_excerpt = "the budgetary unit does not have a disqualified participant"
+    second_excerpt = "all budgetary unit participants receive a listed benefit"
+    payload = {
+        "format": "rulespec/v1",
+        "module": {"source_verification": {"corpus_citation_path": citation_path}},
+        "rules": [
+            {
+                "name": "member_of_budgetary_unit",
+                "kind": "data_relation",
+                "data_relation": {
+                    "predicate": "member_of_budgetary_unit",
+                    "arity": 2,
+                    "arguments": ["Person", "Household"],
+                },
+            },
+            _ky_derived_rule(
+                "no_participant_is_disqualified",
+                source="Arizona DES FAA5",
+                dtype="Judgment",
+                formula=(
+                    "count_where(member_of_budgetary_unit, "
+                    "participant_is_disqualified) == 0"
+                ),
+                excerpt=first_excerpt,
+            ),
+            _ky_derived_rule(
+                "all_participants_receive_listed_benefit",
+                source="Arizona DES FAA5",
+                dtype="Judgment",
+                formula=(
+                    "count_where(member_of_budgetary_unit, "
+                    "participant_receives_listed_benefit) "
+                    "== len(member_of_budgetary_unit)"
+                ),
+                excerpt=second_excerpt,
+            ),
+            {
+                **_ky_derived_rule(
+                    "basic_categorical_eligibility",
+                    source="Arizona DES FAA5",
+                    dtype="Judgment",
+                    formula=(
+                        "no_participant_is_disqualified and "
+                        "all_participants_receive_listed_benefit"
+                    ),
+                    excerpt=first_excerpt,
+                ),
+                "metadata": {
+                    "proof": {
+                        "atoms": [
+                            {
+                                "path": "versions[0].formula",
+                                "kind": "condition",
+                                "source": {
+                                    "corpus_citation_path": citation_path,
+                                    "excerpt": first_excerpt,
+                                },
+                            },
+                            {
+                                "path": "versions[0].formula",
+                                "kind": "condition",
+                                "source": {
+                                    "corpus_citation_path": citation_path,
+                                    "excerpt": second_excerpt,
+                                },
+                            },
+                        ]
+                    }
+                },
+            },
+        ],
+        "inputs": [
+            _ky_boolean_input(
+                "participant_is_disqualified", "The participant is disqualified."
+            ),
+            _ky_boolean_input(
+                "participant_receives_listed_benefit",
+                "The participant receives a listed benefit.",
+            ),
+        ],
+    }
+
+    result = _analyze(
+        yaml.safe_dump(payload, sort_keys=False),
+        source,
+        corpus_citation_path=citation_path,
+        test_cases=[],
+        extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+        extract_numeric_grounding_occurrences=(
+            EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR
+        ),
+    )
+
+    assert not _has_issue(result, "source-explicit-conditions")
+
+    principal_rule = next(
+        rule
+        for rule in payload["rules"]
+        if rule["name"] == "basic_categorical_eligibility"
+    )
+    principal_rule["versions"][0]["formula"] = "no_participant_is_disqualified"
+    incomplete_result = _analyze(
+        yaml.safe_dump(payload, sort_keys=False),
+        source,
+        corpus_citation_path=citation_path,
+        test_cases=[],
+        extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+        extract_numeric_grounding_occurrences=(
+            EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR
+        ),
+    )
+
+    assert _has_issue(
+        incomplete_result,
+        "source-explicit-conditions",
+        "basic_categorical_eligibility",
+    )
+
+
 def test_parenthetical_condition_does_not_absorb_later_conjunctions():
     text = (
         "The monthly income of the sponsor and sponsor's spouse (if he or she has "
