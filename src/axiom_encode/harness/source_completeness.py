@@ -14006,6 +14006,22 @@ def _excerpt_is_coordinated_list_chapeau(
         return False
     before = text[proposition_start:excerpt_start]
     after = text[excerpt_end:proposition_end]
+    preceding_condition = re.search(
+        r"\b(?:if|unless|when|whenever|where|provided\s+that)\b",
+        before,
+        flags=re.IGNORECASE,
+    )
+    if preceding_condition is not None:
+        conditional_tail = before[preceding_condition.end() :]
+        comma_tails = (
+            conditional_tail[comma.end() :]
+            for comma in re.finditer(",", conditional_tail)
+        )
+        if re.search(r"\bthen\b", conditional_tail, flags=re.IGNORECASE) or any(
+            re.fullmatch(r"\s*(?:and|but|or)\s*", tail, flags=re.IGNORECASE) is None
+            for tail in comma_tails
+        ):
+            return False
     begins_after_coordinator = re.search(
         r"(?:,\s*)?\b(?:and|but|or)\s*$",
         before,
