@@ -101,13 +101,13 @@ class FakeClient:
         self.provision_chars = 24_000
         self.generator_model = generator_model
         self.model = result.model
-        self.escalation_model = "claude-sonnet-4-5"
+        self.escalation_model = "claude-opus-5-5"
 
     def call(self, **kwargs) -> JudgeCall:
         return self._result
 
 
-def _ok_call(payload: dict, *, model="claude-haiku-4-5-20251001", escalated=False):
+def _ok_call(payload: dict, *, model="claude-sonnet-5-5", escalated=False):
     return JudgeCall(
         payload=payload,
         model=model,
@@ -119,7 +119,7 @@ def _ok_call(payload: dict, *, model="claude-haiku-4-5-20251001", escalated=Fals
 def _err_call(err_type="server_error", message="boom"):
     return JudgeCall(
         payload=None,
-        model="claude-haiku-4-5-20251001",
+        model="claude-sonnet-5-5",
         escalated=False,
         tokens=TokenCounts(3, 0),
         error=JudgeError(type=err_type, message=message),
@@ -153,7 +153,10 @@ class FakeBadRequestError(Exception):
 def install_fake_anthropic(monkeypatch, responses):
     """Install a fake ``anthropic`` module whose create() replays ``responses``.
 
-    Each item is a str (returned as the response text) or an Exception (raised).
+    Each item is a str (returned as the response text), an Exception (raised),
+    or a dict with ``text``, ``stop_reason``, ``category`` and ``thinking`` keys
+    for responses that end in a refusal, hit max_tokens, or carry a thinking
+    block. Every create() kwargs dict is recorded on ``mod.calls``.
     """
 
     mod = types.ModuleType("anthropic")
@@ -175,16 +178,44 @@ def install_fake_anthropic(monkeypatch, responses):
         def __init__(self, text):
             self.text = text
 
+    class _ThinkingBlock:
+        type = "thinking"
+        thinking = ""
+
+    class _StopDetails:
+        def __init__(self, category):
+            self.type = "refusal"
+            self.category = category
+
     class _Response:
-        def __init__(self, text):
-            self.content = [_Block(text)]
+        def __init__(
+            self, text, *, stop_reason="end_turn", category=None, thinking=False
+        ):
+            blocks = [_ThinkingBlock()] if thinking else []
+            if text is not None:
+                blocks.append(_Block(text))
+            self.content = blocks
             self.usage = _Usage()
+            self.stop_reason = stop_reason
+            self.stop_details = (
+                _StopDetails(category) if stop_reason == "refusal" else None
+            )
+
+    mod.calls = []
 
     class _Messages:
         def create(self, **kwargs):
+            mod.calls.append(kwargs)
             item = queue.pop(0)
             if isinstance(item, Exception):
                 raise item
+            if isinstance(item, dict):
+                return _Response(
+                    item.get("text"),
+                    stop_reason=item.get("stop_reason", "end_turn"),
+                    category=item.get("category"),
+                    thinking=item.get("thinking", False),
+                )
             return _Response(item)
 
     class Anthropic:
@@ -244,7 +275,7 @@ def test_validate_rejects_fail_open():
 
 
 def test_model_family():
-    assert model_family("claude-haiku-4-5-20251001") == "anthropic"
+    assert model_family("claude-sonnet-5-5") == "anthropic"
     assert model_family("gpt-5.5") == "openai"
     assert model_family("mystery-model") == "unknown"
 
@@ -258,7 +289,7 @@ def test_cross_family_guard_rejects_same_family():
 
 
 def test_missing_api_key_is_fail_closed():
-    client = JudgeClient(model="claude-haiku-4-5-20251001", api_key=None)
+    client = JudgeClient(model="claude-sonnet-5-5", api_key=None)
     # ensure no ambient key leaks in
     client.api_key = None
     call = client.call(system="s", user_prompt="p", schema={})
@@ -267,7 +298,7 @@ def test_missing_api_key_is_fail_closed():
 
 
 def test_client_success_and_escalation(monkeypatch):
-    # first (haiku) low confidence -> escalate to sonnet (high confidence).
+    # first (sonnet) low confidence -> escalate to opus (high confidence).
     install_fake_anthropic(
         monkeypatch,
         [
@@ -276,15 +307,15 @@ def test_client_success_and_escalation(monkeypatch):
         ],
     )
     client = JudgeClient(
-        model="claude-haiku-4-5-20251001",
-        escalation_model="claude-sonnet-4-5",
+        model="claude-sonnet-5-5",
+        escalation_model="claude-opus-5-5",
         api_key="test",
         escalate_below=0.6,
     )
     call = client.call(system="s", user_prompt="p", schema={})
     assert call.ok
     assert call.escalated is True
-    assert call.model == "claude-sonnet-4-5"
+    assert call.model == "claude-opus-5-5"
     assert call.payload["confidence"] == 0.95
     # tokens accumulate across both calls
     assert call.tokens.input == 22
@@ -292,10 +323,106 @@ def test_client_success_and_escalation(monkeypatch):
 
 def test_client_parse_failure_is_error_not_pass(monkeypatch):
     install_fake_anthropic(monkeypatch, ["this is not json"])
-    client = JudgeClient(model="claude-haiku-4-5-20251001", api_key="test")
+    client = JudgeClient(model="claude-sonnet-5-5", api_key="test")
     call = client.call(system="s", user_prompt="p", schema={})
     assert not call.ok
     assert call.error.type == "parse_error"
+
+
+def test_default_judge_models_are_current_and_cross_family(monkeypatch):
+    from axiom_encode.constants import DEFAULT_JUDGE_MODEL, JUDGE_ESCALATION_MODEL
+
+    monkeypatch.delenv("AXIOM_JUDGE_MODEL", raising=False)
+    monkeypatch.delenv("AXIOM_JUDGE_ESCALATION_MODEL", raising=False)
+    assert DEFAULT_JUDGE_MODEL == "claude-sonnet-5-5"
+    assert JUDGE_ESCALATION_MODEL == "claude-opus-5-5"
+    client = JudgeClient(api_key="test", generator_model="gpt-6-luna")
+    assert client.model == DEFAULT_JUDGE_MODEL
+    assert client.escalation_model == JUDGE_ESCALATION_MODEL
+    assert client.cross_family_problem(client.model) is None
+    assert client.cross_family_problem(client.escalation_model) is None
+
+
+def test_client_default_max_tokens_leaves_room_for_thinking(monkeypatch):
+    monkeypatch.delenv("AXIOM_JUDGE_MAX_TOKENS", raising=False)
+    mod = install_fake_anthropic(monkeypatch, ['{"verdict": "pass"}'])
+    client = JudgeClient(model="claude-sonnet-5-5", api_key="test")
+    call = client.call(system="s", user_prompt="p", schema={})
+    assert call.ok
+    assert mod.calls[0]["max_tokens"] >= 16_000
+
+
+def test_client_refusal_is_named_error_not_parse_error(monkeypatch):
+    install_fake_anthropic(
+        monkeypatch, [{"text": None, "stop_reason": "refusal", "category": "cyber"}]
+    )
+    client = JudgeClient(model="claude-sonnet-5-5", api_key="test")
+    call = client.call(system="s", user_prompt="p", schema={})
+    assert not call.ok
+    assert call.payload is None
+    assert call.error.type == "refusal"
+    assert "cyber" in call.error.message
+
+
+def test_client_refusal_does_not_escalate(monkeypatch):
+    # A decline is an error, not a low-confidence verdict: no escalation call.
+    mod = install_fake_anthropic(
+        monkeypatch, [{"text": None, "stop_reason": "refusal", "category": None}]
+    )
+    client = JudgeClient(
+        model="claude-sonnet-5-5", escalation_model="claude-opus-5-5", api_key="test"
+    )
+    call = client.call(system="s", user_prompt="p", schema={})
+    assert call.error.type == "refusal"
+    assert len(mod.calls) == 1
+
+
+def test_client_max_tokens_stop_is_named_error_even_if_text_parses(monkeypatch):
+    # Truncated output must never be scored, even when a prefix happens to parse.
+    install_fake_anthropic(
+        monkeypatch,
+        [
+            {
+                "text": '{"verdict": "pass", "confidence": 0.9}',
+                "stop_reason": "max_tokens",
+            }
+        ],
+    )
+    client = JudgeClient(model="claude-sonnet-5-5", api_key="test", max_tokens=100)
+    call = client.call(system="s", user_prompt="p", schema={})
+    assert not call.ok
+    assert call.error.type == "max_tokens"
+    assert "max_tokens=100" in call.error.message
+
+
+def test_client_skips_thinking_blocks(monkeypatch):
+    install_fake_anthropic(
+        monkeypatch, [{"text": '{"verdict": "pass"}', "thinking": True}]
+    )
+    client = JudgeClient(model="claude-sonnet-5-5", api_key="test")
+    call = client.call(system="s", user_prompt="p", schema={"required": ["verdict"]})
+    assert call.ok
+    assert call.payload == {"verdict": "pass"}
+
+
+def test_client_effort_passed_only_when_configured(monkeypatch):
+    monkeypatch.delenv("AXIOM_JUDGE_EFFORT", raising=False)
+    mod = install_fake_anthropic(monkeypatch, ['{"a": 1}', '{"a": 1}', '{"a": 1}'])
+    JudgeClient(model="claude-sonnet-5-5", api_key="test").call(
+        system="s", user_prompt="p", schema={}
+    )
+    assert "effort" not in mod.calls[0]["output_config"]
+    JudgeClient(model="claude-sonnet-5-5", api_key="test", effort="medium").call(
+        system="s", user_prompt="p", schema={}
+    )
+    assert mod.calls[1]["output_config"]["effort"] == "medium"
+    monkeypatch.setenv("AXIOM_JUDGE_EFFORT", "low")
+    JudgeClient(model="claude-sonnet-5-5", api_key="test").call(
+        system="s", user_prompt="p", schema={}
+    )
+    assert mod.calls[2]["output_config"]["effort"] == "low"
+    # the structured-output format is always requested alongside effort
+    assert mod.calls[2]["output_config"]["format"]["type"] == "json_schema"
 
 
 def test_client_api_failure_retries_then_errors(monkeypatch):
@@ -308,7 +435,7 @@ def test_client_api_failure_retries_then_errors(monkeypatch):
         [FakeRateLimitError("429"), FakeRateLimitError("429")],
     )
     client = JudgeClient(
-        model="claude-haiku-4-5-20251001",
+        model="claude-sonnet-5-5",
         api_key="test",
         max_attempts=2,
         retry_seconds=0,
@@ -498,7 +625,7 @@ def test_preclassify_llm_self_contained_generates(monkeypatch):
         monkeypatch,
         ['{"classification":"self_contained","confidence":0.9,"reason":"operative"}'],
     )
-    client = JudgeClient(model="claude-haiku-4-5-20251001", api_key="test")
+    client = JudgeClient(model="claude-sonnet-5-5", api_key="test")
     r = preclassifier.classify(
         {
             "citation": "26 USC 21",
@@ -3421,7 +3548,7 @@ def test_preclassify_empty_source_skips_never_generates():
 
 def test_generator_unknown_family_is_guarded():
     client = JudgeClient(
-        model="claude-haiku-4-5-20251001",
+        model="claude-sonnet-5-5",
         generator_model="my-inhouse-wrapper",
         api_key="x",
     )
@@ -3433,7 +3560,7 @@ def test_generator_unknown_family_is_guarded():
 def test_client_schema_error_on_missing_required_keys(monkeypatch):
     # Valid JSON that omits a required key is an error, never a usable verdict.
     install_fake_anthropic(monkeypatch, ['{"confidence": 0.9}'])
-    client = JudgeClient(model="claude-haiku-4-5-20251001", api_key="test")
+    client = JudgeClient(model="claude-sonnet-5-5", api_key="test")
     call = client.call(
         system="s",
         user_prompt="p",
@@ -3460,7 +3587,7 @@ def test_client_constructor_failure_is_error_not_raise(monkeypatch):
 
     mod.Anthropic = Anthropic
     monkeypatch.setitem(sys.modules, "anthropic", mod)
-    client = JudgeClient(model="claude-haiku-4-5-20251001", api_key="test")
+    client = JudgeClient(model="claude-sonnet-5-5", api_key="test")
     call = client.call(system="s", user_prompt="p", schema={})
     assert not call.ok
     assert call.error.type == "client_init_error"
@@ -3502,7 +3629,7 @@ def test_judge_event_emits_into_canonical_run_log(tmp_path):
     # Advisory flag does not gate: the stage completes as "passed".
     assert stored.status == StageStatus.passed.value
     assert stored.attrs["verdict"] == "flag"
-    assert stored.attrs["judge_model"] == "claude-haiku-4-5-20251001"
+    assert stored.attrs["judge_model"] == "claude-sonnet-5-5"
     assert stored.attrs["generator_model"] == "gpt-5.5"
     assert stored.attrs["tokens"] == {"input": 10, "output": 5}
     assert stored.findings[0].code == "amount_mismatch"

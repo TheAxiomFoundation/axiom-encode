@@ -9,7 +9,14 @@ guard and the fail-closed contract:
   error after retries, JSON parse failure, or a cross-family guard trip — returns
   a :class:`JudgeCall` with a populated :attr:`JudgeCall.error`. Fail-open is
   banned; the caller turns that into a ``verdict == "error"`` event.
-* Low-confidence verdicts escalate once from Haiku to Sonnet.
+* Low-confidence verdicts escalate once from Sonnet 5.5 to Opus 5.5.
+* A safety refusal (``stop_reason == "refusal"``) or a response cut off at
+  ``max_tokens`` is its own fail-closed error, never a parse failure. There is
+  deliberately no server-side refusal fallback: a verdict must stay attributable
+  to the model that was asked, or judge calibration measures a moving target.
+* Current Claude models think adaptively by default and ``max_tokens`` caps
+  thinking plus the JSON verdict, so the default budget leaves room for both.
+  ``AXIOM_JUDGE_EFFORT`` optionally sets ``output_config.effort``.
 * Provision windows are truncated to a bounded budget; token counts are logged.
 
 The client is deliberately generic: it takes a JSON schema and returns the
@@ -37,7 +44,9 @@ from .run_log import JudgeError, TokenCounts
 # overridden. Head+tail are kept so both the operative opening and any closing
 # boundary clauses survive.
 DEFAULT_PROVISION_CHARS = 24_000
-DEFAULT_MAX_TOKENS = 2048
+# Thinking tokens count against max_tokens on current Claude models; 2048 left
+# too little room for adaptive thinking plus the JSON verdict on long provisions.
+DEFAULT_MAX_TOKENS = 16_000
 DEFAULT_ESCALATE_BELOW = 0.6
 DEFAULT_RETRY_SECONDS = 90.0
 DEFAULT_MAX_ATTEMPTS = 2
@@ -124,6 +133,7 @@ class JudgeClient:
         escalate_below: Optional[float] = None,
         retry_seconds: Optional[float] = None,
         max_attempts: Optional[int] = None,
+        effort: Optional[str] = None,
     ) -> None:
         self.model = model or os.environ.get("AXIOM_JUDGE_MODEL", DEFAULT_JUDGE_MODEL)
         self.escalation_model = escalation_model or os.environ.get(
@@ -158,6 +168,10 @@ class JudgeClient:
             if max_attempts is not None
             else os.environ.get("AXIOM_JUDGE_MAX_ATTEMPTS", DEFAULT_MAX_ATTEMPTS)
         )
+        # None means the model's own default effort.
+        self.effort = (
+            effort if effort is not None else os.environ.get("AXIOM_JUDGE_EFFORT")
+        ) or None
 
     # -- guards -----------------------------------------------------------
 
@@ -315,7 +329,7 @@ class JudgeClient:
         last_error: Optional[JudgeError] = None
         for attempt in range(self.max_attempts):
             try:
-                text, tokens = self._invoke(
+                text, tokens, stop_reason, refusal_category = self._invoke(
                     client, model, json_system, messages, schema, anthropic
                 )
             except Exception as exc:  # noqa: BLE001 - normalized below
@@ -330,6 +344,46 @@ class JudgeClient:
                     escalated=False,
                     tokens=TokenCounts(),
                     error=err,
+                )
+
+            if stop_reason == "refusal":
+                # A safety decline carries no verdict. Name it so it isn't
+                # misread as a malformed response; still fail-closed.
+                return JudgeCall(
+                    payload=None,
+                    model=model,
+                    escalated=False,
+                    tokens=tokens,
+                    error=JudgeError(
+                        type="refusal",
+                        message=(
+                            "judge model declined the request"
+                            + (
+                                f" (category: {refusal_category})"
+                                if refusal_category
+                                else ""
+                            )
+                        ),
+                    ),
+                    raw_text=text or None,
+                )
+            if stop_reason == "max_tokens":
+                # Thinking plus the verdict outran max_tokens; any JSON here is
+                # truncated. Fail closed with a cause the operator can act on.
+                return JudgeCall(
+                    payload=None,
+                    model=model,
+                    escalated=False,
+                    tokens=tokens,
+                    error=JudgeError(
+                        type="max_tokens",
+                        message=(
+                            f"judge response hit max_tokens={self.max_tokens} before "
+                            "finishing; raise AXIOM_JUDGE_MAX_TOKENS or lower "
+                            "AXIOM_JUDGE_EFFORT"
+                        ),
+                    ),
+                    raw_text=text or None,
                 )
 
             payload = _extract_json(text)
@@ -386,10 +440,12 @@ class JudgeClient:
         messages: list[dict[str, Any]],
         schema: dict[str, Any],
         anthropic_mod: Any,
-    ) -> tuple[str, TokenCounts]:
-        """Make one Messages API request; return (text, tokens).
+    ) -> tuple[str, TokenCounts, Optional[str], Optional[str]]:
+        """Make one Messages API request.
 
-        Tries structured outputs first, falls back to a plain request if the
+        Returns ``(text, tokens, stop_reason, refusal_category)``. Thinking
+        blocks are skipped; only ``text`` blocks form the verdict. Tries
+        structured outputs first, falls back to a plain request if the
         SDK/model rejects ``output_config``.
         """
 
@@ -399,14 +455,16 @@ class JudgeClient:
             system=system,
             messages=messages,
         )
+        output_config: dict[str, Any] = {
+            "format": {"type": "json_schema", "schema": schema}
+        }
+        if self.effort:
+            output_config["effort"] = self.effort
         # Bind defensively — an SDK without BadRequestError must not raise an
         # AttributeError while handling an unrelated exception.
         bad_request = getattr(anthropic_mod, "BadRequestError", ())
         try:
-            response = client.messages.create(
-                output_config={"format": {"type": "json_schema", "schema": schema}},
-                **kwargs,
-            )
+            response = client.messages.create(output_config=output_config, **kwargs)
         except TypeError:
             # SDK too old for output_config; plain request + prompt-guided JSON.
             response = client.messages.create(**kwargs)
@@ -424,7 +482,15 @@ class JudgeClient:
             input=getattr(usage, "input_tokens", 0) or 0,
             output=getattr(usage, "output_tokens", 0) or 0,
         )
-        return text, tokens
+        stop_reason = getattr(response, "stop_reason", None)
+        # stop_details is populated only on refusals; guard before reading.
+        stop_details = getattr(response, "stop_details", None)
+        refusal_category = (
+            getattr(stop_details, "category", None)
+            if stop_details is not None
+            else None
+        )
+        return text, tokens, stop_reason, refusal_category
 
 
 def _payload_confidence(payload: Optional[dict[str, Any]]) -> Optional[float]:
