@@ -2010,25 +2010,24 @@ _ERREXIT_OFF = re.compile(
 )
 
 
-# An early successful exit skips the checks ("already provisioned");
-# `exit 1` still fails closed.
-_EARLY_SUCCESS_EXIT = re.compile(r"\b(?:exit|return)(?:\s+0)?\s*(?=$|[;&|)])")
+# An early successful exit skips the checks ("already provisioned"); only
+# `exit`/`return` with a non-zero literal status still fails closed. This also
+# covers `trap 'exit 0' ERR`.
+_EARLY_SUCCESS_EXIT = re.compile(r"\b(?:exit|return)\b(?!\s+[1-9]\d*\b)")
 _STARTUP_FILE_ENV = frozenset({"BASH_ENV", "ENV"})
+_WORD_BREAK = " \t;&|()"
+# Text read in the main shell: quoted text counts (a `trap 'exit 0'` action),
+# the inside of `$(...)`, backticks, `(...)` and `$((...))` does not.
+_MAIN_SHELL_CONTEXTS = frozenset({"case", "'", '"', "$'"})
 
 
-def _bash_top_level_commands(run):
-    """Return the commands bash itself places at the top level of ``run``.
+def _bash_declared_lines(run):
+    """Return ``run`` as bash itself prints it from ``declare -f``.
 
-    bash re-indents a function body canonically in ``declare -f``: top-level
-    commands sit at four spaces, anything inside a group, pipeline, ``if``,
-    loop or nested function sits deeper or shares a line with its operator.
-    A ``( ... )`` subshell is the exception: bash prints its body at the
-    enclosing indent, and counting parentheses is fooled by ``case``
-    patterns and quoted text, so nothing after a four-space ``(`` counts. Heredoc bodies are printed
-    verbatim, so they never count either (``bash <<'X'`` runs them without
-    ``-e``).
-    Defining the function runs nothing; the shell is restricted with an empty
-    PATH in case a stray ``}`` closes it early.
+    bash re-parses the text and prints it canonically: comments dropped and
+    compound commands re-indented. Defining the function runs nothing; the
+    shell is restricted with an empty PATH in case a stray ``}`` closes the
+    function early.
     """
 
     bash = shutil.which("bash")
@@ -2049,22 +2048,153 @@ def _bash_top_level_commands(run):
         check=False,
     )
     assert result.returncode == 0, result.stderr
-    top_level = set()
-    after_subshell = False
-    heredoc_ends = []
-    for line in result.stdout.splitlines():
-        if heredoc_ends:
-            if line.lstrip("\t") == heredoc_ends[0]:
-                heredoc_ends.pop(0)
+    return result.stdout.splitlines()
+
+
+def _bash_line_contexts(lines):
+    """Pair each printed line with the constructs open where it starts.
+
+    Each entry is (line, constructs open at its start, the line's main-shell
+    text).
+
+    Tracks quotes (``'``, ``"``, ``$'``), command substitutions (``$(``,
+    backticks), arithmetic (``$((``), subshells (``(``), ``case`` bodies (whose
+    pattern ``)`` closes nothing) and heredoc bodies (``<<``). bash prints the
+    bodies of subshells, substitutions and heredocs at the enclosing indent or
+    verbatim, so indentation alone cannot tell they are nested.
+    """
+
+    stack = []
+    pending_heredocs = []
+    heredoc_end = None
+    contexts = []
+    for line in lines:
+        if heredoc_end is not None:
+            contexts.append((line, ("<<",), ""))
+            if line.lstrip("\t") == heredoc_end:
+                heredoc_end = pending_heredocs.pop(0) if pending_heredocs else None
             continue
-        heredoc_ends.extend(
-            delimiter for _quote, delimiter in _HEREDOC_OPERATOR.findall(line)
-        )
+        opened = tuple(stack)
+        main_text = []
+        index = 0
+        while index < len(line):
+            char = line[index]
+            if set(stack) <= _MAIN_SHELL_CONTEXTS:
+                main_text.append(char)
+            top = stack[-1] if stack else None
+            at_word = index == 0 or line[index - 1] in _WORD_BREAK
+            if top in ("'",):
+                if char == "'":
+                    stack.pop()
+            elif top in ("$'", '"', "`"):
+                closer = {"$'": "'", '"': '"', "`": "`"}[top]
+                if char == "\\":
+                    index += 1
+                elif char == closer:
+                    stack.pop()
+                elif top == '"' and line.startswith("$(", index):
+                    stack.append("$(")
+                    index += 1
+                elif top == '"' and char == "`":
+                    stack.append("`")
+            elif char == "\\":
+                index += 1
+            elif char == "#" and at_word:
+                break
+            elif line.startswith("$'", index):
+                stack.append("$'")
+                index += 1
+            elif char in "'\"`":
+                stack.append(char)
+            elif line.startswith("$((", index):
+                stack.append("$((")
+                index += 2
+            elif line.startswith("$(", index):
+                stack.append("$(")
+                index += 1
+            elif char == "(":
+                stack.append("(")
+            elif char == ")":
+                if top == "$((" and line.startswith("))", index):
+                    stack.pop()
+                    index += 1
+                elif top in ("$(", "(", "$(("):
+                    stack.pop()
+            elif at_word and re.match(r"case(?=[ \t])", line[index:]):
+                stack.append("case")
+                index += 3
+            elif at_word and re.match(r"esac(?=$|[ \t;&|)])", line[index:]):
+                while stack and stack.pop() != "case":
+                    pass
+                index += 3
+            elif line.startswith("<<", index) and not line.startswith("<<<", index):
+                heredoc = _HEREDOC_OPERATOR.match(line, index)
+                if heredoc:
+                    pending_heredocs.append(heredoc.group(2))
+                    index = heredoc.end() - 1
+            index += 1
+        contexts.append((line, opened, "".join(main_text)))
+        if pending_heredocs and heredoc_end is None:
+            heredoc_end = pending_heredocs.pop(0)
+    return contexts
+
+
+def _bash_structure(run):
+    """Return (command, open constructs, is top level, main-shell text).
+
+    A line is top level when bash prints it at four spaces with nothing open.
+    Nothing after a four-space ``(`` counts either, so a subshell wrapper stays
+    nested even if the scanner misreads its contents.
+    """
+
+    structure = []
+    after_subshell = False
+    for line, opened, main_text in _bash_line_contexts(_bash_declared_lines(run)):
         four_spaces = line.startswith("    ") and not line.startswith("     ")
-        after_subshell = after_subshell or (four_spaces and line[4:].startswith("("))
-        if four_spaces and not after_subshell:
-            top_level.add(" ".join(line[4:].rstrip().rstrip(";").split()))
-    return top_level
+        after_subshell = after_subshell or (
+            four_spaces and not opened and line[4:].startswith("(")
+        )
+        command = " ".join(line.strip().rstrip(";").split())
+        structure.append(
+            (
+                command,
+                opened,
+                four_spaces and not opened and not after_subshell,
+                main_text,
+            )
+        )
+    return structure
+
+
+def _bash_top_level_commands(run):
+    """Return the commands bash runs at the top level of ``run``."""
+
+    return {command for command, _opened, top, _text in _bash_structure(run) if top}
+
+
+def _bash_early_success_exits(run, commands):
+    """Return lines that could end ``run`` successfully before ``commands``.
+
+    Exits inside a substitution, subshell or heredoc end only that child, so
+    they are ignored; exits in the main shell (including inside an ``if``,
+    ``case`` or ``trap`` action) count.
+    """
+
+    structure = _bash_structure(run)
+    normalized = {" ".join(command.split()) for command in commands}
+    last = max(
+        (
+            index
+            for index, (command, _opened, top, _text) in enumerate(structure)
+            if top and command in normalized
+        ),
+        default=len(structure),
+    )
+    return [
+        command
+        for command, opened, _top, main_text in structure[:last]
+        if set(opened) <= {"case"} and _EARLY_SUCCESS_EXIT.search(main_text)
+    ]
 
 
 def _verification_tree_jobs():
@@ -2169,12 +2299,7 @@ def test_verification_tree_provisioning_tightens_opt(
         *context["env"],
         *(provision_step.get("env") or {}),
     }
-    last_check = max(lines.index(command) for command in _OPT_HARDENING)
-    early_exits = [
-        line
-        for line in lines[:last_check]
-        if not line.startswith("#") and _EARLY_SUCCESS_EXIT.search(line)
-    ]
+    early_exits = _bash_early_success_exits(provision_run, _OPT_HARDENING)
     assert not early_exits, early_exits
     # The hardening lines are the only lines anywhere in the job that could
     # change the permissions of /opt or /, so nothing loosens /opt again before
@@ -2485,6 +2610,16 @@ def test_opt_permission_suspects_ignore_other_paths(command):
             id="early-exit-if-provisioned",
         ),
         pytest.param({}, {}, "true || exit\n", id="early-bare-exit"),
+        pytest.param(
+            {},
+            {},
+            "if [ -x /opt/axiom-verification/axiom-encode ]; then\n"
+            "  exit 0  # already provisioned\n"
+            "fi\n",
+            id="early-exit-with-comment",
+        ),
+        pytest.param({}, {}, "trap 'exit 0' ERR\n", id="trap-exit-zero"),
+        pytest.param({}, {}, 'true || exit "0"\n', id="early-quoted-zero"),
         pytest.param({"env": {"BASH_ENV": "./relax.sh"}}, {}, "", id="step-bash-env"),
         pytest.param({}, {"env": {"BASH_ENV": "./relax.sh"}}, "", id="job-bash-env"),
     ],
@@ -2512,6 +2647,36 @@ def test_verification_tree_fail_closed_checks_cannot_be_neutralized(
 
 
 @pytest.mark.parametrize(
+    "prefix",
+    [
+        pytest.param(
+            "ver=\"$(python -c 'import sys; sys.exit(0)')\"\n", id="substitution"
+        ),
+        pytest.param("python <<'PY'\nimport sys\nsys.exit(0)\nPY\n", id="heredoc"),
+        pytest.param(
+            'case "$x" in\n  a) echo bad; exit 1 ;;\nesac\n', id="nonzero-exit"
+        ),
+    ],
+)
+def test_verification_tree_allows_exits_that_cannot_skip_the_checks(prefix):
+    workflow_name, job_name, steps, context = _golden_drift_job()
+    provision = next(
+        index
+        for index, step in enumerate(steps)
+        if _VERIFICATION_TREE in step.get("run", "")
+    )
+    mutated = [dict(step) for step in steps]
+    mutated[provision] = {
+        **mutated[provision],
+        "run": prefix + mutated[provision]["run"],
+    }
+
+    test_verification_tree_provisioning_tightens_opt(
+        workflow_name, job_name, mutated, context
+    )
+
+
+@pytest.mark.parametrize(
     "wrap",
     [
         pytest.param(
@@ -2529,6 +2694,14 @@ def test_verification_tree_fail_closed_checks_cannot_be_neutralized(
             id="subshell-quoted-paren",
         ),
         pytest.param(lambda run: f"if true; then\n{run}\nfi\n", id="if"),
+        pytest.param(
+            lambda run: (
+                'provision_log="$(\n'
+                + "".join(f"    {line}\n" for line in run.splitlines())
+                + ')"\necho "$provision_log"\n'
+            ),
+            id="command-substitution-log",
+        ),
         pytest.param(
             lambda run: (
                 "bash <<'BASH'\n"
