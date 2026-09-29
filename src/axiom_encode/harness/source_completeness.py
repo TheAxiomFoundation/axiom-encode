@@ -13879,7 +13879,16 @@ def _source_condition_clauses_owned_by_excerpt(
             local_start,
             local_end,
         )
-        if narrow_conjunctive_excerpt and _excerpt_is_conjunction_delimited_subclause(
+        if (
+            narrow_conjunctive_excerpt
+            and _excerpt_is_conjunction_delimited_subclause(
+                container_text,
+                excerpt_start=local_start,
+                excerpt_end=local_end,
+                proposition_start=proposition_start,
+                proposition_end=proposition_end,
+            )
+        ) or _excerpt_is_coordinated_list_chapeau(
             container_text,
             excerpt_start=local_start,
             excerpt_end=local_end,
@@ -13974,6 +13983,61 @@ def _excerpt_is_conjunction_delimited_subclause(
         begins_after_condition_introducer is not None
         and ends_before_coordinator is not None
     )
+
+
+def _excerpt_is_coordinated_list_chapeau(
+    text: str,
+    *,
+    excerpt_start: int,
+    excerpt_end: int,
+    proposition_start: int,
+    proposition_end: int,
+) -> bool:
+    """Return whether an exact coordinated excerpt introduces its own list."""
+
+    if (excerpt_start, excerpt_end) == (proposition_start, proposition_end):
+        return False
+    excerpt = text[excerpt_start:excerpt_end]
+    if "," in excerpt or re.search(
+        r"\b(?:and|but|or|if|unless|when|whenever|where|then|provided\s+that)\b",
+        excerpt,
+        flags=re.IGNORECASE,
+    ):
+        return False
+    before = text[proposition_start:excerpt_start]
+    after = text[excerpt_end:proposition_end]
+    preceding_condition = re.search(
+        r"\b(?:if|unless|when|whenever|where|provided\s+that)\b",
+        before,
+        flags=re.IGNORECASE,
+    )
+    if preceding_condition is not None:
+        conditional_tail = before[preceding_condition.end() :]
+        comma_tails = (
+            conditional_tail[comma.end() :]
+            for comma in re.finditer(",", conditional_tail)
+        )
+        if re.search(r"\bthen\b", conditional_tail, flags=re.IGNORECASE) or any(
+            re.fullmatch(r"\s*(?:and|but|or)\s*", tail, flags=re.IGNORECASE) is None
+            for tail in comma_tails
+        ):
+            return False
+    if re.search(
+        r"\b(?:if|unless|when|whenever|where|provided\s+that)\b",
+        after,
+        flags=re.IGNORECASE,
+    ):
+        return False
+    begins_after_coordinator = re.search(
+        r"(?:,\s*)?\b(?:and|but|or)\s*$",
+        before,
+        flags=re.IGNORECASE,
+    )
+    begins_attached_list = re.match(
+        r"^\s*:\s*(?:[-*\u2022\u25cf]|\(?[0-9A-Za-z]+[.)])",
+        after,
+    )
+    return begins_after_coordinator is not None and begins_attached_list is not None
 
 
 def _effective_formula_version_intervals(
