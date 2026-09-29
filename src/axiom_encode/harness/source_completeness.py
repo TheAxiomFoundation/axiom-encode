@@ -1302,6 +1302,7 @@ _SOURCE_SELECTOR_GENERIC_ENTITY_TOKENS = frozenset(
 )
 _SOURCE_GENERIC_NUMERIC_NAME_TOKENS = frozenset({"amount", "value"})
 _SOURCE_ACRONYM_EXPANSIONS = {
+    "ca": ("cash", "assistance"),
     "fpl": ("federal", "poverty", "level"),
     "lpr": ("lawful", "permanent", "resident"),
     "ssn": ("social", "security", "number"),
@@ -4266,6 +4267,17 @@ def _without_precomputed_income_table_percentage_captions(source_text: str) -> s
 
 def source_states_explicit_computation(source_text: str) -> bool:
     """Return whether text states a computation rather than only a scalar."""
+
+    # A parenthesized cross-reference can contain title punctuation that looks
+    # arithmetic to the generic expression recognizer (for example
+    # ``(See Elderly or Have a Disability - NA Special Considerations)``).
+    # It points to another source unit; it does not itself direct a computation.
+    if re.fullmatch(
+        r"\s*\(\s*(?:see(?:\s+also)?|refer\s+to)\b[^()]{1,300}\)\s*[.!]?\s*",
+        source_text,
+        flags=re.IGNORECASE,
+    ):
+        return False
 
     computation_text = _without_unproven_applied_operations(
         _without_stated_conversion_results(
