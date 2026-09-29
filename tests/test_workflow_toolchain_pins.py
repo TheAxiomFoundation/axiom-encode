@@ -152,14 +152,20 @@ def _runs_pip(command: Command) -> bool:
         return True
     return bool(
         re.fullmatch(r"python[0-9.]*", command.program)
-        and re.search(
-            r"(?:^|\s)-[A-Za-z]*m\s?pip[0-9.]*(?:\s|$)", " ".join(command.words)
-        )
+        and PIP.fullmatch(workflow_shell.python_module(command.words) or "")
     )
 
 
 def _pip_installs(command: Command) -> bool:
     return _runs_pip(command) and "install" in command.words
+
+
+def _stages_target(words: tuple[str, ...]) -> bool:
+    return any(
+        word in {"-t", "--target"} or word.startswith(("--target=", "-t"))
+        for word in words
+        if not word.startswith("--") or word.startswith("--target")
+    )
 
 
 def test_every_run_script_is_analyzable():
@@ -297,6 +303,51 @@ READER_CASES = {
     # An unquoted heredoc body is data, but its substitutions run.
     "cat <<DOC\nuv sync\n$(uv lock)\nDOC": [("lock", ())],
     "a=1 \\\n  uv sync --frozen": [("sync", ("--frozen",))],
+    # Round 4: substitutions in nested scripts and what uv run launches.
+    'bash -c "echo $(date)"': [],
+    'trap "rm -f $(mktemp)" EXIT': [],
+    'uv run --frozen python s.py "$(ls q)"': [("run", ("--frozen",))],
+    'uv run --frozen echo "$(uv lock)"': [("lock", ()), ("run", ("--frozen",))],
+    "bash -c 'echo $(uv lock)'": [("lock", ())],
+    # Wrapper option syntax: long spellings, clusters, attached values.
+    "sudo -Eu runner uv sync --frozen": [("sync", ("--frozen",))],
+    "sudo --user runner uv pip install x": [("pip install", ())],
+    "sudo --preserve-env=PATH uv sync": [("sync", ())],
+    "xargs -rn 1 uv pip sync": [("pip sync", ())],
+    "xargs --max-args=1 uv pip sync": [("pip sync", ())],
+    "env -iu FOO uv sync": [("sync", ())],
+    "stdbuf --output=L uv sync": [("sync", ())],
+    "time -p uv sync": [("sync", ())],
+    "nice -10 uv sync": [("sync", ())],
+    # env -S splits its value; later arguments stay whole.
+    "env -S 'bash -c' 'eval uv sync'": [("sync", ())],
+    # Quoting: $'...' strings, and backslashes inside backticks.
+    "$'uv' sync": [("sync", ())],
+    'echo `echo "\\$(uv sync)"`': [("sync", ())],
+    "IFS=$'\\t' read -r a b": [],
+    # coproc runs its command.
+    "coproc uv sync": [("sync", ())],
+    "coproc worker { uv sync; }": [("sync", ())],
+    # A descriptor prefix only goes with `<` and `>`, not `&>`.
+    "uv run --frozen --python 3&>/dev/null --with requests python s.py": [
+        ("run", ("--frozen", "--python", "--with"))
+    ],
+    # case after a control keyword, and substitutions in patterns.
+    "if true; then case x in a|uv) uv lock ;; esac; fi": [("lock", ())],
+    "for f in a; do case $f in a) uv lock ;; esac; done": [("lock", ())],
+    'case $x in "$(uv sync)") echo ;; esac': [("sync", ())],
+    'echo "$(case "$RUNNER_OS" in Linux) uv sync ;; esac)"': [("sync", ())],
+    "echo \"$(printf 'use case')\"; uv lock": [("lock", ())],
+    # Arrays, [[ ]] tests and (( )) are data, apart from their substitutions.
+    "tools=(uv git jq)": [],
+    "declare -a pkgs=(pytest ruff)": [],
+    "arr=( $(uv lock) )": [("lock", ())],
+    "[[ $c =~ ^(uv|pip)$ ]] && echo ok": [],
+    "(( x <<= 1 ))": [],
+    "if (( ${#a[@]} == 0 )); then uv lock; fi": [("lock", ())],
+    "(( $(uv lock) > 0 ))": [("lock", ())],
+    # Placeholder text cannot collide with script text.
+    'echo "__SUBST0__"': [],
 }
 
 
@@ -327,6 +378,14 @@ def test_reader_finds_the_uv_calls_a_script_makes(script, expected):
         # A program produced by a substitution.
         "$(command -v uv) sync",
         "`uv lock`",
+        # Unknown options to a wrapper, and runners this reader cannot follow.
+        "sudo --bogus uv sync",
+        "xargs -Z uv pip sync",
+        "setsid uv sync",
+        "flock /tmp/lock uv sync",
+        "runuser -u x -- uv sync",
+        # A case left open inside a substitution.
+        "echo $(case x in a) echo",
     ],
 )
 def test_reader_fails_closed_on_what_it_cannot_follow(script):
@@ -353,6 +412,37 @@ def test_reader_resolves_the_program_behind_quotes_and_wrappers():
         "echo",
     ]
     assert _programs("case x in a|pytest) echo ok;; esac") == ["echo"]
+    assert _programs("if true; then case x in a|pytest) echo ok;; esac; fi") == [
+        "true",
+        "echo",
+    ]
+    assert _programs("pkgs=(pytest ruff)") == []
+    assert _programs("[[ $c =~ ^(uv|pip)$ ]]") == ["[["]
+
+
+def test_nested_scripts_inherit_assignments():
+    [command] = workflow_shell.commands("UV_UPGRADE=1 bash -c 'uv sync --frozen'")
+    assert command.words == ("uv", "sync", "--frozen")
+    assert command.assignments == ("UV_UPGRADE=1",)
+    [command] = workflow_shell.commands("sudo -E A=1 env B=2 uv sync")
+    assert command.assignments == ("A=1", "B=2")
+
+
+def test_github_env_writes_keep_their_text():
+    [command] = workflow_shell.commands(
+        "cat >> \"$GITHUB_ENV\" <<'EOF'\nUV_NO_SYNC=1\nEOF"
+    )
+    assert command.redirects == ("$GITHUB_ENV",)
+    assert command.stdin_text == ("UV_NO_SYNC=1",)
+
+
+def test_python_module_follows_python_option_syntax():
+    module = workflow_shell.python_module
+    assert module(("python", "-m", "pip", "install")) == "pip"
+    assert module(("python", "-Impip", "install")) == "pip"
+    assert module(("python", "-X", "dev", "-m", "pip")) == "pip"
+    assert module(("python", "-c", 'print("python -m pip install")')) is None
+    assert module(("python", "script.py", "-m", "pip")) is None
 
 
 @pytest.mark.skipif(shutil.which("uv") is None, reason="uv is not installed")
@@ -455,10 +545,7 @@ def test_every_package_install_stages_a_target_directory():
         }:
             staged = "--target" in invocation.options
         elif _pip_installs(command):
-            staged = any(
-                word in {"-t", "--target"} or word.startswith("--target=")
-                for word in command.words
-            )
+            staged = _stages_target(command.words)
         else:
             continue
         if not staged:
@@ -470,30 +557,95 @@ def test_no_workflow_sets_uv_environment_variables():
     # UV_UPGRADE, UV_OFFLINE, UV_FROZEN and the rest change how every later
     # uv call resolves, invisibly to the option checks above.
     uv_variable = re.compile(r"UV_[A-Z0-9_]+")
-    offenders = [
-        f"{name} env: {key}"
-        for name, workflow in _workflows()
-        for scope in [
+    uv_assignment = re.compile(r"UV_[A-Z0-9_]+\+?=")
+    offenders = []
+    for name, workflow in _workflows():
+        jobs = list(workflow["jobs"].values())
+        scopes = [
             workflow,
-            *workflow["jobs"].values(),
+            *jobs,
+            *(step for job in jobs for step in job.get("steps", [])),
             *(
-                step
-                for job in workflow["jobs"].values()
-                for step in job.get("steps", [])
+                job["container"]
+                for job in jobs
+                if isinstance(job.get("container"), dict)
+            ),
+            *(
+                service
+                for job in jobs
+                for service in (job.get("services") or {}).values()
+                if isinstance(service, dict)
             ),
         ]
-        for key in (scope.get("env") or {})
-        if uv_variable.fullmatch(key)
-    ]
-    offenders += [
-        f"{where} {command.line}"
-        for where, command in _commands(_steps())
-        if any(
-            re.match(r"UV_[A-Z0-9_]+=", word)
-            for word in (*command.assignments, *command.words)
-        )
-    ]
+        offenders += [
+            f"{name} env: {key}"
+            for scope in scopes
+            for key in (scope.get("env") or {})
+            if uv_variable.fullmatch(key)
+        ]
+    for where, command in _commands(_steps()):
+        # An assignment, inline, through env or sudo, or inherited by bash -c.
+        if any(uv_assignment.match(word) for word in command.assignments):
+            offenders.append(f"{where} {command.line}")
+        # export/declare/typeset/readonly/local UV_X=... sets it for the shell.
+        elif command.program in {"declare", "export", "local", "readonly", "typeset"}:
+            if any(uv_assignment.match(word) for word in command.words[1:]):
+                offenders.append(f"{where} {command.line}")
+        # A write to $GITHUB_ENV sets it for every later step.
+        elif any("GITHUB_ENV" in target for target in command.redirects):
+            if any(
+                uv_variable.search(text)
+                for text in (*command.words, *command.stdin_text)
+            ):
+                offenders.append(f"{where} {command.line}")
     assert offenders == []
+
+
+def test_every_step_runs_under_bash():
+    # The reader follows bash; a pwsh or python step would go unread.
+    shells = [
+        f"{name}:{where} {shell}"
+        for name, workflow in _workflows()
+        for where, shell in [
+            (
+                "defaults",
+                ((workflow.get("defaults") or {}).get("run") or {}).get("shell"),
+            ),
+            *(
+                (job_name, ((job.get("defaults") or {}).get("run") or {}).get("shell"))
+                for job_name, job in workflow["jobs"].items()
+            ),
+            *(
+                (f"{job_name}[{index}]", step.get("shell"))
+                for job_name, job in workflow["jobs"].items()
+                for index, step in enumerate(job.get("steps", []))
+                if "run" in step
+            ),
+        ]
+        if shell not in {None, "bash"}
+    ]
+    assert shells == []
+
+
+def test_job_containers_are_pinned_by_digest():
+    images = [
+        f"{name}:{job_name} {image}"
+        for name, workflow in _workflows()
+        for job_name, job in workflow["jobs"].items()
+        for image in [
+            (
+                job["container"]["image"]
+                if isinstance(job.get("container"), dict)
+                else job.get("container")
+            ),
+            *(
+                service.get("image") if isinstance(service, dict) else service
+                for service in (job.get("services") or {}).values()
+            ),
+        ]
+        if image and not re.fullmatch(r"\S+@sha256:[0-9a-f]{64}", image)
+    ]
+    assert images == []
 
 
 @pytest.mark.parametrize(
@@ -527,13 +679,18 @@ def test_test_environment_is_the_locked_dev_set(workflow_name, job_name):
 
     # Nothing else builds or changes a Python environment in these jobs,
     # including through the command a `uv run` launches.
+    # `uv run` syncs the environment first, so it could add an extra.
     assert [
         invocation.command.line
         for _, invocation in invocations
         if invocation.subcommand.split()[0]
-        in {"add", "pip", "remove", "tool", "uvx", "venv"}
+        in {"add", "pip", "remove", "run", "tool", "uvx", "venv"}
     ] == []
-    assert [command.line for command in commands if _runs_pip(command)] == []
+    assert [
+        command.line
+        for command in commands
+        if _runs_pip(command) or command.program in {"pipx", "pip-sync"}
+    ] == []
 
     # Every tool the job runs comes from the synced .venv, after the sync.
     venv_uses = [

@@ -1,17 +1,26 @@
 """Find the commands a GitHub Actions ``run:`` script executes, and parse uv calls.
 
-This is a small bash reader, just enough to audit how workflows install
-Python. It follows:
+This is a small bash reader for auditing how this repository's workflows
+install Python. The threat model is an accidental regression in a reviewed
+workflow, written in ordinary shell. It is not a sandbox against deliberately
+obfuscated bash: it cannot see a command assembled in a variable
+(``"$cmd" sync``), a script run by path, or one fetched at run time.
 
-- quoting (a quoted ``;`` or ``>`` is data), comments and line continuations;
-- heredocs, whose bodies are data, though ``$(...)`` in an unquoted body runs;
-- ``$(...)``, backtick and ``<(...)`` substitutions, also inside ``$((...))``.
-  Each runs just before the command that contains it;
-- ``case`` patterns (data) and ``function`` bodies (commands);
-- ``bash``/``sh -c``, ``su -c``, ``eval`` and ``trap`` scripts, and
-  ``find -exec`` commands;
+Within that model it follows:
+
+- quoting (a quoted ``;`` or ``>`` is data), ``$'...'`` strings, comments and
+  line continuations;
+- ``$(...)``, backtick and ``<(...)`` substitutions, also inside ``$((...))``
+  and ``((...))``. Each runs just before the command that contains it;
+- heredocs: bodies are data (kept for the ``$GITHUB_ENV`` check), though
+  ``$(...)`` in an unquoted body runs;
+- ``case`` patterns, array literals and ``[[ ... ]]`` tests (data), and
+  ``function`` and ``coproc`` bodies (commands);
+- ``bash``/``sh -c``, ``su -c``, ``eval`` and ``trap`` scripts, and ``find -exec``
+  commands. Nested scripts inherit the caller's ``NAME=value`` assignments;
 - the wrappers ``sudo``, ``env`` (including ``-S``), ``timeout``, ``nice``,
-  ``nohup``, ``time``, ``exec``, ``stdbuf``, ``xargs`` and ``command``;
+  ``nohup``, ``time``, ``exec``, ``stdbuf``, ``xargs`` and ``command``, with
+  their full option syntax;
 - through :func:`expand`, the command ``uv run``, ``uv tool run`` or ``uvx``
   launches.
 
@@ -19,12 +28,15 @@ Python. It follows:
 (``tests/fixtures/uv_cli_options.json``), so a value is never mistaken for a
 subcommand or for ``uv run``'s command.
 
-Anything this reader cannot follow raises :class:`UnanalyzableScript`, so a
-guard built on it fails closed instead of silently skipping a command. That
-covers unterminated quotes, substitutions and heredocs, an unknown uv option
-or subcommand, a shell that reads its script from stdin or a file, and a
-program produced by a substitution. A program named by a variable
-(``"$PYBIN" ...``) is kept as written, because its identity is out of reach.
+The reader fails closed by raising :class:`UnanalyzableScript` on:
+
+- an unterminated quote, substitution or heredoc, or a ``case`` left open
+  inside a substitution;
+- an unknown uv option or subcommand, or an unknown option to a wrapper;
+- a shell that reads its script from stdin or a file, or ``su`` without ``-c``;
+- a program produced by a substitution;
+- a program in ``UNSUPPORTED_RUNNERS``, which run a command this reader does
+  not follow.
 
 Regenerate the option table after moving the uv pin::
 
@@ -33,11 +45,13 @@ Regenerate the option table after moving the uv pin::
 
 from __future__ import annotations
 
+import codecs
+import itertools
 import json
 import re
 import shlex
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 UV_OPTIONS_PATH = Path(__file__).parent / "fixtures" / "uv_cli_options.json"
@@ -84,10 +98,50 @@ _HELP_OPTION = re.compile(
     r"^ {2,6}(?:(-[A-Za-z0-9]), )?(--[a-z0-9][a-z0-9-]*)(?:\.\.\.)?"
     r"(?: (<[^>]+>)(?:\.\.\.)?)?(?:\s|$)"
 )
+# Programs that run another command in a way this reader does not follow.
+UNSUPPORTED_RUNNERS = frozenset(
+    {
+        "arch",
+        "busybox",
+        "caffeinate",
+        "chroot",
+        "chrt",
+        "doas",
+        "expect",
+        "fakeroot",
+        "faketime",
+        "firejail",
+        "flock",
+        "gdb",
+        "ionice",
+        "ltrace",
+        "newgrp",
+        "nsenter",
+        "parallel",
+        "pkexec",
+        "runuser",
+        "script",
+        "setsid",
+        "sg",
+        "ssh",
+        "strace",
+        "systemd-run",
+        "taskset",
+        "unbuffer",
+        "unshare",
+        "valgrind",
+        "watch",
+        "xvfb-run",
+    }
+)
 
 _GHA_EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
 _ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\[[^]]*\])?\+?=.*", re.DOTALL)
-_PLACEHOLDER = re.compile(r"__SUBST(\d+)__")
+# Substitution placeholders use private-use characters, so script text cannot
+# collide with them. The scope keeps a nested script's own substitutions apart
+# from its caller's, which have already run.
+_PLACEHOLDER = re.compile("(\\d+)\\.(\\d+)")
+_SCOPES = itertools.count()
 # Longest first, so `;;` is not read as two `;`.
 _OPERATORS = (
     ";;&",
@@ -124,22 +178,64 @@ _HEADERS = frozenset({"for", "select"})
 _SHELLS = frozenset({"bash", "sh", "dash", "zsh"})
 _SHELL_VALUED = frozenset({"--init-file", "--rcfile"})
 _FIND_ACTIONS = frozenset({"-exec", "-execdir", "-ok", "-okdir"})
-# wrapper -> (options that take a value, positional words before the command)
+
+
+@dataclass(frozen=True)
+class _Wrapper:
+    flags: frozenset[str]
+    valued: frozenset[str]
+    positionals: int = 0  # words between the options and the command
+    numeric_flags: bool = False  # `nice -10`
+
+
+def _options(*names: str) -> frozenset[str]:
+    return frozenset(names)
+
+
 _WRAPPERS = {
-    "env": (frozenset({"-u", "-C", "--unset", "--chdir"}), 0),
-    "exec": (frozenset({"-a"}), 0),
-    "nice": (frozenset({"-n", "--adjustment"}), 0),
-    "nohup": (frozenset(), 0),
-    "stdbuf": (frozenset({"-i", "-o", "-e"}), 0),
-    "sudo": (
-        frozenset({"-u", "-g", "-C", "-D", "-h", "-p", "-r", "-R", "-t", "-T", "-U"}),
-        0,
+    "sudo": _Wrapper(
+        _options(
+            *("-A", "-b", "-E", "-e", "-H", "-i", "-K", "-k", "-l", "-n", "-P", "-S"),
+            *("-s", "-V", "-v", "--askpass", "--background", "--edit", "--help"),
+            *("--list", "--login", "--non-interactive", "--preserve-env"),
+            *("--preserve-groups", "--remove-timestamp", "--reset-timestamp"),
+            *("--set-home", "--shell", "--stdin", "--validate", "--version"),
+        ),
+        _options(
+            *("-C", "-D", "-g", "-h", "-p", "-R", "-r", "-T", "-t", "-U", "-u"),
+            *("--chdir", "--chroot", "--close-from", "--command-timeout", "--group"),
+            *("--host", "--other-user", "--prompt", "--role", "--type", "--user"),
+        ),
     ),
-    "time": (frozenset({"-f", "-o"}), 0),
-    "timeout": (frozenset({"-k", "-s", "--kill-after", "--signal"}), 1),
-    "xargs": (
-        frozenset({"-a", "-d", "-E", "-I", "-L", "-n", "-P", "-s", "--arg-file"}),
-        0,
+    "env": _Wrapper(
+        _options("-", "-0", "-i", "-v", "--debug", "--ignore-environment", "--null"),
+        _options("-C", "-P", "-u", "--chdir", "--unset"),
+    ),
+    "exec": _Wrapper(_options("-c", "-l"), _options("-a")),
+    "nice": _Wrapper(_options(), _options("-n", "--adjustment"), numeric_flags=True),
+    "nohup": _Wrapper(_options(), _options()),
+    "stdbuf": _Wrapper(
+        _options(), _options("-e", "-i", "-o", "--error", "--input", "--output")
+    ),
+    "time": _Wrapper(
+        _options("-a", "-p", "-q", "-v", "--append", "--portability", "--quiet"),
+        _options("-f", "-o", "--format", "--output"),
+    ),
+    "timeout": _Wrapper(
+        _options("-v", "--foreground", "--preserve-status", "--verbose"),
+        _options("-k", "-s", "--kill-after", "--signal"),
+        positionals=1,
+    ),
+    "xargs": _Wrapper(
+        _options(
+            *("-0", "-o", "-p", "-r", "-t", "-x", "--exit", "--interactive"),
+            *("--no-run-if-empty", "--null", "--open-tty", "--verbose"),
+        ),
+        _options(
+            *("-a", "-d", "-E", "-I", "-L", "-n", "-P", "-s", "--arg-file"),
+            *("--delimiter", "--eof", "--max-args", "--max-chars", "--max-lines"),
+            *("--max-procs", "--process-slot-var", "--replace"),
+        ),
     ),
 }
 
@@ -154,8 +250,13 @@ class Command:
 
     words: tuple[str, ...]
     line: str
-    # NAME=value words that set the command's environment, as written.
+    # NAME=value words that set the command's environment, as written,
+    # including those inherited from a caller such as `A=1 bash -c '...'`.
     assignments: tuple[str, ...] = ()
+    # Redirection targets, such as "$GITHUB_ENV" for `>> "$GITHUB_ENV"`.
+    redirects: tuple[str, ...] = ()
+    # The text of a heredoc or here-string the command reads.
+    stdin_text: tuple[str, ...] = ()
 
     @property
     def program(self) -> str:
@@ -173,23 +274,37 @@ class UvInvocation:
     runs: tuple[str, ...] = ()
 
 
+@dataclass
+class _Substitution:
+    lines: list[str] = field(default_factory=list)
+    body: str | None = None  # a heredoc's text
+
+
 @dataclass(frozen=True)
 class _Token:
     text: str
     operator: bool
+    spaced: bool  # whitespace precedes it
+
+
+@dataclass(frozen=True)
+class _Script:
+    text: str
+    assignments: tuple[str, ...]
 
 
 class _Reader:
     """Split a script into logical lines.
 
-    Each substitution is replaced by a ``__SUBST<n>__`` placeholder, and its
-    own lines are stored at index n of the shared ``registry``.
+    Each substitution becomes a placeholder, and its own lines are stored at
+    that index of the shared ``registry``.
     """
 
-    def __init__(self, text: str, registry: list[list[str]]) -> None:
+    def __init__(self, text: str, registry: list[_Substitution], scope: int) -> None:
         self.text = text
         self.i = 0
         self.registry = registry
+        self.scope = scope
 
     def _error(self, message: str) -> UnanalyzableScript:
         start = self.text.rfind("\n", 0, self.i) + 1
@@ -197,9 +312,28 @@ class _Reader:
         line = self.text[start : end if end != -1 else len(self.text)]
         return UnanalyzableScript(f"{message}: {line.strip()!r}")
 
-    def _register(self, lines: list[str]) -> str:
-        self.registry.append(lines)
-        return f"__SUBST{len(self.registry) - 1}__"
+    def _register(self, substitution: _Substitution) -> str:
+        self.registry.append(substitution)
+        return f"{self.scope}.{len(self.registry) - 1}"
+
+    def _single_quoted(self) -> str:
+        end = self.text.find("'", self.i + 1)
+        if end == -1:
+            raise self._error("unterminated single quote")
+        quoted = self.text[self.i : end + 1]
+        self.i = end + 1
+        return quoted
+
+    def _ansi_c_quoted(self) -> str:
+        text = self.text
+        end = self.i + 2
+        while end < len(text) and text[end] != "'":
+            end += 2 if text[end] == "\\" else 1
+        if end >= len(text):
+            raise self._error("unterminated $'...' string")
+        quoted = text[self.i : end + 1]
+        self.i = end + 1
+        return quoted
 
     def lines(self, closer: str | None = None) -> list[str]:
         """Read logical lines until the end, or an unmatched ``closer``."""
@@ -212,6 +346,11 @@ class _Reader:
         while self.i < len(text):
             c = text[self.i]
             if closer is not None and c == closer and depth == 0:
+                if _open_cases("\n".join([*lines, "".join(out)])):
+                    # The `)` ends a case pattern, not the substitution.
+                    out.append(c)
+                    self.i += 1
+                    continue
                 self.i += 1
                 if heredocs:
                     raise self._error("heredoc left open inside a substitution")
@@ -225,16 +364,21 @@ class _Reader:
                 self.i += 2
                 word_start = False
                 continue
+            if text.startswith("$'", self.i):
+                out.append(self._ansi_c_quoted())
+                word_start = False
+                continue
             if c == "'":
-                end = text.find("'", self.i + 1)
-                if end == -1:
-                    raise self._error("unterminated single quote")
-                out.append(text[self.i : end + 1])
-                self.i = end + 1
+                out.append(self._single_quoted())
                 word_start = False
                 continue
             if c == '"':
                 out.append(self._double_quoted())
+                word_start = False
+                continue
+            if word_start and text.startswith("((", self.i):
+                # An arithmetic command runs nothing but its substitutions.
+                out.append(": " + self._substitution())
                 word_start = False
                 continue
             if (
@@ -246,16 +390,16 @@ class _Reader:
                 word_start = False
                 continue
             if text.startswith("<<<", self.i):
-                out.append("<<<")  # a here-string: its word is data
+                out.append(" <<< ")  # a here-string: its word is data
                 self.i += 3
                 word_start = True
                 continue
             if text.startswith("<<", self.i):
                 delimiter, expands, strip_tabs = self._heredoc_header()
-                index = len(self.registry)
-                self.registry.append([])  # filled once the body is read
+                placeholder = self._register(_Substitution())
+                index = len(self.registry) - 1
                 heredocs.append((index, delimiter, expands, strip_tabs))
-                out.append(f" << __SUBST{index}__ ")
+                out.append(f" << {placeholder} ")
                 word_start = True
                 continue
             if c == "#" and word_start:
@@ -322,9 +466,9 @@ class _Reader:
 
     def _substitution(self) -> str:
         text = self.text
-        if text.startswith("$((", self.i):
+        if text.startswith("$((", self.i) or text.startswith("((", self.i):
             # Arithmetic runs no command, but a substitution inside it does.
-            self.i += 3
+            self.i += 3 if text[self.i] == "$" else 2
             depth = 2
             inner: list[str] = []
             while self.i < len(text):
@@ -348,11 +492,13 @@ class _Reader:
                 end += 2 if text[end] == "\\" else 1
             if end >= len(text):
                 raise self._error("unterminated backtick substitution")
-            source = text[self.i + 1 : end].replace("\\`", "`")
+            # Inside backticks, a backslash quotes only `$`, a backtick or itself.
+            source = re.sub(r"\\([$`\\])", r"\1", text[self.i + 1 : end])
             self.i = end + 1
-            return self._register(_Reader(source, self.registry).lines())
+            inner = _Reader(source, self.registry, self.scope)
+            return self._register(_Substitution(inner.lines()))
         self.i += 2  # "$(", "<(" or ">("
-        return self._register(self.lines(closer=")"))
+        return self._register(_Substitution(self.lines(closer=")")))
 
     def _heredoc_header(self) -> tuple[str, bool, bool]:
         text = self.text
@@ -374,7 +520,7 @@ class _Reader:
 
     def _heredoc_body(
         self, delimiter: str, expands: bool, strip_tabs: bool
-    ) -> list[str]:
+    ) -> _Substitution:
         text = self.text
         body: list[str] = []
         while self.i < len(text):
@@ -384,18 +530,36 @@ class _Reader:
             self.i = min(end + 1, len(text))
             # Like bash: the whole line, less leading tabs for `<<-`.
             if (line.lstrip("\t") if strip_tabs else line) == delimiter:
+                joined = "\n".join(body)
                 if not expands:
-                    return []
+                    return _Substitution(body=joined)
                 # An unquoted body is data, but its substitutions still run.
-                found = _Reader("\n".join(body), self.registry).substitutions()
-                return [
-                    line
-                    for placeholder in found
-                    for index in _PLACEHOLDER.findall(placeholder)
-                    for line in self.registry[int(index)]
-                ]
+                found = _Reader(joined, self.registry, self.scope).substitutions()
+                return _Substitution(
+                    lines=[
+                        line
+                        for placeholder in found
+                        for _, index in _PLACEHOLDER.findall(placeholder)
+                        for line in self.registry[int(index)].lines
+                    ],
+                    body=joined,
+                )
             body.append(line)
         raise UnanalyzableScript(f"heredoc {delimiter!r} is never closed")
+
+
+_CASE_WORD = re.compile(
+    r"(?:^|[;&|(\n]|\b(?:then|do|else|elif|if|while|until|!))\s*(case|esac)(?=\s|;|$)"
+)
+
+
+def _open_cases(text: str) -> bool:
+    """Whether ``text`` opens more ``case`` statements than it closes.
+
+    Only words in command position count, so `printf 'use case'` does not.
+    """
+    words = _CASE_WORD.findall(text)
+    return words.count("case") > words.count("esac")
 
 
 def _normalize_expressions(script: str) -> str:
@@ -411,11 +575,13 @@ def _tokens(line: str) -> list[_Token]:
     word: list[str] = []
     quoted = False
     started = False
+    spaced = True
 
     def flush() -> None:
-        nonlocal word, quoted, started
+        nonlocal word, quoted, started, spaced
         if started:
-            tokens.append(_Token("".join(word), False))
+            tokens.append(_Token("".join(word), False, spaced))
+            spaced = False
         word, quoted, started = [], False, False
 
     i = 0
@@ -423,11 +589,26 @@ def _tokens(line: str) -> list[_Token]:
         c = line[i]
         if c in " \t\n":
             flush()
+            spaced = True
             i += 1
         elif c == "\\":
             word.append(line[i + 1 : i + 2])
             quoted = started = True
             i += 2
+        elif line.startswith("$'", i):
+            end = i + 2
+            while end < len(line) and line[end] != "'":
+                end += 2 if line[end] == "\\" else 1
+            if end >= len(line):
+                raise UnanalyzableScript(f"unterminated $'...': {line.strip()!r}")
+            raw = line[i + 2 : end]
+            word.append(
+                codecs.decode(
+                    raw.encode("latin-1", "backslashreplace"), "unicode_escape"
+                )
+            )
+            quoted = started = True
+            i = end + 1
         elif c == "'":
             end = line.find("'", i + 1)
             if end == -1:
@@ -435,8 +616,8 @@ def _tokens(line: str) -> list[_Token]:
             word.append(line[i + 1 : end])
             quoted = started = True
             i = end + 1
-        elif c == '"':
-            i += 1
+        elif c == '"' or line.startswith('$"', i):
+            i += 2 if c == "$" else 1
             while i < len(line) and line[i] != '"':
                 if line[i] == "\\" and line[i + 1 : i + 2] in {"$", "`", '"', "\\"}:
                     i += 1
@@ -449,14 +630,15 @@ def _tokens(line: str) -> list[_Token]:
         elif c in _OPERATOR_CHARS:
             operator = next(op for op in _OPERATORS if line.startswith(op, i))
             if (
-                any(ch in operator for ch in "<>")
+                operator[0] in "<>"
                 and started
                 and not quoted
                 and "".join(word).isdigit()
             ):
                 word, started = [], False  # a file-descriptor prefix: 2>&1
             flush()
-            tokens.append(_Token(operator, True))
+            tokens.append(_Token(operator, True, spaced))
+            spaced = False
             i += len(operator)
         else:
             word.append(c)
@@ -464,6 +646,37 @@ def _tokens(line: str) -> list[_Token]:
             i += 1
     flush()
     return tokens
+
+
+def _read_wrapper_options(name: str, spec: _Wrapper, words: list[str]) -> int:
+    """Index of the first word after ``name``'s options; unknown ones raise."""
+    index = 1
+    while index < len(words) and words[index].startswith("-") and words[index] != "-":
+        arg = words[index]
+        if arg == "--":
+            return index + 1
+        if arg.startswith("--"):
+            option, has_value, _ = arg.partition("=")
+            if option in spec.valued:
+                index += 1 if has_value else 2
+            elif option in spec.flags:
+                index += 1
+            else:
+                raise UnanalyzableScript(f"unknown {name} option {arg!r}")
+            continue
+        if spec.numeric_flags and arg[1:].isdigit():
+            index += 1
+            continue
+        for offset, letter in enumerate(arg[1:], start=1):
+            option = "-" + letter
+            if option in spec.valued:
+                index += 1 if offset < len(arg) - 1 else 2
+                break
+            if option not in spec.flags:
+                raise UnanalyzableScript(f"unknown {name} option {option!r} in {arg!r}")
+        else:
+            index += 1
+    return index
 
 
 def _shell_script(words: list[str]) -> str:
@@ -491,13 +704,18 @@ def _shell_script(words: list[str]) -> str:
     )
 
 
-def _unwrap(words: list[str]) -> list[tuple[list[str], list[str]] | str]:
+def _unwrap(words: list[str]) -> list[tuple[list[str], list[str]] | _Script]:
     """Strip keywords and wrappers from one simple command.
 
     Returns the commands it runs, each as (words, assignments), and the
-    scripts it runs (``bash -c``, ``eval``, ``trap``) as strings.
+    scripts it runs (``bash -c``, ``eval``, ``trap``) with the assignments
+    they inherit.
     """
     assignments: list[str] = []
+
+    def script(text: str) -> list[tuple[list[str], list[str]] | _Script]:
+        return [_Script(text, tuple(assignments))]
+
     while words:
         word = words[0]
         name = word.rsplit("/", 1)[-1]
@@ -508,27 +726,32 @@ def _unwrap(words: list[str]) -> list[tuple[list[str], list[str]] | str]:
             words = words[1:]
         elif word == "function":
             words = words[2:]  # `function NAME`; its body follows `{`
+        elif word == "coproc":
+            # `coproc NAME { ...; }` or `coproc command`.
+            words = words[2:] if words[2:3] == ["{"] else words[1:]
         elif word in _HEADERS:
             return []
+        elif name in UNSUPPORTED_RUNNERS:
+            raise UnanalyzableScript(f"{name} runs a command this reader cannot follow")
         elif name in _SHELLS:
-            return [_shell_script(words)]
+            return script(_shell_script(words))
         elif name == "su":
             for index, arg in enumerate(words[1:], start=1):
                 if arg.startswith("--command="):
-                    return [arg.partition("=")[2]]
+                    return script(arg.partition("=")[2])
                 if arg in {"-c", "--command"} and index + 1 < len(words):
-                    return [words[index + 1]]
+                    return script(words[index + 1])
             raise UnanalyzableScript(f"su without -c: {' '.join(words)!r}")
         elif name == "eval":
-            return [" ".join(words[1:])]
+            return script(" ".join(words[1:]))
         elif name == "trap":
             args = words[2:] if words[1:2] == ["--"] else words[1:]
             # `trap - SIG` resets, `trap '' SIG` ignores, `trap -p` prints.
             if args and args[0] and not args[0].startswith("-"):
-                return [args[0]]
+                return script(args[0])
             return []
         elif name == "find":
-            found: list[tuple[list[str], list[str]] | str] = []
+            found: list[tuple[list[str], list[str]] | _Script] = []
             plain: list[str] = []
             index = 0
             while index < len(words):
@@ -549,21 +772,21 @@ def _unwrap(words: list[str]) -> list[tuple[list[str], list[str]] | str]:
             if args and args[0] in {"-v", "-V"}:
                 return []
             words = args
+        elif name == "env" and any(
+            arg in {"-S", "--split-string"} or arg.startswith(("-S", "--split-string="))
+            for arg in words[1:2]
+        ):
+            # env -S splits its value into words; later arguments stay whole.
+            arg = words[1]
+            if arg in {"-S", "--split-string"}:
+                value, rest = (words[2] if len(words) > 2 else ""), words[3:]
+            else:
+                value = arg.partition("=")[2] if arg.startswith("--") else arg[2:]
+                rest = words[2:]
+            words = ["env", *shlex.split(value), *rest]
         elif name in _WRAPPERS:
-            valued, positionals = _WRAPPERS[name]
-            index = 1
-            while index < len(words) and words[index].startswith("-"):
-                arg = words[index]
-                if arg == "--":
-                    index += 1
-                    break
-                if name == "env" and arg in {"-S", "--split-string"}:
-                    return [" ".join(words[index + 1 :])]
-                if name == "env" and arg.startswith("--split-string="):
-                    return [" ".join([arg.partition("=")[2], *words[index + 1 :]])]
-                if name == "env" and arg.startswith("-S"):
-                    return [" ".join([arg[2:], *words[index + 1 :]])]
-                index += 2 if arg in valued else 1
+            spec = _WRAPPERS[name]
+            index = _read_wrapper_options(name, spec, words)
             while (
                 index < len(words)
                 and name in {"env", "sudo"}
@@ -571,7 +794,7 @@ def _unwrap(words: list[str]) -> list[tuple[list[str], list[str]] | str]:
             ):
                 assignments.append(words[index])
                 index += 1
-            words = words[index + positionals :]
+            words = words[index + spec.positionals :]
         else:
             if _PLACEHOLDER.search(word):
                 raise UnanalyzableScript(
@@ -581,31 +804,65 @@ def _unwrap(words: list[str]) -> list[tuple[list[str], list[str]] | str]:
     return [([], assignments)] if assignments else []
 
 
-def _commands_in(lines: list[str], registry: list[list[str]]) -> list[Command]:
+def _commands_in(
+    lines: list[str],
+    registry: list[_Substitution],
+    scope: int,
+    inherited: tuple[str, ...],
+) -> list[Command]:
     found: list[Command] = []
     words: list[str] = []
+    redirects: list[str] = []
+    stdin_text: list[str] = []
     line = ""
     in_header = False  # between `case` and `in`
     in_pattern = False  # a case pattern, up to its `)`
+    closer: str | None = None  # `)` of an array literal or `]]` of a test
     depth = 0  # nested `case` statements
 
-    def run(indexes: list[str]) -> None:
-        for index in indexes:
-            found.extend(_commands_in(registry[int(index)], registry))
+    def run(text: str) -> None:
+        for placeholder_scope, index in _PLACEHOLDER.findall(text):
+            if int(placeholder_scope) != scope:
+                continue  # the caller's substitution, which already ran
+            if int(index) >= len(registry):
+                raise UnanalyzableScript(f"unknown substitution in {line.strip()!r}")
+            substitution = registry[int(index)]
+            if substitution.body is not None:
+                stdin_text.append(substitution.body)
+            found.extend(_commands_in(substitution.lines, registry, scope, inherited))
+
+    def at_start() -> bool:
+        return all(word in _KEYWORDS for word in words)
 
     def finish() -> None:
-        nonlocal words
-        if words:
-            run([i for w in words for i in _PLACEHOLDER.findall(w)])
+        nonlocal words, redirects, stdin_text
+        if words or redirects:
+            for word in words:
+                run(word)
             for item in _unwrap(words):
-                if isinstance(item, str):
-                    found.extend(commands(item))
+                if isinstance(item, _Script):
+                    for command in commands(item.text):
+                        found.append(
+                            Command(
+                                command.words,
+                                command.line,
+                                (*inherited, *item.assignments, *command.assignments),
+                                command.redirects,
+                                command.stdin_text,
+                            )
+                        )
                 else:
                     program, assignments = item
                     found.append(
-                        Command(tuple(program), line.strip(), tuple(assignments))
+                        Command(
+                            tuple(program),
+                            line.strip(),
+                            (*inherited, *assignments),
+                            tuple(redirects),
+                            tuple(stdin_text),
+                        )
                     )
-        words = []
+        words, redirects, stdin_text = [], [], []
 
     for line in lines:
         tokens = _tokens(line)
@@ -613,11 +870,17 @@ def _commands_in(lines: list[str], registry: list[list[str]]) -> list[Command]:
         while index < len(tokens):
             token = tokens[index]
             index += 1
+            if closer is not None:
+                run(token.text)
+                if token.text == closer and (closer == ")") == token.operator:
+                    closer = None
+                continue
             if in_header:
-                run(_PLACEHOLDER.findall(token.text))
+                run(token.text)
                 in_header = not (not token.operator and token.text == "in")
                 in_pattern = not in_header
             elif in_pattern:
+                run(token.text)  # bash expands pattern words
                 if not token.operator and token.text == "esac":
                     depth -= 1
                     in_pattern = False
@@ -626,19 +889,37 @@ def _commands_in(lines: list[str], registry: list[list[str]]) -> list[Command]:
             elif token.operator and any(ch in token.text for ch in "<>"):
                 # A redirection: its target is data, but may hold a substitution.
                 if index < len(tokens) and not tokens[index].operator:
-                    run(_PLACEHOLDER.findall(tokens[index].text))
+                    target = tokens[index].text
+                    run(target)
+                    if token.text == "<<<":
+                        stdin_text.append(target)
+                    elif not _PLACEHOLDER.fullmatch(target):
+                        redirects.append(target)
                     index += 1
+            elif (
+                token.operator
+                and token.text == "("
+                and not token.spaced
+                and words
+                and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*\+?=", words[-1])
+            ):
+                closer = ")"  # an array literal: data
             elif token.operator:
                 finish()
                 in_pattern = depth > 0 and token.text in _CASE_ARM_ENDS
-            elif not words and token.text == "case":
+            elif at_start() and token.text == "case":
                 depth += 1
                 in_header = True
-            elif not words and token.text == "esac" and depth:
+            elif at_start() and token.text == "esac" and depth:
                 depth -= 1
+            elif at_start() and token.text == "[[":
+                words.append(token.text)
+                closer = "]]"  # a test: its operators are data
             else:
                 words.append(token.text)
         finish()
+    if closer is not None:
+        raise UnanalyzableScript(f"unterminated {closer!r} in {line.strip()!r}")
     return found
 
 
@@ -648,9 +929,10 @@ def commands(script: str) -> list[Command]:
     A substitution runs just before the command that contains it, and a
     ``bash -c`` script is expanded where it runs.
     """
-    registry: list[list[str]] = []
-    lines = _Reader(_normalize_expressions(script), registry).lines()
-    return _commands_in(lines, registry)
+    scope = next(_SCOPES)
+    registry: list[_Substitution] = []
+    lines = _Reader(_normalize_expressions(script), registry, scope).lines()
+    return _commands_in(lines, registry, scope, ())
 
 
 def expand(found: list[Command], table: dict) -> list[Command]:
@@ -664,11 +946,42 @@ def expand(found: list[Command], table: dict) -> list[Command]:
             if "--module" in invocation.options:
                 runs = ("python", "-m", *runs)
             inner = [
-                Command(c.words, command.line, c.assignments)
+                Command(
+                    c.words,
+                    command.line,
+                    (*command.assignments, *c.assignments),
+                    c.redirects,
+                    c.stdin_text,
+                )
                 for c in commands(shlex.join(runs))
             ]
             expanded.extend(expand(inner, table))
     return expanded
+
+
+def python_module(words: tuple[str, ...]) -> str | None:
+    """The module ``python ... -m MODULE`` runs, or None for a script or -c."""
+    index = 1
+    while index < len(words):
+        arg = words[index]
+        if arg == "--" or not arg.startswith("-") or arg == "-":
+            return None
+        if arg.startswith("--"):
+            index += 2 if arg == "--check-hash-based-pycs" else 1
+            continue
+        for offset, letter in enumerate(arg[1:], start=1):
+            rest = arg[offset + 1 :]
+            if letter == "c":
+                return None
+            if letter == "m":
+                if rest:
+                    return rest
+                return words[index + 1] if index + 1 < len(words) else None
+            if letter in "WX":
+                index += 0 if rest else 1  # its value is the rest or the next word
+                break
+        index += 1
+    return None
 
 
 def load_uv_options() -> dict:
