@@ -13942,6 +13942,12 @@ def _excerpt_is_conjunction_delimited_subclause(
         flags=re.IGNORECASE,
     ):
         return False
+    if re.search(
+        r"\b(?:if|unless|when|whenever|where|provided\s+that)\b",
+        after,
+        flags=re.IGNORECASE,
+    ):
+        return False
     begins_after_coordinator = re.search(
         r"(?:,\s*)?\b(?:and|but|or)\s*$",
         before,
