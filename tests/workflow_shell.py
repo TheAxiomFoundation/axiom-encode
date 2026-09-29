@@ -32,6 +32,8 @@ The reader fails closed by raising :class:`UnanalyzableScript` on:
 - an unterminated quote, substitution or heredoc, or a ``case`` left open
   inside a substitution;
 - an unknown uv option or subcommand, or an unknown option to a wrapper;
+- an ``env -S`` value with its own escapes or ``${VAR}`` expansions, and a
+  ``mapfile``/``readarray -C`` callback;
 - a shell that reads its script from stdin or a file, ``source``/``.``, or
   ``su`` without ``-c``;
 - a program produced by a substitution or a ``${{ }}`` expression;
@@ -596,6 +598,9 @@ def _ansi_c(raw: str) -> str:
 
 
 def _split(value: str) -> list[str]:
+    """Split an `env -S` value; its own escapes and ${VAR} are not followed."""
+    if "\\" in value or "$" in value:
+        raise UnanalyzableScript(f"env -S escapes or variables in {value!r}")
     try:
         return shlex.split(value)
     except ValueError as error:
@@ -665,6 +670,9 @@ def _tokens(line: str) -> list[_Token]:
         elif c == '"' or line.startswith('$"', i):
             i += 2 if c == "$" else 1
             while i < len(line) and line[i] != '"':
+                if line.startswith("\\\n", i):
+                    i += 2  # a line continuation, removed as bash removes it
+                    continue
                 if line[i] == "\\" and line[i + 1 : i + 2] in {"$", "`", '"', "\\"}:
                     i += 1
                 word.append(line[i])
@@ -879,6 +887,10 @@ def _unwrap(words: list[str]) -> list[tuple[list[str], list[str]] | _Script]:
             assignments.extend(env_assignments)
         elif name in {"source", "."}:
             raise UnanalyzableScript(f"{name} runs a script file: {' '.join(words)!r}")
+        elif name in {"mapfile", "readarray"} and any(
+            re.match(r"-[A-Za-z]*C", arg) for arg in words[1:]
+        ):
+            raise UnanalyzableScript(f"{name} -C runs a callback: {' '.join(words)!r}")
         elif name == "builtin":
             words = words[2:] if words[1:2] == ["--"] else words[1:]
         elif word.startswith("${{"):

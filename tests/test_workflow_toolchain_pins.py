@@ -413,6 +413,10 @@ def test_reader_finds_the_uv_calls_a_script_makes(script, expected):
         ". ./env.sh",
         "${{ inputs.cmd }} sync",
         'env -S "uv \'sync"',
+        # env -S's own escapes, and mapfile callbacks.
+        "env -S 'bash -c \"uv\\_pip install -e .\"'",
+        "env -S 'uv ${ARGS}'",
+        "mapfile -t -C 'uv sync' -c 1 lines < f",
         # A uv option missing its value.
         "uv --directory",
         "uv sync --frozen --python",
@@ -485,6 +489,19 @@ def test_nested_scripts_inherit_assignments():
         ('echo "LOCKED_UV_VERSION=0.11.7" >> "$GITHUB_ENV"', False),
         ('echo "VENV=.venv" >> "$GITHUB_ENV"', False),
         ("echo {PIP,POETRY}_INDEX_URL", False),
+        # Round 10: computed names, quote splitting, continuations, printf
+        # precision, and escaped letters.
+        (
+            'for prefix in UV PIP; do\n  export "${prefix}_INDEX_URL=x"\ndone',
+            True,
+        ),
+        ('for prefix in PIP POETRY; do export "${prefix}_INDEX_URL=x"; done', True),
+        ('export U"V_X"=1', True),
+        ("echo UV'_'X=1 >> \"$GITHUB_ENV\"", True),
+        ('echo "U\\\nV_X=1" >> "$GITHUB_ENV"', True),
+        ("printf '%.0sUV_X=1\\n' x >> \"$GITHUB_ENV\"", True),
+        ("echo $'\\x55V_X=1' >> \"$GITHUB_ENV\"", True),
+        ("export PIP_INDEX_URL=x", False),
         ("printf 'a\\tUV_X=1'", True),
         # Brace expansions and escapes spell a name too.
         ("export {UV,PIP}_INDEX_URL=https://example.com/simple", True),
@@ -670,15 +687,19 @@ def test_every_package_install_stages_a_target_directory():
 # A UV_* name, however it is spelled:
 # - a `UV_` prefix at a name boundary, so `UV_${X}` and `UV_{A,B}` count but
 #   LOCKED_UV_VERSION does not;
-# - a `UV_` after a backslash or `%` and up to ten letters or digits, which
-#   covers every escape bash or printf reads (`\\n`, `\\012`, `\\0012`, `\\x0a`,
-#   `\\u0a`, `\\U0000000a`, `\\cJ`) and printf directives such as `%s`;
-# - `UV` as a brace alternative (`{UV,PIP}_INDEX_URL`).
+# - a `UV_` after a backslash or `%` and up to twelve escape or directive
+#   characters, which covers every escape bash, echo -e or printf reads
+#   (`\\n`, `\\012`, `\\0012`, `\\x0a`, `\\u0a`, `\\U0000000a`, `\\cJ`) and printf
+#   directives such as `%s` or `%.0s`;
+# - `UV` standing alone as a word, the building block of a computed name
+#   (`for p in UV PIP; do export "${p}_INDEX_URL=..."`) or a brace
+#   alternative (`{UV,PIP}_INDEX_URL`).
 UV_NAME = re.compile(
     r"(?<![A-Za-z0-9_])UV_[A-Z0-9_]*"
-    r"|(?<=[\\%])[A-Za-z0-9]{0,10}UV_[A-Z0-9_]*"
-    r"|\{(?:[^{}\s,]*,)*UV(?:,[^{}\s,]*)*\}"
+    r"|(?<=[\\%])[A-Za-z0-9.*#+-]{0,12}UV_[A-Z0-9_]*"
+    r"|(?<![A-Za-z0-9_])UV(?![A-Za-z0-9_])"
 )
+ENV_BUILTINS = frozenset({"declare", "export", "local", "readonly", "typeset"})
 
 
 def _strings(node):
@@ -703,10 +724,12 @@ def test_no_workflow_sets_uv_environment_variables():
     redirect, group, tee, heredoc or multiline string). Rather than trace
     where each script's output goes, the rule is textual and conservative:
     no key or string anywhere in a workflow may contain a UV_* name,
-    including one spelled with a brace expansion or after an escape.
+    including one spelled with a brace expansion or after an escape, nor the
+    word UV on its own; the words bash sees after quote removal are checked
+    the same way; and export/declare may not compute a variable's name.
 
-    Within the threat model, setting a variable means spelling its name, so
-    none escapes. A harmless mention (a log line, a read) fails loudly
+    Within the threat model, setting a variable means spelling its name or
+    building it from the word UV, so none escapes. A harmless mention (a log line, a read) fails loudly
     instead; add a name to UV_NAMES_ALLOWED only for a reviewed read.
     Workflows configure uv through flags. setup-uv itself exports
     UV_PYTHON_INSTALL_DIR and UV_CACHE_DIR, which set where uv installs
@@ -721,6 +744,26 @@ def test_no_workflow_sets_uv_environment_variables():
             {match.group() for match in UV_NAME.finditer(text)} - UV_NAMES_ALLOWED
         )
     ]
+    for name, job, index, step in _steps():
+        for command in _script_commands(step.get("run", "")):
+            # The same rule on the words bash sees after quote removal and
+            # $'...' decoding, so `U"V_X"=1` and `$'\\x55V_X'` count too.
+            offenders += [
+                f"{name}:{job}[{index}] {found}"
+                for text in (*command.words, *command.assignments)
+                for found in sorted(
+                    {m.group() for m in UV_NAME.finditer(text)} - UV_NAMES_ALLOWED
+                )
+            ]
+            # A computed name (`export "${prefix}_X=1"`) cannot be checked, so
+            # it fails closed.
+            if command.program in ENV_BUILTINS:
+                offenders += [
+                    f"{name}:{job}[{index}] computes a variable name: {word}"
+                    for word in command.words[1:]
+                    if not word.startswith("-")
+                    and re.search(r"[$`\ue000]", word.partition("=")[0])
+                ]
     assert offenders == []
 
 
