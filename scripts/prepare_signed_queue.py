@@ -2094,6 +2094,18 @@ def _verify_target_evidence(
     }
 
 
+def _is_never_activated(payload: dict[str, Any]) -> bool:
+    return (
+        payload["state"] == "paused"
+        and payload.get("activation") is None
+        and payload.get("suspension") is None
+        and all(
+            item["status"] == "pending" and item["attempt"] == 1
+            for item in payload["items"]
+        )
+    )
+
+
 def finalize_and_repin(
     payload: dict[str, Any],
     *,
@@ -2121,7 +2133,14 @@ def finalize_and_repin(
         raise ValueError("finalizer_run_attempt must be 1")
     _validate_green_check_runs(check_runs)
     previous_queue_object_sha256 = _json_sha256(payload)
-    if new_rulespec_ref == payload["dispatch"]["rulespec_ref"]:
+    # A queue that has run a tranche must advance so the new base carries
+    # its merged items. A never-activated queue (no suspension evidence,
+    # every item pending on attempt 1) has nothing to carry: its first
+    # activation may use the exact tip its authenticated paused repin pinned,
+    # which the checks below still require to be the live, green branch tip.
+    if new_rulespec_ref == payload["dispatch"]["rulespec_ref"] and not (
+        _is_never_activated(payload)
+    ):
         raise ValueError("new_rulespec_ref must advance the queue base")
     if reviewed_rulespec_refs is None:
         try:

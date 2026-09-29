@@ -1878,3 +1878,198 @@ def test_paused_transition_may_move_to_main_only_with_a_full_repin(
     current.write_text(json.dumps(current_payload), encoding="utf-8")
     with pytest.raises(ValueError, match="PR base branch is not approved"):
         verify_paused_transition(current, previous_queue_path=previous)
+
+
+def _never_activated_main_fixture(tmp_path: Path) -> tuple[dict, Path, str]:
+    """A pristine paused queue already repinned to main's exact tip."""
+
+    payload = _queue(active=False)
+    payload["dispatch"]["pr_base_branch"] = "main"
+    rulespec = tmp_path / "rulespec"
+    toolchain = rulespec / ".axiom/toolchain.toml"
+    toolchain.parent.mkdir(parents=True)
+    release = payload["release"]
+    toolchain.write_text(
+        "[toolchain]\n"
+        f'axiom_corpus_release = "{release["name"]}"\n'
+        "axiom_corpus_release_content_sha256 = "
+        f'"{release["content_sha256"]}"\n',
+        encoding="utf-8",
+    )
+    subprocess.run(["git", "init", "-q", rulespec], check=True)
+    subprocess.run(["git", "-C", rulespec, "add", "."], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            rulespec,
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-qm",
+            "repinned tip",
+        ],
+        check=True,
+    )
+    tip = subprocess.check_output(
+        ["git", "-C", rulespec, "rev-parse", "HEAD"],
+        text=True,
+    ).strip()
+    subprocess.run(
+        ["git", "-C", rulespec, "update-ref", "refs/remotes/origin/main", tip],
+        check=True,
+    )
+    payload["dispatch"]["rulespec_ref"] = tip
+    validate_queue(payload)
+    assert "activation" not in payload and "suspension" not in payload
+    assert all(
+        item["status"] == "pending" and item["attempt"] == 1
+        for item in payload["items"]
+    )
+    return payload, rulespec, tip
+
+
+def test_finalize_repin_first_activation_may_use_the_repinned_tip(
+    tmp_path: Path,
+) -> None:
+    payload, rulespec, tip = _never_activated_main_fixture(tmp_path)
+
+    updated = finalize_and_repin(
+        payload,
+        rulespec_root=rulespec,
+        pull_requests=[],
+        workflow_runs=[],
+        new_rulespec_ref=tip,
+        reviewed_rulespec_refs=frozenset(),
+        **_finalizer_evidence(),
+    )
+
+    assert updated["state"] == "active"
+    assert "pause_reason" not in updated
+    assert updated["dispatch"]["rulespec_ref"] == tip
+    assert updated["activation"]["rulespec_ref"] == tip
+    assert updated["activation"]["previous_queue_object_sha256"] == _json_sha256(
+        payload
+    )
+    assert updated["items"] == payload["items"]
+
+
+def test_finalize_repin_first_activation_still_requires_live_green_tip(
+    tmp_path: Path,
+) -> None:
+    payload, rulespec, tip = _never_activated_main_fixture(tmp_path)
+    red = _finalizer_evidence()
+    red["check_runs"][0]["check_runs"][0]["conclusion"] = "failure"
+    with pytest.raises(ValueError):
+        finalize_and_repin(
+            payload,
+            rulespec_root=rulespec,
+            pull_requests=[],
+            workflow_runs=[],
+            new_rulespec_ref=tip,
+            reviewed_rulespec_refs=frozenset(),
+            **red,
+        )
+
+    (rulespec / "moved.txt").write_text("main moved\n", encoding="utf-8")
+    subprocess.run(["git", "-C", rulespec, "add", "."], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            rulespec,
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-qm",
+            "main moved",
+        ],
+        check=True,
+    )
+    moved = subprocess.check_output(
+        ["git", "-C", rulespec, "rev-parse", "HEAD"],
+        text=True,
+    ).strip()
+    subprocess.run(
+        ["git", "-C", rulespec, "update-ref", "refs/remotes/origin/main", moved],
+        check=True,
+    )
+    with pytest.raises(ValueError, match="exact checked-out remote branch tip"):
+        finalize_and_repin(
+            payload,
+            rulespec_root=rulespec,
+            pull_requests=[],
+            workflow_runs=[],
+            new_rulespec_ref=tip,
+            reviewed_rulespec_refs=frozenset(),
+            **_finalizer_evidence(),
+        )
+
+
+@pytest.mark.parametrize(
+    "status",
+    ["retryable", "blocked", "no-executable-rule"],
+)
+def test_finalize_repin_must_advance_once_any_item_has_a_disposition(
+    tmp_path: Path, status: str
+) -> None:
+    payload, rulespec, tip = _never_activated_main_fixture(tmp_path)
+    payload = record_disposition(
+        payload,
+        item_id="ut-0001",
+        status=status,
+        evidence_url=(
+            "https://github.com/TheAxiomFoundation/axiom-encode/issues/"
+            "1257#issuecomment-123"
+        ),
+        note="Recorded disposition.",
+    )
+
+    with pytest.raises(ValueError, match="must advance the queue base"):
+        finalize_and_repin(
+            payload,
+            rulespec_root=rulespec,
+            pull_requests=[],
+            workflow_runs=[],
+            new_rulespec_ref=tip,
+            reviewed_rulespec_refs=frozenset(),
+            **_finalizer_evidence(),
+        )
+
+
+def test_finalize_repin_must_advance_after_a_dispatched_tranche(
+    tmp_path: Path,
+) -> None:
+    for pr_base_branch in ("hard-cut/canonical-layout-us", "main"):
+        root = tmp_path / pr_base_branch.replace("/", "-")
+        payload, rulespec, old_ref, _ = _repin_fixture(root, pr_base_branch)
+        assert payload["suspension"] is not None
+        subprocess.run(
+            ["git", "-C", rulespec, "checkout", "-q", old_ref],
+            check=True,
+        )
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                rulespec,
+                "update-ref",
+                f"refs/remotes/origin/{pr_base_branch}",
+                old_ref,
+            ],
+            check=True,
+        )
+        with pytest.raises(ValueError, match="must advance the queue base"):
+            finalize_and_repin(
+                payload,
+                rulespec_root=rulespec,
+                pull_requests=[],
+                workflow_runs=[],
+                new_rulespec_ref=old_ref,
+                reviewed_rulespec_refs=frozenset({("us", old_ref)}),
+                **_finalizer_evidence(),
+            )
