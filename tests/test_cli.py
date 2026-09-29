@@ -45828,8 +45828,10 @@ rules:
   input:
     us:regulations/42-cfr/435/603/d#input.federal_poverty_level_for_applicable_family_size: 20000
     us:regulations/42-cfr/435/603/d#relation.member_of_individuals_household:
-    - us:regulations/42-cfr/435/603/d#input.expected_required_to_file_return_under_6012_a_1: true
-      us:regulations/42-cfr/435/603/d#input.included_in_household_of_natural_adopted_or_step_parent: false
+    - ? us:regulations/42-cfr/435/603/d#input.expected_required_to_file_return_under_6012_a_1
+      : true
+      ? us:regulations/42-cfr/435/603/d#input.included_in_household_of_natural_adopted_or_step_parent
+      : false
   output:
     us:regulations/42-cfr/435/603/d#household_income: 0
 """
