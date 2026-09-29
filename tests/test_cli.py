@@ -47456,6 +47456,71 @@ rules:
             == "count_where(membership, predicate) > 0"
         )
 
+    @pytest.mark.parametrize("initial_index", ["household_size", ["wrong_selector"]])
+    def test_mapped_table_repair_preserves_scalar_selector(
+        self, tmp_path, initial_index
+    ):
+        rules_file = tmp_path / "table.yaml"
+        versions = [{"effective_from": "2023-10-01", "values": {1: 1215, 8: 4214}}]
+        rules_file.write_text(
+            yaml.safe_dump(
+                {
+                    "format": "rulespec/v1",
+                    "rules": [
+                        {
+                            "name": "income_table",
+                            "kind": "parameter",
+                            "dtype": "Money",
+                            "unit": "USD",
+                            "indexed_by": initial_index,
+                            "versions": versions,
+                        }
+                    ],
+                }
+            )
+        )
+        contract = SimpleNamespace(
+            surfaces=(
+                SimpleNamespace(
+                    name="income_table",
+                    kind="parameter",
+                    entity="",
+                    replacement_entity="",
+                    dtype="Money",
+                    period="",
+                    unit="USD",
+                    indexed_by=("household_size",),
+                    private=False,
+                ),
+            )
+        )
+        original = rules_file.read_bytes()
+        repaired = _repair_existing_target_oracle_shape_contracts(
+            rules_file=rules_file, contract=contract
+        )
+        if initial_index == "household_size":
+            assert repaired == []
+            assert rules_file.read_bytes() == original
+        else:
+            assert repaired == ["income_table"]
+        rule = yaml.safe_load(rules_file.read_text())["rules"][0]
+        assert rule["indexed_by"] == "household_size"
+        assert rule["versions"] == versions
+        before = rules_file.read_bytes()
+        assert (
+            _repair_existing_target_oracle_shape_contracts(
+                rules_file=rules_file, contract=contract
+            )
+            == []
+        )
+        assert rules_file.read_bytes() == before
+        contract.surfaces[0].indexed_by = ("household_size", "region")
+        with pytest.raises(ValueError, match="multiple indexed_by dimensions"):
+            _repair_existing_target_oracle_shape_contracts(
+                rules_file=rules_file, contract=contract
+            )
+        assert rules_file.read_bytes() == before
+
     def test_apply_overlay_scopes_authenticated_canonical_replacement(self, tmp_path):
         output_root = tmp_path / "out"
         policy_repo = tmp_path / "rulespec-us" / "us"
