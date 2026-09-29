@@ -13762,6 +13762,7 @@ def _source_condition_clauses_owned_by_excerpt(
     source_text: str,
     branches: Sequence[SourceStructureBranch],
     corpus_citation_path: str,
+    narrow_conjunctive_excerpt: bool = True,
 ) -> tuple[tuple[_SourceConditionClause, ...], bool]:
     """Resolve exact proof text to rule-cited propositions, reporting ambiguity."""
 
@@ -13878,7 +13879,7 @@ def _source_condition_clauses_owned_by_excerpt(
             local_start,
             local_end,
         )
-        if _excerpt_is_conjunction_delimited_subclause(
+        if narrow_conjunctive_excerpt and _excerpt_is_conjunction_delimited_subclause(
             container_text,
             excerpt_start=local_start,
             excerpt_end=local_end,
@@ -14634,6 +14635,7 @@ def _opaque_same_source_condition_input_issues(
                     source_text=source_text,
                     branches=branches,
                     corpus_citation_path=corpus_citation_path,
+                    narrow_conjunctive_excerpt=len(excerpts) == 1,
                 )
                 excerpt_has_gates = False
                 for clause in owned_clauses:

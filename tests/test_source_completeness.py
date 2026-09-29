@@ -1089,6 +1089,29 @@ def test_data_relation_is_structural_during_conjunctive_gate_expansion():
 
     assert not _has_issue(result, "source-explicit-conditions")
 
+    principal_rule = next(
+        rule
+        for rule in payload["rules"]
+        if rule["name"] == "basic_categorical_eligibility"
+    )
+    principal_rule["versions"][0]["formula"] = "no_participant_is_disqualified"
+    incomplete_result = _analyze(
+        yaml.safe_dump(payload, sort_keys=False),
+        source,
+        corpus_citation_path=citation_path,
+        test_cases=[],
+        extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+        extract_numeric_grounding_occurrences=(
+            EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR
+        ),
+    )
+
+    assert _has_issue(
+        incomplete_result,
+        "source-explicit-conditions",
+        "basic_categorical_eligibility",
+    )
+
 
 def test_parenthetical_condition_does_not_absorb_later_conjunctions():
     text = (
