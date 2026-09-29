@@ -396,6 +396,8 @@ READER_CASES = {
     "sudo FOO-BAR=1 uv sync": [("sync", ())],
     "cat <<END-OF\nuv sync\nEND-OF\nuv lock": [("lock", ())],
     "uv --version": [("", ("--version",))],
+    # A shell asked only for its version or help runs no script.
+    "bash --version; sh --help": [],
     "echo \"$(echo 'if case x in')\"": [],
 }
 
@@ -557,7 +559,10 @@ def test_nested_scripts_inherit_assignments():
         ),
         ('echo "PIP_INDEX_URL=x" >> "$GITHUB_ENV"', True),
         ("tr a-z A-Z < names", True),
-        ('f=GITHUB_ENV; echo "A=1" >> "${!f}"', True),
+        # Only the indirection rule can catch this: no literal GITHUB_ENV.
+        ('n=$(printf github_env | dd conv=ucase); echo "A=1" >> "${!n}"', True),
+        ('declare -n ref="$name"; echo "A=1" >> "$ref"', True),
+        ('for i in "${!arr[@]}"; do echo "$i"; done', False),
         # Sanitizing with tr converts no case.
         ("slug=$(printf '%s' \"$REF\" | tr -cs 'a-z0-9' '-')", False),
         ("tr -d 'A-Z' < names", False),
@@ -609,6 +614,35 @@ def test_setup_uv_inputs_other_than_version_are_caught(monkeypatch):
     )
     with pytest.raises(AssertionError):
         test_setup_uv_takes_only_a_version()
+
+
+@pytest.mark.parametrize("scope", ["workflow", "job"])
+@pytest.mark.parametrize(
+    "variable", ["BASH_ENV", "PYTHONPATH", "PYTEST_ADDOPTS", "CI", "UV_NO_SYNC"]
+)
+def test_test_jobs_reject_startup_overrides(monkeypatch, scope, variable):
+    workflows = copy.deepcopy(_workflows())
+    ci = dict(workflows)["ci.yml"]
+    target = ci if scope == "workflow" else ci["jobs"]["test"]
+    target["env"] = {variable: "x"}
+    monkeypatch.setattr(
+        "tests.test_workflow_toolchain_pins._workflows", lambda: workflows
+    )
+    with pytest.raises(AssertionError):
+        test_test_environment_is_the_locked_dev_set("ci.yml", "test")
+
+
+def test_test_jobs_reject_a_container(monkeypatch):
+    workflows = copy.deepcopy(_workflows())
+    dict(workflows)["ci.yml"]["jobs"]["test"]["container"] = {
+        "image": "ubuntu@sha256:" + "a" * 64,
+        "env": {"PYTEST_ADDOPTS": "--collect-only"},
+    }
+    monkeypatch.setattr(
+        "tests.test_workflow_toolchain_pins._workflows", lambda: workflows
+    )
+    with pytest.raises(AssertionError):
+        test_test_environment_is_the_locked_dev_set("ci.yml", "test")
 
 
 def test_a_uv_version_step_is_allowed_in_a_test_job(monkeypatch):
@@ -854,6 +888,12 @@ def test_no_workflow_sets_uv_environment_variables():
                 )
             ]
             # Case conversion builds an upper-case name the rule cannot see.
+            # A nameref (`declare -n ref="$name"`) is indirection too.
+            if command.program in {"declare", "local", "typeset"} and any(
+                re.fullmatch(r"-[A-Za-z]*n[A-Za-z]*", word)
+                for word in command.words[1:]
+            ):
+                offenders.append(f"{name}:{job}[{index}] declares a nameref")
             if _tr_converts_case(command.words) or (
                 command.program in {"declare", "local", "typeset"}
                 and any(
@@ -873,8 +913,9 @@ def test_no_workflow_sets_uv_environment_variables():
                 ]
         if CASE_CONVERSION.search(step.get("run", "")):
             offenders.append(f"{name}:{job}[{index}] converts case")
-        # `${!name}` reads a variable whose name is itself computed.
-        if "${!" in step.get("run", ""):
+        # `${!name}` reads a variable whose name is itself computed; the
+        # array-key form `${!arr[@]}` is not indirection.
+        if re.search(r"\$\{!(?![A-Za-z_][A-Za-z0-9_]*\[[@*]\]\})", step.get("run", "")):
             offenders.append(f"{name}:{job}[{index}] uses indirect expansion")
         # $GITHUB_ENV is also `${{ github.env }}`, and a step can pass either
         # through env:, so every string in the step is searched.
@@ -1227,12 +1268,15 @@ def test_test_environment_is_the_locked_dev_set(workflow_name, job_name):
     # `if:`, `env:`, `shell:` or `continue-on-error:` on the step. The job has
     # no `if:` or `continue-on-error:`, and nothing in scope overrides CI,
     # GITHUB_ACTIONS, pytest's options, or how the step's shell or Python
-    # starts (BASH_ENV is sourced before every step). Runner-provided CI can
-    # then only be changed through $GITHUB_ENV, which only reviewed steps may
-    # write.
+    # starts (BASH_ENV is sourced before every step), and no container.
+    # Runner-provided CI can then only be changed through $GITHUB_ENV, which
+    # only reviewed run: steps and pinned actions write.
     workflow = dict(_workflows())[workflow_name]
     job = workflow["jobs"][job_name]
     assert "if" not in job and "continue-on-error" not in job, job_name
+    # A container's env:, --env options or image environment would reach the
+    # pinned step unseen.
+    assert "container" not in job, job_name
     overrides = re.compile(
         r"CI|GITHUB_ACTIONS|BASH_ENV|ENV|SHELLOPTS|BASHOPTS|PYTEST_\w+|PYTHON\w*|UV_\w+"
     )

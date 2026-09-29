@@ -818,6 +818,8 @@ def _shell_script(words: list[str]) -> str:
         if arg in {"-", "--"}:
             index += 1
             break
+        if arg in {"--version", "--help"}:
+            return ""  # prints and exits; runs no script
         if arg.startswith("--"):
             index += 2 if arg in _SHELL_VALUED else 1
         elif re.fullmatch(r"[-+][A-Za-z]+", arg):
