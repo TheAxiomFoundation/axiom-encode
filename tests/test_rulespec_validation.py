@@ -6668,7 +6668,7 @@ def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2057"')
+        .startswith('__version__ = "0.2.2060"')
     )
 
 
@@ -6900,13 +6900,13 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2057"
+    assert encoder_package["version"] == "0.2.2060"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2057"
+    assert project["project"]["version"] == "0.2.2060"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2057"')
+        .startswith('__version__ = "0.2.2060"')
     )
 
 
@@ -7168,13 +7168,13 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2057"
+    assert encoder_package["version"] == "0.2.2060"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2057"
+    assert project["project"]["version"] == "0.2.2060"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2057"')
+        .startswith('__version__ = "0.2.2060"')
     )
 
 
@@ -40438,6 +40438,77 @@ rules:
 """
 
     assert find_source_scope_consistency_issues(content) == []
+
+
+def test_source_scope_consistency_allows_budgetary_unit_participant_aggregate():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Basic categorical eligibility exists when the budgetary unit does not have
+    a participant meeting certain disqualification criteria, and all budgetary
+    unit participants receive a listed benefit or status.
+rules:
+  - name: member_of_budgetary_unit
+    kind: data_relation
+    data_relation:
+      predicate: member_of_budgetary_unit
+      arity: 2
+      arguments: [Household, Person]
+  - name: no_budgetary_unit_participant_meets_disqualification_criterion
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    source: Arizona DES FAA5
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              excerpt: >-
+                the budgetary unit does not have a participant meeting certain
+                disqualification criteria
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          count_where(
+            member_of_budgetary_unit,
+            participant_meets_disqualification_criterion
+          ) == 0
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
+def test_source_scope_consistency_allows_person_level_budgetary_unit_participant():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    A budgetary unit participant is eligible if the participant meets the
+    income test.
+rules:
+  - name: budgetary_unit_participant_is_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: Arizona DES FAA5
+    versions:
+      - effective_from: '2025-10-01'
+        formula: participant_meets_income_test
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
+def test_source_scope_consistency_recognizes_budgetary_unit_disqualification():
+    text = (
+        "The budgetary unit does not have any participant meeting "
+        "disqualification criteria."
+    )
+
+    assert validator_pipeline._UNIT_SCOPE_SOURCE_PATTERN.search(text) is not None
 
 
 def test_source_scope_consistency_rejects_unaggregated_person_helper_from_unit_source():
