@@ -24,7 +24,11 @@ from axiom_encode.codex_cli import (
     resolve_codex_cli,
     with_codex_model_availability_hint,
 )
-from axiom_encode.constants import DEFAULT_CLI_MODEL, DEFAULT_MODEL
+from axiom_encode.constants import (
+    DEFAULT_API_ENCODER_EFFORT,
+    DEFAULT_CLI_MODEL,
+    DEFAULT_MODEL,
+)
 from axiom_encode.prompts.encoder import get_encoder_prompt
 
 from .encoding_db import TokenUsage
@@ -537,17 +541,32 @@ class AgentSDKBackend(EncoderBackend):
     Requires ANTHROPIC_API_KEY - pay per token.
     Enables parallelization for batch encoding.
     Uses embedded prompts -- no external plugin needed.
+
+    Current Claude models think adaptively by default and ``max_tokens`` caps
+    thinking plus the RuleSpec together, so requests stream (the SDK refuses
+    non-streaming requests above ~21k tokens) with a large budget. A refusal or
+    a response cut off at ``max_tokens`` is a failed encode, never a partial
+    RuleSpec.
     """
+
+    # Room for adaptive thinking plus a long RuleSpec module.
+    MAX_TOKENS = 64_000
 
     def __init__(
         self,
         api_key: Optional[str] = None,
         model: str | None = None,
+        effort: str | None = None,
     ):
         self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
         if not self.api_key:
             raise ValueError("ANTHROPIC_API_KEY required for AgentSDKBackend")
         self.model = model or DEFAULT_MODEL
+        self.effort = (
+            effort
+            or os.environ.get("AXIOM_API_ENCODER_EFFORT")
+            or DEFAULT_API_ENCODER_EFFORT
+        )
 
     def encode(self, request: EncoderRequest) -> EncoderResponse:
         """Synchronous encode using API (runs async under the hood)."""
@@ -570,23 +589,51 @@ class AgentSDKBackend(EncoderBackend):
             )
             prompt += f"\n\nSource Text:\n{request.source_text}\n"
 
-            response = await client.messages.create(
+            async with client.messages.stream(
                 model=self.model,
-                max_tokens=16384,
+                max_tokens=self.MAX_TOKENS,
                 messages=[{"role": "user", "content": prompt}],
-            )
-
-            result_content = ""
-            for block in response.content:
-                if hasattr(block, "text"):
-                    result_content += block.text
+                output_config={"effort": self.effort},
+            ) as stream:
+                response = await stream.get_final_message()
 
             token_usage = TokenUsage(
                 input_tokens=response.usage.input_tokens,
                 output_tokens=response.usage.output_tokens,
             )
-
             duration_ms = int((time.time() - start) * 1000)
+
+            stop_reason = getattr(response, "stop_reason", None)
+            if stop_reason in ("refusal", "max_tokens"):
+                if stop_reason == "refusal":
+                    details = getattr(response, "stop_details", None)
+                    category = (
+                        details.get("category")
+                        if isinstance(details, dict)
+                        else getattr(details, "category", None)
+                    )
+                    error = "model declined the encode request" + (
+                        f" (category: {category})" if category else ""
+                    )
+                else:
+                    error = (
+                        f"response hit max_tokens={self.MAX_TOKENS} before the "
+                        "RuleSpec was complete"
+                    )
+                return EncoderResponse(
+                    rulespec_content="",
+                    success=False,
+                    error=error,
+                    duration_ms=duration_ms,
+                    tokens=token_usage if token_usage.total_tokens > 0 else None,
+                )
+
+            # Thinking blocks never enter the RuleSpec; only text blocks do.
+            result_content = "".join(
+                block.text
+                for block in response.content
+                if getattr(block, "type", None) == "text"
+            )
 
             # Check if file was created.
             if request.output_path.exists():

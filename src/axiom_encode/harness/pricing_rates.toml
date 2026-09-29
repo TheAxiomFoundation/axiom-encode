@@ -5,8 +5,26 @@
 # Every model carries `source_url` (the vendor page the numbers were read from)
 # and `captured_at` (the day it was read), so a rate traces to a document.
 
-version = 4
-effective_date = "2026-09-24"
+version = 5
+effective_date = "2026-09-28"
+
+# Cache hits on Opus 5.5 are 0.05x input (the pricing page's footnote 2), not
+# the usual 0.1x; cache writes are the standard 1.25x (5-minute cache).
+[models.claude-opus-5-5]
+input_per_million = 4.0
+output_per_million = 20.0
+cache_read_per_million = 0.20
+cache_create_per_million = 5.0
+source_url = "https://platform.claude.com/docs/en/about-claude/pricing"
+captured_at = "2026-09-28"
+
+[models.claude-sonnet-5-5]
+input_per_million = 2.0
+output_per_million = 10.0
+cache_read_per_million = 0.20
+cache_create_per_million = 2.50
+source_url = "https://platform.claude.com/docs/en/about-claude/pricing"
+captured_at = "2026-09-28"
 
 [models.claude-opus-4-6]
 input_per_million = 5.0

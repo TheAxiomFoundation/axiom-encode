@@ -7,7 +7,7 @@ Updated for self-contained backends (no plugin dependencies).
 import hashlib
 import os
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -317,34 +317,123 @@ class TestAgentSDKBackend:
             with pytest.raises(ValueError, match="ANTHROPIC_API_KEY"):
                 AgentSDKBackend(api_key=None)
 
-    @pytest.mark.asyncio
-    async def test_encode_async(self):
-        """encode_async() uses anthropic SDK for async encoding."""
-        backend = AgentSDKBackend(api_key="test-key")
+    @staticmethod
+    def _stream_anthropic(response):
+        """Mock ``anthropic`` whose AsyncAnthropic().messages.stream() yields response."""
 
-        # Create mock for anthropic
-        mock_anthropic = Mock()
+        calls = []
+
+        class _Stream:
+            async def get_final_message(self):
+                return response
+
+        class _StreamManager:
+            async def __aenter__(self):
+                return _Stream()
+
+            async def __aexit__(self, *exc):
+                return False
+
+        def stream(**kwargs):
+            calls.append(kwargs)
+            return _StreamManager()
+
         mock_client = Mock()
-
-        mock_response = Mock()
-        mock_response.content = [Mock(text="test:\n  entity: TaxUnit")]
-        mock_response.usage = Mock(input_tokens=100, output_tokens=50)
-
         mock_client.messages = Mock()
-        mock_client.messages.create = AsyncMock(return_value=mock_response)
+        mock_client.messages.stream = stream
+        mock_anthropic = Mock()
         mock_anthropic.AsyncAnthropic = Mock(return_value=mock_client)
+        return mock_anthropic, calls
+
+    @staticmethod
+    def _response(blocks, *, stop_reason="end_turn", stop_details=None):
+        response = Mock()
+        response.content = blocks
+        response.usage = Mock(input_tokens=100, output_tokens=50)
+        response.stop_reason = stop_reason
+        response.stop_details = stop_details
+        return response
+
+    @staticmethod
+    def _request(tmp_path):
+        return EncoderRequest(
+            citation="26 USC 1",
+            source_text="Test",
+            output_path=tmp_path / "missing.yaml",
+        )
+
+    @pytest.mark.asyncio
+    async def test_encode_async(self, tmp_path):
+        """encode_async() streams from the anthropic SDK and keeps text blocks only."""
+        backend = AgentSDKBackend(api_key="test-key")
+        response = self._response(
+            [
+                Mock(type="thinking", thinking=""),
+                Mock(type="text", text="test:\n  entity: TaxUnit"),
+            ]
+        )
+        mock_anthropic, calls = self._stream_anthropic(response)
 
         with patch.dict("sys.modules", {"anthropic": mock_anthropic}):
-            resp = await backend.encode_async(
-                EncoderRequest(
-                    citation="26 USC 1",
-                    source_text="Test",
-                    output_path=Path("/tmp/test.yaml"),
-                )
-            )
+            resp = await backend.encode_async(self._request(tmp_path))
 
-            assert resp.success
-            assert resp.tokens is not None
+        assert resp.success
+        assert resp.tokens is not None
+        assert resp.rulespec_content == "test:\n  entity: TaxUnit"
+        assert calls[0]["model"] == "claude-opus-5-5"
+        assert calls[0]["max_tokens"] == AgentSDKBackend.MAX_TOKENS
+        assert calls[0]["max_tokens"] > 21_333  # needs streaming
+        assert calls[0]["output_config"] == {"effort": "high"}
+
+    @pytest.mark.asyncio
+    async def test_encode_async_effort_override(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("AXIOM_API_ENCODER_EFFORT", "xhigh")
+        mock_anthropic, calls = self._stream_anthropic(
+            self._response([Mock(type="text", text="x: 1")])
+        )
+        with patch.dict("sys.modules", {"anthropic": mock_anthropic}):
+            await AgentSDKBackend(api_key="k").encode_async(self._request(tmp_path))
+            await AgentSDKBackend(api_key="k", effort="medium").encode_async(
+                self._request(tmp_path)
+            )
+        assert calls[0]["output_config"] == {"effort": "xhigh"}
+        assert calls[1]["output_config"] == {"effort": "medium"}
+
+    @pytest.mark.asyncio
+    async def test_encode_async_refusal_is_a_failed_encode(self, tmp_path):
+        response = self._response(
+            [], stop_reason="refusal", stop_details={"category": "cyber"}
+        )
+        mock_anthropic, _ = self._stream_anthropic(response)
+        with patch.dict("sys.modules", {"anthropic": mock_anthropic}):
+            resp = await AgentSDKBackend(api_key="k").encode_async(
+                self._request(tmp_path)
+            )
+        assert not resp.success
+        assert resp.rulespec_content == ""
+        assert "declined" in resp.error and "cyber" in resp.error
+
+    @pytest.mark.asyncio
+    async def test_encode_async_truncation_is_a_failed_encode(self, tmp_path):
+        # A truncated RuleSpec must never be returned as content, even if it
+        # looks well-formed so far.
+        response = self._response(
+            [Mock(type="text", text="test:\n  entity: Tax")], stop_reason="max_tokens"
+        )
+        mock_anthropic, _ = self._stream_anthropic(response)
+        with patch.dict("sys.modules", {"anthropic": mock_anthropic}):
+            resp = await AgentSDKBackend(api_key="k").encode_async(
+                self._request(tmp_path)
+            )
+        assert not resp.success
+        assert resp.rulespec_content == ""
+        assert "max_tokens" in resp.error
+
+    def test_default_model_is_current_opus(self):
+        from axiom_encode.constants import DEFAULT_MODEL
+
+        assert DEFAULT_MODEL == "claude-opus-5-5"
+        assert AgentSDKBackend(api_key="k").model == "claude-opus-5-5"
 
     @pytest.mark.asyncio
     async def test_encode_batch_parallel(self):
@@ -549,16 +638,10 @@ class TestAgentSDKBackendAdditional:
         """Test encode_async captures token usage."""
         backend = AgentSDKBackend(api_key="test-key")
 
-        mock_anthropic = Mock()
-        mock_client = Mock()
-
-        mock_response = Mock()
-        mock_response.content = [Mock(text="encoded")]
-        mock_response.usage = Mock(input_tokens=100, output_tokens=50)
-
-        mock_client.messages = Mock()
-        mock_client.messages.create = AsyncMock(return_value=mock_response)
-        mock_anthropic.AsyncAnthropic = Mock(return_value=mock_client)
+        mock_response = TestAgentSDKBackend._response(
+            [Mock(type="text", text="encoded")]
+        )
+        mock_anthropic, _ = TestAgentSDKBackend._stream_anthropic(mock_response)
 
         with patch.dict("sys.modules", {"anthropic": mock_anthropic}):
             resp = await backend.encode_async(
@@ -582,16 +665,10 @@ class TestAgentSDKBackendAdditional:
         output_path = tmp_path / "output.yaml"
         output_path.write_text("file_content:\n  entity: TaxUnit\n")
 
-        mock_anthropic = Mock()
-        mock_client = Mock()
-
-        mock_response = Mock()
-        mock_response.content = [Mock(text="ignored")]
-        mock_response.usage = Mock(input_tokens=10, output_tokens=5)
-
-        mock_client.messages = Mock()
-        mock_client.messages.create = AsyncMock(return_value=mock_response)
-        mock_anthropic.AsyncAnthropic = Mock(return_value=mock_client)
+        mock_response = TestAgentSDKBackend._response(
+            [Mock(type="text", text="ignored")]
+        )
+        mock_anthropic, _ = TestAgentSDKBackend._stream_anthropic(mock_response)
 
         with patch.dict("sys.modules", {"anthropic": mock_anthropic}):
             resp = await backend.encode_async(
@@ -639,7 +716,7 @@ class TestAgentSDKBackendAdditional:
         mock_anthropic = Mock()
         mock_client = Mock()
         mock_client.messages = Mock()
-        mock_client.messages.create = AsyncMock(
+        mock_client.messages.stream = Mock(
             side_effect=RuntimeError("Connection failed")
         )
         mock_anthropic.AsyncAnthropic = Mock(return_value=mock_client)
