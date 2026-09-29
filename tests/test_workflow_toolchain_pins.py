@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import copy
 import functools
+import os
 import re
 import shutil
 import subprocess
@@ -552,13 +553,19 @@ def test_python_module_follows_python_option_syntax():
     assert module(("python", "script.py", "-m", "pip")) is None
 
 
-@pytest.mark.skipif(shutil.which("uv") is None, reason="uv is not installed")
 def test_uv_option_table_matches_the_pinned_uv():
-    installed = subprocess.run(
-        ["uv", "--version"], capture_output=True, text=True, check=True
-    ).stdout.split()[1]
+    # CI installs the pinned uv (setup-uv), so there the comparison must run;
+    # locally it runs only when the installed uv is the pinned release.
+    installed = None
+    if shutil.which("uv") is not None:
+        installed = subprocess.run(
+            ["uv", "--version"], capture_output=True, text=True, check=True
+        ).stdout.split()[1]
     if installed != UV_OPTIONS["uv_version"]:
-        pytest.skip(f"uv {installed} is installed; the table is for the pinned uv")
+        message = f"uv {installed} is installed; the table is for the pinned uv"
+        if os.environ.get("CI"):
+            pytest.fail(message)
+        pytest.skip(message)
     assert workflow_shell.uv_option_table() == UV_OPTIONS
 
 
