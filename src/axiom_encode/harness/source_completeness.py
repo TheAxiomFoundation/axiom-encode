@@ -13920,13 +13920,22 @@ def _excerpt_is_conjunction_delimited_subclause(
     before = text[proposition_start:excerpt_start]
     excerpt = text[excerpt_start:excerpt_end]
     after = text[excerpt_end:proposition_end]
-    if re.match(
-        r"^\s*(?:(?:\([^)]+\)|[A-Za-z0-9]+[.)])\s*)*"
-        r"(?:only\s+)?(?:if|unless|when|whenever|where|provided\s+that)\b",
+    preceding_condition = re.search(
+        r"\b(?:if|unless|when|whenever|where|provided\s+that)\b",
         before,
         flags=re.IGNORECASE,
-    ) and re.search(r",|\bthen\b", before, flags=re.IGNORECASE):
-        return False
+    )
+    if preceding_condition is not None:
+        conditional_tail = before[preceding_condition.end() :]
+        comma_tails = (
+            conditional_tail[comma.end() :]
+            for comma in re.finditer(",", conditional_tail)
+        )
+        if re.search(r"\bthen\b", conditional_tail, flags=re.IGNORECASE) or any(
+            re.fullmatch(r"\s*(?:and|but|or)\s*", tail, flags=re.IGNORECASE) is None
+            for tail in comma_tails
+        ):
+            return False
     if re.search(
         r"\b(?:and|but|or|if|unless|when|whenever|where|provided\s+that)\b",
         excerpt,

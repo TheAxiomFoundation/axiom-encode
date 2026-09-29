@@ -902,7 +902,10 @@ def test_coordinated_excerpt_retains_its_trailing_condition(excerpt: str):
     assert len(completeness_module._source_conjunctive_fact_gates(clauses[0].text)) == 2
 
 
-@pytest.mark.parametrize("prefix", ["If", "Only if", "(a) If"])
+@pytest.mark.parametrize(
+    "prefix",
+    ["If", "Only if", "(a) If", "For this program, if"],
+)
 def test_coordinated_consequence_retains_preposed_conditions(prefix: str):
     source = (
         f"{prefix} the applicant is a resident and the applicant is a citizen, the "
