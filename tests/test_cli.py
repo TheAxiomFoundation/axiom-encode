@@ -117,6 +117,7 @@ from axiom_encode.cli import (
     _manifest_census,
     _manifest_coverage_by_file,
     _medicaid_magi_income_helper_issue_names,
+    _missing_input_assignments_from_validation,
     _normalize_invalid_proof_atom_kinds,
     _normalize_invalid_proof_atom_kinds_file,
     _normalize_top_level_parameter_values_to_versions,
@@ -49250,6 +49251,29 @@ rules:
                 overlay_content_root=content_root,
                 dependents=[dependent],
             )
+
+    def test_missing_input_parser_accepts_relation_warning_before_error(self):
+        validation = SimpleNamespace(
+            results={
+                "ci": SimpleNamespace(
+                    error=(
+                        "Test case `relation_case` execution failed: "
+                        "warning[relation_slot_entity_mismatch]: expected `Person` "
+                        "but found `Member`\n"
+                        "missing input `participant_receives_combination` for entity "
+                        "`case-1-relation.member-1` over 2026-07-01..2026-07-31"
+                    )
+                )
+            }
+        )
+
+        assert _missing_input_assignments_from_validation(validation) == [
+            {
+                "case": "relation_case",
+                "input": "participant_receives_combination",
+                "entity": "case-1-relation.member-1",
+            }
+        ]
 
     def test_apply_overlay_validation_fills_dependent_inputs_from_baseline(
         self, tmp_path
