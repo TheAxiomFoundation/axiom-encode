@@ -814,6 +814,137 @@ def test_parent_chapeau_proof_does_not_absorb_first_structural_child():
     assert not completeness_module._source_conjunctive_fact_gates(clauses[0].text)
 
 
+def test_exact_conjunct_excerpt_owns_only_its_source_subclause():
+    source = (
+        "Basic categorical eligibility exists when the budgetary unit does not "
+        "have a disqualified participant, and all budgetary unit participants "
+        "receive a listed benefit."
+    )
+    excerpt = "all budgetary unit participants receive a listed benefit"
+    rule = _ky_derived_rule(
+        "all_participants_receive_listed_benefit",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="all_participants_receive_listed_benefit_fact",
+        excerpt=excerpt,
+    )
+
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path="us-az/manual/des/faa5/na-categorical-eligibility/block-3",
+    )
+
+    assert not ambiguous
+    assert [clause.text for clause in clauses] == [excerpt]
+    assert not completeness_module._source_conjunctive_fact_gates(clauses[0].text)
+
+
+def test_data_relation_is_structural_during_conjunctive_gate_expansion():
+    citation_path = "us-az/manual/des/faa5/na-categorical-eligibility/block-3"
+    source = (
+        "Basic categorical eligibility exists when the budgetary unit does not "
+        "have a disqualified participant, and all budgetary unit participants "
+        "receive a listed benefit."
+    )
+    first_excerpt = "the budgetary unit does not have a disqualified participant"
+    second_excerpt = "all budgetary unit participants receive a listed benefit"
+    payload = {
+        "format": "rulespec/v1",
+        "module": {"source_verification": {"corpus_citation_path": citation_path}},
+        "rules": [
+            {
+                "name": "member_of_budgetary_unit",
+                "kind": "data_relation",
+                "data_relation": {
+                    "predicate": "member_of_budgetary_unit",
+                    "arity": 2,
+                    "arguments": ["Person", "Household"],
+                },
+            },
+            _ky_derived_rule(
+                "no_participant_is_disqualified",
+                source="Arizona DES FAA5",
+                dtype="Judgment",
+                formula=(
+                    "count_where(member_of_budgetary_unit, "
+                    "participant_is_disqualified) == 0"
+                ),
+                excerpt=first_excerpt,
+            ),
+            _ky_derived_rule(
+                "all_participants_receive_listed_benefit",
+                source="Arizona DES FAA5",
+                dtype="Judgment",
+                formula=(
+                    "count_where(member_of_budgetary_unit, "
+                    "participant_receives_listed_benefit) "
+                    "== len(member_of_budgetary_unit)"
+                ),
+                excerpt=second_excerpt,
+            ),
+            {
+                **_ky_derived_rule(
+                    "basic_categorical_eligibility",
+                    source="Arizona DES FAA5",
+                    dtype="Judgment",
+                    formula=(
+                        "no_participant_is_disqualified and "
+                        "all_participants_receive_listed_benefit"
+                    ),
+                    excerpt=first_excerpt,
+                ),
+                "metadata": {
+                    "proof": {
+                        "atoms": [
+                            {
+                                "path": "versions[0].formula",
+                                "kind": "condition",
+                                "source": {
+                                    "corpus_citation_path": citation_path,
+                                    "excerpt": first_excerpt,
+                                },
+                            },
+                            {
+                                "path": "versions[0].formula",
+                                "kind": "condition",
+                                "source": {
+                                    "corpus_citation_path": citation_path,
+                                    "excerpt": second_excerpt,
+                                },
+                            },
+                        ]
+                    }
+                },
+            },
+        ],
+        "inputs": [
+            _ky_boolean_input(
+                "participant_is_disqualified", "The participant is disqualified."
+            ),
+            _ky_boolean_input(
+                "participant_receives_listed_benefit",
+                "The participant receives a listed benefit.",
+            ),
+        ],
+    }
+
+    result = _analyze(
+        yaml.safe_dump(payload, sort_keys=False),
+        source,
+        corpus_citation_path=citation_path,
+        test_cases=[],
+        extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+        extract_numeric_grounding_occurrences=(
+            EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR
+        ),
+    )
+
+    assert not _has_issue(result, "source-explicit-conditions")
+
+
 def test_parenthetical_condition_does_not_absorb_later_conjunctions():
     text = (
         "The monthly income of the sponsor and sponsor's spouse (if he or she has "

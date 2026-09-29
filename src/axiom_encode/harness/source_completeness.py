@@ -13878,6 +13878,14 @@ def _source_condition_clauses_owned_by_excerpt(
             local_start,
             local_end,
         )
+        if _excerpt_is_conjunction_delimited_subclause(
+            container_text,
+            excerpt_start=local_start,
+            excerpt_end=local_end,
+            proposition_start=proposition_start,
+            proposition_end=proposition_end,
+        ):
+            proposition_start, proposition_end = local_start, local_end
         absolute_start = container_start + proposition_start
         absolute_end = container_start + proposition_end
         identity = (branch_path, absolute_start, absolute_end)
@@ -13894,6 +13902,41 @@ def _source_condition_clauses_owned_by_excerpt(
     return (
         ordered,
         citation_mismatch or ambiguous_inline_ownership or len(ordered) != 1,
+    )
+
+
+def _excerpt_is_conjunction_delimited_subclause(
+    text: str,
+    *,
+    excerpt_start: int,
+    excerpt_end: int,
+    proposition_start: int,
+    proposition_end: int,
+) -> bool:
+    """Return whether an exact proof excerpt owns one side of a conjunction."""
+
+    if (excerpt_start, excerpt_end) == (proposition_start, proposition_end):
+        return False
+    before = text[proposition_start:excerpt_start]
+    after = text[excerpt_end:proposition_end]
+    begins_after_coordinator = re.search(
+        r"(?:,\s*)?\b(?:and|but|or)\s*$",
+        before,
+        flags=re.IGNORECASE,
+    )
+    begins_after_condition_introducer = re.search(
+        r"\b(?:if|unless|when|whenever|where)\s*$",
+        before,
+        flags=re.IGNORECASE,
+    )
+    ends_before_coordinator = re.match(
+        r"^\s*,?\s*\b(?:and|but|or)\b",
+        after,
+        flags=re.IGNORECASE,
+    )
+    return begins_after_coordinator is not None or (
+        begins_after_condition_introducer is not None
+        and ends_before_coordinator is not None
     )
 
 
@@ -14291,6 +14334,8 @@ def _opaque_same_source_condition_input_issues(
             if dependency is None:
                 dependency_budget_cache[cache_key] = False
                 return False
+            if str(dependency.get("kind") or "").strip().lower() == "data_relation":
+                continue
             if name in active_names:
                 dependency_budget_cache[cache_key] = False
                 return False
@@ -14410,6 +14455,8 @@ def _opaque_same_source_condition_input_issues(
         dependency = named_rules.get(name)
         if dependency is None:
             return (_TerminalGateAlternative(frozenset(), start, end, False),)
+        if str(dependency.get("kind") or "").strip().lower() == "data_relation":
+            return (_TerminalGateAlternative(frozenset(), start, end),)
         choices: list[_TerminalGateAlternative] = []
         saw_overlap = False
         for version_index, formula, version_start, version_end in interval_cache.get(
