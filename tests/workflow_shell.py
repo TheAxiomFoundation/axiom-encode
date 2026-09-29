@@ -33,8 +33,9 @@ The reader fails closed by raising :class:`UnanalyzableScript` on:
 - an unterminated quote, substitution or heredoc, or a ``case`` left open
   inside a substitution;
 - an unknown uv option or subcommand, or an unknown option to a wrapper;
-- a shell that reads its script from stdin or a file, or ``su`` without ``-c``;
-- a program produced by a substitution;
+- a shell that reads its script from stdin or a file, ``source``/``.``, or
+  ``su`` without ``-c``;
+- a program produced by a substitution or a ``${{ }}`` expression;
 - a program in ``UNSUPPORTED_RUNNERS``, which run a command this reader does
   not follow.
 
@@ -45,7 +46,6 @@ Regenerate the option table after moving the uv pin::
 
 from __future__ import annotations
 
-import codecs
 import itertools
 import json
 import re
@@ -206,10 +206,6 @@ _WRAPPERS = {
             *("--chdir", "--chroot", "--close-from", "--command-timeout", "--group"),
             *("--host", "--other-user", "--prompt", "--role", "--type", "--user"),
         ),
-    ),
-    "env": _Wrapper(
-        _options("-", "-0", "-i", "-v", "--debug", "--ignore-environment", "--null"),
-        _options("-C", "-P", "-u", "--chdir", "--unset"),
     ),
     "exec": _Wrapper(_options("-c", "-l"), _options("-a")),
     "nice": _Wrapper(_options(), _options("-n", "--adjustment"), numeric_flags=True),
@@ -509,7 +505,7 @@ class _Reader:
         while self.i < len(text) and text[self.i] in " \t":
             self.i += 1
         match = re.match(
-            r"""'([^']+)'|"([^"]+)"|\\?([A-Za-z_][A-Za-z0-9_]*)""", text[self.i :]
+            r"""'([^']+)'|"([^"]+)"|\\?([^\s;&|<>()'"`]+)""", text[self.i :]
         )
         if not match:
             raise self._error("unreadable heredoc delimiter")
@@ -551,6 +547,66 @@ class _Reader:
 _CASE_WORD = re.compile(
     r"(?:^|[;&|(\n]|\b(?:then|do|else|elif|if|while|until|!))\s*(case|esac)(?=\s|;|$)"
 )
+
+
+_SIMPLE_ESCAPES = {
+    "a": "\a",
+    "b": "\b",
+    "e": "\x1b",
+    "E": "\x1b",
+    "f": "\f",
+    "n": "\n",
+    "r": "\r",
+    "t": "\t",
+    "v": "\v",
+    "\\": "\\",
+    "'": "'",
+    '"': '"',
+    "?": "?",
+}
+_NUMERIC_ESCAPES = {"x": 2, "u": 4, "U": 8}  # hex digits each may take
+
+
+def _ansi_c(raw: str) -> str:
+    """Decode the body of a bash ``$'...'`` string as bash does."""
+    out: list[str] = []
+    i = 0
+    while i < len(raw):
+        if raw[i] != "\\" or i + 1 >= len(raw):
+            out.append(raw[i])
+            i += 1
+            continue
+        escape = raw[i + 1]
+        if escape in _SIMPLE_ESCAPES:
+            out.append(_SIMPLE_ESCAPES[escape])
+            i += 2
+        elif escape in "01234567":
+            digits = re.match(r"[0-7]{1,3}", raw[i + 1 :]).group()
+            out.append(chr(int(digits, 8) & 0xFF))
+            i += 1 + len(digits)
+        elif escape in _NUMERIC_ESCAPES:
+            width = _NUMERIC_ESCAPES[escape]
+            digits = re.match(f"[0-9A-Fa-f]{{1,{width}}}", raw[i + 2 :])
+            if digits and int(digits.group(), 16) <= 0x10FFFF:
+                out.append(chr(int(digits.group(), 16)))
+                i += 2 + len(digits.group())
+            else:
+                out.append(raw[i : i + 2])  # bash keeps a malformed escape
+                i += 2
+        elif escape == "c" and i + 2 < len(raw):
+            out.append(chr(ord(raw[i + 2]) & 0x1F))
+            i += 3
+        else:
+            out.append(raw[i : i + 2])
+            i += 2
+    return "".join(out)
+
+
+def _split(value: str) -> list[str]:
+    try:
+        return shlex.split(value)
+    except ValueError as error:
+        raise UnanalyzableScript(f"{error}: {value!r}") from None
 
 
 def _open_cases(text: str) -> bool:
@@ -601,12 +657,7 @@ def _tokens(line: str) -> list[_Token]:
                 end += 2 if line[end] == "\\" else 1
             if end >= len(line):
                 raise UnanalyzableScript(f"unterminated $'...': {line.strip()!r}")
-            raw = line[i + 2 : end]
-            word.append(
-                codecs.decode(
-                    raw.encode("latin-1", "backslashreplace"), "unicode_escape"
-                )
-            )
+            word.append(_ansi_c(line[i + 2 : end]))
             quoted = started = True
             i = end + 1
         elif c == "'":
@@ -677,6 +728,61 @@ def _read_wrapper_options(name: str, spec: _Wrapper, words: list[str]) -> int:
         else:
             index += 1
     return index
+
+
+_ENV_FLAGS = frozenset({"-", "--debug", "--ignore-environment", "--null"})
+_ENV_VALUED = frozenset({"--chdir", "--unset"})
+
+
+def _env_command(words: list[str]) -> tuple[list[str], list[str]]:
+    """Split ``env ...`` into its assignments and the command it runs.
+
+    Options are read in order as GNU env does. `-S` splits its value into
+    words that are read as if they had been written in its place.
+    """
+    args = list(words[1:])
+    assignments: list[str] = []
+    while args:
+        arg = args[0]
+        if arg == "--":
+            args = args[1:]
+            break
+        if arg in _ENV_FLAGS:
+            args = args[1:]
+        elif arg in _ENV_VALUED:
+            args = args[2:]
+        elif arg == "--split-string":
+            if len(args) < 2:
+                raise UnanalyzableScript("env --split-string without a value")
+            args = [*_split(args[1]), *args[2:]]
+        elif arg.startswith("--split-string="):
+            args = [*_split(arg.partition("=")[2]), *args[1:]]
+        elif arg.startswith(("--chdir=", "--unset=")):
+            args = args[1:]
+        elif arg.startswith("--"):
+            raise UnanalyzableScript(f"unknown env option {arg!r}")
+        elif arg.startswith("-") and len(arg) > 1:
+            rest = args[1:]
+            for offset, letter in enumerate(arg[1:], start=1):
+                if letter in "0iv":
+                    continue
+                if letter not in "CPSu":
+                    raise UnanalyzableScript(f"unknown env option -{letter} in {arg!r}")
+                value = arg[offset + 1 :]
+                if not value:
+                    if not rest:
+                        raise UnanalyzableScript(f"env -{letter} without a value")
+                    value, rest = rest[0], rest[1:]
+                if letter == "S":
+                    rest = [*_split(value), *rest]
+                break
+            args = rest
+        elif _ASSIGNMENT.fullmatch(arg):
+            assignments.append(arg)
+            args = args[1:]
+        else:
+            break
+    return assignments, args
 
 
 def _shell_script(words: list[str]) -> str:
@@ -772,24 +878,23 @@ def _unwrap(words: list[str]) -> list[tuple[list[str], list[str]] | _Script]:
             if args and args[0] in {"-v", "-V"}:
                 return []
             words = args
-        elif name == "env" and any(
-            arg in {"-S", "--split-string"} or arg.startswith(("-S", "--split-string="))
-            for arg in words[1:2]
-        ):
-            # env -S splits its value into words; later arguments stay whole.
-            arg = words[1]
-            if arg in {"-S", "--split-string"}:
-                value, rest = (words[2] if len(words) > 2 else ""), words[3:]
-            else:
-                value = arg.partition("=")[2] if arg.startswith("--") else arg[2:]
-                rest = words[2:]
-            words = ["env", *shlex.split(value), *rest]
+        elif name == "env":
+            env_assignments, words = _env_command(words)
+            assignments.extend(env_assignments)
+        elif name in {"source", "."}:
+            raise UnanalyzableScript(f"{name} runs a script file: {' '.join(words)!r}")
+        elif name == "builtin":
+            words = words[1:]
+        elif word.startswith("${{"):
+            raise UnanalyzableScript(
+                f"the program comes from a workflow expression: {' '.join(words)!r}"
+            )
         elif name in _WRAPPERS:
             spec = _WRAPPERS[name]
             index = _read_wrapper_options(name, spec, words)
             while (
                 index < len(words)
-                and name in {"env", "sudo"}
+                and name == "sudo"
                 and _ASSIGNMENT.fullmatch(words[index])
             ):
                 assignments.append(words[index])
@@ -839,16 +944,21 @@ def _commands_in(
         if words or redirects:
             for word in words:
                 run(word)
-            for item in _unwrap(words):
+            items = _unwrap(words)
+            if not items and (redirects or stdin_text):
+                # `} >> "$GITHUB_ENV"` or `fi > log`: the redirection still applies.
+                items = [([], [])]
+            for item in items:
                 if isinstance(item, _Script):
+                    # The script's commands inherit its redirections and stdin.
                     for command in commands(item.text):
                         found.append(
                             Command(
                                 command.words,
                                 command.line,
                                 (*inherited, *item.assignments, *command.assignments),
-                                command.redirects,
-                                command.stdin_text,
+                                (*redirects, *command.redirects),
+                                (*stdin_text, *command.stdin_text),
                             )
                         )
                 else:

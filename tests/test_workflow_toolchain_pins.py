@@ -12,7 +12,10 @@ pinned another release. These tests fail if any of that comes back.
 
 Commands are found with ``tests/workflow_shell.py``, which reads each ``run:``
 script as bash does and parses uv calls against the pinned uv's option table.
-A script it cannot follow fails the suite rather than being skipped.
+Its threat model is an accidental regression in a reviewed workflow written in
+ordinary shell, not deliberately obfuscated bash. It fails closed on the
+constructs its docstring lists, but a command assembled in a variable or a
+script run by path is out of its reach.
 
 Out of scope:
 - what ``uv pip install --target`` stages for the verification and
@@ -24,6 +27,7 @@ Out of scope:
 
 from __future__ import annotations
 
+import copy
 import functools
 import re
 import shutil
@@ -348,6 +352,18 @@ READER_CASES = {
     "(( $(uv lock) > 0 ))": [("lock", ())],
     # Placeholder text cannot collide with script text.
     'echo "__SUBST0__"': [],
+    # Round 5: env option order, bare `-`, and -S after other options.
+    'env - PATH="$PATH" uv pip install pandas': [("pip install", ())],
+    "env -i -S 'uv sync --frozen'": [("sync", ("--frozen",))],
+    "env -iS'uv sync' A=1": [("sync", ())],
+    # Bash's $'...' escapes, including a one-digit \x and malformed ones.
+    "IFS=$'\\x9' read -r a b": [],
+    "printf $'\\N\\xZZ\\e[1m'": [],
+    "$'\\x75v' sync": [("sync", ())],
+    # `builtin`, and heredoc delimiters that are any word.
+    "builtin eval 'uv sync'": [("sync", ())],
+    "cat <<END-OF\nuv sync\nEND-OF\nuv lock": [("lock", ())],
+    "uv --version": [("", ("--version",))],
 }
 
 
@@ -386,6 +402,11 @@ def test_reader_finds_the_uv_calls_a_script_makes(script, expected):
         "runuser -u x -- uv sync",
         # A case left open inside a substitution.
         "echo $(case x in a) echo",
+        # A script file, a program from a workflow expression, bad env -S text.
+        "source scripts/env.sh",
+        ". ./env.sh",
+        "${{ inputs.cmd }} sync",
+        'env -S "uv \'sync"',
     ],
 )
 def test_reader_fails_closed_on_what_it_cannot_follow(script):
@@ -426,6 +447,43 @@ def test_nested_scripts_inherit_assignments():
     assert command.assignments == ("UV_UPGRADE=1",)
     [command] = workflow_shell.commands("sudo -E A=1 env B=2 uv sync")
     assert command.assignments == ("A=1", "B=2")
+
+
+@pytest.mark.parametrize(
+    ("script", "flagged"),
+    [
+        ('{\n  echo "UV_UPGRADE=1"\n} >> "$GITHUB_ENV"', True),
+        ('{ echo "UV_UPGRADE=1"; } >> "$GITHUB_ENV"', True),
+        ('echo "UV_UPGRADE=1" | tee -a "$GITHUB_ENV"', True),
+        ('if true; then echo UV_X=1; fi >> "$GITHUB_ENV"', True),
+        ("bash -c 'echo UV_UPGRADE=1' >> \"$GITHUB_ENV\"", True),
+        ("printf '%s=1\\n' UV_UPGRADE >> \"$GITHUB_ENV\"", True),
+        ("cat >> \"$GITHUB_ENV\" <<'EOF'\nUV_NO_SYNC=1\nEOF", True),
+        ('echo "LOCKED_UV_VERSION=0.11.7" >> "$GITHUB_ENV"', False),
+        ('echo "CACHE=$UV_CACHE_DIR" >> "$GITHUB_ENV"', False),
+        ("echo UV_CACHE_DIR=/tmp", False),
+    ],
+)
+def test_github_env_writes_of_uv_variables_are_caught(monkeypatch, script, flagged):
+    workflows = copy.deepcopy(_workflows())
+    dict(workflows)["ci.yml"]["jobs"]["lint"]["steps"].append({"run": script})
+    monkeypatch.setattr(
+        "tests.test_workflow_toolchain_pins._workflows", lambda: workflows
+    )
+    if flagged:
+        with pytest.raises(AssertionError):
+            test_no_workflow_sets_uv_environment_variables()
+    else:
+        test_no_workflow_sets_uv_environment_variables()
+
+
+def test_a_uv_version_step_is_allowed_in_a_test_job(monkeypatch):
+    workflows = copy.deepcopy(_workflows())
+    dict(workflows)["ci.yml"]["jobs"]["test"]["steps"].append({"run": "uv --version"})
+    monkeypatch.setattr(
+        "tests.test_workflow_toolchain_pins._workflows", lambda: workflows
+    )
+    test_test_environment_is_the_locked_dev_set("ci.yml", "test")
 
 
 def test_github_env_writes_keep_their_text():
@@ -583,21 +641,46 @@ def test_no_workflow_sets_uv_environment_variables():
             for key in (scope.get("env") or {})
             if uv_variable.fullmatch(key)
         ]
-    for where, command in _commands(_steps()):
-        # An assignment, inline, through env or sudo, or inherited by bash -c.
-        if any(uv_assignment.match(word) for word in command.assignments):
-            offenders.append(f"{where} {command.line}")
-        # export/declare/typeset/readonly/local UV_X=... sets it for the shell.
-        elif command.program in {"declare", "export", "local", "readonly", "typeset"}:
-            if any(uv_assignment.match(word) for word in command.words[1:]):
+    for name, job, index, step in _steps():
+        where = f"{name}:{job}[{index}]"
+        step_commands = _script_commands(step.get("run", ""))
+        for command in step_commands:
+            # An assignment, inline, through env or sudo, or inherited by bash -c.
+            if any(uv_assignment.match(word) for word in command.assignments):
                 offenders.append(f"{where} {command.line}")
-        # A write to $GITHUB_ENV sets it for every later step.
-        elif any("GITHUB_ENV" in target for target in command.redirects):
-            if any(
-                uv_variable.search(text)
-                for text in (*command.words, *command.stdin_text)
-            ):
-                offenders.append(f"{where} {command.line}")
+            # export/declare/typeset/readonly/local UV_X=... sets it for the shell.
+            elif command.program in {
+                "declare",
+                "export",
+                "local",
+                "readonly",
+                "typeset",
+            }:
+                if any(uv_assignment.match(word) for word in command.words[1:]):
+                    offenders.append(f"{where} {command.line}")
+        # A write to $GITHUB_ENV sets a variable for every later step. The
+        # write can be grouped (`{ ...; } >> "$GITHUB_ENV"`), go through tee,
+        # or come from a heredoc, so a step that writes it may not name a
+        # UV_* variable as a word or as a heredoc line being set.
+        writes_env = any(
+            any("GITHUB_ENV" in target for target in command.redirects)
+            or (
+                command.program == "tee"
+                and any("GITHUB_ENV" in w for w in command.words)
+            )
+            for command in step_commands
+        )
+        names_uv_variable = any(
+            uv_variable.fullmatch(word) or uv_assignment.match(word)
+            for command in step_commands
+            for word in command.words
+        ) or any(
+            re.search(r"(?m)^\s*(?:export\s+)?UV_[A-Z0-9_]+\+?=", text)
+            for command in step_commands
+            for text in command.stdin_text
+        )
+        if writes_env and names_uv_variable:
+            offenders.append(f"{where} writes a UV_* variable to $GITHUB_ENV")
     assert offenders == []
 
 
@@ -622,7 +705,7 @@ def test_every_step_runs_under_bash():
                 if "run" in step
             ),
         ]
-        if shell not in {None, "bash"}
+        if shell is not None and not re.fullmatch(r"bash(?:\s.*)?", shell)
     ]
     assert shells == []
 
@@ -676,6 +759,9 @@ def test_test_environment_is_the_locked_dev_set(workflow_name, job_name):
     assert len(syncs) == 1, syncs
     sync_position, sync_words = syncs[0]
     assert sync_words in LOCKED_DEV_SYNCS, sync_words
+    if "${{matrix.python-version}}" in sync_words:
+        job = dict(_workflows())[workflow_name]["jobs"][job_name]
+        assert job["strategy"]["matrix"]["python-version"] == ["3.13"]
 
     # Nothing else builds or changes a Python environment in these jobs,
     # including through the command a `uv run` launches.
@@ -683,7 +769,7 @@ def test_test_environment_is_the_locked_dev_set(workflow_name, job_name):
     assert [
         invocation.command.line
         for _, invocation in invocations
-        if invocation.subcommand.split()[0]
+        if invocation.subcommand.partition(" ")[0]
         in {"add", "pip", "remove", "run", "tool", "uvx", "venv"}
     ] == []
     assert [
