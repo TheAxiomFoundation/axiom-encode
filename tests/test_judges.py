@@ -658,6 +658,15 @@ def test_call_diagnostics_reach_the_event_extra():
     assert validate_event_dict(ev.to_dict()) == []
 
 
+def test_unrecognized_verdict_event_keeps_fallback_shape():
+    result = _ok_call({"verdict": "maybe", "confidence": 0.5, "findings": []})
+    result.request_shape = "plain"
+    ev = statutory_fidelity.run("prov", "rule", citation="c", client=FakeClient(result))
+    assert ev.verdict == Verdict.ERROR
+    assert ev.judge_error.type == "unrecognized_verdict"
+    assert ev.extra["request_shape"] == "plain"
+
+
 def test_call_diagnostics_absent_in_the_normal_case():
     payload = {"verdict": "pass", "confidence": 0.9, "findings": []}
     result = _ok_call(payload)
@@ -3696,6 +3705,46 @@ def test_calibration_breaks_errors_out_by_type():
     assert "refusal=2" in report.summary()
     assert {c["error_type"] for c in report.per_case} == {"refusal"}
     assert {c["judge_model"] for c in report.per_case} == {"claude-sonnet-5-5"}
+
+
+def test_calibration_records_failed_escalation_without_unscoring_the_verdict():
+    cases = [calibration.CalibrationCase("g1", "c", "good", "prov", "rule")]
+    payload = {"verdict": "pass", "confidence": 0.3, "findings": []}
+    result = _ok_call(payload)
+    result.escalation_error = JudgeError(type="refusal", message="declined")
+    report = calibration.run_calibration(cases, client=FakeClient(result))
+    # the valid first verdict is still scored
+    assert report.true_negative == 1
+    assert report.errors == 0
+    assert report.escalation_errors_by_type == {"refusal": 1}
+    assert report.per_case[0]["escalation_error_type"] == "refusal"
+    assert report.to_dict()["escalation_errors_by_type"] == {"refusal": 1}
+    assert "escalation failures: refusal=1" in report.summary()
+
+
+def test_calibration_records_fallback_request_shape():
+    cases = [calibration.CalibrationCase("b1", "c", "bad", "prov", "rule")]
+    payload = {"verdict": "flag", "confidence": 0.9, "findings": []}
+    result = _ok_call(payload)
+    result.request_shape = "effort_only"
+    report = calibration.run_calibration(cases, client=FakeClient(result))
+    assert report.true_positive == 1
+    assert report.fallback_shapes == {"effort_only": 1}
+    assert report.per_case[0]["request_shape"] == "effort_only"
+    assert "fallback request shapes: effort_only=1" in report.summary()
+
+
+def test_calibration_structured_success_has_no_caveats():
+    cases = [calibration.CalibrationCase("g1", "c", "good", "prov", "rule")]
+    payload = {"verdict": "pass", "confidence": 0.9, "findings": []}
+    result = _ok_call(payload)
+    result.request_shape = "structured"
+    report = calibration.run_calibration(cases, client=FakeClient(result))
+    assert report.escalation_errors_by_type == {}
+    assert report.fallback_shapes == {}
+    assert report.per_case[0]["request_shape"] is None
+    assert "escalation failures" not in report.summary()
+    assert "fallback request shapes" not in report.summary()
 
 
 def test_calibration_per_case_error_type_is_none_on_success():

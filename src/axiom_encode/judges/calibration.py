@@ -118,6 +118,11 @@ class CalibrationReport:
     # judge_error counts by type, so errors that cluster (e.g. refusals on one
     # statute family) are visible instead of silently shrinking FP/FN bases.
     errors_by_type: dict[str, int] = field(default_factory=dict)
+    # Verdicts that were scored but carry a caveat: an escalation that failed
+    # (the first verdict stood) or a request that fell back from the
+    # structured shape. Counted separately so neither hides inside a score.
+    escalation_errors_by_type: dict[str, int] = field(default_factory=dict)
+    fallback_shapes: dict[str, int] = field(default_factory=dict)
     tokens: TokenCounts = field(default_factory=TokenCounts)
     per_case: list[dict[str, Any]] = field(default_factory=list)
 
@@ -142,6 +147,10 @@ class CalibrationReport:
             "false_negative": self.false_negative,
             "errors": self.errors,
             "errors_by_type": dict(sorted(self.errors_by_type.items())),
+            "escalation_errors_by_type": dict(
+                sorted(self.escalation_errors_by_type.items())
+            ),
+            "fallback_shapes": dict(sorted(self.fallback_shapes.items())),
             "false_positive_rate": self.false_positive_rate,
             "false_negative_rate": self.false_negative_rate,
             "tokens": self.tokens.to_dict(),
@@ -174,8 +183,17 @@ class CalibrationReport:
             f"  false-negative rate = "
             f"{'n/a' if fnr is None else f'{fnr:.1%}'} "
             f"(bad generations missed)\n"
-            f"  judge tokens: in={self.tokens.input} out={self.tokens.output}"
+            + _counts_line("escalation failures", self.escalation_errors_by_type)
+            + _counts_line("fallback request shapes", self.fallback_shapes)
+            + f"  judge tokens: in={self.tokens.input} out={self.tokens.output}"
         )
+
+
+def _counts_line(label: str, counts: dict[str, int]) -> str:
+    if not counts:
+        return ""
+    body = ", ".join(f"{kind}={count}" for kind, count in sorted(counts.items()))
+    return f"  {label}: {body}\n"
 
 
 def run_calibration(
@@ -204,6 +222,19 @@ def run_calibration(
 
         outcome: str
         error_type = event.judge_error.type if event.judge_error else None
+        escalation_error = event.extra.get("escalation_error") or {}
+        escalation_error_type = (
+            escalation_error.get("type") if isinstance(escalation_error, dict) else None
+        )
+        if escalation_error_type:
+            report.escalation_errors_by_type[escalation_error_type] = (
+                report.escalation_errors_by_type.get(escalation_error_type, 0) + 1
+            )
+        request_shape = event.extra.get("request_shape")
+        if request_shape:
+            report.fallback_shapes[request_shape] = (
+                report.fallback_shapes.get(request_shape, 0) + 1
+            )
         if event.verdict == Verdict.ERROR:
             report.errors += 1
             kind = error_type or "unknown"
@@ -234,6 +265,9 @@ def run_calibration(
                 "escalated": event.escalated,
                 "judge_model": event.model,
                 "error_type": error_type,
+                "escalation_error_type": escalation_error_type,
+                # None means the structured request succeeded (or no call did).
+                "request_shape": request_shape,
             }
         )
     return report
