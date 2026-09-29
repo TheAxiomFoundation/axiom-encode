@@ -2000,6 +2000,16 @@ def _opt_permission_suspects(run, env=None, working_directory=None):
     return suspects
 
 
+_HEREDOC_OPERATOR = re.compile(r"(?<!<)<<(?!<)-?\s*([\"']?)([^\s\"';&|<>()]+)\1")
+# `set +e`, `set -x +e`, `set +o errexit`, `shopt -u -o errexit`: anything that
+# switches errexit off before the fail-closed checks.
+_ERREXIT_OFF = re.compile(
+    r"\bset\b[^;&|\n]*\s\+[A-Za-z]*e"
+    r"|\bset\b[^;&|\n]*\s\+o\s+errexit\b"
+    r"|\bshopt\b[^;&|\n]*\s-[A-Za-z]*u[^;&|\n]*\berrexit\b"
+)
+
+
 def _bash_top_level_commands(run):
     """Return the commands bash itself places at the top level of ``run``.
 
@@ -2008,7 +2018,9 @@ def _bash_top_level_commands(run):
     loop or nested function sits deeper or shares a line with its operator.
     A ``( ... )`` subshell is the exception: bash prints its body at the
     enclosing indent, so every line from a four-space ``(`` until its
-    parentheses balance again counts as nested.
+    parentheses balance again counts as nested. Heredoc bodies are printed
+    verbatim, so they never count either (``bash <<'X'`` runs them without
+    ``-e``).
     Defining the function runs nothing; the shell is restricted with an empty
     PATH in case a stray ``}`` closes it early.
     """
@@ -2033,7 +2045,15 @@ def _bash_top_level_commands(run):
     assert result.returncode == 0, result.stderr
     top_level = set()
     subshell_depth = 0
+    heredoc_ends = []
     for line in result.stdout.splitlines():
+        if heredoc_ends:
+            if line.lstrip("\t") == heredoc_ends[0]:
+                heredoc_ends.pop(0)
+            continue
+        heredoc_ends.extend(
+            delimiter for _quote, delimiter in _HEREDOC_OPERATOR.findall(line)
+        )
         four_spaces = line.startswith("    ") and not line.startswith("     ")
         if subshell_depth or (four_spaces and line[4:].startswith("(")):
             subshell_depth += line.count("(") - line.count(")")
@@ -2141,7 +2161,7 @@ def test_verification_tree_provisioning_tightens_opt(
     assert "shell" not in provision_step and context["shell"] is None
     assert not provision_step.get("continue-on-error")
     assert not context["continue_on_error"]
-    assert not re.search(r"\bset\s+\+(?:[a-z]*e|o\s+errexit)", provision_run)
+    assert not _ERREXIT_OFF.search(provision_run)
     # The hardening lines are the only lines anywhere in the job that could
     # change the permissions of /opt or /, so nothing loosens /opt again before
     # the supervisor runs.
@@ -2441,6 +2461,9 @@ def test_opt_permission_suspects_ignore_other_paths(command):
         pytest.param({}, {"continue_on_error": True}, "", id="job-continue-on-error"),
         pytest.param({}, {}, "set +e\n", id="set-plus-e"),
         pytest.param({}, {}, "set +o errexit\n", id="set-plus-o-errexit"),
+        pytest.param({}, {}, "set -x +e\n", id="set-x-plus-e"),
+        pytest.param({}, {}, "set -x +o errexit\n", id="set-x-plus-o-errexit"),
+        pytest.param({}, {}, "shopt -u -o errexit\n", id="shopt-unset-errexit"),
     ],
 )
 def test_verification_tree_fail_closed_checks_cannot_be_neutralized(
@@ -2476,6 +2499,14 @@ def test_verification_tree_fail_closed_checks_cannot_be_neutralized(
             lambda run: f"(\n{run}\n) 2>&1 | tee provisioning.log\n", id="subshell-tee"
         ),
         pytest.param(lambda run: f"if true; then\n{run}\nfi\n", id="if"),
+        pytest.param(
+            lambda run: (
+                "bash <<'BASH'\n"
+                + "".join(f"    {line}\n" for line in run.splitlines())
+                + "BASH\n"
+            ),
+            id="heredoc-bash",
+        ),
         pytest.param(lambda run: f"harden() {{\n{run}\n}}\nharden\n", id="function"),
         pytest.param(
             lambda run: run.replace(
