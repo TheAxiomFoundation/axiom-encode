@@ -902,6 +902,33 @@ def test_coordinated_excerpt_retains_its_trailing_condition(excerpt: str):
     assert len(completeness_module._source_conjunctive_fact_gates(clauses[0].text)) == 2
 
 
+def test_coordinated_consequence_retains_preposed_conditions():
+    source = (
+        "If the applicant is a resident and the applicant is a citizen, the "
+        "agency approves the application and pays the credit."
+    )
+    excerpt = "pays the credit"
+    rule = _ky_derived_rule(
+        "credit_is_paid",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="external_conditions_hold",
+        excerpt=excerpt,
+    )
+
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path="us-az/manual/des/faa5/na-categorical-eligibility/block-3",
+    )
+
+    assert not ambiguous
+    assert [clause.text for clause in clauses] == [source]
+    assert len(completeness_module._source_conjunctive_fact_gates(clauses[0].text)) == 2
+
+
 def test_data_relation_is_structural_during_conjunctive_gate_expansion():
     citation_path = "us-az/manual/des/faa5/na-categorical-eligibility/block-3"
     source = (
