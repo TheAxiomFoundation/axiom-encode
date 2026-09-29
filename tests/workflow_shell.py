@@ -844,7 +844,8 @@ def _unwrap(words: list[str]) -> list[tuple[list[str], list[str]] | _Script]:
                     return script(words[index + 1])
             raise UnanalyzableScript(f"su without -c: {' '.join(words)!r}")
         elif name == "eval":
-            return script(" ".join(words[1:]))
+            args = words[2:] if words[1:2] == ["--"] else words[1:]
+            return script(" ".join(args))
         elif name == "trap":
             args = words[2:] if words[1:2] == ["--"] else words[1:]
             # `trap - SIG` resets, `trap '' SIG` ignores, `trap -p` prints.
@@ -879,7 +880,7 @@ def _unwrap(words: list[str]) -> list[tuple[list[str], list[str]] | _Script]:
         elif name in {"source", "."}:
             raise UnanalyzableScript(f"{name} runs a script file: {' '.join(words)!r}")
         elif name == "builtin":
-            words = words[1:]
+            words = words[2:] if words[1:2] == ["--"] else words[1:]
         elif word.startswith("${{"):
             raise UnanalyzableScript(
                 f"the program comes from a workflow expression: {' '.join(words)!r}"

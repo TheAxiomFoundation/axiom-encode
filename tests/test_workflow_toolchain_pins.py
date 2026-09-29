@@ -364,6 +364,8 @@ READER_CASES = {
     "$'\\x75v' sync": [("sync", ())],
     # `builtin`, and heredoc delimiters that are any word.
     "builtin eval 'uv sync'": [("sync", ())],
+    "eval -- 'uv pip install -e .'": [("pip install", ("--editable",))],
+    "builtin -- eval 'uv pip install -e .'": [("pip install", ("--editable",))],
     "cat <<END-OF\nuv sync\nEND-OF\nuv lock": [("lock", ())],
     "uv --version": [("", ("--version",))],
     "echo \"$(echo 'if case x in')\"": [],
@@ -489,6 +491,11 @@ def test_nested_scripts_inherit_assignments():
         ('export "UV_${NAME}=1"', True),
         ("printf 'A=1\\012UV_X=1\\n' >> \"$GITHUB_ENV\"", True),
         ("printf 'A=1\\x0aUV_X=1\\n' >> \"$GITHUB_ENV\"", True),
+        ("echo -e 'A=1\\0012UV_NO_SYNC=1' >> \"$GITHUB_ENV\"", True),
+        ("printf $'A=1\\u0aUV_X=1\\n' >> \"$GITHUB_ENV\"", True),
+        ("printf $'A=1\\U0000000aUV_X=1' >> \"$GITHUB_ENV\"", True),
+        ("printf $'A=1\\cJUV_X=1' >> \"$GITHUB_ENV\"", True),
+        ("printf '%sUV_X=1\\n' '' >> \"$GITHUB_ENV\"", True),
     ],
 )
 def test_run_scripts_never_name_a_uv_variable(monkeypatch, script, flagged):
@@ -653,14 +660,16 @@ def test_every_package_install_stages_a_target_directory():
     assert offenders == []
 
 
-# A UV_* name, however it is spelled: a `UV_` prefix at a name boundary
-# (so `UV_${X}` and `UV_{A,B}` count, but LOCKED_UV_VERSION does not), also
-# right after an escape (`\\nUV_`, `\\012UV_`, `\\x0aUV_`), or `UV` as a brace
-# alternative (`{UV,PIP}_INDEX_URL`).
+# A UV_* name, however it is spelled:
+# - a `UV_` prefix at a name boundary, so `UV_${X}` and `UV_{A,B}` count but
+#   LOCKED_UV_VERSION does not;
+# - a `UV_` after a backslash or `%` and up to ten letters or digits, which
+#   covers every escape bash or printf reads (`\\n`, `\\012`, `\\0012`, `\\x0a`,
+#   `\\u0a`, `\\U0000000a`, `\\cJ`) and printf directives such as `%s`;
+# - `UV` as a brace alternative (`{UV,PIP}_INDEX_URL`).
 UV_NAME = re.compile(
-    r"(?:(?<![A-Za-z0-9_])|(?<=\\[A-Za-z])|(?<=\\[0-7])|(?<=\\[0-7]{2})"
-    r"|(?<=\\[0-7]{3})|(?<=\\x[0-9A-Fa-f])|(?<=\\x[0-9A-Fa-f]{2})"
-    r"|(?<=\\u[0-9A-Fa-f]{4}))UV_[A-Z0-9_]*"
+    r"(?<![A-Za-z0-9_])UV_[A-Z0-9_]*"
+    r"|(?<=[\\%])[A-Za-z0-9]{0,10}UV_[A-Z0-9_]*"
     r"|\{(?:[^{}\s,]*,)*UV(?:,[^{}\s,]*)*\}"
 )
 
@@ -755,7 +764,8 @@ def _runner_labels(job: dict) -> list[str]:
     """
     runs_on = job.get("runs-on")
     labels = runs_on if isinstance(runs_on, list) else [runs_on]
-    matrix = (job.get("strategy") or {}).get("matrix") or {}
+    strategy = job.get("strategy") or {}
+    matrix = (strategy.get("matrix") if isinstance(strategy, dict) else strategy) or {}
     resolved: list[str] = []
     for label in labels:
         if not isinstance(label, str):
@@ -770,7 +780,8 @@ def _runner_labels(job: dict) -> list[str]:
             continue
         key = reference.group(1)
         values = matrix.get(key, [])
-        values = values if isinstance(values, list) else [values]
+        # A copy: the parsed workflows are cached and shared between tests.
+        values = list(values) if isinstance(values, list) else [values]
         include = matrix.get("include", [])
         if not isinstance(include, list):
             resolved.append(f"{label} with include {include!r}")
@@ -914,7 +925,8 @@ def test_test_environment_is_the_locked_dev_set(workflow_name, job_name):
     assert sync_words in LOCKED_DEV_SYNCS, sync_words
     if "${{matrix.python-version}}" in sync_words:
         job = dict(_workflows())[workflow_name]["jobs"][job_name]
-        matrix = (job.get("strategy") or {}).get("matrix")
+        strategy = job.get("strategy")
+        matrix = strategy.get("matrix") if isinstance(strategy, dict) else strategy
         assert isinstance(matrix, dict), matrix
         assert matrix.get("python-version") == ["3.13"], matrix
 
