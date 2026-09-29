@@ -1866,12 +1866,16 @@ _PERMISSION_PROGRAM = re.compile(
 _PERMISSION_TRIGGER = re.compile(
     rf"{_PERMISSION_PROGRAM.pattern}|\bGITHUB_(?:ENV|OUTPUT)\b"
 )
-_CD_ROOT = re.compile(r"\b(?:cd|pushd)\s+[\"']?/+(?=[\"'\s;&|)]|$)")
+# The operand of `cd`/`pushd`, after any options (`cd -- /`, `cd -P ..`).
+_CD_OPERAND = re.compile(
+    r"\b(?:cd|pushd)(?:\s+-[-A-Za-z]*)*\s+(?:\$?[\"'])?([^\s\"';&|)]+)"
+)
 # A literal absolute path starts a word: at line start, after whitespace or a
 # shell operator (including `-` and `+` for `${VAR:-/opt}`), after a quote,
 # possibly escaped, that does, or attached to a short-option cluster (`-C/opt`,
 # `-xzfC/opt`). `"$VAR"/x`, `$VAR/x`, `a/b` and URLs' later slashes are not.
 _PATH_BOUNDARY = r"[\s=(;|&<>:,{`\[+-]"
+# `$'/opt'` (ANSI-C quoting) counts as a quote too.
 _ATTACHED_OPTION = "|".join(
     rf"(?<={start}-[A-Za-z]{{{width}}}{quote})"
     for width in range(1, 7)
@@ -1880,7 +1884,8 @@ _ATTACHED_OPTION = "|".join(
 )
 _LITERAL_PATH = re.compile(
     rf"(?:(?<=^)|(?<={_PATH_BOUNDARY})|(?<={_PATH_BOUNDARY}[\"'])"
-    rf"|(?<={_PATH_BOUNDARY}\\[\"'])|(?<=^[\"'])|{_ATTACHED_OPTION})"
+    rf"|(?<={_PATH_BOUNDARY}\\[\"'])|(?<=^[\"'])|(?<={_PATH_BOUNDARY}\$')"
+    rf"|(?<=^\$')|{_ATTACHED_OPTION})"
     r"(/[\w./-]*)"
 )
 # `X=/` assigns the root even on a line that runs nothing; `..` climbs out of
@@ -1888,7 +1893,6 @@ _LITERAL_PATH = re.compile(
 _ROOT_ASSIGNMENT = re.compile(r"=[\"']?/+(?:[\"'\s;]|$)")
 # `..` that is not part of a longer name (`a..b`, `{1..5}`, `...`).
 _PARENT_OPERAND = re.compile(r"(?<![\w.])\.\.(?![\w.])")
-_CD_PARENT = re.compile(r"\b(?:cd|pushd)\s+[\"']?\.\.(?=[/\"'\s;&|)]|$)")
 
 
 def _literal_paths(line):
@@ -1896,6 +1900,21 @@ def _literal_paths(line):
         "/" + posixpath.normpath(path).lstrip("/")
         for path in _LITERAL_PATH.findall(line)
     }
+
+
+def _cd_moves(line):
+    """Return (changes to the root, climbs with ``..``) for a line's cd/pushd."""
+
+    operands = _CD_OPERAND.findall(line)
+    to_root = any(
+        operand.startswith("/") and posixpath.normpath("/" + operand.lstrip("/")) == "/"
+        for operand in operands
+    )
+    climbs = any(
+        not operand.startswith("/") and ".." in operand.split("/")
+        for operand in operands
+    )
+    return to_root, climbs
 
 
 def _at_or_under_opt(paths):
@@ -1911,7 +1930,8 @@ def _opt_permission_suspects(run, env=None, working_directory=None):
 
     * a context line naming /opt or /, or a working directory at or under /opt;
     * a command line holding a literal path that normalizes to /opt;
-    * a command line assigning the root (``X=/``), changing to it (``cd /``),
+    * a command line assigning the root (``X=/``), changing to it (``cd /``,
+      ``cd -- /``, ``cd /usr/..``),
       or holding a literal / (or //) while itself running one of those
       programs. The root check is otherwise per line because ``/`` and ``//``
       are also Python and jq operators, and ``tr -d '/'`` is not a path;
@@ -1957,15 +1977,16 @@ def _opt_permission_suspects(run, env=None, working_directory=None):
     )
     for line in code:
         paths = _literal_paths(line)
+        cd_to_root, cd_climbs = _cd_moves(line)
         if (
             "/opt" in paths
             or _ROOT_ASSIGNMENT.search(line)
-            or _CD_ROOT.search(line)
+            or cd_to_root
             or ("/" in paths and _PERMISSION_PROGRAM.search(line))
             or (
                 names_under_opt
                 and (
-                    _CD_PARENT.search(line)
+                    cd_climbs
                     or (
                         _PARENT_OPERAND.search(line)
                         and _PERMISSION_PROGRAM.search(line)
@@ -2000,6 +2021,8 @@ def _verification_tree_jobs():
                     ),
                     None,
                 ),
+                "shell": next((d["shell"] for d in defaults if "shell" in d), None),
+                "continue_on_error": job.get("continue-on-error", False),
             }
             jobs.append((path.name, job_name, steps, context))
     return jobs
@@ -2028,7 +2051,8 @@ def test_verification_tree_provisioning_tightens_opt(
         for index, step in enumerate(steps)
         if _VERIFICATION_TREE in step.get("run", "")
     ]
-    provision_run = steps[tree_indexes[0]]["run"]
+    provision_step = steps[tree_indexes[0]]
+    provision_run = provision_step["run"]
     lines = [line.strip() for line in provision_run.splitlines()]
     provisioner_line = next(
         (
@@ -2057,6 +2081,12 @@ def test_verification_tree_provisioning_tightens_opt(
     assert all(lines.index(command) > provisioner_line for command in _TREE_HARDENING)
     opt_positions = [lines.index(command) for command in _OPT_HARDENING]
     assert opt_positions == sorted(opt_positions)
+    # The fail-closed checks only fail the job under the default `bash -e`
+    # shell, with no `set +e` and no continue-on-error around them.
+    assert "shell" not in provision_step and context["shell"] is None
+    assert not provision_step.get("continue-on-error")
+    assert not context["continue_on_error"]
+    assert not re.search(r"\bset\s+\+(?:[a-z]*e|o\s+errexit)", provision_run)
     # The hardening lines are the only lines anywhere in the job that could
     # change the permissions of /opt or /, so nothing loosens /opt again before
     # the supervisor runs.
@@ -2128,6 +2158,12 @@ def test_verification_tree_provisioning_tightens_opt(
         "sudo tar -xzf tool.tgz -C'/opt'",
         "(cd /opt/hostedtoolcache && sudo chmod g+w ..)",
         "sudo bsdtar -xf tool.tar -C /opt",
+        "cd -- /\nsudo chmod g+w opt",
+        "pushd -- /\nsudo chmod g+w opt",
+        "cd /usr/..\nsudo chmod g+w opt",
+        "cd /opt/hostedtoolcache\ncd -- ..\nsudo chmod g+w .",
+        "cd -P /opt/hostedtoolcache/..\nsudo chmod g+w .",
+        "sudo chmod g+w $'/opt'",
         "sudo cp -a tool/. /opt/",
         'sudo chmod g+w "${TARGET:+/opt}"',
         "python -c 'import os; [os.chmod(p, 0o775) for p in [\"/opt\"]]'",
@@ -2261,6 +2297,20 @@ def _golden_drift_job():
             {},
             {},
             None,
+            [{"run": "cd -- /\nsudo chmod g+w opt"}],
+            id="cd-double-dash-root",
+        ),
+        pytest.param(
+            {},
+            {},
+            None,
+            [{"run": "cd /opt/hostedtoolcache\ncd -- ..\nsudo chmod g+w ."}],
+            id="cd-double-dash-parent",
+        ),
+        pytest.param(
+            {},
+            {},
+            None,
             [
                 {"run": 'cat >> "$GITHUB_ENV" <<EOF\nTARGET=/\nEOF'},
                 {"run": 'sudo chmod g+w "$TARGET"opt'},
@@ -2280,6 +2330,7 @@ def test_verification_tree_guard_sees_job_context(
     )
     mutated = [*steps[: provision + 1], *added_steps, *steps[provision + 1 :]]
     mutated_context = {
+        **context,
         "env": {**context["env"], **workflow_env, **job_env},
         "working_directory": defaults or context["working_directory"],
     }
@@ -2315,11 +2366,46 @@ def test_verification_tree_guard_sees_job_context(
         "cd .. && chmod 0644 notes.txt",
         'gcc -I/usr/include -L"$RUNNER_TEMP"/lib -o out main.c && chmod 755 out',
         'for i in {1..5}; do chmod 0644 "part-$i"; done',
+        'cd -- "$GITHUB_WORKSPACE" && chmod 0644 notes.txt',
+        "cd /usr/local\nchmod 755 bin/tool",
         "chmod 0644 out.json\nflag=\"$(jq -r '.flag // false' out.json)\"",
     ],
 )
 def test_opt_permission_suspects_ignore_other_paths(command):
     assert _opt_permission_suspects(command) == []
+
+
+@pytest.mark.parametrize(
+    ("step_changes", "context_changes", "prefix"),
+    [
+        pytest.param({"continue-on-error": True}, {}, "", id="step-continue-on-error"),
+        pytest.param({"shell": "bash {0}"}, {}, "", id="step-shell-without-e"),
+        pytest.param({}, {"shell": "bash {0}"}, "", id="defaults-shell"),
+        pytest.param({}, {"continue_on_error": True}, "", id="job-continue-on-error"),
+        pytest.param({}, {}, "set +e\n", id="set-plus-e"),
+        pytest.param({}, {}, "set +o errexit\n", id="set-plus-o-errexit"),
+    ],
+)
+def test_verification_tree_fail_closed_checks_cannot_be_neutralized(
+    step_changes, context_changes, prefix
+):
+    workflow_name, job_name, steps, context = _golden_drift_job()
+    provision = next(
+        index
+        for index, step in enumerate(steps)
+        if _VERIFICATION_TREE in step.get("run", "")
+    )
+    mutated = [dict(step) for step in steps]
+    mutated[provision] = {
+        **mutated[provision],
+        **step_changes,
+        "run": prefix + mutated[provision]["run"],
+    }
+
+    with pytest.raises(AssertionError):
+        test_verification_tree_provisioning_tightens_opt(
+            workflow_name, job_name, mutated, {**context, **context_changes}
+        )
 
 
 @pytest.mark.parametrize(
