@@ -57860,6 +57860,11 @@ def _repair_existing_target_oracle_shape_contracts(
         rule = rules.get(expected.name)
         if not isinstance(rule, dict):
             continue
+        if len(expected.indexed_by) > 1:
+            raise ValueError(
+                f"Cannot restore mapped rule {expected.name!r}: "
+                "multiple indexed_by dimensions are unsupported"
+            )
         changed = False
         protected_fields: dict[str, object] = {
             "kind": expected.kind,
@@ -57867,7 +57872,7 @@ def _repair_existing_target_oracle_shape_contracts(
             "dtype": expected.dtype,
             "period": expected.period,
             "unit": expected.unit,
-            "indexed_by": list(expected.indexed_by),
+            "indexed_by": expected.indexed_by[0] if expected.indexed_by else "",
         }
         for field, value in protected_fields.items():
             if value == "" or value == () or value == []:
