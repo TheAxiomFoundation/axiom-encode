@@ -1,0 +1,1 @@
+Allow a failed signed re-encode transaction to replay its retained candidates when it reuses the exact signed-import list bound into the failure artifact, including source-lane failures after a successful target preflight.

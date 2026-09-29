@@ -1019,6 +1019,7 @@ class TestTrustedGit:
         self, tmp_path, monkeypatch
     ):
         from axiom_encode.cli import (
+            _legacy_destination_manifest_claimants_at_base,
             _legacy_replacement_reference_inventory_issues,
             _rulespec_migration_base_blob,
             _rulespec_migration_git,
@@ -1045,6 +1046,13 @@ class TestTrustedGit:
         executable.parent.mkdir()
         executable.write_text("#!/bin/sh\n")
         executable.chmod(0o755)
+        owner_path = Path(".axiom/encoding-manifests/us/policies/owner.json")
+        (repository / owner_path).parent.mkdir(parents=True)
+        (repository / owner_path).write_text(
+            json.dumps(
+                {"applied_files": [{"path": "us/statutes/42/1437c-1.yaml"}]}
+            ).replace("/", r"\/")
+        )
         subprocess.run([git, "-C", str(repository), "add", "."], check=True)
         subprocess.run(
             [
@@ -1069,6 +1077,7 @@ class TestTrustedGit:
         monkeypatch.setenv("PATH", str(destination))
 
         assert _rulespec_migration_tracked_files(repository) == {
+            owner_path: "100644",
             Path("tools/check"): "100755",
             Path("us/statutes/42/1437c–1.yaml"): "100644",
         }
@@ -1084,6 +1093,11 @@ class TestTrustedGit:
                 repository, "rev-parse", f"{head}^{{tree}}"
             ).strip(),
         )
+        assert _legacy_destination_manifest_claimants_at_base(
+            repository,
+            base_commit=head,
+            destination_paths={Path("us/statutes/42/1437c-1.yaml")},
+        ) == [owner_path]
         unicode_path.unlink()
         assert (
             _legacy_replacement_reference_inventory_issues(

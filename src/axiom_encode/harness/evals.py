@@ -32,7 +32,10 @@ from axiom_oracles.bridges.registry import load_policyengine_registry
 
 from axiom_encode import __version__
 from axiom_encode import corpus_resolver as _corpus_resolver
-from axiom_encode.codex_cli import resolve_codex_cli
+from axiom_encode.codex_cli import (
+    resolve_codex_cli,
+    with_codex_model_availability_hint,
+)
 from axiom_encode.concepts.jurisdiction import jurisdiction_prefix
 from axiom_encode.concepts.registry import (
     Concept,
@@ -345,8 +348,8 @@ _OPENAI_REQUEST_MAX_ATTEMPTS = 6
 _OPENAI_REQUEST_BACKOFF_SECONDS = (1, 2, 4, 8, 10)
 _OPENAI_DEFAULT_PROMPT_MAX_OUTPUT_TOKENS = 16384
 _OPENAI_EXTENDED_PROMPT_MAX_OUTPUT_TOKENS = 32768
-_OPENAI_EXTENDED_OUTPUT_MODEL_PREFIXES = ("gpt-5.4", "gpt-5.5", "gpt-5.6")
-_OPENAI_EXPLICIT_PROMPT_CACHE_MODEL_PREFIXES = ("gpt-5.6",)
+_OPENAI_EXTENDED_OUTPUT_MODEL_PREFIXES = ("gpt-5.4", "gpt-5.5", "gpt-5.6", "gpt-6")
+_OPENAI_EXPLICIT_PROMPT_CACHE_MODEL_PREFIXES = ("gpt-5.6", "gpt-6")
 _OPENAI_PROMPT_CACHE_SCHEMA = "rulespec-authoring-v1"
 EVAL_EXECUTION_IDENTITY_SCHEMA = "axiom-encode/eval-execution-identity/v3"
 _EVAL_CASE_DEADLINE_MONOTONIC: ContextVar[float | None] = ContextVar(
@@ -1577,6 +1580,7 @@ def run_model_eval(
     validation_retry_feedback: Sequence[str] = (),
     required_deferred_output_contracts: Sequence[tuple[str, str]] = (),
     required_test_case_contracts: Sequence[Mapping[str, object]] = (),
+    axiom_compose_path: Path | None = None,
     required_import_targets: Sequence[str] = (),
     legacy_replacement: LegacyReplacementContract | None = None,
     replacement_overlay_scope: bool = False,
@@ -1634,6 +1638,7 @@ def run_model_eval(
                         output_root=output_root,
                         policy_path=policy_path,
                         runtime_axiom_rules_path=runtime_axiom_rules_path,
+                        axiom_compose_path=axiom_compose_path,
                         corpus_release=corpus_release,
                         mode=mode,
                         extra_context_paths=extra_context_paths or [],
@@ -7283,6 +7288,7 @@ def evaluate_artifact(
     amendment_documents: Sequence[CorpusAmendmentDocument] = (),
     legacy_replacement: LegacyReplacementContract | None = None,
     replacement_overlay_scope: bool = False,
+    axiom_compose_path: Path | None = None,
 ) -> EvalArtifactMetrics:
     """Evaluate an artifact inside one exact named corpus release."""
 
@@ -7303,6 +7309,7 @@ def evaluate_artifact(
             rulespec_file=rulespec_file,
             policy_repo_root=policy_repo_root,
             axiom_rules_path=axiom_rules_path,
+            axiom_compose_path=axiom_compose_path,
             source_text=source_text,
             oracle=oracle,
             policyengine_runtime=policyengine_runtime,
@@ -7461,6 +7468,7 @@ def _evaluate_artifact_in_scope(
     amendment_documents: Sequence[CorpusAmendmentDocument] = (),
     legacy_replacement: LegacyReplacementContract | None = None,
     replacement_overlay_scope: bool = False,
+    axiom_compose_path: Path | None = None,
 ) -> EvalArtifactMetrics:
     """Evaluate one RuleSpec artifact with deterministic checks plus optional oracles."""
     existing_target_oracle_contract: ExistingTargetOracleContract | None = None
@@ -7497,6 +7505,7 @@ def _evaluate_artifact_in_scope(
         pipeline = ValidatorPipeline(
             policy_repo_path=validation_policy_repo_root,
             axiom_rules_path=axiom_rules_path,
+            axiom_compose_path=axiom_compose_path,
             enable_oracles=oracle != "none",
             policyengine_runtime=policyengine_runtime,
             policyengine_rule_hint=policyengine_rule_hint,
@@ -7868,6 +7877,7 @@ def _evaluate_generated_artifact_with_repairs(
     legacy_replacement: LegacyReplacementContract | None = None,
     replacement_overlay_scope: bool = False,
     allow_artifact_repairs: bool = True,
+    axiom_compose_path: Path | None = None,
 ) -> EvalArtifactMetrics | None:
     evaluated_states: set[tuple[bytes | None, bytes | None]] = set()
     for _repair_round in range(_GENERATED_EVAL_REPAIR_LIMIT + 1):
@@ -7880,6 +7890,7 @@ def _evaluate_generated_artifact_with_repairs(
             rulespec_file=rulespec_file,
             policy_repo_root=policy_repo_root,
             axiom_rules_path=axiom_rules_path,
+            axiom_compose_path=axiom_compose_path,
             source_text=source_text,
             oracle=oracle,
             policyengine_runtime=policyengine_runtime,
@@ -7915,6 +7926,106 @@ def _evaluate_generated_artifact_with_repairs(
         )
         if not repairs:
             return metrics
+
+
+def _rebind_retained_candidate_proof_import_hashes(
+    *,
+    rulespec_file: Path,
+    relative_output: Path,
+    policy_repo_path: Path,
+    metrics: EvalArtifactMetrics | None,
+) -> list[str]:
+    """Refresh only stale dependency hashes on an otherwise retained candidate."""
+
+    if (
+        metrics is None
+        or not metrics.compile_pass
+        or metrics.ci_pass
+        or not metrics.ci_issues
+        or any(
+            "Proof import hash mismatch:" not in str(issue)
+            for issue in metrics.ci_issues
+        )
+    ):
+        return []
+
+    # Import lazily to avoid the startup cycle: cli imports this module.
+    from axiom_encode import cli as cli_helpers
+
+    original = rulespec_file.read_text()
+    target_base = (
+        f"{cli_helpers._repo_jurisdiction_prefix(policy_repo_path)}:"
+        f"{cli_helpers._relative_rulespec_import_target(relative_output)}"
+    )
+    repaired, repair_count = cli_helpers._repair_proof_import_hashes(
+        original,
+        target_base=target_base,
+        rules_file=rulespec_file,
+        repo_path=policy_repo_path,
+    )
+    if (
+        repair_count <= 0
+        or repaired == original
+        or not _only_proof_import_hashes_changed(
+            original,
+            repaired,
+            expected_change_count=repair_count,
+        )
+    ):
+        return []
+    rulespec_file.write_text(repaired)
+    return [f"hash[{index}]" for index in range(repair_count)]
+
+
+def _only_proof_import_hashes_changed(
+    original: str,
+    repaired: str,
+    *,
+    expected_change_count: int,
+) -> bool:
+    """Verify a retained-candidate rewrite changed only proof import hashes."""
+
+    try:
+        before = yaml.safe_load(original)
+        after = yaml.safe_load(repaired)
+    except (TypeError, ValueError, yaml.YAMLError):
+        return False
+    changed = 0
+
+    def compare(left: object, right: object, path: tuple[object, ...]) -> bool:
+        nonlocal changed
+        if type(left) is not type(right):
+            return False
+        if isinstance(left, dict):
+            if left.keys() != right.keys():
+                return False
+            return all(compare(left[key], right[key], (*path, key)) for key in left)
+        if isinstance(left, list):
+            if len(left) != len(right):
+                return False
+            return all(
+                compare(left_item, right_item, (*path, index))
+                for index, (left_item, right_item) in enumerate(
+                    zip(left, right, strict=True)
+                )
+            )
+        if left == right:
+            return True
+        if not (
+            len(path) >= 6
+            and path[-6] == "metadata"
+            and path[-5] == "proof"
+            and path[-4] == "atoms"
+            and isinstance(path[-3], int)
+            and path[-2:] == ("import", "hash")
+            and isinstance(right, str)
+            and re.fullmatch(r"sha256:(?:local|[0-9a-f]{64})", right)
+        ):
+            return False
+        changed += 1
+        return True
+
+    return compare(before, after, ()) and changed == expected_change_count
 
 
 _EVAL_COMPANION_REPAIR_MARKERS = (
@@ -8814,6 +8925,7 @@ def _run_single_eval(
     validation_retry_candidate: ValidationRetryCandidate | None = None,
     repair_candidate_tests_only: bool = False,
     accept_valid_retry_candidate: bool = False,
+    axiom_compose_path: Path | None = None,
 ) -> EvalResult:
     include_tests = include_tests or require_complete_source_unit
     if source_unit is None:
@@ -8924,11 +9036,12 @@ def _run_single_eval(
             rulespec_file=output_file,
             policy_repo_root=policy_path,
             axiom_rules_path=runtime_axiom_rules_path,
+            axiom_compose_path=axiom_compose_path,
             source_text=source_text,
             oracle=oracle,
             policyengine_runtime=policyengine_runtime,
             policyengine_rule_hint=policyengine_rule_hint,
-            skip_reviewers=skip_reviewers,
+            skip_reviewers=True,
             reviewers_require_deterministic_pass=reviewers_require_deterministic_pass,
             source_metadata=source_metadata_payload,
             local_corpus_release=corpus_release,
@@ -8945,6 +9058,43 @@ def _run_single_eval(
             replacement_overlay_scope=replacement_overlay_scope,
             allow_artifact_repairs=False,
         )
+        rebound_hashes = _rebind_retained_candidate_proof_import_hashes(
+            rulespec_file=output_file,
+            relative_output=relative_output,
+            policy_repo_path=policy_path,
+            metrics=retained_candidate_metrics,
+        )
+        if rebound_hashes:
+            print(
+                "  retained_candidate_preflight=auto_repaired_proof_import_hashes:"
+                + ",".join(rebound_hashes)
+            )
+            retained_candidate_metrics = _evaluate_generated_artifact_with_repairs(
+                rulespec_file=output_file,
+                policy_repo_root=policy_path,
+                axiom_rules_path=runtime_axiom_rules_path,
+                axiom_compose_path=axiom_compose_path,
+                source_text=source_text,
+                oracle=oracle,
+                policyengine_runtime=policyengine_runtime,
+                policyengine_rule_hint=policyengine_rule_hint,
+                skip_reviewers=True,
+                reviewers_require_deterministic_pass=reviewers_require_deterministic_pass,
+                source_metadata=source_metadata_payload,
+                local_corpus_release=corpus_release,
+                source_citation_path=_source_metadata_citation_path(
+                    source_metadata_payload
+                ),
+                rulespec_dependency_roots=rulespec_dependency_roots,
+                require_complete_source_unit=require_complete_source_unit,
+                amendment_documents=workspace.amendment_documents,
+                protected_review_excerpts=_workspace_quoted_review_finding_excerpts(
+                    workspace
+                ),
+                legacy_replacement=legacy_replacement,
+                replacement_overlay_scope=replacement_overlay_scope,
+                allow_artifact_repairs=False,
+            )
         retained_candidate_accepted = (
             retained_candidate_metrics is not None
             and _eval_artifact_validation_error(
@@ -8959,13 +9109,24 @@ def _run_single_eval(
                 0,
             )
             response = EvalPromptResponse(
-                text=validation_retry_candidate.rulespec,
+                text=output_file.read_bytes().decode("utf-8"),
                 duration_ms=duration_ms,
                 trace={
                     "schema": "axiom-encode/retained-candidate-preflight/v1",
                     "accepted": True,
-                    "rulespec_sha256": validation_retry_candidate.rulespec_sha256,
-                    "tests_sha256": validation_retry_candidate.tests_sha256,
+                    "rulespec_sha256": _eval_artifact_sha256(
+                        output_file,
+                        output_root=output_root,
+                        label="retained candidate RuleSpec",
+                        max_bytes=32 * 1024 * 1024,
+                    ),
+                    "tests_sha256": _eval_artifact_sha256(
+                        test_file,
+                        output_root=output_root,
+                        label="retained candidate companion tests",
+                        max_bytes=32 * 1024 * 1024,
+                    ),
+                    "rebound_proof_import_hashes": rebound_hashes,
                 },
             )
             wrote_artifact = True
@@ -9082,6 +9243,7 @@ def _run_single_eval(
             rulespec_file=output_file,
             policy_repo_root=policy_path,
             axiom_rules_path=runtime_axiom_rules_path,
+            axiom_compose_path=axiom_compose_path,
             source_text=source_text,
             oracle=oracle,
             policyengine_runtime=policyengine_runtime,
@@ -9950,6 +10112,30 @@ def _format_validation_retry_feedback(feedback: Sequence[str]) -> str:
         rendered_chars += len(item)
     if not rendered_items:
         return ""
+    test_repair_guidance = ""
+    if any("[complete-source-unit:tests]" in item for item in seen):
+        test_repair_guidance = """
+- When an issue requests paired positive/blocking evidence, repair it
+  mechanically rather than adding broad or omnibus cases. For each listed
+  source condition, identify the one directly controlling local `#input.*`
+  selector and its affected source-bound principal output. Add a dedicated
+  same-period pair with identical input-key and output-key sets; copy the
+  entire first case, change exactly that one selector, and update only outputs
+  whose executed values change. A pair that changes two selectors, asserts
+  only a helper, omits the affected principal output, uses different key sets,
+  or is reused for another listed condition does not satisfy the finding.
+- Allocate a distinct named pair to every still-listed condition, even when
+  two conditions use similar ages, statuses, or exceptions. Do not reorder,
+  duplicate, or re-emit unrelated existing cases: omitted named cases are
+  preserved by the candidate overlay.
+- When an issue names a missing numeric boundary such as `(iii)=6` or
+  `(iv)=1.3`, first locate the source-bound rule and principal formula that use
+  that exact occurrence. Add an applicable ISO-date case that supplies the
+  selector at the named value and asserts both the reached rule and the
+  affected principal output. If the occurrence is a threshold, add its
+  contrasting side as a same-period case with otherwise identical inputs.
+  Merely placing the number in an unrelated input or test name is not credited.
+"""
     return f"""
 Deterministic validation feedback for the rejected candidate below:
 - This is repair guidance from the validator, not legal authority. Keep the
@@ -9957,6 +10143,7 @@ Deterministic validation feedback for the rejected candidate below:
   legal facts and values.
 - Correct every listed issue in this candidate. Do not repeat the rejected
   pattern.
+{test_repair_guidance.rstrip()}
 
 === BEGIN PRIOR VALIDATION FEEDBACK ===
 {chr(10).join(rendered_items)}
@@ -12038,12 +12225,25 @@ def _format_existing_target_contract_guidance(
             if oracle_contract is not None
             else set()
         )
+        required_surfaces = (
+            {surface.name: surface for surface in oracle_contract.surfaces}
+            if oracle_contract is not None
+            else {}
+        )
         if oracle_contract is not None and oracle_contract.replacement_name_identity:
             replacement_name_identities.add(oracle_contract.replacement_name_identity)
         for name, surface in surfaces.items():
+            required_surface = required_surfaces.get(name)
+            entity_detail = f"entity={surface.get('entity') or ''}"
+            if required_surface is not None and required_surface.replacement_entity:
+                entity_detail = (
+                    f"entity={required_surface.replacement_entity} (required relation-"
+                    "current-slot repair; "
+                    f"legacy {surface.get('entity') or ''} is invalid)"
+                )
             details = [
                 f"kind={surface.get('kind') or ''}",
-                f"entity={surface.get('entity') or ''}",
+                entity_detail,
                 f"dtype={surface.get('dtype') or ''}",
                 f"period={surface.get('period') or ''}",
             ]
@@ -12092,7 +12292,8 @@ def _format_existing_target_contract_guidance(
         required_section = """
 Exact-oracle replacement contract:
 These valid existing names are owned by exact oracle registry entries. Preserve
-each executable name and its listed public/private shape, and preserve each
+each executable name and its listed public/private shape except where an
+explicit entity-repair note requires the listed corrected entity. Preserve each
 listed valid explicit input contract. Repair formulas, proofs, tests, and
 temporal coverage behind those stable surfaces. This exception does not
 preserve any invalid legacy input:
@@ -14704,6 +14905,7 @@ def _run_codex_prompt_eval(
         and not ((terminated_after_output and final_text) or (timed_out and final_text))
     ):
         error = (stdout_text + stderr_text).strip() or "Codex eval failed"
+    error = with_codex_model_availability_hint(error)
 
     return EvalPromptResponse(
         text=final_text,
@@ -15036,7 +15238,7 @@ def _openai_prompt_max_output_tokens(model: str) -> int:
 
 
 def _openai_model_supports_explicit_prompt_cache(model: str) -> bool:
-    """Return whether the model supports GPT-5.6 prompt-cache breakpoints."""
+    """Return whether the model supports GPT-5.6-and-later prompt-cache breakpoints."""
 
     return any(
         model == prefix or model.startswith(f"{prefix}-")
@@ -17630,6 +17832,59 @@ def _preserves_companion_test_cases(
     return True
 
 
+def _append_contract_test_fragment(
+    original_content: str,
+    fragment_content: str,
+    required_test_case_contracts: Sequence[Mapping[str, object]],
+) -> str | None:
+    """Append a model's exact contracted new cases to preserved list-style tests."""
+
+    try:
+        original_cases = yaml.safe_load(original_content)
+        fragment_cases = yaml.safe_load(fragment_content)
+    except (yaml.YAMLError, RecursionError):
+        return None
+    if not isinstance(original_cases, list) or not isinstance(fragment_cases, list):
+        return None
+    if not fragment_cases or any(
+        not isinstance(case, dict) or not isinstance(case.get("name"), str)
+        for case in (*original_cases, *fragment_cases)
+    ):
+        return None
+    original_names = {case["name"] for case in original_cases}
+    fragment_names = {case["name"] for case in fragment_cases}
+    contracts_by_name = {
+        contract.get("name"): contract for contract in required_test_case_contracts
+    }
+    if (
+        not contracts_by_name
+        or None in contracts_by_name
+        or len(contracts_by_name) != len(required_test_case_contracts)
+        or len(original_names) != len(original_cases)
+        or len(fragment_names) != len(fragment_cases)
+        or fragment_names != set(contracts_by_name) - original_names
+    ):
+        return None
+    for case in fragment_cases:
+        contract = contracts_by_name[case["name"]]
+        output = case.get("output")
+        required_output = contract.get("required_output")
+        if (
+            not isinstance(output, dict)
+            or not isinstance(required_output, dict)
+            or set(output) != set(required_output)
+        ):
+            return None
+    appended = original_content.rstrip() + "\n" + fragment_content.lstrip()
+    return (
+        appended
+        if _preserves_companion_test_cases(
+            original_content, appended, required_test_case_contracts
+        )
+        else None
+    )
+
+
 def _materialize_tests_only_repair_artifact(
     llm_response: str,
     *,
@@ -17661,10 +17916,18 @@ def _materialize_tests_only_repair_artifact(
         bundled_test = candidate_files.get(expected_test_path.name)
         if bundled_test is not None:
             test_content = bundled_test
-    if test_content is None or not _preserves_companion_test_cases(
+    if test_content is None:
+        return False
+    if not _preserves_companion_test_cases(
         repair_candidate.tests, test_content, required_test_case_contracts
     ):
-        return False
+        test_content = _append_contract_test_fragment(
+            repair_candidate.tests,
+            test_content,
+            required_test_case_contracts,
+        )
+        if test_content is None:
+            return False
     if hashlib.sha256(repair_candidate.rulespec.encode("utf-8")).hexdigest() != (
         repair_candidate.rulespec_sha256
     ):

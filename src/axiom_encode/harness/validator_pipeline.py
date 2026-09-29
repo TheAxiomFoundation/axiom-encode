@@ -33,7 +33,7 @@ import time
 import unicodedata
 from bisect import bisect_left, bisect_right
 from calendar import monthrange
-from collections import Counter
+from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -57,7 +57,10 @@ from axiom_oracles.bridges.registry import (
     load_policyengine_registry,
 )
 
-from axiom_encode.codex_cli import resolve_codex_cli
+from axiom_encode.codex_cli import (
+    resolve_codex_cli,
+    with_codex_model_availability_hint,
+)
 from axiom_encode.concepts.jurisdiction import jurisdiction_prefix
 from axiom_encode.constants import (
     DEFAULT_OPENAI_MODEL,
@@ -190,6 +193,7 @@ class ExistingTargetSurfaceContract:
     unit: str
     indexed_by: tuple[str, ...]
     private: bool
+    replacement_entity: str = ""
 
 
 @dataclass(frozen=True)
@@ -603,7 +607,11 @@ def _extract_codex_text_output(output: str) -> str:
         elif payload_type == "error":
             last_error = payload.get("message") or "codex exec error"
 
-    return "\n".join(assistant_messages).strip() or last_error or output
+    return (
+        "\n".join(assistant_messages).strip()
+        or with_codex_model_availability_hint(last_error)
+        or output
+    )
 
 
 _REVIEW_JSON_KEYS = {
@@ -1225,6 +1233,19 @@ _STRUCTURAL_SOURCE_FORM_NUMBER_PATTERN = re.compile(
 _STRUCTURAL_SOURCE_FORM_LINE_PATTERN = re.compile(
     r"\bLine\s+\d+[A-Za-z]?\b",
     re.IGNORECASE,
+)
+# Explicit plural form-line references and page counters are coordinates,
+# not amounts to reproduce as RuleSpec parameters. Keep numeric tokens with
+# decimal or monetary/rate suffixes outside this structural grammar.
+_STRUCTURAL_SOURCE_FORM_LINES_PATTERN = re.compile(
+    r"\blines\s+\d+[A-Za-z]?"
+    r"(?:(?:,\s+(?:(?:and|or)\s+)?|\s+(?:and|or|through|to)\s+)\d+[A-Za-z]?)+"
+    r"\b(?![.,]\d)(?!\s*(?:%|percent\b|dollars?\b|euros?\b|pounds?\b))",
+    re.IGNORECASE,
+)
+_STRUCTURAL_SOURCE_PAGE_COUNTER_PATTERN = re.compile(
+    r"\bpage[ \t]+\d+[ \t]+of[ \t]+\d+[ \t]*(?=\r?$)",
+    re.IGNORECASE | re.MULTILINE,
 )
 _STRUCTURAL_SOURCE_CODE_CITATION_PATTERN = re.compile(
     r"\b\d+\s+"
@@ -11265,6 +11286,7 @@ def _iter_cardinal_word_number_matches(
     text: str,
     *,
     compound_only: bool = False,
+    split_adjacent_labels: bool = True,
 ) -> list[tuple[tuple[int, int], float]]:
     """Return English cardinal number phrases such as "five hundred thousand"."""
     matches: list[tuple[tuple[int, int], float]] = []
@@ -11278,11 +11300,54 @@ def _iter_cardinal_word_number_matches(
         if split_values is not None:
             matches.extend(split_values)
             continue
+        adjacent_values = (
+            _split_adjacent_cardinal_labels(phrase, offset=match.start())
+            if split_adjacent_labels
+            else None
+        )
+        if adjacent_values is not None:
+            matches.extend(adjacent_values)
+            continue
         value = _parse_cardinal_number_words(phrase)
         if value is None:
             continue
         matches.append((match.span(), value))
     return matches
+
+
+def _split_adjacent_cardinal_labels(
+    phrase: str, *, offset: int = 0
+) -> list[tuple[tuple[int, int], float]] | None:
+    """Keep flattened unscaled labels ("One Two Three") as separate numbers.
+
+    A valid compound such as "twenty one" remains one value. Scaled and
+    coordinated phrases retain their existing parsers; this only separates
+    adjacent bare cardinals that cannot form a conventional English number.
+    """
+    words = list(re.finditer(r"[A-Za-z]+", phrase))
+    if len(words) < 2 or any(
+        word.group().lower() not in _CARDINAL_WORD_VALUES for word in words
+    ):
+        return None
+    if _parse_strict_cardinal_number_words(phrase) is not None:
+        return None
+    values: list[tuple[tuple[int, int], float]] = []
+    index = 0
+    while index < len(words):
+        first = last = words[index]
+        value = _CARDINAL_WORD_VALUES[first.group().lower()]
+        if index + 1 < len(words):
+            following = words[index + 1]
+            compound = _parse_strict_cardinal_number_words(
+                phrase[first.start() : following.end()]
+            )
+            if compound is not None:
+                value = compound
+                last = following
+                index += 1
+        values.append(((offset + first.start(), offset + last.end()), value))
+        index += 1
+    return values
 
 
 def _iter_digit_scale_number_matches(
@@ -12376,6 +12441,8 @@ def _danish_equal_length_numeric_mask(text: str) -> _EqualLengthNumericMask:
             _STRUCTURAL_SOURCE_HANDBOOK_SECTION_PATTERN,
             _STRUCTURAL_SOURCE_FORM_NUMBER_PATTERN,
             _STRUCTURAL_SOURCE_FORM_LINE_PATTERN,
+            _STRUCTURAL_SOURCE_FORM_LINES_PATTERN,
+            _STRUCTURAL_SOURCE_PAGE_COUNTER_PATTERN,
             _STRUCTURAL_SOURCE_CODE_CITATION_PATTERN,
             _STRUCTURAL_SOURCE_LEGAL_EDITION_PATTERN,
             _STRUCTURAL_SOURCE_STATE_CODE_CITATION_PATTERN,
@@ -12915,6 +12982,8 @@ def _clean_source_text_for_numeric_extraction_tracked(
     tracked = tracked.sub(_STRUCTURAL_SOURCE_HANDBOOK_SECTION_PATTERN, _blank_match)
     tracked = tracked.sub(_STRUCTURAL_SOURCE_FORM_NUMBER_PATTERN, _blank_match)
     tracked = tracked.sub(_STRUCTURAL_SOURCE_FORM_LINE_PATTERN, _blank_match)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_FORM_LINES_PATTERN, _blank_match)
+    tracked = tracked.sub(_STRUCTURAL_SOURCE_PAGE_COUNTER_PATTERN, _blank_match)
     tracked = tracked.sub(_STRUCTURAL_SOURCE_CODE_CITATION_PATTERN, _blank_match)
     tracked = tracked.sub(_STRUCTURAL_SOURCE_LEGAL_EDITION_PATTERN, _blank_match)
     tracked = tracked.sub(_STRUCTURAL_SOURCE_STATE_CODE_CITATION_PATTERN, _blank_match)
@@ -15435,6 +15504,9 @@ def _english_word_number_occurrences(
     for span, value in _iter_cardinal_word_number_matches(
         cleaned,
         compound_only=True,
+        # The explicit English profile rejects malformed phrases as a whole;
+        # do not turn their individual tokens into new grounding evidence.
+        split_adjacent_labels=False,
     ):
         strict_value = _parse_strict_cardinal_number_words(cleaned[slice(*span)])
         if strict_value is None or not math.isclose(strict_value, value):
@@ -20265,6 +20337,139 @@ def _existing_target_input_contract(
     )
 
 
+def _surface_inferred_relation_entities(
+    rule: Mapping[str, object],
+    rules: Mapping[str, Mapping[str, object]],
+    *,
+    seen: frozenset[str] = frozenset(),
+    memo: dict[str, tuple[str, ...]] | None = None,
+    cyclic_names: set[str] | None = None,
+) -> tuple[str, ...]:
+    """Return every entity constraint implied by same-scope aggregates."""
+
+    if memo is None:
+        memo = {}
+    if cyclic_names is None:
+        cyclic_names = set()
+    entity = str(rule.get("entity") or "").strip().lower()
+    if not entity:
+        return ()
+    name = str(rule.get("name") or "").strip()
+    if name in memo:
+        return memo[name]
+    if name in seen:
+        cyclic_names.update(seen)
+        cyclic_names.add(name)
+        return ()
+    next_seen = seen | {name}
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return ()
+    required_entities: dict[str, str] = {}
+    for version in versions:
+        formula = version.get("formula") if isinstance(version, Mapping) else None
+        if not isinstance(formula, str):
+            continue
+        executable_formula = _QUOTED_STRING_PATTERN.sub(
+            lambda match: " " * len(match.group()), formula
+        )
+        executable_formula = "\n".join(
+            (
+                line[:comment_start] + " " * (len(line) - comment_start)
+                if (comment_start := line.find("#")) >= 0
+                else line
+            )
+            for line in executable_formula.split("\n")
+        )
+        aggregate_calls: list[tuple[str, int, int]] = []
+        for aggregate_match in _RELATION_AGGREGATE_PATTERN.finditer(executable_formula):
+            if any(
+                start <= aggregate_match.start() < end
+                for _, start, end in aggregate_calls
+            ):
+                continue
+            opening = executable_formula.find(
+                "(", aggregate_match.start(), aggregate_match.end()
+            )
+            if opening < 0:
+                continue
+            depth = 0
+            for index in range(opening, len(executable_formula)):
+                character = executable_formula[index]
+                if character == "(":
+                    depth += 1
+                elif character == ")":
+                    depth -= 1
+                    if depth == 0:
+                        aggregate_calls.append(
+                            (
+                                aggregate_match.group(1),
+                                aggregate_match.start(),
+                                index + 1,
+                            )
+                        )
+                        break
+        for relation_name, _, _ in aggregate_calls:
+            relation = rules.get(relation_name)
+            if not isinstance(relation, Mapping):
+                continue
+            relation_spec = relation.get("data_relation")
+            if not isinstance(relation_spec, Mapping):
+                continue
+            arguments = relation_spec.get("arguments")
+            if not isinstance(arguments, list) or len(arguments) != 2:
+                continue
+            current_entity = str(arguments[1] or "").strip().lower()
+            if current_entity:
+                required_entities[current_entity] = str(arguments[1]).strip()
+        same_scope_formula = executable_formula
+        for _, start, end in reversed(aggregate_calls):
+            same_scope_formula = (
+                same_scope_formula[:start]
+                + " " * (end - start)
+                + same_scope_formula[end:]
+            )
+        for identifier in _formula_local_identifiers(same_scope_formula):
+            dependency = rules.get(identifier)
+            if not isinstance(dependency, Mapping):
+                continue
+            dependency_entities = _surface_inferred_relation_entities(
+                dependency,
+                rules,
+                seen=next_seen,
+                memo=memo,
+                cyclic_names=cyclic_names,
+            )
+            for dependency_entity in dependency_entities:
+                required_entities[dependency_entity.lower()] = dependency_entity
+    inferred_entities = tuple(
+        required_entities[key] for key in sorted(required_entities)
+    )
+    if name and name not in cyclic_names:
+        memo[name] = inferred_entities
+    return inferred_entities
+
+
+def _surface_contract_matches(
+    expected: ExistingTargetSurfaceContract,
+    actual: ExistingTargetSurfaceContract | None,
+) -> bool:
+    """Compare a mapped surface while permitting one proven legacy entity repair."""
+
+    if actual is None:
+        return False
+    return (
+        expected.name == actual.name
+        and expected.kind == actual.kind
+        and (expected.replacement_entity or expected.entity) == actual.entity
+        and expected.dtype == actual.dtype
+        and expected.period == actual.period
+        and expected.unit == actual.unit
+        and expected.indexed_by == actual.indexed_by
+        and expected.private == actual.private
+    )
+
+
 _REPLACEMENT_LEGAL_SOURCE_NAME_MARKERS = frozenset(
     {
         "article",
@@ -20345,8 +20550,34 @@ def build_existing_target_oracle_contract(
     surface_names = sorted(
         name for name in rules if f"{target}#{name}" in exact_mappings
     )
+    entity_inference_memo: dict[str, tuple[str, ...]] = {}
+    cyclic_entity_rules: set[str] = set()
+    inferred_entities_by_name = {
+        name: _surface_inferred_relation_entities(
+            rules[name],
+            rules,
+            memo=entity_inference_memo,
+            cyclic_names=cyclic_entity_rules,
+        )
+        for name in surface_names
+    }
     surfaces = tuple(
-        surface
+        ExistingTargetSurfaceContract(
+            name=surface.name,
+            kind=surface.kind,
+            entity=surface.entity,
+            dtype=surface.dtype,
+            period=surface.period,
+            unit=surface.unit,
+            indexed_by=surface.indexed_by,
+            private=surface.private,
+            replacement_entity=(
+                inferred_entities_by_name[name][0]
+                if len(inferred_entities_by_name[name]) == 1
+                and inferred_entities_by_name[name][0].lower() != surface.entity.lower()
+                else ""
+            ),
+        )
         for name in surface_names
         if (surface := _existing_target_surface_contract(rules[name])) is not None
     )
@@ -20432,13 +20663,15 @@ def find_existing_target_oracle_contract_issues(
             if isinstance(actual_rule, dict)
             else None
         )
-        if actual == expected:
+        if _surface_contract_matches(expected, actual):
             continue
+        protected_entity = expected.replacement_entity or expected.entity
         issues.append(
             "[existing-target-oracle-contract] Replacement must retain valid "
             f"exact-oracle-mapped surface `{contract.target}#{expected.name}` "
-            "with its existing kind/entity/dtype/period/unit/index and "
-            "metadata.private/public contract. Repair its implementation under "
+            "with its required kind/entity/dtype/period/unit/index and "
+            f"metadata.private/public contract (entity `{protected_entity}`). "
+            "Repair its implementation under "
             "that stable surface."
         )
     for expected in contract.inputs:
@@ -22343,9 +22576,9 @@ _TAXPAYER_TAX_UNIT_SOURCE_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 _PERSON_SCOPE_SOURCE_PATTERN = re.compile(
-    r"\b(?:no|any|each|every|all|a|an|the|that|such)\s+"
+    r"\b(?:no|any|each|every|all|a|an|the|that|such|certain)\s+"
     r"(?:(?:resident|nonresident|qualifying|qualified|eligible)\s+)?"
-    r"(?:individual|person|(?:household\s+|family\s+)?member|claimant|child|"
+    r"(?:individual|person|(?:household\s+|family\s+)?members?|claimant|child|"
     r"(?:sponsored\s+)?alien|qualified\s+alien|applicant|recipient|"
     r"participant|client|case\s+member)\b"
     r"[\s\S]{0,180}\b(?:eligible|ineligible|disqualif|excluded?|participat|"
@@ -22371,16 +22604,19 @@ _HEAD_OF_HOUSEHOLD_FILING_STATUS_PATTERN = re.compile(
     r"(?:\s+|\s*[-‐‑‒–—―−]\s*)household\b",
     flags=re.IGNORECASE,
 )
-_HOUSEHOLD_UNIT_SOURCE_TOKEN = r"\bhousehold\b(?!\s+member\b)"
+_HOUSEHOLD_UNIT_SOURCE_TOKEN = (
+    r"(?:\bhousehold\b(?!\s+members?\b)|"
+    r"\bbudgetary\s+unit\b(?!\s+(?:members?|participants?)\b))"
+)
 _UNIT_SCOPE_SOURCE_PATTERN = re.compile(
     r"(?:"
     + _HOUSEHOLD_UNIT_SOURCE_TOKEN
     + r"|\bsnap\s+unit|\bfood\s+assistance\s+unit|"
     r"\bassistance\s+unit|\btax\s+unit|\bfiling\s+unit|"
-    r"\bfamily\b(?!\s+member\b)|\bspm\s+unit\b)"
+    r"\bfamily\b(?!\s+members?\b)|\bspm\s+unit\b)"
     r"[\s\S]{0,180}\b"
     r"(?:eligible|eligibility|test|requirement|resources?|income|standard|"
-    r"benefit|allotment)\b",
+    r"benefit|allotment|disqualif\w*)\b",
     flags=re.IGNORECASE,
 )
 _UNIT_SOURCE_ENTITY_PATTERNS = (
@@ -22393,7 +22629,7 @@ _UNIT_SOURCE_ENTITY_PATTERNS = (
         re.compile(r"\b(?:snap|food\s+assistance)\s+unit\b", flags=re.IGNORECASE),
     ),
     ("taxunit", re.compile(r"\b(?:tax|filing)\s+unit\b", flags=re.IGNORECASE)),
-    ("family", re.compile(r"\bfamily\b(?!\s+member\b)", flags=re.IGNORECASE)),
+    ("family", re.compile(r"\bfamily\b(?!\s+members?\b)", flags=re.IGNORECASE)),
     ("spmunit", re.compile(r"\bspm\s+unit\b", flags=re.IGNORECASE)),
 )
 _FEDERAL_TAX_HOUSEHOLD_INCOME_TAXUNIT_CONTEXT_PATTERN = re.compile(
@@ -22507,8 +22743,9 @@ _SHARED_STATUTORY_RATE_SECTION_PREFIX_PATTERN = re.compile(
     flags=re.IGNORECASE,
 )
 _HOUSEHOLD_MEMBER_MIXED_SCOPE_PATTERN = re.compile(
-    r"\bhousehold\b(?!\s+member\b)[\s\S]{0,180}"
-    r"\b(?:each|every|all|no)\s+(?:household\s+)?member\b"
+    r"(?:\bhousehold\b(?!\s+members?\b)|\bbudgetary\s+unit\b)"
+    r"[\s\S]{0,180}\b(?:each|every|all|no|an?)\s+"
+    r"(?:(?:household|budgetary\s+unit)\s+)?(?:members?|participants?)\b"
     r"|"
     r"\b(?:individuals?|persons?|clients?|participants?|recipients?)\b"
     r"[\s\S]{0,80}\b(?:resid(?:e|es|ing)|liv(?:e|es|ing))\s+with\s+"
@@ -22517,15 +22754,20 @@ _HOUSEHOLD_MEMBER_MIXED_SCOPE_PATTERN = re.compile(
 )
 _UNIT_MEMBER_AGGREGATE_HELPER_SOURCE_PATTERN = re.compile(
     r"\b(?:households?|snap\s+units?|food\s+assistance\s+units?|"
-    r"assistance\s+units?|tax\s+units?|filing\s+units?|famil(?:y|ies)|"
+    r"assistance\s+units?|budgetary\s+units?|tax\s+units?|filing\s+units?|famil(?:y|ies)|"
     r"spm\s+units?)\b[\s\S]{0,240}\b(?:all|each|every|no)\s+"
-    r"(?:individuals?|persons?|(?:household\s+|family\s+)?members?)\b"
+    r"(?:individuals?|persons?|participants?|members?|"
+    r"(?:household|family|budgetary\s+unit)\s+(?:members?|participants?))\b"
     r"|"
     r"\b(?:all|each|every|no)\s+"
-    r"(?:individuals?|persons?|(?:household\s+|family\s+)?members?)\b"
+    r"(?:individuals?|persons?|participants?|members?|"
+    r"(?:household|family|budgetary\s+unit)\s+(?:members?|participants?))\b"
     r"[\s\S]{0,240}\b(?:households?|snap\s+units?|food\s+assistance\s+"
-    r"units?|assistance\s+units?|tax\s+units?|filing\s+units?|"
+    r"units?|assistance\s+units?|budgetary\s+units?|tax\s+units?|filing\s+units?|"
     r"famil(?:y|ies)|spm\s+units?)\b"
+    r"|"
+    r"\b(?:all|each|every|no)\s+(?:budgetary\s+unit|household|family)\s+"
+    r"(?:members?|participants?)\b"
     r"|"
     r"\ball[-\s]+member[-\s]+(?:disqualif|ineligib|exclud)"
     r"[\s\S]{0,120}\b(?:households?|snap\s+units?|food\s+assistance\s+"
@@ -23014,6 +23256,12 @@ def _unit_relation_aggregate_helper_names_by_rule(
     payload: dict[str, Any],
     fallback_source_text: str,
 ) -> set[str]:
+    formulas_by_name: dict[str, list[str]] = defaultdict(list)
+    for name, kind, formula, _rule_source, _rule in _rulespec_rule_formula_rule_records(
+        payload
+    ):
+        if kind == "derived":
+            formulas_by_name[name].append(formula)
     helper_names: set[str] = set()
     for _name, kind, formula, _rule_source, rule in _rulespec_rule_formula_rule_records(
         payload
@@ -23032,6 +23280,21 @@ def _unit_relation_aggregate_helper_names_by_rule(
         ):
             continue
         helper_names.update(_relation_aggregate_helper_identifiers(formula))
+    pending = list(helper_names)
+    while pending:
+        helper_name = pending.pop()
+        helper_formulas = formulas_by_name.get(helper_name)
+        if not helper_formulas:
+            continue
+        for helper_formula in helper_formulas:
+            for dependency_name in _formula_local_identifiers(helper_formula):
+                if (
+                    dependency_name not in formulas_by_name
+                    or dependency_name in helper_names
+                ):
+                    continue
+                helper_names.add(dependency_name)
+                pending.append(dependency_name)
     return helper_names
 
 
@@ -23087,8 +23350,8 @@ def _person_rule_can_use_unit_member_aggregate_source(
     if str(rule.get("dtype") or "").strip().lower() != "judgment":
         return False
     source_contexts = _rule_proof_source_excerpts(rule)
-    if not source_contexts and fallback_source_text:
-        source_contexts = [fallback_source_text]
+    if fallback_source_text:
+        source_contexts.append(fallback_source_text)
     return any(
         _UNIT_MEMBER_AGGREGATE_HELPER_SOURCE_PATTERN.search(text)
         for text in source_contexts
@@ -34455,6 +34718,7 @@ class ValidatorPipeline:
         policy_repo_path: Path,
         axiom_rules_path: Path,
         *,
+        axiom_compose_path: Path | None = None,
         local_corpus_release: LocalCorpusRelease | None,
         enable_oracles: bool = True,
         oracle_validators: tuple[str, ...] | None = None,
@@ -34477,6 +34741,9 @@ class ValidatorPipeline:
     ):
         self.policy_repo_path = Path(policy_repo_path)
         self.axiom_rules_path = Path(axiom_rules_path)
+        self.axiom_compose_path = (
+            Path(axiom_compose_path) if axiom_compose_path is not None else None
+        )
         self._axiom_rules_engine_pin_override = (
             EnginePin(
                 sha=require_engine_ref_sha(
@@ -35260,12 +35527,34 @@ class ValidatorPipeline:
         rules_file: Path,
         output_path: Path,
     ) -> tuple[subprocess.CompletedProcess[str], dict[str, Any] | None]:
+        """Compile with resolution caches scoped to this single operation."""
+        with _rulespec_resolution_cache_scope():
+            return self._compile_rulespec_to_artifact_impl(rules_file, output_path)
+
+    def _compile_rulespec_to_artifact_impl(
+        self,
+        rules_file: Path,
+        output_path: Path,
+    ) -> tuple[subprocess.CompletedProcess[str], dict[str, Any] | None]:
         """Compile RuleSpec YAML to an Axiom rules engine artifact JSON file."""
         binary = self._axiom_rules_binary()
         compile_file = _canonical_rulespec_compile_path(
             rules_file,
             self.policy_repo_path,
         )
+        payload = _safe_load_unique_keys(compile_file.read_text())
+        module = payload.get("module") if isinstance(payload, dict) else None
+        is_composition = (
+            isinstance(module, dict) and module.get("kind") == "composition"
+        )
+        if is_composition:
+            compose_result, composed_file = self._compose_rulespec_module(
+                compile_file,
+                output_path.parent,
+            )
+            if compose_result.returncode != 0 or composed_file is None:
+                return compose_result, None
+            compile_file = composed_file
         result = run_rulespec_compile(
             binary=binary,
             program=compile_file,
@@ -35273,10 +35562,258 @@ class ValidatorPipeline:
             output=output_path,
             cwd=self.axiom_rules_path if self.axiom_rules_path.exists() else None,
             env=self._rulespec_engine_env(),
+            composed=is_composition,
         )
         if result.returncode != 0:
             return result, None
         return result, json.loads(output_path.read_text())
+
+    def _compose_rulespec_module(
+        self,
+        rules_file: Path,
+        output_directory: Path,
+    ) -> tuple[subprocess.CompletedProcess[str], Path | None]:
+        """Compose one composition module through its owning ProgramSpec."""
+
+        if self.axiom_compose_path is None:
+            message = (
+                "composition RuleSpec validation requires an explicit "
+                "axiom-compose executable"
+            )
+            return subprocess.CompletedProcess([], 1, "", message), None
+        compose_binary = self.axiom_compose_path.resolve(strict=True)
+        if not compose_binary.is_file() or not os.access(compose_binary, os.X_OK):
+            message = f"axiom-compose executable is not executable: {compose_binary}"
+            return subprocess.CompletedProcess([], 1, "", message), None
+
+        program_specs = self._owning_program_specs(rules_file)
+        if len(program_specs) != 1:
+            relative = rules_file.relative_to(self.policy_repo_path).as_posix()
+            if program_specs:
+                checkout_root = _rulespec_checkout_root_for_active_path(
+                    self.policy_repo_path
+                )
+                owners = ", ".join(
+                    path.relative_to(checkout_root).as_posix() for path in program_specs
+                )
+                message = (
+                    f"composition module {relative} has multiple owning "
+                    f"ProgramSpecs: {owners}"
+                )
+            else:
+                message = (
+                    f"composition module {relative} is not in any ProgramSpec scope"
+                )
+            return subprocess.CompletedProcess([], 1, "", message), None
+
+        composed_file = output_directory / "composed-program.yaml"
+        command = [str(compose_binary), str(program_specs[0]), "-o", str(composed_file)]
+        for root in self._rulespec_compile_roots():
+            command.extend(("--rulespec-root", str(root)))
+        try:
+            result = subprocess.run(
+                command,
+                cwd=self.policy_repo_path,
+                env=self._rulespec_engine_env(),
+                capture_output=True,
+                text=True,
+                timeout=300,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            message = f"axiom-compose timed out after {exc.timeout} seconds"
+            return subprocess.CompletedProcess(command, 1, "", message), None
+        except OSError as exc:
+            return subprocess.CompletedProcess(command, 1, "", str(exc)), None
+        if result.returncode != 0:
+            detail = result.stderr.strip() or result.stdout.strip()
+            return subprocess.CompletedProcess(
+                command,
+                result.returncode,
+                result.stdout,
+                f"axiom-compose failed: {detail}",
+            ), None
+        if not composed_file.is_file() or composed_file.is_symlink():
+            message = "axiom-compose succeeded without a regular output file"
+            return subprocess.CompletedProcess(command, 1, result.stdout, message), None
+        return result, composed_file
+
+    def _owning_program_specs(self, rules_file: Path) -> tuple[Path, ...]:
+        """Return ProgramSpecs whose transitive import scope contains ``rules_file``."""
+
+        with _rulespec_resolution_cache_scope():
+            return self._owning_program_specs_snapshot(rules_file)
+
+    def _owning_program_specs_snapshot(self, rules_file: Path) -> tuple[Path, ...]:
+        root = _rulespec_checkout_root_for_active_path(self.policy_repo_path)
+        cache = _RULESPEC_RESOLUTION_CACHE.get()
+        assert cache is not None
+        directory_stamps: dict[Path, _PathMutationStamp] = {}
+        file_stamps: dict[Path, _PathMutationStamp] = {}
+        admitted_roots: set[Path] = set()
+
+        def capture_audits() -> None:
+            for checkout, audit in cache.symlink_audits.items():
+                admitted_roots.add(checkout)
+                for directory, stamp in audit.directory_stamps:
+                    previous = directory_stamps.setdefault(directory, stamp)
+                    if previous != stamp:
+                        raise UnsafeRulespecContextPath(
+                            "Program ownership checkout changed during discovery"
+                        )
+
+        def read_payload(path: Path) -> Any:
+            before = _path_mutation_stamp(path)
+            if before is None or path.is_symlink():
+                raise UnsafeRulespecContextPath(
+                    "Program ownership file changed during discovery"
+                )
+            if file_stamps.setdefault(path, before) != before:
+                raise UnsafeRulespecContextPath(
+                    "Program ownership file changed during discovery"
+                )
+            try:
+                text = path.read_text()
+            finally:
+                if before != _path_mutation_stamp(path):
+                    raise UnsafeRulespecContextPath(
+                        "Program ownership file changed during discovery"
+                    )
+            return _safe_load_unique_keys(text)
+
+        capture_audits()
+        requested_stamp = _path_mutation_stamp(rules_file)
+        if requested_stamp is None or rules_file.is_symlink():
+            raise UnsafeRulespecContextPath(
+                "Program ownership requested file is unsafe"
+            )
+        file_stamps[rules_file] = requested_stamp
+        resolved_imports: dict[str, tuple[str, ...]] = {}
+        module_relative = rules_file.resolve().relative_to(root)
+        module_target = (
+            f"{module_relative.parts[0]}:"
+            f"{Path(*module_relative.parts[1:]).with_suffix('').as_posix()}"
+        )
+        owners: list[Path] = []
+        for candidate in sorted(root.rglob("*.yaml")):
+            relative = candidate.relative_to(root)
+            if "programs" not in relative.parts:
+                continue
+            if candidate.is_symlink() or not candidate.is_file():
+                continue
+            try:
+                payload = read_payload(candidate)
+            except UnsafeRulespecContextPath:
+                raise
+            except (OSError, ValueError, yaml.YAMLError):
+                continue
+            if not isinstance(payload, dict):
+                continue
+            program = payload.get("program")
+            scope = payload.get("scope")
+            if not isinstance(program, str) or not isinstance(scope, dict):
+                continue
+            jurisdiction = program.strip().split("/", 1)[0]
+            country = jurisdiction.split("-", 1)[0]
+            scoped_targets: set[str] = set()
+            for scope_name, entries in scope.items():
+                if scope_name in {"exclude", "include", "jurisdictions"}:
+                    continue
+                if not isinstance(scope_name, str) or not isinstance(entries, list):
+                    continue
+                prefix = (
+                    country
+                    if scope_name == "federal"
+                    else jurisdiction
+                    if scope_name == "state"
+                    else scope_name
+                )
+                for entry in entries:
+                    if not isinstance(entry, str):
+                        continue
+                    raw_target = entry.strip()
+                    target_ref = _parse_rulespec_target(
+                        raw_target if ":" in raw_target else f"{prefix}:{raw_target}"
+                    )
+                    if target_ref is not None:
+                        scoped_targets.add(
+                            f"{target_ref.prefix}:"
+                            f"{target_ref.relative_path.with_suffix('').as_posix()}"
+                        )
+            pending = sorted(scoped_targets - {module_target})
+            if module_target in scoped_targets:
+                pending.append(module_target)
+            reachable: set[str] = set()
+            while pending:
+                target = pending.pop()
+                if target in reachable:
+                    continue
+                reachable.add(target)
+                if target == module_target:
+                    break
+                if target in resolved_imports:
+                    pending.extend(resolved_imports[target])
+                    continue
+                target_ref = _parse_rulespec_target(target)
+                if target_ref is None:
+                    continue
+                target_file = _resolve_rulespec_target_file(
+                    target_ref,
+                    self.policy_repo_path,
+                    rulespec_dependency_roots=self.rulespec_dependency_roots,
+                )
+                capture_audits()
+                if target_file is None:
+                    continue
+                try:
+                    target_payload = read_payload(target_file)
+                except UnsafeRulespecContextPath:
+                    raise
+                except (OSError, ValueError, yaml.YAMLError):
+                    continue
+                imports = (
+                    target_payload.get("imports")
+                    if isinstance(target_payload, dict)
+                    else None
+                )
+                if not isinstance(imports, list):
+                    resolved_imports[target] = ()
+                    continue
+                edges: list[str] = []
+                for imported in imports:
+                    if not isinstance(imported, str):
+                        continue
+                    imported_ref = _parse_rulespec_target(imported)
+                    if imported_ref is not None:
+                        edges.append(
+                            f"{imported_ref.prefix}:"
+                            f"{imported_ref.relative_path.with_suffix('').as_posix()}"
+                        )
+                resolved_imports[target] = tuple(edges)
+                pending.extend(edges)
+            if module_target in reachable:
+                owners.append(candidate)
+        if _rulespec_checkout_root_for_active_path(self.policy_repo_path) != root:
+            raise UnsafeRulespecContextPath(
+                "Program ownership root changed during discovery"
+            )
+        for checkout in admitted_roots:
+            _reject_rulespec_checkout_symlinks(
+                checkout, label="Program ownership checkout"
+            )
+        capture_audits()
+        # Freeze first-observed evidence; resolver caches may refresh on mutation.
+        for directory, stamp in directory_stamps.items():
+            if _path_mutation_stamp(directory) != stamp:
+                raise UnsafeRulespecContextPath(
+                    "Program ownership checkout changed during discovery"
+                )
+        for path, stamp in file_stamps.items():
+            if path.is_symlink() or _path_mutation_stamp(path) != stamp:
+                raise UnsafeRulespecContextPath(
+                    "Program ownership file changed during discovery"
+                )
+        return tuple(owners)
 
     def _rulespec_compile_success_output(self, payload: Any) -> str:
         """Return a concise successful compile summary for validator output."""
@@ -36166,19 +36703,45 @@ class ValidatorPipeline:
                 placeholder=_VALIDATION_TEMP_ROOT_PLACEHOLDER,
             )
             return None, [f"Test case `{case_name}` execution failed: {detail}"]
+
+        def unique_response_object(pairs):
+            result = {}
+            for key, value in pairs:
+                if key in result:
+                    raise ValueError(f"duplicate response key `{key}`")
+                result[key] = value
+            return result
+
         try:
-            response = json.loads(result.stdout)
-        except json.JSONDecodeError as exc:
+            response = json.loads(
+                result.stdout, object_pairs_hook=unique_response_object
+            )
+        except ValueError as exc:
             return None, [f"Test case `{case_name}` response JSON parse failed: {exc}"]
         results = response.get("results") if isinstance(response, dict) else None
         if not isinstance(results, list) or not results:
             return None, [f"Test case `{case_name}` returned no results."]
-        if row_ordered_outputs:
-            if len(results) != len(query_entity_ids):
+        if len(results) != len(query_entity_ids):
+            return None, [
+                f"Test case `{case_name}` returned {len(results)} row result(s), "
+                f"expected {len(query_entity_ids)}."
+            ]
+        if any(not isinstance(row, dict) for row in results):
+            return None, [f"Test case `{case_name}` returned a malformed result row."]
+        for row_index, (row, query) in enumerate(
+            zip(results, request["queries"], strict=True), 1
+        ):
+            if (
+                row.get("entity_id") != query["entity_id"]
+                or row.get("period") != query["period"]
+                or row.get("assessment_date") != query.get("assessment_date")
+            ):
                 return None, [
-                    f"Test case `{case_name}` returned {len(results)} row result(s), "
-                    f"expected {len(query_entity_ids)}."
+                    f"Test case `{case_name}` row #{row_index} returned an "
+                    "entity, period, or assessment date that does not match "
+                    "its execution query."
                 ]
+        if row_ordered_outputs:
             aggregated_outputs: dict[str, list[Any]] = {
                 output_name: [] for output_name in output_names
             }
@@ -36189,7 +36752,10 @@ class ValidatorPipeline:
                         f"Test case `{case_name}` row #{row_index} returned no "
                         "output map."
                     ]
-                row_outputs = self._rulespec_outputs_by_reference(outputs)
+                try:
+                    row_outputs = self._rulespec_outputs_by_reference(outputs)
+                except ValueError as exc:
+                    return None, [f"Test case `{case_name}` row #{row_index}: {exc}"]
                 for output_name in output_names:
                     actual_output = row_outputs.get(output_name)
                     if actual_output is None:
@@ -36202,17 +36768,27 @@ class ValidatorPipeline:
         outputs = results[0].get("outputs")
         if not isinstance(outputs, dict):
             return None, [f"Test case `{case_name}` returned no output map."]
-        return self._rulespec_outputs_by_reference(outputs), []
+        try:
+            return self._rulespec_outputs_by_reference(outputs), []
+        except ValueError as exc:
+            return None, [f"Test case `{case_name}`: {exc}"]
 
     def _rulespec_outputs_by_reference(self, outputs: dict[str, Any]) -> dict[str, Any]:
         """Index runtime outputs by response key and durable id only."""
         outputs_by_reference: dict[str, Any] = {}
+        owners: dict[str, str] = {}
         for output_key, output in outputs.items():
-            outputs_by_reference[str(output_key)] = output
-            if not isinstance(output, dict):
-                continue
-            reference = str(output.get("id") or "").strip()
-            if reference:
+            references = {str(output_key)}
+            if isinstance(output, dict):
+                reference = str(output.get("id") or "").strip()
+                if reference:
+                    references.add(reference)
+            for reference in sorted(references):
+                if reference in owners and owners[reference] != output_key:
+                    raise ValueError(
+                        f"ambiguous runtime output reference `{reference}`"
+                    )
+                owners[reference] = output_key
                 outputs_by_reference[reference] = output
         return outputs_by_reference
 

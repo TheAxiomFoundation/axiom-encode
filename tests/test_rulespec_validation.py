@@ -417,6 +417,175 @@ def _canonical_rulespec_test_file(
     return policy_repo, rules_file
 
 
+def _composition_validation_fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
+    checkout = tmp_path / "rulespec-us"
+    policy_repo = checkout / "us-az"
+    rules_file = policy_repo / "policies/example/composition.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        """format: rulespec/v1
+module:
+  kind: composition
+rules: []
+"""
+    )
+    program_spec = checkout / "programs/us-az/snap/fy-2026.yaml"
+    program_spec.parent.mkdir(parents=True)
+    program_spec.write_text(
+        """program: us-az/snap
+period: 2026-01
+outputs: [result]
+scope:
+  federal: []
+  state:
+    - policies/example/composition
+"""
+    )
+    return policy_repo, rules_file, program_spec
+
+
+def test_composition_module_requires_explicit_compose_executable(tmp_path):
+    policy_repo, rules_file, _program_spec = _composition_validation_fixture(tmp_path)
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "engine",
+        enable_oracles=False,
+    )
+    pipeline._axiom_rules_binary = lambda: tmp_path / "engine"
+
+    result = pipeline._run_rulespec_compile_check(rules_file)
+
+    assert not result.passed
+    assert "requires an explicit axiom-compose executable" in result.issues[0]
+
+
+def test_composition_module_is_composed_before_engine_compile(tmp_path):
+    policy_repo, rules_file, program_spec = _composition_validation_fixture(tmp_path)
+    compose = tmp_path / "axiom-compose"
+    compose.write_text(
+        f"""#!{sys.executable}
+import pathlib
+import sys
+args = sys.argv[1:]
+output = pathlib.Path(args[args.index('-o') + 1])
+output.write_text('format: rulespec/v1\\nrules: []\\n')
+"""
+    )
+    compose.chmod(0o755)
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "engine",
+        axiom_compose_path=compose,
+        enable_oracles=False,
+    )
+    pipeline._axiom_rules_binary = lambda: tmp_path / "engine"
+    observed: dict[str, object] = {}
+
+    def fake_compile(*, program, output, rulespec_roots, **_kwargs):
+        observed["program"] = program
+        observed["roots"] = rulespec_roots
+        observed["composed"] = _kwargs["composed"]
+        output.write_text(
+            json.dumps({"program": {"parameters": [], "derived": [], "relations": []}})
+        )
+        return subprocess.CompletedProcess([], 0, "", "")
+
+    with patch.object(validator_pipeline, "run_rulespec_compile", fake_compile):
+        result = pipeline._run_rulespec_compile_check(rules_file)
+
+    assert result.passed
+    assert Path(observed["program"]).name == "composed-program.yaml"
+    assert observed["roots"] == (policy_repo.parent,)
+    assert observed["composed"] is True
+    assert pipeline._owning_program_specs(rules_file) == (program_spec,)
+
+
+def test_composition_owner_normalizes_qualified_fragment_scope_target(tmp_path):
+    policy_repo, rules_file, program_spec = _composition_validation_fixture(tmp_path)
+    program_spec.write_text(
+        program_spec.read_text().replace(
+            "- policies/example/composition",
+            "- us-az:policies/example/composition#result",
+        )
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "engine",
+        enable_oracles=False,
+    )
+
+    assert pipeline._owning_program_specs(rules_file) == (program_spec,)
+
+
+def test_composition_owner_follows_transitive_composition_imports(tmp_path):
+    policy_repo, nested_rules, program_spec = _composition_validation_fixture(tmp_path)
+    outer_rules = policy_repo / "policies/example/outer-composition.yaml"
+    outer_rules.write_text(
+        """format: rulespec/v1
+module:
+  kind: composition
+imports:
+  - us-az:policies/example/composition
+"""
+    )
+    program_spec.write_text(
+        program_spec.read_text().replace(
+            "- policies/example/composition",
+            "- policies/example/outer-composition",
+        )
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "engine",
+        enable_oracles=False,
+    )
+
+    assert pipeline._owning_program_specs(nested_rules) == (program_spec,)
+
+
+def test_composition_uses_explicit_roots_and_credential_free_environment(
+    tmp_path,
+    monkeypatch,
+):
+    policy_repo, rules_file, program_spec = _composition_validation_fixture(tmp_path)
+    compose = tmp_path / "axiom-compose"
+    compose.write_text("#!/bin/sh\nexit 0\n")
+    compose.chmod(0o755)
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "engine",
+        axiom_compose_path=compose,
+        enable_oracles=False,
+    )
+    observed: dict[str, object] = {}
+
+    def fake_run(command, **kwargs):
+        observed["command"] = command
+        observed["env"] = kwargs["env"]
+        output = Path(command[command.index("-o") + 1])
+        output.write_text("format: rulespec/v1\nrules: []\n")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setenv("OPENAI_API_KEY", "must-not-reach-composer")
+    monkeypatch.setenv("AXIOM_RULESPEC_REPO_ROOTS", "/untrusted/root")
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    result, composed = pipeline._compose_rulespec_module(rules_file, tmp_path)
+
+    assert result.returncode == 0
+    assert composed == tmp_path / "composed-program.yaml"
+    assert observed["command"] == [
+        str(compose),
+        str(program_spec),
+        "-o",
+        str(composed),
+        "--rulespec-root",
+        str(policy_repo.parent),
+    ]
+    assert "OPENAI_API_KEY" not in observed["env"]
+    assert "AXIOM_RULESPEC_REPO_ROOTS" not in observed["env"]
+
+
 def _admitted_runtime_stub(
     root: Path,
     *,
@@ -1268,13 +1437,14 @@ def test_rulespec_validation_run_compiled_scrubs_ambient_root_env(
                 {
                     "results": [
                         {
+                            **json.loads(kwargs["input"])["queries"][0],
                             "outputs": {
                                 "us:statutes/1/1#benefit": {
                                     "kind": "scalar",
                                     "id": "us:statutes/1/1#benefit",
                                     "value": {"kind": "integer", "value": 6},
                                 }
-                            }
+                            },
                         }
                     ]
                 }
@@ -2332,13 +2502,14 @@ def test_rulespec_companion_runner_uses_rows_for_absolute_list_outputs(
                 {
                     "results": [
                         {
+                            **json.loads(kwargs["input"])["queries"][0],
                             "outputs": {
                                 "excluded_from_wages": {
                                     "kind": "scalar",
                                     "id": "us:statutes/26/3121/a/6#excluded_from_wages",
                                     "value": {"kind": "money", "value": 300},
                                 }
-                            }
+                            },
                         }
                     ]
                 }
@@ -2832,6 +3003,374 @@ rules:
 
     assert contract is not None
     assert find_existing_target_oracle_contract_issues(existing, contract) == []
+
+
+def test_exact_oracle_contract_allows_only_proven_relation_entity_repair():
+    target = "us-az:policies/snap/basic_categorical_eligibility"
+    existing = """\
+format: rulespec/v1
+rules:
+  - name: member_of_budgetary_unit
+    kind: data_relation
+    data_relation:
+      arity: 2
+      arguments: [Person, Household]
+  - name: participant_qualifies
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: participant_has_status
+  - name: all_participants_qualify
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: count_where(member_of_budgetary_unit, participant_qualifies) == len(member_of_budgetary_unit)
+  - name: basic_eligibility
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: all_participants_qualify
+inputs:
+  - name: participant_has_status
+    entity: Person
+    dtype: Judgment
+    period: Month
+"""
+    registry = SimpleNamespace(
+        mappings_by_legal_id={
+            f"{target}#participant_qualifies": object(),
+            f"{target}#all_participants_qualify": object(),
+            f"{target}#basic_eligibility": object(),
+        }
+    )
+    contract = build_existing_target_oracle_contract(
+        existing,
+        target=target,
+        policyengine_registry=registry,
+    )
+
+    assert contract is not None
+    surfaces = {surface.name: surface for surface in contract.surfaces}
+    assert surfaces["all_participants_qualify"].replacement_entity == "Household"
+    assert surfaces["basic_eligibility"].replacement_entity == "Household"
+    assert surfaces["participant_qualifies"].replacement_entity == ""
+
+    corrected = existing.replace(
+        "  - name: all_participants_qualify\n    kind: derived\n    entity: Person\n",
+        "  - name: all_participants_qualify\n"
+        "    kind: derived\n"
+        "    entity: Household\n",
+    )
+    corrected = corrected.replace(
+        "  - name: basic_eligibility\n    kind: derived\n    entity: Person\n",
+        "  - name: basic_eligibility\n    kind: derived\n    entity: Household\n",
+    )
+    assert find_existing_target_oracle_contract_issues(corrected, contract) == []
+
+    arbitrary_entity = corrected.replace(
+        "  - name: all_participants_qualify\n"
+        "    kind: derived\n"
+        "    entity: Household\n",
+        "  - name: all_participants_qualify\n    kind: derived\n    entity: TaxUnit\n",
+    )
+    arbitrary_issues = find_existing_target_oracle_contract_issues(
+        arbitrary_entity, contract
+    )
+    assert len(arbitrary_issues) == 1
+    assert "#all_participants_qualify" in arbitrary_issues[0]
+    assert "entity `Household`" in arbitrary_issues[0]
+
+    invalid_helper = corrected.replace(
+        "  - name: participant_qualifies\n    kind: derived\n    entity: Person\n",
+        "  - name: participant_qualifies\n    kind: derived\n    entity: Household\n",
+    )
+    helper_issues = find_existing_target_oracle_contract_issues(
+        invalid_helper, contract
+    )
+    assert len(helper_issues) == 1
+    assert "#participant_qualifies" in helper_issues[0]
+    assert "kind/entity/dtype" in helper_issues[0]
+
+    invalid_dtype = corrected.replace(
+        "  - name: all_participants_qualify\n"
+        "    kind: derived\n"
+        "    entity: Household\n"
+        "    dtype: Judgment\n",
+        "  - name: all_participants_qualify\n"
+        "    kind: derived\n"
+        "    entity: Household\n"
+        "    dtype: Decimal\n",
+    )
+    dtype_issues = find_existing_target_oracle_contract_issues(invalid_dtype, contract)
+    assert len(dtype_issues) == 1
+    assert "#all_participants_qualify" in dtype_issues[0]
+    assert "kind/entity/dtype/period" in dtype_issues[0]
+
+
+def test_relation_entity_repair_does_not_escape_aggregate_scope():
+    target = "us-az:policies/snap/aggregate_scope"
+    existing = """\
+format: rulespec/v1
+rules:
+  - name: member_of_household
+    kind: data_relation
+    data_relation:
+      arity: 2
+      arguments: [Person, Household]
+  - name: dependent_of_person
+    kind: data_relation
+    data_relation:
+      arity: 2
+      arguments: [Dependent, Person]
+  - name: person_has_dependents
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: len(dependent_of_person) > 0
+  - name: household_has_person_with_dependents
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: count_where(member_of_household, person_has_dependents) > 0
+"""
+    registry = SimpleNamespace(
+        mappings_by_legal_id={
+            f"{target}#household_has_person_with_dependents": object(),
+        }
+    )
+
+    contract = build_existing_target_oracle_contract(
+        existing,
+        target=target,
+        policyengine_registry=registry,
+    )
+
+    assert contract is not None
+    assert contract.surfaces[0].replacement_entity == ""
+    assert find_existing_target_oracle_contract_issues(existing, contract) == []
+
+
+def test_relation_entity_repair_requires_unambiguous_aggregate_scope():
+    target = "us-az:policies/snap/conflicting_aggregate_scope"
+    existing = """\
+format: rulespec/v1
+rules:
+  - name: people
+    kind: data_relation
+    data_relation:
+      arity: 2
+      arguments: [Person, Household]
+  - name: dependents
+    kind: data_relation
+    data_relation:
+      arity: 2
+      arguments: [Dependent, Person]
+  - name: ambiguous_count
+    kind: derived
+    entity: Person
+    dtype: Decimal
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: len(people) + len(dependents)
+  - name: outer_count
+    kind: derived
+    entity: Person
+    dtype: Decimal
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: ambiguous_count + len(people)
+"""
+    registry = SimpleNamespace(
+        mappings_by_legal_id={
+            f"{target}#ambiguous_count": object(),
+            f"{target}#outer_count": object(),
+        }
+    )
+
+    contract = build_existing_target_oracle_contract(
+        existing,
+        target=target,
+        policyengine_registry=registry,
+    )
+
+    assert contract is not None
+    assert all(surface.replacement_entity == "" for surface in contract.surfaces)
+    assert find_existing_target_oracle_contract_issues(existing, contract) == []
+
+
+def test_relation_entity_repair_propagates_correct_helper_scope_not_string_text():
+    target = "us-az:policies/snap/helper_scope"
+    existing = """\
+format: rulespec/v1
+rules:
+  - name: people
+    kind: data_relation
+    data_relation:
+      arity: 2
+      arguments: [Person, Household]
+  - name: household_member_count
+    kind: derived
+    entity: Household
+    dtype: Decimal
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: len(people)
+  - name: mapped_count
+    kind: derived
+    entity: Person
+    dtype: Decimal
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: household_member_count
+  - name: mapped_label
+    kind: derived
+    entity: Person
+    dtype: String
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '"len(people)"'
+  - name: mapped_amount
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: income # do not use sum(people.income) here
+inputs:
+  - name: income
+    entity: Person
+    dtype: Money
+    period: Month
+    unit: USD
+"""
+    registry = SimpleNamespace(
+        mappings_by_legal_id={
+            f"{target}#mapped_count": object(),
+            f"{target}#mapped_label": object(),
+            f"{target}#mapped_amount": object(),
+        }
+    )
+
+    contract = build_existing_target_oracle_contract(
+        existing,
+        target=target,
+        policyengine_registry=registry,
+    )
+
+    assert contract is not None
+    surfaces = {surface.name: surface for surface in contract.surfaces}
+    assert surfaces["mapped_count"].replacement_entity == "Household"
+    assert surfaces["mapped_label"].replacement_entity == ""
+    assert surfaces["mapped_amount"].replacement_entity == ""
+
+
+def test_relation_entity_repair_uses_only_outer_aggregate_scope():
+    target = "us-az:policies/snap/nested_aggregate_scope"
+    existing = """\
+format: rulespec/v1
+rules:
+  - name: people
+    kind: data_relation
+    data_relation:
+      arity: 2
+      arguments: [Person, Household]
+  - name: dependents
+    kind: data_relation
+    data_relation:
+      arity: 2
+      arguments: [Dependent, Person]
+  - name: mapped_count
+    kind: derived
+    entity: Person
+    dtype: Decimal
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: count_where(people, len(dependents) > 0)
+"""
+    registry = SimpleNamespace(
+        mappings_by_legal_id={f"{target}#mapped_count": object()}
+    )
+
+    contract = build_existing_target_oracle_contract(
+        existing,
+        target=target,
+        policyengine_registry=registry,
+    )
+
+    assert contract is not None
+    assert contract.surfaces[0].replacement_entity == "Household"
+
+
+def test_relation_entity_repair_does_not_cache_cycle_truncated_constraints():
+    target = "us-az:policies/snap/cyclic_scope"
+    existing = """\
+format: rulespec/v1
+rules:
+  - name: people
+    kind: data_relation
+    data_relation:
+      arity: 2
+      arguments: [Person, Household]
+  - name: dependents
+    kind: data_relation
+    data_relation:
+      arity: 2
+      arguments: [Dependent, Person]
+  - name: a
+    kind: derived
+    entity: Person
+    dtype: Decimal
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: len(people) + b
+  - name: b
+    kind: derived
+    entity: Person
+    dtype: Decimal
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: len(dependents) + a
+"""
+    registry = SimpleNamespace(
+        mappings_by_legal_id={
+            f"{target}#a": object(),
+            f"{target}#b": object(),
+        }
+    )
+
+    contract = build_existing_target_oracle_contract(
+        existing,
+        target=target,
+        policyengine_registry=registry,
+    )
+
+    assert contract is not None
+    assert all(surface.replacement_entity == "" for surface in contract.surfaces)
 
 
 def test_rule_source_metadata_rejects_executable_rules_without_rule_source():
@@ -6497,7 +7036,7 @@ def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.1965"')
+        .startswith('__version__ = "0.2.2068"')
     )
 
 
@@ -6729,13 +7268,13 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.1965"
+    assert encoder_package["version"] == "0.2.2068"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.1965"
+    assert project["project"]["version"] == "0.2.2068"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.1965"')
+        .startswith('__version__ = "0.2.2068"')
     )
 
 
@@ -6997,13 +7536,13 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.1965"
+    assert encoder_package["version"] == "0.2.2068"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.1965"
+    assert project["project"]["version"] == "0.2.2068"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.1965"')
+        .startswith('__version__ = "0.2.2068"')
     )
 
 
@@ -23515,7 +24054,9 @@ def test_the_percentage_pass_scans_thousands_of_phrases_in_linear_time():
     elapsed = time.perf_counter() - started
     assert len(matches) == 4000
     assert all(abs(rate - 0.05) < 1e-12 for _span, rate in matches)
-    assert elapsed < 2.0, elapsed
+    # Keep enough headroom for shared hosted-runner variance while still
+    # rejecting the former quadratic implementation (about 3.77 seconds).
+    assert elapsed < 3.0, elapsed
 
 
 def test_hebrew_number_words_join_the_recall_inventory():
@@ -40267,6 +40808,135 @@ rules:
     assert find_source_scope_consistency_issues(content) == []
 
 
+def test_source_scope_consistency_allows_nested_person_helper_for_participant_aggregate():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Basic categorical eligibility exists when all budgetary unit participants
+    receive a listed benefit or status.
+rules:
+  - name: member_of_budgetary_unit
+    kind: data_relation
+    data_relation:
+      predicate: member_of_budgetary_unit
+      arity: 2
+      arguments: [Person, Household]
+  - name: participant_receives_tanf_cash_assistance_for_bce
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: Arizona DES FAA5
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: definition
+            source:
+              excerpt: The budgetary unit is CA eligible, but no CA benefit is being paid.
+    versions:
+      - effective_from: '2025-10-01'
+        formula: participant_is_in_ca_eligible_unit_without_payment
+  - name: participant_receives_bce_qualifying_status
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: Arizona DES FAA5
+    versions:
+      - effective_from: '2025-10-01'
+        formula: participant_receives_tanf_cash_assistance_for_bce
+      - effective_from: '2026-10-01'
+        formula: participant_receives_other_bce_status
+  - name: all_budgetary_unit_participants_receive_bce_status
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    source: Arizona DES FAA5
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          count_where(
+            member_of_budgetary_unit,
+            participant_receives_bce_qualifying_status
+          ) == len(member_of_budgetary_unit)
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
+def test_source_scope_consistency_allows_budgetary_unit_participant_aggregate():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    Basic categorical eligibility exists when the budgetary unit does not have
+    a participant meeting certain disqualification criteria, and all budgetary
+    unit participants receive a listed benefit or status.
+rules:
+  - name: member_of_budgetary_unit
+    kind: data_relation
+    data_relation:
+      predicate: member_of_budgetary_unit
+      arity: 2
+      arguments: [Household, Person]
+  - name: no_budgetary_unit_participant_meets_disqualification_criterion
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    source: Arizona DES FAA5
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              excerpt: >-
+                the budgetary unit does not have a participant meeting certain
+                disqualification criteria
+    versions:
+      - effective_from: '2025-10-01'
+        formula: |-
+          count_where(
+            member_of_budgetary_unit,
+            participant_meets_disqualification_criterion
+          ) == 0
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
+def test_source_scope_consistency_allows_person_level_budgetary_unit_participant():
+    content = """format: rulespec/v1
+module:
+  summary: |-
+    A budgetary unit participant is eligible if the participant meets the
+    income test.
+rules:
+  - name: budgetary_unit_participant_is_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: Arizona DES FAA5
+    versions:
+      - effective_from: '2025-10-01'
+        formula: participant_meets_income_test
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
+def test_source_scope_consistency_recognizes_budgetary_unit_disqualification():
+    text = (
+        "The budgetary unit does not have any participant meeting "
+        "disqualification criteria."
+    )
+
+    assert validator_pipeline._UNIT_SCOPE_SOURCE_PATTERN.search(text) is not None
+
+
 def test_source_scope_consistency_rejects_unaggregated_person_helper_from_unit_source():
     content = """format: rulespec/v1
 module:
@@ -41519,6 +42189,75 @@ rules:
       - effective_from: '2026-01-01'
         formula: |-
           is_qualifying_family_member
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
+def test_source_scope_consistency_treats_eligible_family_members_as_people():
+    content = """format: rulespec/v1
+rules:
+  - name: trafficking_victim_lpr_path_applies
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              excerpt: Victims of Severe Trafficking and Certain Family Members Eligible immediately
+    versions:
+      - effective_from: '2025-07-04'
+        formula: person_is_trafficking_victim_or_covered_family_member
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
+def test_source_scope_consistency_rejects_family_unit_for_eligible_family_members():
+    content = """format: rulespec/v1
+rules:
+  - name: trafficking_victim_lpr_path_applies
+    kind: derived
+    entity: Family
+    dtype: Judgment
+    period: Month
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: condition
+            source:
+              excerpt: Victims of Severe Trafficking and Certain Family Members Eligible immediately
+    versions:
+      - effective_from: '2025-07-04'
+        formula: person_is_trafficking_victim_or_covered_family_member
+"""
+
+    issues = find_source_scope_consistency_issues(content)
+
+    assert len(issues) == 1
+    assert "declared on `Family`" in issues[0]
+    assert "person/member-scoped eligibility" in issues[0]
+
+
+def test_source_scope_consistency_does_not_treat_household_members_as_household():
+    content = """format: rulespec/v1
+module:
+  summary: Certain household members are eligible for SNAP.
+rules:
+  - name: household_member_snap_eligible
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    source: state manual
+    versions:
+      - effective_from: '2026-01-01'
+        formula: is_eligible_household_member
 """
 
     assert find_source_scope_consistency_issues(content) == []
@@ -51463,3 +52202,390 @@ def test_scoped_grounding_accepts_authoritative_source_without_excerpt():
     )
 
     assert any("0.5" in issue for issue in issues), issues
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("One Two Three", [1, 2, 3]),
+        ("Twenty One Twenty Two", [21, 22]),
+        ("one hundred and twenty", [120]),
+        ("twenty-one", [21]),
+        ("sixteen and eighteen", [16, 18]),
+    ],
+)
+def test_cardinal_table_labels_are_not_summed(source, expected):
+    matches = validator_pipeline._iter_cardinal_word_number_matches(source)
+    assert [value for _span, value in matches] == expected
+    for (start, end), value in matches:
+        assert (
+            validator_pipeline._parse_strict_cardinal_number_words(source[start:end])
+            == value
+        )
+
+
+def test_numeric_inventory_does_not_sum_flattened_child_count_columns():
+    source = "Number of Qualifying Children Item One Two Three or More None"
+    occurrences = (
+        validator_pipeline.extract_typed_numeric_inventory_occurrences_from_text(
+            source, profile="legacy"
+        )
+    )
+    values = {occurrence.value for occurrence in occurrences}
+    # Existing inventory rules may omit bare column labels; they must never
+    # turn adjacent labels into an invented substantive amount.
+    assert 6 not in values
+    assert 6 not in extract_numbers_from_text(source)
+
+
+@pytest.mark.parametrize("row_ordered", [False, True])
+@pytest.mark.parametrize(
+    "mutation, expected_issue",
+    [
+        ("duplicate_id", "ambiguous runtime output reference"),
+        ("key_id_collision", "ambiguous runtime output reference"),
+        ("reversed_key_id_collision", "ambiguous runtime output reference"),
+        ("extra_result", "returned 2 row result(s), expected 1"),
+        ("malformed_row", "malformed result row"),
+        ("duplicate_json_key", "duplicate response key"),
+    ],
+)
+def test_rulespec_companion_rejects_ambiguous_runtime_response(
+    monkeypatch, tmp_path, row_ordered, mutation, expected_issue
+):
+    pipeline = ValidatorPipeline(
+        policy_repo_path=_canonical_rulespec_content_root(tmp_path / "repos", "us"),
+        axiom_rules_path=tmp_path / "missing-engine",
+        enable_oracles=False,
+    )
+    legal_id = "us:policies/example/rules#benefit"
+    scalar = {
+        "kind": "scalar",
+        "id": legal_id,
+        "value": {"kind": "integer", "value": 42},
+    }
+    output_map = {"benefit": scalar}
+    if mutation == "duplicate_id":
+        # Identical values still have two distinct response identities.
+        output_map["another_output"] = dict(scalar)
+    elif mutation in {"key_id_collision", "reversed_key_id_collision"}:
+        output_map[legal_id] = {
+            "kind": "scalar",
+            "id": "us:policies/other/rules#benefit",
+            "value": {"kind": "integer", "value": 42},
+        }
+        if mutation == "reversed_key_id_collision":
+            output_map = dict(reversed(list(output_map.items())))
+    results = [{"outputs": output_map}]
+    if mutation == "extra_result":
+        results.append({"outputs": output_map})
+    elif mutation == "malformed_row":
+        results = [None]
+    response = json.dumps({"results": results})
+    if mutation == "duplicate_json_key":
+        value = json.dumps(scalar)
+        response = (
+            '{"results":[{"outputs":{"benefit":'
+            + value
+            + ',"benefit":'
+            + value
+            + "}}]}"
+        )
+
+    def fake_run(command, **kwargs):
+        if mutation != "duplicate_json_key":
+            query = json.loads(kwargs["input"])["queries"][0]
+            bound_results = [
+                {**query, **row} if isinstance(row, dict) else row for row in results
+            ]
+            return subprocess.CompletedProcess(
+                command, 0, stdout=json.dumps({"results": bound_results}), stderr=""
+            )
+        return subprocess.CompletedProcess(command, 0, stdout=response, stderr="")
+
+    monkeypatch.setattr(validator_pipeline.subprocess, "run", fake_run)
+    case = {"input": {}, "output": {"benefit": [42] if row_ordered else 42}}
+    if row_ordered:
+        case["tables"] = {"Person": [{"person_id": "person-1"}]}
+    outputs, issues = pipeline._run_rulespec_derived_test_case(
+        binary=tmp_path / "engine",
+        compiled_path=tmp_path / "compiled.json",
+        case=case,
+        case_name="runtime_identity",
+        case_index=1,
+        period={"period_kind": "tax_year", "start": "2026-01-01", "end": "2026-12-31"},
+        output_names=["benefit"],
+        derived_by_key={"benefit": {"entity": "Person"}},
+        require_legal_input_keys=False,
+        legal_ids_by_friendly_name={},
+        declared_relation_names=set(),
+        module_target=None,
+    )
+    assert outputs is None
+    assert any(expected_issue in issue for issue in issues), issues
+
+
+@pytest.mark.parametrize("row_ordered", [False, True])
+@pytest.mark.parametrize(
+    "period",
+    [
+        {"period_kind": "month", "start": "2026-01-01", "end": "2026-01-31"},
+        {"period_kind": "tax_year", "start": "2026-01-01", "end": "2026-12-31"},
+        {
+            "period_kind": "custom",
+            "name": "assessment_window",
+            "start": "2026-01-01",
+            "end": "2026-01-15",
+        },
+    ],
+)
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        None,
+        "null_assessment",
+        "wrong_entity",
+        "missing_entity",
+        "numeric_entity",
+        "missing_period",
+        "malformed_period",
+        "missing_start",
+        "wrong_start",
+        "wrong_end",
+        "wrong_kind",
+        "wrong_custom_name",
+        "unexpected_assessment",
+        "repeated_entity",
+        "swapped_rows",
+    ],
+)
+def test_rulespec_companion_binds_response_to_query(
+    monkeypatch, tmp_path, row_ordered, period, mutation
+):
+    if mutation in {"repeated_entity", "swapped_rows"} and not row_ordered:
+        pytest.skip("requires multiple query rows")
+    pipeline = ValidatorPipeline(
+        policy_repo_path=_canonical_rulespec_content_root(tmp_path / "repos", "us"),
+        axiom_rules_path=tmp_path / "missing-engine",
+        enable_oracles=False,
+    )
+
+    def fake_run(command, **kwargs):
+        request = json.loads(kwargs["input"])
+        rows = [
+            {
+                "entity_id": query["entity_id"],
+                "period": dict(query["period"]),
+                "outputs": {
+                    "benefit": {
+                        "kind": "scalar",
+                        "value": {"kind": "integer", "value": 42},
+                    }
+                },
+            }
+            for query in request["queries"]
+        ]
+        row = rows[-1]
+        if mutation == "null_assessment":
+            row["assessment_date"] = None
+        elif mutation == "wrong_entity":
+            row["entity_id"] = "someone-else"
+        elif mutation == "missing_entity":
+            del row["entity_id"]
+        elif mutation == "numeric_entity":
+            row["entity_id"] = 1
+        elif mutation == "missing_period":
+            del row["period"]
+        elif mutation == "malformed_period":
+            row["period"] = list(row["period"].values())
+        elif mutation == "missing_start":
+            del row["period"]["start"]
+        elif mutation in {"wrong_start", "wrong_end"}:
+            row["period"][mutation.removeprefix("wrong_")] = "2025-01-01"
+        elif mutation == "wrong_kind":
+            row["period"]["period_kind"] = "benefit_week"
+        elif mutation == "wrong_custom_name":
+            row["period"]["name"] = "different_window"
+        elif mutation == "unexpected_assessment":
+            row["assessment_date"] = "2026-02-01"
+        elif mutation == "repeated_entity":
+            row["entity_id"] = rows[0]["entity_id"]
+        elif mutation == "swapped_rows":
+            rows.reverse()
+        return subprocess.CompletedProcess(
+            command, 0, stdout=json.dumps({"results": rows}), stderr=""
+        )
+
+    monkeypatch.setattr(validator_pipeline.subprocess, "run", fake_run)
+    case = {"input": {}, "output": {"benefit": [42, 42] if row_ordered else 42}}
+    if row_ordered:
+        case["tables"] = {
+            "Person": [{"person_id": "person-1"}, {"person_id": "person-2"}]
+        }
+    outputs, issues = pipeline._run_rulespec_derived_test_case(
+        binary=tmp_path / "engine",
+        compiled_path=tmp_path / "compiled.json",
+        case=case,
+        case_name="query_identity",
+        case_index=1,
+        period=period,
+        output_names=["benefit"],
+        derived_by_key={"benefit": {"entity": "Person"}},
+        require_legal_input_keys=False,
+        legal_ids_by_friendly_name={},
+        declared_relation_names=set(),
+        module_target=None,
+    )
+    if mutation in {None, "null_assessment"}:
+        assert not issues
+        assert outputs is not None
+    else:
+        assert outputs is None
+        assert any("does not match its execution query" in issue for issue in issues), (
+            issues
+        )
+
+
+def test_composition_owner_stops_at_match_but_preserves_multiple_owners(
+    tmp_path, monkeypatch
+):
+    policy_repo, rules_file, program_spec = _composition_validation_fixture(tmp_path)
+    second = program_spec.with_name("second.yaml")
+    second.write_text(program_spec.read_text())
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "engine",
+        enable_oracles=False,
+    )
+
+    def unexpected_resolution(*args, **kwargs):
+        raise AssertionError("direct membership does not require descendant traversal")
+
+    monkeypatch.setattr(
+        validator_pipeline, "_resolve_rulespec_target_file", unexpected_resolution
+    )
+    assert set(pipeline._owning_program_specs(rules_file)) == {program_spec, second}
+
+
+@pytest.mark.parametrize(
+    "mutation", ["program_edit", "module_edit", "new_program", "module_symlink"]
+)
+def test_composition_owner_snapshot_rejects_mutation(tmp_path, monkeypatch, mutation):
+    policy_repo, rules_file, program_spec = _composition_validation_fixture(tmp_path)
+    outer = policy_repo / "policies/example/outer.yaml"
+    outer.write_text("imports:\n  - us-az:policies/example/composition\n")
+    program_spec.write_text(
+        program_spec.read_text().replace(
+            "- policies/example/composition", "- policies/example/outer"
+        )
+    )
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "engine",
+        enable_oracles=False,
+    )
+    original = validator_pipeline._resolve_rulespec_target_file
+
+    def resolve(*args, **kwargs):
+        result = original(*args, **kwargs)
+        if mutation == "program_edit":
+            program_spec.write_text(program_spec.read_text() + "\n# changed\n")
+        elif mutation == "module_edit":
+            rules_file.write_text(rules_file.read_text() + "\n# changed\n")
+        elif mutation == "new_program":
+            program_spec.with_name("new.yaml").write_text(program_spec.read_text())
+        else:
+            rules_file.unlink()
+            rules_file.symlink_to(outer)
+        return result
+
+    monkeypatch.setattr(validator_pipeline, "_resolve_rulespec_target_file", resolve)
+    with pytest.raises(validator_pipeline.UnsafeRulespecContextPath):
+        pipeline._owning_program_specs(rules_file)
+
+
+def test_composition_owner_snapshot_rejects_final_admission_mutation(
+    tmp_path, monkeypatch
+):
+    policy_repo, rules_file, program_spec = _composition_validation_fixture(tmp_path)
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "engine",
+        enable_oracles=False,
+    )
+    original = validator_pipeline._rulespec_checkout_root_for_active_path
+    calls = 0
+
+    def admit(path):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            program_spec.with_name("late.yaml").write_text(program_spec.read_text())
+        return original(path)
+
+    monkeypatch.setattr(
+        validator_pipeline, "_rulespec_checkout_root_for_active_path", admit
+    )
+    with pytest.raises(validator_pipeline.UnsafeRulespecContextPath):
+        pipeline._owning_program_specs(rules_file)
+
+
+def test_composition_owner_snapshot_tracks_failed_reads(tmp_path, monkeypatch):
+    policy_repo, rules_file, program_spec = _composition_validation_fixture(tmp_path)
+    second = program_spec.with_name("zz-second.yaml")
+    second.write_text(program_spec.read_text())
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "engine",
+        enable_oracles=False,
+    )
+    original = Path.read_text
+    failed = False
+
+    def read(path, *args, **kwargs):
+        nonlocal failed
+        if path == program_spec:
+            failed = True
+            raise OSError("simulated unreadable ProgramSpec")
+        if path == second and failed:
+            program_spec.write_text("program: changed\n")
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", read)
+    with pytest.raises(validator_pipeline.UnsafeRulespecContextPath):
+        pipeline._owning_program_specs(rules_file)
+
+
+def test_composition_owner_snapshot_deduplicates_shared_cycle_and_refreshes(
+    tmp_path, monkeypatch
+):
+    policy_repo, rules_file, program_spec = _composition_validation_fixture(tmp_path)
+    outer = policy_repo / "policies/example/outer.yaml"
+    outer.write_text(
+        "imports:\n  - us-az:policies/example/outer\n  - us-az:policies/example/composition\n"
+    )
+    program_spec.write_text(
+        program_spec.read_text().replace(
+            "- policies/example/composition", "- policies/example/outer"
+        )
+    )
+    second = program_spec.with_name("second.yaml")
+    second.write_text(program_spec.read_text())
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "engine",
+        enable_oracles=False,
+    )
+    original = validator_pipeline._resolve_rulespec_target_file
+    calls = []
+
+    def resolve(*args, **kwargs):
+        calls.append(args[0])
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(validator_pipeline, "_resolve_rulespec_target_file", resolve)
+    assert set(pipeline._owning_program_specs(rules_file)) == {program_spec, second}
+    assert len(calls) == 1
+    outer.write_text("imports: []\n")
+    assert pipeline._owning_program_specs(rules_file) == ()
+    assert len(calls) == 2

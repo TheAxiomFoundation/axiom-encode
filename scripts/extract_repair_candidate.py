@@ -12,6 +12,9 @@ import runpy
 import tarfile
 from pathlib import Path, PurePosixPath
 
+from axiom_encode.constants import DEFAULT_OPENAI_ESCALATION_MODEL
+from axiom_encode.corpus_resolver import require_canonical_corpus_citation_path
+
 SCHEMA = "axiom-encode/failed-reencode-diagnostics/v1"
 FAILED_CANDIDATE_SCHEMA = "axiom-encode/failed-encode-candidate/v1"
 FAILED_CANDIDATE_KEYS = {
@@ -35,6 +38,12 @@ RUNNER_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 JURISDICTION_PATTERN = re.compile(r"[a-z]{2,3}(?:-[a-z0-9]+)*")
 VERSION_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9.+_-]{0,127}")
 REPAIR_LANES = frozenset({"target", "dependent"})
+# A source lane that escalated carries both generations; the escalation
+# model's candidate is the final one. Older failed runs escalated to
+# gpt-5.6-sol, so their artifacts stay selectable for repair.
+ESCALATION_RUNNERS = tuple(
+    dict.fromkeys((f"openai-{DEFAULT_OPENAI_ESCALATION_MODEL}", "openai-gpt-5.6-sol"))
+)
 MAX_RETAINED_ISSUES = 4096
 CONTRACT = runpy.run_path(
     Path(__file__).parents[1] / "src/axiom_encode/repair_candidate_contract.py"
@@ -43,6 +52,8 @@ BACKFILL_CONTRACT = runpy.run_path(
     Path(__file__).with_name("prepare_signed_backfill.py")
 )
 SPLIT_ATOMIC_SOURCE_INPUT = BACKFILL_CONTRACT["split_atomic_source_input"]
+CITATION_RULESPEC_PATH = BACKFILL_CONTRACT["citation_rulespec_path"]
+MAX_ISSUES_BYTES = CONTRACT["FAILED_ENCODE_CANDIDATE_MAX_ISSUES_BYTES"]
 MAX_CANDIDATE_BYTES = CONTRACT["VALIDATION_RETRY_CANDIDATE_MAX_FILE_BYTES"]
 SINGLE_TARGET_MODE_FIELDS = {
     "dependent_citation": None,
@@ -145,12 +156,14 @@ def _verified_generated_file(
     members: dict[str, tarfile.TarInfo],
     files: dict[str, dict[str, object]],
     relative_path: str,
+    *,
+    max_bytes: int = MAX_CANDIDATE_BYTES,
 ) -> bytes:
     entry = files.get(relative_path)
     if entry is None:
         raise ValueError(f"repair metadata does not bind {relative_path}")
     member = _regular_member(members, f"generated/{relative_path}")
-    data = _read_member(bundle, member, max_bytes=MAX_CANDIDATE_BYTES)
+    data = _read_member(bundle, member, max_bytes=max_bytes)
     if (
         len(data) != entry["size"]
         or hashlib.sha256(data).hexdigest() != entry["sha256"]
@@ -180,9 +193,9 @@ def _retained_candidate(
         return None
     try:
         metadata = json.loads(
-            _verified_generated_file(bundle, members, files, issues_path).decode(
-                "utf-8", errors="strict"
-            )
+            _verified_generated_file(
+                bundle, members, files, issues_path, max_bytes=MAX_ISSUES_BYTES
+            ).decode("utf-8", errors="strict")
         )
     except (UnicodeError, json.JSONDecodeError, RecursionError) as exc:
         raise ValueError("retained repair candidate metadata is invalid") from exc
@@ -279,8 +292,13 @@ def _repair_lane_for_atomic_source(
         ]
         final_lanes = sorted(["target", "target-preflight", *source_lanes])
         replayed_final_lanes = sorted(["target", *source_lanes])
+        partial_source_lanes = sorted(["target-preflight", *source_lanes])
         if generated_lanes in (final_lanes, replayed_final_lanes):
             return "target", generated_lanes
+        if generated_lanes == partial_source_lanes:
+            return "target-preflight", generated_lanes
+        if generated_lanes == source_lanes:
+            return "source-only", generated_lanes
         raise ValueError(
             "repair artifact generated lanes do not bind a target preflight "
             "or final composed target"
@@ -371,8 +389,9 @@ def _source_repair_candidates(
                 in files
             }
         )
-        if "openai-gpt-5.6-sol" in runners:
-            runner = "openai-gpt-5.6-sol"
+        escalated = [name for name in ESCALATION_RUNNERS if name in runners]
+        if escalated:
+            runner = escalated[0]
         elif len(runners) == 1:
             runner = runners[0]
         else:
@@ -409,7 +428,9 @@ def extract_candidate(args: argparse.Namespace) -> dict[str, object]:
         raise ValueError("repair lane must be target or dependent")
     transaction_citation = getattr(args, "transaction_citation", None) or args.citation
     transaction_rulespec_path = (
-        getattr(args, "transaction_rulespec_path", None) or args.replace_rulespec_path
+        getattr(args, "transaction_rulespec_path", None)
+        or args.replace_rulespec_path
+        or None
     )
     expected_fields = {
         "citation": transaction_citation,
@@ -420,11 +441,12 @@ def extract_candidate(args: argparse.Namespace) -> dict[str, object]:
         "rules_engine_ref": args.rules_engine_ref,
         "workflow_run_id": args.workflow_run_id,
     }
-    _expected_module_path(args.country, transaction_rulespec_path)
-    expected_module = _expected_module_path(
-        args.country,
-        args.replace_rulespec_path,
-    )
+    if args.replace_rulespec_path:
+        expected_rulespec_path = args.replace_rulespec_path
+    else:
+        canonical_citation = require_canonical_corpus_citation_path(args.citation)
+        expected_rulespec_path = str(CITATION_RULESPEC_PATH(canonical_citation))
+    expected_module = _expected_module_path(args.country, expected_rulespec_path)
 
     with tarfile.open(args.archive, mode="r:") as bundle:
         members = _member_index(bundle)
@@ -453,6 +475,9 @@ def extract_candidate(args: argparse.Namespace) -> dict[str, object]:
         ):
             raise ValueError("repair artifact metadata mismatch: rulespec_ref")
         expected_mode_fields = dict(SINGLE_TARGET_MODE_FIELDS)
+        expected_mode_fields["existing_signed_imports_input"] = (
+            args.existing_signed_imports_json
+        )
         if requested_repair_lane == "dependent":
             expected_mode_fields["dependent_citation"] = args.citation
         for field, expected in expected_mode_fields.items():
@@ -511,8 +536,33 @@ def extract_candidate(args: argparse.Namespace) -> dict[str, object]:
             raise ValueError(
                 f"repair artifact must contain only the {repair_lane} lane"
             )
+        is_partial_source_repair = (
+            repair_lane == "target-preflight"
+            and expected_generated_lanes != ["target-preflight"]
+        )
 
         files = _metadata_file_map(metadata)
+        source_rulespec_paths_json = getattr(args, "source_rulespec_paths_json", None)
+        if repair_lane == "source-only":
+            source_candidates = _source_repair_candidates(
+                bundle,
+                members,
+                files,
+                destination=destination,
+                country=args.country,
+                source_citations=expected_atomic_source["source_bundle"],
+                source_rulespec_paths_json=source_rulespec_paths_json,
+            )
+            return {
+                "root": "",
+                "lane": repair_lane,
+                "path": "",
+                "rulespec_sha256": "",
+                "tests_sha256": "",
+                "runner": "",
+                "source_rulespec_ref": source_rulespec_ref,
+                "source_candidates": source_candidates,
+            }
         repair_pattern = re.compile(
             rf"{re.escape(repair_lane)}/({RUNNER_PATTERN.pattern})/"
             rf"{re.escape(expected_module[:-5])}\.repair\.json"
@@ -522,23 +572,45 @@ def extract_candidate(args: argparse.Namespace) -> dict[str, object]:
             for path in files
             if repair_pattern.fullmatch(path) is not None
         ]
-        if len(repair_matches) != 1:
-            raise ValueError("repair artifact must bind one final repair manifest")
-        repair_path, repair_match = repair_matches[0]
-        assert repair_match is not None
-        runner = repair_match.group(1)
-        repair_payload = json.loads(
-            _verified_generated_file(bundle, members, files, repair_path).decode(
-                "utf-8", errors="strict"
+        if len(repair_matches) == 1:
+            repair_path, repair_match = repair_matches[0]
+            assert repair_match is not None
+            runner = repair_match.group(1)
+            repair_payload = json.loads(
+                _verified_generated_file(bundle, members, files, repair_path).decode(
+                    "utf-8", errors="strict"
+                )
             )
-        )
-        if (
-            not isinstance(repair_payload, dict)
-            or repair_payload.get("schema_version") != "axiom-encode/repair-manifest/v1"
-            or repair_payload.get("citation") != args.citation
-            or repair_payload.get("runner") != runner
-        ):
-            raise ValueError("final repair manifest identity is invalid")
+            if (
+                not isinstance(repair_payload, dict)
+                or repair_payload.get("schema_version")
+                != "axiom-encode/repair-manifest/v1"
+                or repair_payload.get("citation") != args.citation
+                or repair_payload.get("runner") != runner
+            ):
+                raise ValueError("final repair manifest identity is invalid")
+        elif len(repair_matches) == 0 and is_partial_source_repair:
+            candidate_pattern = re.compile(
+                rf"{re.escape(repair_lane)}/({RUNNER_PATTERN.pattern})/"
+                rf"{re.escape(expected_module)}"
+            )
+            runners = sorted(
+                {
+                    match.group(1)
+                    for path in files
+                    if (match := candidate_pattern.fullmatch(path)) is not None
+                    and f"{repair_lane}/{match.group(1)}/"
+                    f"{expected_module.removesuffix('.yaml')}.test.yaml"
+                    in files
+                }
+            )
+            if len(runners) != 1:
+                raise ValueError(
+                    "successful target preflight must bind one final candidate"
+                )
+            runner = runners[0]
+        else:
+            raise ValueError("repair artifact must bind one final repair manifest")
 
         retained = _retained_candidate(
             bundle,
@@ -557,10 +629,12 @@ def extract_candidate(args: argparse.Namespace) -> dict[str, object]:
             candidate, tests = retained
             runner = "retained-best"
 
-        source_rulespec_paths_json = getattr(args, "source_rulespec_paths_json", None)
-        if source_rulespec_paths_json is not None and repair_lane != "target":
+        if source_rulespec_paths_json is not None and not (
+            repair_lane == "target" or is_partial_source_repair
+        ):
             raise ValueError(
-                "source repair candidates require a final composed target artifact"
+                "source repair candidates require a final composed target artifact "
+                "or completed target preflight and source lanes"
             )
         source_candidates = _source_repair_candidates(
             bundle,
@@ -577,6 +651,7 @@ def extract_candidate(args: argparse.Namespace) -> dict[str, object]:
 
     return {
         "root": str(root),
+        "lane": repair_lane,
         "path": expected_module,
         "rulespec_sha256": hashlib.sha256(candidate).hexdigest(),
         "tests_sha256": hashlib.sha256(tests).hexdigest(),
@@ -598,6 +673,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--rulespec-ref", required=True)
     parser.add_argument("--allow-rulespec-base-advance", action="store_true")
     parser.add_argument("--atomic-source-json", required=True)
+    parser.add_argument("--existing-signed-imports-json", default="[]")
     parser.add_argument("--replace-rulespec-path", required=True)
     parser.add_argument("--repair-lane", choices=sorted(REPAIR_LANES), default="target")
     parser.add_argument("--source-rulespec-paths-json")

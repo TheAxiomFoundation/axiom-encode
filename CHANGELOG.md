@@ -2,6 +2,29 @@
 
 All notable changes to Axiom Encode will be documented here.
 
+- Bind affirmative worksheet notice conditions to derived field-code outputs
+  through adjacent authoritative rows and complete formula proof excerpts,
+  preserving exact threshold direction and independently executed test evidence.
+
+- Admit exact descendant rows as retired replacement context only when their
+  full evidence is contained in the parent under the same signed corpus
+  artifact and source scope. Retain separate attestations and containment
+  offsets in durable review artifacts without changing generated source gates.
+
+- Recognize threshold witnesses over derived numeric rules only when both test
+  cases assert and independently reproduce the dependency chain. Preserve
+  quoted integer thresholds when matching source conditions.
+
+- Accept an additive companion-test fragment during protected tests-only repair
+  only when every new case exactly matches the required case contract. The
+  encoder appends it to retained tests, preserves all existing cases, and keeps
+  the signed RuleSpec body byte-identical.
+
+- Permit a tests-only signed revision of the exact reviewed SNAP OBBB memo
+  RuleSpec head. The protected workflow binds the immutable source SHA and
+  target path, rejects dirty or untracked candidate files, and keeps the
+  encoder's unchanged-rule-body contract in force.
+
 - Remove a generated `module.source_verification.values` mapping only after the
   rules engine identifies that exact unknown field and its complete accepted
   schema, preserving all other RuleSpec bytes and revalidating the overlay.

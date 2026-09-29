@@ -14,6 +14,7 @@ failure classification so the bounded retry loop regenerates it with feedback.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from unittest.mock import patch
@@ -25,6 +26,7 @@ from axiom_encode.harness.evals import (
     EvalPromptResponse,
     EvalWorkspace,
     ValidationRetryCandidate,
+    _rebind_retained_candidate_proof_import_hashes,
     _repair_overlay_candidate_base_issue,
     _run_single_eval,
     parse_runner_spec,
@@ -120,8 +122,8 @@ def test_valid_retained_candidate_skips_model_and_is_not_rewritten(tmp_path, cap
         "us-ca/regulation/mpp/63-503", corpus_release
     )
     candidate = ValidationRetryCandidate(
-        rulespec="format: rulespec/v1\nmodule: {summary: retained}\nrules: []\n",
-        tests="[]\n",
+        rulespec="format: rulespec/v1\r\nmodule: {summary: retained}\r\nrules: []\r\n",
+        tests="[]\r\n",
     )
 
     with (
@@ -155,13 +157,194 @@ def test_valid_retained_candidate_skips_model_and_is_not_rewritten(tmp_path, cap
 
     assert result.success is True
     assert result.input_tokens == result.output_tokens == 0
-    assert Path(result.output_file).read_text() == candidate.rulespec
-    assert Path(result.output_file).with_suffix(".test.yaml").read_text() == "[]\n"
+    assert Path(result.output_file).read_bytes() == candidate.rulespec.encode("utf-8")
+    test_bytes = Path(result.output_file).with_suffix(".test.yaml").read_bytes()
+    assert test_bytes == candidate.tests.encode("utf-8")
+    trace = json.loads(Path(result.trace_file).read_text())
+    assert (
+        trace["rulespec_sha256"]
+        == hashlib.sha256(candidate.rulespec.encode("utf-8")).hexdigest()
+    )
+    assert trace["tests_sha256"] == hashlib.sha256(test_bytes).hexdigest()
     assert result.trace_sha256 is not None
     model_call.assert_not_called()
     evaluate.assert_called_once()
     assert evaluate.call_args.kwargs["allow_artifact_repairs"] is False
+    assert evaluate.call_args.kwargs["skip_reviewers"] is True
     assert "retained_candidate_preflight=accepted" in capsys.readouterr().out
+
+
+def test_retained_candidate_rebinds_only_stale_proof_import_hashes(tmp_path, capsys):
+    output_root = tmp_path / "out"
+    workspace = _make_workspace(output_root / "_eval_workspaces" / "workspace")
+    policy_path = tmp_path / "policy"
+    policy_path.mkdir()
+    rules_path = tmp_path / "rules"
+    rules_path.mkdir()
+    corpus_release = _bind_corpus(tmp_path)
+    source_unit = resolve_corpus_source_unit(
+        "us-ca/regulation/mpp/63-503", corpus_release
+    )
+    candidate = ValidationRetryCandidate(
+        rulespec="format: rulespec/v1\nmodule: {summary: retained}\nrules: []\n",
+        tests="[]\n",
+    )
+    hash_mismatch = EvalArtifactMetrics(
+        compile_pass=True,
+        compile_issues=[],
+        ci_pass=False,
+        ci_issues=["Proof import hash mismatch: expected current dependency"],
+        embedded_source_present=True,
+        grounded_numeric_count=0,
+        ungrounded_numeric_count=0,
+        grounding=[],
+    )
+
+    def rebind(*, rulespec_file, **_kwargs):
+        rulespec_file.write_text(candidate.rulespec.replace("retained", "rebound"))
+        return ["hash[0]"]
+
+    with (
+        patch(
+            "axiom_encode.harness.evals.prepare_eval_workspace",
+            return_value=workspace,
+        ),
+        patch(
+            "axiom_encode.harness.evals._run_prompt_eval",
+            side_effect=AssertionError("model must not run"),
+        ) as model_call,
+        patch("axiom_encode.harness.evals._hydrate_eval_root"),
+        patch(
+            "axiom_encode.harness.evals._rebind_retained_candidate_proof_import_hashes",
+            side_effect=rebind,
+        ) as rebind_hashes,
+        patch(
+            "axiom_encode.harness.evals._evaluate_generated_artifact_with_repairs",
+            side_effect=(hash_mismatch, _metrics(passed=True)),
+        ) as evaluate,
+    ):
+        result = _run_single_eval(
+            citation="us-ca/regulation/mpp/63-503",
+            runner=parse_runner_spec("codex:gpt-5.5"),
+            output_root=output_root,
+            policy_path=policy_path,
+            runtime_axiom_rules_path=rules_path,
+            corpus_release=corpus_release,
+            mode="cold",
+            extra_context_paths=[],
+            source_unit=source_unit,
+            validation_retry_candidate=candidate,
+            accept_valid_retry_candidate=True,
+        )
+
+    assert result.success is True
+    assert result.input_tokens == result.output_tokens == 0
+    assert "summary: rebound" in Path(result.output_file).read_text()
+    assert Path(result.output_file).with_suffix(".test.yaml").read_text() == "[]\n"
+    model_call.assert_not_called()
+    rebind_hashes.assert_called_once()
+    assert evaluate.call_count == 2
+    assert all(
+        call.kwargs["allow_artifact_repairs"] is False
+        and call.kwargs["skip_reviewers"] is True
+        for call in evaluate.call_args_list
+    )
+    output = capsys.readouterr().out
+    assert (
+        "retained_candidate_preflight=auto_repaired_proof_import_hashes:hash[0]"
+        in output
+    )
+    assert "retained_candidate_preflight=accepted" in output
+
+
+def test_retained_candidate_hash_rebind_is_narrow_and_content_addressed(tmp_path):
+    policy_path = tmp_path / "rulespec-us" / "us-ca"
+    dependency = policy_path / "statutes" / "facts.yaml"
+    dependency.parent.mkdir(parents=True)
+    dependency.write_text("format: rulespec/v1\nrules: []\n")
+    rulespec_file = tmp_path / "generated" / "regulations" / "target.yaml"
+    rulespec_file.parent.mkdir(parents=True)
+    original = """\
+format: rulespec/v1
+rules:
+- name: retained_formula
+  kind: derived
+  dtype: Decimal
+  metadata:
+    proof:
+      atoms:
+      - path: versions[0].formula
+        kind: import
+        import:
+          target: us-ca:statutes/facts#fact
+          output: fact
+          hash: sha256:stale
+  versions:
+  - formula: fact * 2
+"""
+    rulespec_file.write_text(original)
+    mismatch = EvalArtifactMetrics(
+        compile_pass=True,
+        compile_issues=[],
+        ci_pass=False,
+        ci_issues=["Proof import hash mismatch: stale"],
+        embedded_source_present=True,
+        grounded_numeric_count=0,
+        ungrounded_numeric_count=0,
+        grounding=[],
+    )
+
+    repairs = _rebind_retained_candidate_proof_import_hashes(
+        rulespec_file=rulespec_file,
+        relative_output=Path("regulations/target.yaml"),
+        policy_repo_path=policy_path,
+        metrics=mismatch,
+    )
+
+    expected_hash = hashlib.sha256(dependency.read_bytes()).hexdigest()
+    repaired = rulespec_file.read_text()
+    assert repairs == ["hash[0]"]
+    assert f"hash: sha256:{expected_hash}" in repaired
+    assert repaired.replace(f"sha256:{expected_hash}", "sha256:stale") == original
+
+    rulespec_file.write_text(original)
+    with patch(
+        "axiom_encode.cli._repair_proof_import_hashes",
+        return_value=(original.replace("fact * 2", "fact * 3"), 1),
+    ):
+        assert (
+            _rebind_retained_candidate_proof_import_hashes(
+                rulespec_file=rulespec_file,
+                relative_output=Path("regulations/target.yaml"),
+                policy_repo_path=policy_path,
+                metrics=mismatch,
+            )
+            == []
+        )
+    assert rulespec_file.read_text() == original
+
+    mixed_failure = EvalArtifactMetrics(
+        compile_pass=True,
+        compile_issues=[],
+        ci_pass=False,
+        ci_issues=[
+            "Proof import hash mismatch: stale",
+            "Companion tests are incomplete",
+        ],
+        embedded_source_present=True,
+        grounded_numeric_count=0,
+        ungrounded_numeric_count=0,
+        grounding=[],
+    )
+    assert (
+        _rebind_retained_candidate_proof_import_hashes(
+            rulespec_file=rulespec_file,
+            relative_output=Path("regulations/target.yaml"),
+            policy_repo_path=policy_path,
+            metrics=mixed_failure,
+        )
+        == []
+    )
 
 
 def test_invalid_retained_candidate_falls_through_to_model(tmp_path, capsys):
@@ -217,6 +400,7 @@ def test_invalid_retained_candidate_falls_through_to_model(tmp_path, capsys):
     model_call.assert_called_once()
     assert evaluate.call_count == 2
     assert evaluate.call_args_list[0].kwargs["allow_artifact_repairs"] is False
+    assert evaluate.call_args_list[0].kwargs["skip_reviewers"] is True
     assert evaluate.call_args_list[1].kwargs["allow_artifact_repairs"] is True
     assert "retained_candidate_preflight=rejected" in capsys.readouterr().out
 

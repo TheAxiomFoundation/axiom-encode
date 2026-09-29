@@ -5286,6 +5286,49 @@ inputs:
     assert "`2026_section_40_18_5`" in guidance
     assert "exact mapped legacy surface names listed above are the only" in guidance
     assert "invalid" in guidance
+
+
+def test_existing_target_prompt_requires_relation_entity_repair(tmp_path):
+    target = tmp_path / "2026_section_40_18_5_schedule_before_credits.yaml"
+    target.write_text(
+        """format: rulespec/v1
+rules:
+  - name: member_of_tax_unit
+    kind: data_relation
+    data_relation:
+      arity: 2
+      arguments: [Person, TaxUnit]
+  - name: al_pit_2026_section_40_18_5_schedule_before_credits
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: sum(member_of_tax_unit.income)
+inputs:
+  - name: income
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+"""
+    )
+    context = EvalContextFile(
+        source_path=str(target),
+        workspace_path="context/existing_target.yaml",
+        import_path=(
+            "us-al:policies/income_tax/2026_section_40_18_5_schedule_before_credits"
+        ),
+        kind="existing_target",
+    )
+
+    guidance = _format_existing_target_contract_guidance([context])
+
+    assert "entity=TaxUnit (required relation-current-slot repair" in guidance
+    assert "legacy Person is invalid" in guidance
+    assert "explicit entity-repair note" in guidance
     assert "legacy input" in guidance
 
 
@@ -12714,6 +12757,97 @@ class TestGeneratedBundleCleaning:
         assert output_file.read_text() == rulespec
         assert "required-witness" in output_file.with_suffix(".test.yaml").read_text()
         assert materialized == {output_file, output_file.with_suffix(".test.yaml")}
+
+    def test_materialize_tests_only_repair_appends_exact_contract_fragment(
+        self, tmp_path
+    ):
+        output_file = tmp_path / "regulation/7/273/4.yaml"
+        rulespec = "format: rulespec/v1\nrules: []\n"
+        original_tests = (
+            "- name: existing\n"
+            "  period: 2025-06\n"
+            "  input: {}\n"
+            "  output:\n    result: holds\n"
+        )
+        candidate = ValidationRetryCandidate(rulespec, original_tests)
+        contracts = (
+            {
+                "name": "before",
+                "period": "2025-07-03",
+                "input": {"refugee": True},
+                "required_output": {"eligible": "holds"},
+            },
+            {
+                "name": "after",
+                "period": "2025-07-04",
+                "input": {"refugee": True},
+                "required_output": {"eligible": "not_holds"},
+            },
+        )
+        response = (
+            "=== FILE: 4.test.yaml ===\n"
+            "- name: before\n"
+            "  period: '2025-07-03'\n"
+            "  input: &refugee\n    refugee: true\n"
+            "  output:\n    eligible: holds\n"
+            "- name: after\n"
+            "  period: '2025-07-04'\n"
+            "  input: *refugee\n"
+            "  output:\n    eligible: not_holds\n"
+        )
+
+        assert _materialize_eval_artifact(
+            response,
+            output_file,
+            artifact_root=tmp_path,
+            repair_candidate=candidate,
+            required_test_case_contracts=contracts,
+        )
+        assert output_file.read_text() == rulespec
+        combined = output_file.with_suffix(".test.yaml").read_text()
+        assert combined.startswith(original_tests)
+        assert [case["name"] for case in yaml.safe_load(combined)] == [
+            "existing",
+            "before",
+            "after",
+        ]
+
+    @pytest.mark.parametrize(
+        "fragment",
+        [
+            "- name: unsigned\n  period: 2025-07\n  input: {}\n  output: {}\n",
+            "- name: required\n  period: 2025-07\n  input: {}\n"
+            "  output:\n    result: not_holds\n",
+            "- name: existing\n  period: 2025-06\n  input: {}\n"
+            "  output:\n    result: not_holds\n",
+            "- name: required\n  period: 2025-07\n  input: {}\n"
+            "  output:\n    result: holds\n    extra: holds\n",
+        ],
+    )
+    def test_materialize_tests_only_repair_rejects_bad_fragment(
+        self, tmp_path, fragment
+    ):
+        output_file = tmp_path / "regulation/7/273/4.yaml"
+        candidate = ValidationRetryCandidate(
+            "format: rulespec/v1\nrules: []\n",
+            "- name: existing\n  period: 2025-06\n  input: {}\n"
+            "  output:\n    result: holds\n",
+        )
+        contract = {
+            "name": "required",
+            "period": "2025-07",
+            "input": {},
+            "required_output": {"result": "holds"},
+        }
+
+        assert not _materialize_eval_artifact(
+            "=== FILE: 4.test.yaml ===\n" + fragment,
+            output_file,
+            artifact_root=tmp_path,
+            repair_candidate=candidate,
+            required_test_case_contracts=(contract,),
+        )
+        assert not output_file.exists()
 
     def test_materialize_tests_only_repair_preserves_cases_wrapper(self, tmp_path):
         output_file = tmp_path / "regulation/7/273/4.yaml"
@@ -22373,6 +22507,60 @@ class TestCodexPromptEvalPolicyEngineSkillIsolation:
         assert "PolicyEngine skills" in response.error
         assert response.unexpected_accesses
 
+    def test_run_codex_prompt_eval_explains_chatgpt_account_model_rejection(
+        self, tmp_path
+    ):
+        runner = parse_runner_spec("codex:gpt-6-luna")
+        workspace = prepare_eval_workspace(
+            citation="us-wa/regulation/388/388-478/388-478-0035",
+            runner=runner,
+            output_root=tmp_path / "out",
+            source_text="income limit",
+            axiom_rules_path=_canonical_rulespec_content_root(tmp_path, "us-wa"),
+            mode="cold",
+            extra_context_paths=[],
+        )
+        rejection = (
+            '{"type":"error","status":400,"error":{"type":"invalid_request_error",'
+            '"message":"The \'gpt-6-luna\' model is not supported when using '
+            'Codex with a ChatGPT account."}}'
+        )
+        event_line = json.dumps({"type": "error", "message": rejection})
+
+        class FakePopen:
+            def __init__(self, cmd, stdout, stderr, text, cwd, stdin=None, env=None):
+                self.args = cmd
+                self.returncode = 1
+                stdout.write(event_line + "\n")
+                stdout.flush()
+
+            def poll(self):
+                return self.returncode
+
+            def terminate(self):
+                self.returncode = -15
+
+            def wait(self, timeout=None):
+                return self.returncode
+
+            def kill(self):
+                self.returncode = -9
+
+        with (
+            patch("axiom_encode.harness.evals.subprocess.Popen", FakePopen),
+            patch(
+                "axiom_encode.harness.evals._wait_for_codex_process",
+                return_value=False,
+            ),
+        ):
+            response = _run_codex_prompt_eval(runner, workspace, "prompt")
+
+        assert response.error is not None
+        assert response.error.startswith(rejection)
+        assert "--model gpt-5.6-terra --escalation-model gpt-5.6-sol" in (
+            response.error
+        )
+
 
 class TestUnexpectedAccessDetection:
     def test_flags_parent_directory_traversal(self, tmp_path):
@@ -23755,6 +23943,40 @@ def test_retry_feedback_appends_after_static_prompt_prefix(tmp_path):
     }
 
 
+def test_complete_source_test_retry_feedback_adds_mechanical_pair_guidance():
+    rendered = evals_module._format_validation_retry_feedback(
+        (
+            "ci: [complete-source-unit:tests] Source-stated exceptions require "
+            "paired positive/blocking cases differing in exactly one input",
+            "ci: [complete-source-unit:tests] Companion tests do not exercise "
+            "every source-stated boundary input; missing: (iii)=6, (iv)=1.3.",
+        )
+    )
+    normalized = " ".join(rendered.split())
+
+    assert "change exactly that one selector" in normalized
+    assert "identical input-key and output-key sets" in normalized
+    assert (
+        "Allocate a distinct named pair to every still-listed condition" in normalized
+    )
+    assert (
+        "and asserts both the reached rule and the affected principal output"
+        in normalized
+    )
+    assert (
+        "Do not reorder, duplicate, or re-emit unrelated existing cases" in normalized
+    )
+
+
+def test_non_test_retry_feedback_omits_mechanical_pair_guidance():
+    rendered = evals_module._format_validation_retry_feedback(
+        ("ci: [complete-source-unit:structure] Source branch is missing",)
+    )
+
+    assert "change exactly that one selector" not in rendered
+    assert "Allocate a distinct named pair" not in rendered
+
+
 def test_openai_prompt_cache_key_is_stable_per_prompt_family():
     prefix = "prompt head " * 500
     key = evals_module._openai_prompt_cache_key("gpt-5.6-terra", prefix)
@@ -23809,3 +24031,27 @@ def test_older_openai_models_reuse_stable_prefix_key_across_retries(tmp_path):
     assert evals_module._openai_prompt_cache_key(
         "gpt-5.4", first_prefix
     ) == evals_module._openai_prompt_cache_key("gpt-5.4", retry_prefix)
+
+
+@pytest.mark.parametrize(
+    ("model", "extended", "explicit_cache"),
+    [
+        ("gpt-6-luna", True, True),
+        ("gpt-6-sol", True, True),
+        ("gpt-5.6-terra", True, True),
+        ("gpt-5.4", True, False),
+        ("gpt-60-luna", False, False),
+        ("gpt-4.1", False, False),
+    ],
+)
+def test_openai_generation_gates_cover_gpt_6_models(model, extended, explicit_cache):
+    expected_tokens = (
+        evals_module._OPENAI_EXTENDED_PROMPT_MAX_OUTPUT_TOKENS
+        if extended
+        else evals_module._OPENAI_DEFAULT_PROMPT_MAX_OUTPUT_TOKENS
+    )
+    assert evals_module._openai_prompt_max_output_tokens(model) == expected_tokens
+    assert (
+        evals_module._openai_model_supports_explicit_prompt_cache(model)
+        is explicit_cache
+    )

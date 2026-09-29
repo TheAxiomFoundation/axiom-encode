@@ -191,12 +191,35 @@ class IterationError:
 
 @dataclass
 class Iteration:
-    """A single encoding attempt."""
+    """A single encoding attempt.
+
+    ``model`` and the token counters record what this attempt actually spent, so a
+    run whose attempts escalated across models (Terra, then Sol) can be re-priced
+    from its own record. ``None`` means the attempt did not report usage.
+    """
 
     attempt: int
     duration_ms: int
     errors: list[IterationError] = field(default_factory=list)
     success: bool = False
+    model: Optional[str] = None
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    cache_read_tokens: Optional[int] = None
+    cache_creation_tokens: Optional[int] = None
+    reasoning_output_tokens: Optional[int] = None
+    estimated_cost_usd: Optional[float] = None
+
+
+ITERATION_USAGE_FIELDS = (
+    "model",
+    "input_tokens",
+    "output_tokens",
+    "cache_read_tokens",
+    "cache_creation_tokens",
+    "reasoning_output_tokens",
+    "estimated_cost_usd",
+)
 
 
 @dataclass
@@ -556,6 +579,11 @@ class EncodingDB:
                         }
                         for e in it.errors
                     ],
+                    **{
+                        name: getattr(it, name)
+                        for name in ITERATION_USAGE_FIELDS
+                        if getattr(it, name) is not None
+                    },
                 }
                 for it in run.iterations
             ]
@@ -844,6 +872,13 @@ class EncodingDB:
                         duration_ms=it_data["duration_ms"],
                         errors=errors,
                         success=it_data.get("success", False),
+                        model=it_data.get("model"),
+                        input_tokens=it_data.get("input_tokens"),
+                        output_tokens=it_data.get("output_tokens"),
+                        cache_read_tokens=it_data.get("cache_read_tokens"),
+                        cache_creation_tokens=it_data.get("cache_creation_tokens"),
+                        reasoning_output_tokens=it_data.get("reasoning_output_tokens"),
+                        estimated_cost_usd=it_data.get("estimated_cost_usd"),
                     )
                 )
 

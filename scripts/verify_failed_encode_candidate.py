@@ -18,11 +18,11 @@ PROTECTED_SEGMENTS = frozenset({".git", ".github", "_axiom", "scripts"})
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 JURISDICTION_PATTERN = re.compile(r"[a-z]{2}(?:-[a-z0-9_]+)*")
 VERSION_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9.+_-]{0,127}")
-MAX_ISSUES_BYTES = 512 * 1024
 MAX_ISSUES = 4096
 CONTRACT = runpy.run_path(
     Path(__file__).parents[1] / "src/axiom_encode/repair_candidate_contract.py"
 )
+MAX_ISSUES_BYTES = CONTRACT["FAILED_ENCODE_CANDIDATE_MAX_ISSUES_BYTES"]
 MAX_CANDIDATE_BYTES = CONTRACT["VALIDATION_RETRY_CANDIDATE_MAX_FILE_BYTES"]
 MAX_CANDIDATE_TOTAL_BYTES = CONTRACT["VALIDATION_RETRY_CANDIDATE_MAX_TOTAL_BYTES"]
 METADATA_FIELDS = {

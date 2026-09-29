@@ -20,7 +20,7 @@ from scripts.prepare_signed_backfill import (
     MAX_CANONICAL_REFRESH_BUNDLE_CITATIONS,
     MAX_DEFERRED_OUTPUT_REVIEW_CONTRACT_JSON_BYTES,
     MAX_SOURCE_BUNDLE_JSON_BYTES,
-    REVIEWED_RULESPEC_PR_BASE_BRANCHES,
+    REVIEWED_RULESPEC_PR_BASES,
     REVIEWED_RULESPEC_REFS,
     _normalize_required_test_cases,
     _retired_manifest_inventory_without_entry,
@@ -256,6 +256,61 @@ def test_split_atomic_source_input_rejects_nonboolean_v3_scope() -> None:
     }
 
     with pytest.raises(ValueError, match="must be a boolean"):
+        split_atomic_source_input(json.dumps(payload))
+
+
+def test_split_atomic_source_input_selects_v4_manifest_only_refresh() -> None:
+    payload = {
+        "schema": "axiom-encode/atomic-source-transaction/v4",
+        "source_bundle": [],
+        "canonical_refresh_bundle": [],
+        "primary_required_test_cases": [],
+        "require_complete_source_unit": True,
+        "manifest_only_refresh": True,
+    }
+
+    assert split_atomic_source_input(json.dumps(payload)) == {
+        "canonical_refresh_bundle": [],
+        "manifest_only_refresh": True,
+        "primary_required_test_cases": [],
+        "require_complete_source_unit": True,
+        "source_bundle": [],
+    }
+
+
+def test_split_atomic_source_input_selects_v5_reviewed_candidate_promotion() -> None:
+    payload = {
+        "schema": "axiom-encode/atomic-source-transaction/v5",
+        "source_bundle": [],
+        "canonical_refresh_bundle": [],
+        "primary_required_test_cases": [],
+        "require_complete_source_unit": True,
+        "manifest_only_refresh": False,
+        "reviewed_candidate_promotion": True,
+    }
+
+    assert split_atomic_source_input(json.dumps(payload)) == {
+        "canonical_refresh_bundle": [],
+        "manifest_only_refresh": False,
+        "primary_required_test_cases": [],
+        "require_complete_source_unit": True,
+        "reviewed_candidate_promotion": True,
+        "source_bundle": [],
+    }
+
+
+def test_split_atomic_source_input_rejects_mixed_reviewed_candidate_mode() -> None:
+    payload = {
+        "schema": "axiom-encode/atomic-source-transaction/v5",
+        "source_bundle": ["us/regulation/7/273/4"],
+        "canonical_refresh_bundle": [],
+        "primary_required_test_cases": [],
+        "require_complete_source_unit": True,
+        "manifest_only_refresh": False,
+        "reviewed_candidate_promotion": True,
+    }
+
+    with pytest.raises(ValueError, match="cannot mix"):
         split_atomic_source_input(json.dumps(payload))
 
 
@@ -1760,6 +1815,7 @@ def _write_legacy_replacement_change(
     companion_only_plural_exact_dependent: bool = False,
     destination_predecessor: bool = False,
     retained_successor: bool = False,
+    new_index_destination: bool = False,
     legacy_owner_class: str = "v1-hmac-untrusted",
 ) -> tuple[Path, Path, Path, Path]:
     old_rule = repo / "us/statutes/47:32.yaml"
@@ -1813,6 +1869,19 @@ def _write_legacy_replacement_change(
     metadata = repo / ".axiom/index/provisions_to_rules.json"
     metadata.parent.mkdir(parents=True)
     metadata.write_text('{"module":"us:statutes/47:32"}\n', encoding="utf-8")
+    if new_index_destination:
+        metadata.write_text(
+            json.dumps(
+                {
+                    "provisions": {
+                        "legacy/source": [
+                            {"module": "us/statutes/47:32.yaml", "via": ["module"]}
+                        ]
+                    }
+                }
+            )
+            + "\n"
+        )
     dependent = repo / "us/policies/income_tax/dependent.yaml"
     if scheduled_pending:
         dependent.parent.mkdir(parents=True)
@@ -2622,6 +2691,50 @@ def test_stage_authorized_changes_stages_only_manifest_and_applied_files(
     assert _git(repo, "diff", "--cached", "--name-only").splitlines() == sorted(
         [str(manifest.relative_to(repo)), str(rule.relative_to(repo))]
     )
+
+
+def test_stage_reviewed_candidate_promotion_stages_only_new_manifest(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    rule = repo / "us/regulations/7-cfr/273/4.yaml"
+    companion = rule.with_name("4.test.yaml")
+    rule.parent.mkdir(parents=True)
+    rule.write_text("format: rulespec/v1\nrules: []\n", encoding="utf-8")
+    companion.write_text("[]\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "review candidate")
+    reviewed_ref = _git(repo, "rev-parse", "HEAD")
+    manifest = repo / ".axiom/encoding-manifests/us/regulations/7-cfr/273/4.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": "axiom-encode/applied-rulespec/v5",
+                "tool": "axiom-encode promote-reviewed-candidate",
+                "backend": None,
+                "reviewed_rulespec_ref": reviewed_ref,
+                "applied_files": [
+                    {
+                        "path": rule.relative_to(repo).as_posix(),
+                        "sha256": hashlib.sha256(rule.read_bytes()).hexdigest(),
+                    },
+                    {
+                        "path": companion.relative_to(repo).as_posix(),
+                        "sha256": hashlib.sha256(companion.read_bytes()).hexdigest(),
+                    },
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    stage_authorized_changes(repo)
+
+    assert _git(repo, "diff", "--cached", "--name-only").splitlines() == [
+        manifest.relative_to(repo).as_posix()
+    ]
 
 
 def test_stage_authorized_changes_rejects_git_transformed_index_bytes(
@@ -3910,6 +4023,11 @@ def test_validate_rulespec_base_rejects_stale_main_pr_base(
         ("us", "2a503a5c9a2227c363aceaece6c547429c3c0878"),
         ("us", "6535019ce780d9e78f10509f2fe7a2607fb2bdc4"),
         ("us", "c482ef6506c50b54236354926bbce1bcd6434132"),
+        ("us", "297aec1691edf7b3a21781c8a825690db1e7c988"),
+        ("us", "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683"),
+        ("us", "79ffd74fe3d3c83665335ec64feb7458d9cc877a"),
+        ("us", "b5273061fc5765dea04bf36f63de39bf40afc2d8"),
+        ("us", "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a"),
         ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
     ],
 )
@@ -3936,11 +4054,52 @@ def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
             ("us", "2a503a5c9a2227c363aceaece6c547429c3c0878"),
             ("us", "6535019ce780d9e78f10509f2fe7a2607fb2bdc4"),
             ("us", "c482ef6506c50b54236354926bbce1bcd6434132"),
+            ("us", "297aec1691edf7b3a21781c8a825690db1e7c988"),
+            ("us", "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683"),
+            ("us", "79ffd74fe3d3c83665335ec64feb7458d9cc877a"),
+            ("us", "b5273061fc5765dea04bf36f63de39bf40afc2d8"),
+            ("us", "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a"),
             ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
         }
     )
-    assert REVIEWED_RULESPEC_PR_BASE_BRANCHES == frozenset(
-        {("dk", "pin/dk-rulespec-2026-08-07"), ("us", "hard-cut/canonical-layout-us")}
+    assert REVIEWED_RULESPEC_PR_BASES == frozenset(
+        {
+            (
+                "dk",
+                "06489d04e7d4b8d424d1711d99df883c6411248a",
+                "pin/dk-rulespec-2026-08-07",
+            ),
+            (
+                "us",
+                "2a503a5c9a2227c363aceaece6c547429c3c0878",
+                "hard-cut/canonical-layout-us",
+            ),
+            (
+                "us",
+                "297aec1691edf7b3a21781c8a825690db1e7c988",
+                "axiom/signed-backfill-us-35001504609-1",
+            ),
+            (
+                "us",
+                "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683",
+                "axiom/signed-backfill-us-35145159769-1",
+            ),
+            (
+                "us",
+                "79ffd74fe3d3c83665335ec64feb7458d9cc877a",
+                "axiom/signed-backfill-us-35160240952-1",
+            ),
+            (
+                "us",
+                "b5273061fc5765dea04bf36f63de39bf40afc2d8",
+                "fix/1248-snap-immigration-status",
+            ),
+            (
+                "us",
+                "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
+                "codex/az-nested-engine-pin",
+            ),
+        }
     )
     monkeypatch.setattr(
         "scripts.prepare_signed_backfill._git",
@@ -3994,15 +4153,158 @@ def test_validate_rulespec_base_accepts_exact_reviewed_protected_branch_tip(
     ) in git_calls
 
 
+@pytest.mark.parametrize(
+    ("reviewed_ref", "branch"),
+    [
+        (
+            "297aec1691edf7b3a21781c8a825690db1e7c988",
+            "axiom/signed-backfill-us-35001504609-1",
+        ),
+        (
+            "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683",
+            "axiom/signed-backfill-us-35145159769-1",
+        ),
+        (
+            "79ffd74fe3d3c83665335ec64feb7458d9cc877a",
+            "axiom/signed-backfill-us-35160240952-1",
+        ),
+        (
+            "b5273061fc5765dea04bf36f63de39bf40afc2d8",
+            "fix/1248-snap-immigration-status",
+        ),
+        (
+            "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
+            "codex/az-nested-engine-pin",
+        ),
+    ],
+)
+def test_validate_rulespec_base_accepts_each_reviewed_protected_branch_tip(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    reviewed_ref: str,
+    branch: str,
+) -> None:
+    repo = tmp_path / "rulespec-us"
+
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill._git",
+        lambda _repo, *_args: f"{reviewed_ref}\n".encode(),
+    )
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill.subprocess.run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+    )
+
+    assert (
+        validate_rulespec_base(
+            repo,
+            "us",
+            reviewed_ref,
+            open_pr=True,
+            pr_base_branch=branch,
+        )
+        == "reviewed-head-pr"
+    )
+
+
+@pytest.mark.parametrize(
+    ("reviewed_ref", "branch"),
+    [
+        (
+            "297aec1691edf7b3a21781c8a825690db1e7c988",
+            "hard-cut/canonical-layout-us",
+        ),
+        (
+            "2a503a5c9a2227c363aceaece6c547429c3c0878",
+            "axiom/signed-backfill-us-35001504609-1",
+        ),
+        (
+            "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683",
+            "axiom/signed-backfill-us-35001504609-1",
+        ),
+        (
+            "297aec1691edf7b3a21781c8a825690db1e7c988",
+            "axiom/signed-backfill-us-35145159769-1",
+        ),
+        (
+            "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683",
+            "axiom/signed-backfill-us-35160240952-1",
+        ),
+        (
+            "79ffd74fe3d3c83665335ec64feb7458d9cc877a",
+            "axiom/signed-backfill-us-35145159769-1",
+        ),
+        (
+            "b5273061fc5765dea04bf36f63de39bf40afc2d8",
+            "axiom/signed-backfill-us-35160240952-1",
+        ),
+        (
+            "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
+            "fix/1248-snap-immigration-status",
+        ),
+    ],
+)
+def test_validate_rulespec_base_rejects_reviewed_head_branch_cross_pairs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    reviewed_ref: str,
+    branch: str,
+) -> None:
+    repo = tmp_path / "rulespec-us"
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill._git",
+        lambda _repo, *_args: f"{reviewed_ref}\n".encode(),
+    )
+    monkeypatch.setattr(
+        "scripts.prepare_signed_backfill.subprocess.run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1),
+    )
+
+    with pytest.raises(ValueError, match="artifact-only"):
+        validate_rulespec_base(
+            repo,
+            "us",
+            reviewed_ref,
+            open_pr=True,
+            pr_base_branch=branch,
+        )
+
+
+@pytest.mark.parametrize(
+    ("reviewed_ref", "branch"),
+    [
+        (
+            "2a503a5c9a2227c363aceaece6c547429c3c0878",
+            "hard-cut/canonical-layout-us",
+        ),
+        (
+            "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683",
+            "axiom/signed-backfill-us-35145159769-1",
+        ),
+        (
+            "79ffd74fe3d3c83665335ec64feb7458d9cc877a",
+            "axiom/signed-backfill-us-35160240952-1",
+        ),
+        (
+            "b5273061fc5765dea04bf36f63de39bf40afc2d8",
+            "fix/1248-snap-immigration-status",
+        ),
+        (
+            "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
+            "codex/az-nested-engine-pin",
+        ),
+    ],
+)
 def test_validate_rulespec_base_rejects_stale_reviewed_protected_branch_tip(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    reviewed_ref: str,
+    branch: str,
 ) -> None:
     repo = tmp_path / "rulespec-us"
-    reviewed_ref = "b1a6e07af093d62f613f83afe26fcb4dd87de491"
 
     def fake_git(_repo: Path, *args: str) -> bytes:
-        if args[-1] == "refs/remotes/origin/hard-cut/canonical-layout-us":
+        if args[-1] == f"refs/remotes/origin/{branch}":
             return f"{'f' * 40}\n".encode()
         return f"{reviewed_ref}\n".encode()
 
@@ -4018,7 +4320,7 @@ def test_validate_rulespec_base_rejects_stale_reviewed_protected_branch_tip(
             "us",
             reviewed_ref,
             open_pr=True,
-            pr_base_branch="hard-cut/canonical-layout-us",
+            pr_base_branch=branch,
         )
 
 
@@ -4086,3 +4388,136 @@ def test_validate_rulespec_base_rejects_unreviewed_non_main_head(
 
     with pytest.raises(ValueError, match="neither on main nor an approved"):
         validate_rulespec_base(repo, "us", head, open_pr=False)
+
+
+@pytest.mark.parametrize("omit_index", [False, True])
+def test_persisted_receipt_requires_generated_destination_index(
+    tmp_path: Path, omit_index: bool
+) -> None:
+    from axiom_encode.cli import _legacy_metadata_reconciliation_bytes
+    from axiom_encode.rulespec_path_migration import PlannedMove
+
+    repo = _repo(tmp_path)
+    manifest, receipt, _old_manifest, index = _write_legacy_replacement_change(
+        repo, new_index_destination=True
+    )
+    receipt_payload = json.loads(receipt.read_text())
+    outer = json.loads(manifest.read_text())
+    replacement = receipt_payload["replacement"]
+    destination = repo / replacement["destination"]
+    destination.write_text(
+        "format: rulespec/v1\nmodule:\n  source_verification:\n    corpus_citation_path: generated/source\nrules: []\n"
+    )
+    digest = hashlib.sha256(destination.read_bytes()).hexdigest()
+    for item in replacement["live_files"]:
+        if item["path"] == replacement["destination"]:
+            item["sha256"] = digest
+    nested = receipt_payload["replacement_manifest"]
+    nested["applied_files"] = replacement["live_files"]
+    outer["replacement_manifest"] = nested
+    for item in outer["applied_files"]:
+        if item["path"] == replacement["destination"]:
+            item["sha256"] = digest
+    replacement["model_manifest_sha256"] = hashlib.sha256(
+        (json.dumps(nested, indent=2, sort_keys=True) + "\n").encode()
+    ).hexdigest()
+    base = receipt_payload["repository"]["base_commit"]
+    base_raw = subprocess.check_output(
+        ["git", "show", f"{base}:.axiom/index/provisions_to_rules.json"], cwd=repo
+    )
+    after, operations = _legacy_metadata_reconciliation_bytes(
+        Path(".axiom/index/provisions_to_rules.json"),
+        base_raw,
+        moves=[
+            PlannedMove(Path(replacement["source"]), Path(replacement["destination"]))
+        ],
+        new_destination_modules={replacement["destination"]: destination.read_bytes()},
+    )
+    index.write_bytes(after)
+    receipt_payload["schema_version"] = "axiom-encode/legacy-fresh-reencode-receipt/v4"
+    replacement.update(
+        destination_predecessor_class="absent",
+        destination_predecessor_files=[],
+        exact_dependents=[],
+        retained_successors=[],
+        rewrites=[],
+        metadata_reconciliations=[],
+    )
+    index_relative = index.relative_to(repo).as_posix()
+    outer["applied_files"] = [
+        item for item in outer["applied_files"] if item["path"] != index_relative
+    ]
+    if not omit_index:
+        replacement["metadata_reconciliations"] = [
+            {
+                "path": index_relative,
+                "before_sha256": hashlib.sha256(base_raw).hexdigest(),
+                "after_sha256": hashlib.sha256(after).hexdigest(),
+                "operations": list(operations),
+            }
+        ]
+        outer["applied_files"].insert(
+            len(replacement["live_files"]),
+            {"path": index_relative, "sha256": hashlib.sha256(after).hexdigest()},
+        )
+    receipt.write_text(json.dumps(receipt_payload, sort_keys=True) + "\n")
+    manifest.write_text(json.dumps(outer, sort_keys=True) + "\n")
+    _refresh_legacy_receipt_bindings(repo, manifest, receipt)
+    if omit_index:
+        with pytest.raises(
+            ValueError, match="metadata reconciliation inventory is not exact"
+        ):
+            authorized_changed_paths(repo)
+    else:
+        assert PurePosixPath(index_relative) in authorized_changed_paths(repo)
+    issues = _legacy_replacement_manifest_issues(
+        json.loads(manifest.read_text()),
+        repo_path=repo,
+        manifest_label=manifest.relative_to(repo).as_posix(),
+        signing_broker=Ed25519PrivateKey.generate().public_key(),
+        expected_waiver_set_sha256="b" * 64,
+        local_corpus_release=None,
+    )
+    # This fixture deliberately has incomplete model provenance. Exercise the
+    # complete persisted receipt verifier's independent metadata inventory.
+    index_issues = [
+        issue
+        for issue in issues
+        if "metadata reconciliation" in issue or "index postimage" in issue
+    ]
+    if omit_index:
+        assert any(
+            "metadata reconciliation inventory is not exact" in issue
+            for issue in index_issues
+        ), issues
+    else:
+        assert index_issues == [], issues
+
+
+@pytest.mark.parametrize("escaped", [False, True])
+def test_both_verifiers_reject_predecessor_with_encoded_base_owner(
+    tmp_path: Path,
+    escaped: bool,
+) -> None:
+    repo = _repo(tmp_path)
+    claimant = repo / ".axiom/encoding-manifests/us/policies/other-owner.json"
+    claimant.parent.mkdir(parents=True)
+    raw = json.dumps({"applied_files": [{"path": "us/statutes/47/32.yaml"}]})
+    if escaped:
+        raw = raw.replace("/", r"\/").replace("4", r"\u0034")
+    claimant.write_text(raw)
+    manifest, _receipt, _old_manifest, _metadata = _write_legacy_replacement_change(
+        repo,
+        destination_predecessor=True,
+    )
+    with pytest.raises(ValueError, match="already manifest-owned"):
+        authorized_changed_paths(repo)
+    issues = _legacy_replacement_manifest_issues(
+        json.loads(manifest.read_text()),
+        repo_path=repo,
+        manifest_label=manifest.relative_to(repo).as_posix(),
+        signing_broker=Ed25519PrivateKey.generate().public_key(),
+        expected_waiver_set_sha256="b" * 64,
+        local_corpus_release=None,
+    )
+    assert any("already manifest-owned" in issue for issue in issues)

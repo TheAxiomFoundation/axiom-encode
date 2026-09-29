@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import ast
 import bisect
+import calendar
 import contextlib
 import copy
 import functools
@@ -19,9 +20,11 @@ import math
 import re
 import textwrap
 from collections.abc import Callable, Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from decimal import (
+    ROUND_CEILING,
+    ROUND_FLOOR,
     ROUND_HALF_EVEN,
     ROUND_HALF_UP,
     Decimal,
@@ -111,6 +114,7 @@ class SourceStructureBranch:
     text: str
     start: int
     end: int
+    structural_numeric_spans: tuple[tuple[int, int], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -155,6 +159,20 @@ class _FormulaTraceStep:
 
 
 @dataclass(frozen=True)
+class _CurrencyRounding:
+    mode: str
+    minor_units: int
+
+
+class _CurrencyRoundingRule(dict):
+    """A parsed rule with privately resolved module-level currency metadata."""
+
+    def __init__(self, rule: dict[str, Any], rounding: _CurrencyRounding | None):
+        super().__init__(rule)
+        self.resolved_currency_rounding = rounding
+
+
+@dataclass(frozen=True)
 class _FormulaExecution:
     """The selected control-flow path and reconstructed reachable formula."""
 
@@ -163,6 +181,8 @@ class _FormulaExecution:
     evaluated_value: tuple[str, str] | None
     evaluates_to_zero: bool
     constant_environment: dict[str, Any]
+    currency_rounding: _CurrencyRounding | None = None
+    unrounded_value: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -246,6 +266,7 @@ class _ExceptionWitness:
     numeric_transition: tuple[float, float] | None
     relational_transitions: tuple[tuple[str, str, str], ...] = ()
     case_pair_identity: tuple[int, ...] = ()
+    calendar_attainment_age: int | None = None
 
 
 @dataclass(frozen=True)
@@ -2061,6 +2082,13 @@ _EU_REGULATION_NUMERIC_RECALL_CITATION = re.compile(
     r"(?:\s*(?:,\s*|und\s+)\((?:EU|EG|EWG)\)\s+"
     r"(?:Nr\.\s*)?\d{1,5}/\d{2,5}(?![\w/]|[.,]\d))*",
     flags=re.IGNORECASE,
+)
+# Match a complete, court-identified bibliographic parenthesis only. A bare
+# slash-separated number or partial docket may still be actual arithmetic.
+_BFH_DECISION_NUMERIC_RECALL_CITATION = re.compile(
+    r"\(\s*BFH\s+vom\s+\d{1,2}\.\d{1,2}\.\d{4},\s*"
+    r"[IVX]+\s+[RB]\s+\d{1,5}/\d{2,4},\s*"
+    r"BStBl\s+(?:\d{4}\s+)?II\s+S\.\s*\d+\s*\)",
 )
 _GERMAN_GAZETTE_NUMERIC_RECALL_CITATION = re.compile(
     r"\(\s*(?:"
@@ -4209,11 +4237,40 @@ def _english_fraction_of_is_computational(source_text: str) -> bool:
     return False
 
 
+def _without_precomputed_income_table_percentage_captions(source_text: str) -> str:
+    """Mask only descriptive rates above a complete published income table.
+
+    The table supplies independently rounded amounts, not an instruction to
+    recompute them from another table. Keep all source bytes elsewhere available
+    to numeric recall and proof validation; this view is only for computation
+    classification. Incomplete or prose-shaped tables remain conservative.
+    """
+
+    amount = r"\$\d+(?:,\d{3})*(?:\.\d+)?"
+    three_amounts = rf"{amount}\s+{amount}\s+{amount}"
+    rows = r"\s+".join(rf"{size}\s+{three_amounts}" for size in range(1, 9))
+    captioned_table = re.compile(
+        r"^[ \t]*(?:Net|Gross) Monthly Income Eligibility Standards"
+        r"(?: for Households Where Elderly Disabled Are a Separate Household)?"
+        r"[ \t]+(?P<caption>\(\d+(?:\.\d+)? Percent of Poverty Level\))"
+        r"[ \t]*\r?\n\s*Household Size 48 States, DC, Guam, Virgin Islands Alaska Hawaii"
+        rf"\s+{rows}\s+Each additional person\s+{three_amounts}[ \t]*(?=\r?$)",
+        flags=re.MULTILINE | re.IGNORECASE,
+    )
+    masked = list(source_text)
+    for match in captioned_table.finditer(source_text):
+        start, end = match.span("caption")
+        masked[start:end] = " " * (end - start)
+    return "".join(masked)
+
+
 def source_states_explicit_computation(source_text: str) -> bool:
     """Return whether text states a computation rather than only a scalar."""
 
     computation_text = _without_unproven_applied_operations(
-        _without_stated_conversion_results(source_text)
+        _without_stated_conversion_results(
+            _without_precomputed_income_table_percentage_captions(source_text)
+        )
     )
     return bool(
         _has_substantive_arithmetic_expression(computation_text)
@@ -4234,7 +4291,9 @@ def _source_states_nonrounding_computation(source_text: str) -> bool:
     """Return whether text states a computation other than rounding."""
 
     computation_text = _without_unproven_applied_operations(
-        _without_stated_conversion_results(source_text)
+        _without_stated_conversion_results(
+            _without_precomputed_income_table_percentage_captions(source_text)
+        )
     )
     return bool(
         _has_substantive_arithmetic_expression(computation_text)
@@ -4388,6 +4447,7 @@ def _has_substantive_arithmetic_expression(source_text: str) -> bool:
     for metadata_pattern in (
         _STATED_CONVERSION_DATE,
         _EU_REGULATION_NUMERIC_RECALL_CITATION,
+        _BFH_DECISION_NUMERIC_RECALL_CITATION,
     ):
         for metadata in metadata_pattern.finditer(source_text):
             if metadata_pattern is _EU_REGULATION_NUMERIC_RECALL_CITATION and (
@@ -4484,6 +4544,85 @@ def analyze_complete_source_unit(
     return CompleteSourceUnitAnalysis((), (), 0, 0, 0)
 
 
+def _bind_currency_rounding_rules(payload: dict[str, Any]) -> dict[str, Any]:
+    """Resolve explicit currency declarations without trusting model-added fields.
+
+    Unknown defaults, duplicate units and malformed declarations are deliberately
+    unresolved. A rule with unresolved rounding cannot supply execution evidence.
+    The engine remains the authority for complete schema/unit validation.
+    """
+
+    units: dict[str, list[dict[str, Any]]] = {}
+    for unit in (
+        payload.get("units", []) if isinstance(payload.get("units"), list) else []
+    ):
+        if isinstance(unit, dict) and isinstance(unit.get("name"), str):
+            units.setdefault(unit["name"], []).append(unit)
+    rules = payload.get("rules")
+    if not isinstance(rules, list):
+        return payload
+    bound = []
+    for rule in rules:
+        if not isinstance(rule, dict) or rule.get("rounding") is None:
+            bound.append(rule)
+            continue
+        candidates = (
+            units.get(rule.get("unit"), []) if isinstance(rule.get("unit"), str) else []
+        )
+        spec = None
+        if len(candidates) == 1:
+            unit = candidates[0]
+            precision = unit.get("minor_units")
+            mode = rule.get("rounding")
+            if (
+                rule.get("kind") == "derived"
+                and unit.get("kind") == "currency"
+                and type(precision) is int
+                and 0 <= precision <= 28
+                and isinstance(mode, str)
+                and mode in {"half_up", "half_even", "floor", "ceil"}
+            ):
+                spec = _CurrencyRounding(mode, precision)
+        bound.append(_CurrencyRoundingRule(rule, spec))
+    return {**payload, "rules": bound}
+
+
+def _apply_currency_output_rounding(
+    rule: dict[str, Any], execution: _FormulaExecution | None
+) -> _FormulaExecution | None:
+    """Apply native decimal rounding once, at this rule's output boundary."""
+
+    if execution is None or rule.get("rounding") is None:
+        return execution
+    if not isinstance(rule, _CurrencyRoundingRule):
+        return None
+    spec = rule.resolved_currency_rounding
+    raw = _rulespec_runtime_decimal(_formula_execution_runtime_value(execution))
+    if spec is None or raw is None:
+        return None
+    modes = {
+        "half_up": ROUND_HALF_UP,
+        "half_even": ROUND_HALF_EVEN,
+        "floor": ROUND_FLOOR,
+        "ceil": ROUND_CEILING,
+    }
+    try:
+        with localcontext() as context:
+            context.prec = 60
+            rounded = raw.quantize(
+                Decimal(1).scaleb(-spec.minor_units), rounding=modes[spec.mode]
+            )
+    except (InvalidOperation, ValueError, OverflowError):
+        return None
+    return replace(
+        execution,
+        evaluated_value=("Decimal", repr(rounded)),
+        evaluates_to_zero=rounded == 0,
+        currency_rounding=spec,
+        unrounded_value=raw,
+    )
+
+
 def _analyze_rulespec_payload(
     payload: dict[str, Any],
     *,
@@ -4500,6 +4639,7 @@ def _analyze_rulespec_payload(
     authenticated_same_act_aliases: Sequence[str],
     imported_symbol_contents: Sequence[tuple[str, str]],
 ) -> CompleteSourceUnitAnalysis:
+    payload = _bind_currency_rounding_rules(payload)
     branches = recognize_source_structure(source_text)
     (
         all_covered_paths,
@@ -4518,6 +4658,7 @@ def _analyze_rulespec_payload(
         if isinstance(rule, dict) and str(rule.get("name") or "").strip()
     }
     test_cases = _typed_numeric_expected_cases(test_cases, named_rules)
+    test_cases = _typed_date_cases(test_cases, payload)
     deferred_paths, imprecise_deferrals = _deferred_coverage(
         payload,
         corpus_citation_path=corpus_citation_path,
@@ -4696,7 +4837,9 @@ def _analyze_rulespec_payload(
             "parameter-only representation is invalid."
         )
 
-    numeric_recall_text = authoritative_numeric_recall_text(source_text)
+    numeric_recall_text = authoritative_numeric_recall_text(
+        source_text, corpus_citation_path=corpus_citation_path
+    )
     source_occurrences = tuple(
         occurrence
         for occurrence in extract_numeric_occurrences(numeric_recall_text)
@@ -4782,6 +4925,7 @@ def _analyze_rulespec_payload(
                         extract_numeric_occurrences=extract_numeric_occurrences,
                     )
                 ),
+                calendar_date_declarations=_calendar_date_declarations(payload),
                 declared_input_names={
                     str(item.get("name") or "").strip()
                     for item in payload.get("inputs", [])
@@ -5380,15 +5524,20 @@ def _deferred_coverage(
                     exact_blockers
                     and bool(_MISSING_DEPENDENCY_LANGUAGE.search(reason))
                     and all(
-                        _reason_identifies_blocker(
-                            reason,
-                            blocker,
-                            corpus_citation_path=corpus_citation_path,
+                        (
+                            _reason_identifies_blocker(
+                                reason,
+                                blocker,
+                                corpus_citation_path=corpus_citation_path,
+                            )
+                            and _source_scope_identifies_blocker(
+                                candidate_scope_text,
+                                blocker,
+                                corpus_citation_path=corpus_citation_path,
+                            )
                         )
-                        for blocker in blocker_targets
-                    )
-                    and all(
-                        _source_scope_identifies_blocker(
+                        or _source_bound_dakg_review_dependency(
+                            reason,
                             candidate_scope_text,
                             blocker,
                             corpus_citation_path=corpus_citation_path,
@@ -5603,6 +5752,101 @@ def _deferred_branch_display_path(
                 break
         display_path.append(display_segment)
     return tuple(display_path)
+
+
+def _source_bound_dakg_review_dependency(
+    reason: str,
+    source_scope_text: str,
+    blocker: str,
+    *,
+    corpus_citation_path: str,
+) -> bool:
+    """Recognize the DA-KG's explicit assessment-review referral, not generic vgl."""
+
+    owner = re.fullmatch(
+        r"de/guidance/(?P<edition>bzst-dakg-2025)/"
+        r"(?:a-\d+(?:-\d+)+/document-1|numbered-sections/a-\d+(?:-\d+)+)",
+        corpus_citation_path,
+    )
+    if owner is None:
+        return False
+    source = re.fullmatch(
+        r"(?:[1-9]\d*)?Zur Überprüfung der Festsetzung vgl\. "
+        r"A\s*(?P<section>\d+(?:\.\d+)+) Abs\. "
+        r"(?P<first>\d+) und (?P<second>\d+)\.",
+        " ".join(source_scope_text.split()),
+    )
+    if source is None:
+        return False
+    section = source.group("section").replace(".", "-")
+    owner_section = re.search(
+        r"/a-(\d+(?:-\d+)+)(?:/document-1)?$", corpus_citation_path
+    )
+    if owner_section is None or owner_section.group(1) == section:
+        return False
+    if any(
+        year != "2025"
+        for year in re.findall(
+            r"(?:DA-KG\s*|bzst-dakg-)(20\d\d)",
+            reason,
+            re.IGNORECASE,
+        )
+    ):
+        return False
+    target = re.fullmatch(
+        rf"de:policies/{re.escape(owner.group('edition'))}/"
+        rf"numbered-sections/a-{re.escape(section)}"
+        r"#(?P<symbol>[A-Za-z_][A-Za-z0-9_]*)",
+        blocker,
+    )
+    if target is None:
+        return False
+    if not re.fullmatch(
+        r"(?:next_)?(?:child_)?(?:disability_)?(?:assessment_)?review_"
+        r"(?:interval|period|date|deadline|frequency|schedule|scheduling|due|required)",
+        target.group("symbol"),
+    ):
+        return False
+    reference = (
+        rf"(?<![A-Za-z0-9])A\s*{re.escape(source.group('section'))}"
+        rf"\s+Abs\.\s*{source.group('first')}\s+und\s+{source.group('second')}"
+        r"(?![A-Za-z0-9]|\s*(?:und|oder|,|bis)\s*\d)"
+    )
+    if not re.search(reference, reason):
+        return False
+    if re.search(
+        r"\b(?:unrelated|irrelevant|historical[- ]only|only historically|"
+        r"not applicable|does not apply|not required)\b",
+        reason,
+        re.IGNORECASE,
+    ):
+        return False
+    # Tie the missing state to this exact output, not another gap in the reason.
+    matches = re.finditer(
+        rf"(?<![A-Za-z0-9_:/#-]){re.escape(blocker)}(?![A-Za-z0-9_:/#-])",
+        reason,
+    )
+    for match in matches:
+        start, end = _reason_clause_bounds(reason, match)
+        clause = reason[start:end].strip()
+        # An affirmative availability statement or a different missing input
+        # cannot be rescued by an earlier occurrence of the word "missing".
+        missing_state = r"(?:missing|unavailable|not\s+(?:yet\s+)?(?:encoded|implemented|available))"
+        missing_statement = re.fullmatch(
+            rf"(?:The\s+)?missing\s+(?:(?:executable\s+)?dependency\s+)?"
+            rf"{re.escape(blocker)}(?:\s+is\s+{missing_state})?",
+            clause,
+            re.IGNORECASE,
+        )
+        explicit_missing_state = re.fullmatch(
+            rf"(?:(?:The\s+)?(?:executable\s+)?dependency\s+)?"
+            rf"{re.escape(blocker)}\s+is\s+{missing_state}",
+            clause,
+            re.IGNORECASE,
+        )
+        if missing_statement or explicit_missing_state:
+            return True
+    return False
 
 
 def _reason_identifies_blocker(
@@ -7732,6 +7976,18 @@ def _reason_dependency_is_source_bound(
         for dependency in louisiana_dependencies
     ):
         return False
+    for match in re.finditer(
+        r"\bde:policies/bzst-dakg-2025/numbered-sections/"
+        r"a-\d+(?:-\d+)+#[A-Za-z_][A-Za-z0-9_]*(?![A-Za-z0-9_:/#-])",
+        reason,
+    ):
+        if _source_bound_dakg_review_dependency(
+            reason,
+            source_scope_text,
+            match.group(0),
+            corpus_citation_path=corpus_citation_path,
+        ):
+            return True
     try:
         current_citation = parse_usc_citation(corpus_citation_path)
     except ValueError:
@@ -11871,7 +12127,7 @@ def _rulespec_target_base(corpus_citation_path: str) -> str:
         "statute": "statutes",
         "regulation": "regulations",
         "manual": "manuals",
-        "guidance": "guidance",
+        "guidance": "policies",
         "policy": "policies",
         "form": "forms",
     }.get(document_class, f"{document_class}s")
@@ -12111,9 +12367,42 @@ def _mask_spaced_german_sentence_labels(text: str) -> str:
     return text
 
 
-def authoritative_numeric_recall_text(source_text: str) -> str:
+def _worksheet_arithmetic_rows(source_text: str) -> tuple[re.Match[str], ...]:
+    """Recognize printed subtraction rows corroborated by a following line reference.
+
+    A five-digit form field code and repeated output-line reference distinguish
+    the output label from an arithmetic constant. Keep the following condition
+    intact: its threshold is substantive evidence, not form furniture.
+    """
+
+    return tuple(
+        re.finditer(
+            r"(?m)^[ \t]*[^\n;.!?]{1,240}:\s*"
+            r"line[ \t]+[1-9]\d{0,2}[ \t]+minus[ \t]+"
+            r"line[ \t]+[1-9]\d{0,2}[ \t]+\d{5}[ \t]*="
+            r"[ \t]*(?P<label>[1-9]\d{0,2})[ \t]*"
+            r"(?=\r?\n[ \t]*If the amount on line[ \t]+(?P=label)\b)",
+            source_text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _mask_numeric_spans(text: str, spans: Iterable[tuple[int, int]]) -> str:
+    for start, end in sorted(spans, reverse=True):
+        text = text[:start] + " " * (end - start) + text[end:]
+    return text
+
+
+def authoritative_numeric_recall_text(
+    source_text: str, *, corpus_citation_path: str = ""
+) -> str:
     """Remove structural/citation ordinals, never substantive source values."""
 
+    source_text = _mask_numeric_spans(
+        source_text,
+        (row.span("label") for row in _worksheet_arithmetic_rows(source_text)),
+    )
     cleaned = _mask_spaced_german_sentence_labels(
         _strip_terminal_session_law_history(source_text)
     )
@@ -12129,6 +12418,21 @@ def authoritative_numeric_recall_text(source_text: str) -> str:
                 marker_spans.append(match.span("label"))
         for start, end in sorted(set(marker_spans), reverse=True):
             cleaned = cleaned[:start] + " " * (end - start) + cleaned[end:]
+    if re.fullmatch(
+        r"us/guidance/irs/rev-proc-\d{4}-\d+(?:/page-\d+)?",
+        corpus_citation_path,
+    ):
+        # Revenue procedures label titled subsections .01, .02, etc. Corpus
+        # extraction can flatten these headings onto the preceding paragraph.
+        # Require both a paragraph/sentence boundary and a title ending in a
+        # period; ordinary leading-dot decimals remain substantive values.
+        cleaned = re.sub(
+            r"(?P<boundary>^|(?<=[.!?])\s+|\n[ \t]*)"
+            r"\.\d{2}(?=[ \t]+[A-Z][A-Za-z'-]*"
+            r"(?:[ \t]+(?:[A-Z][A-Za-z'-]*|as|of|for|and|or|the|to|in)){1,15}\.)",
+            lambda match: match.group("boundary") + " " * 3,
+            cleaned,
+        )
     footnote_definition = re.compile(
         r"(?P<boundary>(?:^|[.!?])\s*)(?P<marker>[1-9]\d?)"
         r"(?P<body>\s+[A-Z][^.!?]{0,640}\b"
@@ -12238,6 +12542,7 @@ def authoritative_numeric_recall_text(source_text: str) -> str:
     # Gazette parentheses must contain only the citation, never operative text.
     cleaned = _EU_REGULATION_NUMERIC_RECALL_CITATION.sub("", cleaned)
     cleaned = _GERMAN_GAZETTE_NUMERIC_RECALL_CITATION.sub("", cleaned)
+    cleaned = _BFH_DECISION_NUMERIC_RECALL_CITATION.sub("", cleaned)
     cleaned = _GERMAN_LEGAL_CITATION.sub("", cleaned)
     cleaned = _TITLE_SUFFIX_LEGAL_CITATION.sub("", cleaned)
     cleaned = _ENGLISH_LEGAL_CITATION.sub("", cleaned)
@@ -12743,6 +13048,8 @@ _SOURCE_GATE_DEPENDENT_NEGATIVE_PATTERNS = (
 )
 _SOURCE_GATE_DEPENDENT_POSITIVE_PATTERNS = (
     rf"(?:is|are|was|were)\s+{_SOURCE_GATE_DEPENDENT_OBJECT}",
+    rf"(?:is|are|was|were)\s+[a-z][a-z'-]*\s+and\s+"
+    rf"{_SOURCE_GATE_DEPENDENT_OBJECT}",
     rf"(?:(?:is|are|was|were)\s+)?claimed\s+(?:as\s+)?"
     rf"{_SOURCE_GATE_DEPENDENT_OBJECT}",
     rf"(?:can\s+be|eligible\s+to\s+be)\s+claimed\s+(?:as\s+)?"
@@ -12811,19 +13118,26 @@ def _source_gate_replace_guarded_yet(
     return "".join(pieces)
 
 
-def _source_gate_split_conjunctive_conditions(text: str) -> list[str]:
-    """Split conjunctions and the same bounded adversative boundaries."""
+def _source_gate_split_conjunctive_conditions(
+    text: str,
+) -> list[tuple[str | None, str]]:
+    """Split conjunctions while retaining the connector for polarity."""
 
     with_yet_boundaries = _source_gate_replace_guarded_yet(
         text,
         independent_replacement="\n",
         ambiguous_replacement=f"\n{_SOURCE_GATE_AMBIGUOUS_YET_MARKER} ",
     )
-    return [
-        part
-        for line in with_yet_boundaries.splitlines()
-        for part in _SOURCE_GATE_CONJUNCTIVE_SEPARATOR.split(line)
-    ]
+    segments: list[tuple[str | None, str]] = []
+    for line in with_yet_boundaries.splitlines():
+        prior_end = 0
+        connector: str | None = None
+        for match in _SOURCE_GATE_CONJUNCTIVE_SEPARATOR.finditer(line):
+            segments.append((connector, line[prior_end : match.start()]))
+            connector = match.group(0).casefold()
+            prior_end = match.end()
+        segments.append((connector, line[prior_end:]))
+    return segments
 
 
 def _source_gate_unwrap_negation(tokens: list[str]) -> tuple[list[str], int]:
@@ -13156,7 +13470,7 @@ def _source_conjunctive_fact_gates(
         return ()
     gates: list[tuple[frozenset[str], frozenset[str]]] = []
     inherited_entities: frozenset[str] = frozenset()
-    for segment in segments:
+    for connector, segment in segments:
         if re.search(
             r"\b(?:is|are|be)\s*(?:[-–—]|:)\s*$",
             segment,
@@ -13164,6 +13478,15 @@ def _source_conjunctive_fact_gates(
         ):
             continue
         tokens = _source_gate_semantic_tokens(segment)
+        if (
+            connector == "and"
+            and "unknown_dependent" in tokens
+            and re.match(r"^\s*dependent\s+(?:on|upon)\b", segment, re.IGNORECASE)
+        ):
+            # Coordinated adjective predicates lose their auxiliary after the
+            # split (``was disabled and dependent on``).  Promote only an
+            # ``and`` continuation; ``nor dependent on`` remains conservative.
+            tokens = frozenset((tokens - {"unknown_dependent"}) | {"dependent"})
         explicit_entities = tokens & _SOURCE_GATE_ENTITIES
         is_subject_continuation = bool(
             re.match(
@@ -13246,6 +13569,19 @@ def _source_proposition_bounds(text: str, start: int, end: int) -> tuple[int, in
         match.end()
         for match in re.finditer(
             r";|[.!?:](?=\s+(?:[A-Z(]|\d+\s*[.)]|\d+\s+(?:After|For)\b))",
+            text,
+        )
+    )
+    # Flattened forms can place a printed row label after sentence punctuation
+    # and before the next physical instruction line.  A trailing footnote plus
+    # subtraction sign is another explicit row-ending layout.  Keep decimal
+    # points and ordinary inline numeric prose outside these narrow patterns.
+    boundaries.extend(
+        match.end()
+        for match in re.finditer(
+            r"[.!?](?=(?:[ \t]+[1-9]\d{0,2}|"
+            r"\([1-9]\d?\)[ \t]+[–−-][ \t]+[1-9]\d{0,2})"
+            r"[ \t]*\r?\n[ \t]*[A-Z])",
             text,
         )
     )
@@ -13520,22 +13856,20 @@ def _source_condition_clauses_owned_by_excerpt(
         branch_path = branch.path if branch is not None else ()
         container_start = branch.start if branch is not None else 0
         container_end = branch.end if branch is not None else len(source_text)
-        if branch is not None:
-            # A parent chapeau commonly ends with a colon rather than sentence
-            # punctuation.  Keep its proposition local to the parent instead
-            # of absorbing the first structural child into the same condition.
-            # A proof excerpt located inside a child already resolves to that
-            # more-specific branch above, so this only bounds true chapeaux.
-            container_end = min(
-                (
-                    candidate.start
-                    for candidate in ownership_branches
-                    if len(candidate.path) == len(branch.path) + 1
-                    and candidate.path[: len(branch.path)] == branch.path
-                    and match.end() <= candidate.start < branch.end
-                ),
-                default=container_end,
-            )
+        # Keep a parent proposition before its first structural child.  The
+        # document preamble is also a parent: flattened worksheet punctuation
+        # must not absorb a later numbered footnote into an earlier formula.
+        # Excerpts inside a child already resolve to that narrower branch.
+        container_end = min(
+            (
+                candidate.start
+                for candidate in ownership_branches
+                if len(candidate.path) == len(branch_path) + 1
+                and candidate.path[: len(branch_path)] == branch_path
+                and match.end() <= candidate.start < container_end
+            ),
+            default=container_end,
+        )
         container_text = source_text[container_start:container_end]
         local_start = match.start() - container_start
         local_end = match.end() - container_start
@@ -15129,6 +15463,7 @@ def _companion_test_issues(
     formula_environment: dict[str, Any],
     source_bound_constant_occurrences: dict[str, tuple[NumericOccurrenceLike, ...]],
     declared_input_names: set[str],
+    calendar_date_declarations: Mapping[str, bool] | None = None,
 ) -> list[str]:
     issues: list[str] = []
     cases = [case for case in (test_cases or ()) if isinstance(case, dict)]
@@ -15362,9 +15697,12 @@ def _companion_test_issues(
             principal_rules,
             asserted_by_rule=asserted_by_rule,
             formula_environment=formula_environment,
+            calendar_date_declarations=calendar_date_declarations,
         )
         missing_exception_branches = _unwitnessed_exception_branches(
             paired_exception_branches,
+            source_text=source_text,
+            corpus_citation_path=corpus_citation_path,
             principal_rules=principal_rules,
             principal_rule_paths=principal_rule_paths,
             asserted_by_rule=asserted_by_rule,
@@ -15372,6 +15710,21 @@ def _companion_test_issues(
             extract_numeric_occurrences=extract_numeric_occurrences,
         )
         if missing_exception_branches:
+            recognized_pair_feedback = ""
+            if toggled_exception_selectors:
+                recognized_pairs = {
+                    witness.case_pair_identity
+                    for witness in toggled_exception_selectors
+                }
+                recognized_pair_feedback = (
+                    f" The evaluator recognized {len(toggled_exception_selectors)} "
+                    "directional formula-toggle witnesses from "
+                    f"{len(recognized_pairs)} distinct case pairs, but these do not "
+                    "cover every listed source condition. Check affected rule/path, "
+                    "source-selector relevance, active orientation, required effect, "
+                    "and distinct-condition witness allocation before adding cases. "
+                    "Recognized test pairs alone do not establish source coverage."
+                )
             missing_conditions = "; ".join(
                 f"{_branch_citation(corpus_citation_path, branch)} "
                 f"[{_source_exception_effect_requirement(branch.text)}]: `"
@@ -15384,7 +15737,7 @@ def _companion_test_issues(
                 "that assert the affected principal output and toggle its "
                 "controlling formula selector. Each listed condition needs its "
                 "own same-period case pair differing in exactly that one input; "
-                f"missing: {missing_conditions}."
+                f"missing: {missing_conditions}.{recognized_pair_feedback}"
             )
         missing_unconditional_branches = _unmatched_evidence_obligations(
             {
@@ -15542,6 +15895,9 @@ def _source_formula_branches(
 ) -> tuple[SourceStructureBranch, ...]:
     """Return every explicit computation clause with its structural owner."""
 
+    worksheet_labels = tuple(
+        row.span("label") for row in _worksheet_arithmetic_rows(source_text)
+    )
     obligations: list[SourceStructureBranch] = []
     for clause_index, (start, end, clause) in enumerate(
         _source_clause_spans(source_text, branches=branches),
@@ -15593,6 +15949,11 @@ def _source_formula_branches(
             clause,
             start,
             end,
+            structural_numeric_spans=tuple(
+                (label_start - start, label_end - start)
+                for label_start, label_end in worksheet_labels
+                if start <= label_start < label_end <= end
+            ),
         )
         if _rounding_clause_refers_to_previous_result(
             obligation,
@@ -15881,6 +16242,11 @@ def _source_clause_spans(
         match
         for match in boundary.finditer(boundary_text)
         if not _source_clause_boundary_splits_state_code_citation(source_text, match)
+        and not (
+            match.group() == "."
+            and re.search(r"(?<!\w)\d+\.$", source_text[: match.end()])
+            and re.match(r"\s+Lebensjahr(?:es|e|en)?\b", source_text[match.end() :])
+        )
         and not any(
             start < match.end() < end for start, end in inline_operand_list_spans
         )
@@ -15902,6 +16268,11 @@ def _source_clause_spans(
             for point in span
         ),
         *(match.end() for match in boundary_matches),
+        *(
+            point
+            for row in _worksheet_arithmetic_rows(source_text)
+            for point in (row.start(), row.end())
+        ),
         *(
             match.start()
             for match in re.finditer(
@@ -16607,7 +16978,9 @@ def _formula_branch_computation_occurrences(
     interval: _NumericInterval | None,
     extract_numeric_occurrences: NumericOccurrenceExtractor,
 ) -> tuple[NumericOccurrenceLike, ...]:
-    recall_text = authoritative_numeric_recall_text(branch.text)
+    recall_text = authoritative_numeric_recall_text(
+        _mask_numeric_spans(branch.text, branch.structural_numeric_spans)
+    )
     fractional_percentages = _source_fractional_percentage_occurrences(recall_text)
     fractional_spans = tuple(
         (occurrence.start, occurrence.end) for occurrence in fractional_percentages
@@ -16708,15 +17081,6 @@ def _formula_execution_is_source_branch_witness(
         execution is None
         or execution_environment is None
         or not _formula_execution_leaf_is_computational(execution)
-        or not _formula_execution_matches_source_branch(
-            execution,
-            branch,
-            interval=interval,
-            formula_environment=formula_environment,
-            execution_environment=execution_environment,
-            extract_numeric_occurrences=extract_numeric_occurrences,
-            numeric_value_is_grounded=numeric_value_is_grounded,
-        )
     ):
         return False
     if require_corroborated_dependencies and any(
@@ -16731,6 +17095,86 @@ def _formula_execution_is_source_branch_witness(
         )
     ):
         return False
+
+    def matches(binding_execution: _FormulaExecution) -> bool:
+        return _formula_execution_matches_source_branch(
+            binding_execution,
+            branch,
+            interval=interval,
+            formula_environment=formula_environment,
+            execution_environment=execution_environment,
+            extract_numeric_occurrences=extract_numeric_occurrences,
+            numeric_value_is_grounded=numeric_value_is_grounded,
+        )
+
+    if not matches(execution):
+        independent_environment = _case_dependency_environment(
+            principal_rules,
+            case,
+            formula_environment=formula_environment,
+            require_asserted_value=False,
+        )
+        independent_execution = _case_formula_execution(
+            rule,
+            case,
+            formula_environment=formula_environment,
+            dependency_environment=independent_environment,
+        )
+        if independent_execution is None or not (
+            _formula_execution_runtime_value(independent_execution)
+            is not _UNRESOLVED_CONDITION_VALUE
+            and _formula_runtime_values_equal(
+                _formula_execution_runtime_value(independent_execution),
+                _formula_execution_runtime_value(execution),
+            )
+            and independent_execution.trace == execution.trace
+        ):
+            return False
+        corroborated_rules = {}
+        for name, dependency in principal_rules.items():
+            if name not in dependency_environment:
+                continue
+            replay = _case_formula_execution(
+                dependency,
+                case,
+                formula_environment=formula_environment,
+                dependency_environment=independent_environment,
+            )
+            if replay is None or replay.currency_rounding is not None:
+                continue
+            value = _formula_execution_runtime_value(replay)
+            if value is _UNRESOLVED_CONDITION_VALUE or not (
+                _formula_runtime_values_equal(value, dependency_environment[name])
+                and _asserted_formula_runtime_values_equal(
+                    dependency, value, _test_case_asserted_output_value(case, name)
+                )
+            ):
+                continue
+            corroborated_rules[name] = dependency
+        expanded = _expand_reached_formula_dependencies(
+            execution.leaf,
+            principal_rules=corroborated_rules,
+            case=case,
+            formula_environment=formula_environment,
+            dependency_environment=independent_environment,
+        )
+        if expanded == execution.leaf:
+            return False
+        reached = _asserted_reached_rule_executions(
+            rule,
+            execution,
+            principal_rules=corroborated_rules,
+            case=case,
+            formula_environment=formula_environment,
+            dependency_environment=independent_environment,
+        )
+        binding_execution = replace(
+            execution,
+            leaf=expanded,
+            trace=tuple(step for _, replay in reached for step in replay.trace),
+        )
+        if not matches(binding_execution):
+            return False
     if interval is None:
         return True
     if execution.trace:
@@ -17788,6 +18232,76 @@ def _uncorroborated_formula_dependency_feedback(
     return detail
 
 
+def _reached_constant_comparison_values(
+    selector: str,
+    *,
+    constant_environment: dict[str, Any],
+    execution_environment: dict[str, Any] | None,
+) -> tuple[float, ...]:
+    """Credit complete additive constant bounds in evaluated comparisons only."""
+
+    if execution_environment is None:
+        return ()
+    expression = _parse_formula_expression(selector)
+    if expression is None:
+        return ()
+    values: list[float] = []
+
+    def additive_constant(node: ast.AST) -> bool:
+        if isinstance(node, ast.Constant):
+            return _rulespec_runtime_decimal(node.value) is not None
+        if isinstance(node, ast.Name):
+            return (
+                _rulespec_runtime_decimal(constant_environment.get(node.id)) is not None
+            )
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+            return additive_constant(node.operand)
+        return (
+            isinstance(node, ast.BinOp)
+            and isinstance(node.op, (ast.Add, ast.Sub))
+            and additive_constant(node.left)
+            and additive_constant(node.right)
+        )
+
+    def record(node: ast.expr) -> None:
+        # Literals/names are already collected. Never credit intermediate nodes
+        # or arithmetic involving a household input, even if it happens to fit.
+        if not isinstance(node, ast.BinOp) or not additive_constant(node):
+            return
+        value = _evaluate_condition_expression(node, constant_environment)
+        if _rulespec_runtime_decimal(value) is not None:
+            values.append(float(value))
+
+    def visit(node: ast.AST) -> None:
+        if isinstance(node, ast.BoolOp):
+            for item in node.values:
+                visit(item)
+                result = _evaluate_condition_expression(item, execution_environment)
+                if not isinstance(result, bool):
+                    return
+                if isinstance(node.op, ast.And) and not result:
+                    return
+                if isinstance(node.op, ast.Or) and result:
+                    return
+        elif isinstance(node, ast.Compare):
+            left = node.left
+            for operator, right in zip(node.ops, node.comparators):
+                result = _evaluate_condition_expression(
+                    ast.Compare(left=left, ops=[operator], comparators=[right]),
+                    execution_environment,
+                )
+                if not isinstance(result, bool):
+                    return
+                record(left)
+                record(right)
+                if not result:
+                    return
+                left = right
+
+    visit(expression)
+    return tuple(values)
+
+
 def _formula_execution_matches_source_branch(
     execution: _FormulaExecution,
     branch: SourceStructureBranch,
@@ -17924,6 +18438,15 @@ def _formula_execution_matches_source_branch(
         for evidence_text in evidence_texts
         for occurrence in extract_numeric_occurrences(evidence_text)
     )
+    candidate_values.extend(
+        value
+        for selector in reached_selector_texts
+        for value in _reached_constant_comparison_values(
+            selector,
+            constant_environment=binding_environment,
+            execution_environment=execution_environment,
+        )
+    )
     if (
         "multiply" in source_operations
         and "add" in artifact_operations
@@ -17931,12 +18454,30 @@ def _formula_execution_matches_source_branch(
         and _formula_is_duplicate_addition(operative_leaf)
     ):
         candidate_values.append(2.0)
+    # Locale-ambiguous tokens can have multiple readings at the same exact
+    # source span (e.g. 3.416 as a decimal or grouped thousands). They are
+    # alternatives, not independent quantities the formula must both contain.
+    # Keep distinct spans and typed contexts as separate evidence obligations.
+    evidence_groups: dict[tuple[Any, ...], list[NumericOccurrenceLike]] = {}
+    for occurrence in computation_occurrences:
+        key = (
+            occurrence.start,
+            occurrence.end,
+            occurrence.raw,
+            occurrence.has_rate_context,
+            occurrence.has_temporal_context,
+            occurrence.has_structural_context,
+            occurrence.requires_rate_context,
+            occurrence.is_word_number,
+        )
+        evidence_groups.setdefault(key, []).append(occurrence)
     return bool(candidate_values) and all(
         any(
             numeric_value_is_grounded(value, (source_occurrence,))
+            for source_occurrence in alternatives
             for value in candidate_values
         )
-        for source_occurrence in computation_occurrences
+        for alternatives in evidence_groups.values()
     )
 
 
@@ -18841,11 +19382,13 @@ def _case_formula_execution(
     formula_text = _rule_formula_text_for_case(rule, case)
     if formula_text is None:
         return None
-    return _execute_formula_text(
+    execution = _execute_formula_text(
         formula_text,
         environment=environment,
         constant_environment=constant_environment,
     )
+
+    return _apply_currency_output_rounding(rule, execution)
 
 
 def _case_input_formula_environment(
@@ -18933,9 +19476,10 @@ def _case_dependency_environment(
                 environment=environment,
                 constant_environment=constants,
             )
+            execution = _apply_currency_output_rounding(rule, execution)
             if execution is None:
                 continue
-            value = _evaluate_formula_selector(execution.leaf, environment)
+            value = _formula_execution_runtime_value(execution)
             if value is _UNRESOLVED_CONDITION_VALUE:
                 if not require_asserted_value:
                     continue
@@ -20357,6 +20901,8 @@ def _evaluate_rulespec_formula(
     def evaluate_call(function_name: str, arguments: list[Any]) -> Any:
         if any(value is _UNRESOLVED_CONDITION_VALUE for value in arguments):
             return _UNRESOLVED_CONDITION_VALUE
+        if function_name in {"date_add_days", "date_add_months", "date_add_years"}:
+            return _evaluate_calendar_call(function_name, arguments)
         numbers = [_rulespec_runtime_decimal(value) for value in arguments]
         try:
             if (
@@ -20384,6 +20930,34 @@ def _evaluate_rulespec_formula(
         return _UNRESOLVED_CONDITION_VALUE
 
     return resolve(parse_expression())
+
+
+def _evaluate_calendar_call(function_name: str, arguments: Sequence[Any]) -> Any:
+    """Evaluate pinned calendar shifts within Python's supported date range."""
+
+    if len(arguments) != 2 or type(arguments[0]) is not date:
+        return _UNRESOLVED_CONDITION_VALUE
+    number = _rulespec_runtime_decimal(arguments[1])
+    if number is None or number != number.to_integral_value():
+        return _UNRESOLVED_CONDITION_VALUE
+    offset = int(number)
+    if not -(2**63) <= offset < 2**63:
+        return _UNRESOLVED_CONDITION_VALUE
+    base = arguments[0]
+    with contextlib.suppress(ValueError, OverflowError):
+        if function_name == "date_add_days":
+            return date.fromordinal(base.toordinal() + offset)
+        if function_name not in {"date_add_months", "date_add_years"}:
+            return _UNRESOLVED_CONDITION_VALUE
+        months = offset * 12 if function_name == "date_add_years" else offset
+        if not -(2**63) <= months < 2**63 or abs(months) > 2**32 - 1:
+            return _UNRESOLVED_CONDITION_VALUE
+        year, month_index = divmod(base.year * 12 + base.month - 1 + months, 12)
+        if not 1 <= year <= 9999:
+            return _UNRESOLVED_CONDITION_VALUE
+        month = month_index + 1
+        return date(year, month, min(base.day, calendar.monthrange(year, month)[1]))
+    return _UNRESOLVED_CONDITION_VALUE
 
 
 def _rulespec_runtime_decimal(value: Any) -> Decimal | None:
@@ -22299,7 +22873,7 @@ def _formula_conjoined_bound(
     normalized_upper_gap = " ".join(upper_gap.replace(",", " , ").split())
     gap_match = re.fullmatch(
         r"(?:(?:dollars?|usd|euros?|eur) )?(?:, )?"
-        r"(?:and|but|und) (?P<body>.+)",
+        r"(?:and|but|und|aber) (?P<body>.+)",
         normalized_upper_gap,
         flags=re.IGNORECASE,
     )
@@ -22518,6 +23092,10 @@ def _formula_bound_from_comparison(
         "not greater than or equal to",
         "remain below",
         "under",
+        "under age",
+        "under age of",
+        "under the age",
+        "under the age of",
         "up to but not including",
         "up to but excluding",
         "von weniger als",
@@ -22835,11 +23413,23 @@ def _formula_has_unequal_english_parenthetical_amount(text: str) -> bool:
     return False
 
 
+def _mask_quoted_integer_delimiters(text: str) -> str:
+    """Preserve a quoted integer threshold and its offsets, including PDF commas."""
+
+    spans = (
+        span
+        for match in re.finditer(r'"[+-]?\d+,?"|“[+-]?\d+,?”', text)
+        for span in ((match.start(), match.start() + 1), (match.end() - 1, match.end()))
+    )
+    return _mask_numeric_spans(text, spans)
+
+
 def _formula_interval_from_text(
     text: str,
     *,
     extract_numeric_occurrences: NumericOccurrenceExtractor,
 ) -> _NumericInterval | None:
+    text = _mask_quoted_integer_delimiters(text)
     if _formula_has_unequal_english_parenthetical_amount(text):
         return None
     lowered = text.lower()
@@ -22861,7 +23451,7 @@ def _formula_interval_from_text(
             r"mehr\s+als|weniger\s+als|"
             r"von(?!\s+(?:mehr\s+als|weniger\s+als|höchstens|mindestens|"
             r"nicht\s+mehr\s+als|über|unter))|"
-            r"from|unter|"
+            r"from|unter|under|"
             r"less\s+than\s+or\s+equal\s+to|"
             r"equal\s+to\s+or\s+less\s+than|no\s+(?:greater|higher|larger|more)\s+than|"
             r"not\s+(?:greater|higher|larger|more)\s+than|not\s+(?:in\s+excess\s+of|over)|"
@@ -23003,9 +23593,9 @@ def _formula_interval_from_text(
         if spelled_parenthetical_gap is not None or re.fullmatch(
             r"\s*(?:\$|€|£|usd|eur|gbp)?\s*(?:(?:zu|bis)\s+)?"
             r"(?:(?:einschließlich|maximal|inklusive|including|maximum)\s+)?"
-            r"(?:(?:einem?|einer|dem|der|das)\s+)?"
+            r"(?:(?:a|an|the|einem?|einer|dem|der|das)\s+)?"
             r"(?:(?:zu\s+versteuernd\w*|maßgeblich\w*)\s+)?"
-            r"(?:(?:einkommen|betrag|wert|income|amount)\s+)?"
+            r"(?:(?:einkommen|betrag|wert|income|amount|age)\s+)?"
             r"(?:(?:von|of)\s+)?"
             r"(?:(?:einschließlich|maximal|inklusive|including|maximum)\s+)?",
             first_gap,
@@ -23082,7 +23672,7 @@ def _formula_interval_from_text(
             return _NumericInterval(second, inclusive, None, False)
         return _NumericInterval(None, False, second, inclusive)
     if re.match(
-        r"(?:unter|less\s+than(?!\s+or\s+equal\s+to)|below|"
+        r"(?:unter|under|less\s+than(?!\s+or\s+equal\s+to)|below|"
         r"(?:von\s+)?weniger\s+als)\b",
         lowered_range,
     ):
@@ -24113,6 +24703,8 @@ def _rounding_source_formula_branches(
 def _unwitnessed_exception_branches(
     exception_branches: Sequence[SourceStructureBranch],
     *,
+    source_text: str = "",
+    corpus_citation_path: str = "",
     principal_rules: dict[str, dict[str, Any]],
     principal_rule_paths: dict[str, set[tuple[str, ...]]],
     asserted_by_rule: dict[str, list[dict[str, Any]]],
@@ -24122,6 +24714,8 @@ def _unwitnessed_exception_branches(
     candidate_witnesses = {
         branch: _exception_witnesses_for_branch(
             branch,
+            source_text=source_text,
+            corpus_citation_path=corpus_citation_path,
             principal_rules=principal_rules,
             principal_rule_paths=principal_rule_paths,
             asserted_by_rule=asserted_by_rule,
@@ -24186,9 +24780,99 @@ def _unconditional_nonapplicability_witnesses(
     return witnesses
 
 
+def _worksheet_notice_selector_is_relevant(
+    branch: SourceStructureBranch,
+    witness: _ExceptionWitness,
+    *,
+    principal_rules: dict[str, dict[str, Any]],
+    source_text: str,
+    corpus_citation_path: str,
+    numeric_interval: _NumericInterval | None,
+) -> bool:
+    """Bind a derived worksheet output to an adjacent affirmative notice condition."""
+    if (
+        not source_text
+        or not corpus_citation_path
+        or witness.numeric_transition is None
+    ):
+        return False
+    condition = _collapse_text(branch.text)
+    reference = re.match(r"If the amount on line ([1-9]\d{0,2})\b", condition, re.I)
+    if (
+        reference is None
+        or not re.fullmatch(
+            r"If the amount on line [1-9]\d{0,2} is (?:more than|at least) "
+            r"[+-]?\d+(?:\.\d+)?\s*,?\s+"
+            r"(?:the [a-z][a-z ]{0,100} will show it on your notice of assessment|"
+            r"show it on the notice)\.?",
+            _collapse_text(_mask_quoted_integer_delimiters(condition)),
+            re.I,
+        )
+        or not witness.boolean_effect
+        or witness.blocks
+        or numeric_interval is None
+        or numeric_interval.lower is None
+        or numeric_interval.upper is not None
+    ):
+        return False
+    rows = [
+        row
+        for row in _worksheet_arithmetic_rows(source_text)
+        if row.group("label") == reference.group(1)
+    ]
+    if len(rows) != 1:
+        return False
+    row = rows[0]
+    if row.end() > branch.start or source_text[row.end() : branch.start].strip():
+        return False
+    selector = principal_rules.get(witness.selector_name)
+    affected = principal_rules.get(witness.rule_name)
+    if (
+        selector is None
+        or affected is None
+        or any(len(rule.get("versions", [])) != 1 for rule in (selector, affected))
+    ):
+        return False
+    row_text = _collapse_text(row.group()).strip()
+    arithmetic_prefix = re.sub(r"\s+\d{5}\s*=\s*\d+\s*$", "", row_text)
+    if not any(
+        citation == corpus_citation_path
+        and _collapse_text(excerpt).strip() in {row_text, arithmetic_prefix}
+        for citation, excerpt in _rule_formula_source_excerpts(selector)
+    ):
+        return False
+    if not any(
+        citation == corpus_citation_path
+        and _collapse_text(excerpt).strip() == condition
+        for citation, excerpt in _rule_formula_source_excerpts(affected)
+    ):
+        return False
+    try:
+        formula = ast.parse(_rule_formula_text(affected).strip(), mode="eval").body
+    except (SyntaxError, ValueError):
+        return False
+    # Boundary samples cannot prove a different comparison or a different cutoff.
+    return (
+        isinstance(formula, ast.Compare)
+        and isinstance(formula.left, ast.Name)
+        and formula.left.id == witness.selector_name
+        and len(formula.ops) == 1
+        and isinstance(
+            formula.ops[0], ast.GtE if numeric_interval.lower_inclusive else ast.Gt
+        )
+        and len(formula.comparators) == 1
+        and isinstance(formula.comparators[0], ast.Constant)
+        and not isinstance(formula.comparators[0].value, bool)
+        and isinstance(formula.comparators[0].value, (int, float))
+        and formula.comparators[0].value == numeric_interval.lower.value
+    )
+
+
 def _exception_witnesses_for_branch(
     branch: SourceStructureBranch,
     *,
+    source_text: str = "",
+    corpus_citation_path: str = "",
     principal_rules: dict[str, dict[str, Any]],
     principal_rule_paths: dict[str, set[tuple[str, ...]]],
     asserted_by_rule: dict[str, list[dict[str, Any]]],
@@ -24216,30 +24900,35 @@ def _exception_witnesses_for_branch(
         for witness in toggled_exception_selectors
         if witness.rule_name in affecting_rules
         and (
-            _numeric_exception_witness_matches_source(
-                branch,
-                witness,
-                extract_numeric_occurrences=extract_numeric_occurrences,
-            )
-            if witness.numeric_transition is not None
+            _calendar_age_witness_matches_source(condition_text, witness)
+            if witness.calendar_attainment_age is not None
             else (
-                (
-                    numeric_interval is None
-                    or not _selector_targets_numeric_condition(
+                _numeric_exception_witness_matches_source(
+                    branch,
+                    witness,
+                    extract_numeric_occurrences=extract_numeric_occurrences,
+                )
+                if witness.numeric_transition is not None
+                else (
+                    (
+                        numeric_interval is None
+                        or not _selector_targets_numeric_condition(
+                            condition_text,
+                            witness.selector_name,
+                            numeric_interval=numeric_interval,
+                        )
+                    )
+                    and witness.active_value
+                    == _source_exception_selector_active_value(
                         condition_text,
                         witness.selector_name,
-                        numeric_interval=numeric_interval,
                     )
-                )
-                and witness.active_value
-                == _source_exception_selector_active_value(
-                    condition_text,
-                    witness.selector_name,
                 )
             )
         )
         and (
-            _source_exception_selector_is_relevant(
+            witness.calendar_attainment_age is not None
+            or _source_exception_selector_is_relevant(
                 condition_text,
                 witness.selector_name,
                 supporting_texts=tuple(
@@ -24248,6 +24937,14 @@ def _exception_witnesses_for_branch(
                         principal_rules[witness.rule_name]
                     )
                 ),
+            )
+            or _worksheet_notice_selector_is_relevant(
+                branch,
+                witness,
+                principal_rules=principal_rules,
+                source_text=source_text,
+                corpus_citation_path=corpus_citation_path,
+                numeric_interval=numeric_interval,
             )
             or _source_exception_composite_witness_is_relevant(
                 condition_text,
@@ -24309,6 +25006,19 @@ def _source_exception_condition_text(text: str) -> str:
     """Return the condition region without the ordinary claim subject."""
 
     clause = _strip_source_clause_marker(text)
+    medical_age_condition = re.fullmatch(
+        r"Aus der Bescheinigung bzw\. dem Gutachten muss Folgendes hervorgehen: "
+        r"[−–-] Vorliegen der Behinderung, "
+        r"[−–-] Beginn der Behinderung, "
+        r"(?P<condition>soweit das Kind das \d+\. Lebensjahr vollendet hat), und "
+        r"[−–-] Auswirkungen der Behinderung auf die Erwerbsfähigkeit des Kindes\.",
+        _collapse_text(clause),
+        flags=re.IGNORECASE,
+    )
+    if medical_age_condition is not None:
+        # Only the onset item is age-qualified.  The following complete list
+        # item remains an independent requirement of the original source.
+        return medical_age_condition.group("condition")
     notwithstanding_tail = _louisiana_notwithstanding_reference_tail(clause)
     if notwithstanding_tail is not None:
         return notwithstanding_tail
@@ -24809,6 +25519,14 @@ def _source_exception_selector_is_relevant(
 
     normalized_name = _normalized_selector_name(name)
     collapsed = _collapse_text(text).lower()
+    if "age" in normalized_name.split("_") and re.search(r"\bage\b", collapsed):
+        return True
+    if _source_age_relative_deviation_predicate(
+        collapsed, normalized_name
+    ) or _source_impairment_expectation_predicate(collapsed, normalized_name):
+        return True
+    if _source_disability_payment_proof_predicate(collapsed, normalized_name):
+        return True
     distinctive_tokens = _source_selector_distinctive_tokens(normalized_name)
     if len(distinctive_tokens) <= 2 and _source_selector_concept_matches(
         collapsed, normalized_name
@@ -24839,6 +25557,60 @@ def _source_exception_selector_is_relevant(
             for supporting_text in supporting_texts
         )
     return _source_selector_relevance_matches(collapsed, normalized_name)
+
+
+def _source_age_relative_deviation_predicate(
+    text: str,
+    normalized_name: str,
+) -> re.Match[str] | None:
+    """Match one bilingual comparison, preserving its entire condition scope."""
+
+    if not re.fullmatch(
+        r"body_(?:or|and)_health_condition_(?:does_)?(?:not_)?"
+        r"(?:deviates?|differs?)_from_age_typical_condition",
+        normalized_name,
+    ):
+        return None
+    return re.fullmatch(
+        r"(?:(?:wenn|falls|sofern)\s+)?der\s+körper-\s+und\s+"
+        r"gesundheitszustand\s+von\s+dem\s+für\s+das\s+lebensalter\s+"
+        r"typischen\s+zustand\s+(?P<negation>nicht\s+)?abweicht\.?",
+        _collapse_text(text).lower(),
+    )
+
+
+def _source_impairment_expectation_predicate(
+    text: str,
+    normalized_name: str,
+) -> re.Match[str] | None:
+    """Match the complete expected-impairment predicate, not its evidence."""
+
+    if not re.fullmatch(r"impairment_(?:is_)?(?:not_)?expected", normalized_name):
+        return None
+    return re.fullmatch(
+        r"(?:(?:wenn|falls|sofern)\s+)?eine\s+beeinträchtigung\s+"
+        r"nach\s+satz\s+1\s+(?P<negation>nicht\s+)?zu\s+erwarten\s+ist\.?",
+        _collapse_text(text).lower(),
+    )
+
+
+def _source_disability_payment_proof_predicate(
+    text: str,
+    normalized_name: str,
+) -> re.Match[str] | None:
+    """Link the complete pension-evidence condition across its two languages."""
+
+    if not re.fullmatch(
+        r"pension_or_ongoing_payment_is_stated_as_due_because_of_disability",
+        normalized_name,
+    ):
+        return None
+    return re.fullmatch(
+        r"wenn dem kind wegen seiner behinderung nach den gesetzlichen "
+        r"vorschriften renten oder andere laufende bezüge zustehen, "
+        r"durch den rentenbescheid oder einen entsprechenden bescheid[,\.]?",
+        _collapse_text(text).lower(),
+    )
 
 
 def _source_selector_distinctive_tokens(normalized_name: str) -> tuple[str, ...]:
@@ -25124,14 +25896,31 @@ def _source_exception_selector_active_value(text: str, name: str) -> bool:
 
     normalized_name = _normalized_selector_name(name)
     collapsed = _collapse_text(text).lower()
+    bilingual_predicate = _source_age_relative_deviation_predicate(
+        collapsed, normalized_name
+    ) or _source_impairment_expectation_predicate(collapsed, normalized_name)
+    if bilingual_predicate is not None:
+        source_is_positive = bilingual_predicate.group("negation") is None
+        selector_is_positive = not (
+            _selector_identifier_negation_count(normalized_name) % 2
+        )
+        return source_is_positive == selector_is_positive
     source_polarity = _source_selector_concept_polarity(
         collapsed,
         normalized_name,
     )
-    if source_polarity is None and _source_selector_has_explicitly_negated_action(
+    explicitly_negated_action = _source_selector_has_explicitly_negated_action(
         collapsed,
         normalized_name,
+    )
+    failed_action = _source_selector_has_failed_action(collapsed, normalized_name)
+    if failed_action:
+        source_polarity = -1
+    elif explicitly_negated_action and not (
+        _selector_identifier_negation_count(normalized_name) % 2
     ):
+        source_polarity = -1
+    elif source_polarity is None and explicitly_negated_action:
         source_polarity = -1
     if source_polarity is not None:
         selector_polarity = (
@@ -25164,6 +25953,28 @@ def _source_selector_has_explicitly_negated_action(
             for token in tokens
         )
         for match in negated_actions
+    )
+
+
+def _source_selector_has_failed_action(text: str, normalized_name: str) -> bool:
+    """Recognize ``fails to provide`` as the negative of ``provided``."""
+
+    tokens = _source_selector_distinctive_tokens(normalized_name)
+    failed_actions = re.finditer(
+        r"\bfails?\s+to\s+(?P<action>[a-z][a-z'-]*)\b",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return any(
+        any(
+            _source_selector_token_matches(
+                match.group("action"),
+                token,
+                selector_tokens=tokens,
+            )
+            for token in tokens
+        )
+        for match in failed_actions
     )
 
 
@@ -25203,7 +26014,9 @@ def _numeric_exception_witness_matches_source(
     if transition is None:
         return False
     interval = _formula_interval_from_text(
-        authoritative_numeric_recall_text(branch.text),
+        authoritative_numeric_recall_text(
+            _source_exception_condition_text(branch.text)
+        ),
         extract_numeric_occurrences=extract_numeric_occurrences,
     )
     if interval is None:
@@ -25668,6 +26481,7 @@ def _toggled_formula_boolean_selectors(
     *,
     asserted_by_rule: dict[str, list[dict[str, Any]]],
     formula_environment: dict[str, Any],
+    calendar_date_declarations: Mapping[str, bool] | None = None,
 ) -> set[_ExceptionWitness]:
     toggled: set[_ExceptionWitness] = set()
     for rule_name, rule in principal_rules.items():
@@ -25741,7 +26555,280 @@ def _toggled_formula_boolean_selectors(
     )
     toggled.update(_composed_numeric_dependency_witnesses(toggled, numeric_witnesses))
     toggled.update(numeric_witnesses)
+    toggled.update(
+        _toggled_formula_calendar_age_selectors(
+            principal_rules,
+            asserted_by_rule=asserted_by_rule,
+            formula_environment=formula_environment,
+            calendar_date_declarations=calendar_date_declarations,
+        )
+    )
     return toggled
+
+
+def _calendar_age_witness_matches_source(text: str, witness: _ExceptionWitness) -> bool:
+    """Bind a typed calendar transition to the complete attained-age condition."""
+
+    match = re.fullmatch(
+        r"soweit das Kind das (\d{1,3})\. Lebensjahr vollendet hat\.?",
+        _collapse_text(text),
+        flags=re.IGNORECASE,
+    )
+    return bool(
+        match
+        and witness.active_value
+        and witness.numeric_transition is None
+        and witness.calendar_attainment_age == int(match.group(1))
+    )
+
+
+def _calendar_date_declarations(payload: Mapping[str, Any]) -> dict[str, bool]:
+    """Keep declaration provenance even when YAML already decoded a date value."""
+
+    declarations: dict[str, list[tuple[str, Any]]] = {}
+    for field in ("inputs", "rules"):
+        records = payload.get(field, [])
+        if not isinstance(records, list):
+            return {}
+        for record in records:
+            if isinstance(record, dict) and isinstance(record.get("name"), str):
+                declarations.setdefault(record["name"], []).append(
+                    (field, record.get("dtype"))
+                )
+    return {
+        name: records == [("inputs", "Date")] for name, records in declarations.items()
+    }
+
+
+def _calendar_attainment_basis(
+    rule: dict[str, Any],
+    case: dict[str, Any],
+    *,
+    birth_name: str,
+    formula_environment: dict[str, Any],
+) -> int | None:
+    """Recognize an explicit leap-corrected birthday calculation, not a label."""
+
+    if rule.get("dtype") != "Date" or not re.fullmatch(
+        r"(?:(?:subject|current)_)?(?:child|kind)_"
+        r"(?:(?:recorded|registered|observed)_)?"
+        r"(?:birth_date|date_of_birth|geburtsdatum)",
+        birth_name,
+    ):
+        return None
+    formula = _rule_formula_text_for_case(rule, case)
+    if formula is None:
+        return None
+    compact = re.sub(r"\s+", "", formula)
+    match = re.fullmatch(
+        r"ifdate_add_years\(date_add_years\("
+        + re.escape(birth_name)
+        + r",(?P<age>[A-Za-z_][A-Za-z0-9_]*|\d+)\),-(?P=age)\)!="
+        + re.escape(birth_name)
+        + r":date_add_days\(date_add_years\("
+        + re.escape(birth_name)
+        + r",(?P=age)\),1\)else:date_add_years\("
+        + re.escape(birth_name)
+        + r",(?P=age)\)",
+        compact,
+    )
+    if match is None:
+        return None
+    # Offsets come from literal syntax or encoded constants, never case inputs.
+    value = _evaluate_rulespec_formula(
+        match.group("age"),
+        environment=_formula_environment_for_case(formula_environment, case),
+    )
+    number = _rulespec_runtime_decimal(value)
+    if number is None or number != number.to_integral_value() or not 0 < number < 200:
+        return None
+    return int(number)
+
+
+def _toggled_formula_calendar_age_selectors(
+    principal_rules: dict[str, dict[str, Any]],
+    *,
+    asserted_by_rule: dict[str, list[dict[str, Any]]],
+    formula_environment: dict[str, Any],
+    calendar_date_declarations: Mapping[str, bool] | None = None,
+) -> set[_ExceptionWitness]:
+    """Trace a single Date input through an executed local birthday dependency."""
+
+    witnesses: set[_ExceptionWitness] = set()
+    for rule_name, rule in principal_rules.items():
+        cases = asserted_by_rule.get(rule_name, ())
+        for left_index, left_case in enumerate(cases):
+            for right_case in cases[left_index + 1 :]:
+                period = _case_runtime_period_start(left_case)
+                if (
+                    type(period) is not date
+                    or left_case.get("period") != right_case.get("period")
+                    or not _cases_differ_by_one_input(left_case, right_case)
+                    or not _cases_have_same_output_keys(left_case, right_case)
+                ):
+                    continue
+                left_inputs = left_case["input"]
+                right_inputs = right_case["input"]
+                changed_key = next(
+                    key
+                    for key in left_inputs
+                    if not _formula_runtime_values_equal(
+                        left_inputs[key], right_inputs[key]
+                    )
+                )
+                if (
+                    type(left_inputs[changed_key]) is not date
+                    or type(right_inputs[changed_key]) is not date
+                ):
+                    continue
+                birth_names = (
+                    _input_key_names(changed_key)
+                    & (calendar_date_declarations or {}).keys()
+                )
+                if len(birth_names) != 1 or not all(
+                    calendar_date_declarations[name] for name in birth_names
+                ):
+                    continue
+                formula = _rule_formula_text_for_case(rule, left_case)
+                if formula is None or formula != _rule_formula_text_for_case(
+                    rule, right_case
+                ):
+                    continue
+                formula_names = _FORMULA_IDENTIFIER.findall(formula)
+                dependency_names = set(formula_names) & principal_rules.keys() - {
+                    rule_name
+                }
+                # Reconstruct local values without importing an expected assertion
+                # into an unresolved formula, including through intermediate rules.
+                environments = [
+                    _case_dependency_environment(
+                        principal_rules,
+                        case,
+                        formula_environment=formula_environment,
+                        require_asserted_value=False,
+                    )
+                    for case in (left_case, right_case)
+                ]
+                runtimes = [
+                    _formula_case_runtime_environment(
+                        case,
+                        dependency_environment=dependencies,
+                        formula_environment=formula_environment,
+                    )
+                    for case, dependencies in zip((left_case, right_case), environments)
+                ]
+                if any(runtime is None for runtime in runtimes):
+                    continue
+                executions = [
+                    _case_formula_execution(
+                        rule,
+                        case,
+                        formula_environment=formula_environment,
+                        dependency_environment=dependencies,
+                    )
+                    for case, dependencies in zip((left_case, right_case), environments)
+                ]
+                if any(execution is None for execution in executions):
+                    continue
+                values = [
+                    _formula_execution_runtime_value(execution)
+                    for execution in executions
+                ]
+                if not all(
+                    _asserted_formula_runtime_values_equal(
+                        rule, value, _test_case_asserted_output_value(case, rule_name)
+                    )
+                    for case, value in zip((left_case, right_case), values)
+                ) or not _exception_effect_changes(*values):
+                    continue
+                for birthday_name in dependency_names:
+                    if formula_names.count(birthday_name) != 1:
+                        continue
+                    # Other directly read values must be fixed: a coincident date
+                    # relation in an unreachable branch cannot explain the effect.
+                    if any(
+                        not _formula_runtime_values_equal(
+                            runtimes[0].get(name), runtimes[1].get(name)
+                        )
+                        for name in set(formula_names) - {birthday_name}
+                    ):
+                        continue
+                    birthdays = [
+                        environment.get(birthday_name) for environment in environments
+                    ]
+                    if not all(type(birthday) is date for birthday in birthdays):
+                        continue
+                    if not all(
+                        (
+                            asserted := _test_case_asserted_output_value(
+                                case, birthday_name
+                            )
+                        )
+                        is _UNRESOLVED_CONDITION_VALUE
+                        or _asserted_formula_runtime_values_equal(
+                            principal_rules[birthday_name], birthday, asserted
+                        )
+                        for case, birthday in zip((left_case, right_case), birthdays)
+                    ):
+                        continue
+                    mature = [period >= birthday for birthday in birthdays]
+                    if mature[0] == mature[1]:
+                        continue
+                    for birth_name in birth_names:
+                        ages = [
+                            _calendar_attainment_basis(
+                                principal_rules[birthday_name],
+                                case,
+                                birth_name=birth_name,
+                                formula_environment=formula_environment,
+                            )
+                            for case in (left_case, right_case)
+                        ]
+                        if ages[0] is None or ages[0] != ages[1]:
+                            continue
+                        relations = [
+                            _formula_execution_relational_values(
+                                execution,
+                                environment=runtime,
+                                changed_names={birthday_name},
+                            )
+                            for execution, runtime in zip(executions, runtimes)
+                        ]
+                        valid_relations = {
+                            ("period_start", ">=", birthday_name): mature,
+                            (birthday_name, "<=", "period_start"): mature,
+                            ("period_start", "<", birthday_name): [
+                                not value for value in mature
+                            ],
+                            (birthday_name, ">", "period_start"): [
+                                not value for value in mature
+                            ],
+                        }
+                        if not any(
+                            [relation.get(descriptor) for relation in relations]
+                            == expected
+                            for descriptor, expected in valid_relations.items()
+                        ):
+                            continue
+                        older = 0 if mature[0] else 1
+                        ordinary, exception = values[1 - older], values[older]
+                        witnesses.add(
+                            _ExceptionWitness(
+                                rule_name,
+                                birth_name,
+                                True,
+                                _exception_effect_is_blocking(ordinary, exception),
+                                _boolean_value(ordinary) is not None
+                                and _boolean_value(exception) is not None,
+                                _exception_effect_is_zero(exception),
+                                None,
+                                case_pair_identity=_case_pair_identity(
+                                    left_case, right_case
+                                ),
+                                calendar_attainment_age=ages[0],
+                            )
+                        )
+    return witnesses
 
 
 def _composed_numeric_dependency_witnesses(
@@ -25838,8 +26925,11 @@ def _toggled_formula_numeric_selectors(
                     or not isinstance(right_value, (int, float))
                 ):
                     continue
-                changed_names = _input_key_names(changed_key) & selector_names
-                if not changed_names:
+                direct_names = _input_key_names(changed_key) & selector_names - set(
+                    principal_rules
+                )
+                derived_names = selector_names & set(principal_rules) - {rule_name}
+                if not direct_names and not derived_names:
                     continue
                 left_dependencies = _case_asserted_dependency_environment(
                     principal_rules,
@@ -25851,6 +26941,53 @@ def _toggled_formula_numeric_selectors(
                     right_case,
                     formula_environment=formula_environment,
                 )
+                selector_values = {
+                    name: (float(left_value), float(right_value))
+                    for name in direct_names
+                }
+                if derived_names:
+                    # An asserted value alone is not execution evidence. Replay
+                    # locally without opaque-import assertion fallbacks as well
+                    # as requiring the entire reached chain to be asserted.
+                    left_replayed = _case_dependency_environment(
+                        principal_rules,
+                        left_case,
+                        formula_environment=formula_environment,
+                        require_asserted_value=False,
+                    )
+                    right_replayed = _case_dependency_environment(
+                        principal_rules,
+                        right_case,
+                        formula_environment=formula_environment,
+                        require_asserted_value=False,
+                    )
+                    for name in derived_names:
+                        pair = (
+                            left_dependencies.get(name),
+                            right_dependencies.get(name),
+                        )
+                        if (
+                            any(
+                                isinstance(value, bool)
+                                or not isinstance(value, (int, float, Decimal))
+                                or not math.isfinite(value)
+                                for value in pair
+                            )
+                            or name not in left_replayed
+                            or name not in right_replayed
+                            or not _formula_runtime_values_equal(
+                                pair[0], left_replayed[name]
+                            )
+                            or not _formula_runtime_values_equal(
+                                pair[1], right_replayed[name]
+                            )
+                            or _formula_runtime_values_equal(*pair)
+                        ):
+                            continue
+                        selector_values[name] = (float(pair[0]), float(pair[1]))
+                changed_names = set(selector_values)
+                if not changed_names:
+                    continue
                 stable_asserted_dependencies = (
                     _case_pair_stable_asserted_formula_dependencies(
                         rule_name,
@@ -25972,15 +27109,15 @@ def _toggled_formula_numeric_selectors(
                         (
                             left_runtime,
                             right_runtime,
-                            float(left_value),
-                            float(right_value),
+                            selector_values[selector_name][0],
+                            selector_values[selector_name][1],
                             left_to_right_relations,
                         ),
                         (
                             right_runtime,
                             left_runtime,
-                            float(right_value),
-                            float(left_value),
+                            selector_values[selector_name][1],
+                            selector_values[selector_name][0],
                             right_to_left_relations,
                         ),
                     ):
@@ -26458,6 +27595,12 @@ def _case_formula_execution_with_boolean_selector(
 def _formula_execution_runtime_value(execution: _FormulaExecution) -> Any:
     if execution.evaluated_value is not None:
         value_type, raw_value = execution.evaluated_value
+        if value_type == "date":
+            match = re.fullmatch(r"datetime\.date\((\d+), (\d+), (\d+)\)", raw_value)
+            if match is not None:
+                with contextlib.suppress(ValueError, OverflowError):
+                    return date(*(int(part) for part in match.groups()))
+            return _UNRESOLVED_CONDITION_VALUE
         if value_type == "Decimal" and raw_value.startswith("Decimal('"):
             with contextlib.suppress(InvalidOperation, ValueError):
                 return Decimal(raw_value[9:-2])
@@ -26945,6 +28088,18 @@ def _closed_rounding_arithmetic_environment(
             value = _evaluate_formula_selector(
                 ast.unparse(expression.body), environment
             )
+            if rules[name].get("rounding") is not None:
+                execution = _apply_currency_output_rounding(
+                    rules[name],
+                    _execute_formula_text(
+                        ast.unparse(expression.body),
+                        environment=environment,
+                        constant_environment=environment,
+                    ),
+                )
+                if execution is None:
+                    continue
+                value = _formula_execution_runtime_value(execution)
             if _rulespec_runtime_decimal(value) is None:
                 continue
             if name in inputs and not _formula_runtime_values_equal(
@@ -26999,6 +28154,17 @@ def _closed_fractional_rounding_operand_witness(
     )
 
 
+def _currency_rounding_matches_direction(
+    spec: _CurrencyRounding | None, direction: str
+) -> bool:
+    return (
+        spec is not None
+        and spec.minor_units == 0
+        and spec.mode
+        == {"nearest": "half_up", "downward": "floor", "upward": "ceil"}.get(direction)
+    )
+
+
 def _rule_implements_rounding(
     rule: dict[str, Any],
     direction: str,
@@ -27006,6 +28172,10 @@ def _rule_implements_rounding(
     environment: dict[str, Any] | None = None,
     case: dict[str, Any] | None = None,
 ) -> bool:
+    if isinstance(rule, _CurrencyRoundingRule) and _currency_rounding_matches_direction(
+        rule.resolved_currency_rounding, direction
+    ):
+        return True
     formula_text = (
         _rule_formula_text(rule)
         if case is None
@@ -27069,6 +28239,15 @@ def _fractional_rounding_case_witnesses(
             environment=parameter_environment,
         ):
             continue
+        metadata_rounding = _currency_rounding_matches_direction(
+            execution.currency_rounding, direction
+        )
+        if metadata_rounding and not _asserted_formula_runtime_values_equal(
+            rule,
+            _formula_execution_runtime_value(execution),
+            _test_case_asserted_output_value(case, rule_name),
+        ):
+            continue
         reached_executions = _asserted_reached_rule_executions(
             rule,
             execution,
@@ -27098,16 +28277,25 @@ def _fractional_rounding_case_witnesses(
         evaluation_environment = dict(execution.constant_environment)
         evaluation_environment.update(dependency_environment)
         evaluation_environment.update(input_environment)
-        for function_name, operand in _rounding_call_operands(
-            operative_leaf,
-            functions=functions,
-            root_only=rounding_refers_to_result,
-            environment=parameter_environment,
-        ):
-            effective_operand = _rounding_demonstrated_operand(
-                operand,
-                direction=direction,
+        rounding_operands = (
+            (("currency_metadata", operative_leaf),)
+            if metadata_rounding
+            else _rounding_call_operands(
+                operative_leaf,
+                functions=functions,
+                root_only=rounding_refers_to_result,
                 environment=parameter_environment,
+            )
+        )
+        for function_name, operand in rounding_operands:
+            effective_operand = (
+                operand
+                if metadata_rounding
+                else _rounding_demonstrated_operand(
+                    operand,
+                    direction=direction,
+                    environment=parameter_environment,
+                )
             )
             if effective_operand is None:
                 continue
@@ -27188,6 +28376,8 @@ def _formula_execution_implements_rounding(
     *,
     environment: dict[str, Any] | None = None,
 ) -> bool:
+    if _currency_rounding_matches_direction(execution.currency_rounding, direction):
+        return True
     if direction == "nearest":
         return any(
             _rounding_demonstrated_operand(
@@ -27322,7 +28512,7 @@ def _expand_reached_formula_dependencies(
                 formula_environment=formula_environment,
                 dependency_environment=dependency_environment,
             )
-            if execution is None:
+            if execution is None or execution.currency_rounding is not None:
                 return node
             try:
                 replacement = ast.parse(
@@ -27698,8 +28888,24 @@ def _source_branch_direct_text(
     descendant_starts = [
         candidate.start
         for candidate in branches
-        if len(candidate.path) > len(branch.path)
-        and candidate.path[: len(branch.path)] == branch.path
+        if (
+            (
+                len(candidate.path) > len(branch.path)
+                and candidate.path[: len(branch.path)] == branch.path
+            )
+            or (
+                # German sentence labels and numbered items share paragraph
+                # paths, even when the sentence text contains the whole list.
+                branch.kind == "sentence"
+                and branch.path
+                and branch.path[-1].startswith("satz-")
+                and candidate.kind in {"number", "letter"}
+                and len(candidate.path) >= len(branch.path)
+                and candidate.path[: len(branch.path) - 1] == branch.path[:-1]
+                and branch.start < candidate.start
+                and candidate.end <= branch.end
+            )
+        )
         and branch.start <= candidate.start < branch.end
     ]
     if not descendant_starts:
@@ -27906,6 +29112,53 @@ def _selected_rule_formula_version_index(
     return selected[0] if len(selected) == 1 else None
 
 
+def _typed_date_cases(
+    test_cases: Sequence[object] | None,
+    payload: Mapping[str, Any],
+) -> Sequence[object] | None:
+    """Decode ISO strings only for unambiguous declared Date inputs/outputs."""
+
+    if test_cases is None:
+        return None
+    declared: dict[str, list[dict[str, Any]]] = {}
+    for field in ("inputs", "rules"):
+        records = payload.get(field, [])
+        if not isinstance(records, list):
+            return test_cases
+        for record in records:
+            if isinstance(record, dict) and isinstance(record.get("name"), str):
+                declared.setdefault(record["name"], []).append(record)
+    date_names = {
+        name
+        for name, records in declared.items()
+        if len(records) == 1 and records[0].get("dtype") == "Date"
+    }
+    if not date_names:
+        return test_cases
+    result: list[object] = []
+    for case in test_cases:
+        if not isinstance(case, dict):
+            result.append(case)
+            continue
+        normalized = dict(case)
+        for field in ("input", "output"):
+            values = case.get(field)
+            if not isinstance(values, dict):
+                continue
+            normalized[field] = dict(values)
+            for key, value in values.items():
+                matching = _input_key_names(key) & declared.keys()
+                if (
+                    len(matching) == 1
+                    and matching <= date_names
+                    and isinstance(value, str)
+                    and _is_iso_calendar_date(value)
+                ):
+                    normalized[field][key] = date.fromisoformat(value)
+        result.append(normalized)
+    return result
+
+
 def _typed_numeric_expected_cases(
     test_cases: Sequence[object] | None,
     named_rules: Mapping[str, dict[str, Any]],
@@ -27947,12 +29200,126 @@ def _imported_parameter_formula_is_numeric_literal(formula: Any) -> bool:
     return False
 
 
+class _ImportedEvidenceLoader(yaml.SafeLoader):
+    """Reject duplicate keys before an imported literal table can collapse them."""
+
+
+def _imported_evidence_mapping(loader, node, deep=False):
+    result = {}
+    for key_node, value_node in node.value:
+        if key_node.tag == "tag:yaml.org,2002:merge":
+            raise ValueError("merged imported evidence is ambiguous")
+        key = loader.construct_object(key_node, deep=deep)
+        if key in result:
+            raise ValueError("duplicate imported evidence key")
+        result[key] = loader.construct_object(value_node, deep=deep)
+    return result
+
+
+_ImportedEvidenceLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _imported_evidence_mapping
+)
+
+
+def _closed_imported_table_export(provider, export):
+    """Corroborate a fixed literal cell without importing provider-local names."""
+    if provider.get("imports", []) != [] or export.get("kind") != "derived":
+        return None
+    if any(key in export for key in ("rounding", "effective_from", "effective_to")):
+        return None
+    versions = export.get("versions")
+    if not isinstance(versions, list) or len(versions) != 1:
+        return None
+    version = versions[0]
+    if not isinstance(version, dict) or set(version) != {
+        "formula",
+        "effective_from",
+        "effective_to",
+    }:
+        return None
+    start, end = version["effective_from"], version["effective_to"]
+    if not isinstance(start, str) or not isinstance(end, str):
+        return None
+    if date.fromisoformat(start) > date.fromisoformat(end):
+        return None
+    if not isinstance(version["formula"], str):
+        return None
+    tree = ast.parse(version["formula"], mode="eval").body
+    if not (
+        isinstance(tree, ast.Subscript)
+        and isinstance(tree.value, ast.Name)
+        and isinstance(tree.slice, ast.Constant)
+        and type(tree.slice.value) is int
+    ):
+        return None
+    rules, inputs = provider.get("rules"), provider.get("inputs", [])
+    if not isinstance(rules, list) or not isinstance(inputs, list):
+        return None
+    relevant_names = {export.get("name"), tree.value.id}
+    if any(not isinstance(item, dict) for item in [*rules, *inputs]):
+        return None
+    if any(item.get("name") in relevant_names for item in inputs):
+        return None
+    tables = [item for item in rules if item.get("name") == tree.value.id]
+    if len(tables) != 1:
+        return None
+    table = tables[0]
+    if table.get("kind") != "parameter" or any(
+        key in table
+        for key in ("rounding", "effective_from", "effective_to", "default")
+    ):
+        return None
+    if not isinstance(table.get("indexed_by"), str):
+        return None
+    if export.get("dtype") != table.get("dtype") or export.get("unit") != table.get(
+        "unit"
+    ):
+        return None
+    if export.get("dtype") not in {"Money", "Decimal", "Rate", "Count", "Integer"}:
+        return None
+    if any(
+        table.get(key) not in (None, export.get(key)) for key in ("entity", "period")
+    ):
+        return None
+    table_versions = table.get("versions")
+    if not isinstance(table_versions, list) or len(table_versions) != 1:
+        return None
+    table_version = table_versions[0]
+    if not isinstance(table_version, dict) or set(table_version) != {
+        "values",
+        "effective_from",
+        "effective_to",
+    }:
+        return None
+    if any(
+        table_version[key] != version[key] for key in ("effective_from", "effective_to")
+    ):
+        return None
+    values = table_version["values"]
+    if (
+        not isinstance(values, dict)
+        or not values
+        or not all(
+            type(key) is int and _imported_parameter_formula_is_numeric_literal(value)
+            for key, value in values.items()
+        )
+    ):
+        return None
+    if tree.slice.value not in values:
+        return None
+    return {
+        **export,
+        "kind": "parameter",
+        "versions": [{**version, "formula": str(values[tree.slice.value])}],
+    }
+
+
 def _resolved_imported_parameter_rules(
     payload: dict[str, Any],
     *,
     imported_symbol_contents: Sequence[tuple[str, str]],
 ) -> dict[str, dict[str, Any]]:
-    """Use only unambiguous directly resolved parameter exports, never case values."""
+    """Corroborate literal parameters or fixed table cells, never case values."""
 
     imports = payload.get("imports")
     if not isinstance(imports, list):
@@ -27976,8 +29343,10 @@ def _resolved_imported_parameter_rules(
     for name, content in imported_symbol_contents:
         if counts.get(name) != 1 or name in local_names:
             continue
-        with contextlib.suppress(yaml.YAMLError, TypeError, ValueError):
-            imported = yaml.safe_load(content)
+        with contextlib.suppress(
+            yaml.YAMLError, TypeError, ValueError, SyntaxError, RecursionError
+        ):
+            imported = yaml.load(content, Loader=_ImportedEvidenceLoader)
             if (
                 not isinstance(imported, dict)
                 or imported.get("format") != "rulespec/v1"
@@ -27991,13 +29360,18 @@ def _resolved_imported_parameter_rules(
                 for rule in rules
                 if isinstance(rule, dict) and rule.get("name") == name
             ]
-            if len(matches) != 1 or matches[0].get("kind") != "parameter":
+            if len(matches) != 1:
                 continue
-            versions = matches[0].get("versions")
+            resolved = matches[0]
+            if resolved.get("kind") != "parameter":
+                resolved = _closed_imported_table_export(imported, resolved)
+                if resolved is None:
+                    continue
+            versions = resolved.get("versions")
             if not isinstance(versions, list) or not versions:
                 continue
             # Provider-local names must never resolve in the consumer namespace.
-            # This bounded path admits literal numeric parameters only.
+            # Closed table exports have already been reduced to a literal cell.
             if not all(
                 isinstance(version, dict)
                 and _imported_parameter_formula_is_numeric_literal(
@@ -28006,7 +29380,7 @@ def _resolved_imported_parameter_rules(
                 for version in versions
             ):
                 continue
-            candidates.setdefault(name, []).append(matches[0])
+            candidates.setdefault(name, []).append(resolved)
     return {name: rules[0] for name, rules in candidates.items() if len(rules) == 1}
 
 
@@ -28028,6 +29402,8 @@ def _constant_rule_environment(payload: dict[str, Any]) -> dict[str, Any]:
         return environment
     for rule in rules:
         if not isinstance(rule, dict):
+            continue
+        if rule.get("rounding") is not None:
             continue
         name = str(rule.get("name") or "").strip()
         versions = rule.get("versions")
@@ -28107,6 +29483,7 @@ def _constant_rule_environment(payload: dict[str, Any]) -> dict[str, Any]:
         for rule in rules
         if isinstance(rule, dict)
         and rule.get("kind") == "parameter"
+        and rule.get("rounding") is None
         and str(rule.get("name") or "").strip()
         and str(rule.get("name") or "").strip() not in environment
     }
@@ -28329,8 +29706,12 @@ def _formula_environment_for_case(
     case: dict[str, Any],
 ) -> dict[str, Any]:
     period = _normalized_case_period(case)
-    resolved: dict[str, Any] = {}
+    resolved: dict[str, Any] = {"period_start": _case_runtime_period_start(case)}
     for name, value in environment.items():
+        if name == "period_start":
+            if not _formula_runtime_values_equal(resolved.get(name), value):
+                resolved[name] = _UNRESOLVED_CONDITION_VALUE
+            continue
         if not isinstance(value, _TemporalFormulaValue):
             resolved[name] = value
             continue
@@ -28349,6 +29730,41 @@ def _formula_environment_for_case(
             continue
         resolved[name] = value.versions[selected_indexes[0]][2]
     return resolved
+
+
+def _case_runtime_period_start(case: dict[str, Any]) -> Any:
+    """Validate companion period syntax before exposing a runtime coordinate."""
+
+    value = case.get("period")
+    if type(value) is date:
+        return value
+    if isinstance(value, str):
+        value = value.strip()
+        if re.fullmatch(r"\d{4}-\d{2}", value):
+            with contextlib.suppress(ValueError):
+                return date(int(value[:4]), int(value[5:]), 1)
+        return _UNRESOLVED_CONDITION_VALUE
+    if not isinstance(value, dict):
+        return _UNRESOLVED_CONDITION_VALUE
+    kind = value.get("period_kind")
+    if kind not in ("month", "benefit_week", "tax_year", "custom"):
+        return _UNRESOLVED_CONDITION_VALUE
+    if kind == "custom" and (
+        not isinstance(value.get("name"), str) or not value["name"].strip()
+    ):
+        return _UNRESOLVED_CONDITION_VALUE
+    endpoints = []
+    for field in ("start", "end"):
+        endpoint = value.get(field)
+        if type(endpoint) is date:
+            endpoints.append(endpoint)
+        elif isinstance(endpoint, str) and _is_iso_calendar_date(endpoint):
+            endpoints.append(date.fromisoformat(endpoint))
+        else:
+            return _UNRESOLVED_CONDITION_VALUE
+    if endpoints[0] > endpoints[1]:
+        return _UNRESOLVED_CONDITION_VALUE
+    return endpoints[0]
 
 
 def _normalized_case_period(case: dict[str, Any]) -> str:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import functools
 import hashlib
 import time
@@ -1721,6 +1722,55 @@ def test_negative_dependent_source_forms_reject_positive_opposites(
     )
 
     assert _has_issue(result, "source-explicit-conditions", positive_name)
+
+
+@pytest.mark.parametrize(
+    "text",
+    (
+        (
+            "The child was disabled and dependent on the person prior to the "
+            "child's 18th birthday."
+        ),
+        (
+            "The child was disabled and dependent on the veteran prior to the "
+            "child's 18th birthday."
+        ),
+    ),
+)
+def test_coordinated_dependent_adjective_is_positive(text: str):
+    assert completeness_module._source_gate_predicate_polarities(text) == {
+        "dependent": False
+    }
+
+
+def test_coordinated_dependent_adjective_retains_positive_split_gate():
+    gates = completeness_module._source_conjunctive_fact_gates(
+        "A child qualifies provided that the child was disabled and dependent "
+        "on the veteran prior to the child's 18th birthday."
+    )
+
+    assert gates == (
+        (frozenset({"child"}), frozenset({"disabled"})),
+        (
+            frozenset({"child"}),
+            frozenset({"birthday", "dependent", "prior", "th", "veteran"}),
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "A child qualifies provided that the child was neither disabled nor "
+        "dependent on the veteran prior to the child's 18th birthday.",
+        "A child qualifies provided that the child was not disabled nor dependent "
+        "on the veteran prior to the child's 18th birthday.",
+    ),
+)
+def test_negative_coordinated_dependent_adjective_is_not_positive(source: str):
+    gates = completeness_module._source_conjunctive_fact_gates(source)
+
+    assert "dependent" not in gates[1][1]
 
 
 @pytest.mark.parametrize(
@@ -24935,7 +24985,33 @@ rules:
     )
 
     assert _has_issue(positive_only, "applicability", "paired")
+    assert not any(
+        "directional formula-toggle witnesses" in issue
+        for issue in positive_only.issues
+    )
     assert not paired.issues
+
+    # A real evaluated pair can still fail to witness the source condition.
+    # Feedback must distinguish this from absent pairs without accepting it.
+    unrelated = _analyze(
+        content.replace("is_eligible", "vehicle_is_blue"),
+        source,
+        test_cases=[
+            {
+                "name": f"blue={blue}",
+                "input": {"vehicle_is_blue": blue},
+                "output": {"payable_supplement": 259 if blue else 0},
+            }
+            for blue in (False, True)
+        ],
+    )
+    assert _has_issue(unrelated, "applicability", "paired")
+    assert _has_issue(
+        unrelated,
+        "recognized 2 directional formula-toggle witnesses",
+        "1 distinct case pairs",
+        "source-selector relevance",
+    )
 
 
 def test_predicate_only_boundary_requires_an_exact_boundary_case():
@@ -35279,6 +35355,79 @@ def test_inability_or_unwillingness_is_active_missing_documentation_condition():
     )
 
 
+def test_failure_to_provide_activates_negated_provided_selector():
+    source = "If the sponsored alien fails to provide consent, the alien is ineligible."
+
+    assert not completeness_module._source_exception_selector_active_value(
+        source,
+        "sponsored_alien_provided_required_consent",
+    )
+    assert completeness_module._source_exception_selector_active_value(
+        source,
+        "sponsored_alien_not_provided_required_consent",
+    )
+
+
+def test_formula_interval_recognizes_under_the_age_of_boundary():
+    interval = completeness_module._formula_interval_from_text(
+        "if a full-time student under the age of 22",
+        extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+    )
+
+    assert interval is not None
+    assert interval.lower is None
+    assert interval.upper is not None and interval.upper.value == 22
+    assert not interval.upper_inclusive
+
+
+def test_numeric_age_witness_does_not_require_non_numeric_selector_tokens():
+    source = "An unmarried full-time student under the age of 22 is eligible."
+    branch = completeness_module.SourceStructureBranch(
+        path=("a", "4", "iii"),
+        kind="number",
+        label="(iii)",
+        text=source,
+        start=0,
+        end=len(source),
+    )
+    witness = completeness_module._ExceptionWitness(
+        rule_name="student_child_under_age_limit",
+        selector_name="member_age",
+        active_value=True,
+        blocks=False,
+        boolean_effect=True,
+        zeroes=False,
+        numeric_transition=(22.0, 21.0),
+        relational_transitions=(("member_age", "<", "student_age_limit"),),
+        case_pair_identity=(1, 2),
+    )
+    rule = {
+        "name": "student_child_under_age_limit",
+        "source": "7 CFR 273.4(a)(4)(iii)",
+        "versions": [{"formula": "member_age < student_age_limit"}],
+    }
+
+    assert witness in completeness_module._exception_witnesses_for_branch(
+        branch,
+        principal_rules={"student_child_under_age_limit": rule},
+        principal_rule_paths={"student_child_under_age_limit": {("a", "4", "iii")}},
+        asserted_by_rule={"student_child_under_age_limit": []},
+        toggled_exception_selectors={witness},
+        extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+    )
+
+    for unrelated_selector in ("member_income", "completely_unrelated"):
+        unrelated = dataclasses.replace(witness, selector_name=unrelated_selector)
+        assert unrelated not in completeness_module._exception_witnesses_for_branch(
+            branch,
+            principal_rules={"student_child_under_age_limit": rule},
+            principal_rule_paths={"student_child_under_age_limit": {("a", "4", "iii")}},
+            asserted_by_rule={"student_child_under_age_limit": []},
+            toggled_exception_selectors={unrelated},
+            extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+        )
+
+
 @pytest.mark.parametrize(
     ("source", "selector"),
     (
@@ -43597,3 +43746,841 @@ def test_imported_parameter_rejects_lossy_decimal_literals(formula):
 @pytest.mark.parametrize("formula", ["12.41", "12.82", "-0.5", "130", 130])
 def test_imported_parameter_accepts_lossless_numeric_literals(formula):
     assert completeness_module._imported_parameter_formula_is_numeric_literal(formula)
+
+
+@pytest.mark.parametrize("suffix", ["", "/page-15"])
+def test_irs_revenue_procedure_headings_are_not_numeric_obligations(suffix):
+    source = (
+        Path(__file__).parent
+        / "fixtures/source_completeness/irs_rev_proc_2025_32_page_15.txt"
+    ).read_text()
+    cleaned = authoritative_numeric_recall_text(
+        source, corpus_citation_path="us/guidance/irs/rev-proc-2025-32" + suffix
+    )
+    values = {item.value for item in EN_NUMERIC_OCCURRENCE_EXTRACTOR(cleaned)}
+    assert 0.07 not in values
+    assert 0.08 not in values
+    assert {12200, 8700, 3.416, 3953600, 664, 4427, 7316, 8231} <= values
+    assert "Rehabilitation Expenditures Treated as Separate New Building." in cleaned
+    assert "Low-Income Housing Credit." in cleaned
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        ".07 of income is allowed.",
+        "The multiplier is .07. The cap is .08.",
+        ".07 percent applies. .08 dollars is the floor.",
+        ".07 Credit",  # No heading terminator: keep ambiguous source values.
+        "The rate is .07 Low-Income Housing Credit.",  # No heading boundary.
+    ],
+)
+def test_irs_heading_cleanup_preserves_substantive_decimals(source):
+    cleaned = authoritative_numeric_recall_text(
+        source, corpus_citation_path="us/guidance/irs/rev-proc-2025-32/page-15"
+    )
+    assert cleaned == source
+
+
+def test_irs_heading_cleanup_does_not_apply_to_other_sources():
+    source = ".07 Low-Income Housing Credit."
+    assert authoritative_numeric_recall_text(source) == source
+    assert (
+        authoritative_numeric_recall_text(
+            source, corpus_citation_path="us/statute/26/32"
+        )
+        == source
+    )
+
+
+def test_irs_heading_recall_checks_amounts_without_dummy_marker_parameters():
+    source = ".07 Rehabilitation Expenditures Treated as Separate New Building. The amount is $8,700. .08 Low-Income Housing Credit. The amount is $3.416."
+    content = "format: rulespec/v1\nmodule: {}\nrules: []\n"
+    kwargs = dict(
+        corpus_citation_path="us/guidance/irs/rev-proc-2025-32/page-15",
+        extract_numeric_occurrences=EN_NUMERIC_OCCURRENCE_EXTRACTOR,
+        test_cases=[],
+    )
+    covered = _analyze(content, source, artifact_numeric_values=(8700, 3.416), **kwargs)
+    assert not _has_issue(covered, "numeric-recall"), covered.issues
+    missing = _analyze(content, source, artifact_numeric_values=(8700,), **kwargs)
+    assert _has_issue(missing, "numeric-recall", "3.416")
+
+
+def test_irs_pipeline_does_not_invent_sum_of_child_count_columns():
+    source = (
+        Path(__file__).parent
+        / "fixtures/source_completeness/irs_rev_proc_2025_32_page_15.txt"
+    ).read_text()
+    content = """format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: us/guidance/irs/rev-proc-2025-32/page-15
+rules: []
+"""
+    issues = _pipeline_issues(
+        content,
+        source,
+        corpus_citation_path="us/guidance/irs/rev-proc-2025-32/page-15",
+        test_cases=[],
+    )
+    assert not any("numeric value 6 has" in issue for issue in issues)
+    assert any("numeric value 12200 has" in issue for issue in issues)
+
+
+@pytest.mark.parametrize(
+    ("factor", "floor", "accepted"),
+    [
+        (3.416, 3953600, True),
+        (3.415, 3953600, False),
+        (0.03416, 3953600, False),
+        (3.416, 3953500, False),
+    ],
+)
+def test_formula_witness_accepts_one_reading_per_numeric_source_span(
+    factor, floor, accepted
+):
+    source = "The ceiling is the greater of (1) $3.416 multiplied by the State population, or (2) $3,953,600."
+    branch = completeness_module.SourceStructureBranch(
+        (), "formula", "ceiling", source, 0, len(source)
+    )
+    execution = completeness_module._FormulaExecution(
+        trace=(),
+        leaf="max(factor * state_population, floor)",
+        evaluated_value=None,
+        evaluates_to_zero=False,
+        constant_environment={"factor": factor, "floor": floor},
+    )
+    assert (
+        completeness_module._formula_execution_matches_source_branch(
+            execution,
+            branch,
+            interval=None,
+            formula_environment={},
+            extract_numeric_occurrences=functools.partial(
+                extract_typed_numeric_inventory_occurrences_from_text, profile="legacy"
+            ),
+            numeric_value_is_grounded=numeric_value_is_grounded,
+        )
+        is accepted
+    )
+
+
+def test_formula_witness_keeps_distinct_numeric_spans_required():
+    source = (
+        "The ceiling is the greater of $3.416 multiplied by population, or $9,876,543."
+    )
+    branch = completeness_module.SourceStructureBranch(
+        (), "formula", "ceiling", source, 0, len(source)
+    )
+    execution = completeness_module._FormulaExecution(
+        trace=(),
+        leaf="max(factor * population, floor)",
+        evaluated_value=None,
+        evaluates_to_zero=False,
+        constant_environment={"factor": 3.416, "floor": 0},
+    )
+    assert not completeness_module._formula_execution_matches_source_branch(
+        execution,
+        branch,
+        interval=None,
+        formula_environment={},
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text, profile="legacy"
+        ),
+        numeric_value_is_grounded=numeric_value_is_grounded,
+    )
+
+
+def test_irs_housing_candidate_tests_are_recognized_by_pipeline():
+    fixture = Path(__file__).parent / "fixtures/source_completeness/irs_housing_formula"
+    issues = _pipeline_issues(
+        (fixture / "rule.yaml").read_text(),
+        (fixture / "source.txt").read_text(),
+        corpus_citation_path="us/guidance/irs/rev-proc-2025-32/page-15",
+        test_cases=yaml.safe_load((fixture / "rule.test.yaml").read_text()),
+    )
+    assert issues == []
+
+
+@pytest.mark.parametrize(
+    ("transition", "matches"),
+    [
+        ((12200.0, 12201.0), True),
+        ((12201.0, 12200.0), False),
+        ((10000.0, 11000.0), False),
+    ],
+)
+def test_numeric_exception_threshold_ignores_introductory_year(transition, matches):
+    source = "For taxable years beginning in 2026, the earned income tax credit is not allowed if investment income exceeds $12,200."
+    branch = completeness_module.SourceStructureBranch(
+        (), "condition", "investment limit", source, 0, len(source)
+    )
+    witness = completeness_module._ExceptionWitness(
+        rule_name="credit_allowed",
+        selector_name="investment_income",
+        active_value=True,
+        blocks=True,
+        boolean_effect=True,
+        zeroes=False,
+        numeric_transition=transition,
+    )
+    assert (
+        completeness_module._numeric_exception_witness_matches_source(
+            branch,
+            witness,
+            extract_numeric_occurrences=functools.partial(
+                extract_typed_numeric_inventory_occurrences_from_text, profile="legacy"
+            ),
+        )
+        is matches
+    )
+
+
+@pytest.mark.parametrize("separator", [" ", "\n"])
+def test_bfh_medical_proof_citation_is_not_a_computation(separator):
+    # DA-KG 2025 A19.2(1) sentence2, corpus body SHA6691a6027b1764fc...
+    source = (
+        "Der Nachweis der Behinderung kann auch in Form einer Bescheinigung "
+        "bzw. eines Zeugnisses des behandelnden Arztes oder eines ärztlichen "
+        "Gutachtens erbracht werden (BFH vom 16.04.2002,"
+        + separator
+        + "VIII R 62/99, BStBl II S. 738)."
+    )
+    assert not source_states_explicit_computation(source)
+    assert not completeness_module._source_states_nonrounding_computation(source)
+    inventory = extract_typed_numeric_inventory_occurrences_from_text(
+        authoritative_numeric_recall_text(source), profile="de-DE"
+    )
+    assert not inventory
+    operative = source + " Der Betrag ist 62/99; mindestens 50 und weniger als 20."
+    assert source_states_explicit_computation(operative)
+    values = extract_typed_numeric_inventory_occurrences_from_text(
+        authoritative_numeric_recall_text(operative), profile="de-DE"
+    )
+    assert {50.0, 20.0} <= {item.value for item in values}
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "Der Betrag ist 62/99.",
+        "VIII R 62/99",
+        "(BFH vom 16.04.2002, VIII R 62/99/2, BStBl II S. 738)",
+        "(BFH vom 16.04.2002, VIII R 62/99.5, BStBl II S. 738)",
+        "(BFH vom 16.04.2002, VIII R 62/99, BStBl II S. 738; Betrag 2/3)",
+        "(BFH vom 16.04.2002, VIII R 62/99, BStBl II S. 738) Betrag 2/3",
+    ],
+)
+def test_bfh_citation_mask_preserves_arithmetic_and_incomplete_references(source):
+    assert source_states_explicit_computation(source)
+
+
+@pytest.mark.parametrize("age, noun", [(25, "Lebensjahr"), (18, "Lebensjahres")])
+@pytest.mark.parametrize("separator", [" ", "\n"])
+def test_german_age_ordinal_keeps_conditional_clause_and_source_offsets(
+    age, noun, separator
+):
+    source = (
+        "(1) 1Aus der Bescheinigung muss der Beginn der Behinderung hervorgehen, "
+        f"soweit das Kind das {age}.{separator}{noun} vollendet hat. "
+        "2Wenn die Bescheinigung fehlt, ist der Nachweis nicht erbracht."
+    )
+    branches = recognize_source_structure(source)
+    conditions = completeness_module._source_exception_branches(
+        source, branches=branches, active_branches=branches, deferred_paths=set()
+    )
+    age_conditions = [branch for branch in conditions if "soweit" in branch.text]
+    assert len(age_conditions) == 1
+    branch = age_conditions[0]
+    assert f"{age}.{separator}{noun} vollendet hat." in branch.text
+    assert "Bescheinigung fehlt" not in branch.text
+    assert source[branch.start : branch.end] == branch.text
+    clauses = completeness_module._source_clause_spans(source, branches=branches)
+    assert any("Bescheinigung fehlt" in text for _, _, text in clauses)
+
+
+def test_ordinary_numeric_sentence_end_remains_a_clause_boundary():
+    source = "Der Betrag ist 25. Wenn ein Antrag fehlt, entfällt er."
+    clauses = list(completeness_module._source_clause_spans(source, branches=()))
+    assert [text for _, _, text in clauses] == [
+        "Der Betrag ist 25.",
+        "Wenn ein Antrag fehlt, entfällt er.",
+    ]
+
+
+def test_dakg_sentence_list_thresholds_have_only_operative_item_owners():
+    source = (Path(__file__).parent / "fixtures/dakg-a19-2-source.txt").read_text()
+    assert hashlib.sha256(source.encode()).hexdigest() == (
+        "6691a6027b1764fcfb309aedbcc4466dade9fc48ec6ad2f85847630220669e7e"
+    )
+    branches = recognize_source_structure(source)
+    obligations = completeness_module._source_boundary_obligations(
+        branches, extract_numeric_occurrences=DE_NUMERIC_OCCURRENCE_EXTRACTOR
+    )
+    fifty_owners = [branch.path for branch, value in obligations if value.value == 50]
+    assert fifty_owners == [("1", "1"), ("1", "2")]
+    assert [
+        (branch.path, value.value) for branch, value in obligations if value.value == 20
+    ] == [(("1", "2"), 20.0)]
+
+
+@pytest.mark.parametrize("separate_sentence", [False, True])
+def test_german_sentence_list_preserves_its_own_and_later_thresholds(separate_sentence):
+    source = """(1) 1Bei mindestens 10 Tagen gelten folgende Voraussetzungen:
+1. Ein Grad von mindestens 50 liegt vor;
+2. Ein Grad von weniger als 50 liegt vor.
+"""
+    if separate_sentence:
+        source += "2Danach gilt eine Grenze von mindestens 50 Tagen."
+    branches = recognize_source_structure(source)
+    obligations = completeness_module._source_boundary_obligations(
+        branches, extract_numeric_occurrences=DE_NUMERIC_OCCURRENCE_EXTRACTOR
+    )
+    assert any(
+        branch.path == ("1", "satz-1") and value.value == 10
+        for branch, value in obligations
+    )
+    assert any(
+        branch.path == ("1", "1") and value.value == 50 for branch, value in obligations
+    )
+    assert any(
+        branch.path == ("1", "2") and value.value == 50 for branch, value in obligations
+    )
+    assert (
+        any(
+            branch.path == ("1", "satz-2") and value.value == 50
+            for branch, value in obligations
+        )
+        == separate_sentence
+    )
+
+
+@pytest.mark.parametrize("connector", ["aber", "und"])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_german_conjoined_bounds_keep_both_endpoints(connector, reverse):
+    source = (
+        f"weniger als 50, {connector} mindestens 20"
+        if reverse
+        else f"mindestens 20, {connector} weniger als 50"
+    )
+    interval = completeness_module._formula_interval_from_text(
+        source, extract_numeric_occurrences=DE_NUMERIC_OCCURRENCE_EXTRACTOR
+    )
+    assert interval is not None
+    assert interval.lower is not None and interval.lower.value == 20
+    assert interval.lower_inclusive
+    assert interval.upper is not None and interval.upper.value == 50
+    assert not interval.upper_inclusive
+
+
+def test_german_disjunction_does_not_create_a_conjoined_lower_bound():
+    interval = completeness_module._formula_interval_from_text(
+        "weniger als 50 oder mindestens 20",
+        extract_numeric_occurrences=DE_NUMERIC_OCCURRENCE_EXTRACTOR,
+    )
+    assert interval is not None
+    assert interval.lower is None
+    assert interval.upper is not None and interval.upper.value == 50
+
+
+@pytest.mark.parametrize(
+    "citation",
+    (
+        "de/guidance/bzst-dakg-2025/a-19-2/document-1",
+        "de/guidance/bzst-dakg-2025/numbered-sections/a-19-1",
+    ),
+)
+def test_guidance_deferral_root_matches_native_artifact_routing(citation):
+    from axiom_encode.harness.evals import (
+        _source_identifier_to_relative_rulespec_path,
+    )
+
+    relative = _source_identifier_to_relative_rulespec_path(citation)
+    jurisdiction, _, tail = citation.split("/", 2)
+    expected = f"{jurisdiction}:policies/{tail}"
+    assert completeness_module._rulespec_target_base(citation) == expected
+    assert relative.as_posix() == f"policies/{tail}.yaml"
+
+
+def _guidance_deferral_coverage(output, reason, blocked_by):
+    citation = "de/guidance/bzst-dakg-2025/a-19-2/document-1"
+    # Synthetic explicit-reference fixture isolates output routing from citation parsing.
+    source = (
+        "(1) The result is determined under § 32 EStG (de:statutes/estg/32#child_test)."
+    )
+    branch = completeness_module.SourceStructureBranch(
+        path=("1",),
+        kind="paragraph",
+        label="1",
+        text=source,
+        start=0,
+        end=len(source),
+    )
+    payload = {
+        "module": {
+            "deferred_outputs": [
+                {
+                    "output": output,
+                    "reason": reason,
+                    "blocked_by": blocked_by,
+                }
+            ]
+        }
+    }
+    return completeness_module._deferred_coverage(
+        payload,
+        corpus_citation_path=citation,
+        source_text=source,
+        branches=(branch,),
+    )
+
+
+def test_canonical_guidance_deferral_checks_source_bound_dependency():
+    covered, issues = _guidance_deferral_coverage(
+        "de:policies/bzst-dakg-2025/a-19-2/document-1/1#child_test",
+        "The executable dependency de:statutes/estg/32#child_test is missing.",
+        ["de:statutes/estg/32#child_test"],
+    )
+    assert covered == {("1",)}
+    assert not issues
+
+
+@pytest.mark.parametrize(
+    "blocker",
+    (
+        "de:statutes/estg/99#child_test",
+        "de:policies/bzst-dakg-2025/a-19-2/document-1#child_test",
+        "malformed",
+    ),
+)
+def test_guidance_deferral_does_not_accept_invalid_dependency(blocker):
+    covered, issues = _guidance_deferral_coverage(
+        "de:policies/bzst-dakg-2025/a-19-2/document-1/1#child_test",
+        f"The executable dependency {blocker} is missing.",
+        [blocker],
+    )
+    assert not covered
+    assert issues
+
+
+@pytest.mark.parametrize(
+    "target",
+    (
+        "de:policies/unrelated/document-1/1#child_test",
+        "uk:policies/bzst-dakg-2025/a-19-2/document-1/1#child_test",
+        "de:guidance/bzst-dakg-2025/a-19-2/document-1/1#child_test",
+    ),
+)
+def test_guidance_deferral_does_not_cover_wrong_source_or_legacy_root(target):
+    covered, _ = _guidance_deferral_coverage(
+        target,
+        "The executable dependency de:statutes/estg/32#child_test is missing.",
+        ["de:statutes/estg/32#child_test"],
+    )
+    assert not covered
+
+
+_DAKG_REVIEW_SOURCE = "3Zur Überprüfung der Festsetzung vgl. A 19.1 Abs. 7 und 8."
+_DAKG_REVIEW_TARGET = (
+    "de:policies/bzst-dakg-2025/numbered-sections/a-19-1#review_interval"
+)
+_DAKG_REVIEW_REASON = (
+    "DA-KG A 19.2 Absatz 2 Satz 3 refers assessment review to A 19.1 Abs. 7 und 8. "
+    f"The missing dependency {_DAKG_REVIEW_TARGET} is not yet encoded."
+)
+
+
+def _dakg_review_deferral(
+    source=_DAKG_REVIEW_SOURCE,
+    reason=_DAKG_REVIEW_REASON,
+    target=_DAKG_REVIEW_TARGET,
+    typed=True,
+    extra_blocker=None,
+    citation="de/guidance/bzst-dakg-2025/a-19-2/document-1",
+):
+    record = {
+        "output": completeness_module._rulespec_target_base(citation)
+        + "/2/satz-3#assessment_review_schedule",
+        "reason": reason,
+    }
+    if typed:
+        record["blocked_by"] = [target]
+        if extra_blocker is not None:
+            record["blocked_by"].append(extra_blocker)
+    branch = completeness_module.SourceStructureBranch(
+        path=("2", "satz-3"),
+        kind="sentence",
+        label="Satz 3",
+        text=source,
+        start=0,
+        end=len(source),
+    )
+    return completeness_module._deferred_coverage(
+        {"module": {"deferred_outputs": [record]}},
+        corpus_citation_path=citation,
+        source_text=source,
+        branches=(branch,),
+    )
+
+
+@pytest.mark.parametrize("typed", [True, False])
+def test_dakg_review_reference_accepts_exact_missing_schedule(typed):
+    # Exact operative sentence from the SHA-bound A19.2 source fixture.
+    source = (Path(__file__).parent / "fixtures/dakg-a19-2-source.txt").read_text()
+    assert _DAKG_REVIEW_SOURCE in " ".join(source.split())
+    covered, issues = _dakg_review_deferral(typed=typed)
+    assert covered == {("2", "satz-3")}
+    assert not issues
+
+
+@pytest.mark.parametrize("typed", [True, False])
+@pytest.mark.parametrize(
+    "source",
+    [
+        _DAKG_REVIEW_SOURCE.replace("A 19.1", "A 19.3"),
+        _DAKG_REVIEW_SOURCE.replace("7 und 8", "7 und 9"),
+        _DAKG_REVIEW_SOURCE.replace("7 und 8", "7"),
+        "Nicht zur Überprüfung der Festsetzung vgl. A 19.1 Abs. 7 und 8.",
+        "Historically: " + _DAKG_REVIEW_SOURCE,
+        "Unrelated reference: A 19.1 Abs. 7 und 8.",
+    ],
+)
+def test_dakg_review_reference_rejects_other_or_nonoperative_source(source, typed):
+    covered, issues = _dakg_review_deferral(source=source, typed=typed)
+    assert not covered
+    assert issues
+
+
+@pytest.mark.parametrize("typed", [True, False])
+@pytest.mark.parametrize(
+    "target",
+    [
+        _DAKG_REVIEW_TARGET.replace("a-19-1", "a-19-3"),
+        _DAKG_REVIEW_TARGET.replace("2025", "2024"),
+        _DAKG_REVIEW_TARGET.replace("de:", "uk:"),
+        _DAKG_REVIEW_TARGET.replace("bzst-dakg", "other-guidance"),
+        _DAKG_REVIEW_TARGET.replace("review_interval", "kindergeld_amount"),
+        _DAKG_REVIEW_TARGET.replace("a-19-1#", "a-19-1/7#"),
+    ],
+)
+def test_dakg_review_reference_rejects_wrong_target(target, typed):
+    reason = _DAKG_REVIEW_REASON.replace(_DAKG_REVIEW_TARGET, target)
+    covered, issues = _dakg_review_deferral(target=target, reason=reason, typed=typed)
+    assert not covered
+    assert issues
+
+
+@pytest.mark.parametrize("typed", [True, False])
+@pytest.mark.parametrize(
+    "reason",
+    [
+        _DAKG_REVIEW_REASON.replace("7 und 8", "7"),
+        _DAKG_REVIEW_REASON.replace("7 und 8", "7 und 9"),
+        _DAKG_REVIEW_REASON.replace("7 und 8", "7 und 8 und 9"),
+        _DAKG_REVIEW_REASON.replace("A 19.1", "A 19.3"),
+        _DAKG_REVIEW_REASON.replace("DA-KG A", "DA-KG 2024 A"),
+        _DAKG_REVIEW_REASON.replace(
+            "is not yet encoded.", "is available; another input is missing."
+        ),
+        _DAKG_REVIEW_REASON.replace(
+            "The missing dependency", "The not missing dependency"
+        ),
+        "This is unrelated. " + _DAKG_REVIEW_REASON,
+        "This is historical-only. " + _DAKG_REVIEW_REASON,
+    ],
+)
+def test_dakg_review_reference_requires_precise_reason(reason, typed):
+    covered, issues = _dakg_review_deferral(reason=reason, typed=typed)
+    assert not covered
+    assert issues
+
+
+@pytest.mark.parametrize(
+    "citation",
+    [
+        "de/statute/bzst-dakg-2025/a-19-2/document-1",
+        "de/guidance/bzst-dakg-2024/a-19-2/document-1",
+        "uk/guidance/bzst-dakg-2025/a-19-2/document-1",
+        "de/guidance/other-guidance-2025/a-19-2/document-1",
+        "de/guidance/bzst-dakg-2025/numbered-sections/a-19-1",
+    ],
+)
+def test_dakg_review_reference_authenticates_origin_and_rejects_self(citation):
+    covered, issues = _dakg_review_deferral(citation=citation)
+    assert not covered
+    assert issues
+
+
+@pytest.mark.parametrize("typed", [True, False])
+@pytest.mark.parametrize(
+    "symbol", ["next_assessment_review_date", "assessment_review_required"]
+)
+def test_dakg_review_reference_accepts_review_concepts_without_asserting_encoding(
+    typed, symbol
+):
+    target = _DAKG_REVIEW_TARGET.replace("review_interval", symbol)
+    covered, issues = _dakg_review_deferral(
+        target=target,
+        reason=_DAKG_REVIEW_REASON.replace(_DAKG_REVIEW_TARGET, target),
+        typed=typed,
+    )
+    assert covered == {("2", "satz-3")}
+    assert not issues
+
+
+def test_dakg_review_reference_requires_every_typed_blocker_to_match_source():
+    extra = _DAKG_REVIEW_TARGET.replace("a-19-1", "a-19-3")
+    covered, issues = _dakg_review_deferral(
+        extra_blocker=extra,
+        reason=_DAKG_REVIEW_REASON
+        + f" The missing dependency {extra} is not yet encoded.",
+    )
+    assert not covered
+    assert issues
+
+
+def test_dakg_review_reference_accepts_same_source_numbered_section_representation():
+    covered, issues = _dakg_review_deferral(
+        citation="de/guidance/bzst-dakg-2025/numbered-sections/a-19-2",
+    )
+    assert covered == {("2", "satz-3")}
+    assert not issues
+
+
+@pytest.mark.parametrize("typed", [True, False])
+@pytest.mark.parametrize(
+    "symbol",
+    [
+        "income_tax_audit_review_deadline",
+        "payment_review_date",
+        "not_review_required",
+    ],
+)
+def test_dakg_review_reference_rejects_unrelated_or_negated_scheduling_symbols(
+    typed, symbol
+):
+    target = _DAKG_REVIEW_TARGET.replace("review_interval", symbol)
+    covered, issues = _dakg_review_deferral(
+        target=target,
+        reason=_DAKG_REVIEW_REASON.replace(_DAKG_REVIEW_TARGET, target),
+        typed=typed,
+    )
+    assert not covered
+    assert issues
+
+
+@pytest.mark.parametrize("typed", [True, False])
+@pytest.mark.parametrize(
+    "introduction", ["The executable dependency", "The dependency", ""]
+)
+def test_dakg_review_reference_accepts_explicit_missing_state_without_redundant_missing(
+    typed, introduction
+):
+    reason = (
+        "DA-KG A 19.2 Absatz 2 Satz 3 refers assessment review to A 19.1 Abs. 7 und 8. "
+        f"{introduction} {_DAKG_REVIEW_TARGET} is not yet encoded."
+    )
+    covered, issues = _dakg_review_deferral(reason=reason, typed=typed)
+    assert covered == {("2", "satz-3")}
+    assert not issues
+
+
+@pytest.mark.parametrize(
+    ("selector", "extra", "expected"),
+    [
+        ("year <= start + duration - 1", {}, (2004.0,)),
+        ("start + duration - 1 >= year", {}, (2004.0,)),
+        ("year <= (start + duration - 1) + 1", {}, (2005.0,)),
+        ("False and year <= start + duration - 1", {}, ()),
+        ("True or year <= start + duration - 1", {}, ()),
+        ("unknown and year <= start + duration - 1", {}, ()),
+        ("year < 0 < start + duration - 1", {}, ()),
+        ("0 < year <= start + duration - 1", {}, (2004.0,)),
+        ("year <= household_start + duration - 1", {"household_start": 2000}, ()),
+        ("year <= max(start + duration - 1, 2000)", {}, ()),
+        ("year <= start ** duration", {}, ()),
+        ("year <= start + flag", {"flag": True}, ()),
+    ],
+)
+def test_computed_comparison_evidence_is_constant_complete_and_reached(
+    selector, extra, expected
+):
+    constants = {"start": 2000, "duration": 5}
+    assert (
+        completeness_module._reached_constant_comparison_values(
+            selector,
+            constant_environment=constants,
+            execution_environment={**constants, "year": 2002, **extra},
+        )
+        == expected
+    )
+
+
+def test_computed_comparison_evidence_requires_execution_environment():
+    assert (
+        completeness_module._reached_constant_comparison_values(
+            "year <= start + duration - 1",
+            constant_environment={"start": 2000, "duration": 5},
+            execution_environment=None,
+        )
+        == ()
+    )
+
+
+@pytest.mark.parametrize("start", [2000, 2017])
+def test_formula_witness_accepts_computed_transition_end_year(start):
+    source = f"(A) With respect to an individual who attains early retirement age in the 5-year period consisting of the calendar years {start} through {start + 4}, the age increase factor shall be equal to two-twelfths of the number of months in the period beginning with January {start} and ending with December of the year in which the individual attains early retirement age."
+    branch = completeness_module.SourceStructureBranch(
+        ("3", "a"), "formula-clause", "transition", source, 0, len(source)
+    )
+    constants = {"start": start, "duration": 5, "factor": 2}
+    execution = completeness_module._FormulaExecution(
+        trace=(
+            completeness_module._FormulaTraceStep(
+                "if", ("year >= start and year <= start + duration - 1",), 0
+            ),
+        ),
+        leaf="factor * elapsed_years",
+        evaluated_value=None,
+        evaluates_to_zero=False,
+        constant_environment=constants,
+    )
+    kwargs = dict(
+        interval=completeness_module._formula_branch_interval(
+            branch,
+            extract_numeric_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
+        ),
+        formula_environment={},
+        execution_environment={**constants, "year": start + 2, "elapsed_years": 3},
+        extract_numeric_occurrences=EN_NUMERIC_GROUNDING_OCCURRENCE_EXTRACTOR,
+        numeric_value_is_grounded=numeric_value_is_grounded,
+    )
+    assert completeness_module._formula_execution_matches_source_branch(
+        execution, branch, **kwargs
+    )
+    wrong = completeness_module._FormulaExecution(
+        trace=(
+            completeness_module._FormulaTraceStep(
+                "if", ("year >= start and year <= start + duration",), 0
+            ),
+        ),
+        leaf=execution.leaf,
+        evaluated_value=None,
+        evaluates_to_zero=False,
+        constant_environment=constants,
+    )
+    assert not completeness_module._formula_execution_matches_source_branch(
+        wrong, branch, **kwargs
+    )
+
+
+@pytest.mark.parametrize("invalid", [True, float("inf"), float("nan")])
+def test_computed_comparison_rejects_nonfinite_and_boolean_constants(invalid):
+    constants = {"start": 2000, "duration": invalid}
+    assert (
+        completeness_module._reached_constant_comparison_values(
+            "year <= start + duration - 1",
+            constant_environment=constants,
+            execution_environment={**constants, "year": 2002},
+        )
+        == ()
+    )
+
+
+def test_computed_comparison_uses_only_selected_temporal_parameters():
+    temporal = completeness_module._TemporalFormulaValue(
+        (("2000-01-01", "2004-12-31", 2000), ("2017-01-01", "2021-12-31", 2017)),
+        (),
+    )
+    for period, expected in (("2002-01-01", 2004.0), ("2019-01-01", 2021.0)):
+        constants = completeness_module._formula_environment_for_case(
+            {"start": temporal, "duration": 5}, {"period": period}
+        )
+        assert completeness_module._reached_constant_comparison_values(
+            "year <= start + duration - 1",
+            constant_environment=constants,
+            execution_environment={**constants, "year": int(period[:4])},
+        ) == (expected,)
+    assert (
+        completeness_module._reached_constant_comparison_values(
+            "year <= start + duration - 1",
+            constant_environment={"start": temporal, "duration": 5},
+            execution_environment={"start": 2000, "duration": 5, "year": 2002},
+        )
+        == ()
+    )
+
+
+def _published_income_table_fixture(rate: int = 130) -> str:
+    rows = " ".join(
+        f"{size} ${1000 + size} ${2000 + size} ${3000 + size}" for size in range(1, 9)
+    )
+    return (
+        f"Gross Monthly Income Eligibility Standards ({rate} Percent of Poverty Level)\n\n"
+        "Household Size 48 States, DC, Guam, Virgin Islands Alaska Hawaii "
+        f"{rows} Each additional person $100 $200 $300"
+    )
+
+
+def test_precomputed_income_table_captions_are_not_computation():
+    source = "\n\n".join(
+        _published_income_table_fixture(rate) for rate in (100, 130, 165)
+    )
+    assert not source_states_explicit_computation(source)
+    assert not completeness_module._source_states_nonrounding_computation(source)
+    masked = completeness_module._without_precomputed_income_table_percentage_captions(
+        source
+    )
+    assert len(masked) == len(source)
+    assert masked.index("$1001") == source.index("$1001")
+    assert "Each additional person $100 $200 $300" in masked
+    # Computation classification must not alter the original numeric inventory.
+    assert {100.0, 130.0, 165.0, 1001.0, 2001.0, 3008.0, 200.0, 300.0}.issubset(
+        {item.value for item in EN_NUMERIC_OCCURRENCE_EXTRACTOR(source)}
+    )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda source: source.replace("8 $1008 $2008 $3008", ""),
+        lambda source: source.replace("Each additional person $100 $200 $300", ""),
+        lambda source: source.replace("$2001", "amount calculated separately"),
+        lambda source: source.replace(
+            "Household Size", "Income is calculated for household size"
+        ),
+        lambda source: source.replace("\n", " "),
+    ],
+)
+def test_percentage_caption_without_complete_table_stays_computational(mutation):
+    assert source_states_explicit_computation(
+        mutation(_published_income_table_fixture())
+    )
+
+
+@pytest.mark.parametrize(
+    "instruction",
+    [
+        "The income limit is 130 percent of the poverty level.",
+        "The limit is computed by multiplying the poverty level by 1.3.",
+        "The additional-person limit equals the eight-person limit plus $100.",
+        "The result is rounded to the nearest whole dollar.",
+    ],
+)
+def test_income_table_caption_mask_preserves_adjacent_computation(instruction):
+    source = _published_income_table_fixture() + "\n\n" + instruction
+    assert source_states_explicit_computation(source)
+
+
+def test_income_table_amounts_still_require_numeric_coverage():
+    source = _published_income_table_fixture()
+    result = _analyze(
+        "format: rulespec/v1\nrules: []\n",
+        source,
+        corpus_citation_path="us/guidance/example/income-table",
+        extract_numeric_occurrences=functools.partial(
+            extract_typed_numeric_inventory_occurrences_from_text, profile="legacy"
+        ),
+    )
+    assert _has_issue(result, "numeric")

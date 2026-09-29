@@ -1,0 +1,1 @@
+Retain up to8MiB of rejected-candidate diagnostics under one shared producer, verifier and repair-extraction bound, preserving full source-validation errors for large modules while keeping executable YAML size limits unchanged.

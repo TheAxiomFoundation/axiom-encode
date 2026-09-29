@@ -1,0 +1,1 @@
+Pricing rates v3 (effective 2026-09-10): gpt-5.6-sol at the vendor's current list price ($4 / $0.40 / $20 per million, cache writes $5; promotional through 2026-11-21). Every GPT-5.6 model now carries `source_url` and `captured_at` so a rate traces to the vendor page it was read from.

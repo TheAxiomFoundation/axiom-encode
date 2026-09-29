@@ -44,10 +44,57 @@ def test_known_models_resolve_via_public_api():
     terra = get_model_pricing("gpt-5.6-terra")
     sol = get_model_pricing("gpt-5.6-sol")
     base_alias = get_model_pricing("gpt-5.6")
-    assert terra == ModelPricing(2.0, 12.0, 0.20, 2.50, 272000)
-    assert sol == ModelPricing(5.0, 30.0, 0.50, 6.25, 272000)
+    assert (
+        terra.input_per_million,
+        terra.output_per_million,
+        terra.cache_read_per_million,
+        terra.cache_create_per_million,
+        terra.max_input_tokens,
+    ) == (2.0, 12.0, 0.20, 2.50, 272000)
+    assert (
+        sol.input_per_million,
+        sol.output_per_million,
+        sol.cache_read_per_million,
+        sol.cache_create_per_million,
+        sol.max_input_tokens,
+    ) == (4.0, 20.0, 0.40, 5.0, 272000)
     assert base_alias == sol
+    # Every GPT-5.6 rate traces to the vendor page it was read from, on a date.
+    for pricing in (terra, sol):
+        assert pricing.source_url and pricing.source_url.startswith(
+            "https://developers.openai.com/"
+        )
+        assert pricing.captured_at == "2026-09-10"
+    assert sol.promotional_until == "2026-11-21"
     assert get_model_pricing("gpt-5.6-luna") is None
+
+
+def test_gpt_6_encoder_pair_rates_trace_to_vendor_pages():
+    luna = get_model_pricing("gpt-6-luna")
+    sol = get_model_pricing("gpt-6-sol")
+    assert (
+        luna.input_per_million,
+        luna.output_per_million,
+        luna.cache_read_per_million,
+        luna.cache_create_per_million,
+        luna.max_input_tokens,
+    ) == (0.10, 0.50, 0.01, 0.125, 272000)
+    assert (
+        sol.input_per_million,
+        sol.output_per_million,
+        sol.cache_read_per_million,
+        sol.cache_create_per_million,
+        sol.max_input_tokens,
+    ) == (2.0, 10.0, 0.20, 2.50, 272000)
+    for model, pricing in (("gpt-6-luna", luna), ("gpt-6-sol", sol)):
+        assert pricing.source_url == (
+            f"https://developers.openai.com/api/docs/models/{model}"
+        )
+        assert pricing.captured_at == "2026-09-24"
+        assert pricing.promotional_until is None
+    # Variant boundary: lexical siblings never inherit GPT-6 Sol pricing.
+    assert get_model_pricing("gpt-6-solstice") is None
+    assert get_model_pricing("gpt-6") is None
 
 
 def test_prefix_fallback_requires_variant_boundary():

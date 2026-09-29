@@ -181,6 +181,60 @@ class TestLogAndRetrieveRuns:
         assert retrieved.iterations[0].success is False
         assert retrieved.success is True
 
+    def test_iterations_keep_per_attempt_model_usage_and_cost(
+        self, experiment_db, sample_encoding_run
+    ):
+        """An escalated run records each attempt's own model and spend, so the run can be re-priced."""
+        sample_encoding_run.iterations = [
+            Iteration(
+                attempt=1,
+                duration_ms=900,
+                success=False,
+                model="gpt-5.6-terra",
+                input_tokens=40_000,
+                output_tokens=5_000,
+                cache_read_tokens=10_000,
+                cache_creation_tokens=10_000,
+                reasoning_output_tokens=800,
+                estimated_cost_usd=0.11,
+            ),
+            Iteration(
+                attempt=2,
+                duration_ms=1200,
+                success=True,
+                model="gpt-5.6-sol",
+                input_tokens=60_000,
+                output_tokens=7_000,
+                cache_read_tokens=20_000,
+                cache_creation_tokens=20_000,
+                reasoning_output_tokens=1_000,
+                estimated_cost_usd=0.42,
+            ),
+            Iteration(
+                attempt=3, duration_ms=100, success=False
+            ),  # no usage reported: stays None, not 0
+        ]
+
+        experiment_db.log_run(sample_encoding_run)
+        retrieved = experiment_db.get_run(sample_encoding_run.id)
+
+        first, second, third = retrieved.iterations
+        assert (first.model, first.input_tokens, first.estimated_cost_usd) == (
+            "gpt-5.6-terra",
+            40_000,
+            0.11,
+        )
+        assert (
+            second.model,
+            second.cache_creation_tokens,
+            second.estimated_cost_usd,
+        ) == ("gpt-5.6-sol", 20_000, 0.42)
+        assert (
+            third.model is None
+            and third.input_tokens is None
+            and third.estimated_cost_usd is None
+        )
+
     def test_log_run_with_review_issues(self, experiment_db):
         """Test logging a run with review issues at different severity levels."""
         review_results = ReviewResults(

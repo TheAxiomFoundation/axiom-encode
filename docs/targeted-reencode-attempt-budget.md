@@ -37,3 +37,23 @@ reviewed retry. Preserve other operators' entries when changing the variable.
 it takes precedence over numeric limits and should not be used for an isolated
 retry while another citation is being worked on. All protected environment,
 source, behavior, completeness and signature gates remain in force.
+
+## Retaining a primary while repairing dependents
+
+A failed single-target run can supply the retained primary for a later request
+with one or two direct dependents. Keep the primary citation, replacement path,
+corpus and engine identities bound to the prior artifact. Leave source/test
+bundles, refreshes, legacy moves and queue inputs empty. A second dependent
+requires a first dependent. The workflow first applies the existing strict
+target-artifact checks. If they fail with two dependents requested, the request
+stops. With one dependent, it may try the existing strict dependent-artifact
+checks. The extractor's transaction identity checks are unchanged.
+
+After a candidate authenticates, failures in candidate validation or RuleSpec
+base-advance verification terminate the request; they never select another
+lane. The current direct-dependency inventory is still checked before model
+execution. Retained bytes go only to the selected primary; each newly requested
+dependent receives its own source-complete native generation and validation.
+Diagnostics record the prior run, selected candidate lane and hashes separately
+from the requested dependent citations. This does not certify the new dependents
+as part of the old artifact or waive any signing or publication check.
