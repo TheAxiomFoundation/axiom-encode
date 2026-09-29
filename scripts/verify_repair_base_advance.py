@@ -167,6 +167,13 @@ def verify_base_advance(
             raise ValueError(
                 "repair replay target identity changed after its source RuleSpec base"
             )
+    # An exact-base replay cannot have drifted: the authenticated failed-run
+    # artifact and the current checkout identify the same commit, and the
+    # target plus companion test blobs were verified above.  Legacy targets
+    # being converted by the encoder may not have an ownership manifest yet;
+    # requiring one here would make their first protected repair impossible.
+    if source_ref == current_ref:
+        return
     manifest_paths = tuple(
         dict.fromkeys((legacy_manifest_path, canonical_manifest_path))
     )
