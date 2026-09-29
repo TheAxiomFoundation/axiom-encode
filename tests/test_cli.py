@@ -46073,19 +46073,12 @@ rules:
             {"us:statutes/7/2012/j#input.snap_member_is_elderly_or_disabled": True}
         ]
 
-    def test_repair_scalar_relation_rows_rejects_ambiguous_boolean_row(
-        self, tmp_path
-    ):
+    def test_repair_scalar_relation_rows_rejects_ambiguous_boolean_row(self, tmp_path):
         policy_repo = tmp_path / "rulespec-us" / "us-az"
         policy_repo.mkdir(parents=True)
         dependency_root = tmp_path / "rulespec-us"
         dependency_module = (
-            dependency_root
-            / "us-az"
-            / "policies"
-            / "des"
-            / "faa5"
-            / "categorical.yaml"
+            dependency_root / "us-az" / "policies" / "des" / "faa5" / "categorical.yaml"
         )
         dependency_module.parent.mkdir(parents=True)
         dependency_module.write_text("format: rulespec/v1\nrules: []\n")
