@@ -842,6 +842,95 @@ def test_exact_conjunct_excerpt_owns_only_its_source_subclause():
     assert not completeness_module._source_conjunctive_fact_gates(clauses[0].text)
 
 
+def test_coordinated_list_chapeau_is_narrowed_with_multiple_formula_excerpts():
+    source = """\
+Basic categorical eligibility exists when the budgetary unit does not have a disqualified participant, and all budgetary unit participants receive any of the following:
+
+● TANF CA Benefits
+● SSI This includes participants whose SSI benefits are in no pay or suspend status.
+"""
+    excerpt = "all budgetary unit participants receive any of the following"
+    rule = _ky_derived_rule(
+        "participant_receives_listed_benefit",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="participant_receives_tanf or participant_receives_ssi",
+        excerpt=excerpt,
+    )
+
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path="us-az/manual/des/faa5/na-categorical-eligibility/block-3",
+        narrow_conjunctive_excerpt=False,
+    )
+
+    assert not ambiguous
+    assert [clause.text for clause in clauses] == [excerpt]
+    assert not completeness_module._source_conjunctive_fact_gates(clauses[0].text)
+
+
+def test_coordinated_list_chapeau_retains_preposed_conditions():
+    source = (
+        "If the applicant is a resident and the applicant is a citizen, the "
+        "agency approves the application and pays any of the following:\n\n"
+        "● A credit\n"
+        "● A refund."
+    )
+    excerpt = "pays any of the following"
+    rule = _ky_derived_rule(
+        "listed_benefit_is_paid",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="external_conditions_hold",
+        excerpt=excerpt,
+    )
+
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path="us-az/manual/des/faa5/na-categorical-eligibility/block-3",
+        narrow_conjunctive_excerpt=False,
+    )
+
+    assert not ambiguous
+    assert [clause.text for clause in clauses] == [source]
+    assert len(completeness_module._source_conjunctive_fact_gates(clauses[0].text)) == 2
+
+
+def test_coordinated_list_chapeau_retains_trailing_conditions():
+    source = (
+        "The agency approves the application and pays any of the following: "
+        "● a credit or ● a refund if the applicant is a resident and the "
+        "applicant is a citizen."
+    )
+    excerpt = "pays any of the following"
+    rule = _ky_derived_rule(
+        "listed_benefit_is_paid",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="external_conditions_hold",
+        excerpt=excerpt,
+    )
+
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path="us-az/manual/des/faa5/na-categorical-eligibility/block-3",
+        narrow_conjunctive_excerpt=False,
+    )
+
+    assert not ambiguous
+    assert [clause.text for clause in clauses] == [source]
+    assert len(completeness_module._source_conjunctive_fact_gates(clauses[0].text)) == 2
+
+
 def test_multi_conjunct_excerpt_retains_conditional_context():
     source = (
         "Applicants are eligible when the applicant is a resident and the "
@@ -34844,6 +34933,21 @@ def test_federal_except_tokens_cannot_bind_age_witness_to_joint_return_clause():
     )
 
 
+def test_cash_assistance_acronym_binds_full_selector_to_source_condition():
+    condition = (
+        "when the budgetary unit is CA eligible, but no CA benefit is being paid"
+    )
+
+    assert completeness_module._source_exception_selector_is_relevant(
+        condition,
+        "participant_is_cash_assistance_eligible_but_no_cash_assistance_benefit_is_paid",
+    )
+    assert not completeness_module._source_exception_selector_is_relevant(
+        condition,
+        "participant_receives_refugee_cash_assistance",
+    )
+
+
 @pytest.mark.parametrize("reverse_clause_order", [False, True])
 def test_age_qualification_witness_is_not_allocated_to_joint_return_clause(
     reverse_clause_order: bool,
@@ -43424,6 +43528,25 @@ def test_eu_regulation_identifiers_are_not_division_formulas(citation):
     # An equal-valued operation outside the citation remains a computation.
     assert completeness_module.source_states_explicit_computation(
         f"{citation}; Der Betrag ist 2021 / 888."
+    )
+
+
+def test_parenthesized_see_reference_title_is_not_a_formula_clause():
+    source = (
+        "When a participant meets the elderly or disabled definition, the "
+        "budgetary unit receives special considerations. "
+        "(See Elderly or Have a Disability - NA Special Considerations )"
+    )
+    branches = recognize_source_structure(source)
+
+    assert not source_states_explicit_computation(
+        "(See Elderly or Have a Disability - NA Special Considerations )"
+    )
+    assert not completeness_module._source_formula_branches(
+        source,
+        branches=branches,
+        active_branches=branches,
+        deferred_paths=set(),
     )
 
 
