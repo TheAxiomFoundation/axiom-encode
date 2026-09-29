@@ -135,9 +135,7 @@ def test_accepts_exact_base_for_legacy_target_without_manifest(tmp_path: Path) -
         source_ref=source_ref,
         current_ref=source_ref,
         candidate_path="policies/des/faa5/basic-categorical-eligibility.yaml",
-        rulespec_path=(
-            "us-az/policies/des/faa5/basic-categorical-eligibility.yaml"
-        ),
+        rulespec_path=("us-az/policies/des/faa5/basic-categorical-eligibility.yaml"),
     )
 
     (repository / "unrelated.txt").write_text("advance\n", encoding="utf-8")
