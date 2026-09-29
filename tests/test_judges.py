@@ -15,7 +15,9 @@ import hashlib
 import json
 import posixpath
 import re
+import shutil
 import sqlite3
+import subprocess
 import sys
 import types
 from pathlib import Path, PurePosixPath
@@ -1998,6 +2000,41 @@ def _opt_permission_suspects(run, env=None, working_directory=None):
     return suspects
 
 
+def _bash_top_level_commands(run):
+    """Return the commands bash itself places at the top level of ``run``.
+
+    bash re-indents a function body canonically in ``declare -f``: top-level
+    commands sit at four spaces, anything inside a group, pipeline, ``if``,
+    loop or nested function sits deeper or shares a line with its operator.
+    Defining the function runs nothing; the shell is restricted with an empty
+    PATH in case a stray ``}`` closes it early.
+    """
+
+    bash = shutil.which("bash")
+    assert bash, "bash is required to check the provisioning step's structure"
+    result = subprocess.run(
+        [
+            bash,
+            "--noprofile",
+            "--norc",
+            "-r",
+            "-c",
+            f"__provision_step() {{\n{run}\n}}\ndeclare -f __provision_step\n",
+        ],
+        capture_output=True,
+        text=True,
+        env={"PATH": ""},
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    return {
+        " ".join(line[4:].rstrip().rstrip(";").split())
+        for line in result.stdout.splitlines()
+        if line.startswith("    ") and not line.startswith("     ")
+    }
+
+
 def _verification_tree_jobs():
     workflows_dir = Path(__file__).parents[1] / ".github" / "workflows"
     jobs = []
@@ -2081,8 +2118,17 @@ def test_verification_tree_provisioning_tightens_opt(
     assert all(lines.index(command) > provisioner_line for command in _TREE_HARDENING)
     opt_positions = [lines.index(command) for command in _OPT_HARDENING]
     assert opt_positions == sorted(opt_positions)
-    # The fail-closed checks only fail the job under the default `bash -e`
-    # shell, with no `set +e` and no continue-on-error around them.
+    # The fail-closed checks only fail the job as top-level commands under the
+    # default `bash -e` shell, with no `set +e` and no continue-on-error: inside
+    # a `{ ...; } | tee` or `{ ...; } || echo` group, an `if` or a function, or
+    # after a `\\` or `||` carried from the line before, bash ignores -e.
+    top_level = _bash_top_level_commands(provision_run)
+    nested = [
+        command
+        for command in _OPT_HARDENING
+        if " ".join(command.split()) not in top_level
+    ]
+    assert not nested, f"{workflow_name}:{job_name} nests {nested}"
     assert "shell" not in provision_step and context["shell"] is None
     assert not provision_step.get("continue-on-error")
     assert not context["continue_on_error"]
@@ -2405,6 +2451,49 @@ def test_verification_tree_fail_closed_checks_cannot_be_neutralized(
     with pytest.raises(AssertionError):
         test_verification_tree_provisioning_tightens_opt(
             workflow_name, job_name, mutated, {**context, **context_changes}
+        )
+
+
+@pytest.mark.parametrize(
+    "wrap",
+    [
+        pytest.param(
+            lambda run: f"{{\n{run}\n}} 2>&1 | tee provisioning.log\n", id="tee"
+        ),
+        pytest.param(lambda run: f"{{\n{run}\n}} || echo warn\n", id="or-echo"),
+        pytest.param(lambda run: f"if true; then\n{run}\nfi\n", id="if"),
+        pytest.param(lambda run: f"harden() {{\n{run}\n}}\nharden\n", id="function"),
+        pytest.param(
+            lambda run: run.replace(
+                "sudo chown 0:0 /opt\n", "echo \\\nsudo chown 0:0 /opt\n"
+            ),
+            id="backslash-carry",
+        ),
+        pytest.param(
+            lambda run: run.replace(
+                "sudo chmod go-w /opt\n", "true ||\nsudo chmod go-w /opt\n"
+            ),
+            id="or-carry",
+        ),
+    ],
+)
+def test_verification_tree_hardening_must_run_at_top_level(wrap):
+    workflow_name, job_name, steps, context = _golden_drift_job()
+    provision = next(
+        index
+        for index, step in enumerate(steps)
+        if _VERIFICATION_TREE in step.get("run", "")
+    )
+    mutated = [dict(step) for step in steps]
+    mutated[provision] = {
+        **mutated[provision],
+        "run": wrap(mutated[provision]["run"]),
+    }
+    assert mutated[provision]["run"] != steps[provision]["run"]
+
+    with pytest.raises(AssertionError):
+        test_verification_tree_provisioning_tightens_opt(
+            workflow_name, job_name, mutated, context
         )
 
 
