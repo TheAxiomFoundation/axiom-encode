@@ -1861,7 +1861,7 @@ _TREE_HARDENING = (
 # archive's metadata onto an existing directory), and the files through which a
 # step hands values to later steps.
 _PERMISSION_PROGRAM = re.compile(
-    r"\b(?:chgrp|chmod|chown|cp|install|rsync|setfacl|tar)\b"
+    r"\b(?:chgrp|chmod|chown|cp|cpio|install|rsync|setfacl|(?:bsd|g)?tar)\b"
 )
 _PERMISSION_TRIGGER = re.compile(
     rf"{_PERMISSION_PROGRAM.pattern}|\bGITHUB_(?:ENV|OUTPUT)\b"
@@ -1873,7 +1873,10 @@ _CD_ROOT = re.compile(r"\b(?:cd|pushd)\s+[\"']?/+(?=[\"'\s;&|)]|$)")
 # `-xzfC/opt`). `"$VAR"/x`, `$VAR/x`, `a/b` and URLs' later slashes are not.
 _PATH_BOUNDARY = r"[\s=(;|&<>:,{`\[+-]"
 _ATTACHED_OPTION = "|".join(
-    rf"(?<=\s-[A-Za-z]{{{width}}})|(?<=^-[A-Za-z]{{{width}}})" for width in range(1, 7)
+    rf"(?<={start}-[A-Za-z]{{{width}}}{quote})"
+    for width in range(1, 7)
+    for start in (r"\s", "^")
+    for quote in ("", "[\"']", "\\\\[\"']")
 )
 _LITERAL_PATH = re.compile(
     rf"(?:(?<=^)|(?<={_PATH_BOUNDARY})|(?<={_PATH_BOUNDARY}[\"'])"
@@ -1883,7 +1886,8 @@ _LITERAL_PATH = re.compile(
 # `X=/` assigns the root even on a line that runs nothing; `..` climbs out of
 # a working directory the guard cannot otherwise resolve.
 _ROOT_ASSIGNMENT = re.compile(r"=[\"']?/+(?:[\"'\s;]|$)")
-_PARENT_OPERAND = re.compile(r"(?:^|[\s=\"'/])\.\.(?:/|[\s\"';]|$)")
+# `..` that is not part of a longer name (`a..b`, `{1..5}`, `...`).
+_PARENT_OPERAND = re.compile(r"(?<![\w.])\.\.(?![\w.])")
 _CD_PARENT = re.compile(r"\b(?:cd|pushd)\s+[\"']?\.\.(?=[/\"'\s;&|)]|$)")
 
 
@@ -2120,6 +2124,10 @@ def test_verification_tree_provisioning_tightens_opt(
         "cd /opt/hostedtoolcache\ncd ..\nsudo chmod g+w .",
         "sudo tar -xzf tool.tgz -C/opt",
         "sudo tar -xzfC/opt tool.tgz",
+        'sudo tar -xzf tool.tgz -C"/opt"',
+        "sudo tar -xzf tool.tgz -C'/opt'",
+        "(cd /opt/hostedtoolcache && sudo chmod g+w ..)",
+        "sudo bsdtar -xf tool.tar -C /opt",
         "sudo cp -a tool/. /opt/",
         'sudo chmod g+w "${TARGET:+/opt}"',
         "python -c 'import os; [os.chmod(p, 0o775) for p in [\"/opt\"]]'",
@@ -2239,6 +2247,20 @@ def _golden_drift_job():
             {},
             {},
             None,
+            [{"run": 'sudo tar -xzf tool.tgz -C"/opt"'}],
+            id="quoted-attached-short-option",
+        ),
+        pytest.param(
+            {},
+            {},
+            None,
+            [{"run": "(cd /opt/hostedtoolcache && sudo chmod g+w ..)"}],
+            id="parent-in-subshell",
+        ),
+        pytest.param(
+            {},
+            {},
+            None,
             [
                 {"run": 'cat >> "$GITHUB_ENV" <<EOF\nTARGET=/\nEOF'},
                 {"run": 'sudo chmod g+w "$TARGET"opt'},
@@ -2292,6 +2314,7 @@ def test_verification_tree_guard_sees_job_context(
         'jurs="$(cd "$genroot" && ls -d */ | tr -d \'/\')"\ncp -a a b',
         "cd .. && chmod 0644 notes.txt",
         'gcc -I/usr/include -L"$RUNNER_TEMP"/lib -o out main.c && chmod 755 out',
+        'for i in {1..5}; do chmod 0644 "part-$i"; done',
         "chmod 0644 out.json\nflag=\"$(jq -r '.flag // false' out.json)\"",
     ],
 )
