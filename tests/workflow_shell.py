@@ -32,8 +32,9 @@ The reader fails closed by raising :class:`UnanalyzableScript` on:
 - an unterminated quote, substitution or heredoc, or a ``case`` left open
   inside a substitution;
 - an unknown uv option or subcommand, or an unknown option to a wrapper;
-- an ``env -S`` value with its own escapes or ``${VAR}`` expansions, and a
-  ``mapfile``/``readarray -C`` callback;
+- an ``env -S`` value with its own escapes, ``${VAR}`` expansions or a
+  ``#`` comment, and a ``mapfile``/``readarray -C`` callback;
+- an ``env`` or ``sudo`` assignment whose name is computed (``"${p}_X=1"``);
 - a shell that reads its script from stdin or a file, ``source``/``.``, or
   ``su`` without ``-c``;
 - a program produced by a substitution or a ``${{ }}`` expression;
@@ -187,6 +188,9 @@ class _Wrapper:
     valued: frozenset[str]
     positionals: int = 0  # words between the options and the command
     numeric_flags: bool = False  # `nice -10`
+    # Options whose argument is optional and only ever attached:
+    # `--replace[=R]`, `-i[R]`.
+    optional: frozenset[str] = frozenset()
 
 
 def _options(*names: str) -> frozenset[str]:
@@ -230,9 +234,10 @@ _WRAPPERS = {
         ),
         _options(
             *("-a", "-d", "-E", "-I", "-L", "-n", "-P", "-s", "--arg-file"),
-            *("--delimiter", "--eof", "--max-args", "--max-chars", "--max-lines"),
-            *("--max-procs", "--process-slot-var", "--replace"),
+            *("--delimiter", "--max-args", "--max-chars", "--max-procs"),
+            "--process-slot-var",
         ),
+        optional=_options("-e", "-i", "-l", "--eof", "--max-lines", "--replace"),
     ),
 }
 
@@ -599,8 +604,8 @@ def _ansi_c(raw: str) -> str:
 
 def _split(value: str) -> list[str]:
     """Split an `env -S` value; its own escapes and ${VAR} are not followed."""
-    if "\\" in value or "$" in value:
-        raise UnanalyzableScript(f"env -S escapes or variables in {value!r}")
+    if any(ch in value for ch in "\\$#"):
+        raise UnanalyzableScript(f"env -S escapes, variables or comments in {value!r}")
     try:
         return shlex.split(value)
     except ValueError as error:
@@ -713,7 +718,7 @@ def _read_wrapper_options(name: str, spec: _Wrapper, words: list[str]) -> int:
             option, has_value, _ = arg.partition("=")
             if option in spec.valued:
                 index += 1 if has_value else 2
-            elif option in spec.flags:
+            elif option in spec.flags or option in spec.optional:
                 index += 1
             else:
                 raise UnanalyzableScript(f"unknown {name} option {arg!r}")
@@ -726,6 +731,9 @@ def _read_wrapper_options(name: str, spec: _Wrapper, words: list[str]) -> int:
             if option in spec.valued:
                 index += 1 if offset < len(arg) - 1 else 2
                 break
+            if option in spec.optional:
+                index += 1  # any rest of the cluster is its argument
+                break
             if option not in spec.flags:
                 raise UnanalyzableScript(f"unknown {name} option {option!r} in {arg!r}")
         else:
@@ -734,6 +742,8 @@ def _read_wrapper_options(name: str, spec: _Wrapper, words: list[str]) -> int:
 
 
 _ENV_FLAGS = frozenset({"-", "--debug", "--ignore-environment", "--null"})
+# NAME=value where NAME is built from an expansion: `"${p}_X=1"`.
+_COMPUTED_ASSIGNMENT = re.compile(r"[^=\s]*[$`\ue000][^=\s]*=")
 _ENV_VALUED = frozenset({"--chdir", "--unset"})
 
 
@@ -783,6 +793,8 @@ def _env_command(words: list[str]) -> tuple[list[str], list[str]]:
         elif _ASSIGNMENT.fullmatch(arg):
             assignments.append(arg)
             args = args[1:]
+        elif _COMPUTED_ASSIGNMENT.match(arg):
+            raise UnanalyzableScript(f"env assigns a computed name: {arg!r}")
         else:
             break
     return assignments, args
@@ -900,13 +912,16 @@ def _unwrap(words: list[str]) -> list[tuple[list[str], list[str]] | _Script]:
         elif name in _WRAPPERS:
             spec = _WRAPPERS[name]
             index = _read_wrapper_options(name, spec, words)
-            while (
-                index < len(words)
-                and name == "sudo"
-                and _ASSIGNMENT.fullmatch(words[index])
-            ):
-                assignments.append(words[index])
-                index += 1
+            while index < len(words) and name == "sudo":
+                if _ASSIGNMENT.fullmatch(words[index]):
+                    assignments.append(words[index])
+                    index += 1
+                elif _COMPUTED_ASSIGNMENT.match(words[index]):
+                    raise UnanalyzableScript(
+                        f"sudo assigns a computed name: {words[index]!r}"
+                    )
+                else:
+                    break
             words = words[index + spec.positionals :]
         else:
             if _PLACEHOLDER.search(word):

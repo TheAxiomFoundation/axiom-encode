@@ -17,6 +17,12 @@ ordinary shell, not deliberately obfuscated bash. It fails closed on the
 constructs its docstring lists, but a command assembled in a variable or a
 script run by path is out of its reach.
 
+These static checks are defense in depth. What this PR promises, that the
+suite runs on the lock, is checked directly at run time:
+test_the_test_environment_is_exactly_the_locked_set compares every installed
+distribution with ``uv export --locked --extra dev`` in CI, whatever shell
+built the environment.
+
 Out of scope:
 - what ``uv pip install --target`` stages for the verification and
   axiom-compose runtimes (the verification tree is locked by
@@ -29,15 +35,19 @@ from __future__ import annotations
 
 import copy
 import functools
+import importlib.metadata
 import os
 import re
 import shutil
 import subprocess
+import sysconfig
 from collections import defaultdict
 from pathlib import Path
 
 import pytest
 import yaml
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
 
 from tests import workflow_shell
 from tests.workflow_shell import Command, UnanalyzableScript
@@ -367,6 +377,12 @@ READER_CASES = {
     "builtin eval 'uv sync'": [("sync", ())],
     "eval -- 'uv pip install -e .'": [("pip install", ("--editable",))],
     "builtin -- eval 'uv pip install -e .'": [("pip install", ("--editable",))],
+    # xargs options whose argument is optional and attached only.
+    "printf '%s\\n' . | xargs --replace uv sync --directory {}": [
+        ("sync", ("--directory",))
+    ],
+    "xargs -i uv sync --directory {}": [("sync", ("--directory",))],
+    "xargs --max-lines=1 uv sync": [("sync", ())],
     "cat <<END-OF\nuv sync\nEND-OF\nuv lock": [("lock", ())],
     "uv --version": [("", ("--version",))],
     "echo \"$(echo 'if case x in')\"": [],
@@ -417,6 +433,9 @@ def test_reader_finds_the_uv_calls_a_script_makes(script, expected):
         "env -S 'bash -c \"uv\\_pip install -e .\"'",
         "env -S 'uv ${ARGS}'",
         "mapfile -t -C 'uv sync' -c 1 lines < f",
+        "env -S 'uv sync # --frozen'",
+        'env "${p}_X=1" uv sync',
+        'sudo "${p}_X=1" uv sync',
         # A uv option missing its value.
         "uv --directory",
         "uv sync --frozen --python",
@@ -485,9 +504,11 @@ def test_nested_scripts_inherit_assignments():
         # drop it or add the name to UV_NAMES_ALLOWED with a reviewer.
         ('echo "UV_CACHE_DIR=$UV_CACHE_DIR"', True),
         ('grep -q "UV_NO_SYNC=1" < "$GITHUB_ENV"', True),
-        # Other names that merely contain UV_ are not UV_* variables.
-        ('echo "LOCKED_UV_VERSION=0.11.7" >> "$GITHUB_ENV"', False),
-        ('echo "VENV=.venv" >> "$GITHUB_ENV"', False),
+        # Other names that merely contain UV_ are not UV_* variables...
+        ('echo "LOCKED_UV_VERSION=0.11.7"', False),
+        # ...but any unreviewed step writing $GITHUB_ENV fails.
+        ('echo "LOCKED_UV_VERSION=0.11.7" >> "$GITHUB_ENV"', True),
+        ('echo "VENV=.venv" >> "$GITHUB_ENV"', True),
         ("echo {PIP,POETRY}_INDEX_URL", False),
         # Round 10: computed names, quote splitting, continuations, printf
         # precision, and escaped letters.
@@ -502,6 +523,19 @@ def test_nested_scripts_inherit_assignments():
         ("printf '%.0sUV_X=1\\n' x >> \"$GITHUB_ENV\"", True),
         ("echo $'\\x55V_X=1' >> \"$GITHUB_ENV\"", True),
         ("export PIP_INDEX_URL=x", False),
+        # Round 11: names built by case conversion, and unreviewed
+        # $GITHUB_ENV writers.
+        (
+            'for tool in pip uv; do\n  echo "${tool^^}_INDEX_URL=x" >> "$GITHUB_ENV"\ndone',
+            True,
+        ),
+        ('echo "${tool@U}_X=1"', True),
+        ("declare -u n=uv; export n", True),
+        (
+            "for tool in uv pip; do\n  prefix=$(printf '%s' \"$tool\" | tr '[:lower:]' '[:upper:]')\n  printf '%s_X=1\\n' \"$prefix\"\ndone",
+            True,
+        ),
+        ('echo "PIP_INDEX_URL=x" >> "$GITHUB_ENV"', True),
         ("printf 'a\\tUV_X=1'", True),
         # Brace expansions and escapes spell a name too.
         ("export {UV,PIP}_INDEX_URL=https://example.com/simple", True),
@@ -700,6 +734,20 @@ UV_NAME = re.compile(
     r"|(?<![A-Za-z0-9_])UV(?![A-Za-z0-9_])"
 )
 ENV_BUILTINS = frozenset({"declare", "export", "local", "readonly", "typeset"})
+# Ways to build an upper-case name from lower-case text (`uv` -> `UV`), which
+# the name rule cannot see through, so they fail closed.
+CASE_CONVERSION = re.compile(
+    r"\$\{[#!]?[A-Za-z_][A-Za-z0-9_]*(?:\[[^]]*\])?(?:\^|,|@[uUL])"
+    r"|\b(?:toupper|tolower)\b|\\[UL]"
+)
+CASE_CLASSES = re.compile(r"\[:(?:lower|upper):\]|a-z|A-Z")
+# Steps that may write $GITHUB_ENV, which sets variables for every later step,
+# and the only names each writes. A new writer needs a reviewed entry here.
+GITHUB_ENV_WRITERS = {
+    ("targeted-signed-reencode.yml", "encode", "Validate dependent cascade"): {
+        "DEPENDENT_CASCADE_MODE"
+    },
+}
 
 
 def _strings(node):
@@ -728,8 +776,13 @@ def test_no_workflow_sets_uv_environment_variables():
     word UV on its own; the words bash sees after quote removal are checked
     the same way; and export/declare may not compute a variable's name.
 
-    Within the threat model, setting a variable means spelling its name or
-    building it from the word UV, so none escapes. A harmless mention (a log line, a read) fails loudly
+    This is a lint with enumerated coverage, not a proof that no UV_*
+    variable can be set; what it misses in the test jobs, the runtime
+    locked-set check catches. On top of the name rule: case conversion
+    (`${x^^}`, `declare -u`, `tr a-z A-Z`, `toupper`, `\\U`) fails closed,
+    computed names in export/declare/env/sudo fail closed, and only the
+    reviewed steps in GITHUB_ENV_WRITERS may write $GITHUB_ENV, whatever
+    names they build. A harmless mention (a log line, a read) fails loudly
     instead; add a name to UV_NAMES_ALLOWED only for a reviewed read.
     Workflows configure uv through flags. setup-uv itself exports
     UV_PYTHON_INSTALL_DIR and UV_CACHE_DIR, which set where uv installs
@@ -755,6 +808,18 @@ def test_no_workflow_sets_uv_environment_variables():
                     {m.group() for m in UV_NAME.finditer(text)} - UV_NAMES_ALLOWED
                 )
             ]
+            # Case conversion builds an upper-case name the rule cannot see.
+            if (
+                command.program == "tr"
+                and any(CASE_CLASSES.search(word) for word in command.words[1:])
+            ) or (
+                command.program in {"declare", "local", "typeset"}
+                and any(
+                    re.fullmatch(r"[-+][A-Za-z]*[luc][A-Za-z]*", word)
+                    for word in command.words[1:]
+                )
+            ):
+                offenders.append(f"{name}:{job}[{index}] converts case: {command.line}")
             # A computed name (`export "${prefix}_X=1"`) cannot be checked, so
             # it fails closed.
             if command.program in ENV_BUILTINS:
@@ -764,7 +829,86 @@ def test_no_workflow_sets_uv_environment_variables():
                     if not word.startswith("-")
                     and re.search(r"[$`\ue000]", word.partition("=")[0])
                 ]
+        if CASE_CONVERSION.search(step.get("run", "")):
+            offenders.append(f"{name}:{job}[{index}] converts case")
+        if (
+            "GITHUB_ENV" in step.get("run", "")
+            and (
+                name,
+                job,
+                step.get("name"),
+            )
+            not in GITHUB_ENV_WRITERS
+        ):
+            offenders.append(f"{name}:{job}[{index}] writes $GITHUB_ENV unreviewed")
     assert offenders == []
+
+
+def test_reviewed_github_env_writers_set_only_their_names():
+    for (name, job, step_name), allowed in GITHUB_ENV_WRITERS.items():
+        workflow = dict(_workflows())[name]
+        [step] = [
+            s for s in workflow["jobs"][job]["steps"] if s.get("name") == step_name
+        ]
+        written = {
+            match.group(1)
+            for match in re.finditer(
+                r"^\s*(?:printf|echo)\s+['\"]?([A-Z][A-Z0-9_]*)=.*GITHUB_ENV",
+                step["run"],
+                re.M,
+            )
+        }
+        assert written == allowed, (name, job, step_name, written)
+        assert step["run"].count("GITHUB_ENV") == len(allowed)
+
+
+def _site_distributions() -> dict[str, str]:
+    """Distributions installed in this interpreter's own site-packages."""
+    paths = sorted({sysconfig.get_path("purelib"), sysconfig.get_path("platlib")})
+    return {
+        canonicalize_name(dist.metadata["Name"]): dist.version
+        for dist in importlib.metadata.distributions(path=paths)
+    }
+
+
+def test_the_test_environment_is_exactly_the_locked_set():
+    """What the suite runs on is what uv.lock pins for the dev extra.
+
+    This is the runtime guarantee behind the static checks: however the
+    environment was built, it must hold exactly the locked distributions at
+    their locked versions (a git dependency by name). CI builds it with
+    `uv sync --locked --extra dev`; locally, set AXIOM_CHECK_LOCKED_ENV=1 in
+    an environment synced the same way.
+    """
+    if not (os.environ.get("CI") or os.environ.get("AXIOM_CHECK_LOCKED_ENV")):
+        pytest.skip("runs in CI, or with AXIOM_CHECK_LOCKED_ENV=1")
+    exported = subprocess.run(
+        ["uv", "export", "--locked", "--extra", "dev", "--no-hashes"]
+        + ["--no-header", "--no-annotate", "--no-emit-project"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    locked: dict[str, str | None] = {}
+    for line in exported.splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        requirement = Requirement(line)
+        if requirement.marker is not None and not requirement.marker.evaluate():
+            continue
+        specifier = str(requirement.specifier)
+        locked[canonicalize_name(requirement.name)] = (
+            specifier[2:] if specifier.startswith("==") else None
+        )
+    installed = _site_distributions()
+    installed.pop("axiom-encode", None)
+    assert sorted(installed) == sorted(locked)
+    assert {
+        name: (version, locked[name])
+        for name, version in installed.items()
+        if locked[name] is not None and version != locked[name]
+    } == {}
 
 
 def test_setup_uv_takes_only_a_version():
