@@ -1880,7 +1880,7 @@ _LITERAL_PATH = re.compile(
 # `X=/` assigns the root even on a line that runs nothing; `..` climbs out of
 # a working directory the guard cannot otherwise resolve.
 _ROOT_ASSIGNMENT = re.compile(r"=[\"']?/+(?:[\"'\s;]|$)")
-_PARENT_OPERAND = re.compile(r"(?:^|[\s=\"'])\.\.(?:/|[\s\"';]|$)")
+_PARENT_OPERAND = re.compile(r"(?:^|[\s=\"'/])\.\.(?:/|[\s\"';]|$)")
 
 
 def _literal_paths(line):
@@ -1908,7 +1908,8 @@ def _opt_permission_suspects(run, env=None, working_directory=None):
       programs. The root check is otherwise per line because ``/`` and ``//``
       are also Python and jq operators, and ``tr -d '/'`` is not a path;
     * a command line with a ``..`` operand that runs one of those programs
-      while it, or the working directory, names a path at or under /opt.
+      in a step whose context or code names a path at or under /opt, since a
+      ``cd`` on an earlier line may have moved there.
 
     Quoting (escaped or not), separators, comments, continuations, ``sh -c``
     wrappers, pipelines, ``${VAR:-/opt}``, ``cd /``, ``D=/opt``, ``X=/``,
@@ -1943,6 +1944,9 @@ def _opt_permission_suspects(run, env=None, working_directory=None):
     suspects = [line for line in context if _literal_paths(line) & {"/", "/opt"}]
     if below_opt and context[-1] not in suspects:
         suspects.append(context[-1])
+    names_under_opt = below_opt or any(
+        _at_or_under_opt(_literal_paths(line)) for line in context + code
+    )
     for line in code:
         paths = _literal_paths(line)
         if (
@@ -1953,7 +1957,7 @@ def _opt_permission_suspects(run, env=None, working_directory=None):
             or (
                 _PARENT_OPERAND.search(line)
                 and _PERMISSION_PROGRAM.search(line)
-                and (below_opt or _at_or_under_opt(paths))
+                and names_under_opt
             )
         ):
             suspects.append(line.strip())
@@ -2101,6 +2105,9 @@ def test_verification_tree_provisioning_tightens_opt(
         'TARGET=/\nsudo chmod g+w "$TARGET"opt',
         'cat >> "$GITHUB_ENV" <<EOF\nTARGET=/\nEOF',
         "cd /opt/hostedtoolcache && sudo chmod g+w ..",
+        "cd /opt/hostedtoolcache\nsudo chmod g+w ..",
+        "pushd /opt/hostedtoolcache\nsudo chmod g+w ..",
+        'D=/opt/hostedtoolcache; sudo chmod g+w "$D/.."',
         "sudo cp -a tool/. /opt/",
         'sudo chmod g+w "${TARGET:+/opt}"',
         "python -c 'import os; [os.chmod(p, 0o775) for p in [\"/opt\"]]'",
@@ -2115,6 +2122,9 @@ def test_opt_permission_suspects_include_step_context():
     assert _opt_permission_suspects("sudo chmod g+w opt", working_directory="/")
     assert _opt_permission_suspects(
         "sudo chmod g+w ..", working_directory="/opt/hostedtoolcache"
+    )
+    assert _opt_permission_suspects(
+        'cd "$TOOLCACHE" && sudo chmod g+w ..', {"TOOLCACHE": "/opt/hostedtoolcache"}
     )
     assert not _opt_permission_suspects("ls", {"TARGET": "/opt"})
 
@@ -2179,6 +2189,25 @@ def _golden_drift_job():
                 }
             ],
             id="parent-of-working-directory",
+        ),
+        pytest.param(
+            {},
+            {},
+            None,
+            [{"run": "cd /opt/hostedtoolcache\nsudo chmod g+w .."}],
+            id="parent-after-multiline-cd",
+        ),
+        pytest.param(
+            {},
+            {},
+            None,
+            [
+                {
+                    "env": {"TOOLCACHE": "/opt/hostedtoolcache"},
+                    "run": 'cd "$TOOLCACHE" && sudo chmod g+w ..',
+                }
+            ],
+            id="parent-through-step-env",
         ),
         pytest.param(
             {},
