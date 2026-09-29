@@ -89,6 +89,12 @@ LOCK_OVERRIDES = frozenset(
         "--with-requirements",
     }
 )
+# The exact run: of the step every test job dedicates to the runtime check.
+RUNTIME_CHECK_RUN = (
+    ".venv/bin/pytest -q -o addopts='' "
+    "tests/test_workflow_toolchain_pins.py"
+    "::test_the_test_environment_is_exactly_the_locked_set"
+)
 # UV_* names a run script may mention, for a reviewed read; none today.
 UV_NAMES_ALLOWED: frozenset[str] = frozenset()
 TOOLS = re.compile(r"pytest|py\.test|ruff|towncrier|pre-commit|python[0-9.]*")
@@ -1208,51 +1214,37 @@ def test_test_environment_is_the_locked_dev_set(workflow_name, job_name):
         if _runs_pip(command) or command.program in {"pipx", "pip-sync"}
     ] == []
 
-    # The runtime locked-set check runs in this job, after the sync: a pytest
-    # over that test or over all of tests/, passing only options that cannot
-    # deselect it (an allowlist, since pytest reads options in many forms),
-    # with no PYTEST_ADDOPTS/PYTEST_PLUGINS or CI override in scope, in a step
-    # that cannot be skipped or allowed to fail. The job itself has no `if:`.
-    runtime_check = (
-        "tests/test_workflow_toolchain_pins.py"
-        "::test_the_test_environment_is_exactly_the_locked_set"
-    )
+    # The runtime locked-set check runs in a dedicated step after the sync,
+    # pinned exactly: a single command (so no pipe, `|| true`, wrapper,
+    # export or unset around it), no option that could deselect it, and no
+    # `if:`, `env:`, `shell:` or `continue-on-error:` on the step. The job has
+    # no `if:` or `continue-on-error:`, and nothing in scope overrides CI,
+    # GITHUB_ACTIONS or pytest's options. Runner-provided CI can then only be
+    # changed through $GITHUB_ENV, which only reviewed steps may write.
     workflow = dict(_workflows())[workflow_name]
     job = workflow["jobs"][job_name]
-    assert "if" not in job, f"{workflow_name}:{job_name} has a job-level if:"
+    assert "if" not in job and "continue-on-error" not in job, job_name
     overrides = {"CI", "GITHUB_ACTIONS", "PYTEST_ADDOPTS", "PYTEST_PLUGINS"}
-
-    def keeps_the_check(step: dict, command: Command) -> bool:
-        args = command.words[1:]
-        if runtime_check not in args and "tests/" not in args:
-            return False
-        index = 0
-        while index < len(args):
-            arg = args[index]
-            if arg in {"-o", "--override-ini"}:
-                if args[index + 1 : index + 2] != ("addopts=",):
-                    return False  # only the empty addopts override
-                index += 2
-                continue
-            if arg.startswith("-") and not (
-                arg in {"-q", "-qq", "-v", "-vv"} or re.fullmatch(r"--tb=\w+", arg)
-            ):
-                return False
-            index += 1
-        names = {a.partition("=")[0] for a in command.assignments}
-        names |= set(workflow.get("env") or {}) | set(job.get("env") or {})
-        names |= set(step.get("env") or {})
-        return not names & overrides
-
-    runs_check = [
-        commands.index(command)
-        for _, _, _, step in _job_steps(workflow_name, job_name)
-        if "if" not in step and "continue-on-error" not in step
+    for scope in (workflow, job):
+        env = scope.get("env") or {}
+        assert isinstance(env, dict) and not set(env) & overrides, env
+        shell = ((scope.get("defaults") or {}).get("run") or {}).get("shell")
+        assert shell in {None, "bash"}, shell
+    steps = job["steps"]
+    sync_step = next(
+        index
+        for index, step in enumerate(steps)
         for command in _script_commands(step.get("run", ""))
-        if command.program == "pytest" and keeps_the_check(step, command)
+        if command.words == sync_words
+    )
+    dedicated = [
+        index
+        for index, step in enumerate(steps)
+        if set(step) <= {"name", "run"}
+        and " ".join(str(step.get("run", "")).split()) == RUNTIME_CHECK_RUN
     ]
-    assert any(position > sync_position for position in runs_check), (
-        f"{workflow_name}:{job_name} does not run {runtime_check}"
+    assert any(index > sync_step for index in dedicated), (
+        f"{workflow_name}:{job_name} has no dedicated runtime-check step"
     )
 
     # Every tool the job runs comes from the synced .venv, after the sync.

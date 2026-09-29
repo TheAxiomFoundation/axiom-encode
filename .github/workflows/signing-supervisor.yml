@@ -56,6 +56,11 @@ jobs:
       - name: Install Python test dependencies
         run: uv sync --locked --python 3.13 --extra dev
 
+      - name: Check the environment is the locked set
+        run: >-
+          .venv/bin/pytest -q -o addopts=''
+          tests/test_workflow_toolchain_pins.py::test_the_test_environment_is_exactly_the_locked_set
+
       - name: Test supervisor package
         run: |
           go test ./cmd/axiom-encode-signing-supervisor
@@ -109,7 +114,6 @@ jobs:
           tests/test_eval_evidence.py
           tests/test_cli.py::test_apply_manifest_environment_public_key_cannot_replace_protected_broker
           tests/test_evals.py::TestEvalSuiteManifest::test_run_eval_suite_resume_rejects_old_signed_verdict_schema
-          tests/test_workflow_toolchain_pins.py::test_the_test_environment_is_exactly_the_locked_set
           -o addopts='' --tb=short
 
       - name: Prepare root-owned production fixture
