@@ -29,8 +29,8 @@ jobs:
       - name: Set up Python ${{ matrix.python-version }}
         run: uv python install ${{ matrix.python-version }}
 
-      # Install exactly what uv.lock pins, the same set the production
-      # workflows sync, so tests never pass on a floated dependency.
+      # Install the versions uv.lock pins, as every production workflow does,
+      # so tests never pass on a floated dependency.
       - name: Install locked dependencies
         run: uv sync --locked --python ${{ matrix.python-version }} --extra dev
 
