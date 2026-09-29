@@ -194,10 +194,12 @@ def load_pending_file(path: Path, *, repo: str | None = None) -> PendingFile:
 def iter_pending_file_paths(root: Path) -> list[Path]:
     """Return the pending declaration in one explicit canonical checkout.
 
-    GitHub Actions places the repository at ``rulespec-us/rulespec-us`` and
-    passes the outer canonical checkout root to oracle coverage. Support that
-    exact nested checkout as well as the direct layout used by local callers.
-    Never scan sibling repositories.
+    Since TheAxiomFoundation/.github#25 the shared ``validate-rulespec``
+    workflow passes the exact checkout (``$GITHUB_WORKSPACE``) to oracle
+    coverage, so the declaration sits directly under ``root``. The nested
+    layout, where ``root`` is the outer directory of a GitHub Actions
+    ``rulespec-us/rulespec-us`` checkout (``$GITHUB_WORKSPACE/..``), is still
+    supported for local and legacy callers. Never scan sibling repositories.
     """
 
     raw_root = Path(root).expanduser()

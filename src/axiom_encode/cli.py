@@ -6943,8 +6943,9 @@ def cmd_oracle_coverage(args):
     # Adopt it on whole-repo gates of repos known to carry content. It does NOT
     # help changed-file gates on established repos: there, whole-repo
     # total_outputs stays nonzero even when the changed-file filter matches
-    # nothing — that gate must reject an empty post-filter item set instead
-    # (tracked follow-up; see PR #1148 discussion).
+    # nothing. The shared changed-file gate rejects that case itself since
+    # TheAxiomFoundation/.github#115: it fails a changed module that defines
+    # executable outputs but matched no report item.
     #
     # The decision keys off executable outputs ONLY. Program surfaces are the
     # fixed global PolicyEngine variable manifest — independent of --root — so
