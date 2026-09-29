@@ -4027,6 +4027,7 @@ def test_validate_rulespec_base_rejects_stale_main_pr_base(
         ("us", "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683"),
         ("us", "79ffd74fe3d3c83665335ec64feb7458d9cc877a"),
         ("us", "b5273061fc5765dea04bf36f63de39bf40afc2d8"),
+        ("us", "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a"),
         ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
     ],
 )
@@ -4057,6 +4058,7 @@ def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
             ("us", "cab4b7bc6d4b82124d0331964d1cd6c78b1d0683"),
             ("us", "79ffd74fe3d3c83665335ec64feb7458d9cc877a"),
             ("us", "b5273061fc5765dea04bf36f63de39bf40afc2d8"),
+            ("us", "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a"),
             ("ca", "f60f7a84c30e38c7d4961d70647eb0457e7d76c2"),
         }
     )
@@ -4091,6 +4093,11 @@ def test_validate_rulespec_base_accepts_exact_reviewed_head_artifact_only(
                 "us",
                 "b5273061fc5765dea04bf36f63de39bf40afc2d8",
                 "fix/1248-snap-immigration-status",
+            ),
+            (
+                "us",
+                "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
+                "codex/az-nested-engine-pin",
             ),
         }
     )
@@ -4165,9 +4172,13 @@ def test_validate_rulespec_base_accepts_exact_reviewed_protected_branch_tip(
             "b5273061fc5765dea04bf36f63de39bf40afc2d8",
             "fix/1248-snap-immigration-status",
         ),
+        (
+            "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
+            "codex/az-nested-engine-pin",
+        ),
     ],
 )
-def test_validate_rulespec_base_accepts_reviewed_immigration_repair_branch_tip(
+def test_validate_rulespec_base_accepts_each_reviewed_protected_branch_tip(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     reviewed_ref: str,
@@ -4227,6 +4238,10 @@ def test_validate_rulespec_base_accepts_reviewed_immigration_repair_branch_tip(
             "b5273061fc5765dea04bf36f63de39bf40afc2d8",
             "axiom/signed-backfill-us-35160240952-1",
         ),
+        (
+            "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
+            "fix/1248-snap-immigration-status",
+        ),
     ],
 )
 def test_validate_rulespec_base_rejects_reviewed_head_branch_cross_pairs(
@@ -4273,6 +4288,10 @@ def test_validate_rulespec_base_rejects_reviewed_head_branch_cross_pairs(
         (
             "b5273061fc5765dea04bf36f63de39bf40afc2d8",
             "fix/1248-snap-immigration-status",
+        ),
+        (
+            "d4c168e5a7d8ff28d848deba2b7faaba65a3e09a",
+            "codex/az-nested-engine-pin",
         ),
     ],
 )
