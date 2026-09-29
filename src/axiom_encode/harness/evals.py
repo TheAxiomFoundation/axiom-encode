@@ -12225,12 +12225,25 @@ def _format_existing_target_contract_guidance(
             if oracle_contract is not None
             else set()
         )
+        required_surfaces = (
+            {surface.name: surface for surface in oracle_contract.surfaces}
+            if oracle_contract is not None
+            else {}
+        )
         if oracle_contract is not None and oracle_contract.replacement_name_identity:
             replacement_name_identities.add(oracle_contract.replacement_name_identity)
         for name, surface in surfaces.items():
+            required_surface = required_surfaces.get(name)
+            entity_detail = f"entity={surface.get('entity') or ''}"
+            if required_surface is not None and required_surface.replacement_entity:
+                entity_detail = (
+                    f"entity={required_surface.replacement_entity} (required relation-"
+                    "current-slot repair; "
+                    f"legacy {surface.get('entity') or ''} is invalid)"
+                )
             details = [
                 f"kind={surface.get('kind') or ''}",
-                f"entity={surface.get('entity') or ''}",
+                entity_detail,
                 f"dtype={surface.get('dtype') or ''}",
                 f"period={surface.get('period') or ''}",
             ]
@@ -12279,7 +12292,8 @@ def _format_existing_target_contract_guidance(
         required_section = """
 Exact-oracle replacement contract:
 These valid existing names are owned by exact oracle registry entries. Preserve
-each executable name and its listed public/private shape, and preserve each
+each executable name and its listed public/private shape except where an
+explicit entity-repair note requires the listed corrected entity. Preserve each
 listed valid explicit input contract. Repair formulas, proofs, tests, and
 temporal coverage behind those stable surfaces. This exception does not
 preserve any invalid legacy input:

@@ -3005,6 +3005,374 @@ rules:
     assert find_existing_target_oracle_contract_issues(existing, contract) == []
 
 
+def test_exact_oracle_contract_allows_only_proven_relation_entity_repair():
+    target = "us-az:policies/snap/basic_categorical_eligibility"
+    existing = """\
+format: rulespec/v1
+rules:
+  - name: member_of_budgetary_unit
+    kind: data_relation
+    data_relation:
+      arity: 2
+      arguments: [Person, Household]
+  - name: participant_qualifies
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: participant_has_status
+  - name: all_participants_qualify
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: count_where(member_of_budgetary_unit, participant_qualifies) == len(member_of_budgetary_unit)
+  - name: basic_eligibility
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: all_participants_qualify
+inputs:
+  - name: participant_has_status
+    entity: Person
+    dtype: Judgment
+    period: Month
+"""
+    registry = SimpleNamespace(
+        mappings_by_legal_id={
+            f"{target}#participant_qualifies": object(),
+            f"{target}#all_participants_qualify": object(),
+            f"{target}#basic_eligibility": object(),
+        }
+    )
+    contract = build_existing_target_oracle_contract(
+        existing,
+        target=target,
+        policyengine_registry=registry,
+    )
+
+    assert contract is not None
+    surfaces = {surface.name: surface for surface in contract.surfaces}
+    assert surfaces["all_participants_qualify"].replacement_entity == "Household"
+    assert surfaces["basic_eligibility"].replacement_entity == "Household"
+    assert surfaces["participant_qualifies"].replacement_entity == ""
+
+    corrected = existing.replace(
+        "  - name: all_participants_qualify\n    kind: derived\n    entity: Person\n",
+        "  - name: all_participants_qualify\n"
+        "    kind: derived\n"
+        "    entity: Household\n",
+    )
+    corrected = corrected.replace(
+        "  - name: basic_eligibility\n    kind: derived\n    entity: Person\n",
+        "  - name: basic_eligibility\n    kind: derived\n    entity: Household\n",
+    )
+    assert find_existing_target_oracle_contract_issues(corrected, contract) == []
+
+    arbitrary_entity = corrected.replace(
+        "  - name: all_participants_qualify\n"
+        "    kind: derived\n"
+        "    entity: Household\n",
+        "  - name: all_participants_qualify\n    kind: derived\n    entity: TaxUnit\n",
+    )
+    arbitrary_issues = find_existing_target_oracle_contract_issues(
+        arbitrary_entity, contract
+    )
+    assert len(arbitrary_issues) == 1
+    assert "#all_participants_qualify" in arbitrary_issues[0]
+    assert "entity `Household`" in arbitrary_issues[0]
+
+    invalid_helper = corrected.replace(
+        "  - name: participant_qualifies\n    kind: derived\n    entity: Person\n",
+        "  - name: participant_qualifies\n    kind: derived\n    entity: Household\n",
+    )
+    helper_issues = find_existing_target_oracle_contract_issues(
+        invalid_helper, contract
+    )
+    assert len(helper_issues) == 1
+    assert "#participant_qualifies" in helper_issues[0]
+    assert "kind/entity/dtype" in helper_issues[0]
+
+    invalid_dtype = corrected.replace(
+        "  - name: all_participants_qualify\n"
+        "    kind: derived\n"
+        "    entity: Household\n"
+        "    dtype: Judgment\n",
+        "  - name: all_participants_qualify\n"
+        "    kind: derived\n"
+        "    entity: Household\n"
+        "    dtype: Decimal\n",
+    )
+    dtype_issues = find_existing_target_oracle_contract_issues(invalid_dtype, contract)
+    assert len(dtype_issues) == 1
+    assert "#all_participants_qualify" in dtype_issues[0]
+    assert "kind/entity/dtype/period" in dtype_issues[0]
+
+
+def test_relation_entity_repair_does_not_escape_aggregate_scope():
+    target = "us-az:policies/snap/aggregate_scope"
+    existing = """\
+format: rulespec/v1
+rules:
+  - name: member_of_household
+    kind: data_relation
+    data_relation:
+      arity: 2
+      arguments: [Person, Household]
+  - name: dependent_of_person
+    kind: data_relation
+    data_relation:
+      arity: 2
+      arguments: [Dependent, Person]
+  - name: person_has_dependents
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: len(dependent_of_person) > 0
+  - name: household_has_person_with_dependents
+    kind: derived
+    entity: Household
+    dtype: Judgment
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: count_where(member_of_household, person_has_dependents) > 0
+"""
+    registry = SimpleNamespace(
+        mappings_by_legal_id={
+            f"{target}#household_has_person_with_dependents": object(),
+        }
+    )
+
+    contract = build_existing_target_oracle_contract(
+        existing,
+        target=target,
+        policyengine_registry=registry,
+    )
+
+    assert contract is not None
+    assert contract.surfaces[0].replacement_entity == ""
+    assert find_existing_target_oracle_contract_issues(existing, contract) == []
+
+
+def test_relation_entity_repair_requires_unambiguous_aggregate_scope():
+    target = "us-az:policies/snap/conflicting_aggregate_scope"
+    existing = """\
+format: rulespec/v1
+rules:
+  - name: people
+    kind: data_relation
+    data_relation:
+      arity: 2
+      arguments: [Person, Household]
+  - name: dependents
+    kind: data_relation
+    data_relation:
+      arity: 2
+      arguments: [Dependent, Person]
+  - name: ambiguous_count
+    kind: derived
+    entity: Person
+    dtype: Decimal
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: len(people) + len(dependents)
+  - name: outer_count
+    kind: derived
+    entity: Person
+    dtype: Decimal
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: ambiguous_count + len(people)
+"""
+    registry = SimpleNamespace(
+        mappings_by_legal_id={
+            f"{target}#ambiguous_count": object(),
+            f"{target}#outer_count": object(),
+        }
+    )
+
+    contract = build_existing_target_oracle_contract(
+        existing,
+        target=target,
+        policyengine_registry=registry,
+    )
+
+    assert contract is not None
+    assert all(surface.replacement_entity == "" for surface in contract.surfaces)
+    assert find_existing_target_oracle_contract_issues(existing, contract) == []
+
+
+def test_relation_entity_repair_propagates_correct_helper_scope_not_string_text():
+    target = "us-az:policies/snap/helper_scope"
+    existing = """\
+format: rulespec/v1
+rules:
+  - name: people
+    kind: data_relation
+    data_relation:
+      arity: 2
+      arguments: [Person, Household]
+  - name: household_member_count
+    kind: derived
+    entity: Household
+    dtype: Decimal
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: len(people)
+  - name: mapped_count
+    kind: derived
+    entity: Person
+    dtype: Decimal
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: household_member_count
+  - name: mapped_label
+    kind: derived
+    entity: Person
+    dtype: String
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '"len(people)"'
+  - name: mapped_amount
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: income # do not use sum(people.income) here
+inputs:
+  - name: income
+    entity: Person
+    dtype: Money
+    period: Month
+    unit: USD
+"""
+    registry = SimpleNamespace(
+        mappings_by_legal_id={
+            f"{target}#mapped_count": object(),
+            f"{target}#mapped_label": object(),
+            f"{target}#mapped_amount": object(),
+        }
+    )
+
+    contract = build_existing_target_oracle_contract(
+        existing,
+        target=target,
+        policyengine_registry=registry,
+    )
+
+    assert contract is not None
+    surfaces = {surface.name: surface for surface in contract.surfaces}
+    assert surfaces["mapped_count"].replacement_entity == "Household"
+    assert surfaces["mapped_label"].replacement_entity == ""
+    assert surfaces["mapped_amount"].replacement_entity == ""
+
+
+def test_relation_entity_repair_uses_only_outer_aggregate_scope():
+    target = "us-az:policies/snap/nested_aggregate_scope"
+    existing = """\
+format: rulespec/v1
+rules:
+  - name: people
+    kind: data_relation
+    data_relation:
+      arity: 2
+      arguments: [Person, Household]
+  - name: dependents
+    kind: data_relation
+    data_relation:
+      arity: 2
+      arguments: [Dependent, Person]
+  - name: mapped_count
+    kind: derived
+    entity: Person
+    dtype: Decimal
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: count_where(people, len(dependents) > 0)
+"""
+    registry = SimpleNamespace(
+        mappings_by_legal_id={f"{target}#mapped_count": object()}
+    )
+
+    contract = build_existing_target_oracle_contract(
+        existing,
+        target=target,
+        policyengine_registry=registry,
+    )
+
+    assert contract is not None
+    assert contract.surfaces[0].replacement_entity == "Household"
+
+
+def test_relation_entity_repair_does_not_cache_cycle_truncated_constraints():
+    target = "us-az:policies/snap/cyclic_scope"
+    existing = """\
+format: rulespec/v1
+rules:
+  - name: people
+    kind: data_relation
+    data_relation:
+      arity: 2
+      arguments: [Person, Household]
+  - name: dependents
+    kind: data_relation
+    data_relation:
+      arity: 2
+      arguments: [Dependent, Person]
+  - name: a
+    kind: derived
+    entity: Person
+    dtype: Decimal
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: len(people) + b
+  - name: b
+    kind: derived
+    entity: Person
+    dtype: Decimal
+    period: Month
+    versions:
+      - effective_from: '2026-01-01'
+        formula: len(dependents) + a
+"""
+    registry = SimpleNamespace(
+        mappings_by_legal_id={
+            f"{target}#a": object(),
+            f"{target}#b": object(),
+        }
+    )
+
+    contract = build_existing_target_oracle_contract(
+        existing,
+        target=target,
+        policyengine_registry=registry,
+    )
+
+    assert contract is not None
+    assert all(surface.replacement_entity == "" for surface in contract.surfaces)
+
+
 def test_rule_source_metadata_rejects_executable_rules_without_rule_source():
     content = """format: rulespec/v1
 module:
@@ -6668,7 +7036,7 @@ def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2060"')
+        .startswith('__version__ = "0.2.2061"')
     )
 
 
@@ -6900,13 +7268,13 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2060"
+    assert encoder_package["version"] == "0.2.2061"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2060"
+    assert project["project"]["version"] == "0.2.2061"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2060"')
+        .startswith('__version__ = "0.2.2061"')
     )
 
 
@@ -7168,13 +7536,13 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2060"
+    assert encoder_package["version"] == "0.2.2061"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2060"
+    assert project["project"]["version"] == "0.2.2061"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2060"')
+        .startswith('__version__ = "0.2.2061"')
     )
 
 

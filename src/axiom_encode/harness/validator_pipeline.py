@@ -193,6 +193,7 @@ class ExistingTargetSurfaceContract:
     unit: str
     indexed_by: tuple[str, ...]
     private: bool
+    replacement_entity: str = ""
 
 
 @dataclass(frozen=True)
@@ -20336,6 +20337,139 @@ def _existing_target_input_contract(
     )
 
 
+def _surface_inferred_relation_entities(
+    rule: Mapping[str, object],
+    rules: Mapping[str, Mapping[str, object]],
+    *,
+    seen: frozenset[str] = frozenset(),
+    memo: dict[str, tuple[str, ...]] | None = None,
+    cyclic_names: set[str] | None = None,
+) -> tuple[str, ...]:
+    """Return every entity constraint implied by same-scope aggregates."""
+
+    if memo is None:
+        memo = {}
+    if cyclic_names is None:
+        cyclic_names = set()
+    entity = str(rule.get("entity") or "").strip().lower()
+    if not entity:
+        return ()
+    name = str(rule.get("name") or "").strip()
+    if name in memo:
+        return memo[name]
+    if name in seen:
+        cyclic_names.update(seen)
+        cyclic_names.add(name)
+        return ()
+    next_seen = seen | {name}
+    versions = rule.get("versions")
+    if not isinstance(versions, list):
+        return ()
+    required_entities: dict[str, str] = {}
+    for version in versions:
+        formula = version.get("formula") if isinstance(version, Mapping) else None
+        if not isinstance(formula, str):
+            continue
+        executable_formula = _QUOTED_STRING_PATTERN.sub(
+            lambda match: " " * len(match.group()), formula
+        )
+        executable_formula = "\n".join(
+            (
+                line[:comment_start] + " " * (len(line) - comment_start)
+                if (comment_start := line.find("#")) >= 0
+                else line
+            )
+            for line in executable_formula.split("\n")
+        )
+        aggregate_calls: list[tuple[str, int, int]] = []
+        for aggregate_match in _RELATION_AGGREGATE_PATTERN.finditer(executable_formula):
+            if any(
+                start <= aggregate_match.start() < end
+                for _, start, end in aggregate_calls
+            ):
+                continue
+            opening = executable_formula.find(
+                "(", aggregate_match.start(), aggregate_match.end()
+            )
+            if opening < 0:
+                continue
+            depth = 0
+            for index in range(opening, len(executable_formula)):
+                character = executable_formula[index]
+                if character == "(":
+                    depth += 1
+                elif character == ")":
+                    depth -= 1
+                    if depth == 0:
+                        aggregate_calls.append(
+                            (
+                                aggregate_match.group(1),
+                                aggregate_match.start(),
+                                index + 1,
+                            )
+                        )
+                        break
+        for relation_name, _, _ in aggregate_calls:
+            relation = rules.get(relation_name)
+            if not isinstance(relation, Mapping):
+                continue
+            relation_spec = relation.get("data_relation")
+            if not isinstance(relation_spec, Mapping):
+                continue
+            arguments = relation_spec.get("arguments")
+            if not isinstance(arguments, list) or len(arguments) != 2:
+                continue
+            current_entity = str(arguments[1] or "").strip().lower()
+            if current_entity:
+                required_entities[current_entity] = str(arguments[1]).strip()
+        same_scope_formula = executable_formula
+        for _, start, end in reversed(aggregate_calls):
+            same_scope_formula = (
+                same_scope_formula[:start]
+                + " " * (end - start)
+                + same_scope_formula[end:]
+            )
+        for identifier in _formula_local_identifiers(same_scope_formula):
+            dependency = rules.get(identifier)
+            if not isinstance(dependency, Mapping):
+                continue
+            dependency_entities = _surface_inferred_relation_entities(
+                dependency,
+                rules,
+                seen=next_seen,
+                memo=memo,
+                cyclic_names=cyclic_names,
+            )
+            for dependency_entity in dependency_entities:
+                required_entities[dependency_entity.lower()] = dependency_entity
+    inferred_entities = tuple(
+        required_entities[key] for key in sorted(required_entities)
+    )
+    if name and name not in cyclic_names:
+        memo[name] = inferred_entities
+    return inferred_entities
+
+
+def _surface_contract_matches(
+    expected: ExistingTargetSurfaceContract,
+    actual: ExistingTargetSurfaceContract | None,
+) -> bool:
+    """Compare a mapped surface while permitting one proven legacy entity repair."""
+
+    if actual is None:
+        return False
+    return (
+        expected.name == actual.name
+        and expected.kind == actual.kind
+        and (expected.replacement_entity or expected.entity) == actual.entity
+        and expected.dtype == actual.dtype
+        and expected.period == actual.period
+        and expected.unit == actual.unit
+        and expected.indexed_by == actual.indexed_by
+        and expected.private == actual.private
+    )
+
+
 _REPLACEMENT_LEGAL_SOURCE_NAME_MARKERS = frozenset(
     {
         "article",
@@ -20416,8 +20550,34 @@ def build_existing_target_oracle_contract(
     surface_names = sorted(
         name for name in rules if f"{target}#{name}" in exact_mappings
     )
+    entity_inference_memo: dict[str, tuple[str, ...]] = {}
+    cyclic_entity_rules: set[str] = set()
+    inferred_entities_by_name = {
+        name: _surface_inferred_relation_entities(
+            rules[name],
+            rules,
+            memo=entity_inference_memo,
+            cyclic_names=cyclic_entity_rules,
+        )
+        for name in surface_names
+    }
     surfaces = tuple(
-        surface
+        ExistingTargetSurfaceContract(
+            name=surface.name,
+            kind=surface.kind,
+            entity=surface.entity,
+            dtype=surface.dtype,
+            period=surface.period,
+            unit=surface.unit,
+            indexed_by=surface.indexed_by,
+            private=surface.private,
+            replacement_entity=(
+                inferred_entities_by_name[name][0]
+                if len(inferred_entities_by_name[name]) == 1
+                and inferred_entities_by_name[name][0].lower() != surface.entity.lower()
+                else ""
+            ),
+        )
         for name in surface_names
         if (surface := _existing_target_surface_contract(rules[name])) is not None
     )
@@ -20503,13 +20663,15 @@ def find_existing_target_oracle_contract_issues(
             if isinstance(actual_rule, dict)
             else None
         )
-        if actual == expected:
+        if _surface_contract_matches(expected, actual):
             continue
+        protected_entity = expected.replacement_entity or expected.entity
         issues.append(
             "[existing-target-oracle-contract] Replacement must retain valid "
             f"exact-oracle-mapped surface `{contract.target}#{expected.name}` "
-            "with its existing kind/entity/dtype/period/unit/index and "
-            "metadata.private/public contract. Repair its implementation under "
+            "with its required kind/entity/dtype/period/unit/index and "
+            f"metadata.private/public contract (entity `{protected_entity}`). "
+            "Repair its implementation under "
             "that stable surface."
         )
     for expected in contract.inputs:
