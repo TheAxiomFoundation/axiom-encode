@@ -35695,10 +35695,15 @@ class ValidatorPipeline:
             f"{Path(*module_relative.parts[1:]).with_suffix('').as_posix()}"
         )
         owners: list[Path] = []
-        for candidate in sorted(root.rglob("*.yaml")):
-            relative = candidate.relative_to(root)
-            if "programs" not in relative.parts:
-                continue
+        # ProgramSpecs live only under this checkout's top-level programs/
+        # root. CI checks dependency repositories out inside the rules
+        # checkout (for example _axiom/rulespec-us); a whole-checkout scan
+        # read their ProgramSpecs as second owners of every composition.
+        programs_root = root / RULESPEC_COMPOSITION_SPEC_ROOT
+        candidates = (
+            sorted(programs_root.rglob("*.yaml")) if programs_root.is_dir() else []
+        )
+        for candidate in candidates:
             if candidate.is_symlink() or not candidate.is_file():
                 continue
             try:

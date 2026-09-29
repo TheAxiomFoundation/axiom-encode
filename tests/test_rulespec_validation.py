@@ -7036,7 +7036,7 @@ def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2068"')
+        .startswith('__version__ = "0.2.2069"')
     )
 
 
@@ -7268,13 +7268,13 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2068"
+    assert encoder_package["version"] == "0.2.2069"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2068"
+    assert project["project"]["version"] == "0.2.2069"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2068"')
+        .startswith('__version__ = "0.2.2069"')
     )
 
 
@@ -7536,13 +7536,13 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2068"
+    assert encoder_package["version"] == "0.2.2069"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2068"
+    assert project["project"]["version"] == "0.2.2069"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2068"')
+        .startswith('__version__ = "0.2.2069"')
     )
 
 
@@ -52589,3 +52589,64 @@ def test_composition_owner_snapshot_deduplicates_shared_cycle_and_refreshes(
     outer.write_text("imports: []\n")
     assert pipeline._owning_program_specs(rules_file) == ()
     assert len(calls) == 2
+
+
+def test_composition_owner_ignores_program_specs_outside_checkout_programs_root(
+    tmp_path, monkeypatch
+):
+    # CI checks dependency repositories out inside the rules checkout, so a
+    # second rulespec-us sits at _axiom/rulespec-us with the same ProgramSpecs.
+    policy_repo, rules_file, program_spec = _composition_validation_fixture(tmp_path)
+    checkout = policy_repo.parent
+    dependency_spec = (
+        checkout / "_axiom/rulespec-us" / program_spec.relative_to(checkout)
+    )
+    dependency_spec.parent.mkdir(parents=True)
+    dependency_spec.write_text(program_spec.read_text())
+    nested_spec = policy_repo / "policies/example/programs/nested.yaml"
+    nested_spec.parent.mkdir(parents=True)
+    nested_spec.write_text(program_spec.read_text())
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "engine",
+        enable_oracles=False,
+    )
+    original = Path.read_text
+    read: list[Path] = []
+
+    def recording_read(path, *args, **kwargs):
+        read.append(path)
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", recording_read)
+    assert pipeline._owning_program_specs(rules_file) == (program_spec,)
+    assert dependency_spec not in read
+    assert nested_spec not in read
+
+
+def test_composition_owner_without_programs_root_has_no_owner(tmp_path):
+    policy_repo, rules_file, program_spec = _composition_validation_fixture(tmp_path)
+    shutil.rmtree(program_spec.parents[2])
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "engine",
+        enable_oracles=False,
+    )
+
+    assert pipeline._owning_program_specs(rules_file) == ()
+
+
+def test_composition_owner_rejects_symlinked_programs_root(tmp_path):
+    policy_repo, rules_file, program_spec = _composition_validation_fixture(tmp_path)
+    programs_root = program_spec.parents[2]
+    elsewhere = tmp_path / "elsewhere-programs"
+    programs_root.rename(elsewhere)
+    programs_root.symlink_to(elsewhere, target_is_directory=True)
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "engine",
+        enable_oracles=False,
+    )
+
+    with pytest.raises(validator_pipeline.UnsafeRulespecContextPath):
+        pipeline._owning_program_specs(rules_file)
