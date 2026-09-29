@@ -77,6 +77,8 @@ LOCK_OVERRIDES = frozenset(
         "--with-requirements",
     }
 )
+# UV_* names a run script may mention, for a reviewed read; none today.
+UV_NAMES_ALLOWED: frozenset[str] = frozenset()
 TOOLS = re.compile(r"pytest|py\.test|ruff|towncrier|pre-commit|python[0-9.]*")
 PIP = re.compile(r"pip[0-9.]*")
 VENV_TOOL = re.compile(r"(?:\./)?\.venv/bin/\S+")
@@ -457,29 +459,32 @@ def test_nested_scripts_inherit_assignments():
 @pytest.mark.parametrize(
     ("script", "flagged"),
     [
-        ('{\n  echo "UV_UPGRADE=1"\n} >> "$GITHUB_ENV"', True),
+        # Every way of setting a UV_* variable has to spell its name.
+        ("UV_UPGRADE=1 uv sync --frozen", True),
+        ("export UV_UPGRADE=1", True),
+        ("UV_UPGRADE=1 bash -c 'uv sync --frozen'", True),
         ('{ echo "UV_UPGRADE=1"; } >> "$GITHUB_ENV"', True),
-        ('echo "UV_UPGRADE=1" | tee -a "$GITHUB_ENV"', True),
-        ('if true; then echo UV_X=1; fi >> "$GITHUB_ENV"', True),
-        ("bash -c 'echo UV_UPGRADE=1' >> \"$GITHUB_ENV\"", True),
-        ("printf '%s=1\\n' UV_UPGRADE >> \"$GITHUB_ENV\"", True),
-        ("cat >> \"$GITHUB_ENV\" <<'EOF'\nUV_NO_SYNC=1\nEOF", True),
         ('{ echo "UV_NO_SYNC<<EOF"; echo 1; echo EOF; } >> "$GITHUB_ENV"', True),
-        ("cat >> \"$GITHUB_ENV\" <<'X'\nUV_NO_SYNC<<EOF\n1\nEOF\nX", True),
-        ('( echo UV_UPGRADE=1 ) >> "$GITHUB_ENV"', True),
+        ('echo "UV_UPGRADE=1" | tee -a "$GITHUB_ENV"', True),
+        ("tee -a \"$GITHUB_ENV\" <<'EOF'\nUV_NO_SYNC=1\nEOF", True),
+        ('tee -a "$GITHUB_ENV" <<< "UV_X=1"', True),
+        ('echo UV_X=1 | cat | tee -a "$GITHUB_ENV"', True),
+        ('echo UV_NO_SYNC=1 | tee /dev/stderr | tee "$GITHUB_ENV" >/dev/null', True),
+        ('printf "VENV=.venv\\nUV_NO_SYNC=1\\n" >> "$GITHUB_ENV"', True),
+        ('echo "VENV=.venv\nUV_NO_SYNC=1" >> "$GITHUB_ENV"', True),
+        ("uv run --frozen bash -c 'echo UV_NO_SYNC=1' >> \"$GITHUB_ENV\"", True),
         ('exec >> "$GITHUB_ENV"\necho UV_UPGRADE=1', True),
-        ('while false; do :; done; echo UV_X=1 | tee "$GITHUB_ENV"', True),
+        # By design, even a read or a log line fails, loudly; the fix is to
+        # drop it or add the name to UV_NAMES_ALLOWED with a reviewer.
+        ('echo "UV_CACHE_DIR=$UV_CACHE_DIR"', True),
+        ('grep -q "UV_NO_SYNC=1" < "$GITHUB_ENV"', True),
+        # Other names that merely contain UV_ are not UV_* variables.
         ('echo "LOCKED_UV_VERSION=0.11.7" >> "$GITHUB_ENV"', False),
-        (
-            'echo "UV_CACHE_DIR=$UV_CACHE_DIR"\necho "VENV=.venv" >> "$GITHUB_ENV"',
-            False,
-        ),
-        ('echo UV_X=1 | grep -c X >> "$GITHUB_ENV"', False),
-        ('echo "CACHE=$UV_CACHE_DIR" >> "$GITHUB_ENV"', False),
-        ("echo UV_CACHE_DIR=/tmp", False),
+        ('echo "VENV=.venv" >> "$GITHUB_ENV"', False),
+        ("printf 'a\\tUV_X=1'", True),
     ],
 )
-def test_github_env_writes_of_uv_variables_are_caught(monkeypatch, script, flagged):
+def test_run_scripts_never_name_a_uv_variable(monkeypatch, script, flagged):
     workflows = copy.deepcopy(_workflows())
     dict(workflows)["ci.yml"]["jobs"]["lint"]["steps"].append({"run": script})
     monkeypatch.setattr(
@@ -499,14 +504,6 @@ def test_a_uv_version_step_is_allowed_in_a_test_job(monkeypatch):
         "tests.test_workflow_toolchain_pins._workflows", lambda: workflows
     )
     test_test_environment_is_the_locked_dev_set("ci.yml", "test")
-
-
-def test_github_env_writes_keep_their_text():
-    [command] = workflow_shell.commands(
-        "cat >> \"$GITHUB_ENV\" <<'EOF'\nUV_NO_SYNC=1\nEOF"
-    )
-    assert command.redirects == ("$GITHUB_ENV",)
-    assert command.stdin_text == ("UV_NO_SYNC=1",)
 
 
 def test_python_module_follows_python_option_syntax():
@@ -627,11 +624,21 @@ def test_every_package_install_stages_a_target_directory():
 
 
 def test_no_workflow_sets_uv_environment_variables():
-    # UV_UPGRADE, UV_OFFLINE, UV_FROZEN and the rest change how every later
-    # uv call resolves, invisibly to the option checks above.
-    uv_variable = re.compile(r"UV_[A-Z0-9_]+")
-    # NAME=value, or GitHub's multiline NAME<<DELIMITER form.
-    uv_assignment = re.compile(r"UV_[A-Z0-9_]+(?:\+?=|<<)")
+    """No workflow sets, or even names, a UV_* variable.
+
+    UV_UPGRADE, UV_OFFLINE, UV_FROZEN and the rest change how every later uv
+    call resolves, invisibly to the option checks above. They can be set in
+    many ways: inline, with export, or through $GITHUB_ENV by redirect, group,
+    tee, heredoc or multiline string. Rather than trace where each script's
+    output goes, the rule is textual and conservative. No run script may
+    contain a UV_* name at all, and neither may an env: block. Every way of
+    setting a variable has to spell its name, so none escapes; a harmless
+    mention (a log line, a read) fails loudly instead. Workflows configure uv
+    through flags. Add a name to UV_NAMES_ALLOWED only for a reviewed read.
+    """
+    # A whole name: not preceded by a name character, unless that character
+    # ends an escape such as the `n` of `\n` in `printf "a\nUV_X=1"`.
+    uv_name = re.compile(r"(?:(?<![A-Za-z0-9_])|(?<=\\[A-Za-z]))UV_[A-Z0-9_]+")
     offenders = []
     for name, workflow in _workflows():
         jobs = list(workflow["jobs"].values())
@@ -655,40 +662,11 @@ def test_no_workflow_sets_uv_environment_variables():
             f"{name} env: {key}"
             for scope in scopes
             for key in (scope.get("env") or {})
-            if uv_variable.fullmatch(key)
+            if uv_name.fullmatch(key)
         ]
     for name, job, index, step in _steps():
-        where = f"{name}:{job}[{index}]"
-        step_commands = _script_commands(step.get("run", ""))
-        for command in step_commands:
-            # An assignment, inline, through env or sudo, or inherited by bash -c.
-            if any(uv_assignment.match(word) for word in command.assignments):
-                offenders.append(f"{where} {command.line}")
-            # export/declare/typeset/readonly/local UV_X=... sets it for the shell.
-            elif command.program in {
-                "declare",
-                "export",
-                "local",
-                "readonly",
-                "typeset",
-            }:
-                if any(uv_assignment.match(word) for word in command.words[1:]):
-                    offenders.append(f"{where} {command.line}")
-        # A write to $GITHUB_ENV sets a variable for every later step. The
-        # reader attaches a group's, a pipe-to-tee's or an `exec`'s redirection
-        # to each command whose output it receives, so each command is judged
-        # by where its own output goes.
-        for command in step_commands:
-            if not any("GITHUB_ENV" in target for target in command.redirects):
-                continue
-            if any(
-                uv_variable.fullmatch(word) or uv_assignment.match(word)
-                for word in command.words[1:]
-            ) or any(
-                re.search(r"(?m)^\s*(?:export\s+)?UV_[A-Z0-9_]+(?:\+?=|<<)", text)
-                for text in command.stdin_text
-            ):
-                offenders.append(f"{where} {command.line}")
+        named = set(uv_name.findall(step.get("run", ""))) - UV_NAMES_ALLOWED
+        offenders += [f"{name}:{job}[{index}] names {n}" for n in sorted(named)]
     assert offenders == []
 
 
@@ -718,20 +696,74 @@ def test_every_step_runs_under_bash():
     assert shells == []
 
 
-def test_no_job_runs_on_windows():
+def _runner_labels(job: dict) -> list[str]:
+    """The runner labels a job can run on, with `matrix.*` references resolved."""
+    runs_on = job.get("runs-on")
+    labels = runs_on if isinstance(runs_on, list) else [runs_on]
+    matrix = (job.get("strategy") or {}).get("matrix") or {}
+    resolved = []
+    for label in labels:
+        if not isinstance(label, str):
+            resolved.append(repr(label))  # a group or label mapping: unresolved
+            continue
+        reference = re.fullmatch(r"\$\{\{\s*matrix\.([A-Za-z0-9_-]+)\s*\}\}", label)
+        if reference is None:
+            resolved.append(label)
+            continue
+        key = reference.group(1)
+        values = matrix.get(key, [])
+        values = values if isinstance(values, list) else [values]
+        values += [entry[key] for entry in matrix.get("include", []) if key in entry]
+        resolved += [str(value) for value in values] or [label]
+    return resolved
+
+
+def test_every_job_runs_on_a_hosted_linux_or_macos_runner():
     # Windows runs `run:` steps under pwsh by default, which the reader does
-    # not follow.
+    # not follow. An expression it cannot resolve fails too.
     runners = [
-        f"{name}:{job_name} {runner}"
+        f"{name}:{job_name} {label}"
         for name, workflow in _workflows()
         for job_name, job in workflow["jobs"].items()
-        for runner in [
-            job.get("runs-on"),
-            *((job.get("strategy") or {}).get("matrix") or {}).get("os", []),
-        ]
-        if runner and "windows" in str(runner).lower()
+        if "uses" not in job
+        for label in _runner_labels(job)
+        if not re.fullmatch(r"(?:ubuntu|macos)-[0-9a-z.-]+", label)
     ]
     assert runners == []
+
+
+@pytest.mark.parametrize(
+    ("runs_on", "matrix", "allowed"),
+    [
+        ("ubuntu-latest", {}, True),
+        ("${{ matrix.os }}", {"os": ["ubuntu-latest", "macos-latest"]}, True),
+        (
+            "${{ matrix.runner }}",
+            {"runner": ["ubuntu-latest", "windows-latest"]},
+            False,
+        ),
+        (
+            "${{ matrix.os }}",
+            {"os": ["ubuntu-latest"], "include": [{"os": "windows-2022"}]},
+            False,
+        ),
+        ("${{ inputs.runner }}", {}, False),
+        (["self-hosted", "linux"], {}, False),
+    ],
+)
+def test_runner_labels_resolve_matrix_references(monkeypatch, runs_on, matrix, allowed):
+    workflows = copy.deepcopy(_workflows())
+    job = dict(workflows)["ci.yml"]["jobs"]["lint"]
+    job["runs-on"] = runs_on
+    job["strategy"] = {"matrix": matrix}
+    monkeypatch.setattr(
+        "tests.test_workflow_toolchain_pins._workflows", lambda: workflows
+    )
+    if allowed:
+        test_every_job_runs_on_a_hosted_linux_or_macos_runner()
+    else:
+        with pytest.raises(AssertionError):
+            test_every_job_runs_on_a_hosted_linux_or_macos_runner()
 
 
 def test_no_python_file_declares_inline_script_dependencies():

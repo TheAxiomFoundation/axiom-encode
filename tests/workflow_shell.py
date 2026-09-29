@@ -12,8 +12,7 @@ Within that model it follows:
   line continuations;
 - ``$(...)``, backtick and ``<(...)`` substitutions, also inside ``$((...))``
   and ``((...))``. Each runs just before the command that contains it;
-- heredocs: bodies are data (kept for the ``$GITHUB_ENV`` check), though
-  ``$(...)`` in an unquoted body runs;
+- heredocs: bodies are data, though ``$(...)`` in an unquoted body runs;
 - ``case`` patterns, array literals and ``[[ ... ]]`` tests (data), and
   ``function`` and ``coproc`` bodies (commands);
 - ``bash``/``sh -c``, ``su -c``, ``eval`` and ``trap`` scripts, and ``find -exec``
@@ -51,7 +50,7 @@ import json
 import re
 import shlex
 import subprocess
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 
 UV_OPTIONS_PATH = Path(__file__).parent / "fixtures" / "uv_cli_options.json"
@@ -249,10 +248,6 @@ class Command:
     # NAME=value words that set the command's environment, as written,
     # including those inherited from a caller such as `A=1 bash -c '...'`.
     assignments: tuple[str, ...] = ()
-    # Redirection targets, such as "$GITHUB_ENV" for `>> "$GITHUB_ENV"`.
-    redirects: tuple[str, ...] = ()
-    # The text of a heredoc or here-string the command reads.
-    stdin_text: tuple[str, ...] = ()
 
     @property
     def program(self) -> str:
@@ -273,7 +268,6 @@ class UvInvocation:
 @dataclass
 class _Substitution:
     lines: list[str] = field(default_factory=list)
-    body: str | None = None  # a heredoc's text
 
 
 @dataclass(frozen=True)
@@ -526,10 +520,10 @@ class _Reader:
             self.i = min(end + 1, len(text))
             # Like bash: the whole line, less leading tabs for `<<-`.
             if (line.lstrip("\t") if strip_tabs else line) == delimiter:
-                joined = "\n".join(body)
                 if not expands:
-                    return _Substitution(body=joined)
+                    return _Substitution()
                 # An unquoted body is data, but its substitutions still run.
+                joined = "\n".join(body)
                 found = _Reader(joined, self.registry, self.scope).substitutions()
                 return _Substitution(
                     lines=[
@@ -537,8 +531,7 @@ class _Reader:
                         for placeholder in found
                         for _, index in _PLACEHOLDER.findall(placeholder)
                         for line in self.registry[int(index)].lines
-                    ],
-                    body=joined,
+                    ]
                 )
             body.append(line)
         raise UnanalyzableScript(f"heredoc {delimiter!r} is never closed")
@@ -911,44 +904,19 @@ def _unwrap(words: list[str]) -> list[tuple[list[str], list[str]] | _Script]:
     return [([], assignments)] if assignments else []
 
 
-_OPENERS = {
-    "{": "}",
-    "if": "fi",
-    "for": "done",
-    "select": "done",
-    "until": "done",
-    "while": "done",
-}
-_CLOSERS = frozenset(_OPENERS.values())
-
-
 def _commands_in(
     lines: list[str],
     registry: list[_Substitution],
     scope: int,
     inherited: tuple[str, ...],
 ) -> list[Command]:
-    """The commands in ``lines``.
-
-    A redirection is attached to every command whose output it receives:
-    the command it follows, every command in a group or compound command it
-    closes (`{ ...; } >> f`, `fi >> f`, `( ... ) >> f`, `esac >> f`), the
-    command before a pipe into `tee FILE`, and, after `exec >> f`, every later
-    command.
-    """
     found: list[Command] = []
     words: list[str] = []
-    redirects: list[str] = []
-    stdin_text: list[str] = []
     line = ""
     in_header = False  # between `case` and `in`
     in_pattern = False  # a case pattern, up to its `)`
     closer: str | None = None  # `)` of an array literal or `]]` of a test
     depth = 0  # nested `case` statements
-    groups: list[tuple[str, int]] = []  # (closing word, start in `found`)
-    closed: tuple[int, int] | None = None  # the compound command just closed
-    piped: tuple[int, int] | None = None  # commands whose output is piped here
-    persistent: list[str] = []  # `exec >> file` redirections
 
     def run(text: str) -> None:
         for placeholder_scope, index in _PLACEHOLDER.findall(text):
@@ -957,83 +925,31 @@ def _commands_in(
             if int(index) >= len(registry):
                 raise UnanalyzableScript(f"unknown substitution in {line.strip()!r}")
             substitution = registry[int(index)]
-            if substitution.body is not None:
-                stdin_text.append(substitution.body)
             found.extend(_commands_in(substitution.lines, registry, scope, inherited))
-
-    def attach(span: tuple[int, int], targets: list[str]) -> None:
-        for position in range(*span):
-            command = found[position]
-            found[position] = replace(command, redirects=(*command.redirects, *targets))
-
-    def close(closing: str) -> tuple[int, int] | None:
-        for position in range(len(groups) - 1, -1, -1):
-            if groups[position][0] == closing:
-                start = groups[position][1]
-                del groups[position:]
-                return start, len(found)
-        return None
 
     def at_start() -> bool:
         return all(word in _KEYWORDS for word in words)
 
-    def finish(operator: str | None = None) -> None:
-        nonlocal words, redirects, stdin_text, closed, piped
-        start = len(found)
-        span = closed if not words else None
-        closed = None
+    def finish() -> None:
+        nonlocal words
         for word in words:
-            if word in _OPENERS:
-                groups.append((_OPENERS[word], len(found)))
-            elif word in _CLOSERS:
-                span = close(word) or span
-            elif word not in _KEYWORDS:
-                break
-        if words or redirects:
-            for word in words:
-                run(word)
-            items = _unwrap(words)
-            if (
-                words
-                and words[0].rsplit("/", 1)[-1] == "exec"
-                and not any(isinstance(item, tuple) and item[0] for item in items)
-            ):
-                persistent.extend(redirects)  # `exec >> f` redirects what follows
-            if not items and (redirects or stdin_text):
-                # `} >> "$GITHUB_ENV"` or `fi > log`: the redirection still applies.
-                items = [([], [])]
-            for item in items:
-                if isinstance(item, _Script):
-                    # The script's commands inherit its redirections and stdin.
-                    for command in commands(item.text):
-                        found.append(
-                            Command(
-                                command.words,
-                                command.line,
-                                (*inherited, *item.assignments, *command.assignments),
-                                (*persistent, *redirects, *command.redirects),
-                                (*stdin_text, *command.stdin_text),
-                            )
-                        )
-                else:
-                    program, assignments = item
+            run(word)
+        for item in _unwrap(words):
+            if isinstance(item, _Script):
+                for command in commands(item.text):
                     found.append(
                         Command(
-                            tuple(program),
-                            line.strip(),
-                            (*inherited, *assignments),
-                            (*persistent, *redirects),
-                            tuple(stdin_text),
+                            command.words,
+                            command.line,
+                            (*inherited, *item.assignments, *command.assignments),
                         )
                     )
-        if span is not None and redirects:
-            attach(span, redirects)  # a compound command's redirection
-        own = span or (start, len(found))
-        if piped is not None and found[start:] and found[-1].program == "tee":
-            files = [w for w in found[-1].words[1:] if not w.startswith("-")]
-            attach(piped, files)  # `... | tee FILE` writes that output to FILE
-        piped = own if operator in {"|", "|&"} else None
-        words, redirects, stdin_text = [], [], []
+            else:
+                program, assignments = item
+                found.append(
+                    Command(tuple(program), line.strip(), (*inherited, *assignments))
+                )
+        words = []
 
     for line in lines:
         tokens = _tokens(line)
@@ -1055,18 +971,12 @@ def _commands_in(
                 if not token.operator and token.text == "esac":
                     depth -= 1
                     in_pattern = False
-                    closed = close("esac")
                 elif token.operator and token.text == ")":
                     in_pattern = False
             elif token.operator and any(ch in token.text for ch in "<>"):
                 # A redirection: its target is data, but may hold a substitution.
                 if index < len(tokens) and not tokens[index].operator:
-                    target = tokens[index].text
-                    run(target)
-                    if token.text == "<<<":
-                        stdin_text.append(target)
-                    elif not _PLACEHOLDER.fullmatch(target):
-                        redirects.append(target)
+                    run(tokens[index].text)
                     index += 1
             elif (
                 token.operator
@@ -1076,22 +986,14 @@ def _commands_in(
                 and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*\+?=", words[-1])
             ):
                 closer = ")"  # an array literal: data
-            elif token.operator and token.text == "(":
-                finish(token.text)
-                groups.append((")", len(found)))  # a subshell
-            elif token.operator and token.text == ")":
-                finish(token.text)
-                closed = close(")")
             elif token.operator:
-                finish(token.text)
+                finish()
                 in_pattern = depth > 0 and token.text in _CASE_ARM_ENDS
             elif at_start() and token.text == "case":
                 depth += 1
                 in_header = True
-                groups.append(("esac", len(found)))
             elif at_start() and token.text == "esac" and depth:
                 depth -= 1
-                closed = close("esac")
             elif at_start() and token.text == "[[":
                 words.append(token.text)
                 closer = "]]"  # a test: its operators are data
@@ -1126,13 +1028,7 @@ def expand(found: list[Command], table: dict) -> list[Command]:
             if "--module" in invocation.options:
                 runs = ("python", "-m", *runs)
             inner = [
-                Command(
-                    c.words,
-                    command.line,
-                    (*command.assignments, *c.assignments),
-                    c.redirects,
-                    c.stdin_text,
-                )
+                Command(c.words, command.line, (*command.assignments, *c.assignments))
                 for c in commands(shlex.join(runs))
             ]
             expanded.extend(expand(inner, table))
