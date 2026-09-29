@@ -481,7 +481,14 @@ def test_nested_scripts_inherit_assignments():
         # Other names that merely contain UV_ are not UV_* variables.
         ('echo "LOCKED_UV_VERSION=0.11.7" >> "$GITHUB_ENV"', False),
         ('echo "VENV=.venv" >> "$GITHUB_ENV"', False),
+        ("echo {PIP,POETRY}_INDEX_URL", False),
         ("printf 'a\\tUV_X=1'", True),
+        # Brace expansions and escapes spell a name too.
+        ("export {UV,PIP}_INDEX_URL=https://example.com/simple", True),
+        ('printf "%s\\n" UV_{NO_SYNC,FROZEN}=true >> "$GITHUB_ENV"', True),
+        ('export "UV_${NAME}=1"', True),
+        ("printf 'A=1\\012UV_X=1\\n' >> \"$GITHUB_ENV\"", True),
+        ("printf 'A=1\\x0aUV_X=1\\n' >> \"$GITHUB_ENV\"", True),
     ],
 )
 def test_run_scripts_never_name_a_uv_variable(monkeypatch, script, flagged):
@@ -495,6 +502,29 @@ def test_run_scripts_never_name_a_uv_variable(monkeypatch, script, flagged):
             test_no_workflow_sets_uv_environment_variables()
     else:
         test_no_workflow_sets_uv_environment_variables()
+
+
+def test_uv_names_in_any_workflow_string_are_caught(monkeypatch):
+    workflows = copy.deepcopy(_workflows())
+    step = {"env": {"EXTRA": "UV_NO_SYNC=1"}, "run": 'echo "$EXTRA" >> "$GITHUB_ENV"'}
+    dict(workflows)["ci.yml"]["jobs"]["lint"]["steps"].append(step)
+    monkeypatch.setattr(
+        "tests.test_workflow_toolchain_pins._workflows", lambda: workflows
+    )
+    with pytest.raises(AssertionError):
+        test_no_workflow_sets_uv_environment_variables()
+
+
+def test_setup_uv_inputs_other_than_version_are_caught(monkeypatch):
+    workflows = copy.deepcopy(_workflows())
+    for step in dict(workflows)["ci.yml"]["jobs"]["lint"]["steps"]:
+        if step.get("uses", "").startswith("astral-sh/setup-uv@"):
+            step["with"]["python-version"] = "3.12"
+    monkeypatch.setattr(
+        "tests.test_workflow_toolchain_pins._workflows", lambda: workflows
+    )
+    with pytest.raises(AssertionError):
+        test_setup_uv_takes_only_a_version()
 
 
 def test_a_uv_version_step_is_allowed_in_a_test_job(monkeypatch):
@@ -623,51 +653,71 @@ def test_every_package_install_stages_a_target_directory():
     assert offenders == []
 
 
-def test_no_workflow_sets_uv_environment_variables():
-    """No workflow sets, or even names, a UV_* variable.
+# A UV_* name, however it is spelled: a `UV_` prefix at a name boundary
+# (so `UV_${X}` and `UV_{A,B}` count, but LOCKED_UV_VERSION does not), also
+# right after an escape (`\\nUV_`, `\\012UV_`, `\\x0aUV_`), or `UV` as a brace
+# alternative (`{UV,PIP}_INDEX_URL`).
+UV_NAME = re.compile(
+    r"(?:(?<![A-Za-z0-9_])|(?<=\\[A-Za-z])|(?<=\\[0-7])|(?<=\\[0-7]{2})"
+    r"|(?<=\\[0-7]{3})|(?<=\\x[0-9A-Fa-f])|(?<=\\x[0-9A-Fa-f]{2})"
+    r"|(?<=\\u[0-9A-Fa-f]{4}))UV_[A-Z0-9_]*"
+    r"|\{(?:[^{}\s,]*,)*UV(?:,[^{}\s,]*)*\}"
+)
 
-    UV_UPGRADE, UV_OFFLINE, UV_FROZEN and the rest change how every later uv
-    call resolves, invisibly to the option checks above. They can be set in
-    many ways: inline, with export, or through $GITHUB_ENV by redirect, group,
-    tee, heredoc or multiline string. Rather than trace where each script's
-    output goes, the rule is textual and conservative. No run script may
-    contain a UV_* name at all, and neither may an env: block. Every way of
-    setting a variable has to spell its name, so none escapes; a harmless
-    mention (a log line, a read) fails loudly instead. Workflows configure uv
-    through flags. Add a name to UV_NAMES_ALLOWED only for a reviewed read.
+
+def _strings(node):
+    """Every key and string value in a parsed workflow."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            yield from _strings(key)
+            yield from _strings(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _strings(value)
+    elif isinstance(node, str):
+        yield node
+
+
+def test_no_workflow_sets_uv_environment_variables():
+    """No workflow text names a UV_* variable.
+
+    UV_UPGRADE, UV_OFFLINE, UV_FROZEN, UV_INDEX_URL and the rest change how
+    uv resolves, invisibly to the option checks above. A workflow can set
+    them inline, with export, in an env: block, or through $GITHUB_ENV (by
+    redirect, group, tee, heredoc or multiline string). Rather than trace
+    where each script's output goes, the rule is textual and conservative:
+    no key or string anywhere in a workflow may contain a UV_* name,
+    including one spelled with a brace expansion or after an escape.
+
+    Within the threat model, setting a variable means spelling its name, so
+    none escapes. A harmless mention (a log line, a read) fails loudly
+    instead; add a name to UV_NAMES_ALLOWED only for a reviewed read.
+    Workflows configure uv through flags. setup-uv itself exports
+    UV_PYTHON_INSTALL_DIR and UV_CACHE_DIR, which set where uv installs
+    Python and caches, not what it resolves; the test below keeps its other
+    inputs, such as python-version (UV_PYTHON), out.
     """
-    # A whole name: not preceded by a name character, unless that character
-    # ends an escape such as the `n` of `\n` in `printf "a\nUV_X=1"`.
-    uv_name = re.compile(r"(?:(?<![A-Za-z0-9_])|(?<=\\[A-Za-z]))UV_[A-Z0-9_]+")
-    offenders = []
-    for name, workflow in _workflows():
-        jobs = list(workflow["jobs"].values())
-        scopes = [
-            workflow,
-            *jobs,
-            *(step for job in jobs for step in job.get("steps", [])),
-            *(
-                job["container"]
-                for job in jobs
-                if isinstance(job.get("container"), dict)
-            ),
-            *(
-                service
-                for job in jobs
-                for service in (job.get("services") or {}).values()
-                if isinstance(service, dict)
-            ),
-        ]
-        offenders += [
-            f"{name} env: {key}"
-            for scope in scopes
-            for key in (scope.get("env") or {})
-            if uv_name.fullmatch(key)
-        ]
-    for name, job, index, step in _steps():
-        named = set(uv_name.findall(step.get("run", ""))) - UV_NAMES_ALLOWED
-        offenders += [f"{name}:{job}[{index}] names {n}" for n in sorted(named)]
+    offenders = [
+        f"{name}: {found}"
+        for name, workflow in _workflows()
+        for text in _strings(workflow)
+        for found in sorted(
+            {match.group() for match in UV_NAME.finditer(text)} - UV_NAMES_ALLOWED
+        )
+    ]
     assert offenders == []
+
+
+def test_setup_uv_takes_only_a_version():
+    # Its other inputs export UV_* variables (python-version sets UV_PYTHON,
+    # tool-dir sets UV_TOOL_DIR, ...) that later uv calls would honour.
+    inputs = [
+        f"{name}:{job}[{index}] {sorted(step.get('with') or {})}"
+        for name, job, index, step in _action_steps()
+        if step["uses"].startswith("astral-sh/setup-uv@")
+        and set(step.get("with") or {}) != {"version"}
+    ]
+    assert inputs == []
 
 
 def test_every_step_runs_under_bash():
@@ -697,24 +747,42 @@ def test_every_step_runs_under_bash():
 
 
 def _runner_labels(job: dict) -> list[str]:
-    """The runner labels a job can run on, with `matrix.*` references resolved."""
+    """The runner labels a job can run on, with `matrix.*` references resolved.
+
+    Anything that cannot be resolved statically comes back as written, so the
+    caller rejects it: an expression-valued matrix or `include`, an include
+    entry that is not a mapping, or a value that is not a plain label.
+    """
     runs_on = job.get("runs-on")
     labels = runs_on if isinstance(runs_on, list) else [runs_on]
     matrix = (job.get("strategy") or {}).get("matrix") or {}
-    resolved = []
+    resolved: list[str] = []
     for label in labels:
         if not isinstance(label, str):
-            resolved.append(repr(label))  # a group or label mapping: unresolved
+            resolved.append(repr(label))  # a group or label mapping
             continue
         reference = re.fullmatch(r"\$\{\{\s*matrix\.([A-Za-z0-9_-]+)\s*\}\}", label)
         if reference is None:
             resolved.append(label)
             continue
+        if not isinstance(matrix, dict):
+            resolved.append(f"{label} from {matrix!r}")
+            continue
         key = reference.group(1)
         values = matrix.get(key, [])
         values = values if isinstance(values, list) else [values]
-        values += [entry[key] for entry in matrix.get("include", []) if key in entry]
-        resolved += [str(value) for value in values] or [label]
+        include = matrix.get("include", [])
+        if not isinstance(include, list):
+            resolved.append(f"{label} with include {include!r}")
+            include = []
+        for entry in include:
+            if not isinstance(entry, dict):
+                resolved.append(f"{label} with include entry {entry!r}")
+            elif key in entry:
+                values.append(entry[key])
+        resolved += [
+            value if isinstance(value, str) else repr(value) for value in values
+        ] or [label]
     return resolved
 
 
@@ -749,6 +817,13 @@ def test_every_job_runs_on_a_hosted_linux_or_macos_runner():
         ),
         ("${{ inputs.runner }}", {}, False),
         (["self-hosted", "linux"], {}, False),
+        ("${{ matrix.os }}", "${{ fromJSON(needs.x.outputs.matrix) }}", False),
+        (
+            "${{ matrix.os }}",
+            {"os": ["ubuntu-latest"], "include": "${{ fromJSON(vars.EXTRA) }}"},
+            False,
+        ),
+        ("${{ matrix.os }}", {"os": ["${{ inputs.os }}"]}, False),
     ],
 )
 def test_runner_labels_resolve_matrix_references(monkeypatch, runs_on, matrix, allowed):
@@ -839,7 +914,9 @@ def test_test_environment_is_the_locked_dev_set(workflow_name, job_name):
     assert sync_words in LOCKED_DEV_SYNCS, sync_words
     if "${{matrix.python-version}}" in sync_words:
         job = dict(_workflows())[workflow_name]["jobs"][job_name]
-        assert job["strategy"]["matrix"]["python-version"] == ["3.13"]
+        matrix = (job.get("strategy") or {}).get("matrix")
+        assert isinstance(matrix, dict), matrix
+        assert matrix.get("python-version") == ["3.13"], matrix
 
     # Nothing else builds or changes a Python environment in these jobs,
     # including through the command a `uv run` launches.
