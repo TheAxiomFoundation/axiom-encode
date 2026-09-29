@@ -902,6 +902,35 @@ def test_coordinated_list_chapeau_retains_preposed_conditions():
     assert len(completeness_module._source_conjunctive_fact_gates(clauses[0].text)) == 2
 
 
+def test_coordinated_list_chapeau_retains_trailing_conditions():
+    source = (
+        "The agency approves the application and pays any of the following: "
+        "● a credit or ● a refund if the applicant is a resident and the "
+        "applicant is a citizen."
+    )
+    excerpt = "pays any of the following"
+    rule = _ky_derived_rule(
+        "listed_benefit_is_paid",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="external_conditions_hold",
+        excerpt=excerpt,
+    )
+
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path="us-az/manual/des/faa5/na-categorical-eligibility/block-3",
+        narrow_conjunctive_excerpt=False,
+    )
+
+    assert not ambiguous
+    assert [clause.text for clause in clauses] == [source]
+    assert len(completeness_module._source_conjunctive_fact_gates(clauses[0].text)) == 2
+
+
 def test_multi_conjunct_excerpt_retains_conditional_context():
     source = (
         "Applicants are eligible when the applicant is a resident and the "

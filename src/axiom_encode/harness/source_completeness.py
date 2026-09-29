@@ -14022,6 +14022,12 @@ def _excerpt_is_coordinated_list_chapeau(
             for tail in comma_tails
         ):
             return False
+    if re.search(
+        r"\b(?:if|unless|when|whenever|where|provided\s+that)\b",
+        after,
+        flags=re.IGNORECASE,
+    ):
+        return False
     begins_after_coordinator = re.search(
         r"(?:,\s*)?\b(?:and|but|or)\s*$",
         before,
