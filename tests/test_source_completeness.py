@@ -842,6 +842,36 @@ def test_exact_conjunct_excerpt_owns_only_its_source_subclause():
     assert not completeness_module._source_conjunctive_fact_gates(clauses[0].text)
 
 
+def test_coordinated_list_chapeau_is_narrowed_with_multiple_formula_excerpts():
+    source = """\
+Basic categorical eligibility exists when the budgetary unit does not have a disqualified participant, and all budgetary unit participants receive any of the following:
+
+● TANF CA Benefits
+● SSI This includes participants whose SSI benefits are in no pay or suspend status.
+"""
+    excerpt = "all budgetary unit participants receive any of the following"
+    rule = _ky_derived_rule(
+        "participant_receives_listed_benefit",
+        source="Arizona DES FAA5",
+        dtype="Judgment",
+        formula="participant_receives_tanf or participant_receives_ssi",
+        excerpt=excerpt,
+    )
+
+    clauses, ambiguous = completeness_module._source_condition_clauses_owned_by_excerpt(
+        excerpt,
+        rule=rule,
+        source_text=source,
+        branches=recognize_source_structure(source),
+        corpus_citation_path="us-az/manual/des/faa5/na-categorical-eligibility/block-3",
+        narrow_conjunctive_excerpt=False,
+    )
+
+    assert not ambiguous
+    assert [clause.text for clause in clauses] == [excerpt]
+    assert not completeness_module._source_conjunctive_fact_gates(clauses[0].text)
+
+
 def test_multi_conjunct_excerpt_retains_conditional_context():
     source = (
         "Applicants are eligible when the applicant is a resident and the "
