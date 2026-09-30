@@ -1,0 +1,202 @@
+name: SNAP dispatch queue
+
+# Hourly: reconcile the encode runs this queue dispatched, then send the next
+# pending items to targeted-signed-reencode.yml on the current rulespec-us
+# main tip. Queue state lives on the encoding-queue-state branch; see
+# scripts/snap_dispatch_queue.py.
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+    inputs:
+      action:
+        description: tick, build a new paused queue, activate, or pause
+        required: true
+        default: tick
+        type: choice
+        options:
+          - tick
+          - build
+          - activate
+          - pause
+      queue_id:
+        description: Queue to act on (tick defaults to every queue)
+        required: false
+        type: string
+      jurisdictions:
+        description: Comma-separated jurisdictions to build (build only)
+        required: false
+        default: us-or,us-ut
+        type: string
+      dry_run:
+        description: Tick without dispatching or saving state
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  actions: write
+  contents: write
+
+concurrency:
+  group: snap-dispatch-queue
+  cancel-in-progress: false
+
+jobs:
+  queue:
+    name: SNAP dispatch queue
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ACTION: ${{ inputs.action || 'tick' }}
+      QUEUE_ID: ${{ inputs.queue_id }}
+      JURISDICTIONS: ${{ inputs.jurisdictions }}
+      DRY_RUN: ${{ inputs.dry_run || false }}
+      STATE_BRANCH: encoding-queue-state
+    steps:
+      - name: Validate inputs
+        run: |
+          set -euo pipefail
+          case "$ACTION" in tick|build|activate|pause) ;; *)
+            echo "unknown action: $ACTION" >&2; exit 1 ;;
+          esac
+          if [ -n "$QUEUE_ID" ] && [[ ! "$QUEUE_ID" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]]; then
+            echo "invalid queue id" >&2; exit 1
+          fi
+          if [ "$ACTION" != tick ] && [ -z "$QUEUE_ID" ]; then
+            echo "$ACTION needs a queue_id" >&2; exit 1
+          fi
+          if [ "$ACTION" = build ] && \
+            [[ ! "$JURISDICTIONS" =~ ^us-[a-z]{2}(,us-[a-z]{2})*$ ]]; then
+            echo "jurisdictions must look like us-or,us-ut" >&2; exit 1
+          fi
+
+      # Credentials persist so the state step below can push the state branch.
+      - name: Checkout axiom-encode
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: axiom-encode
+          persist-credentials: true
+
+      - name: Check out queue state
+        run: |
+          set -euo pipefail
+          cd axiom-encode
+          if git ls-remote --exit-code --heads origin "$STATE_BRANCH" > /dev/null; then
+            git fetch --no-tags --depth 1 origin "$STATE_BRANCH"
+            git worktree add --detach "$GITHUB_WORKSPACE/state" FETCH_HEAD
+          elif [ "$ACTION" = build ]; then
+            git worktree add --orphan -b "$STATE_BRANCH" "$GITHUB_WORKSPACE/state"
+          else
+            echo "no $STATE_BRANCH branch yet; build a queue first"
+            mkdir -p "$GITHUB_WORKSPACE/state/queues"
+          fi
+
+      - name: Check out rulespec-us main
+        if: env.ACTION == 'build'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: TheAxiomFoundation/rulespec-us
+          ref: main
+          path: rulespec-us
+          persist-credentials: false
+
+      - name: Read the corpus pin
+        if: env.ACTION == 'build'
+        id: corpus
+        run: |
+          set -euo pipefail
+          ref="$(python3 - <<'PY'
+          import tomllib
+          with open("rulespec-us/.axiom/workflow-toolchain.toml", "rb") as f:
+              print(tomllib.load(f)["workflow_toolchain"]["axiom_corpus_ref"])
+          PY
+          )"
+          [[ "$ref" =~ ^[0-9a-f]{40}$ ]]
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          {
+            echo "paths<<EOF"
+            echo "manifests"
+            tr ',' '\n' <<< "$JURISDICTIONS" | sed 's|^|data/corpus/provisions/|'
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Check out the pinned corpus
+        if: env.ACTION == 'build'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: TheAxiomFoundation/axiom-corpus
+          ref: ${{ steps.corpus.outputs.ref }}
+          path: axiom-corpus
+          persist-credentials: false
+          sparse-checkout: ${{ steps.corpus.outputs.paths }}
+          sparse-checkout-cone-mode: true
+
+      - name: Install uv
+        if: env.ACTION == 'build'
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.7"
+
+      - name: Build the queue
+        if: env.ACTION == 'build'
+        working-directory: axiom-encode
+        run: |
+          set -euo pipefail
+          uv python install 3.13
+          uv sync --locked --python 3.13
+          .venv/bin/python scripts/snap_dispatch_queue.py build \
+            --corpus "$GITHUB_WORKSPACE/axiom-corpus" \
+            --rulespec "$GITHUB_WORKSPACE/rulespec-us" \
+            --state-dir "$GITHUB_WORKSPACE/state" \
+            --queue-id "$QUEUE_ID" \
+            --jurisdictions "$JURISDICTIONS"
+
+      - name: Activate or pause
+        if: env.ACTION == 'activate' || env.ACTION == 'pause'
+        run: |
+          set -euo pipefail
+          state=active
+          [ "$ACTION" = activate ] || state=paused
+          python3 axiom-encode/scripts/snap_dispatch_queue.py set-state \
+            --state-dir "$GITHUB_WORKSPACE/state" --queue-id "$QUEUE_ID" "$state"
+
+      - name: Tick
+        if: env.ACTION == 'tick' || env.ACTION == 'activate'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          args=(--state-dir "$GITHUB_WORKSPACE/state" --summary "$GITHUB_STEP_SUMMARY")
+          [ -z "$QUEUE_ID" ] || args+=(--queue-id "$QUEUE_ID")
+          [ "$DRY_RUN" != true ] || args+=(--dry-run)
+          python3 axiom-encode/scripts/snap_dispatch_queue.py tick "${args[@]}"
+
+      - name: Save queue state
+        if: ${{ always() && env.DRY_RUN != 'true' }}
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE/state"
+          [ -d .git ] || [ -f .git ] || exit 0
+          git add -A queues
+          if git diff --cached --quiet; then
+            echo "queue state unchanged"
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" \
+            -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "SNAP dispatch queue: $ACTION ${QUEUE_ID:-all queues}"
+          git push origin "HEAD:refs/heads/$STATE_BRANCH"
+
+      # If saving failed, keep what this run recorded (dispatched run ids
+      # included) so it can be restored by hand instead of re-dispatched.
+      - name: Keep unsaved queue state
+        if: ${{ failure() && env.DRY_RUN != 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: snap-dispatch-queue-state-${{ github.run_id }}
+          path: state/queues
+          if-no-files-found: ignore
+          retention-days: 30
