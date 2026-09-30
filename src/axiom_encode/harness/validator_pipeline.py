@@ -236,6 +236,14 @@ class _CachedTargetFile:
     file_stamp: _PathMutationStamp
 
 
+@dataclass(frozen=True)
+class _CachedProgramOwners:
+    owners: tuple[Path, ...]
+    directory_stamps: tuple[tuple[Path, _PathMutationStamp], ...]
+    file_stamps: tuple[tuple[Path, _PathMutationStamp], ...]
+    admitted_roots: tuple[Path, ...]
+
+
 @dataclass
 class _RuleSpecResolutionCache:
     """Successful filesystem admissions retained for one validation operation."""
@@ -246,6 +254,9 @@ class _RuleSpecResolutionCache:
     active_checkouts: dict[Path, _CachedActiveCheckout] = field(default_factory=dict)
     symlink_audits: dict[Path, _CachedSymlinkAudit] = field(default_factory=dict)
     target_files: dict[tuple[Any, ...], _CachedTargetFile] = field(default_factory=dict)
+    program_owners: dict[tuple[Path, Path, tuple[Path, ...]], _CachedProgramOwners] = (
+        field(default_factory=dict)
+    )
 
 
 _RULESPEC_RESOLUTION_CACHE: ContextVar[_RuleSpecResolutionCache | None] = ContextVar(
@@ -35719,6 +35730,24 @@ class ValidatorPipeline:
         root = _rulespec_checkout_root_for_active_path(self.policy_repo_path)
         cache = _RULESPEC_RESOLUTION_CACHE.get()
         assert cache is not None
+        cache_key = (root, rules_file, self.rulespec_dependency_roots)
+        cached = cache.program_owners.get(cache_key)
+        if cached is not None:
+            for checkout in cached.admitted_roots:
+                _reject_rulespec_checkout_symlinks(
+                    checkout, label="Program ownership checkout"
+                )
+            if any(
+                _path_mutation_stamp(directory) != stamp
+                for directory, stamp in cached.directory_stamps
+            ) or any(
+                path.is_symlink() or _path_mutation_stamp(path) != stamp
+                for path, stamp in cached.file_stamps
+            ):
+                raise UnsafeRulespecContextPath(
+                    "Program ownership checkout changed during validation"
+                )
+            return cached.owners
         directory_stamps: dict[Path, _PathMutationStamp] = {}
         file_stamps: dict[Path, _PathMutationStamp] = {}
         admitted_roots: set[Path] = set()
@@ -35889,7 +35918,14 @@ class ValidatorPipeline:
                 raise UnsafeRulespecContextPath(
                     "Program ownership file changed during discovery"
                 )
-        return tuple(owners)
+        result = tuple(owners)
+        cache.program_owners[cache_key] = _CachedProgramOwners(
+            owners=result,
+            directory_stamps=tuple(directory_stamps.items()),
+            file_stamps=tuple(file_stamps.items()),
+            admitted_roots=tuple(sorted(admitted_roots)),
+        )
+        return result
 
     def _rulespec_compile_success_output(self, payload: Any) -> str:
         """Return a concise successful compile summary for validator output."""
