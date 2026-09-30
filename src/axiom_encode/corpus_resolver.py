@@ -328,6 +328,9 @@ class LocalCorpusRelease:
     scopes: tuple[ReleaseScope, ...] = field(init=False)
     artifacts: tuple[VerifiedReleaseArtifact, ...] = field(init=False)
     release_object_path: Path = field(init=False)
+    # Artifacts a lock-file checkout could not hold, with the reason; a read
+    # of one fails and repeats the reason.
+    unplaced: Mapping[str, str] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         name = validate_corpus_release_name(self.name)
@@ -380,9 +383,18 @@ class LocalCorpusRelease:
             raise InvalidCorpusReleaseError(
                 "Corpus release object does not match its configured name and content digest"
             )
+        unplaced: Mapping[str, str] = {}
         if uses_corpus_locks:
-            _materialize_release_provisions(root, verified)
-            root, provisions_root, repository_root = _resolve_corpus_layout(root)
+            unplaced = _materialize_release_provisions(root, verified)
+            canonical = root / "data" / "corpus" / "provisions"
+            if unplaced and (
+                _safe_directory(root, canonical, label="corpus provisions root") is None
+            ):
+                # Every provisions artifact was skipped, so nothing was placed;
+                # a read of any scope fails with its reason instead.
+                provisions_root = canonical
+            else:
+                root, provisions_root, repository_root = _resolve_corpus_layout(root)
         object.__setattr__(self, "root", root)
         object.__setattr__(self, "name", name)
         object.__setattr__(self, "provisions_root", provisions_root)
@@ -401,6 +413,7 @@ class LocalCorpusRelease:
         )
         object.__setattr__(self, "artifacts", verified.artifacts)
         object.__setattr__(self, "release_object_path", release_object_file)
+        object.__setattr__(self, "unplaced", MappingProxyType(dict(unplaced)))
 
 
 @dataclass(frozen=True)
@@ -932,15 +945,18 @@ def _resolved_source(
 
 def _materialize_release_provisions(
     root: Path, verified: VerifiedCorpusReleaseObject
-) -> None:
+) -> dict[str, str]:
     """Place the release's provisions artifacts, the only bytes this module reads.
 
-    Every placed file hashes to the signed release's sha256 and byte count;
-    anything missing that no source can supply fails closed here.
+    Every placed file hashes to the signed release's sha256 and byte count,
+    and lands only where the checkout's own lock pins those bytes. Returns
+    the artifacts skipped because the lock pins other bytes; reading one
+    fails, as it did before the switch. Anything the lock pins that no
+    source can supply fails closed here.
     """
 
     if fetch_disabled():
-        return
+        return {}
     try:
         report = materialize_release_artifacts(
             root,
@@ -948,6 +964,7 @@ def _materialize_release_provisions(
             sources=lambda: release_sources(
                 root, git_commit=verified.git_commit, r2_bucket=verified.r2_bucket
             ),
+            release_commit=verified.git_commit,
         )
     except CorpusMaterializationError as exc:
         raise UnmaterializedCorpusReleaseError(str(exc)) from exc
@@ -958,6 +975,15 @@ def _materialize_release_provisions(
             "from " + ", ".join(f"{k} {v}" for k, v in report.source_counts().items()),
             file=sys.stderr,
         )
+    if report.skipped:
+        print(
+            f"axiom-encode: left {len(report.skipped)} provisions artifact(s) of "
+            f"corpus release {verified.name} unplaced in {root}: the checkout's "
+            "locks pin other bytes there, so reading those scopes fails. To "
+            f"read them, use a corpus worktree at {verified.git_commit} "
+            "(docs/corpus-bytes-outside-git.md).\n" + report.describe_skipped(limit=5),
+            file=sys.stderr,
+        )
     if not report.ok:
         raise UnmaterializedCorpusReleaseError(
             f"Cannot place {len(report.failed)} of {report.selected} provisions "
@@ -966,6 +992,7 @@ def _materialize_release_provisions(
             f"{verified.name}` or `axiom-encode corpus-fetch` with R2 read "
             "credentials:\n" + report.describe_failures()
         )
+    return report.skipped
 
 
 def _resolve_corpus_root(corpus_root: Path) -> Path:
@@ -1029,6 +1056,7 @@ def _candidate_provision_files(
         if candidate is None:
             raise CorpusResolutionError(
                 f"Verified corpus release artifact is missing: {artifact.path}"
+                + _unplaced_note(release, artifact.path)
             )
         candidates.append(candidate)
     if len(candidates) != len(scopes):
@@ -1037,6 +1065,11 @@ def _candidate_provision_files(
             f"artifact per requested scope: {jurisdiction}/{document_class}"
         )
     return tuple(candidates)
+
+
+def _unplaced_note(release: LocalCorpusRelease, relative_path: str) -> str:
+    reason = release.unplaced.get(relative_path)
+    return f" ({reason})" if reason else ""
 
 
 def _read_corpus_artifact(
@@ -1065,6 +1098,7 @@ def _read_corpus_artifact(
     if expected.sha256 != file_sha256 or expected.byte_count != len(raw):
         raise CorpusResolutionError(
             f"Corpus provision bytes do not match the verified release: {relative_path}"
+            + _unplaced_note(release, relative_path)
         )
     try:
         text = raw.decode("utf-8")

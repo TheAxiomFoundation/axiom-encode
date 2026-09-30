@@ -17,15 +17,29 @@ first source whose bytes hash to the release's sha256 and byte count:
 3. the R2 object ``objects/sha256/<xx>/<sha256>`` in the release's bucket,
    when R2 read credentials are configured.
 
-Bytes land at their path only after they verify, through a hard link from a
-temporary file, so a reader never sees partial or unverified bytes. An
-existing file is never replaced, and no symlink is followed or created under
-the corpus root.
+It places an artifact only where the checkout's own scope lock pins that path
+to the release's sha256 and size. axiom-corpus treats the bytes at a protected
+path as current when they match that path's lock entry, and a later
+``sign-ingest-manifest --lock`` signs whatever is there; a protected path may
+therefore hold only its lock's bytes or fresh extractor output. Where the
+lock pins other bytes (the scope was re-ingested after the release), the
+artifact is skipped, and reading that scope fails as it did before the
+switch, when a checkout tracked different bytes at that path.
+
+Bytes land at their path only after they verify, through a hard link or a
+no-replace rename from a temporary file in ``data/corpus/.corpus-fetch-tmp/``
+(the staging directory axiom-corpus uses), so a reader never sees partial or
+unverified bytes and no temporary file ever sits inside a scope. An existing
+file is never replaced, and no symlink is followed or created under the
+corpus root. Only single-file artifact classes are placed: axiom-corpus
+fetches a scope's ``sources/`` directory all or nothing.
 """
 
 from __future__ import annotations
 
 import argparse
+import ctypes
+import errno
 import hashlib
 import hmac
 import http.client
@@ -36,6 +50,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -44,6 +59,7 @@ from contextlib import AbstractContextManager, contextmanager, suppress
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from functools import cache
 from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO, Protocol
 from urllib.parse import quote, urlsplit
@@ -56,12 +72,23 @@ from axiom_encode.corpus_release import (
 )
 
 LOCK_ROOT = PurePosixPath(".axiom/corpus-locks")
+LOCK_SCHEMA_VERSION = "axiom-corpus/corpus-lock/v1"
+# axiom-corpus stages fetched bytes here (corpus_locks.FETCH_TEMP_DIR and
+# FETCH_TEMP_MARKER): the checkout's filesystem, outside every scope and
+# ignored by git. It deletes marker files here that are more than a day old,
+# and `corpus lock` names any marker file it meets inside a scope.
+FETCH_TEMP_DIR = PurePosixPath("data/corpus/.corpus-fetch-tmp")
+FETCH_TEMP_MARKER = ".corpus-fetch-"
+STALE_FETCH_TEMP_SECONDS = 24 * 3600
 NO_FETCH_ENV = "AXIOM_CORPUS_NO_FETCH"
 CACHE_ENV = "AXIOM_CORPUS_CACHE"
 DEFAULT_CACHE_ROOT = "~/.axiom/corpus-cache"
 R2_CREDENTIAL_PATH = "~/.config/axiom-foundation/r2-credentials.json"
 DEFAULT_R2_ACCOUNT_ID = "011fb8d44f0e4d9832265ac9f748bc6b"
 ARTIFACT_CLASSES = ("provisions", "inventory", "coverage", "sources")
+# One file per scope. A scope's sources/ directory is fetched all or nothing
+# (code lists it to find the scope's sources), which only axiom-corpus does.
+PLACEABLE_ARTIFACT_CLASSES = ("provisions", "inventory", "coverage")
 MAX_LOCK_FILE_BYTES = 64 * 1024 * 1024
 MAX_RELEASE_OBJECT_BYTES = 16 * 1024 * 1024
 _CHUNK_BYTES = 1024 * 1024
@@ -69,6 +96,16 @@ _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _OBJECT_ID_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 _EMPTY_PAYLOAD_SHA256 = hashlib.sha256(b"").hexdigest()
 _RETRYABLE_HTTP_STATUS = frozenset({429, 500, 502, 503, 504})
+# link(2) errors that mean "this filesystem has no hard links" (axiom-corpus
+# content_store._NO_HARDLINK_ERRNOS, less EXDEV, which is refused here).
+_NO_HARDLINK_ERRNOS = frozenset(
+    {errno.EPERM, errno.ENOTSUP, errno.EOPNOTSUPP, errno.EMLINK}
+)
+_LOCK_KEYS = frozenset(
+    {"schema_version", "jurisdiction", "document_class", "version", "files"}
+)
+_LOCK_ENTRY_KEYS = frozenset({"path", "sha256", "size", "git_blob"})
+_LOCK_ENTRY_REQUIRED_KEYS = frozenset({"path", "sha256", "size"})
 
 _REMOTE_FETCH_DISABLED: ContextVar[bool] = ContextVar(
     "axiom_corpus_remote_fetch_disabled", default=False
@@ -124,11 +161,17 @@ def remote_fetch_disabled() -> Iterator[None]:
 
 @dataclass
 class MaterializationReport:
-    """What one materialization pass found, placed, and could not place."""
+    """What one materialization pass found, placed, skipped and could not place.
+
+    ``skipped`` holds artifacts the checkout cannot hold: its own lock does
+    not pin the release's bytes at that path. They are not failures; a reader
+    of that scope fails instead, as before the switch.
+    """
 
     selected: int = 0
     present: list[str] = field(default_factory=list)
     materialized: dict[str, str] = field(default_factory=dict)
+    skipped: dict[str, str] = field(default_factory=dict)
     failed: dict[str, str] = field(default_factory=dict)
     bytes_materialized: int = 0
 
@@ -143,11 +186,10 @@ class MaterializationReport:
         return dict(sorted(counts.items()))
 
     def describe_failures(self, limit: int = 10) -> str:
-        items = sorted(self.failed.items())
-        lines = [f"{path}: {reason}" for path, reason in items[:limit]]
-        if len(items) > limit:
-            lines.append(f"... and {len(items) - limit} more")
-        return "\n".join(lines)
+        return _describe(self.failed, limit)
+
+    def describe_skipped(self, limit: int = 10) -> str:
+        return _describe(self.skipped, limit)
 
     def to_mapping(self) -> dict[str, Any]:
         return {
@@ -156,8 +198,17 @@ class MaterializationReport:
             "materialized": len(self.materialized),
             "bytes_materialized": self.bytes_materialized,
             "sources": self.source_counts(),
+            "skipped": dict(sorted(self.skipped.items())),
             "failed": dict(sorted(self.failed.items())),
         }
+
+
+def _describe(reasons: Mapping[str, str], limit: int) -> str:
+    items = sorted(reasons.items())
+    lines = [f"{path}: {reason}" for path, reason in items[:limit]]
+    if len(items) > limit:
+        lines.append(f"... and {len(items) - limit} more")
+    return "\n".join(lines)
 
 
 def materialize_release_artifacts(
@@ -166,31 +217,49 @@ def materialize_release_artifacts(
     *,
     sources: SourceFactory,
     verify: bool = False,
+    release_commit: str = "",
 ) -> MaterializationReport:
-    """Place every missing artifact from the first source whose bytes verify.
+    """Place every missing artifact the checkout's lock pins, from the first source that verifies.
 
     A present regular file of the listed size counts as present; ``verify``
     also hashes it. Readers hash what they read (``corpus_resolver``), so the
-    size check only decides whether to fetch. A present file of another size
-    or hash, or a symlink anywhere on an artifact's path, is reported as a
-    failure and left untouched. ``sources`` is opened only when an artifact
-    is missing, so a fully materialized checkout starts no process and reads
-    no credentials.
+    size check only decides whether to fetch. Any other artifact is placed
+    only when the checkout's own scope lock lists its path with the release's
+    sha256 and size; otherwise it is skipped (``report.skipped``) and its path
+    left as it is. ``release_commit`` names the release's ``git.commit`` in
+    skip reasons. A present file of another size or hash that the lock does
+    pin to the release's bytes, or a symlink anywhere on an artifact's path,
+    is reported as a failure and left untouched. ``sources`` is opened only
+    when an artifact is to be placed, so a fully materialized checkout starts
+    no process and reads no credentials.
     """
 
     root = _require_root(root)
     report = MaterializationReport()
+    locks = CheckoutLocks(root)
     missing: list[VerifiedReleaseArtifact] = []
     for artifact in artifacts:
         report.selected += 1
         try:
             _require_canonical_artifact_path(artifact.path)
-            state = destination_state(root, artifact, verify=verify)
+            if artifact.artifact_class not in PLACEABLE_ARTIFACT_CLASSES:
+                raise CorpusMaterializationError(
+                    f"axiom-encode does not place {artifact.artifact_class} "
+                    "artifacts; a scope's sources directory is fetched all or "
+                    "nothing by `axiom-corpus-ingest corpus fetch`"
+                )
+            state, difference = _inspect_destination(root, artifact, verify=verify)
         except CorpusMaterializationError as exc:
             report.failed[artifact.path] = str(exc)
             continue
         if state == "present":
             report.present.append(artifact.path)
+            continue
+        unpinned = locks.release_bytes_unpinned(artifact)
+        if unpinned is not None:
+            report.skipped[artifact.path] = _skip_reason(unpinned, release_commit)
+        elif state == "different":
+            report.failed[artifact.path] = difference
         else:
             missing.append(artifact)
     if not missing:
@@ -201,6 +270,18 @@ def materialize_release_artifacts(
     return report
 
 
+def _skip_reason(unpinned: str, release_commit: str) -> str:
+    where = (
+        f"the release's git.commit {release_commit}"
+        if release_commit
+        else "the release's git.commit"
+    )
+    return (
+        f"not placed: {unpinned}; to read this scope at this release, use a "
+        f"corpus worktree at {where} (docs/corpus-bytes-outside-git.md)"
+    )
+
+
 def destination_state(
     root: Path,
     artifact: VerifiedReleaseArtifact,
@@ -209,6 +290,20 @@ def destination_state(
 ) -> str:
     """Return ``"present"`` or ``"missing"``; raise for anything unsafe or different."""
 
+    state, difference = _inspect_destination(root, artifact, verify=verify)
+    if state == "different":
+        raise CorpusMaterializationError(difference)
+    return state
+
+
+def _inspect_destination(
+    root: Path,
+    artifact: VerifiedReleaseArtifact,
+    *,
+    verify: bool = False,
+) -> tuple[str, str]:
+    """``("present" | "missing" | "different", why different)``; raise if unsafe."""
+
     parts = PurePosixPath(artifact.path).parts
     cursor = root
     for part in parts[:-1]:
@@ -216,7 +311,7 @@ def destination_state(
         try:
             mode = os.lstat(cursor).st_mode
         except FileNotFoundError:
-            return "missing"
+            return "missing", ""
         if stat.S_ISLNK(mode):
             raise CorpusMaterializationError(f"path contains a symlink: {cursor}")
         if not stat.S_ISDIR(mode):
@@ -227,21 +322,21 @@ def destination_state(
     try:
         file_stat = os.lstat(path)
     except FileNotFoundError:
-        return "missing"
+        return "missing", ""
     if stat.S_ISLNK(file_stat.st_mode):
         raise CorpusMaterializationError(f"artifact is a symlink: {path}")
     if not stat.S_ISREG(file_stat.st_mode):
         raise CorpusMaterializationError(f"artifact is not a regular file: {path}")
     if file_stat.st_size != artifact.byte_count:
-        raise CorpusMaterializationError(
+        return "different", (
             f"existing file holds {file_stat.st_size} bytes but the release lists "
             f"{artifact.byte_count}; left untouched"
         )
     if verify and _sha256_path(path) != artifact.sha256:
-        raise CorpusMaterializationError(
+        return "different", (
             "existing file's sha256 differs from the release; left untouched"
         )
-    return "present"
+    return "present", ""
 
 
 def _materialize_one(
@@ -253,7 +348,9 @@ def _materialize_one(
     reasons: list[str] = []
     created: list[Path] = []
     try:
-        parent = _ensure_parent(root, artifact.path, created)
+        parent = _ensure_directories(root, PurePosixPath(artifact.path).parent, created)
+        staging = _ensure_directories(root, FETCH_TEMP_DIR, created)
+        _prune_stale_fetch_temporaries(staging)
         name = PurePosixPath(artifact.path).name
         for source in sources:
             try:
@@ -265,7 +362,7 @@ def _materialize_one(
                 reasons.append(f"{source.label}: absent")
                 continue
             try:
-                _place_verified(root, parent, name, chunks, artifact)
+                _place_verified(root, staging, parent, name, chunks, artifact)
             except SourceError as exc:
                 reasons.append(f"{source.label}: {exc}")
                 continue
@@ -275,8 +372,9 @@ def _materialize_one(
         report.failed[artifact.path] = "; ".join(reasons) or "no source is configured"
     except CorpusMaterializationError as exc:
         report.failed[artifact.path] = str(exc)
-    # Nothing was placed: remove the directories this attempt created, so a
-    # failed run leaves the tree as it found it (rmdir refuses non-empty ones).
+    # Nothing was placed: remove the directories this attempt created, the
+    # staging directory included, so a failed run leaves the tree as it found
+    # it (rmdir refuses non-empty ones).
     for directory in reversed(created):
         with suppress(OSError):
             os.rmdir(directory)
@@ -284,14 +382,22 @@ def _materialize_one(
 
 def _place_verified(
     root: Path,
+    staging: Path,
     parent: Path,
     name: str,
     chunks: Iterator[bytes],
     artifact: VerifiedReleaseArtifact,
 ) -> None:
-    """Stream into a private temporary file, verify, then link it into place."""
+    """Stream into a staging file, verify, then give it its name without replacing.
 
-    temporary = parent / f".{name}.{os.getpid()}.{os.urandom(6).hex()}.part"
+    The temporary file lives in ``data/corpus/.corpus-fetch-tmp/`` and carries
+    the ``.corpus-fetch-`` marker, so a process killed mid-stream leaves it
+    where axiom-corpus looks for and prunes leftovers, never inside a scope.
+    """
+
+    temporary = staging / (
+        f"{FETCH_TEMP_MARKER}{name[:40]}.{os.getpid()}.{os.urandom(6).hex()}"
+    )
     flags = (
         os.O_WRONLY
         | os.O_CREAT
@@ -327,15 +433,9 @@ def _place_verified(
         if digest.hexdigest() != artifact.sha256:
             raise SourceError("sha256 does not match the release")
         destination = parent / name
-        try:
-            os.link(temporary, destination)
-        except FileExistsError:
-            # Another process placed it first; accept only the listed size.
-            destination_state(root, artifact)
-        except OSError as exc:
-            raise CorpusMaterializationError(
-                f"cannot link verified bytes into place: {destination}: {exc}"
-            ) from exc
+        if not publish_no_replace(temporary, destination):
+            # Another process placed a file first; accept only the release's bytes.
+            destination_state(root, artifact, verify=True)
     finally:
         close = getattr(chunks, "close", None)
         if close is not None:
@@ -344,9 +444,136 @@ def _place_verified(
             os.unlink(temporary)
 
 
-def _ensure_parent(root: Path, relative: str, created: list[Path]) -> Path:
+def publish_no_replace(temporary: Path, destination: Path) -> bool:
+    """Give ``temporary``'s file the name ``destination`` unless that name exists.
+
+    Returns False, leaving ``destination`` untouched, when something already
+    exists there. Uses ``link(2)``, or where the filesystem has no hard links
+    a no-replace rename (``renamex_np(RENAME_EXCL)`` on macOS,
+    ``renameat2(RENAME_NOREPLACE)`` on Linux), as axiom-corpus's
+    ``content_store.publish_no_replace`` does. Unlike that function it never
+    falls back to a checked plain rename or to a copy beside ``destination``:
+    it raises instead, because either could replace a file or leave a
+    temporary file inside a scope.
+    """
+
+    try:
+        os.link(temporary, destination)
+        return True
+    except FileExistsError:
+        return False
+    except OSError as exc:
+        if exc.errno == errno.EXDEV:
+            raise CorpusMaterializationError(
+                f"{FETCH_TEMP_DIR} and {destination.parent} are on different "
+                "filesystems; place this file with `axiom-corpus-ingest corpus fetch`"
+            ) from exc
+        if exc.errno not in _NO_HARDLINK_ERRNOS:
+            raise CorpusMaterializationError(
+                f"cannot link verified bytes into place: {destination}: {exc}"
+            ) from exc
+    rename_noreplace = _rename_noreplace()
+    if rename_noreplace is None:
+        raise CorpusMaterializationError(
+            f"cannot place {destination}: the filesystem has no hard links and "
+            "this platform has no no-replace rename"
+        )
+    error = rename_noreplace(temporary, destination)
+    if error == 0:
+        return True
+    if error == errno.EEXIST:
+        return False
+    raise CorpusMaterializationError(
+        f"cannot place {destination}: the filesystem has no hard links and a "
+        f"no-replace rename failed: {os.strerror(error)}"
+    )
+
+
+@cache
+def _rename_noreplace() -> Callable[[Path, Path], int] | None:
+    """An atomic "rename unless the target exists" from the C library, if any.
+
+    Returns a function giving 0 on success or an errno. Loaded on first use:
+    only a filesystem without hard links needs it.
+    """
+
+    try:
+        libc = ctypes.CDLL(None, use_errno=True)
+    except OSError:
+        return None
+    if sys.platform == "darwin" and hasattr(libc, "renamex_np"):
+        renamex = libc.renamex_np
+        renamex.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
+        renamex.restype = ctypes.c_int
+
+        def rename_excl(source: Path, target: Path) -> int:
+            if renamex(os.fsencode(source), os.fsencode(target), 0x4) == 0:
+                return 0  # RENAME_EXCL
+            return ctypes.get_errno()
+
+        return rename_excl
+    if sys.platform.startswith("linux") and hasattr(libc, "renameat2"):
+        renameat2 = libc.renameat2
+        renameat2.argtypes = [
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        ]
+        renameat2.restype = ctypes.c_int
+        at_fdcwd = -100
+
+        def rename_noreplace(source: Path, target: Path) -> int:
+            if (
+                renameat2(
+                    at_fdcwd, os.fsencode(source), at_fdcwd, os.fsencode(target), 1
+                )
+                == 0
+            ):
+                return 0  # RENAME_NOREPLACE
+            return ctypes.get_errno()
+
+        return rename_noreplace
+    return None
+
+
+_PRUNED_STAGING_DIRECTORIES: set[Path] = set()
+_PRUNE_LOCK = threading.Lock()
+
+
+def _prune_stale_fetch_temporaries(staging: Path) -> None:
+    """Delete marker files an interrupted placement left more than a day ago.
+
+    The same rule as axiom-corpus's ``_prune_stale_fetch_tmp``, once per
+    process: a live placement's file is never that old. ctime counts because
+    a clone keeps its source's old mtime.
+    """
+
+    with _PRUNE_LOCK:
+        if staging in _PRUNED_STAGING_DIRECTORIES:
+            return
+        _PRUNED_STAGING_DIRECTORIES.add(staging)
+    cutoff = time.time() - STALE_FETCH_TEMP_SECONDS
+    with suppress(OSError), os.scandir(staging) as entries:
+        for item in entries:
+            if FETCH_TEMP_MARKER not in item.name:
+                continue
+            with suppress(OSError):
+                if not item.is_file(follow_symlinks=False):
+                    continue
+                item_stat = item.stat(follow_symlinks=False)
+                if max(item_stat.st_mtime, item_stat.st_ctime) < cutoff:
+                    os.unlink(item.path)
+
+
+def _ensure_directories(
+    root: Path, relative: PurePosixPath, created: list[Path]
+) -> Path:
+    """Create ``root/relative`` a component at a time; refuse symlinks."""
+
     cursor = root
-    for part in PurePosixPath(relative).parts[:-1]:
+    for part in relative.parts:
         cursor = cursor / part
         try:
             os.mkdir(cursor, 0o755)
@@ -586,19 +813,17 @@ class GitLockBlobSource:
 
     def __init__(self, store: GitObjectStore, root: Path):
         self.store = store
-        self.root = Path(root)
-        self._locks: dict[PurePosixPath, dict[str, tuple[str, str]]] = {}
+        self.locks = CheckoutLocks(root)
 
     def open(self, artifact: VerifiedReleaseArtifact) -> Iterator[bytes] | None:
-        lock_path = lock_path_for(artifact.path)
-        if lock_path is None:
+        entry = self.locks.entry(artifact.path)
+        if (
+            not isinstance(entry, LockEntry)
+            or entry.content != (artifact.sha256, artifact.byte_count)
+            or entry.git_blob is None
+        ):
             return None
-        if lock_path not in self._locks:
-            self._locks[lock_path] = _read_lock_blobs(self.root / lock_path)
-        sha256, blob = self._locks[lock_path].get(artifact.path, ("", ""))
-        if sha256 != artifact.sha256 or not blob:
-            return None
-        return self.store.open(blob, artifact.byte_count)
+        return self.store.open(entry.git_blob, artifact.byte_count)
 
 
 def lock_path_for(artifact_path: str) -> PurePosixPath | None:
@@ -622,39 +847,141 @@ def lock_path_for(artifact_path: str) -> PurePosixPath | None:
     return LOCK_ROOT / jurisdiction / document_class / f"{version}.json"
 
 
-def _read_lock_blobs(path: Path) -> dict[str, tuple[str, str]]:
-    """``path -> (sha256, git_blob)`` hints from one lock file; bytes still verify."""
+@dataclass(frozen=True)
+class LockEntry:
+    """One path's entry in a checkout's scope lock."""
 
+    sha256: str
+    size: int
+    git_blob: str | None = None
+
+    @property
+    def content(self) -> tuple[str, int]:
+        return (self.sha256, self.size)
+
+
+class CheckoutLocks:
+    """A corpus checkout's scope lock files, each read and validated once.
+
+    These are the worktree's locks, the ones ``axiom-corpus-ingest corpus
+    status``/``fetch`` compare files against. A lock that is missing,
+    indirect or malformed pins nothing, so nothing is placed in its scope.
+    """
+
+    def __init__(self, root: Path):
+        self.root = Path(root)
+        self._scopes: dict[PurePosixPath, dict[str, LockEntry] | str] = {}
+
+    def entry(self, artifact_path: str) -> LockEntry | str:
+        """The lock entry for ``artifact_path``, or why the checkout has none."""
+
+        lock_path = lock_path_for(artifact_path)
+        if lock_path is None:
+            return "the path belongs to no scope lock"
+        if lock_path not in self._scopes:
+            self._scopes[lock_path] = _read_scope_lock(self.root, lock_path)
+        entries = self._scopes[lock_path]
+        if isinstance(entries, str):
+            return entries
+        entry = entries.get(artifact_path)
+        if entry is None:
+            return f"the checkout's lock {lock_path} does not list this path"
+        return entry
+
+    def release_bytes_unpinned(self, artifact: VerifiedReleaseArtifact) -> str | None:
+        """None when the lock pins exactly the release's bytes; otherwise why not."""
+
+        entry = self.entry(artifact.path)
+        if isinstance(entry, str):
+            return entry
+        if entry.content != (artifact.sha256, artifact.byte_count):
+            return (
+                f"the checkout's lock {lock_path_for(artifact.path)} pins other "
+                f"bytes at this path (sha256 {entry.sha256[:12]}, {entry.size} "
+                f"bytes; the release lists sha256 {artifact.sha256[:12]}, "
+                f"{artifact.byte_count} bytes)"
+            )
+        return None
+
+
+def _read_scope_lock(
+    root: Path, lock_path: PurePosixPath
+) -> dict[str, LockEntry] | str:
+    """``path -> entry`` from one scope lock, or why it pins nothing.
+
+    Checks what the pins mean, as axiom-corpus's ``parse_lock`` does: the
+    schema, the scope, and each entry's path, sha256, size and ``git_blob``.
+    It does not require the canonical byte encoding (axiom-corpus's guard
+    enforces that in CI).
+    """
+
+    cursor, mode = root, 0
+    for part in lock_path.parts:
+        cursor = cursor / part
+        try:
+            mode = os.lstat(cursor).st_mode
+        except FileNotFoundError:
+            scope = "/".join((*lock_path.parts[-3:-1], lock_path.stem))
+            return f"the checkout has no lock for scope {scope} ({lock_path})"
+        except OSError as exc:
+            return f"the checkout's lock {lock_path} cannot be read: {exc.strerror}"
+        if stat.S_ISLNK(mode):
+            return f"the checkout's lock path {cursor} is a symlink"
+    if not stat.S_ISREG(mode):
+        return f"the checkout's lock {lock_path} is not a regular file"
     try:
-        file_stat = os.lstat(path)
-        if (
-            not stat.S_ISREG(file_stat.st_mode)
-            or file_stat.st_size > MAX_LOCK_FILE_BYTES
+        descriptor = os.open(cursor, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        with os.fdopen(descriptor, "rb") as handle:
+            raw = handle.read(MAX_LOCK_FILE_BYTES + 1)
+    except OSError as exc:
+        return f"the checkout's lock {lock_path} cannot be read: {exc.strerror}"
+    if len(raw) > MAX_LOCK_FILE_BYTES:
+        return f"the checkout's lock {lock_path} exceeds {MAX_LOCK_FILE_BYTES} bytes"
+    try:
+        entries = _parse_scope_lock(raw, lock_path)
+    except (ValueError, RecursionError) as exc:
+        return f"the checkout's lock {lock_path} is not a valid lock: {exc}"
+    return entries
+
+
+def _parse_scope_lock(raw: bytes, lock_path: PurePosixPath) -> dict[str, LockEntry]:
+    payload = json.loads(raw.decode("ascii"))
+    if not isinstance(payload, dict) or set(payload) != _LOCK_KEYS:
+        raise ValueError(f"lock keys must be {sorted(_LOCK_KEYS)}")
+    if payload["schema_version"] != LOCK_SCHEMA_VERSION:
+        raise ValueError(f"unsupported lock schema {payload['schema_version']!r}")
+    scope = (*lock_path.parts[-3:-1], lock_path.stem)
+    if (
+        payload["jurisdiction"],
+        payload["document_class"],
+        payload["version"],
+    ) != scope:
+        raise ValueError("the lock's scope does not match its path")
+    files = payload["files"]
+    if not isinstance(files, list) or not files:
+        raise ValueError("lock files must be a non-empty list")
+    entries: dict[str, LockEntry] = {}
+    for item in files:
+        if not isinstance(item, dict) or not (
+            _LOCK_ENTRY_REQUIRED_KEYS <= set(item) <= _LOCK_ENTRY_KEYS
         ):
-            return {}
-        payload = json.loads(path.read_bytes())
-    except (OSError, ValueError):
-        return {}
-    files = payload.get("files") if isinstance(payload, dict) else None
-    if not isinstance(files, list):
-        return {}
-    hints: dict[str, tuple[str, str]] = {}
-    for entry in files:
-        if not isinstance(entry, dict):
-            continue
-        entry_path, sha256, blob = (
-            entry.get("path"),
-            entry.get("sha256"),
-            entry.get("git_blob"),
-        )
-        if (
-            isinstance(entry_path, str)
-            and isinstance(sha256, str)
-            and isinstance(blob, str)
-            and _OBJECT_ID_RE.fullmatch(blob)
+            raise ValueError("each lock entry needs path, sha256, size [, git_blob]")
+        path, sha256, size = item["path"], item["sha256"], item["size"]
+        git_blob = item.get("git_blob")
+        if not isinstance(path, str) or lock_path_for(path) != lock_path:
+            raise ValueError(f"lock entry path is outside the scope: {path!r}")
+        if not isinstance(sha256, str) or _SHA256_RE.fullmatch(sha256) is None:
+            raise ValueError(f"lock entry sha256 is not a sha256: {path}")
+        if not isinstance(size, int) or isinstance(size, bool) or size < 0:
+            raise ValueError(f"lock entry size is not a byte count: {path}")
+        if git_blob is not None and (
+            not isinstance(git_blob, str) or _OBJECT_ID_RE.fullmatch(git_blob) is None
         ):
-            hints[entry_path] = (sha256, blob)
-    return hints
+            raise ValueError(f"lock entry git_blob is not an object id: {path}")
+        if path in entries:
+            raise ValueError(f"lock lists a path twice: {path}")
+        entries[path] = LockEntry(sha256, size, git_blob)
+    return entries
 
 
 @dataclass(frozen=True)
@@ -893,8 +1220,12 @@ def run_corpus_fetch(argv: Sequence[str] | None = None) -> int:
         prog="axiom-encode corpus-fetch",
         description=(
             "Place a pinned corpus release's artifacts in a corpus checkout that "
-            "keeps its bytes outside git. Every placed file hashes to the "
-            "release's sha256; existing files are never replaced."
+            "keeps its bytes outside git. A file is placed only where the "
+            "checkout's own scope lock pins the release's bytes; every placed "
+            "file hashes to the release's sha256; existing files are never "
+            "replaced. Exit 0 when nothing failed (skipped scopes fail when "
+            "read), 1 when an artifact could not be placed, 2 when the release "
+            "cannot be loaded."
         ),
     )
     parser.add_argument(
@@ -914,8 +1245,11 @@ def run_corpus_fetch(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--artifact-class",
         action="append",
-        choices=ARTIFACT_CLASSES,
-        help="Artifact class to place (repeatable; default: provisions).",
+        choices=PLACEABLE_ARTIFACT_CLASSES,
+        help=(
+            "Artifact class to place (repeatable; default: provisions). Sources "
+            "are fetched all or nothing by `axiom-corpus-ingest corpus fetch`."
+        ),
     )
     parser.add_argument("--verify", action="store_true", help="Hash present files too.")
     parser.add_argument(
@@ -948,6 +1282,7 @@ def run_corpus_fetch(argv: Sequence[str] | None = None) -> int:
                 remote=not args.no_remote,
             ),
             verify=args.verify,
+            release_commit=verified.git_commit,
         )
     except (CorpusMaterializationError, CorpusReleaseObjectError, ValueError) as exc:
         print(f"axiom-encode corpus-fetch: {exc}", file=sys.stderr)
@@ -963,12 +1298,18 @@ def run_corpus_fetch(argv: Sequence[str] | None = None) -> int:
         print(
             f"{name}: {report.selected} artifact(s): {len(report.present)} present, "
             f"{len(report.materialized)} placed ({report.bytes_materialized:,} bytes), "
-            f"{len(report.failed)} failed."
+            f"{len(report.skipped)} skipped, {len(report.failed)} failed."
         )
         if report.materialized:
             print(
                 "sources: "
                 + ", ".join(f"{k} {v}" for k, v in report.source_counts().items())
+            )
+        if report.skipped:
+            print(
+                "skipped (the checkout's locks pin other bytes; reading these "
+                "scopes fails):\n" + report.describe_skipped(limit=20),
+                file=sys.stderr,
             )
         if report.failed:
             print(report.describe_failures(limit=20), file=sys.stderr)

@@ -109,7 +109,8 @@ is a separate telemetry feature and never supplies legal source text.
 
 A corpus checkout that keeps its bytes outside git (`.axiom/corpus-locks/`) gets
 the pinned release's provisions placed on binding, each file verified against the
-release's sha256; `axiom-encode corpus-fetch` does the same explicitly. See
+release's sha256 and placed only where the checkout's own lock pins those bytes;
+`axiom-encode corpus-fetch` does the same explicitly. See
 [docs/corpus-bytes-outside-git.md](docs/corpus-bytes-outside-git.md).
 
 `encode` defaults to `--backend codex` with `gpt-6-luna`. Each section gets
