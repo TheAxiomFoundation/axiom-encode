@@ -7457,7 +7457,11 @@ _TABLE_RATE_HEADER_PATTERN = re.compile(
     r"\bper[ \t-]+cent(?:um)?\b|"
     r"\bProzent\b|"
     r"\b(?:Beitragssatz|Prozent)punkt(?:e|en|es|s)?\b|"
-    r"\bvom[ \t]+Hundert\b"
+    r"\bvom[ \t]+Hundert\b|"
+    # The Hebrew percent noun, bare or behind a one-letter prefix: a column
+    # headed "אחוזים מההכנסה" or "הניכוי ... באחוזים" holds percentages.
+    r"(?<![\u0590-\u05ff])(?:[\u05d1\u05d4\u05d5\u05dc\u05de][\u05be-]?)?"
+    r"\u05d0\u05d7\u05d5\u05d6(?:\u05d9\u05dd|\u05d9)?(?![\u0590-\u05ff])"
     r")",
     re.IGNORECASE,
 )
@@ -13473,24 +13477,96 @@ def _numeric_occurrence_has_rate_table_header(
     if "|" not in line:
         return False
 
-    relative_start = start - line_start
-    column = line[:relative_start].count("|")
-    if line.lstrip().startswith("|"):
-        column -= 1
-    if column < 0:
-        return False
-
-    previous_lines = text[:line_start].splitlines()
-    for previous_line in reversed(previous_lines):
+    header_lines: list[str] = []
+    for previous_line in reversed(text[:line_start].splitlines()):
         if "|" not in previous_line:
             break
-        cells = previous_line.strip().strip("|").split("|")
+        header_lines.append(previous_line)
+    block = [*reversed(header_lines), line]
+    widths: list[int] = []
+    width: int | None = None
+    for block_line in block:
+        width = _pipe_table_next_width(block_line, width)
+        widths.append(width)
+
+    relative_start = start - line_start
+    column = next(
+        (
+            index
+            for index, (cell_start, cell_end) in enumerate(
+                _pipe_table_line_cells(line, widths[-1])
+            )
+            if cell_start <= relative_start <= cell_end
+        ),
+        None,
+    )
+    if column is None:
+        return False
+
+    for header_line, header_width in zip(block[:-1], widths[:-1], strict=True):
+        cells = _pipe_table_line_cells(header_line, header_width)
         if column < len(cells) and _table_rate_header_matches(
-            cells[column],
+            header_line[cells[column][0] : cells[column][1]],
             profile=profile,
         ):
             return True
     return False
+
+
+def _pipe_table_next_width(line: str, width: int | None) -> int:
+    """Return the width ``_pipe_table_line_cells`` reads ``line`` with.
+
+    ``width`` is what the previous line of the same pipe block used, or None
+    for a block's first line. A block reads with the border rule (width 0,
+    which no line's raw cell count equals) once any line so far looks
+    bordered: its first line starts or ends with a pipe, a later line starts
+    and ends with one, or a later line's leading pipe is a border because,
+    counted as a cell, it would make the line wider than the table. A line
+    narrower than the table proves nothing: the empty-first-cell total row
+    ``| סך הכל | 14.50`` can be narrower too. Until then the first line's cell
+    count is the width, and a later row's leading pipe that keeps the row at
+    that width marks an empty first cell.
+    """
+    starts = line.lstrip().startswith("|")
+    ends = line.rstrip().endswith("|")
+    if width is None:
+        return 0 if starts or ends else len(_pipe_table_line_cells(line, None))
+    if starts and (ends or line.count("|") + 1 > width):
+        return 0
+    return width
+
+
+def _pipe_table_line_cells(
+    line: str,
+    width: int | None,
+) -> list[tuple[int, int]]:
+    """Return the cell spans of one pipe-table line.
+
+    A leading or trailing pipe is dropped as a border unless the line, with
+    them counted as cells, already has the table's ``width``. A table whose
+    rows begin with a cell, the way ``1. | אימהות | 1.40`` does, marks an
+    empty first cell with a leading pipe (``| סך הכל | 14.50``); that cell is a
+    column, and dropping it would shift every value one column left.
+    ``_pipe_table_next_width`` gives the width: 0 (which no line matches) once
+    the block looks bordered anywhere, so a bordered or mixed Markdown table
+    keeps the border rule on every row; with ``None``, borders are dropped.
+    """
+    boundaries = [
+        -1,
+        *(match.start() for match in re.finditer(r"\|", line)),
+        len(line),
+    ]
+    cells = [
+        (boundaries[index] + 1, boundaries[index + 1])
+        for index in range(len(boundaries) - 1)
+    ]
+    if width is not None and len(cells) == width:
+        return cells
+    if line.lstrip().startswith("|") and cells:
+        cells = cells[1:]
+    if line.rstrip().endswith("|") and cells:
+        cells = cells[:-1]
+    return cells
 
 
 _DANISH_NUMERIC_JOINER_FORMAT_CHARACTERS = frozenset("\u200d\u200c\u2060\u00ad\ufeff")
@@ -13822,27 +13898,18 @@ def _pipe_table_rate_cell_spans(
     """Index cells whose pipe-table column has an explicit percentage header."""
     rate_cells: list[tuple[int, int]] = []
     rate_columns: set[int] = set()
+    width: int | None = None
     line_offset = 0
     for line_with_ending in text.splitlines(keepends=True):
         line = line_with_ending.rstrip("\r\n")
         if "|" not in line:
             rate_columns.clear()
+            width = None
             line_offset += len(line_with_ending)
             continue
 
-        boundaries = [
-            -1,
-            *(match.start() for match in re.finditer(r"\|", line)),
-            len(line),
-        ]
-        cells = [
-            (boundaries[index] + 1, boundaries[index + 1])
-            for index in range(len(boundaries) - 1)
-        ]
-        if line.lstrip().startswith("|") and cells:
-            cells = cells[1:]
-        if line.rstrip().endswith("|") and cells:
-            cells = cells[:-1]
+        width = _pipe_table_next_width(line, width)
+        cells = _pipe_table_line_cells(line, width)
 
         for column, (start, end) in enumerate(cells):
             if _table_rate_header_matches(line[start:end], profile=profile):
@@ -14310,8 +14377,18 @@ class _LegacyNumericCollector:
             require_exact=self.profile == "da-DK",
         )
         start, end = source_span
-        has_table_rate_context = self.profile != "da-DK" and (
-            _span_is_contained_in_index(
+        in_structural_component = _span_is_contained_in_index(
+            source_span,
+            self.structural_component_span_starts,
+            self.structural_component_prefix_max_ends,
+        )
+        # A percent heading types the values in its column as rates, not the
+        # section references the heading itself cites ("אחוזים מההכנסה לפי
+        # סעיפים 337(א) ו־340(א)").
+        has_table_rate_context = (
+            self.profile != "da-DK"
+            and not in_structural_component
+            and _span_is_contained_in_index(
                 source_span,
                 self.rate_table_cell_span_starts,
                 self.rate_table_cell_prefix_max_ends,
@@ -14362,13 +14439,7 @@ class _LegacyNumericCollector:
             )
         )
         has_structural_context = (
-            not has_rate_context
-            and not has_money_context
-            and _span_is_contained_in_index(
-                source_span,
-                self.structural_component_span_starts,
-                self.structural_component_prefix_max_ends,
-            )
+            not has_rate_context and not has_money_context and in_structural_component
         )
         return NumericOccurrence(
             value=value,
