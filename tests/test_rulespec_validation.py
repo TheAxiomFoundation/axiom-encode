@@ -7036,7 +7036,7 @@ def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2075"')
+        .startswith('__version__ = "0.2.2076"')
     )
 
 
@@ -7268,13 +7268,13 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2075"
+    assert encoder_package["version"] == "0.2.2076"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2075"
+    assert project["project"]["version"] == "0.2.2076"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2075"')
+        .startswith('__version__ = "0.2.2076"')
     )
 
 
@@ -7536,13 +7536,13 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2075"
+    assert encoder_package["version"] == "0.2.2076"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2075"
+    assert project["project"]["version"] == "0.2.2076"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2075"')
+        .startswith('__version__ = "0.2.2076"')
     )
 
 
@@ -10480,6 +10480,263 @@ def test_typed_numeric_occurrences_carry_pipe_table_percentage_column_context():
 
     assert percentage.has_rate_context
     assert not ratio_bound.has_rate_context
+
+
+_HEBREW_RATE_TABLE_SOURCE = (
+    "טור א׳ | טור ב׳ | טור ג׳ | טור ד׳ | טור ה׳\n"
+    "פרט | ענף ביטוח | אחוזים מההכנסה או מהשכר | הניכוי משכר העובד באחוזים "
+    "| הקצבת אוצר המדינה\n"
+    "1. | אימהות | 1.40 | 0.87 | 0.09\n"
+    "| סך הכל | 14.50 | 7.00 | 0.67"
+)
+
+
+def _hebrew_rate_table_rule(name: str, formula: str) -> str:
+    return f"""format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: il/statute/national-insurance-law-1995/schedule-j/sign-1
+rules:
+  - name: {name}
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '{formula}'
+"""
+
+
+def test_a_hebrew_percent_heading_marks_a_pipe_table_column_as_rates():
+    """A column headed "אחוזים ..." or "... באחוזים" holds percentages.
+
+    Israel's National Insurance rate table (לוח י׳) prints bare numbers under
+    such headings, so 1.40 in them is the rate 0.014.
+    """
+    for name, formula in (
+        ("maternity_employee_rate", "0.014"),
+        ("maternity_employee_deduction", "0.0087"),
+    ):
+        content = _hebrew_rate_table_rule(name, formula)
+        assert (
+            find_ungrounded_numeric_issues(
+                content, source_text=_HEBREW_RATE_TABLE_SOURCE
+            )
+            == []
+        ), name
+
+
+def test_a_pipe_table_column_without_a_percent_heading_does_not_ground_a_rate():
+    content = _hebrew_rate_table_rule("state_treasury_total", "0.0067")
+
+    issues = find_ungrounded_numeric_issues(
+        content, source_text=_HEBREW_RATE_TABLE_SOURCE
+    )
+
+    assert issues and "0.0067" in issues[0]
+
+
+def test_a_narrower_leading_pipe_row_does_not_turn_a_cell_table_into_a_bordered_one():
+    """A short note row that begins with a pipe proves nothing about borders.
+
+    Only a row that would be wider than the table with its leading pipe counted
+    shows that pipe is a border. A narrower one, like the note below, must not
+    switch the block to the border rule, or the total row after it would shift
+    one column left and put the Treasury figure under a percent heading.
+    """
+    source = _HEBREW_RATE_TABLE_SOURCE.replace(
+        "1. | אימהות | 1.40 | 0.87 | 0.09\n",
+        "1. | אימהות | 1.40 | 0.87 | 0.09\n| הערה\n",
+    )
+    for name, formula in (
+        ("total_employee_rate", "0.145"),
+        ("total_deduction", "0.07"),
+    ):
+        assert (
+            find_ungrounded_numeric_issues(
+                _hebrew_rate_table_rule(name, formula), source_text=source
+            )
+            == []
+        ), name
+    issues = find_ungrounded_numeric_issues(
+        _hebrew_rate_table_rule("state_treasury_total", "0.0067"), source_text=source
+    )
+    assert issues and "0.0067" in issues[0]
+
+
+def test_a_leading_pipe_marks_an_empty_first_cell_in_a_table_whose_rows_begin_with_a_cell():
+    """``| סך הכל | 14.50`` has an empty first cell, not a border.
+
+    Dropping it would move the total into the "ענף ביטוח" column, which has no
+    percent heading, and 14.50 would no longer read as the rate 0.145.
+    """
+    for name, formula in (
+        ("total_employee_rate", "0.145"),
+        ("total_deduction", "0.07"),
+    ):
+        content = _hebrew_rate_table_rule(name, formula)
+        assert (
+            find_ungrounded_numeric_issues(
+                content, source_text=_HEBREW_RATE_TABLE_SOURCE
+            )
+            == []
+        ), name
+
+
+def test_typed_numeric_occurrences_align_a_leading_empty_cell_with_its_header():
+    occurrences = extract_typed_numeric_occurrences_from_text(_HEBREW_RATE_TABLE_SOURCE)
+    total = next(
+        item
+        for item in occurrences
+        if math.isclose(item.value, 14.5, rel_tol=0, abs_tol=1e-9)
+    )
+    treasury = next(
+        item
+        for item in occurrences
+        if math.isclose(item.value, 0.67, rel_tol=0, abs_tol=1e-9)
+    )
+
+    assert total.has_rate_context
+    assert not treasury.has_rate_context
+
+
+def _rate_rule(name: str, formula: str, path: str) -> str:
+    return f"""format: rulespec/v1
+module:
+  source_verification:
+    corpus_citation_path: {path}
+rules:
+  - name: {name}
+    kind: parameter
+    dtype: Rate
+    versions:
+      - effective_from: '2026-01-01'
+        formula: '{formula}'
+"""
+
+
+def test_a_bordered_markdown_table_keeps_the_border_rule_on_its_short_rows():
+    """A short row in a bordered table drops its border pipes, as it always did.
+
+    Only a table that nowhere looks bordered reads a later row's leading pipe as
+    an empty first cell. In a bordered table a short row must not keep its pipes
+    as cells and slide its values one column right into the percent column.
+    """
+    short_total_row = (
+        "| Filing status | Base amount | Rate (percent) | Notes |\n"
+        "|---|---|---|---|\n"
+        "| Single | 1200 | 3.5 | a |\n"
+        "| Total | 4800 |"
+    )
+    one_cell_divider_rows = (
+        "| Filing status | Rate (percent) | Threshold |\n"
+        "|---|---|---|\n"
+        "| 2026 |\n"
+        "| Single | 5 | 10000 |"
+    )
+    two_tables_without_a_blank_line = (
+        "| Category | Amount | Rate (percent) | Notes |\n"
+        "| --- | --- | --- | --- |\n"
+        "| Standard | 100 | 5 | x |\n"
+        "| Premium | Amount |\n"
+        "| --- | --- |\n"
+        "| Carer premium | 48.15 |"
+    )
+    # A table is bordered if any line looks bordered, not only its first: a
+    # header with a trailing pipe only, a caption or prose line with a pipe
+    # directly above a bordered table, a borderless header over bordered rows,
+    # and a borderless header over rows whose leading pipe is already a
+    # border all keep the border rule.
+    trailing_pipe_header = (
+        "Item | Rate (percent) | Amount |\n--- | --- | --- |\nA | 5 | 100 |\n| 250 | 7"
+    )
+    caption_above_bordered_table = (
+        "Schedule 3 | Part 1 | Rates\n"
+        "| Filing status | Rate (percent) | Threshold |\n"
+        "|---|---|---|\n"
+        "| 2026 |\n"
+        "| Single | 5 | 10000 |"
+    )
+    prose_pipe_above_bordered_table = (
+        "NYS Open Legislation | NYSenate.gov\n"
+        "| Filing status | Rate (percent) |\n"
+        "|---|---|\n"
+        "| 2026\n"
+        "| Single | 5 |"
+    )
+    leading_pipe_rows_under_a_borderless_header = (
+        "Item | Rate (percent) | Amount\n| A | 5 | 100\n| 250 | 7"
+    )
+    borderless_header_over_bordered_rows = (
+        "Filing status | Base amount | Rate (percent) | Notes\n"
+        "---|---|---|---\n"
+        "| Single | 1200 | 3.5 | a |\n"
+        "| Total | 4800 |"
+    )
+    for source, grounded, ungrounded in (
+        (short_total_row, "0.035", "48"),
+        (one_cell_divider_rows, "0.05", "20.26"),
+        (two_tables_without_a_blank_line, "0.05", "0.4815"),
+        (trailing_pipe_header, "0.05", "2.5"),
+        (caption_above_bordered_table, "0.05", "20.26"),
+        (prose_pipe_above_bordered_table, "0.05", "20.26"),
+        (borderless_header_over_bordered_rows, "0.035", "48"),
+        (leading_pipe_rows_under_a_borderless_header, "0.07", "2.5"),
+    ):
+        assert (
+            find_ungrounded_numeric_issues(
+                _rate_rule("rate", grounded, "us/statute/26/1"), source_text=source
+            )
+            == []
+        ), grounded
+        issues = find_ungrounded_numeric_issues(
+            _rate_rule("not_a_rate", ungrounded, "us/statute/26/1"),
+            source_text=source,
+        )
+        assert issues and ungrounded in issues[0], ungrounded
+
+
+def test_a_section_reference_in_a_percent_heading_keeps_its_structural_typing():
+    """ "אחוזים ... לפי סעיפים 337(א)" heads a rate column; 337 is not a rate."""
+    source = (
+        "טור א׳ | טור ב׳ | טור ג׳\n"
+        "פרט | ענף ביטוח | אחוזים מההכנסה או מהשכר לפי סעיפים 337(א) ו־340(א)\n"
+        "1. | אימהות | 1.40"
+    )
+    occurrences = extract_typed_numeric_occurrences_from_text(source)
+    section = next(
+        item
+        for item in occurrences
+        if math.isclose(item.value, 337, rel_tol=0, abs_tol=1e-9)
+    )
+    rate = next(
+        item
+        for item in occurrences
+        if math.isclose(item.value, 1.4, rel_tol=0, abs_tol=1e-9)
+    )
+
+    assert section.has_structural_context
+    assert not section.has_rate_context
+    assert rate.has_rate_context
+    assert (
+        find_ungrounded_numeric_issues(
+            _rate_rule(
+                "maternity_rate",
+                "0.014",
+                "il/statute/national-insurance-law-1995/schedule-j/sign-1",
+            ),
+            source_text=source,
+        )
+        == []
+    )
+    issues = find_ungrounded_numeric_issues(
+        _rate_rule(
+            "not_a_rate",
+            "3.37",
+            "il/statute/national-insurance-law-1995/schedule-j/sign-1",
+        ),
+        source_text=source,
+    )
+    assert issues and "3.37" in issues[0]
 
 
 def test_rulespec_grounding_accepts_dotted_fractional_percentage_rates():
