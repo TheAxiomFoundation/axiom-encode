@@ -7036,7 +7036,7 @@ def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2077"')
+        .startswith('__version__ = "0.2.2078"')
     )
 
 
@@ -7268,13 +7268,13 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2077"
+    assert encoder_package["version"] == "0.2.2078"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2077"
+    assert project["project"]["version"] == "0.2.2078"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2077"')
+        .startswith('__version__ = "0.2.2078"')
     )
 
 
@@ -7536,13 +7536,13 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2077"
+    assert encoder_package["version"] == "0.2.2078"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2077"
+    assert project["project"]["version"] == "0.2.2078"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2077"')
+        .startswith('__version__ = "0.2.2078"')
     )
 
 
@@ -52722,6 +52722,45 @@ def test_composition_owner_stops_at_match_but_preserves_multiple_owners(
         validator_pipeline, "_resolve_rulespec_target_file", unexpected_resolution
     )
     assert set(pipeline._owning_program_specs(rules_file)) == {program_spec, second}
+
+
+def test_composition_owner_reuses_verified_snapshot_within_one_validation(
+    tmp_path, monkeypatch
+):
+    policy_repo, rules_file, program_spec = _composition_validation_fixture(tmp_path)
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "engine",
+        enable_oracles=False,
+    )
+    original = Path.read_text
+    reads: list[Path] = []
+
+    def recording_read(path, *args, **kwargs):
+        reads.append(path)
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", recording_read)
+    with validator_pipeline._rulespec_resolution_cache_scope():
+        assert pipeline._owning_program_specs(rules_file) == (program_spec,)
+        first_reads = len(reads)
+        assert first_reads > 0
+        assert pipeline._owning_program_specs(rules_file) == (program_spec,)
+        assert len(reads) == first_reads
+
+
+def test_composition_owner_cached_snapshot_rejects_mutation(tmp_path):
+    policy_repo, rules_file, program_spec = _composition_validation_fixture(tmp_path)
+    pipeline = ValidatorPipeline(
+        policy_repo_path=policy_repo,
+        axiom_rules_path=tmp_path / "engine",
+        enable_oracles=False,
+    )
+    with validator_pipeline._rulespec_resolution_cache_scope():
+        assert pipeline._owning_program_specs(rules_file) == (program_spec,)
+        program_spec.write_text(program_spec.read_text() + "\n# changed\n")
+        with pytest.raises(validator_pipeline.UnsafeRulespecContextPath):
+            pipeline._owning_program_specs(rules_file)
 
 
 @pytest.mark.parametrize(
