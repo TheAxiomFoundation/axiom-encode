@@ -22751,13 +22751,9 @@ def test_evaluate_artifact_reports_validate_and_review_phases(
             "ci", passed=ci_passes, issues=[] if ci_passes else ["ci rejected"]
         ),
     )
-    monkeypatch.setattr(
-        ValidatorPipeline,
-        "_run_reviewer",
-        lambda _self, *_args, **_kwargs: ValidationResult(
-            "generalist-reviewer", passed=True
-        ),
-    )
+    # The autouse _mock_generalist_reviewer fixture already stubs a passing
+    # reviewer. Re-patching it with monkeypatch would restore that stub after
+    # the fixture's own teardown and leak it into later test files.
     phases: list[str] = []
     monkeypatch.setattr("axiom_encode.harness.evals.report_phase", phases.append)
 
