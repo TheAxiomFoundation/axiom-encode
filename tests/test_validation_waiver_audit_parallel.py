@@ -192,11 +192,10 @@ def _run_parallel(paths, monkeypatch, workers="2", composer=None):
 
 def test_parallel_results_are_merged_and_sorted(monkeypatch):
     paths = [f"us/{index:03d}.yaml" for index in range(20)]
-    # Contiguous chunks of the sorted list; return each chunk's rows reversed
-    # to prove the merge re-establishes deterministic order.
-    chunk = max(8, -(-len(paths) // (2 * 8)))
-    for start in range(0, len(paths), chunk):
-        piece = paths[start : start + chunk]
+    # Interleaved worker slices separate adjacent expensive modules; return
+    # each worker's rows reversed to prove the merge restores sorted order.
+    for offset in range(2):
+        piece = paths[offset::2]
         _FakePool.chunk_results[piece[0]] = [
             {"path": path, "passed": False, "fingerprint": f"fp-{path}"}
             for path in reversed(piece)
@@ -208,7 +207,7 @@ def test_parallel_results_are_merged_and_sorted(monkeypatch):
     submitted_paths = [
         path for _fn, chunk_paths, _args in _FakePool.submitted for path in chunk_paths
     ]
-    assert submitted_paths == sorted(paths)
+    assert submitted_paths == paths[::2] + paths[1::2]
     for _fn, _chunk, args in _FakePool.submitted:
         assert args == (
             "/repo",
@@ -222,14 +221,13 @@ def test_parallel_results_are_merged_and_sorted(monkeypatch):
 
 def test_parallel_detects_lost_results(monkeypatch):
     paths = [f"us/{index:03d}.yaml" for index in range(20)]
-    chunk = max(8, -(-len(paths) // (2 * 8)))
-    for start in range(0, len(paths), chunk):
-        piece = paths[start : start + chunk]
+    for offset in range(2):
+        piece = paths[offset::2]
         rows = [
             {"path": path, "passed": False, "fingerprint": f"fp-{path}"}
             for path in piece
         ]
-        _FakePool.chunk_results[piece[0]] = rows[:-1] if start == 0 else rows
+        _FakePool.chunk_results[piece[0]] = rows[:-1] if offset == 0 else rows
     with pytest.raises(RuntimeError, match="corrupted module set"):
         _run_parallel(paths, monkeypatch)
 
@@ -237,14 +235,13 @@ def test_parallel_detects_lost_results(monkeypatch):
 def test_parallel_detects_duplicate_masking_missing(monkeypatch):
     # Same cardinality, wrong multiset: one path duplicated, one omitted.
     paths = [f"us/{index:03d}.yaml" for index in range(20)]
-    chunk = max(8, -(-len(paths) // (2 * 8)))
-    for start in range(0, len(paths), chunk):
-        piece = paths[start : start + chunk]
+    for offset in range(2):
+        piece = paths[offset::2]
         rows = [
             {"path": path, "passed": False, "fingerprint": f"fp-{path}"}
             for path in piece
         ]
-        if start == 0:
+        if offset == 0:
             rows[-1] = dict(rows[0])
         _FakePool.chunk_results[piece[0]] = rows
     with pytest.raises(RuntimeError, match="duplicated"):
@@ -253,12 +250,11 @@ def test_parallel_detects_duplicate_masking_missing(monkeypatch):
 
 def test_parallel_propagates_worker_failure(monkeypatch):
     paths = [f"us/{index:03d}.yaml" for index in range(20)]
-    chunk = max(8, -(-len(paths) // (2 * 8)))
-    for start in range(0, len(paths), chunk):
-        piece = paths[start : start + chunk]
+    for offset in range(2):
+        piece = paths[offset::2]
         _FakePool.chunk_results[piece[0]] = (
             ValueError("worker exploded")
-            if start == 0
+            if offset == 0
             else [
                 {"path": path, "passed": False, "fingerprint": f"fp-{path}"}
                 for path in piece
