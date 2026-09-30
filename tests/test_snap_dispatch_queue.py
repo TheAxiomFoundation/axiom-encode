@@ -853,6 +853,49 @@ def test_a_rejected_signing_approval_blocks_at_once():
     assert len(github.dispatches) == 1
 
 
+def test_a_stale_run_that_already_opened_its_pr_is_left_alone():
+    github = FakeGitHub()
+    state = _state(["us-or/p/1"])
+    item = state["items"][0]
+    _tick(state, github)
+    run_id = _run_id(item)
+    github.runs[run_id]["status"] = "in_progress"
+    pull = github.add_pull(run_id)
+    github.tip = "b" * 40
+
+    _tick(state, github)
+
+    assert github.cancelled == []
+    assert item["status"] == "in_review"
+    assert item["pr"]["url"] == pull["html_url"]
+    assert len(github.dispatches) == 1
+
+
+def test_a_run_that_fails_after_opening_its_pr_is_not_redone():
+    github = FakeGitHub()
+    state = _state(["us-or/p/1"])
+    item = state["items"][0]
+    _tick(state, github)
+    run_id = _run_id(item)
+    github.finish(run_id, "failure")
+    github.jobs[run_id] = [
+        {
+            "name": "encode",
+            "conclusion": "failure",
+            "steps": [
+                {"name": "Upload signed re-encode artifact", "conclusion": "failure"}
+            ],
+        }
+    ]
+    github.add_pull(run_id)
+
+    _tick(state, github)
+
+    assert item["status"] == "in_review"
+    assert q._counted(item) == 0
+    assert len(github.dispatches) == 1
+
+
 def test_repeated_cancellations_by_someone_else_block_the_item():
     github = FakeGitHub()
     state = _state(["us-or/p/1"])
@@ -973,6 +1016,27 @@ def test_runs_from_an_unsaved_tick_are_adopted_not_dispatched_again():
     assert sum(event.startswith("adopted") for event in result["events"]) == 2
 
 
+def test_every_orphan_is_adopted_even_past_max_in_flight():
+    github = FakeGitHub()
+    orphaned = [f"us-or/p/{n}" for n in range(1, 6)]
+    state = _state(orphaned)
+    state["settings"]["max_in_flight"] = 5
+    _tick(state, github)  # five runs dispatched, but this save is lost
+    # The saved file also has an earlier pending item with no run at all,
+    # so a capped loop would spend a slot on it before adopting every orphan.
+    saved = _state(["us-or/p/0", *orphaned])
+
+    _tick(saved, github, now=NOW + timedelta(hours=1))
+    _tick(saved, github, now=NOW + timedelta(hours=2))
+
+    assert [item["status"] for item in saved["items"]] == [
+        "pending",
+        *["dispatched"] * 5,
+    ]
+    assert [_run_id(item) for item in saved["items"][1:]] == list(range(1000, 1005))
+    assert len(github.dispatches) == 5
+
+
 def test_run_listing_pages_past_one_hundred_runs():
     github = FakeGitHub()
     pages = []
@@ -1031,6 +1095,16 @@ def test_requeue_gives_a_blocked_item_a_fresh_budget(tmp_path):
     github.jobs[_run_id(item)] = job
     _tick(state, github)
     assert item["status"] == "dispatched"  # one failure since requeue: retried
+
+
+def test_requeue_warns_when_the_workflow_budget_blocked_the_item(capsys):
+    state = _state(["us-or/p/1"], status="blocked")
+    state["items"][0]["note"] = "the encode workflow's failed-attempt budget is used up"
+
+    q.requeue(state, "us-or/p/1", now=NOW)
+
+    assert "ATTEMPT_BUDGET_BY_CITATION_JSON" in capsys.readouterr().err
+    assert state["items"][0]["status"] == "pending"
 
 
 def test_dry_run_changes_nothing():

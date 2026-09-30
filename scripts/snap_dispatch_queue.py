@@ -868,9 +868,27 @@ def reconcile_dispatched(
         attempt.get("rulespec_ref") is not None
         and attempt["rulespec_ref"] != target.rulespec_ref
     )
+
+    def opened_pull() -> dict[str, Any] | None:
+        return find_pull_request(
+            github,
+            target.rulespec_repo,
+            settings["country"],
+            attempt["run_id"],
+            run.get("run_attempt", 1),
+        )
+
     if run.get("status") != "completed":
         if not stale:
             return run
+        # The encode workflow opens its PR a few steps before the run ends;
+        # once it has, the PR is the result, so never cancel or redo it.
+        pull = opened_pull()
+        if pull is not None:
+            attempt["result"] = "pr-opened"
+            attempt["note"] = "PR opened before rulespec main moved"
+            _apply_pull_request(item, pull, events)
+            return None
         # The run will fail when it checks rulespec main again, after its
         # model spend if it has already started, so stop it now.
         if dry_run:
@@ -903,6 +921,14 @@ def reconcile_dispatched(
             events.append(f"blocked {item['citation']}: {item['note']}")
         else:
             _apply_pull_request(item, pull, events)
+        return None
+    # A run that failed or was cancelled after opening its PR still produced
+    # the PR; track it rather than encoding the item a second time.
+    pull = opened_pull()
+    if pull is not None:
+        attempt["result"] = conclusion
+        attempt["note"] = f"run ended {conclusion} after opening its PR"
+        _apply_pull_request(item, pull, events)
         return None
     if conclusion in COUNTED_FAILURES:
         failure = describe_failure(github, repo, attempt["run_id"])
@@ -1016,28 +1042,31 @@ def tick(
         unrecorded = dispatcher_runs(
             github, encoder_repo, since=since - timedelta(minutes=5)
         )
+        # Adoption is free and must see every orphan in this window, so it is
+        # not limited by max_in_flight.
+        for item in state["items"]:
+            if item["status"] != "pending":
+                continue
+            orphan = match_run(unrecorded, item["citation"], claimed=claimed)
+            if orphan is None:
+                continue
+            claimed.add(orphan["id"])
+            item["status"] = "dispatched"
+            item["attempts"].append(
+                {
+                    "dispatched_at": orphan["created_at"],
+                    "rulespec_ref": None,
+                    "run_id": orphan["id"],
+                    "run_url": _run_url(encoder_repo, orphan["id"]),
+                    "note": "adopted a run this dispatcher started but never recorded",
+                }
+            )
+            events.append(f"adopted unrecorded run {orphan['html_url']}")
         in_flight = sum(1 for item in state["items"] if item["status"] == "dispatched")
         for item in state["items"]:
             if in_flight >= settings["max_in_flight"]:
                 break
             if item["status"] != "pending":
-                continue
-            orphan = match_run(unrecorded, item["citation"], claimed=claimed)
-            if orphan is not None:
-                claimed.add(orphan["id"])
-                item["status"] = "dispatched"
-                item["attempts"].append(
-                    {
-                        "dispatched_at": orphan["created_at"],
-                        "rulespec_ref": None,
-                        "run_id": orphan["id"],
-                        "run_url": _run_url(encoder_repo, orphan["id"]),
-                        "note": "adopted a run this dispatcher started but "
-                        "never recorded",
-                    }
-                )
-                events.append(f"adopted unrecorded run {orphan['html_url']}")
-                in_flight += 1
                 continue
             in_flight += 1
             if not dry_run:
@@ -1130,6 +1159,13 @@ def requeue(state: dict[str, Any], citation: str, *, now: datetime) -> None:
         raise ValueError(f"{citation} is not in queue {state['queue_id']}")
     if item["status"] != "blocked":
         raise ValueError(f"{citation} is {item['status']}, not blocked")
+    if "attempt budget" in item.get("note", ""):
+        print(
+            f"warning: {citation} hit the encode workflow's own failed-attempt "
+            "budget; raise it in ATTEMPT_BUDGET_BY_CITATION_JSON first or the "
+            "next run is blocked again",
+            file=sys.stderr,
+        )
     item["status"] = "pending"
     item["requeued_after"] = len(item["attempts"])
     item["note"] = f"requeued {_iso(now)} after: {item.get('note', 'blocked')}"

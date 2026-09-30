@@ -19,7 +19,8 @@ same draft RuleSpec pull request as an ad hoc encode.
    to stay at the pinned tip until it opens its PR, so an unfinished run on a
    `main` that has since moved is cancelled, and a run that failed because
    `main` moved is not counted; both are sent again on the new tip, up to six
-   times in a row.
+   times in a row. A run that already opened its PR is never cancelled or
+   redone, whatever its conclusion: its PR is tracked instead.
 2. For every item in review, read its PR: merged is done, closed is blocked.
 3. If the queue is active, dispatch pending items until `max_in_flight` (4)
    runs are open, pinned to `main`'s tip and the corpus and rules-engine refs
@@ -77,6 +78,12 @@ Run the workflow by hand with an `action`:
 - `activate` / `pause` flip the queue and, on activate, tick once.
 - `requeue` with `queue_id` and `citation` sends a blocked item again with a
   fresh retry and cancellation budget. Its earlier attempts stay in the file.
+
+The encode workflow keeps its own budget: three failed runs in a row per
+citation within seven days, including runs that failed at PR creation because
+`main` moved. `requeue` does not reset it. For an item blocked on that budget,
+raise the citation's entry in the `ATTEMPT_BUDGET_BY_CITATION_JSON` repository
+variable before requeueing it.
 - `dry_run` on `tick` or `activate` shows what would happen without
   dispatching, cancelling, or saving. Use `activate` with `dry_run` to
   preview a paused queue.
