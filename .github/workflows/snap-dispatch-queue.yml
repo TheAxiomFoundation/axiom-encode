@@ -3,7 +3,7 @@ name: SNAP dispatch queue
 # Hourly: reconcile the encode runs this queue dispatched, then send the next
 # pending items to targeted-signed-reencode.yml on the current rulespec-us
 # main tip. Queue state lives on the encoding-queue-state branch; see
-# scripts/snap_dispatch_queue.py.
+# scripts/snap_dispatch_queue.py and docs/snap-dispatch-queue.md.
 
 on:
   schedule:
@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: tick, build a new paused queue, activate, or pause
+        description: tick, build a new paused queue, activate, pause, or requeue a blocked item
         required: true
         default: tick
         type: choice
@@ -20,6 +20,7 @@ on:
           - build
           - activate
           - pause
+          - requeue
       queue_id:
         description: Queue to act on (tick defaults to every queue)
         required: false
@@ -29,8 +30,12 @@ on:
         required: false
         default: us-or,us-ut
         type: string
+      citation:
+        description: Blocked item to send again (requeue only)
+        required: false
+        type: string
       dry_run:
-        description: Tick without dispatching or saving state
+        description: Show what a tick would do without dispatching, cancelling, or saving
         required: false
         default: false
         type: boolean
@@ -39,27 +44,65 @@ permissions:
   actions: write
   contents: write
 
-concurrency:
-  group: snap-dispatch-queue
-  cancel-in-progress: false
-
 jobs:
-  queue:
-    name: SNAP dispatch queue
+  # GitHub keeps one pending run per concurrency group and cancels the older
+  # one, so a scheduled tick queued behind a running build could silently
+  # replace a pending manual pause. Scheduled ticks therefore step aside
+  # whenever another run of this workflow is queued or running.
+  gate:
+    name: Skip a scheduled tick behind other runs
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      proceed: ${{ steps.gate.outputs.proceed }}
+    steps:
+      - name: Check for other runs
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != schedule ]; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          others=0
+          for status in queued in_progress waiting pending requested; do
+            count="$(gh api \
+              "repos/$GITHUB_REPOSITORY/actions/workflows/snap-dispatch-queue.yml/runs?status=$status&per_page=100" \
+              --jq "[.workflow_runs[] | select(.id != $GITHUB_RUN_ID)] | length")"
+            others=$((others + count))
+          done
+          if [ "$others" -gt 0 ]; then
+            echo "another run of this workflow is queued or running; skipping"
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  queue:
+    name: SNAP dispatch queue
+    needs: gate
+    if: needs.gate.outputs.proceed == 'true'
+    runs-on: ubuntu-latest
     timeout-minutes: 30
+    concurrency:
+      group: snap-dispatch-queue
+      cancel-in-progress: false
     env:
       ACTION: ${{ inputs.action || 'tick' }}
       QUEUE_ID: ${{ inputs.queue_id }}
       JURISDICTIONS: ${{ inputs.jurisdictions }}
+      CITATION: ${{ inputs.citation }}
       DRY_RUN: ${{ inputs.dry_run || false }}
       STATE_BRANCH: encoding-queue-state
     steps:
       - name: Validate inputs
         run: |
           set -euo pipefail
-          case "$ACTION" in tick|build|activate|pause) ;; *)
+          case "$ACTION" in tick|build|activate|pause|requeue) ;; *)
             echo "unknown action: $ACTION" >&2; exit 1 ;;
           esac
           if [ -n "$QUEUE_ID" ] && [[ ! "$QUEUE_ID" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]]; then
@@ -72,21 +115,34 @@ jobs:
             [[ ! "$JURISDICTIONS" =~ ^us-[a-z]{2}(,us-[a-z]{2})*$ ]]; then
             echo "jurisdictions must look like us-or,us-ut" >&2; exit 1
           fi
+          if [ "$ACTION" = requeue ] && \
+            [[ ! "$CITATION" =~ ^us-[a-z]{2}/[A-Za-z0-9._/-]+$ ]]; then
+            echo "requeue needs the item's citation" >&2; exit 1
+          fi
 
-      # Credentials persist so the state step below can push the state branch.
       - name: Checkout axiom-encode
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           path: axiom-encode
-          persist-credentials: true
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.13"
 
       - name: Check out queue state
         run: |
           set -euo pipefail
           cd axiom-encode
-          if git ls-remote --exit-code --heads origin "$STATE_BRANCH" > /dev/null; then
+          status=0
+          git ls-remote --exit-code --heads origin "$STATE_BRANCH" > /dev/null || status=$?
+          if [ "$status" = 0 ]; then
             git fetch --no-tags --depth 1 origin "$STATE_BRANCH"
             git worktree add --detach "$GITHUB_WORKSPACE/state" FETCH_HEAD
+          elif [ "$status" != 2 ]; then
+            echo "could not read the $STATE_BRANCH branch (git exit $status)" >&2
+            exit 1
           elif [ "$ACTION" = build ]; then
             git worktree add --orphan -b "$STATE_BRANCH" "$GITHUB_WORKSPACE/state"
           else
@@ -108,7 +164,7 @@ jobs:
         id: corpus
         run: |
           set -euo pipefail
-          ref="$(python3 - <<'PY'
+          ref="$(python - <<'PY'
           import tomllib
           with open("rulespec-us/.axiom/workflow-toolchain.toml", "rb") as f:
               print(tomllib.load(f)["workflow_toolchain"]["axiom_corpus_ref"])
@@ -154,14 +210,17 @@ jobs:
             --queue-id "$QUEUE_ID" \
             --jurisdictions "$JURISDICTIONS"
 
-      - name: Activate or pause
-        if: env.ACTION == 'activate' || env.ACTION == 'pause'
+      - name: Activate, pause, or requeue
+        if: env.ACTION == 'activate' || env.ACTION == 'pause' || env.ACTION == 'requeue'
         run: |
           set -euo pipefail
-          state=active
-          [ "$ACTION" = activate ] || state=paused
-          python3 axiom-encode/scripts/snap_dispatch_queue.py set-state \
-            --state-dir "$GITHUB_WORKSPACE/state" --queue-id "$QUEUE_ID" "$state"
+          script=axiom-encode/scripts/snap_dispatch_queue.py
+          state_dir="$GITHUB_WORKSPACE/state"
+          case "$ACTION" in
+            activate) python "$script" set-state --state-dir "$state_dir" --queue-id "$QUEUE_ID" active ;;
+            pause) python "$script" set-state --state-dir "$state_dir" --queue-id "$QUEUE_ID" paused ;;
+            requeue) python "$script" requeue --state-dir "$state_dir" --queue-id "$QUEUE_ID" --citation "$CITATION" ;;
+          esac
 
       - name: Tick
         if: env.ACTION == 'tick' || env.ACTION == 'activate'
@@ -172,14 +231,20 @@ jobs:
           args=(--state-dir "$GITHUB_WORKSPACE/state" --summary "$GITHUB_STEP_SUMMARY")
           [ -z "$QUEUE_ID" ] || args+=(--queue-id "$QUEUE_ID")
           [ "$DRY_RUN" != true ] || args+=(--dry-run)
-          python3 axiom-encode/scripts/snap_dispatch_queue.py tick "${args[@]}"
+          python axiom-encode/scripts/snap_dispatch_queue.py tick "${args[@]}"
 
       - name: Save queue state
         if: ${{ always() && env.DRY_RUN != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          cd "$GITHUB_WORKSPACE/state"
-          [ -d .git ] || [ -f .git ] || exit 0
+          state="$GITHUB_WORKSPACE/state"
+          if [ ! -d "$state/queues" ] || { [ ! -d "$state/.git" ] && [ ! -f "$state/.git" ]; }; then
+            echo "no queue state to save"
+            exit 0
+          fi
+          cd "$state"
           git add -A queues
           if git diff --cached --quiet; then
             echo "queue state unchanged"
@@ -188,10 +253,12 @@ jobs:
           git -c user.name="github-actions[bot]" \
             -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
             commit -q -m "SNAP dispatch queue: $ACTION ${QUEUE_ID:-all queues}"
+          gh auth setup-git
           git push origin "HEAD:refs/heads/$STATE_BRANCH"
 
       # If saving failed, keep what this run recorded (dispatched run ids
-      # included) so it can be restored by hand instead of re-dispatched.
+      # included). The next tick also adopts this dispatcher's unrecorded runs
+      # instead of dispatching their items again.
       - name: Keep unsaved queue state
         if: ${{ failure() && env.DRY_RUN != 'true' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

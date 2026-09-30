@@ -59,11 +59,17 @@ def _oregon_like() -> list[dict[str, Any]]:
             _page(
                 f"{root}/page-{number}",
                 f"SNAP rule text on page {number}. " * 40,
+                kind="page",
                 parent_citation_path=root,
             )
         )
     records.append(
-        _page(f"{root}/page-3", "TANF only. " * 100, parent_citation_path=root)
+        _page(
+            f"{root}/page-11",
+            "TANF only. " * 100,
+            kind="page",
+            parent_citation_path=root,
+        )
     )
     return records
 
@@ -139,6 +145,8 @@ class FakeGitHub:
         self.return_run_id = True
         self.fail_dispatch_at: int | None = None
         self.fail_get: set[str] = set()
+        self.missing_runs: set[int] = set()
+        self.approvals: dict[int, list[dict[str, Any]]] = {}
         self.next_id = 1000
 
     # helpers used by tests
@@ -176,7 +184,14 @@ class FakeGitHub:
             }
         match = re.fullmatch(rf"repos/{ENCODER_REPO}/actions/runs/(\d+)", path)
         if match:
+            if int(match.group(1)) in self.missing_runs:
+                raise q.GitHubError(404, "Not Found")
             return self.runs[int(match.group(1))]
+        match = re.fullmatch(
+            rf"repos/{ENCODER_REPO}/actions/runs/(\d+)/approvals", path
+        )
+        if match:
+            return self.approvals.get(int(match.group(1)), [])
         match = re.fullmatch(rf"repos/{ENCODER_REPO}/actions/runs/(\d+)/jobs", path)
         if match:
             return {"jobs": self.jobs.get(int(match.group(1)), [])}
@@ -234,7 +249,7 @@ def _run_id(item: dict[str, Any]) -> int:
 
 
 def test_large_manual_splits_into_snap_pages_in_natural_order():
-    units, stats = q.select_units(_oregon_like(), max_unit_chars=1_000)
+    units, stats, _excluded = q.select_units(_oregon_like(), max_unit_chars=1_000)
 
     assert [unit["citation"].rsplit("/", 1)[-1] for unit in units] == [
         "page-1",
@@ -245,7 +260,7 @@ def test_large_manual_splits_into_snap_pages_in_natural_order():
 
 
 def test_small_topics_are_one_unit_each_with_their_blocks():
-    units, _stats = q.select_units(_utah_like(), max_unit_chars=1_000)
+    units, _stats, _excluded = q.select_units(_utah_like(), max_unit_chars=1_000)
 
     assert [unit["citation"] for unit in units] == [
         "us-ut/manual/dws/eligibility-manual/100-general",
@@ -264,7 +279,7 @@ def test_nested_containers_descend_only_as_far_as_needed():
         _page("us-mo/manual/dss/snap/1110/a", "SNAP " * 20),
     ]
 
-    units, _stats = q.select_units(records, max_unit_chars=2_000)
+    units, _stats, _excluded = q.select_units(records, max_unit_chars=2_000)
 
     assert [unit["citation"] for unit in units] == [
         "us-mo/manual/dss/snap/1105/a",
@@ -280,7 +295,7 @@ def test_empty_containers_are_skipped_and_oversize_leaves_are_flagged():
         _page("us-ky/manual/snap/huge", "SNAP " * 1_000),
     ]
 
-    units, stats = q.select_units(records, max_unit_chars=100)
+    units, stats, _excluded = q.select_units(records, max_unit_chars=100)
 
     assert [unit["citation"] for unit in units] == ["us-ky/manual/snap/huge"]
     assert units[0]["oversize"] is True
@@ -295,7 +310,7 @@ def test_a_split_container_with_its_own_text_is_counted():
         _page("us-xx/manual/ch/2", "SNAP " * 50),
     ]
 
-    _units, stats = q.select_units(records, max_unit_chars=300)
+    _units, stats, _excluded = q.select_units(records, max_unit_chars=300)
 
     assert stats["container_text_dropped"] == 1
 
@@ -308,10 +323,50 @@ def test_table_of_contents_pages_are_skipped():
         _page("us-or/manual/open/page-3", "SNAP rule text. " * 200),
     ]
 
-    units, stats = q.select_units(records, max_unit_chars=1_000)
+    units, stats, _excluded = q.select_units(records, max_unit_chars=1_000)
 
     assert [unit["citation"] for unit in units] == ["us-or/manual/open/page-3"]
     assert stats["table_of_contents"] == 1
+
+
+def test_a_page_between_two_snap_pages_is_kept():
+    root = "us-or/manual/open"
+    records = [_page(root, None, kind="document")]
+    bodies = {
+        1: "SNAP rule begins. " * 30,
+        2: "and continues without naming the program. " * 20,
+        3: "SNAP rule ends. " * 30,
+        4: "TANF only. " * 30,
+    }
+    for number, body in bodies.items():
+        records.append(
+            _page(f"{root}/page-{number}", body, kind="page", parent_citation_path=root)
+        )
+
+    units, stats, excluded = q.select_units(records, max_unit_chars=1_000)
+
+    assert [unit["citation"].rsplit("/", 1)[-1] for unit in units] == [
+        "page-1",
+        "page-2",
+        "page-3",
+    ]
+    assert units[1]["kept_because"] == "between SNAP pages"
+    assert stats["between_snap_pages"] == 1
+    assert excluded["not_snap"] == [f"{root}/page-4"]
+
+
+def test_all_programs_policy_counts_as_snap_policy():
+    base = "us-ut/manual/dws/eligibility-manual/425-income"
+    records = [
+        _page(base, None, kind="document"),
+        _page(
+            f"{base}/block-1", "Count earned income monthly.", heading="All Programs"
+        ),
+    ]
+
+    units, _stats, _excluded = q.select_units(records, max_unit_chars=1_000)
+
+    assert [unit["citation"] for unit in units] == [base]
 
 
 def test_snap_marker_ignores_the_ordinary_word_snap():
@@ -422,6 +477,9 @@ def test_build_makes_a_paused_queue_from_the_pinned_release(tmp_path):
         ("us-or/manual/odhs/open/page-10", "pending"),
     ]
     assert state["build"]["excluded"]["not_snap"] == 1
+    assert state["build"]["excluded_citations"]["not_snap"] == [
+        "us-or/manual/odhs/open/page-11"
+    ]
 
 
 def test_build_refuses_sources_that_are_not_current(tmp_path):
@@ -550,24 +608,20 @@ def test_runs_are_found_by_title_when_dispatch_returns_no_id():
     assert _run_id(state["items"][0]) == 1000
 
 
-def test_a_shortened_run_title_still_matches_one_run():
+def test_a_sibling_citation_never_claims_another_items_run():
     github = FakeGitHub()
-    github.return_run_id = False
-    citation = "us-ut/manual/" + "x" * 150
-    state = _state([citation])
-    original_post = github.post
+    github.runs[5] = {
+        "id": 5,
+        "created_at": q._iso(NOW),
+        "display_title": q.RUN_TITLE_PREFIX + "us-or/manual/open/page-1",
+        "triggering_actor": {"login": q.DISPATCH_ACTOR},
+    }
 
-    def post(path, body=None):
-        response = original_post(path, body)
-        if body and "inputs" in body:
-            run = github.runs[github.next_id - 1]
-            run["display_title"] = run["display_title"][:150] + "…"
-        return response
+    run = q.find_run(
+        github, ENCODER_REPO, "us-or/manual/open/page-10", since=NOW, claimed=set()
+    )
 
-    github.post = post
-    _tick(state, github)
-
-    assert _run_id(state["items"][0]) == 1000
+    assert run is None
 
 
 def test_success_with_an_open_pull_request_waits_for_review_then_merges():
@@ -686,6 +740,119 @@ def test_a_waiting_run_on_a_stale_main_is_cancelled_and_redispatched():
     assert q._cancellations(item) == 0
 
 
+def test_a_running_run_on_a_stale_main_is_cancelled_too():
+    github = FakeGitHub()
+    state = _state(["us-or/p/1"])
+    item = state["items"][0]
+    _tick(state, github)
+    first = _run_id(item)
+    github.runs[first]["status"] = "in_progress"
+    github.tip = "b" * 40
+
+    _tick(state, github)
+
+    assert github.cancelled == [first]
+    assert item["attempts"][0]["result"] == "stale-cancelled"
+    assert q._counted(item) == 0
+
+
+def test_a_failure_from_main_moving_mid_run_is_not_counted():
+    github = FakeGitHub()
+    state = _state(["us-or/p/1"])
+    item = state["items"][0]
+    _tick(state, github)
+    run_id = _run_id(item)
+    github.finish(run_id, "failure")
+    github.jobs[run_id] = [
+        {
+            "name": "Queue protected signed RuleSpec re-encode",
+            "conclusion": "failure",
+            "steps": [
+                {
+                    "name": "Push lane branch and open draft pull request",
+                    "conclusion": "failure",
+                }
+            ],
+        }
+    ]
+    github.tip = "b" * 40
+
+    _tick(state, github)
+
+    assert item["attempts"][0]["result"] == "stale-base"
+    assert q._counted(item) == 0
+    assert item["status"] == "dispatched"
+
+
+def test_the_same_step_failing_on_an_unmoved_main_is_counted():
+    github = FakeGitHub()
+    state = _state(["us-or/p/1"])
+    item = state["items"][0]
+    _tick(state, github)
+    run_id = _run_id(item)
+    github.finish(run_id, "failure")
+    github.jobs[run_id] = [
+        {
+            "name": "encode",
+            "conclusion": "failure",
+            "steps": [
+                {
+                    "name": "Verify immutable checkout identities",
+                    "conclusion": "failure",
+                }
+            ],
+        }
+    ]
+
+    _tick(state, github)
+
+    assert q._counted(item) == 1
+
+
+def test_an_endlessly_moving_main_sets_the_item_aside():
+    github = FakeGitHub()
+    state = _state(["us-or/p/1"])
+    item = state["items"][0]
+    _tick(state, github)
+    for round_ in range(q.MAX_STALE):
+        github.tip = f"{round_:x}" * 40
+        _tick(state, github)
+
+    assert item["status"] == "blocked"
+    assert "main moved" in item["note"]
+    assert len(github.dispatches) == q.MAX_STALE
+
+
+def test_a_deleted_run_puts_its_item_back():
+    github = FakeGitHub()
+    state = _state(["us-or/p/1", "us-or/p/2"])
+    state["settings"]["max_in_flight"] = 1
+    _tick(state, github)
+    github.missing_runs.add(_run_id(state["items"][0]))
+
+    _tick(state, github)
+
+    assert state["items"][0]["attempts"][0]["result"] == "lost"
+    assert [len(item["attempts"]) for item in state["items"]] == [2, 0]
+
+
+def test_a_rejected_signing_approval_blocks_at_once():
+    github = FakeGitHub()
+    state = _state(["us-or/p/1"])
+    item = state["items"][0]
+    _tick(state, github)
+    run_id = _run_id(item)
+    github.finish(run_id, "failure")
+    github.jobs[run_id] = [{"name": "encode", "conclusion": "failure", "steps": []}]
+    github.approvals[run_id] = [{"state": "rejected", "user": {"login": "MaxGhenis"}}]
+
+    _tick(state, github)
+
+    assert item["status"] == "blocked"
+    assert item["note"] == "signing approval rejected by MaxGhenis"
+    assert len(github.dispatches) == 1
+
+
 def test_repeated_cancellations_by_someone_else_block_the_item():
     github = FakeGitHub()
     state = _state(["us-or/p/1"])
@@ -724,7 +891,7 @@ def test_a_moved_corpus_release_holds_dispatch():
     result = _tick(state, github)
 
     assert github.dispatches == []
-    assert "rebuild it" in result["hold"]
+    assert "needs rebuilding" in result["hold"]
 
 
 def test_a_failed_dispatch_keeps_what_was_already_sent():
@@ -766,6 +933,106 @@ def test_a_quiet_tick_leaves_the_state_untouched():
     assert state == before
 
 
+def test_an_unexpected_payload_is_reported_and_the_tick_goes_on():
+    github = FakeGitHub()
+    state = _state(["us-or/p/1", "us-or/p/2"])
+    state["settings"]["max_in_flight"] = 1
+    _tick(state, github)
+    del github.runs[_run_id(state["items"][0])]["html_url"]  # malformed
+
+    result = _tick(state, github)
+
+    assert "unexpected error checking us-or/p/1" in result["error"]
+    assert state["items"][0]["status"] == "dispatched"
+
+
+def test_dry_run_never_cancels_a_stale_run():
+    github = FakeGitHub()
+    state = _state(["us-or/p/1"])
+    _tick(state, github)
+    github.tip = "b" * 40
+
+    result = _tick(copy.deepcopy(state), github, dry_run=True)
+
+    assert github.cancelled == []
+    assert any(event.startswith("would cancel") for event in result["events"])
+
+
+def test_runs_from_an_unsaved_tick_are_adopted_not_dispatched_again():
+    github = FakeGitHub()
+    state = _state(["us-or/p/1", "us-or/p/2"])
+    saved = copy.deepcopy(state)
+    _tick(state, github)  # dispatches both, but its save is lost
+    assert len(github.dispatches) == 2
+
+    result = _tick(saved, github, now=NOW + timedelta(hours=1))
+
+    assert len(github.dispatches) == 2
+    assert [item["status"] for item in saved["items"]] == ["dispatched", "dispatched"]
+    assert [_run_id(item) for item in saved["items"]] == [1000, 1001]
+    assert sum(event.startswith("adopted") for event in result["events"]) == 2
+
+
+def test_run_listing_pages_past_one_hundred_runs():
+    github = FakeGitHub()
+    pages = []
+    original_get = github.get
+
+    def get(path, params=None):
+        if path.endswith(f"/workflows/{q.ENCODE_WORKFLOW}/runs"):
+            pages.append(params["page"])
+            filler = {
+                "id": 1,
+                "display_title": "someone else's run",
+                "triggering_actor": {"login": "PavelMakarchuk"},
+            }
+            if params["page"] == "1":
+                return {"workflow_runs": [filler] * 100}
+        return original_get(path, params)
+
+    github.get = get
+    github.runs[7] = {
+        "id": 7,
+        "created_at": q._iso(NOW),
+        "display_title": q.RUN_TITLE_PREFIX + "us-or/p/1",
+        "triggering_actor": {"login": q.DISPATCH_ACTOR},
+    }
+
+    run = q.find_run(github, ENCODER_REPO, "us-or/p/1", since=NOW, claimed=set())
+
+    assert pages == ["1", "2"]
+    assert run["id"] == 7
+
+
+def test_requeue_gives_a_blocked_item_a_fresh_budget(tmp_path):
+    github = FakeGitHub()
+    state = _state(["us-or/p/1"])
+    item = state["items"][0]
+    job = [{"name": "encode", "conclusion": "failure", "steps": []}]
+    for _ in range(2):
+        _tick(state, github)
+        github.finish(_run_id(item), "failure")
+        github.jobs[_run_id(item)] = job
+    _tick(state, github)
+    assert item["status"] == "blocked"
+
+    path = tmp_path / "queues" / "us-snap-test.json"
+    q.write_state(path, state)
+    args = ["requeue", "--state-dir", str(tmp_path), "--queue-id", "us-snap-test"]
+    assert q.main([*args, "--citation", "us-or/p/1"]) == 0
+    assert q.main([*args, "--citation", "us-or/p/1"]) == 1  # no longer blocked
+    state = q.load_state(path)
+    item = state["items"][0]
+    assert item["status"] == "pending"
+    assert q._counted(item) == 0
+
+    _tick(state, github)
+    github.finish(_run_id(item), "failure")
+    github.jobs[_run_id(item)] = job
+    _tick(state, github)
+    assert item["status"] == "dispatched"  # one failure since requeue: retried
+
+
 def test_dry_run_changes_nothing():
     github = FakeGitHub()
     state = _state(["us-or/p/1", "us-or/p/2"])
@@ -796,6 +1063,78 @@ def test_tick_command_saves_state_and_fails_on_a_dispatch_error(tmp_path, monkey
     saved = q.load_state(path)
     assert [item["status"] for item in saved["items"]] == ["dispatched", "pending"]
     assert "dispatching us-or/p/2 failed" in summary.read_text()
+
+
+def test_one_failing_queue_does_not_stop_the_others(tmp_path, monkeypatch):
+    github = FakeGitHub()
+    broken = _state(["us-or/p/1"])
+    broken["queue_id"] = "a-broken"
+    broken["settings"]["country"] = "zz"  # resolve_target has no such repo
+    healthy = _state(["us-ut/t/1"])
+    healthy["queue_id"] = "b-healthy"
+    q.write_state(tmp_path / "queues" / "a-broken.json", broken)
+    q.write_state(tmp_path / "queues" / "b-healthy.json", healthy)
+    monkeypatch.setattr(q, "ApiGitHub", lambda _token: github)
+    monkeypatch.setattr(q, "_now", lambda: NOW)
+    monkeypatch.setattr(q.time, "sleep", lambda _seconds: None)
+    monkeypatch.setenv("GH_TOKEN", "token")
+    monkeypatch.setenv("GITHUB_REPOSITORY", ENCODER_REPO)
+
+    code = q.main(["tick", "--state-dir", str(tmp_path)])
+
+    assert code == 1
+    saved = q.load_state(tmp_path / "queues" / "b-healthy.json")
+    assert saved["items"][0]["status"] == "dispatched"
+
+
+def test_queues_never_adopt_each_others_runs(tmp_path, monkeypatch):
+    github = FakeGitHub()
+    first = _state(["us-or/p/1"])
+    first["queue_id"] = "first"
+    _tick(first, github)  # run 1000 is first's
+    second = _state(["us-or/p/1-copy"])
+    second["queue_id"] = "second"
+    github.runs[1000]["display_title"] = q.RUN_TITLE_PREFIX + "us-or/p/1-copy"
+    q.write_state(tmp_path / "queues" / "first.json", first)
+    q.write_state(tmp_path / "queues" / "second.json", second)
+    monkeypatch.setattr(q, "ApiGitHub", lambda _token: github)
+    monkeypatch.setattr(q, "_now", lambda: NOW)
+    monkeypatch.setattr(q.time, "sleep", lambda _seconds: None)
+    monkeypatch.setenv("GH_TOKEN", "token")
+    monkeypatch.setenv("GITHUB_REPOSITORY", ENCODER_REPO)
+
+    q.main(["tick", "--state-dir", str(tmp_path), "--queue-id", "second"])
+
+    saved = q.load_state(tmp_path / "queues" / "second.json")
+    assert _run_id(saved["items"][0]) != 1000
+
+
+def test_build_refuses_items_that_overlap_another_queue(tmp_path):
+    corpus, rulespec = _fixture_checkouts(tmp_path)
+    other = _state(["us-or/manual/odhs/open/page-2"])
+    other["queue_id"] = "older"
+    q.write_state(tmp_path / "state" / "queues" / "older.json", other)
+
+    code = q.main(
+        [
+            "build",
+            "--corpus",
+            str(corpus),
+            "--rulespec",
+            str(rulespec),
+            "--state-dir",
+            str(tmp_path / "state"),
+            "--queue-id",
+            "newer",
+            "--jurisdictions",
+            "us-or",
+            "--max-unit-chars",
+            "1000",
+        ]
+    )
+
+    assert code == 1
+    assert not (tmp_path / "state" / "queues" / "newer.json").exists()
 
 
 def test_set_state_activates_and_pauses(tmp_path):
@@ -874,12 +1213,18 @@ def test_workflow_runs_hourly_on_main_one_tick_at_a_time():
     triggers = workflow[True]  # PyYAML reads the bare `on` key as True
 
     assert triggers["schedule"] == [{"cron": "17 * * * *"}]
-    assert workflow["concurrency"] == {
+    assert workflow["permissions"] == {"actions": "write", "contents": "write"}
+    gate, queue = workflow["jobs"]["gate"], workflow["jobs"]["queue"]
+    assert gate["if"] == "github.ref == 'refs/heads/main'"
+    # Only the queue job is serialized; the gate lets a scheduled tick step
+    # aside instead of replacing a pending manual run in the group.
+    assert "concurrency" not in workflow and "concurrency" not in gate
+    assert queue["concurrency"] == {
         "group": "snap-dispatch-queue",
         "cancel-in-progress": False,
     }
-    assert workflow["permissions"] == {"actions": "write", "contents": "write"}
-    assert workflow["jobs"]["queue"]["if"] == "github.ref == 'refs/heads/main'"
+    assert queue["needs"] == "gate"
+    assert queue["if"] == "needs.gate.outputs.proceed == 'true'"
 
 
 def test_workflow_passes_inputs_through_env_and_pins_actions():
@@ -891,6 +1236,8 @@ def test_workflow_passes_inputs_through_env_and_pins_actions():
         uses = step.get("uses")
         if uses:
             assert re.fullmatch(r"[\w.-]+/[\w.-]+@[0-9a-f]{40}", uses), uses
+        if uses and uses.startswith("actions/checkout@"):
+            assert step["with"]["persist-credentials"] is False
 
 
 def test_workflow_saves_state_even_when_the_tick_fails():

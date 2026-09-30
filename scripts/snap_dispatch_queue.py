@@ -70,13 +70,26 @@ MAX_CANCELLATIONS = 3
 SNAP_MARKERS = (
     re.compile(r"\bSNAP\b"),
     re.compile(r"supplemental nutrition assistance|food stamp", re.IGNORECASE),
+    # Integrated manuals head shared policy with the programs it covers; in
+    # the Utah manual that heading is "All Programs".
+    re.compile(r"\bAll Programs\b"),
 )
 # Tables of contents are dense with dot leaders ("Introduction....... 12");
 # policy text almost never has them. In the Oregon notebook, contents pages
 # have 24+ leader runs and policy pages 0-2.
 TOC_LEADER = re.compile(r"\.{8,}")
 TOC_MIN_LEADERS = 10
-NOT_STARTED_RUN_STATUSES = frozenset({"queued", "waiting", "pending", "requested"})
+# The encode workflow requires rulespec main to still be at the pinned tip
+# when it starts (checkout verification) and again when it opens the pull
+# request, so a run whose main moved fails at one of these steps.
+STALE_BASE_STEPS = frozenset(
+    {
+        "Verify immutable checkout identities",
+        "Push lane branch and open draft pull request",
+    }
+)
+# Consecutive runs lost to a moving main before an item is set aside.
+MAX_STALE = 6
 COUNTED_FAILURES = frozenset({"failure", "timed_out", "startup_failure"})
 
 
@@ -126,13 +139,16 @@ def _label(record: dict[str, Any]) -> str:
 
 def select_units(
     records: list[dict[str, Any]], *, max_unit_chars: int
-) -> tuple[list[dict[str, Any]], dict[str, int]]:
+) -> tuple[list[dict[str, Any]], dict[str, int], dict[str, list[str]]]:
     """Pick non-overlapping source units from one corpus scope.
 
     A unit is the largest subtree whose source text fits in ``max_unit_chars``.
     Records without their own body are containers; the encoder composes their
     text from descendants, so a small container (a Utah manual topic) is one
     unit, while a large one (a whole Oregon manual) is split into its children.
+
+    Returns the units, counts of what was left out, and the left-out
+    citations by reason so a person can check them.
     """
 
     by_path: dict[str, dict[str, Any]] = {}
@@ -199,35 +215,62 @@ def select_units(
             stack.extend(children[current])
         return "\n".join(parts)
 
-    stats = {
-        "empty": 0,
-        "table_of_contents": 0,
-        "not_snap": 0,
-        "oversize": 0,
-        "container_text_dropped": 0,
-    }
-    units: list[dict[str, Any]] = []
+    # Walk the tree in reading order and classify each candidate unit.
+    candidates: list[tuple[str, str]] = []  # (citation, reason or "snap")
+    container_text_dropped = 0
     stack = sorted(roots, key=natural_key, reverse=True)
     while stack:
         citation = stack.pop()
         if size[citation] == 0:
-            stats["empty"] += 1
+            candidates.append((citation, "empty"))
             continue
         if size[citation] > max_unit_chars and children[citation]:
             if own_text(citation).strip():
-                stats["container_text_dropped"] += 1
+                container_text_dropped += 1
             stack.extend(sorted(children[citation], key=natural_key, reverse=True))
             continue
         text = subtree_text(citation)
         if _is_table_of_contents(text):
-            stats["table_of_contents"] += 1
-            continue
-        if not _is_snap(text):
-            stats["not_snap"] += 1
+            candidates.append((citation, "table_of_contents"))
+        elif _is_snap(text):
+            candidates.append((citation, "snap"))
+        else:
+            candidates.append((citation, "not_snap"))
+
+    # A PDF page between two SNAP pages is almost always the same SNAP rule
+    # running across a page break, even when it never names the program.
+    kept = {citation for citation, reason in candidates if reason == "snap"}
+    siblings: dict[str | None, list[tuple[str, str]]] = {}
+    for citation, reason in candidates:
+        if reason in {"snap", "not_snap"}:
+            siblings.setdefault(parent[citation], []).append((citation, reason))
+    between: set[str] = set()
+    for run in siblings.values():
+        for index in range(1, len(run) - 1):
+            citation, reason = run[index]
+            if (
+                reason == "not_snap"
+                and by_path[citation].get("kind") == "page"
+                and run[index - 1][1] == "snap"
+                and run[index + 1][1] == "snap"
+            ):
+                between.add(citation)
+    kept |= between
+
+    units: list[dict[str, Any]] = []
+    excluded: dict[str, list[str]] = {
+        "empty": [],
+        "table_of_contents": [],
+        "not_snap": [],
+    }
+    oversize_count = 0
+    for citation, reason in candidates:
+        if citation not in kept:
+            excluded[reason].append(citation)
             continue
         record = by_path[citation]
         oversize = size[citation] > max_unit_chars
-        stats["oversize"] += int(oversize)
+        oversize_count += int(oversize)
         units.append(
             {
                 "citation": citation,
@@ -235,9 +278,20 @@ def select_units(
                 "label": _label(record),
                 "chars": size[citation],
                 **({"oversize": True} if oversize else {}),
+                **(
+                    {"kept_because": "between SNAP pages"}
+                    if citation in between
+                    else {}
+                ),
             }
         )
-    return units, stats
+    stats = {
+        **{reason: len(citations) for reason, citations in excluded.items()},
+        "between_snap_pages": len(between),
+        "oversize": oversize_count,
+        "container_text_dropped": container_text_dropped,
+    }
+    return units, stats, excluded
 
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -347,13 +401,8 @@ def build_queue(
 
     encoded = encoded_citations(rulespec_root)
     scopes: list[dict[str, str]] = []
-    excluded = {
-        "empty": 0,
-        "table_of_contents": 0,
-        "not_snap": 0,
-        "oversize": 0,
-        "container_text_dropped": 0,
-    }
+    excluded: dict[str, int] = {}
+    excluded_citations: dict[str, list[str]] = {}
     items: dict[str, dict[str, Any]] = {}
     for jurisdiction in jurisdictions:
         entry = entries.get(jurisdiction)
@@ -375,11 +424,13 @@ def build_queue(
                     f"release {pins['corpus_release']}"
                 )
             path = corpus_root / PROVISIONS_DIR / key[0] / key[1] / f"{key[2]}.jsonl"
-            units, stats = select_units(
+            units, stats, left_out = select_units(
                 _read_jsonl(path), max_unit_chars=max_unit_chars
             )
             for name, count in stats.items():
-                excluded[name] += count
+                excluded[name] = excluded.get(name, 0) + count
+            for reason, citations in left_out.items():
+                excluded_citations.setdefault(reason, []).extend(citations)
             scopes.append(
                 {
                     "jurisdiction": key[0],
@@ -417,6 +468,7 @@ def build_queue(
             "max_unit_chars": max_unit_chars,
             "scopes": scopes,
             "excluded": excluded,
+            "excluded_citations": excluded_citations,
         },
         "items": ordered,
     }
@@ -458,6 +510,13 @@ def validate_state(state: dict[str, Any]) -> None:
             raise ValueError(f"{citation} has unknown status {item.get('status')!r}")
         if not isinstance(item.get("attempts"), list):
             raise ValueError(f"{citation} has no attempts list")
+        requeued_after = item.get("requeued_after", 0)
+        if (
+            not isinstance(requeued_after, int)
+            or isinstance(requeued_after, bool)
+            or not 0 <= requeued_after <= len(item["attempts"])
+        ):
+            raise ValueError(f"{citation} has an invalid requeued_after")
     for citation in seen:
         parts = citation.split("/")
         for end in range(1, len(parts)):
@@ -575,6 +634,53 @@ def _run_url(repo: str, run_id: int) -> str:
     return f"https://github.com/{repo}/actions/runs/{run_id}"
 
 
+# Run listings are paged 100 at a time; ten pages cover about a week of
+# ad hoc encodes, far more than one tick needs.
+MAX_RUN_PAGES = 10
+
+
+def dispatcher_runs(
+    github: GitHub, repo: str, *, since: datetime
+) -> list[dict[str, Any]]:
+    """Encode runs this dispatcher (the Actions bot) created since ``since``."""
+
+    runs: list[dict[str, Any]] = []
+    for page in range(1, MAX_RUN_PAGES + 1):
+        payload = github.get(
+            f"repos/{repo}/actions/workflows/{ENCODE_WORKFLOW}/runs",
+            {
+                "event": "workflow_dispatch",
+                "created": f">={_iso(since)}",
+                "per_page": "100",
+                "page": str(page),
+            },
+        )
+        batch = payload.get("workflow_runs", [])
+        runs.extend(
+            run
+            for run in batch
+            if (run.get("triggering_actor") or {}).get("login") == DISPATCH_ACTOR
+            and str(run.get("display_title") or "").startswith(RUN_TITLE_PREFIX)
+        )
+        if len(batch) < 100:
+            break
+    return runs
+
+
+def match_run(
+    runs: list[dict[str, Any]], citation: str, *, claimed: set[int]
+) -> dict[str, Any] | None:
+    """The earliest unclaimed run whose title names ``citation``."""
+
+    expected = f"{RUN_TITLE_PREFIX}{citation}"
+    matches = [
+        run
+        for run in runs
+        if run.get("id") not in claimed and run.get("display_title") == expected
+    ]
+    return min(matches, key=lambda run: (run["created_at"], run["id"]), default=None)
+
+
 def find_run(
     github: GitHub,
     repo: str,
@@ -585,43 +691,25 @@ def find_run(
 ) -> dict[str, Any] | None:
     """The earliest unclaimed dispatcher run for ``citation`` since ``since``."""
 
-    payload = github.get(
-        f"repos/{repo}/actions/workflows/{ENCODE_WORKFLOW}/runs",
-        {
-            "event": "workflow_dispatch",
-            "created": f">={_iso(since)}",
-            "per_page": "100",
-        },
+    return match_run(
+        dispatcher_runs(github, repo, since=since), citation, claimed=claimed
     )
-    expected = f"{RUN_TITLE_PREFIX}{citation}"
-    candidates = [
-        run
-        for run in payload.get("workflow_runs", [])
-        if (run.get("triggering_actor") or {}).get("login") == DISPATCH_ACTOR
-        and run.get("id") not in claimed
-    ]
-    matches = [run for run in candidates if run.get("display_title") == expected]
-    if not matches:
-        # GitHub may shorten a long run name; accept a shortened title only
-        # when it identifies a single run.
-        shortened = [
-            run
-            for run in candidates
-            if len(title := str(run.get("display_title") or "").rstrip(".… "))
-            > len(RUN_TITLE_PREFIX)
-            and expected.startswith(title)
-        ]
-        matches = shortened if len(shortened) == 1 else []
-    return min(matches, key=lambda run: (run["created_at"], run["id"]), default=None)
 
 
-def failed_steps(github: GitHub, repo: str, run_id: int) -> tuple[bool, str]:
-    """(budget job failed, a short description of where the run failed)."""
+@dataclass(frozen=True)
+class Failure:
+    budget_exhausted: bool
+    step: str | None
+    where: str
+
+
+def describe_failure(github: GitHub, repo: str, run_id: int) -> Failure:
+    """Which job and step a failed encode run stopped at."""
 
     jobs = github.get(
         f"repos/{repo}/actions/runs/{run_id}/jobs", {"per_page": "100"}
     ).get("jobs", [])
-    budget_failed = any(
+    budget_exhausted = any(
         job.get("name") == BUDGET_JOB and job.get("conclusion") == "failure"
         for job in jobs
     )
@@ -633,9 +721,20 @@ def failed_steps(github: GitHub, repo: str, run_id: int) -> tuple[bool, str]:
             for step in job.get("steps") or []
             if step.get("conclusion") == "failure"
         ]
-        where = f"{job.get('name', '?')}: {steps[0]}" if steps else job.get("name", "?")
-        return budget_failed, where
-    return budget_failed, "no failed step reported"
+        name = job.get("name", "?")
+        if steps:
+            return Failure(budget_exhausted, steps[0], f"{name}: {steps[0]}")
+        return Failure(budget_exhausted, None, name)
+    return Failure(budget_exhausted, None, "no failed step reported")
+
+
+def rejected_by(github: GitHub, repo: str, run_id: int) -> str | None:
+    """Who rejected the run's signing approval, if anyone did."""
+
+    for approval in github.get(f"repos/{repo}/actions/runs/{run_id}/approvals"):
+        if approval.get("state") == "rejected":
+            return (approval.get("user") or {}).get("login") or "a reviewer"
+    return None
 
 
 def find_pull_request(
@@ -657,14 +756,43 @@ def _latest(item: dict[str, Any]) -> dict[str, Any]:
     return item["attempts"][-1]
 
 
+def _current_attempts(item: dict[str, Any]) -> list[dict[str, Any]]:
+    """Attempts since the item was last requeued by a person."""
+
+    return item["attempts"][item.get("requeued_after", 0) :]
+
+
 def _counted(item: dict[str, Any]) -> int:
-    return sum(1 for attempt in item["attempts"] if attempt.get("counted"))
+    return sum(1 for attempt in _current_attempts(item) if attempt.get("counted"))
 
 
 def _cancellations(item: dict[str, Any]) -> int:
     return sum(
-        1 for attempt in item["attempts"] if attempt.get("result") == "cancelled"
+        1 for attempt in _current_attempts(item) if attempt.get("result") == "cancelled"
     )
+
+
+def _stale(item: dict[str, Any]) -> int:
+    """Runs in a row lost to a moving rulespec main."""
+
+    count = 0
+    for attempt in reversed(_current_attempts(item)):
+        if attempt.get("result") not in {"stale-cancelled", "stale-base"}:
+            break
+        count += 1
+    return count
+
+
+def _requeue_after_stale(item: dict[str, Any], events: list[str]) -> None:
+    if _stale(item) >= MAX_STALE:
+        item["status"] = "blocked"
+        item["note"] = (
+            f"rulespec main moved during {MAX_STALE} runs in a row; requeue it "
+            "when main is quieter"
+        )
+        events.append(f"blocked {item['citation']}: {item['note']}")
+    else:
+        item["status"] = "pending"
 
 
 def _requeue_after_cancel(item: dict[str, Any], events: list[str]) -> None:
@@ -701,6 +829,7 @@ def reconcile_dispatched(
     claimed: set[int],
     now: datetime,
     events: list[str],
+    dry_run: bool = False,
 ) -> dict[str, Any] | None:
     """Advance one dispatched item. Returns its run when it is still waiting."""
 
@@ -725,26 +854,38 @@ def reconcile_dispatched(
         attempt["run_id"] = run["id"]
         attempt["run_url"] = _run_url(repo, run["id"])
         claimed.add(run["id"])
-    run = github.get(f"repos/{repo}/actions/runs/{attempt['run_id']}")
+    try:
+        run = github.get(f"repos/{repo}/actions/runs/{attempt['run_id']}")
+    except GitHubError as exc:
+        if exc.status != 404:
+            raise
+        attempt["result"] = "lost"
+        attempt["note"] = "the run no longer exists"
+        item["status"] = "pending"
+        events.append(f"requeued {item['citation']}: its run was deleted")
+        return None
+    stale = (
+        attempt.get("rulespec_ref") is not None
+        and attempt["rulespec_ref"] != target.rulespec_ref
+    )
     if run.get("status") != "completed":
-        if (
-            run.get("status") in NOT_STARTED_RUN_STATUSES
-            and attempt.get("rulespec_ref") != target.rulespec_ref
-        ):
-            # A pull request run needs rulespec main to still be at the pinned
-            # tip; a run that has not started yet would fail on a moved main,
-            # so cancel it (cancellations do not spend the attempt budget).
-            try:
-                github.post(f"repos/{repo}/actions/runs/{attempt['run_id']}/cancel")
-            except GitHubError as exc:
-                events.append(f"could not cancel {attempt['run_url']}: {exc}")
-                return run
-            attempt["result"] = "stale-cancelled"
-            attempt["note"] = "rulespec main moved before the run started"
-            events.append(f"cancelled {attempt['run_url']}: rulespec main moved")
-            _requeue_after_cancel(item, events)
-            return None
-        return run
+        if not stale:
+            return run
+        # The run will fail when it checks rulespec main again, after its
+        # model spend if it has already started, so stop it now.
+        if dry_run:
+            events.append(f"would cancel {attempt['run_url']}: rulespec main moved")
+            return run
+        try:
+            github.post(f"repos/{repo}/actions/runs/{attempt['run_id']}/cancel")
+        except GitHubError as exc:
+            events.append(f"could not cancel {attempt['run_url']}: {exc}")
+            return run
+        attempt["result"] = "stale-cancelled"
+        attempt["note"] = "rulespec main moved before the run finished"
+        events.append(f"cancelled {attempt['run_url']}: rulespec main moved")
+        _requeue_after_stale(item, events)
+        return None
     attempt["run_attempt"] = run.get("run_attempt", 1)
     conclusion = run.get("conclusion")
     if conclusion == "success":
@@ -764,20 +905,29 @@ def reconcile_dispatched(
             _apply_pull_request(item, pull, events)
         return None
     if conclusion in COUNTED_FAILURES:
-        budget_failed, where = failed_steps(github, repo, attempt["run_id"])
+        failure = describe_failure(github, repo, attempt["run_id"])
         attempt["result"] = conclusion
-        attempt["note"] = where
-        if budget_failed:
+        attempt["note"] = failure.where
+        reviewer = rejected_by(github, repo, attempt["run_id"])
+        if reviewer is not None:
+            item["status"] = "blocked"
+            item["note"] = f"signing approval rejected by {reviewer}"
+        elif failure.budget_exhausted:
             item["status"] = "blocked"
             item["note"] = "the encode workflow's failed-attempt budget is used up"
+        elif stale and failure.step in STALE_BASE_STEPS:
+            attempt["result"] = "stale-base"
+            events.append(f"retrying {item['citation']}: rulespec main moved mid-run")
+            _requeue_after_stale(item, events)
+            return None
         else:
             attempt["counted"] = True
             if _counted(item) >= settings["max_attempts"]:
                 item["status"] = "blocked"
-                item["note"] = f"failed {_counted(item)} times; last at {where}"
+                item["note"] = f"failed {_counted(item)} times; last at {failure.where}"
             else:
                 item["status"] = "pending"
-                events.append(f"retrying {item['citation']}: failed at {where}")
+                events.append(f"retrying {item['citation']}: failed at {failure.where}")
                 return None
         events.append(f"blocked {item['citation']}: {item['note']}")
         return None
@@ -802,8 +952,13 @@ def tick(
     now: datetime | None = None,
     dry_run: bool = False,
     sleep: Callable[[float], None] = time.sleep,
+    claimed_elsewhere: frozenset[int] = frozenset(),
 ) -> dict[str, Any]:
-    """Reconcile finished runs, then dispatch the next pending items."""
+    """Reconcile finished runs, then dispatch the next pending items.
+
+    ``claimed_elsewhere`` holds run ids other queues have recorded, so no
+    queue ever adopts or matches another queue's run.
+    """
 
     now = now or _now()
     before = json.dumps(state, sort_keys=True)
@@ -811,12 +966,8 @@ def tick(
     target = resolve_target(github, encoder_repo, settings["country"])
     events: list[str] = []
     waiting: list[dict[str, Any]] = []
-    claimed = {
-        attempt["run_id"]
-        for item in state["items"]
-        for attempt in item["attempts"]
-        if attempt.get("run_id") is not None
-    }
+    claimed = set(claimed_elsewhere) | recorded_run_ids(state)
+    error = None
 
     for item in state["items"]:
         try:
@@ -829,6 +980,7 @@ def tick(
                     claimed=claimed,
                     now=now,
                     events=events,
+                    dry_run=dry_run,
                 )
                 if run is not None and run.get("status") == "waiting":
                     waiting.append(
@@ -838,26 +990,56 @@ def tick(
                 reconcile_in_review(item, github=github, target=target, events=events)
         except GitHubError as exc:
             events.append(f"could not check {item['citation']}: {exc}")
+        except Exception as exc:  # noqa: BLE001 - one bad item must not stop the rest
+            events.append(f"could not check {item['citation']}: {exc!r}")
+            error = f"unexpected error checking {item['citation']}: {exc!r}"
 
     dispatched: list[dict[str, Any]] = []
     hold = None
-    error = None
     if state["state"] != "active":
         hold = "queue is paused"
     elif target.corpus_release != state["build"]["corpus_release"]:
         hold = (
             f"rulespec-us main now pins corpus release {target.corpus_release}, "
             f"but this queue was built from {state['build']['corpus_release']}; "
-            "rebuild it before dispatching more"
+            "it needs rebuilding from the new release before dispatching more"
         )
     else:
+        # A tick whose state push failed leaves runs nobody recorded; adopt
+        # them instead of dispatching their items a second time.
+        recorded = [
+            _parse_iso(attempt["dispatched_at"])
+            for item in state["items"]
+            for attempt in item["attempts"]
+        ]
+        since = max(recorded, default=_parse_iso(state["created_at"]))
+        unrecorded = dispatcher_runs(
+            github, encoder_repo, since=since - timedelta(minutes=5)
+        )
         in_flight = sum(1 for item in state["items"] if item["status"] == "dispatched")
-        slots = max(settings["max_in_flight"] - in_flight, 0)
         for item in state["items"]:
-            if len(dispatched) >= slots:
+            if in_flight >= settings["max_in_flight"]:
                 break
             if item["status"] != "pending":
                 continue
+            orphan = match_run(unrecorded, item["citation"], claimed=claimed)
+            if orphan is not None:
+                claimed.add(orphan["id"])
+                item["status"] = "dispatched"
+                item["attempts"].append(
+                    {
+                        "dispatched_at": orphan["created_at"],
+                        "rulespec_ref": None,
+                        "run_id": orphan["id"],
+                        "run_url": _run_url(encoder_repo, orphan["id"]),
+                        "note": "adopted a run this dispatcher started but "
+                        "never recorded",
+                    }
+                )
+                events.append(f"adopted unrecorded run {orphan['html_url']}")
+                in_flight += 1
+                continue
+            in_flight += 1
             if not dry_run:
                 try:
                     response = github.post(
@@ -877,7 +1059,7 @@ def tick(
                         },
                     )
                 except GitHubError as exc:
-                    error = f"dispatching {item['citation']} failed: {exc}"
+                    error = error or f"dispatching {item['citation']} failed: {exc}"
                     break
                 item["status"] = "dispatched"
                 item.pop("note", None)
@@ -938,6 +1120,46 @@ def tick(
         "events": events,
         "counts": status_counts(state),
     }
+
+
+def requeue(state: dict[str, Any], citation: str, *, now: datetime) -> None:
+    """Send a blocked item again with a fresh retry and cancellation budget."""
+
+    item = next((i for i in state["items"] if i["citation"] == citation), None)
+    if item is None:
+        raise ValueError(f"{citation} is not in queue {state['queue_id']}")
+    if item["status"] != "blocked":
+        raise ValueError(f"{citation} is {item['status']}, not blocked")
+    item["status"] = "pending"
+    item["requeued_after"] = len(item["attempts"])
+    item["note"] = f"requeued {_iso(now)} after: {item.get('note', 'blocked')}"
+    state["updated_at"] = _iso(now)
+
+
+def recorded_run_ids(state: dict[str, Any]) -> set[int]:
+    return {
+        attempt["run_id"]
+        for item in state["items"]
+        for attempt in item["attempts"]
+        if attempt.get("run_id") is not None
+    }
+
+
+def overlapping_items(
+    new: dict[str, Any], existing: Iterable[dict[str, Any]]
+) -> list[str]:
+    """Citations in ``new`` equal to, inside, or containing an existing item."""
+
+    taken = {item["citation"] for state in existing for item in state["items"]}
+    clashes = []
+    for item in new["items"]:
+        parts = item["citation"].split("/")
+        prefixes = {"/".join(parts[:end]) for end in range(1, len(parts) + 1)}
+        if prefixes & taken or any(
+            other.startswith(f"{item['citation']}/") for other in taken
+        ):
+            clashes.append(item["citation"])
+    return clashes
 
 
 # -- reporting --------------------------------------------------------------
@@ -1026,6 +1248,11 @@ def main(argv: list[str] | None = None) -> int:
     set_state.add_argument("--queue-id", required=True)
     set_state.add_argument("state", choices=QUEUE_STATES)
 
+    requeue_parser = commands.add_parser("requeue", help="retry a blocked item")
+    requeue_parser.add_argument("--state-dir", type=Path, required=True)
+    requeue_parser.add_argument("--queue-id", required=True)
+    requeue_parser.add_argument("--citation", required=True)
+
     validate = commands.add_parser("validate", help="validate queue state files")
     validate.add_argument("paths", type=Path, nargs="+")
 
@@ -1044,6 +1271,14 @@ def main(argv: list[str] | None = None) -> int:
                 ],
                 max_unit_chars=args.max_unit_chars,
             )
+            existing = [
+                load_state(other) for other in _queue_paths(args.state_dir, None)
+            ]
+            clashes = overlapping_items(state, existing)
+            if clashes:
+                raise ValueError(
+                    f"{len(clashes)} items overlap an existing queue, e.g. {clashes[0]}"
+                )
             write_state(path, state)
             print(json.dumps({"queue_id": args.queue_id, **status_counts(state)}))
         elif args.command == "tick":
@@ -1052,9 +1287,18 @@ def main(argv: list[str] | None = None) -> int:
             if not token or not repo:
                 raise ValueError("tick needs GH_TOKEN and GITHUB_REPOSITORY")
             github = ApiGitHub(token)
+            everything = {
+                path: load_state(path) for path in _queue_paths(args.state_dir, None)
+            }
             results = []
             for path in _queue_paths(args.state_dir, args.queue_id):
-                state = load_state(path)
+                state = everything[path]
+                elsewhere = frozenset(
+                    run_id
+                    for other_path, other in everything.items()
+                    if other_path != path
+                    for run_id in recorded_run_ids(other)
+                )
                 try:
                     results.append(
                         tick(
@@ -1062,7 +1306,23 @@ def main(argv: list[str] | None = None) -> int:
                             github=github,
                             encoder_repo=repo,
                             dry_run=args.dry_run,
+                            claimed_elsewhere=elsewhere,
                         )
+                    )
+                except Exception as exc:  # noqa: BLE001 - keep ticking other queues
+                    results.append(
+                        {
+                            "queue_id": state["queue_id"],
+                            "state": state["state"],
+                            "rulespec_ref": None,
+                            "hold": None,
+                            "error": f"tick failed: {exc!r}",
+                            "dry_run": args.dry_run,
+                            "dispatched": [],
+                            "waiting_for_approval": [],
+                            "events": [],
+                            "counts": status_counts(state),
+                        }
                     )
                 finally:
                     if not args.dry_run:
@@ -1079,6 +1339,11 @@ def main(argv: list[str] | None = None) -> int:
             state = load_state(path)
             state["state"] = args.state
             state["updated_at"] = _iso(_now())
+            write_state(path, state)
+        elif args.command == "requeue":
+            path = _queue_path(args.state_dir, args.queue_id)
+            state = load_state(path)
+            requeue(state, args.citation, now=_now())
             write_state(path, state)
         elif args.command == "validate":
             for path in args.paths:
