@@ -23,7 +23,10 @@ directory, binding:
 3. takes each file from the first source whose bytes hash to the release's sha256
    and byte count (see [Sources](#sources));
 4. raises `UnmaterializedCorpusReleaseError` when an artifact the lock pins
-   cannot be placed.
+   cannot be placed from any source, or its path is unsafe or cannot be
+   inspected. A file that differs from the release bytes its lock pins (a
+   local edit, or extractor output not yet locked) is left untouched and
+   reported, and binding goes on; a read of that scope fails.
 
 A checkout without `.axiom/corpus-locks/` is never written to. A missing file
 there fails when it is read, as before.
@@ -34,15 +37,24 @@ then gives the file its name with `link(2)`. On a filesystem without hard links
 it uses a no-replace rename instead (`renamex_np(RENAME_EXCL)` on macOS,
 `renameat2(RENAME_NOREPLACE)` on Linux); where neither exists, or the staging
 directory is on another filesystem than the destination, it fails rather than
-risk replacing a file. It never replaces an existing file. It never follows or
-creates a symlink under the corpus root. Readers still hash every provisions
-file they read. A file that is already present is checked by size only, unless
-`--verify` is given.
+risk replacing a file. It never replaces an existing file, and it checks every
+component of an artifact's path for symlinks before it writes. Just before it
+gives a file its name, it checks the lock again. Readers still hash every
+provisions file they read. A file that is already present is checked by size
+only, unless `--verify` is given.
+
+These guarantees assume that no other process rewrites the checkout's locks or
+puts a symlink on an artifact's path while encode runs; axiom-corpus's own
+fetch makes the same assumption. The lock re-check narrows the first case to
+the instant between that check and `link(2)`.
 
 The staging directory is the one `axiom-corpus-ingest corpus fetch` uses:
 git-ignored, outside every scope, and each temporary file's name carries the
 `.corpus-fetch-` marker. If a placement fails, its temporary file and the
-directories it created are removed. A process killed mid-placement (SIGKILL,
+scope directories it created are removed. The staging directory stays, as
+axiom-corpus leaves it: removing it could pull it from under another process's
+placement. If another process removes an empty scope directory while bytes
+are on the way, encode makes it again once. A process killed mid-placement (SIGKILL,
 power loss) cannot clean up. It leaves one marked temporary file in
 `data/corpus/.corpus-fetch-tmp/` and possibly empty directories on the
 artifact's path, never a file inside a scope, so `corpus lock`, signing and
@@ -67,12 +79,19 @@ lists that path with the release's sha256 and size.
 
 Otherwise it skips the artifact and leaves the path as it is. That happens when
 the lock is missing, invalid, or does not list the path, and when it pins other
-bytes, for example because the scope was re-ingested after the release. Binding
-still succeeds. It prints the skipped artifacts, and a later read of that
-jurisdiction and document class fails with the reason. The resolver reads every
-release scope of the jurisdiction and document class it is asked about. Before
-the switch it was the same: a checkout whose tracked file differed from the
-release failed when it was read.
+bytes, for example because the scope was re-ingested after the release. The
+lock must be one axiom-corpus's `parse_lock` accepts: schema v1, its own scope,
+valid entries, canonical bytes. Binding still succeeds. It prints the skipped
+artifacts, and a later read of that jurisdiction and document class fails with
+the reason. The resolver reads every release scope of the jurisdiction and
+document class it is asked about. Before the switch it was the same: a checkout
+whose tracked file differed from the release failed when it was read.
+
+Two other cases also fail only when read. A present file that the lock pins to
+the release's bytes but that holds other bytes is left untouched (`modified`).
+A file of the release's size whose lock pins other bytes is left as it is and
+noted (`notes` in `--json`), because a re-ingest can keep a file's size; the read
+error then carries the reason.
 
 To read a skipped scope at the pinned release, bind a corpus worktree at the
 release's `git.commit`, which the message names. Its locks pin the release's
@@ -159,23 +178,24 @@ workflow that pins a release with a since-re-ingested scope fails only if a gate
 reads that scope, as before the switch.
 
 Exit codes: 0 when every selected artifact is present, placed or skipped; 1 when
-an artifact the lock pins could not be placed; 2 when the release cannot be
-loaded.
+an artifact the lock pins could not be placed, or its file differs from the
+release bytes the lock pins (`modified`); 2 when the release cannot be loaded.
 
 `AXIOM_CORPUS_NO_FETCH=1` turns automatic placement off, as it does in
 axiom-corpus. `axiom-encode ci --offline` uses only the cache and git objects.
 
 ## Invariants
 
-For every release, every checkout lock state and every set of sources:
+For every release, every checkout lock state and every set of sources, while no
+other process rewrites the checkout's locks or artifact paths:
 
 1. **Fetch fidelity.** Every placed file hashes to the release's sha256 and byte count.
 2. **Lock bytes only.** A file is placed only at a path the checkout's own lock
    pins to the release's sha256 and size. Any other artifact is skipped, and
    its path is left as it was.
 3. **Fail closed.** Bytes that do not verify are never placed. A placement
-   that fails without being killed leaves no file and no new directory,
-   staging included.
+   that fails without being killed leaves no file and removes the scope
+   directories it created; the staging directory stays, empty.
 4. **Scopes stay clean.** No temporary file is ever created inside a scope.
    Temporary files live in `data/corpus/.corpus-fetch-tmp/` and carry the
    `.corpus-fetch-` marker. A killed placement leaves at most one there.
@@ -194,6 +214,8 @@ listed, the release's bytes, other bytes of another or the same size), existing
 file and source result, and checks that every file placed holds its lock's
 bytes. The file checks 4 by watching the filesystem mid-stream and by SIGKILLing
 a placing process. It checks 6 and 9 directly and compares its lock reader with
-bytes written by axiom-corpus's own `serialize_lock`. It runs the git sources
+bytes written by axiom-corpus's own `serialize_lock`. It also covers a lock
+rewritten mid-placement, a failed attempt racing a successful one, and a scope
+directory removed mid-placement. It runs the git sources
 against real repositories and through the supervisor's trusted git wrapper, and
 checks SigV4 against the AWS S3 GET Object example.

@@ -950,9 +950,10 @@ def _materialize_release_provisions(
 
     Every placed file hashes to the signed release's sha256 and byte count,
     and lands only where the checkout's own lock pins those bytes. Returns
-    the artifacts skipped because the lock pins other bytes; reading one
-    fails, as it did before the switch. Anything the lock pins that no
-    source can supply fails closed here.
+    why the checkout may not hold the release's bytes at other paths (the
+    lock does not pin them, or the file differs from a lock that does);
+    reading one fails, as it did before the switch. Anything the lock pins
+    that no source can supply fails closed here.
     """
 
     if fetch_disabled():
@@ -979,9 +980,18 @@ def _materialize_release_provisions(
         print(
             f"axiom-encode: left {len(report.skipped)} provisions artifact(s) of "
             f"corpus release {verified.name} unplaced in {root}: the checkout's "
-            "locks pin other bytes there, so reading those scopes fails. To "
-            f"read them, use a corpus worktree at {verified.git_commit} "
-            "(docs/corpus-bytes-outside-git.md).\n" + report.describe_skipped(limit=5),
+            "locks do not pin the release's bytes there, so reading those "
+            "scopes fails. To read them, use a corpus worktree at "
+            f"{verified.git_commit} (docs/corpus-bytes-outside-git.md).\n"
+            + report.describe_skipped(limit=5),
+            file=sys.stderr,
+        )
+    if report.modified:
+        print(
+            f"axiom-encode: left {len(report.modified)} modified provisions "
+            f"file(s) untouched in {root}; they differ from the release bytes "
+            "their locks pin, so reading those scopes fails.\n"
+            + report.describe_modified(limit=5),
             file=sys.stderr,
         )
     if not report.ok:
@@ -992,7 +1002,7 @@ def _materialize_release_provisions(
             f"{verified.name}` or `axiom-encode corpus-fetch` with R2 read "
             "credentials:\n" + report.describe_failures()
         )
-    return report.skipped
+    return report.unplaced
 
 
 def _resolve_corpus_root(corpus_root: Path) -> Path:

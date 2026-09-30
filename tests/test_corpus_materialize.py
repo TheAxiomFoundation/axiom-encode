@@ -152,6 +152,13 @@ def _leftovers(root: Path) -> list[Path]:
     )
 
 
+def _files(root: Path) -> list[Path]:
+    """Every file under ``root/data``: none after a pass that placed nothing."""
+
+    data = root / "data"
+    return sorted(p for p in data.rglob("*") if not p.is_dir()) if data.is_dir() else []
+
+
 # ------------------------------------------------------------- lock files
 
 
@@ -304,8 +311,10 @@ def test_unverified_bytes_are_never_placed(tmp_path):
         assert f"{label}:" in reason
     assert "sha256 does not match" in reason
     assert "more than" in reason
-    # No file, and none of the directories the attempt made (staging included).
-    assert not (tmp_path / "data").exists()
+    # No file, and no scope directory the attempt made; staging stays, empty.
+    assert _files(tmp_path) == []
+    assert not (tmp_path / "data" / "corpus" / "provisions").exists()
+    assert (tmp_path / cm.FETCH_TEMP_DIR).is_dir()
 
 
 def test_a_modified_file_the_lock_pins_is_left_untouched(tmp_path):
@@ -318,7 +327,9 @@ def test_a_modified_file_the_lock_pins_is_left_untouched(tmp_path):
 
     report = cm.materialize_release_artifacts(tmp_path, [art], sources=_no_sources)
 
-    assert "left untouched" in report.failed[PROVISIONS]
+    # Not a failure: the lock pins the release's bytes, the file is an edit.
+    assert report.ok and "left untouched" in report.modified[PROVISIONS]
+    assert "not yet locked" in report.modified[PROVISIONS]
     assert target.read_bytes() == b"local edit\n"
 
 
@@ -348,7 +359,7 @@ def test_verify_hashes_present_files(tmp_path):
     report = cm.materialize_release_artifacts(
         tmp_path, [art], sources=_no_sources, verify=True
     )
-    assert "sha256 differs" in report.failed[PROVISIONS]
+    assert "sha256 differs" in report.modified[PROVISIONS]
     assert target.read_bytes() == b"row two\n"
 
 
@@ -463,7 +474,8 @@ def test_concurrent_writer_with_other_bytes_fails_closed(tmp_path, written):
     )
 
     # Another size, or the same size with other bytes: never accepted as placed.
-    assert "left untouched" in report.failed[PROVISIONS]
+    assert "left untouched" in report.modified[PROVISIONS]
+    assert not report.materialized
     assert target.read_bytes() == written
     assert _leftovers(tmp_path) == []
 
@@ -623,6 +635,16 @@ def _with_entry(**changes):
         (_with_entry(size="4"), "not a byte count"),
         (_with_entry(sha256="A" * 64), "not a sha256"),
         (_with_entry(git_blob="xyz"), "not an object id"),
+        (_with_entry(git_blob="a" * 64), "not an object id"),
+        (_with_entry(git_blob=None), "not an object id"),
+        # Valid content in another layout, as axiom-corpus's parse_lock rejects.
+        (_dump, "not in canonical form"),
+        (
+            lambda p: _lock_bytes(cm.lock_path_for(PROVISIONS), p["files"]).replace(
+                b'  "version"', b'  "version": "other",\n  "version"', 1
+            ),
+            "not in canonical form",
+        ),
         (_with_entry(mode="0644"), "each lock entry needs"),
         (lambda p: _dump({**p, "files": ["x"]}), "each lock entry needs"),
         (lambda p: _dump([p]), "lock keys"),
@@ -642,6 +664,41 @@ def test_an_invalid_lock_pins_nothing(tmp_path, mutate, reason):
 
     assert reason in report.skipped[PROVISIONS]
     assert report.ok and not (tmp_path / "data").exists()
+
+
+def test_an_unsorted_lock_or_an_invalid_scope_component_pins_nothing(tmp_path):
+    data = b"row\n"
+    art = _artifact(PROVISIONS, data)
+    _write_locks(tmp_path, {PROVISIONS: data, INVENTORY: b"{}\n"})
+    lock = tmp_path / cm.lock_path_for(PROVISIONS)
+    lines = lock.read_bytes().decode().split("\n")
+    entry_lines = [i for i, line in enumerate(lines) if line.startswith("    {")]
+    a, b = entry_lines
+    lines[a], lines[b] = lines[b].rstrip(",") + ",", lines[a].rstrip(",")
+    lock.write_text("\n".join(lines))
+    report = cm.materialize_release_artifacts(tmp_path, [art], sources=_no_sources)
+    assert "not in canonical form" in report.skipped[PROVISIONS]
+
+    upper = "data/corpus/provisions/XX/statute/v1.jsonl"
+    upper_lock = tmp_path / ".axiom/corpus-locks/XX/statute/v1.json"
+    upper_lock.parent.mkdir(parents=True)
+    upper_lock.write_bytes(
+        _lock_bytes(
+            PurePosixPath(".axiom/corpus-locks/XX/statute/v1.json"),
+            [
+                {
+                    "path": upper,
+                    "sha256": hashlib.sha256(data).hexdigest(),
+                    "size": len(data),
+                }
+            ],
+        )
+    )
+    report = cm.materialize_release_artifacts(
+        tmp_path, [_artifact(upper, data)], sources=_no_sources
+    )
+    assert "invalid scope component" in report.skipped[upper]
+    assert not (tmp_path / "data").exists()
 
 
 def test_an_indirect_or_oversized_lock_pins_nothing(tmp_path, monkeypatch):
@@ -700,6 +757,143 @@ def test_git_lock_source_reads_only_a_blob_pinned_to_the_release_bytes(tmp_path)
     _write_locks(tmp_path, {PROVISIONS: data}, {PROVISIONS: "c" * 40})
     assert b"".join(cm.GitLockBlobSource(store, tmp_path).open(art)) == data
     assert store.opened == ["c" * 40]
+
+
+def test_a_present_file_the_lock_pins_to_other_bytes_is_noted(tmp_path):
+    """Same size, other bytes: nothing written, and the reason is kept for reads."""
+
+    release = b"release row\n"
+    reingested = b"re-ingest! \n"
+    assert len(release) == len(reingested)
+    art = _artifact(PROVISIONS, release)
+    _write_locks(tmp_path, {PROVISIONS: reingested})
+    target = tmp_path / PROVISIONS
+    target.parent.mkdir(parents=True)
+    target.write_bytes(reingested)
+
+    report = cm.materialize_release_artifacts(
+        tmp_path, [art], sources=_no_sources, release_commit="c" * 40
+    )
+
+    assert report.present == [PROVISIONS] and report.ok
+    assert "present by size, but" in report.notes[PROVISIONS]
+    assert "pins other bytes" in report.unplaced[PROVISIONS]
+    assert target.read_bytes() == reingested
+
+
+def test_a_lock_that_changes_mid_placement_stops_it(tmp_path):
+    data = b"release row\n"
+    art = _artifact(PROVISIONS, data)
+    _write_locks(tmp_path, {PROVISIONS: data})
+
+    class Repinning:
+        label = "repinning"
+
+        def open(self, artifact):
+            def chunks():
+                yield data
+                # A `git pull` lands a re-ingest while the bytes are on the way.
+                _repin(tmp_path, PROVISIONS, b"re-ingested row\n")
+
+            return chunks()
+
+    report = cm.materialize_release_artifacts(
+        tmp_path, [art], sources=_factory(Repinning())
+    )
+
+    assert "during placement" in report.skipped[PROVISIONS]
+    assert "pins other bytes" in report.skipped[PROVISIONS]
+    assert not (tmp_path / PROVISIONS).exists()
+    assert _files(tmp_path) == []
+
+
+def test_a_scope_directory_another_process_removed_is_made_again(tmp_path):
+    data = b"row\n"
+    art = _artifact(PROVISIONS, data)
+    _write_locks(tmp_path, {PROVISIONS: data})
+    parent = (tmp_path / PROVISIONS).parent
+
+    class Removing:
+        label = "removing"
+
+        def open(self, artifact):
+            def chunks():
+                yield data
+                parent.rmdir()  # another process's failed attempt rolls back
+
+            return chunks()
+
+    report = cm.materialize_release_artifacts(
+        tmp_path, [art], sources=_factory(Removing())
+    )
+
+    assert report.materialized == {PROVISIONS: "removing"}
+    assert (tmp_path / PROVISIONS).read_bytes() == data
+    assert _leftovers(tmp_path) == []
+
+
+def test_a_failed_attempt_never_pulls_directories_from_a_concurrent_one(tmp_path):
+    """B fails while A streams: A still places (staging stays; scope dirs return)."""
+
+    import threading
+
+    data = b"row\n"
+    art = _artifact(PROVISIONS, data)
+    _write_locks(tmp_path, {PROVISIONS: data})
+    b_ensured, a_ensured, b_done = (threading.Event() for _ in range(3))
+
+    class Absent:  # process B: no source holds the bytes
+        label = "b"
+
+        def open(self, artifact):
+            b_ensured.set()
+            assert a_ensured.wait(30)
+            return None
+
+    class Slow:  # process A: its source has them, slowly
+        label = "a"
+
+        def open(self, artifact):
+            a_ensured.set()
+            assert b_done.wait(30)
+            return iter([data])
+
+    results = {}
+
+    def run(name, source, done=None):
+        results[name] = cm.materialize_release_artifacts(
+            tmp_path, [art], sources=_factory(source)
+        )
+        if done is not None:
+            done.set()
+
+    first = threading.Thread(target=run, args=("B", Absent(), b_done))
+    first.start()
+    assert b_ensured.wait(30)  # B has made the directories
+    second = threading.Thread(target=run, args=("A", Slow()))
+    second.start()
+    first.join(60)
+    second.join(60)
+
+    assert "b: absent" in results["B"].failed[PROVISIONS]
+    assert results["A"].materialized == {PROVISIONS: "a"}
+    assert (tmp_path / PROVISIONS).read_bytes() == data
+    assert _leftovers(tmp_path) == []
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores directory permissions")
+def test_an_uninspectable_path_is_reported_not_raised(tmp_path, capsys):
+    data = b"row\n"
+    art = _artifact(PROVISIONS, data)
+    _write_locks(tmp_path, {PROVISIONS: data})
+    sealed = tmp_path / "data" / "corpus" / "provisions" / "us"
+    sealed.mkdir(parents=True)
+    sealed.chmod(0)
+    try:
+        report = cm.materialize_release_artifacts(tmp_path, [art], sources=_no_sources)
+    finally:
+        sealed.chmod(0o755)
+    assert "cannot inspect" in report.failed[PROVISIONS]
 
 
 # ------------------------------------------------------------ staging
@@ -909,7 +1103,7 @@ def test_without_hard_links_a_no_replace_rename_places_the_file(tmp_path, monkey
         [inventory],
         sources=_factory(_racing(target, b"[1]\n", b"{}\n")),
     )
-    assert "left untouched" in report.failed[INVENTORY]
+    assert "left untouched" in report.modified[INVENTORY]
     assert target.read_bytes() == b"[1]\n"
     assert _leftovers(tmp_path) == []
 
@@ -939,7 +1133,8 @@ def test_placement_that_could_replace_a_file_fails_closed(
     )
 
     assert reason in report.failed[PROVISIONS]
-    assert not (tmp_path / "data").exists()
+    assert _files(tmp_path) == []
+    assert not (tmp_path / PROVISIONS).parent.exists()
 
 
 def test_a_failed_no_replace_rename_is_reported(tmp_path, monkeypatch):
@@ -956,7 +1151,8 @@ def test_a_failed_no_replace_rename_is_reported(tmp_path, monkeypatch):
     )
 
     assert "no-replace rename failed" in report.failed[PROVISIONS]
-    assert not (tmp_path / "data").exists()
+    assert _files(tmp_path) == []
+    assert not (tmp_path / PROVISIONS).parent.exists()
 
 
 def test_fetch_switch_and_lock_detection(tmp_path):
@@ -1081,7 +1277,7 @@ def test_property_placed_iff_some_source_verifies(scenario):
                 assert not target.parent.exists()
         assert _leftovers(root) == []
         if not report.materialized:
-            assert not (root / "data").exists()
+            assert _files(root) == []
         assert report.selected == len(artifacts)
         assert len(report.materialized) + len(report.failed) == len(artifacts)
 
@@ -1184,11 +1380,15 @@ def test_property_protected_paths_hold_only_their_lock_bytes(checkout, verify):
                 assert target.read_bytes() == existing  # never replaced
             if present:
                 assert art.path in report.present
+                # A lock pinning other bytes is noted, never written through.
+                assert (art.path in report.notes) == (
+                    lock_state in {"other_size", "other_bytes"}
+                )
             elif not pins_release:
                 assert "not placed:" in report.skipped[art.path]
                 assert target.exists() == (existing is not None)
             elif existing is not None:
-                assert "left untouched" in report.failed[art.path]
+                assert "left untouched" in report.modified[art.path]
             else:
                 opened.append(art.path)
                 if source_ok:
@@ -1205,6 +1405,7 @@ def test_property_protected_paths_hold_only_their_lock_bytes(checkout, verify):
                 len(report.present)
                 + len(report.materialized)
                 + len(report.skipped)
+                + len(report.modified)
                 + len(report.failed)
             )
         )
@@ -1400,6 +1601,18 @@ def test_r2_source_absent_retry_and_failure_paths():
         _r2(lambda r, timeout: (_ for _ in ()).throw(_http_error(503))).open(art)
     with pytest.raises(cm.SourceError, match="object holds 99 bytes"):
         _r2(lambda r, timeout: _Response(data, "99")).open(art)
+
+    import http.client
+
+    garbled = []
+
+    def bad_status(request, timeout):
+        garbled.append(1)
+        raise http.client.BadStatusLine("HTTP/9 ???")
+
+    with pytest.raises(cm.SourceError, match="BadStatusLine"):
+        _r2(bad_status).open(art)
+    assert len(garbled) == 3  # retried like any transport failure
 
 
 def test_r2_credentials_resolution(tmp_path):
@@ -1656,6 +1869,27 @@ def test_a_scope_reingested_after_the_release_is_skipped_and_fails_only_when_rea
 
 
 @needs_git
+def test_a_same_size_reingest_fails_on_read_with_the_reason(tmp_path):
+    root = tmp_path / "axiom-corpus"
+    release_commit, release_sha = _pre_switch_corpus(root)
+    reingested = _rows_bytes("The standard deduction is $204.")
+    assert len(reingested) == len(_rows_bytes())
+    (root / PROVISIONS).write_bytes(reingested)
+    _commit_all(root, "same-size re-ingest")
+    _switch(root)
+    (root / PROVISIONS).parent.mkdir(parents=True)
+    (root / PROVISIONS).write_bytes(reingested)  # as `corpus fetch` leaves it
+
+    release = _release(root, release_sha)
+
+    with pytest.raises(CorpusResolutionError, match="do not match") as caught:
+        resolve_local_corpus_source(CITATION, release)
+    assert "present by size, but" in str(caught.value)
+    assert release_commit in str(caught.value)
+    assert (root / PROVISIONS).read_bytes() == reingested
+
+
+@needs_git
 def test_every_scope_skipped_still_binds_and_fails_on_read(tmp_path):
     root = tmp_path / "axiom-corpus"
     _, release_sha = _pre_switch_corpus(root)
@@ -1715,7 +1949,7 @@ def test_lock_checkout_without_any_source_fails_closed(tmp_path, monkeypatch):
 
     with pytest.raises(UnmaterializedCorpusReleaseError, match="Cannot place 1 of 1"):
         _release(root, release_sha)
-    assert not (root / "data").exists()
+    assert _files(root) == []
 
     monkeypatch.setenv(cm.NO_FETCH_ENV, "1")
     with pytest.raises(CorpusLayoutError, match="Canonical data/corpus/provisions"):
@@ -1723,16 +1957,24 @@ def test_lock_checkout_without_any_source_fails_closed(tmp_path, monkeypatch):
 
 
 @needs_git
-def test_lock_checkout_rejects_a_modified_provisions_file(tmp_path):
+def test_a_locally_modified_provisions_file_fails_only_when_read(tmp_path, capsys):
+    """Fresh extractor output not yet locked: other scopes still bind and read."""
+
     root = tmp_path / "axiom-corpus"
-    _, release_sha = _pre_switch_corpus(root)
+    _, release_sha = _pre_switch_corpus(root, (STATUTE, REGULATION))
     _switch(root)
     local = root / PROVISIONS
     local.parent.mkdir(parents=True)
     local.write_bytes(b"edited\n")
 
-    with pytest.raises(UnmaterializedCorpusReleaseError, match="left untouched"):
-        _release(root, release_sha)
+    release = _release(root, release_sha)
+
+    assert "left 1 modified provisions file(s) untouched" in capsys.readouterr().err
+    assert "left untouched" in release.unplaced[PROVISIONS]
+    assert resolve_local_corpus_source(REG_CITATION, release).body == REG_BODY
+    with pytest.raises(CorpusResolutionError, match="do not match") as caught:
+        resolve_local_corpus_source(CITATION, release)
+    assert "not yet locked" in str(caught.value)
     assert local.read_bytes() == b"edited\n"
 
 
@@ -1895,14 +2137,18 @@ def test_corpus_fetch_cli(tmp_path, capsys, monkeypatch):
 
     (root / PROVISIONS).write_bytes(b"edited\n")
     assert cm.run_corpus_fetch(argv) == 1
-    assert "left untouched" in capsys.readouterr().err
+    captured = capsys.readouterr()
+    assert "1 modified, 0 failed" in captured.out
+    assert "left untouched" in captured.err
+    assert cm.run_corpus_fetch([*argv, "--json"]) == 1
+    assert PROVISIONS in json.loads(capsys.readouterr().out)["modified"]
 
     # A lock that pins other bytes: skipped, reported, and not a failure.
     (root / PROVISIONS).unlink()
     _repin(root, PROVISIONS, b"re-ingested\n")
     assert cm.run_corpus_fetch(argv) == 0
     captured = capsys.readouterr()
-    assert "1 skipped, 0 failed" in captured.out
+    assert "1 skipped, 0 modified, 0 failed" in captured.out
     assert "pins other bytes" in captured.err and release_commit in captured.err
     assert not (root / PROVISIONS).exists()
     assert cm.run_corpus_fetch([*argv, "--json"]) == 0
