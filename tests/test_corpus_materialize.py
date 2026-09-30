@@ -781,6 +781,86 @@ def test_a_present_file_the_lock_pins_to_other_bytes_is_noted(tmp_path):
     assert target.read_bytes() == reingested
 
 
+@pytest.mark.parametrize(
+    "bad_path",
+    [
+        f"data/corpus/sources/us/statute/{VERSION}//a.html",
+        f"data/corpus/sources/us/statute/{VERSION}/./a.html",
+        f"data/corpus/sources/us/statute/{VERSION}/a/../a.html",
+        f"data/corpus/sources/us/statute/{VERSION}/a\\b.html",
+        f"data/corpus/sources/us/statute/{VERSION}/a\x01.html",
+        f"data/corpus/sources/us/statute/{VERSION}/cafe\u0301.html",
+        f"data/corpus/sources/us/statute/{VERSION}/a\u200b.html",
+        f"data/corpus/sources/us/statute/{VERSION}/a/",
+    ],
+)
+def test_a_lock_listing_a_noncanonical_path_pins_nothing(tmp_path, bad_path):
+    """axiom-corpus's parse_lock rejects the whole lock; so does encode."""
+
+    data = b"row\n"
+    art = _artifact(PROVISIONS, data)
+    _write_locks(tmp_path, {PROVISIONS: data, bad_path: b"<html></html>\n"})
+
+    report = cm.materialize_release_artifacts(tmp_path, [art], sources=_no_sources)
+
+    assert "not a canonical path" in report.skipped[PROVISIONS]
+    assert not (tmp_path / "data").exists()
+
+
+def test_verify_drops_the_note_for_a_file_holding_the_release_bytes(tmp_path):
+    data = b"release row\n"
+    art = _artifact(PROVISIONS, data)
+    _write_locks(tmp_path, {PROVISIONS: b"re-ingest! \n"})
+    target = tmp_path / PROVISIONS
+    target.parent.mkdir(parents=True)
+    target.write_bytes(data)
+
+    assert (
+        PROVISIONS
+        in cm.materialize_release_artifacts(tmp_path, [art], sources=_no_sources).notes
+    )
+    verified = cm.materialize_release_artifacts(
+        tmp_path, [art], sources=_no_sources, verify=True
+    )
+    assert verified.present == [PROVISIONS] and not verified.notes
+
+
+def test_a_same_size_lock_rewrite_in_one_clock_tick_still_stops_placement(tmp_path):
+    """The re-check compares the lock's bytes, not its size and mtime."""
+
+    data = b"release row\n"
+    other = b"re-ingest! \n"
+    assert len(data) == len(other)
+    art = _artifact(PROVISIONS, data)
+    _write_locks(tmp_path, {PROVISIONS: data})
+    lock = tmp_path / cm.lock_path_for(PROVISIONS)
+    before = lock.stat()
+
+    class Repinning:
+        label = "repinning"
+
+        def open(self, artifact):
+            def chunks():
+                yield data
+                _repin(tmp_path, PROVISIONS, other)  # same inode, same size
+                os.utime(lock, ns=(before.st_atime_ns, before.st_mtime_ns))
+
+            return chunks()
+
+    report = cm.materialize_release_artifacts(
+        tmp_path, [art], sources=_factory(Repinning())
+    )
+
+    after = lock.stat()
+    assert (after.st_ino, after.st_size, after.st_mtime_ns) == (
+        before.st_ino,
+        before.st_size,
+        before.st_mtime_ns,
+    )
+    assert "during placement" in report.skipped[PROVISIONS]
+    assert not (tmp_path / PROVISIONS).exists()
+
+
 def test_a_lock_that_changes_mid_placement_stops_it(tmp_path):
     data = b"release row\n"
     art = _artifact(PROVISIONS, data)
@@ -1380,9 +1460,10 @@ def test_property_protected_paths_hold_only_their_lock_bytes(checkout, verify):
                 assert target.read_bytes() == existing  # never replaced
             if present:
                 assert art.path in report.present
-                # A lock pinning other bytes is noted, never written through.
+                # A lock pinning other bytes is noted (unless hashing proved
+                # the file holds the release's bytes), never written through.
                 assert (art.path in report.notes) == (
-                    lock_state in {"other_size", "other_bytes"}
+                    lock_state in {"other_size", "other_bytes"} and not verify
                 )
             elif not pins_release:
                 assert "not placed:" in report.skipped[art.path]
@@ -1947,8 +2028,11 @@ def test_lock_checkout_without_any_source_fails_closed(tmp_path, monkeypatch):
     _switch(root)
     shutil.rmtree(root / ".git")  # no history, no cache, no R2 credentials
 
-    with pytest.raises(UnmaterializedCorpusReleaseError, match="Cannot place 1 of 1"):
+    with pytest.raises(
+        UnmaterializedCorpusReleaseError, match="Cannot place 1 of 1"
+    ) as caught:
         _release(root, release_sha)
+    assert "Where no source had the bytes" in str(caught.value)
     assert _files(root) == []
 
     monkeypatch.setenv(cm.NO_FETCH_ENV, "1")

@@ -25,6 +25,7 @@ from axiom_encode.corpus_materialize import (
     corpus_uses_lock_files,
     fetch_disabled,
     materialize_release_artifacts,
+    present_file_note,
     release_sources,
 )
 from axiom_encode.corpus_release import (
@@ -331,6 +332,8 @@ class LocalCorpusRelease:
     # Artifacts a lock-file checkout could not hold, with the reason; a read
     # of one fails and repeats the reason.
     unplaced: Mapping[str, str] = field(init=False, repr=False, compare=False)
+    uses_corpus_locks: bool = field(init=False, repr=False, compare=False)
+    release_commit: str = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         name = validate_corpus_release_name(self.name)
@@ -414,6 +417,8 @@ class LocalCorpusRelease:
         object.__setattr__(self, "artifacts", verified.artifacts)
         object.__setattr__(self, "release_object_path", release_object_file)
         object.__setattr__(self, "unplaced", MappingProxyType(dict(unplaced)))
+        object.__setattr__(self, "uses_corpus_locks", uses_corpus_locks)
+        object.__setattr__(self, "release_commit", verified.git_commit)
 
 
 @dataclass(frozen=True)
@@ -966,6 +971,9 @@ def _materialize_release_provisions(
                 root, git_commit=verified.git_commit, r2_bucket=verified.r2_bucket
             ),
             release_commit=verified.git_commit,
+            # Present files are checked against their locks only if a read
+            # finds other bytes (_unplaced_note), not on every bind.
+            note_present=False,
         )
     except CorpusMaterializationError as exc:
         raise UnmaterializedCorpusReleaseError(str(exc)) from exc
@@ -997,10 +1005,11 @@ def _materialize_release_provisions(
     if not report.ok:
         raise UnmaterializedCorpusReleaseError(
             f"Cannot place {len(report.failed)} of {report.selected} provisions "
-            f"artifact(s) of corpus release {verified.name} in {root}; run "
-            "`axiom-corpus-ingest corpus fetch --release "
-            f"{verified.name}` or `axiom-encode corpus-fetch` with R2 read "
-            "credentials:\n" + report.describe_failures()
+            f"artifact(s) of corpus release {verified.name} in {root}:\n"
+            + report.describe_failures()
+            + "\nWhere no source had the bytes, run `axiom-corpus-ingest corpus "
+            f"fetch --release {verified.name}` or `axiom-encode corpus-fetch` "
+            "with R2 read credentials."
         )
     return report.unplaced
 
@@ -1077,8 +1086,18 @@ def _candidate_provision_files(
     return tuple(candidates)
 
 
-def _unplaced_note(release: LocalCorpusRelease, relative_path: str) -> str:
+def _unplaced_note(
+    release: LocalCorpusRelease, relative_path: str, *, present: bool = False
+) -> str:
     reason = release.unplaced.get(relative_path)
+    if reason is None and present and release.uses_corpus_locks:
+        # A file present by size that holds other bytes: say whether its
+        # lock pins those (a same-size re-ingest).
+        artifact = next(
+            (item for item in release.artifacts if item.path == relative_path), None
+        )
+        if artifact is not None:
+            reason = present_file_note(release.root, artifact, release.release_commit)
     return f" ({reason})" if reason else ""
 
 
@@ -1108,7 +1127,7 @@ def _read_corpus_artifact(
     if expected.sha256 != file_sha256 or expected.byte_count != len(raw):
         raise CorpusResolutionError(
             f"Corpus provision bytes do not match the verified release: {relative_path}"
-            + _unplaced_note(release, relative_path)
+            + _unplaced_note(release, relative_path, present=True)
         )
     try:
         text = raw.decode("utf-8")

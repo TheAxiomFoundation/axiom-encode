@@ -52,6 +52,7 @@ import subprocess
 import sys
 import threading
 import time
+import unicodedata
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
@@ -96,6 +97,7 @@ _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _GIT_BLOB_RE = re.compile(r"^[0-9a-f]{40}$")
 # axiom-corpus corpus_locks._SCOPE_COMPONENT_RE
 _SCOPE_COMPONENT_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,255}$")
+_ASCII_CONTROL = frozenset(chr(code) for code in (*range(0x20), 0x7F))
 _EMPTY_PAYLOAD_SHA256 = hashlib.sha256(b"").hexdigest()
 _RETRYABLE_HTTP_STATUS = frozenset({429, 500, 502, 503, 504})
 # link(2) errors that mean "this filesystem has no hard links" (axiom-corpus
@@ -246,6 +248,7 @@ def materialize_release_artifacts(
     sources: SourceFactory,
     verify: bool = False,
     release_commit: str = "",
+    note_present: bool = True,
 ) -> MaterializationReport:
     """Place every missing artifact the checkout's lock pins, from the first source that verifies.
 
@@ -258,9 +261,11 @@ def materialize_release_artifacts(
     pin to the release's bytes is left untouched (``report.modified``).
     ``release_commit`` names the release's ``git.commit`` in the reasons. A
     symlink anywhere on an artifact's path, or a path that cannot be
-    inspected, is a failure. ``sources`` is opened only when an artifact is
-    to be placed, so a fully materialized checkout starts no process and
-    reads no credentials.
+    inspected, is a failure. ``note_present`` also reads the lock of every
+    present file and notes one the lock pins to other bytes (``report.notes``;
+    not under ``verify``, which has hashed it). ``sources`` is opened only
+    when an artifact is to be placed, so a fully materialized checkout starts
+    no process and reads no credentials.
     """
 
     root = _require_root(root)
@@ -281,16 +286,18 @@ def materialize_release_artifacts(
         except CorpusMaterializationError as exc:
             report.failed[artifact.path] = str(exc)
             continue
-        unpinned = locks.release_bytes_unpinned(artifact)
         if state == "present":
             report.present.append(artifact.path)
-            if isinstance(locks.entry(artifact.path), LockEntry) and unpinned:
-                # Same size, but the lock pins other bytes: most likely the
-                # file holds those, and a read will say the hashes differ.
-                report.notes[artifact.path] = _reason(
-                    "present by size, but", unpinned, release_commit
-                )
-        elif unpinned is not None:
+            note = (
+                _present_note(locks, artifact, release_commit)
+                if note_present and not verify
+                else None
+            )
+            if note is not None:
+                report.notes[artifact.path] = note
+            continue
+        unpinned = locks.release_bytes_unpinned(artifact)
+        if unpinned is not None:
             report.skipped[artifact.path] = _reason(
                 "not placed:", unpinned, release_commit
             )
@@ -304,6 +311,27 @@ def materialize_release_artifacts(
         for artifact in missing:
             _materialize_one(root, artifact, opened, report, locks, release_commit)
     return report
+
+
+def present_file_note(
+    root: Path, artifact: VerifiedReleaseArtifact, release_commit: str = ""
+) -> str | None:
+    """Why a file present by size may hold other bytes: its lock pins others."""
+
+    return _present_note(CheckoutLocks(root), artifact, release_commit)
+
+
+def _present_note(
+    locks: CheckoutLocks, artifact: VerifiedReleaseArtifact, release_commit: str
+) -> str | None:
+    # Same size, but the lock pins other bytes: most likely the file holds
+    # those (a re-ingest can keep a file's size), and a read will fail on them.
+    if not isinstance(locks.entry(artifact.path), LockEntry):
+        return None
+    unpinned = locks.release_bytes_unpinned(artifact)
+    if unpinned is None:
+        return None
+    return _reason("present by size, but", unpinned, release_commit)
 
 
 def _reason(prefix: str, unpinned: str, release_commit: str) -> str:
@@ -965,7 +993,7 @@ class CheckoutLocks:
     def __init__(self, root: Path):
         self.root = Path(root)
         self._scopes: dict[PurePosixPath, dict[str, LockEntry] | str] = {}
-        self._identities: dict[PurePosixPath, tuple[int, ...] | None] = {}
+        self._digests: dict[PurePosixPath, str | None] = {}
 
     def entry(self, artifact_path: str) -> LockEntry | str:
         """The lock entry for ``artifact_path``, or why the checkout has none."""
@@ -974,8 +1002,13 @@ class CheckoutLocks:
         if lock_path is None:
             return "the path belongs to no scope lock"
         if lock_path not in self._scopes:
-            self._identities[lock_path] = _lock_identity(self.root, lock_path)
-            self._scopes[lock_path] = _read_scope_lock(self.root, lock_path)
+            raw = _read_lock_bytes(self.root, lock_path)
+            if isinstance(raw, str):
+                self._digests[lock_path] = None
+                self._scopes[lock_path] = raw
+            else:
+                self._digests[lock_path] = hashlib.sha256(raw).hexdigest()
+                self._scopes[lock_path] = _parse_lock_or_reason(raw, lock_path)
         entries = self._scopes[lock_path]
         if isinstance(entries, str):
             return entries
@@ -1000,40 +1033,19 @@ class CheckoutLocks:
         return None
 
     def recheck(self, artifact: VerifiedReleaseArtifact) -> str | None:
-        """Like :meth:`release_bytes_unpinned`, re-reading a lock that changed on disk."""
+        """Like :meth:`release_bytes_unpinned`, after re-reading a lock whose bytes changed."""
 
         lock_path = lock_path_for(artifact.path)
-        if lock_path is not None and self._identities.get(lock_path) != (
-            _lock_identity(self.root, lock_path)
-        ):
-            self._scopes.pop(lock_path, None)
+        if lock_path is not None and lock_path in self._scopes:
+            raw = _read_lock_bytes(self.root, lock_path)
+            digest = None if isinstance(raw, str) else hashlib.sha256(raw).hexdigest()
+            if digest is None or digest != self._digests.get(lock_path):
+                del self._scopes[lock_path]
         return self.release_bytes_unpinned(artifact)
 
 
-def _lock_identity(root: Path, lock_path: PurePosixPath) -> tuple[int, ...] | None:
-    """What changes when a lock file is rewritten in place or replaced."""
-
-    try:
-        lock_stat = os.lstat(root.joinpath(*lock_path.parts))
-    except OSError:
-        return None
-    return (
-        lock_stat.st_dev,
-        lock_stat.st_ino,
-        lock_stat.st_size,
-        lock_stat.st_mtime_ns,
-    )
-
-
-def _read_scope_lock(
-    root: Path, lock_path: PurePosixPath
-) -> dict[str, LockEntry] | str:
-    """``path -> entry`` from one scope lock, or why it pins nothing.
-
-    Accepts what axiom-corpus's ``parse_lock`` accepts: the canonical
-    encoding of a schema-v1 lock for this scope whose entries have a path in
-    the scope, a sha256, a size and optionally a 40-hex ``git_blob``.
-    """
+def _read_lock_bytes(root: Path, lock_path: PurePosixPath) -> bytes | str:
+    """One scope lock's bytes, read without following a symlink, or why not."""
 
     cursor, mode = root, 0
     for part in lock_path.parts:
@@ -1057,11 +1069,50 @@ def _read_scope_lock(
         return f"the checkout's lock {lock_path} cannot be read: {exc.strerror}"
     if len(raw) > MAX_LOCK_FILE_BYTES:
         return f"the checkout's lock {lock_path} exceeds {MAX_LOCK_FILE_BYTES} bytes"
+    return raw
+
+
+def _read_scope_lock(
+    root: Path, lock_path: PurePosixPath
+) -> dict[str, LockEntry] | str:
+    """``path -> entry`` from one scope lock, or why it pins nothing."""
+
+    raw = _read_lock_bytes(root, lock_path)
+    if isinstance(raw, str):
+        return raw
+    return _parse_lock_or_reason(raw, lock_path)
+
+
+def _parse_lock_or_reason(
+    raw: bytes, lock_path: PurePosixPath
+) -> dict[str, LockEntry] | str:
+    """Apply axiom-corpus's ``parse_lock`` checks: schema v1, this scope,
+    canonical repository paths inside it, sha256, size, an optional 40-hex
+    ``git_blob``, and the canonical encoding."""
+
     try:
-        entries = _parse_scope_lock(raw, lock_path)
+        return _parse_scope_lock(raw, lock_path)
     except (ValueError, RecursionError) as exc:
         return f"the checkout's lock {lock_path} is not a valid lock: {exc}"
-    return entries
+
+
+def _is_canonical_repository_path(path: str) -> bool:
+    """axiom-corpus corpus_locks._validate_corpus_path, as a predicate."""
+
+    if not path:
+        return False
+    if path.isascii():
+        bad_characters = any(character in _ASCII_CONTROL for character in path)
+    else:
+        bad_characters = unicodedata.normalize("NFC", path) != path or any(
+            unicodedata.category(character).startswith("C") for character in path
+        )
+    return not (
+        path.startswith("/")
+        or "\\" in path
+        or bad_characters
+        or any(part in {"", ".", ".."} for part in path.split("/"))
+    )
 
 
 def _parse_scope_lock(raw: bytes, lock_path: PurePosixPath) -> dict[str, LockEntry]:
@@ -1090,7 +1141,9 @@ def _parse_scope_lock(raw: bytes, lock_path: PurePosixPath) -> dict[str, LockEnt
             raise ValueError("each lock entry needs path, sha256, size [, git_blob]")
         path, sha256, size = item["path"], item["sha256"], item["size"]
         git_blob = item.get("git_blob")
-        if not isinstance(path, str) or lock_path_for(path) != lock_path:
+        if not isinstance(path, str) or not _is_canonical_repository_path(path):
+            raise ValueError(f"lock entry path is not a canonical path: {path!r}")
+        if lock_path_for(path) != lock_path:
             raise ValueError(f"lock entry path is outside the scope: {path!r}")
         if not isinstance(sha256, str) or _SHA256_RE.fullmatch(sha256) is None:
             raise ValueError(f"lock entry sha256 is not a sha256: {path}")

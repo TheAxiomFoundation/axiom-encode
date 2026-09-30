@@ -39,7 +39,7 @@ it uses a no-replace rename instead (`renamex_np(RENAME_EXCL)` on macOS,
 directory is on another filesystem than the destination, it fails rather than
 risk replacing a file. It never replaces an existing file, and it checks every
 component of an artifact's path for symlinks before it writes. Just before it
-gives a file its name, it checks the lock again. Readers still hash every
+gives a file its name, it reads the lock again and compares its bytes. Readers still hash every
 provisions file they read. A file that is already present is checked by size
 only, unless `--verify` is given.
 
@@ -79,9 +79,10 @@ lists that path with the release's sha256 and size.
 
 Otherwise it skips the artifact and leaves the path as it is. That happens when
 the lock is missing, invalid, or does not list the path, and when it pins other
-bytes, for example because the scope was re-ingested after the release. The
-lock must be one axiom-corpus's `parse_lock` accepts: schema v1, its own scope,
-valid entries, canonical bytes. Binding still succeeds. It prints the skipped
+bytes, for example because the scope was re-ingested after the release. A lock
+pins nothing unless it passes the checks of axiom-corpus's `parse_lock`: schema
+v1, its own scope, canonical repository paths inside that scope, valid sha256,
+size and `git_blob` values, and the canonical encoding. Binding still succeeds. It prints the skipped
 artifacts, and a later read of that jurisdiction and document class fails with
 the reason. The resolver reads every release scope of the jurisdiction and
 document class it is asked about. Before the switch it was the same: a checkout
@@ -89,9 +90,11 @@ whose tracked file differed from the release failed when it was read.
 
 Two other cases also fail only when read. A present file that the lock pins to
 the release's bytes but that holds other bytes is left untouched (`modified`).
-A file of the release's size whose lock pins other bytes is left as it is and
-noted (`notes` in `--json`), because a re-ingest can keep a file's size; the read
-error then carries the reason.
+A file of the release's size whose lock pins other bytes is left as it is,
+because a re-ingest can keep a file's size. If a read then finds other bytes
+there, its error carries that reason; `corpus-fetch --json` lists such files
+under `notes`. Binding does not read the locks of present files, so a checkout
+that already holds the release costs nothing extra to bind.
 
 To read a skipped scope at the pinned release, bind a corpus worktree at the
 release's `git.commit`, which the message names. Its locks pin the release's
