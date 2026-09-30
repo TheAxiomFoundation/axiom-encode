@@ -20,12 +20,41 @@ Set `AXIOM_ENCODE_TELEMETRY=off` (or pass `--no-sync`) to opt out.
 Telemetry is strictly best-effort: every network failure is swallowed so
 neither a Supabase outage nor an unreachable ingest endpoint can ever
 fail an encode.
+
+Phases
+------
+`live_encoding_runs.phase` names what an encode is doing right now. The
+values are short, stable, lowercase strings the ops dashboard matches on;
+add new ones rather than renaming these:
+
+- ``resolve``: loading the corpus release and resolving the source unit,
+  replacement target, and prompt workspace. A run starts here, and every
+  validator retry or escalation re-enters it.
+- ``generate``: the model call that writes the candidate RuleSpec.
+- ``validate``: deterministic compile, CI, and oracle checks of a
+  candidate, including in-place repair rounds and the retained-candidate
+  preflight.
+- ``review``: the LLM generalist reviewer, only when it actually runs.
+- ``apply``: ``--apply`` only; overlay validation against the policy
+  checkout and the signed apply transaction.
+
+Only transitions reach the network: re-entering the current phase is free,
+and a transition costs one small update. The periodic heartbeat carries the
+current phase too, so a dropped transition update heals within one
+interval.
+
+GitHub Actions
+--------------
+Inside GitHub Actions the runner identity also carries ``github_run_id``,
+``github_run_attempt``, ``github_run_url``, and ``github_workflow`` (see
+`github_run_identity`), so a live run joins to its workflow run exactly.
 """
 
 import getpass
 import json
 import os
 import platform
+import re
 import socket
 import sys
 import threading
@@ -42,6 +71,26 @@ INGEST_TIMEOUT_SECONDS = 10.0
 _CI_ENV_VARS = ("CI", "GITHUB_ACTIONS", "BUILDKITE", "CIRCLECI")
 _TELEMETRY_OFF_VALUES = {"off", "0", "false", "disabled"}
 _TELEMETRY_ON_VALUES = {"on", "1", "true"}
+
+# Encode phases; the module docstring documents what each one covers.
+PHASE_RESOLVE = "resolve"
+PHASE_GENERATE = "generate"
+PHASE_VALIDATE = "validate"
+PHASE_REVIEW = "review"
+PHASE_APPLY = "apply"
+ENCODE_PHASES = (
+    PHASE_RESOLVE,
+    PHASE_GENERATE,
+    PHASE_VALIDATE,
+    PHASE_REVIEW,
+    PHASE_APPLY,
+)
+
+_GITHUB_RUN_ID_RE = re.compile(r"[0-9]{1,20}")
+_GITHUB_RUN_ATTEMPT_RE = re.compile(r"[1-9][0-9]{0,8}")
+_GITHUB_SERVER_URL_RE = re.compile(r"https?://[A-Za-z0-9.-]+(?::[0-9]{1,5})?")
+_GITHUB_REPOSITORY_RE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
+_GITHUB_WORKFLOW_MAX_LENGTH = 120
 
 
 def _utcnow() -> str:
@@ -64,7 +113,44 @@ def runner_identity() -> dict:
         "platform": platform.system().lower(),
         "pid": os.getpid(),
         "is_ci": any(os.environ.get(var) for var in _CI_ENV_VARS),
+        **github_run_identity(),
     }
+
+
+def github_run_identity() -> dict:
+    """The GitHub Actions run this process belongs to, or ``{}`` outside it.
+
+    Read from the standard runner variables (``GITHUB_ACTIONS``,
+    ``GITHUB_RUN_ID``, ``GITHUB_RUN_ATTEMPT``, ``GITHUB_SERVER_URL``,
+    ``GITHUB_REPOSITORY``, ``GITHUB_WORKFLOW``). ``github_run_id`` anchors
+    the identity: without ``GITHUB_ACTIONS=true`` and a numeric run id
+    nothing is reported. The other keys appear only when their inputs are
+    present and well-formed, so a partial environment yields a partial
+    identity rather than a malformed one: ``github_run_attempt`` (int),
+    ``github_run_url`` (the run page, needing the server URL and repository),
+    and ``github_workflow`` (the workflow name).
+    """
+    if os.environ.get("GITHUB_ACTIONS", "").strip().lower() != "true":
+        return {}
+    run_id = os.environ.get("GITHUB_RUN_ID", "").strip()
+    if not _GITHUB_RUN_ID_RE.fullmatch(run_id):
+        return {}
+    identity: dict = {"github_run_id": run_id}
+    attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "").strip()
+    if _GITHUB_RUN_ATTEMPT_RE.fullmatch(attempt):
+        identity["github_run_attempt"] = int(attempt)
+    server_url = os.environ.get("GITHUB_SERVER_URL", "").strip().rstrip("/")
+    repository = os.environ.get("GITHUB_REPOSITORY", "").strip()
+    url_parts_valid = bool(
+        _GITHUB_SERVER_URL_RE.fullmatch(server_url)
+        and _GITHUB_REPOSITORY_RE.fullmatch(repository)
+    )
+    if url_parts_valid:
+        identity["github_run_url"] = f"{server_url}/{repository}/actions/runs/{run_id}"
+    workflow = os.environ.get("GITHUB_WORKFLOW", "").strip()
+    if workflow:
+        identity["github_workflow"] = workflow[:_GITHUB_WORKFLOW_MAX_LENGTH]
+    return identity
 
 
 def running_under_tests() -> bool:
@@ -106,6 +192,24 @@ def _ingest_url() -> str:
     )
 
 
+# The live run of this process, registered while its row is open. Encode
+# stages deep in the harness report phases through `report_phase` instead of
+# threading the telemetry object through every call.
+_active_run: Optional["LiveRunTelemetry"] = None
+_active_run_lock = threading.Lock()
+
+
+def report_phase(phase: str) -> None:
+    """Move this process's live run to ``phase``; a no-op without one.
+
+    Safe to call from any code path: outside an ``encode`` invocation (or
+    with telemetry off) nothing is registered and nothing is sent.
+    """
+    run = _active_run
+    if run is not None:
+        run.set_phase(phase)
+
+
 class LiveRunTelemetry:
     """Context manager owning one live_encoding_runs row and its heartbeat.
 
@@ -121,12 +225,14 @@ class LiveRunTelemetry:
         model: str,
         encoder_version: str,
         enabled: bool = True,
+        phase: Optional[str] = None,
     ):
         self.id = f"live-{uuid.uuid4().hex[:12]}"
         self.citation = citation
         self.backend = backend
         self.model = model
         self.encoder_version = encoder_version
+        self.phase = phase
         self._mode = telemetry_mode() if enabled else "off"
         self._client = None
         self._stop = threading.Event()
@@ -145,6 +251,9 @@ class LiveRunTelemetry:
             self._mode = "off"
             self._client = None
             return self
+        global _active_run
+        with _active_run_lock:
+            _active_run = self
         self._thread = threading.Thread(
             target=self._heartbeat_loop,
             name="live-run-heartbeat",
@@ -160,12 +269,30 @@ class LiveRunTelemetry:
 
     # -- updates -------------------------------------------------------------
 
-    def set_attempt(self, attempt: int, model: str) -> None:
-        """Record a retry/escalation so the dashboard shows current state."""
+    def set_attempt(
+        self, attempt: int, model: str, *, phase: Optional[str] = None
+    ) -> None:
+        """Record a retry/escalation so the dashboard shows current state.
+
+        ``phase`` rides in the same update, so a retry that restarts from
+        ``resolve`` costs one call rather than two.
+        """
         self.model = model
-        self._send("heartbeat", {"attempt": attempt, "model": model})
+        fields: dict = {"attempt": attempt, "model": model}
+        if phase is not None:
+            self.phase = phase
+            fields["phase"] = phase
+        self._send("heartbeat", fields)
 
     def set_phase(self, phase: str) -> None:
+        """Move the run to ``phase`` (one of `ENCODE_PHASES`).
+
+        Re-entering the current phase sends nothing; a transition sends one
+        small update, and later heartbeats keep repeating it.
+        """
+        if phase == self.phase:
+            return
+        self.phase = phase
         self._send("heartbeat", {"phase": phase})
 
     def finish(self, status: str, run_id: Optional[str] = None) -> None:
@@ -173,6 +300,10 @@ class LiveRunTelemetry:
         if self._finished:
             return
         self._finished = True
+        global _active_run
+        with _active_run_lock:
+            if _active_run is self:
+                _active_run = None
         self._stop.set()
         if self._thread is not None:
             self._thread.join(timeout=2.0)
@@ -185,7 +316,8 @@ class LiveRunTelemetry:
 
     def _heartbeat_loop(self) -> None:
         while not self._stop.wait(HEARTBEAT_INTERVAL_SECONDS):
-            self._send("heartbeat", {})
+            phase = self.phase
+            self._send("heartbeat", {"phase": phase} if phase else {})
 
     def _send(self, kind: str, fields: dict, *, force: bool = False) -> None:
         if self._mode == "off" or (self._finished and not force):
@@ -217,6 +349,7 @@ class LiveRunTelemetry:
                     "backend": self.backend,
                     "model": self.model,
                     "attempt": 1,
+                    "phase": self.phase,
                     "encoder_version": self.encoder_version or None,
                     "runner": runner_identity(),
                 }
@@ -250,6 +383,7 @@ class LiveRunTelemetry:
                 "backend": self.backend,
                 "model": self.model,
                 "attempt": 1,
+                "phase": self.phase,
                 "encoder_version": self.encoder_version or None,
                 "runner": runner_identity(),
             }

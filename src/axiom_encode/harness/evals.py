@@ -55,6 +55,12 @@ from axiom_encode.legacy_replacement_overlay import (
     scope_canonical_replacement_overlay,
     stage_legacy_replacement_overlay,
 )
+from axiom_encode.live_run_telemetry import (
+    PHASE_GENERATE,
+    PHASE_REVIEW,
+    PHASE_VALIDATE,
+    report_phase,
+)
 from axiom_encode.prompts.encoder import SOURCE_SCOPE_PROTOCOL
 from axiom_encode.repair_candidate_contract import (
     VALIDATION_RETRY_CANDIDATE_MAX_FILE_BYTES,
@@ -7523,6 +7529,7 @@ def _evaluate_artifact_in_scope(
             },
             existing_target_oracle_contract=existing_target_oracle_contract,
         )
+        report_phase(PHASE_VALIDATE)
         compile_result = pipeline._run_compile_check(validation_file)
         _add_attached_amendment_import_retry_guidance(
             compile_result,
@@ -7583,6 +7590,7 @@ def _evaluate_artifact_in_scope(
                 issues=[],
             )
         else:
+            report_phase(PHASE_REVIEW)
             try:
                 generalist_review_result = pipeline._run_reviewer(
                     "generalist-reviewer",
@@ -9138,6 +9146,7 @@ def _run_single_eval(
             _clear_eval_target_artifacts(output_file, artifact_root)
 
     if not retained_candidate_accepted:
+        report_phase(PHASE_GENERATE)
         response, wrote_artifact, retry_count, materialized_paths = (
             _run_prompt_eval_with_empty_artifact_retry(
                 runner=runner,

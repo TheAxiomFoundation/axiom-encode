@@ -14444,6 +14444,57 @@ class TestCmdEncode:
             == expected
         )
 
+    def test_encode_reports_apply_phase_and_retries_restart_from_resolve(
+        self, tmp_path
+    ):
+        from axiom_encode.live_run_telemetry import LiveRunTelemetry
+
+        args = self._make_args(
+            tmp_path,
+            model=None,
+            apply=True,
+            sync=False,
+            escalation_enabled=True,
+        )
+
+        with (
+            patch("axiom_encode.cli.report_phase") as mock_report_phase,
+            patch.object(LiveRunTelemetry, "set_attempt") as mock_set_attempt,
+        ):
+            exit_code, generated, *_ = self._run_validator_escalation_case(
+                args,
+                [(False, ["terra-1"]), (True, [])],
+            )
+
+        assert exit_code == 0
+        assert len(generated) == 2
+        # Each attempt that reaches the apply gate reports it once; the
+        # generate/validate/review boundaries live in the (mocked) harness.
+        assert [call.args for call in mock_report_phase.call_args_list] == [
+            ("apply",),
+            ("apply",),
+        ]
+        mock_set_attempt.assert_called_once()
+        assert mock_set_attempt.call_args.args[0] == 2
+        assert mock_set_attempt.call_args.kwargs["phase"] == "resolve"
+
+    def test_encode_blocked_generation_never_enters_apply_phase(self, tmp_path):
+        args = self._make_args(tmp_path, apply=True, sync=False)
+        result = self._make_eval_result(False)
+
+        with (
+            patch("axiom_encode.cli.report_phase") as mock_report_phase,
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch.dict(os.environ, TEST_APPLY_SIGNING_ENV, clear=True),
+            pytest.raises(SystemExit) as exc_info,
+        ):
+            cmd_encode(args)
+
+        assert exc_info.value.code == 1
+        run = EncodingDB(args.db).get_recent_runs(limit=1)[0]
+        assert run.outcome["status"] == "apply_blocked_generation"
+        mock_report_phase.assert_not_called()
+
     def test_encode_escalates_after_n_validator_failures(self, tmp_path):
         args = self._make_args(
             tmp_path,
@@ -16678,6 +16729,81 @@ rules:
             session_id=synced_run.session_id,
             db_path=args.db,
         )
+
+    def test_encode_sync_records_the_github_actions_run(self, tmp_path):
+        args = self._make_args(tmp_path, backend="codex")
+        result = self._make_eval_result(True)
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch.dict(
+                os.environ,
+                {
+                    "AXIOM_ENCODE_SUPABASE_URL": "https://example.supabase.co",
+                    "AXIOM_ENCODE_SUPABASE_SECRET_KEY": "secret",
+                    # Deliberate opt-in past in-test suppression: the sync
+                    # transports and the live-run client below are mocked.
+                    "AXIOM_ENCODE_TELEMETRY": "on",
+                    "GITHUB_ACTIONS": "true",
+                    "GITHUB_RUN_ID": "12345678901",
+                    "GITHUB_RUN_ATTEMPT": "3",
+                    "GITHUB_SERVER_URL": "https://github.com",
+                    "GITHUB_REPOSITORY": "TheAxiomFoundation/axiom-encode",
+                    "GITHUB_WORKFLOW": "Targeted signed re-encode",
+                },
+                clear=True,
+            ),
+            patch("axiom_encode.supabase_sync.get_supabase_client"),
+            patch(
+                "axiom_encode.supabase_sync.sync_run_to_supabase",
+                return_value=True,
+            ) as mock_sync,
+            patch(
+                "axiom_encode.supabase_sync.sync_agent_sessions_to_supabase",
+                return_value={"total": 1, "synced": 1, "failed": 0},
+            ),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                cmd_encode(args)
+
+        assert exc_info.value.code == 0
+        github_run = mock_sync.call_args.kwargs["github_run"]
+        assert github_run["github_run_id"] == "12345678901"
+        assert github_run["github_run_attempt"] == 3
+        assert github_run["github_run_url"] == (
+            "https://github.com/TheAxiomFoundation/axiom-encode"
+            "/actions/runs/12345678901"
+        )
+
+    def test_encode_sync_outside_actions_records_no_github_run(self, tmp_path):
+        args = self._make_args(tmp_path, backend="codex")
+        result = self._make_eval_result(True)
+
+        with (
+            patch("axiom_encode.cli.run_model_eval", return_value=[result]),
+            patch.dict(
+                os.environ,
+                {
+                    "AXIOM_ENCODE_SUPABASE_URL": "https://example.supabase.co",
+                    "AXIOM_ENCODE_SUPABASE_SECRET_KEY": "secret",
+                    "AXIOM_ENCODE_TELEMETRY": "on",
+                },
+                clear=True,
+            ),
+            patch("axiom_encode.supabase_sync.get_supabase_client"),
+            patch(
+                "axiom_encode.supabase_sync.sync_run_to_supabase",
+                return_value=True,
+            ) as mock_sync,
+            patch(
+                "axiom_encode.supabase_sync.sync_agent_sessions_to_supabase",
+                return_value={"total": 1, "synced": 1, "failed": 0},
+            ),
+        ):
+            with pytest.raises(SystemExit):
+                cmd_encode(args)
+
+        assert mock_sync.call_args.kwargs["github_run"] == {}
 
     def test_apply_generated_encoding_writes_manifest(self, tmp_path):
         output_root = tmp_path / "out"

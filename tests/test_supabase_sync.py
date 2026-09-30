@@ -1700,6 +1700,179 @@ class TestSyncRunCostLedger:
         )
 
 
+class TestSyncRunGitHubIdentity:
+    """Migration 008 GitHub Actions run columns in the encoding_runs payload."""
+
+    GITHUB_RUN = {
+        "github_run_id": "12345678901",
+        "github_run_attempt": 2,
+        "github_run_url": (
+            "https://github.com/TheAxiomFoundation/axiom-encode"
+            "/actions/runs/12345678901"
+        ),
+        # Live-run only; encoding_runs has no column for it.
+        "github_workflow": "Targeted signed re-encode",
+    }
+
+    def _run(self):
+        run = TestSyncRunCostLedger()._make_run_with_ledger()
+        run.outcome = {"final_success": True, "status": "apply_applied"}
+        return run
+
+    def _client(self, *side_effect):
+        client = MagicMock()
+        execute = (
+            client.schema.return_value.table.return_value.upsert.return_value.execute
+        )
+        if side_effect:
+            execute.side_effect = list(side_effect)
+        else:
+            execute.return_value = MagicMock(data=[{"id": "cost-123"}])
+        return client
+
+    def _payloads(self, client):
+        upsert = client.schema.return_value.table.return_value.upsert
+        return [call.args[0] for call in upsert.call_args_list]
+
+    def test_payload_includes_github_run_columns(self):
+        client = self._client()
+        assert (
+            sync_run_to_supabase(
+                self._run(), "ci_only", client=client, github_run=self.GITHUB_RUN
+            )
+            is True
+        )
+        (payload,) = self._payloads(client)
+        assert payload["github_run_id"] == "12345678901"
+        assert payload["github_run_attempt"] == 2
+        assert payload["github_run_url"].endswith("/actions/runs/12345678901")
+        assert "github_workflow" not in payload
+
+    @pytest.mark.parametrize("github_run", [None, {}])
+    def test_columns_stay_absent_outside_actions(self, github_run):
+        client = self._client()
+        assert (
+            sync_run_to_supabase(
+                self._run(), "ci_only", client=client, github_run=github_run
+            )
+            is True
+        )
+        (payload,) = self._payloads(client)
+        assert not {"github_run_id", "github_run_attempt", "github_run_url"} & set(
+            payload
+        )
+
+    def test_partial_identity_ships_only_known_fields(self):
+        client = self._client()
+        sync_run_to_supabase(
+            self._run(),
+            "ci_only",
+            client=client,
+            github_run={"github_run_id": "42"},
+        )
+        (payload,) = self._payloads(client)
+        assert payload["github_run_id"] == "42"
+        assert "github_run_attempt" not in payload
+        assert "github_run_url" not in payload
+
+    def test_retries_without_github_columns_before_migration_008(self):
+        client = self._client(
+            Exception("Could not find the 'github_run_id' column"),
+            MagicMock(data=[{"id": "cost-123"}]),
+        )
+        assert (
+            sync_run_to_supabase(
+                self._run(), "ci_only", client=client, github_run=self.GITHUB_RUN
+            )
+            is True
+        )
+        first, second = self._payloads(client)
+        assert first["github_run_id"] == "12345678901"
+        assert "github_run_id" not in second
+        assert "github_run_attempt" not in second
+        assert "github_run_url" not in second
+        # Earlier migrations' columns survive the first fallback tier.
+        assert second["input_tokens"] == 76_000
+        assert second["outcome"]["status"] == "apply_applied"
+
+    def test_structured_missing_column_code_triggers_fallback(self):
+        class _ApiError(Exception):
+            def __init__(self, message, code):
+                super().__init__({"message": message, "code": code})
+                self.message = message
+                self.code = code
+
+        client = self._client(
+            _ApiError("column github_run_url does not exist", "42703"),
+            MagicMock(data=[{"id": "cost-123"}]),
+        )
+        assert (
+            sync_run_to_supabase(
+                self._run(), "ci_only", client=client, github_run=self.GITHUB_RUN
+            )
+            is True
+        )
+        assert "github_run_url" not in self._payloads(client)[1]
+
+    def test_ladder_drops_accumulate_down_to_outcome(self):
+        client = self._client(
+            Exception("Could not find the 'github_run_id' column"),
+            Exception("Could not find the 'input_tokens' column"),
+            Exception("Could not find the 'outcome' column"),
+            MagicMock(data=[{"id": "cost-123"}]),
+        )
+        assert (
+            sync_run_to_supabase(
+                self._run(), "ci_only", client=client, github_run=self.GITHUB_RUN
+            )
+            is True
+        )
+        payloads = self._payloads(client)
+        assert len(payloads) == 4
+        assert "github_run_id" not in payloads[1]
+        assert "input_tokens" in payloads[1]
+        assert "github_run_id" not in payloads[2]
+        assert "input_tokens" not in payloads[2]
+        assert "outcome" in payloads[2]
+        assert "outcome" not in payloads[3]
+
+    def test_without_github_fields_the_ladder_is_unchanged(self):
+        client = self._client(
+            Exception("Could not find the 'input_tokens' column"),
+            MagicMock(data=[{"id": "cost-123"}]),
+        )
+        assert sync_run_to_supabase(self._run(), "ci_only", client=client) is True
+        # The GitHub tier would resend an identical payload, so it is skipped.
+        first, second = self._payloads(client)
+        assert "input_tokens" in first
+        assert "input_tokens" not in second
+        assert "outcome" in second
+
+    def test_transient_error_does_not_strip_github_columns(self):
+        client = self._client(Exception("Connection reset by peer"))
+        assert (
+            sync_run_to_supabase(
+                self._run(), "ci_only", client=client, github_run=self.GITHUB_RUN
+            )
+            is False
+        )
+        assert len(self._payloads(client)) == 1
+
+    def test_sync_all_runs_never_stamps_the_syncing_job(self, monkeypatch, tmp_path):
+        # A backfill running in Actions must not attribute older runs to its
+        # own workflow run: only the encode invocation passes github_run.
+        monkeypatch.setenv("GITHUB_ACTIONS", "true")
+        monkeypatch.setenv("GITHUB_RUN_ID", "999")
+        run = self._run()
+        client = self._client()
+        with patch("axiom_encode.harness.encoding_db.EncodingDB") as mock_db:
+            mock_db.return_value.get_recent_runs.return_value = [run]
+            stats = sync_all_runs(tmp_path / "encodings.db", "ci_only", client=client)
+        assert stats["synced"] == 1
+        (payload,) = self._payloads(client)
+        assert "github_run_id" not in payload
+
+
 class TestSyncSessionTokenColumns:
     """cache_creation/reasoning token columns in the sdk_sessions payload."""
 

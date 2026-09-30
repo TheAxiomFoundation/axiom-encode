@@ -22708,6 +22708,129 @@ rules: []
     assert observed_amendment_sources == [{amendment_citation_path: amendment_body}]
 
 
+@pytest.mark.parametrize(
+    ("skip_reviewers", "ci_passes", "expected_phases"),
+    [
+        (False, True, ["validate", "review"]),
+        (True, True, ["validate"]),
+        # A deterministically rejected candidate never reaches the reviewer,
+        # so the live run must not claim it is in review.
+        (False, False, ["validate"]),
+    ],
+)
+def test_evaluate_artifact_reports_validate_and_review_phases(
+    tmp_path, monkeypatch, skip_reviewers, ci_passes, expected_phases
+):
+    source_citation_path = "us/statute/7/2017/a"
+    source_text = "The source amount is 100."
+    corpus_release = _write_test_corpus_provision(
+        tmp_path,
+        citation_path=source_citation_path,
+        body=source_text,
+    )
+    policy_repo = _canonical_rulespec_content_root(tmp_path, "us")
+    rules_file = policy_repo / "statutes/7/2017/a.yaml"
+    rules_file.parent.mkdir(parents=True)
+    rules_file.write_text(
+        "format: rulespec/v1\n"
+        "module:\n"
+        "  source_verification:\n"
+        f"    corpus_citation_path: {source_citation_path}\n"
+        "rules: []\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        ValidatorPipeline,
+        "_run_compile_check",
+        lambda _self, _path: ValidationResult("compile", passed=True),
+    )
+    monkeypatch.setattr(
+        ValidatorPipeline,
+        "_run_ci",
+        lambda _self, _path: ValidationResult(
+            "ci", passed=ci_passes, issues=[] if ci_passes else ["ci rejected"]
+        ),
+    )
+    monkeypatch.setattr(
+        ValidatorPipeline,
+        "_run_reviewer",
+        lambda _self, *_args, **_kwargs: ValidationResult(
+            "generalist-reviewer", passed=True
+        ),
+    )
+    phases: list[str] = []
+    monkeypatch.setattr("axiom_encode.harness.evals.report_phase", phases.append)
+
+    evaluate_artifact(
+        rulespec_file=rules_file,
+        policy_repo_root=policy_repo,
+        axiom_rules_path=tmp_path / "axiom-rules-engine",
+        source_text=source_text,
+        skip_reviewers=skip_reviewers,
+        reviewers_require_deterministic_pass=True,
+        local_corpus_release=corpus_release,
+        source_citation_path=source_citation_path,
+    )
+
+    assert phases == expected_phases
+
+
+def test_run_model_eval_reports_generate_before_the_model_call(tmp_path):
+    corpus_release = _write_test_corpus_provision(
+        tmp_path,
+        citation_path="us/statute/7/2017/a",
+        body="The source amount is 100.",
+    )
+    policy_repo_root = _canonical_rulespec_content_root(tmp_path, "us")
+    events: list[str] = []
+
+    def prompt_eval(*_args, **_kwargs):
+        events.append("model_call")
+        response = Mock()
+        response.text = (
+            "=== FILE: a.yaml ===\n"
+            "format: rulespec/v1\n"
+            "rules: []\n"
+            "=== FILE: a.test.yaml ===\n"
+            "[]\n"
+        )
+        response.duration_ms = 1
+        response.tokens = None
+        response.estimated_cost_usd = None
+        response.actual_cost_usd = None
+        response.trace = {}
+        response.unexpected_accesses = []
+        response.error = None
+        return response
+
+    def evaluate(**_kwargs):
+        events.append("evaluate_artifact")
+        return None
+
+    with (
+        patch(
+            "axiom_encode.harness.evals.report_phase",
+            side_effect=lambda phase: events.append(f"phase:{phase}"),
+        ),
+        patch("axiom_encode.harness.evals._run_prompt_eval", side_effect=prompt_eval),
+        patch("axiom_encode.harness.evals.evaluate_artifact", side_effect=evaluate),
+    ):
+        run_model_eval(
+            citations=["us/statute/7/2017/a"],
+            runner_specs=["codex:gpt-5.4"],
+            output_root=tmp_path / "out",
+            policy_path=policy_repo_root,
+            runtime_axiom_rules_path=tmp_path / "axiom-rules-engine",
+            corpus_release=corpus_release,
+            mode="cold",
+            include_tests=True,
+            skip_reviewers=True,
+        )
+
+    assert events[:2] == ["phase:generate", "model_call"]
+    assert events.count("phase:generate") == 1
+
+
 class TestSourceEval:
     def test_run_model_eval_passes_validation_options_to_evaluate_artifact(
         self,

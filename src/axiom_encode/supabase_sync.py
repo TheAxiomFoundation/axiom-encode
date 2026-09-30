@@ -9,6 +9,7 @@ import json
 import math
 import os
 import re
+from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -44,6 +45,11 @@ VALID_DATA_SOURCES = {
 }
 
 APPLY_MANIFEST_DIR = Path(".axiom") / "encoding-manifests"
+
+# Migration 008: the GitHub Actions run that produced an encoding_runs row, so
+# the ops dashboard joins a run to its workflow run (and PR) exactly instead of
+# by citation plus a time window. Nullable remotely; absent outside Actions.
+GITHUB_RUN_COLUMNS = ("github_run_id", "github_run_attempt", "github_run_url")
 
 
 def _review_results_to_scores(review_results) -> dict:
@@ -119,6 +125,8 @@ def sync_run_to_supabase(
     run: "EncodingRun",
     data_source: str,  # REQUIRED: 'reviewer_agent', 'ci_only', 'mock', 'manual_estimate'
     client: Optional[Client] = None,
+    *,
+    github_run: Optional[Mapping[str, object]] = None,
 ) -> bool:
     """
     Sync a single encoding run to Supabase.
@@ -127,6 +135,10 @@ def sync_run_to_supabase(
         run: The EncodingRun to sync
         data_source: REQUIRED - one of 'reviewer_agent', 'ci_only', 'mock', 'manual_estimate'
         client: Optional Supabase client (creates one if not provided)
+        github_run: GitHub Actions identity of the invocation that produced
+            ``run`` (``live_run_telemetry.github_run_identity()``). Pass it
+            only when syncing a run from that same invocation: a later
+            backfill must not stamp its own workflow run onto older rows.
 
     Returns:
         True if sync succeeded
@@ -214,6 +226,10 @@ def sync_run_to_supabase(
     generation_attempt_count = getattr(run, "generation_attempt_count", 0)
     if isinstance(generation_attempt_count, int) and generation_attempt_count > 0:
         data["generation_attempt_count"] = generation_attempt_count
+    for github_column in GITHUB_RUN_COLUMNS:
+        value = (github_run or {}).get(github_column)
+        if value is not None:
+            data[github_column] = value
     if outcome:
         data["outcome"] = outcome
 
@@ -223,11 +239,16 @@ def sync_run_to_supabase(
     # Retry with column groups removed only when Supabase reports an unknown
     # column (a schema that predates a migration). Drops accumulate down the
     # ladder because migrations apply in order: a remote still missing the
-    # 005 "outcome" column also lacks the 007 ledger columns. Any non-schema
-    # error fails the sync loudly.
+    # 005 "outcome" column also lacks the 007 ledger and 008 GitHub run
+    # columns. Any non-schema error fails the sync loudly.
     last_error: Exception | None = None
     attempted: list[dict] = []
-    for dropped in ((), RUN_COST_COLUMNS, (*RUN_COST_COLUMNS, "outcome")):
+    for dropped in (
+        (),
+        GITHUB_RUN_COLUMNS,
+        (*GITHUB_RUN_COLUMNS, *RUN_COST_COLUMNS),
+        (*GITHUB_RUN_COLUMNS, *RUN_COST_COLUMNS, "outcome"),
+    ):
         payload = {key: value for key, value in data.items() if key not in dropped}
         if any(payload == prior for prior in attempted):
             continue
