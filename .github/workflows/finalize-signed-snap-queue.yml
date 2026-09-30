@@ -13,7 +13,7 @@ on:
           - us-snap-or-ut-2026-07
           - us-snap-all-states-2026-07
       new_rulespec_ref:
-        description: Independently reviewed and allowlisted current RuleSpec branch tip
+        description: Exact current tip of the queue's RuleSpec base branch (an allowlisted reviewed head, or main's protected tip)
         required: true
         type: string
 
@@ -44,11 +44,23 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Read the queue's RuleSpec base branch
+        id: queue
+        env:
+          QUEUE_ID: ${{ inputs.queue_id }}
+        run: |
+          set -euo pipefail
+          queue="data/encoding-queues/${QUEUE_ID}.json"
+          test -f "$queue"
+          python3 scripts/prepare_signed_queue.py validate "$queue"
+          printf 'pr_base_branch=%s\n' \
+            "$(jq -r '.dispatch.pr_base_branch' "$queue")" >> "$GITHUB_OUTPUT"
+
       - name: Checkout exact RuleSpec branch tip
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: TheAxiomFoundation/rulespec-us
-          ref: hard-cut/canonical-layout-us
+          ref: ${{ steps.queue.outputs.pr_base_branch }}
           path: rulespec-us
           fetch-depth: 0
           persist-credentials: false
@@ -86,7 +98,8 @@ jobs:
           fi
 
           api_version="2026-03-10"
-          branch_ref="repos/TheAxiomFoundation/rulespec-us/git/ref/heads/hard-cut/canonical-layout-us"
+          pr_base_branch="$(jq -r '.dispatch.pr_base_branch' "$queue")"
+          branch_ref="repos/TheAxiomFoundation/rulespec-us/git/ref/heads/$pr_base_branch"
           live_tip="$(gh api \
             --header "Accept: application/vnd.github+json" \
             --header "X-GitHub-Api-Version: $api_version" \
