@@ -90,6 +90,14 @@ var parentOnlyEnvironmentNames = []string{
 	"GITHUB_ACTIONS",
 	"GITHUB_SHA",
 	"GITHUB_WORKSPACE",
+	// Non-secret workflow-run identity, recorded by encoder telemetry so a run
+	// row joins to the Actions run that produced it. Not read by any trust
+	// decision in the encoder.
+	"GITHUB_REPOSITORY",
+	"GITHUB_RUN_ATTEMPT",
+	"GITHUB_RUN_ID",
+	"GITHUB_SERVER_URL",
+	"GITHUB_WORKFLOW",
 	"OTEL_EXPORTER_OTLP_ENDPOINT",
 	"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
 	"OTEL_EXPORTER_OTLP_HEADERS",
