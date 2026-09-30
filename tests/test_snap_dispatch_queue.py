@@ -838,6 +838,56 @@ def test_a_pr_a_person_closed_after_a_late_failure_blocks_the_item():
     assert len(github.dispatches) == 1
 
 
+def test_a_pr_a_person_closed_blocks_the_item_even_on_a_moved_main():
+    github = FakeGitHub()
+    state = _state(["us-or/p/1"])
+    item = state["items"][0]
+    _tick(state, github)
+    run_id = _run_id(item)
+    github.finish(run_id, "failure")
+    github.jobs[run_id] = [
+        {
+            "name": "encode",
+            "conclusion": "failure",
+            "steps": [
+                {"name": q.PR_STEP, "conclusion": "success"},
+                {"name": "Upload signed re-encode artifact", "conclusion": "failure"},
+            ],
+        }
+    ]
+    github.add_pull(run_id, state="closed")  # a reviewer closed the draft
+    github.tip = "b" * 40
+
+    _tick(state, github)
+
+    assert item["status"] == "blocked"
+    assert "closed without merging" in item["note"]
+    assert len(github.dispatches) == 1
+
+
+def test_a_cancelled_run_whose_pr_a_person_closed_is_not_redone():
+    github = FakeGitHub()
+    state = _state(["us-or/p/1"])
+    item = state["items"][0]
+    _tick(state, github)
+    run_id = _run_id(item)
+    github.finish(run_id, "cancelled")
+    github.jobs[run_id] = [
+        {
+            "name": "encode",
+            "conclusion": "cancelled",
+            "steps": [{"name": q.PR_STEP, "conclusion": "success"}],
+        }
+    ]
+    github.add_pull(run_id, state="closed")
+    github.tip = "b" * 40
+
+    _tick(state, github)
+
+    assert item["status"] == "blocked"
+    assert len(github.dispatches) == 1
+
+
 def test_the_same_step_failing_on_an_unmoved_main_is_counted():
     github = FakeGitHub()
     state = _state(["us-or/p/1"])

@@ -79,13 +79,16 @@ SNAP_MARKERS = (
 # have 24+ leader runs and policy pages 0-2.
 TOC_LEADER = re.compile(r"\.{8,}")
 TOC_MIN_LEADERS = 10
+# The only step that opens a PR, and the only place the workflow closes one:
+# when main moved under it, it closes the PR it just opened and fails.
+PR_STEP = "Push lane branch and open draft pull request"
 # The encode workflow requires rulespec main to still be at the pinned tip
 # when it starts (checkout verification) and again when it opens the pull
 # request, so a run whose main moved fails at one of these steps.
 STALE_BASE_STEPS = frozenset(
     {
         "Verify immutable checkout identities",
-        "Push lane branch and open draft pull request",
+        PR_STEP,
     }
 )
 # Consecutive runs lost to a moving main before an item is set aside.
@@ -728,6 +731,19 @@ def describe_failure(github: GitHub, repo: str, run_id: int) -> Failure:
     return Failure(budget_exhausted, None, "no failed step reported")
 
 
+def pr_step_failed(github: GitHub, repo: str, run_id: int) -> bool:
+    """Whether the run's PR step failed (so any PR it opened, it closed)."""
+
+    jobs = github.get(
+        f"repos/{repo}/actions/runs/{run_id}/jobs", {"per_page": "100"}
+    ).get("jobs", [])
+    return any(
+        step.get("name") == PR_STEP and step.get("conclusion") == "failure"
+        for job in jobs
+        for step in job.get("steps") or []
+    )
+
+
 def rejected_by(github: GitHub, repo: str, run_id: int) -> str | None:
     """Who rejected the run's signing approval, if anyone did."""
 
@@ -872,9 +888,9 @@ def reconcile_dispatched(
     def opened_pull() -> dict[str, Any] | None:
         """This run's PR, unless the workflow itself closed it unmerged.
 
-        On a moved main the workflow closes the PR it just opened and fails;
-        that closed PR is not a result, and the item should be retried. A PR
-        closed while main did not move was closed by a person, and counts.
+        On a moved main the workflow's PR step closes the PR it just opened
+        and fails; that closed PR is not a result, and the item should be
+        retried. Any other closed PR was closed by a person, and counts.
         """
         pull = find_pull_request(
             github,
@@ -883,8 +899,12 @@ def reconcile_dispatched(
             attempt["run_id"],
             run.get("run_attempt", 1),
         )
-        if pull is None or (
-            stale and pull.get("state") == "closed" and not pull.get("merged_at")
+        if pull is None:
+            return None
+        if (
+            pull.get("state") == "closed"
+            and not pull.get("merged_at")
+            and pr_step_failed(github, repo, attempt["run_id"])
         ):
             return None
         return pull
