@@ -78,15 +78,15 @@ Run the workflow by hand with an `action`:
 - `activate` / `pause` flip the queue and, on activate, tick once.
 - `requeue` with `queue_id` and `citation` sends a blocked item again with a
   fresh retry and cancellation budget. Its earlier attempts stay in the file.
+- `dry_run` on `tick` or `activate` shows what would happen without
+  dispatching, cancelling, or saving. Use `activate` with `dry_run` to
+  preview a paused queue.
 
 The encode workflow keeps its own budget: three failed runs in a row per
 citation within seven days, including runs that failed at PR creation because
 `main` moved. `requeue` does not reset it. For an item blocked on that budget,
 raise the citation's entry in the `ATTEMPT_BUDGET_BY_CITATION_JSON` repository
 variable before requeueing it.
-- `dry_run` on `tick` or `activate` shows what would happen without
-  dispatching, cancelling, or saving. Use `activate` with `dry_run` to
-  preview a paused queue.
 
 Change queue state only through these actions, not by editing the state
 branch: every action runs in the same concurrency group as the hourly tick,

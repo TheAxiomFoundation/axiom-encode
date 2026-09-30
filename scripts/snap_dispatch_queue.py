@@ -870,13 +870,24 @@ def reconcile_dispatched(
     )
 
     def opened_pull() -> dict[str, Any] | None:
-        return find_pull_request(
+        """This run's PR, unless the workflow itself closed it unmerged.
+
+        On a moved main the workflow closes the PR it just opened and fails;
+        that closed PR is not a result, and the item should be retried. A PR
+        closed while main did not move was closed by a person, and counts.
+        """
+        pull = find_pull_request(
             github,
             target.rulespec_repo,
             settings["country"],
             attempt["run_id"],
             run.get("run_attempt", 1),
         )
+        if pull is None or (
+            stale and pull.get("state") == "closed" and not pull.get("merged_at")
+        ):
+            return None
+        return pull
 
     if run.get("status") != "completed":
         if not stale:
@@ -1161,7 +1172,7 @@ def requeue(state: dict[str, Any], citation: str, *, now: datetime) -> None:
         raise ValueError(f"{citation} is {item['status']}, not blocked")
     if "attempt budget" in item.get("note", ""):
         print(
-            f"warning: {citation} hit the encode workflow's own failed-attempt "
+            f"::warning::{citation} hit the encode workflow's own failed-attempt "
             "budget; raise it in ATTEMPT_BUDGET_BY_CITATION_JSON first or the "
             "next run is blocked again",
             file=sys.stderr,
