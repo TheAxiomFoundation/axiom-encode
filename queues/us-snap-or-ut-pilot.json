@@ -7,7 +7,7 @@
  "settings": {
   "country": "us",
   "pr_base_branch": "main",
-  "max_in_flight": 4,
+  "max_in_flight": 1,
   "max_attempts": 2
  },
  "build": {
