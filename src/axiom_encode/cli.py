@@ -4414,9 +4414,11 @@ def _fingerprint_validation_waiver_modules_parallel(
 ) -> list[dict[str, Any]]:
     """Fingerprint waiver modules across worker processes.
 
-    Each worker runs the unchanged serial executor over a contiguous slice of
-    the sorted module list with its own pipelines, temporary directory, and
-    compile cache; fingerprints are stable across the split because outcome
+    Each worker runs the unchanged serial executor over an interleaved slice
+    of the sorted module list with its own pipelines, temporary directory, and
+    compile cache. Interleaving prevents adjacent expensive modules from
+    landing on the same worker (for example tariff chapters in a validation
+    shard). Fingerprints are stable across the split because outcome
     canonicalization replaces every process-specific path. A worker failure
     fails the whole audit; results are re-sorted so output order matches the
     serial code path exactly.
@@ -4442,11 +4444,7 @@ def _fingerprint_validation_waiver_modules_parallel(
         corpus_release.content_sha256,
         corpus_release.public_key,
     )
-    chunk_size = max(8, math.ceil(len(ordered) / (workers * 8)))
-    chunks = [
-        ordered[start : start + chunk_size]
-        for start in range(0, len(ordered), chunk_size)
-    ]
+    chunks = [ordered[offset::workers] for offset in range(workers)]
     dependency_roots = tuple(str(path) for path in rulespec_dependency_roots)
 
     results: list[dict[str, Any]] = []
