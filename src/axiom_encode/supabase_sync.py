@@ -261,8 +261,9 @@ def sync_run_to_supabase(
                 continue
             break
         if dropped:
+            omitted = [key for key in dropped if key in data]
             print(
-                f"Synced run {run.id} without {'/'.join(dropped)} "
+                f"Synced run {run.id} without {'/'.join(omitted)} "
                 f"after Supabase rejected them: {last_error}"
             )
         return len(result.data) > 0

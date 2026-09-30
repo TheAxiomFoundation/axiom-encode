@@ -1,6 +1,8 @@
 """Tests for live encode-run presence telemetry."""
 
 import json
+import threading
+import time
 from unittest.mock import MagicMock, patch
 
 from axiom_encode import live_run_telemetry
@@ -94,6 +96,17 @@ def _ingest_payloads(urlopen_mock):
 def _phase_updates(table):
     """The phase carried by each live-row update, in order (None if absent)."""
     return [call.args[0].get("phase") for call in table.update.call_args_list]
+
+
+def _wait_for_calls(mock, count, timeout=5.0, *, exact=True):
+    """Wait for the heartbeat thread to have sent ``count`` requests."""
+    deadline = time.monotonic() + timeout
+    while mock.call_count < count and time.monotonic() < deadline:
+        time.sleep(0.002)
+    if exact:
+        assert mock.call_count == count, (mock.call_count, count)
+    else:
+        assert mock.call_count >= count, (mock.call_count, count)
 
 
 class TestRunnerIdentity:
@@ -234,15 +247,15 @@ class TestLiveRunTelemetry:
         assert payloads[0]["op"] == "start"
         assert payloads[0]["citation"] == "us/statute/26/32"
         assert payloads[0]["runner"]["hostname"] == runner_identity()["hostname"]
-        assert payloads[1] == {
-            "op": "heartbeat",
-            "id": live.id,
-            "attempt": 2,
-            "model": "gpt-5.5-max",
-        }
-        assert payloads[2]["op"] == "finish"
-        assert payloads[2]["status"] == "completed"
-        assert payloads[2]["run_id"] == "abc12345"
+        # The heartbeat thread publishes the attempt; if finish() wins that
+        # race the change rides on the finish instead. Either way it lands once.
+        carriers = [payload for payload in payloads[1:] if "attempt" in payload]
+        assert len(carriers) == 1
+        assert carriers[0]["attempt"] == 2
+        assert carriers[0]["model"] == "gpt-5.5-max"
+        assert payloads[-1]["op"] == "finish"
+        assert payloads[-1]["status"] == "completed"
+        assert payloads[-1]["run_id"] == "abc12345"
         request = urlopen_mock.call_args_list[0].args[0]
         assert request.full_url.startswith("https://axiom.org/")
 
@@ -478,17 +491,27 @@ class TestLiveRunPhases:
                 encoder_version="0.1.0",
                 phase=PHASE_RESOLVE,
             ) as live:
-                report_phase(PHASE_RESOLVE)  # already there: no update
-                report_phase(PHASE_GENERATE)
-                report_phase(PHASE_VALIDATE)
-                report_phase(PHASE_VALIDATE)  # a repair round: no update
-                report_phase(PHASE_REVIEW)
-                # A validator retry restarts from resolve in the same update
-                # that records the new attempt.
-                live.set_attempt(2, "gpt-5.5-max", phase=PHASE_RESOLVE)
-                report_phase(PHASE_GENERATE)
-                report_phase(PHASE_VALIDATE)
-                report_phase(PHASE_APPLY)
+                sent = 0
+                steps = (
+                    (PHASE_RESOLVE, False),  # already there: no update
+                    (PHASE_GENERATE, True),
+                    (PHASE_VALIDATE, True),
+                    (PHASE_VALIDATE, False),  # a repair round: no update
+                    (PHASE_REVIEW, True),
+                    # A validator retry restarts from resolve in the same
+                    # update that records the new attempt.
+                    ("retry", True),
+                    (PHASE_GENERATE, True),
+                    (PHASE_VALIDATE, True),
+                    (PHASE_APPLY, True),
+                )
+                for step, transition in steps:
+                    if step == "retry":
+                        live.set_attempt(2, "gpt-5.5-max", phase=PHASE_RESOLVE)
+                    else:
+                        report_phase(step)
+                    sent += transition
+                    _wait_for_calls(table.update, sent)
                 live.finish("completed", run_id="abc12345")
 
         assert _phase_updates(table) == [
@@ -499,7 +522,7 @@ class TestLiveRunPhases:
             "generate",
             "validate",
             "apply",
-            None,  # finish
+            "apply",  # the finish records the final phase
         ]
         retry_update = table.update.call_args_list[3].args[0]
         assert retry_update["attempt"] == 2
@@ -523,6 +546,7 @@ class TestLiveRunPhases:
                 phase=PHASE_RESOLVE,
             ) as live:
                 report_phase(PHASE_GENERATE)
+                _wait_for_calls(urlopen_mock, 2)
                 report_phase(PHASE_GENERATE)
                 live.finish("completed")
         payloads = _ingest_payloads(urlopen_mock)
@@ -536,38 +560,74 @@ class TestLiveRunPhases:
 
     def test_heartbeat_repeats_current_phase(self, monkeypatch):
         _configured_env(monkeypatch)
+        monkeypatch.setattr(live_run_telemetry, "HEARTBEAT_INTERVAL_SECONDS", 0.01)
         client, table = _mock_client()
-        live = LiveRunTelemetry(
-            citation="us/statute/26/32",
-            backend="openai",
-            model="gpt-5.5",
-            encoder_version="0.1.0",
-            phase=PHASE_VALIDATE,
-        )
-        live._client = client
-        live._stop = MagicMock()
-        # One interval elapses, then the run stops.
-        live._stop.wait.side_effect = [False, True]
-        live._heartbeat_loop()
-        (update,) = table.update.call_args_list
-        assert update.args[0]["phase"] == "validate"
-        assert update.args[0]["last_heartbeat_at"]
+        with patch(
+            "axiom_encode.supabase_sync.get_supabase_client", return_value=client
+        ):
+            with LiveRunTelemetry(
+                citation="us/statute/26/32",
+                backend="openai",
+                model="gpt-5.5",
+                encoder_version="0.1.0",
+                phase=PHASE_VALIDATE,
+            ):
+                _wait_for_calls(table.update, 2, exact=False)
+        heartbeat = table.update.call_args_list[0].args[0]
+        assert heartbeat["phase"] == "validate"
+        assert heartbeat["last_heartbeat_at"]
+        assert "attempt" not in heartbeat
 
     def test_heartbeat_without_phase_sends_only_liveness(self, monkeypatch):
         _configured_env(monkeypatch)
+        monkeypatch.setattr(live_run_telemetry, "HEARTBEAT_INTERVAL_SECONDS", 0.01)
         client, table = _mock_client()
-        live = LiveRunTelemetry(
-            citation="us/statute/26/32",
-            backend="openai",
-            model="gpt-5.5",
-            encoder_version="0.1.0",
-        )
-        live._client = client
-        live._stop = MagicMock()
-        live._stop.wait.side_effect = [False, True]
-        live._heartbeat_loop()
-        (update,) = table.update.call_args_list
-        assert set(update.args[0]) == {"last_heartbeat_at"}
+        with patch(
+            "axiom_encode.supabase_sync.get_supabase_client", return_value=client
+        ):
+            with LiveRunTelemetry(
+                citation="us/statute/26/32",
+                backend="openai",
+                model="gpt-5.5",
+                encoder_version="0.1.0",
+            ):
+                _wait_for_calls(table.update, 1, exact=False)
+        assert set(table.update.call_args_list[0].args[0]) == {"last_heartbeat_at"}
+
+    def test_phase_changes_never_wait_on_the_network(self, monkeypatch):
+        _configured_env(monkeypatch)
+        client, table = _mock_client()
+        release = threading.Event()
+        in_flight = threading.Event()
+
+        def slow_update():
+            in_flight.set()
+            release.wait(10)
+            return MagicMock()
+
+        table.update.return_value.eq.return_value.execute.side_effect = slow_update
+        with patch(
+            "axiom_encode.supabase_sync.get_supabase_client", return_value=client
+        ):
+            with LiveRunTelemetry(
+                citation="us/statute/26/32",
+                backend="openai",
+                model="gpt-5.5",
+                encoder_version="0.1.0",
+                phase=PHASE_RESOLVE,
+            ):
+                report_phase(PHASE_GENERATE)
+                assert in_flight.wait(5)
+                # The heartbeat thread is stuck on a slow Supabase; the encode
+                # thread's transitions still return immediately.
+                started = time.monotonic()
+                report_phase(PHASE_VALIDATE)
+                report_phase(PHASE_REVIEW)
+                assert time.monotonic() - started < 0.5
+                release.set()
+                # The stalled transitions coalesce into one update, in order.
+                _wait_for_calls(table.update, 2)
+        assert _phase_updates(table)[:2] == ["generate", "review"]
 
     def test_report_phase_is_a_noop_without_an_active_run(self, monkeypatch):
         _configured_env(monkeypatch)

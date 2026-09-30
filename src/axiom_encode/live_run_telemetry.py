@@ -39,9 +39,11 @@ add new ones rather than renaming these:
   checkout and the signed apply transaction.
 
 Only transitions reach the network: re-entering the current phase is free,
-and a transition costs one small update. The periodic heartbeat carries the
-current phase too, so a dropped transition update heals within one
-interval.
+and a transition costs one small update. Phase and attempt changes never
+wait on the network: they record state and wake the heartbeat thread, the
+only sender while the run is live, so updates reach the row in order and a
+slow Supabase or ingest endpoint cannot stall the encode. Every heartbeat
+carries the current phase, so a dropped update heals within one interval.
 
 GitHub Actions
 --------------
@@ -236,6 +238,11 @@ class LiveRunTelemetry:
         self._mode = telemetry_mode() if enabled else "off"
         self._client = None
         self._stop = threading.Event()
+        # Wakes the heartbeat thread early to publish a state change.
+        self._wake = threading.Event()
+        self._state_lock = threading.Lock()
+        # attempt/model/phase changes not yet taken for an update.
+        self._unsent: dict = {}
         self._thread: Optional[threading.Thread] = None
         self._finished = False
 
@@ -274,26 +281,31 @@ class LiveRunTelemetry:
     ) -> None:
         """Record a retry/escalation so the dashboard shows current state.
 
-        ``phase`` rides in the same update, so a retry that restarts from
-        ``resolve`` costs one call rather than two.
+        Like `set_phase`, this never waits on the network. ``phase`` rides in
+        the same update, so a retry that restarts from ``resolve`` costs one
+        call rather than two.
         """
-        self.model = model
-        fields: dict = {"attempt": attempt, "model": model}
-        if phase is not None:
-            self.phase = phase
-            fields["phase"] = phase
-        self._send("heartbeat", fields)
+        with self._state_lock:
+            self.model = model
+            self._unsent.update(attempt=attempt, model=model)
+            if phase is not None:
+                self.phase = phase
+                self._unsent["phase"] = phase
+        self._wake.set()
 
     def set_phase(self, phase: str) -> None:
         """Move the run to ``phase`` (one of `ENCODE_PHASES`).
 
-        Re-entering the current phase sends nothing; a transition sends one
-        small update, and later heartbeats keep repeating it.
+        Re-entering the current phase does nothing. A transition records the
+        phase and wakes the heartbeat thread, which sends one small update;
+        later heartbeats keep repeating it.
         """
-        if phase == self.phase:
-            return
-        self.phase = phase
-        self._send("heartbeat", {"phase": phase})
+        with self._state_lock:
+            if phase == self.phase:
+                return
+            self.phase = phase
+            self._unsent["phase"] = phase
+        self._wake.set()
 
     def finish(self, status: str, run_id: Optional[str] = None) -> None:
         """Close the live row; idempotent, first call wins."""
@@ -305,19 +317,38 @@ class LiveRunTelemetry:
             if _active_run is self:
                 _active_run = None
         self._stop.set()
+        self._wake.set()
         if self._thread is not None:
             self._thread.join(timeout=2.0)
-        fields: dict = {"status": status}
+        # Changes the heartbeat thread never took ride on the finish.
+        fields = self._take_update()
+        fields["status"] = status
         if run_id:
             fields["run_id"] = run_id
         self._send("finish", fields, force=True)
 
     # -- internals -----------------------------------------------------------
 
+    def _take_update(self) -> dict:
+        """Unsent changes plus the current phase; clears the unsent set."""
+        with self._state_lock:
+            fields = self._unsent
+            self._unsent = {}
+            if self.phase:
+                fields["phase"] = self.phase
+        return fields
+
     def _heartbeat_loop(self) -> None:
-        while not self._stop.wait(HEARTBEAT_INTERVAL_SECONDS):
-            phase = self.phase
-            self._send("heartbeat", {"phase": phase} if phase else {})
+        # The only sender while the run is live: it wakes every interval to
+        # prove liveness, or early to publish a change.
+        while True:
+            self._wake.wait(HEARTBEAT_INTERVAL_SECONDS)
+            self._wake.clear()
+            if self._stop.is_set():
+                return
+            # Forced: changes taken here must go out even if finish() starts
+            # meanwhile; it waits for this send before closing the row.
+            self._send("heartbeat", self._take_update(), force=True)
 
     def _send(self, kind: str, fields: dict, *, force: bool = False) -> None:
         if self._mode == "off" or (self._finished and not force):
