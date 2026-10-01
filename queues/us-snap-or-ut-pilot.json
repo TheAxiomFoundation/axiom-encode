@@ -7,7 +7,7 @@
  "settings": {
   "country": "us",
   "pr_base_branch": "main",
-  "max_in_flight": 1,
+  "max_in_flight": 2,
   "max_attempts": 2
  },
  "build": {
@@ -1072,6 +1072,22 @@
   }
  },
  "items": [
+  {
+   "citation": "us-ut/manual/dws/eligibility-manual/500-assets-510-asset-limits-htm",
+   "jurisdiction": "us-ut",
+   "label": "510 Asset Limits",
+   "chars": 860,
+   "status": "pending",
+   "attempts": []
+  },
+  {
+   "citation": "us-ut/manual/dws/eligibility-manual/700-eligibility-process-and-case-maintenance-770-1-advance-notice-of-adverse-action-htm",
+   "jurisdiction": "us-ut",
+   "label": "770-1 Advance Notice of Adverse Action",
+   "chars": 538,
+   "status": "pending",
+   "attempts": []
+  },
   {
    "citation": "us-or/manual/odhs/open/page-26",
    "jurisdiction": "us-or",
@@ -7355,14 +7371,6 @@
    "attempts": []
   },
   {
-   "citation": "us-ut/manual/dws/eligibility-manual/500-assets-510-asset-limits-htm",
-   "jurisdiction": "us-ut",
-   "label": "510 Asset Limits",
-   "chars": 860,
-   "status": "pending",
-   "attempts": []
-  },
-  {
    "citation": "us-ut/manual/dws/eligibility-manual/500-assets-515-how-to-count-the-value-of-assets-htm",
    "jurisdiction": "us-ut",
    "label": "515 How to Count the Value of Assets",
@@ -8319,14 +8327,6 @@
    "jurisdiction": "us-ut",
    "label": "760 Case Closure",
    "chars": 926,
-   "status": "pending",
-   "attempts": []
-  },
-  {
-   "citation": "us-ut/manual/dws/eligibility-manual/700-eligibility-process-and-case-maintenance-770-1-advance-notice-of-adverse-action-htm",
-   "jurisdiction": "us-ut",
-   "label": "770-1 Advance Notice of Adverse Action",
-   "chars": 538,
    "status": "pending",
    "attempts": []
   },
