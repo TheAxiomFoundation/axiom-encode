@@ -40,6 +40,7 @@ The encoder emits RuleSpec YAML artifacts. Source documents are expected to live
 ## Checks
 
 ```bash
+uv sync --locked --extra dev  # the locked set CI tests on; plain `uv sync` omits pytest and ruff
 uv run ruff check pyproject.toml src/axiom_encode scripts tests
 python -m compileall -q src/axiom_encode scripts
 uv run pytest -q tests/test_cli.py tests/test_rulespec_validation.py tests/test_evals.py -k "rulespec or EncoderPrompt"

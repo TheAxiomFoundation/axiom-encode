@@ -7,7 +7,7 @@ import pytest
 from axiom_encode.rules_engine_compat import run_rulespec_compile
 
 
-def _run(monkeypatch, responses):
+def _run(monkeypatch, responses, *, composed=False):
     calls = []
 
     def fake_run(command, **kwargs):
@@ -22,6 +22,7 @@ def _run(monkeypatch, responses):
         output=Path("/tmp/program.json"),
         cwd=Path("/engine"),
         env={"PATH": "/bin", "AXIOM_RULESPEC_REPO_ROOTS": "/ambient"},
+        composed=composed,
     )
     return result, calls
 
@@ -37,6 +38,90 @@ def test_current_explicit_root_contract_is_preferred(monkeypatch):
     assert command[command.index("--rulespec-root") + 1] == "/rulespec-us"
     assert "--exclusive-rulespec-roots" not in command
     assert "AXIOM_RULESPEC_REPO_ROOTS" not in kwargs["env"]
+
+
+def test_composed_program_uses_dedicated_surface_without_legacy_fallback(monkeypatch):
+    failure = CompletedProcess(
+        [],
+        1,
+        "",
+        "unknown compile argument `--rulespec-root`\n"
+        "usage: compile [--exclusive-rulespec-roots]",
+    )
+
+    result, calls = _run(monkeypatch, [failure], composed=True)
+
+    assert result is failure
+    assert len(calls) == 1
+    assert calls[0][0][1] == "compile-composed"
+
+
+def test_real_engine_accepts_nested_composed_program(tmp_path):
+    raw_binary = os.environ.get("AXIOM_RULES_ENGINE_BINARY")
+    if not raw_binary:
+        pytest.skip("set AXIOM_RULES_ENGINE_BINARY for the real engine contract test")
+    binary = Path(raw_binary).resolve(strict=True)
+    rulespec_root = (tmp_path / "rulespec-us").resolve()
+    atomic = rulespec_root / "us/policies/base.yaml"
+    atomic.parent.mkdir(parents=True)
+    atomic.write_text(
+        """format: rulespec/v1
+rules:
+  - name: base_amount
+    kind: parameter
+    dtype: Money
+    unit: USD
+    versions:
+      - effective_from: 2026-01-01
+        formula: "10"
+"""
+    )
+    nested = rulespec_root / "us-az/policies/state-program.yaml"
+    nested.parent.mkdir(parents=True)
+    nested.write_text(
+        """format: rulespec/v1
+module:
+  kind: composition
+  summary: State composition imported by a generated program.
+imports:
+  - us:policies/base
+rules:
+  - name: adjusted_amount
+    kind: derived
+    entity: Household
+    dtype: Money
+    period: Month
+    unit: USD
+    versions:
+      - effective_from: 2026-01-01
+        formula: base_amount
+"""
+    )
+    composed = (tmp_path / "generated/composition.yaml").resolve()
+    composed.parent.mkdir()
+    composed.write_text(
+        """format: rulespec/v1
+module:
+  kind: composition
+  summary: Real compile-composed contract test.
+imports:
+  - us-az:policies/state-program
+"""
+    )
+    output = tmp_path / "compiled.json"
+
+    result = run_rulespec_compile(
+        binary=binary,
+        program=composed,
+        rulespec_roots=(rulespec_root,),
+        output=output,
+        cwd=binary.parent,
+        env={"PATH": os.environ.get("PATH", "")},
+        composed=True,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output.is_file()
 
 
 def test_legacy_contract_requires_exact_unknown_flag_evidence(monkeypatch):

@@ -1,0 +1,1 @@
+Discover composition owners only under the checkout's top-level `programs/` root, so ProgramSpecs in dependency checkouts nested inside the rules checkout (such as CI's `_axiom/rulespec-us`) no longer become second owners of every composition module.

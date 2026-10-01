@@ -5286,6 +5286,49 @@ inputs:
     assert "`2026_section_40_18_5`" in guidance
     assert "exact mapped legacy surface names listed above are the only" in guidance
     assert "invalid" in guidance
+
+
+def test_existing_target_prompt_requires_relation_entity_repair(tmp_path):
+    target = tmp_path / "2026_section_40_18_5_schedule_before_credits.yaml"
+    target.write_text(
+        """format: rulespec/v1
+rules:
+  - name: member_of_tax_unit
+    kind: data_relation
+    data_relation:
+      arity: 2
+      arguments: [Person, TaxUnit]
+  - name: al_pit_2026_section_40_18_5_schedule_before_credits
+    kind: derived
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+    versions:
+      - effective_from: '2026-01-01'
+        formula: sum(member_of_tax_unit.income)
+inputs:
+  - name: income
+    entity: Person
+    dtype: Money
+    period: Year
+    unit: USD
+"""
+    )
+    context = EvalContextFile(
+        source_path=str(target),
+        workspace_path="context/existing_target.yaml",
+        import_path=(
+            "us-al:policies/income_tax/2026_section_40_18_5_schedule_before_credits"
+        ),
+        kind="existing_target",
+    )
+
+    guidance = _format_existing_target_contract_guidance([context])
+
+    assert "entity=TaxUnit (required relation-current-slot repair" in guidance
+    assert "legacy Person is invalid" in guidance
+    assert "explicit entity-repair note" in guidance
     assert "legacy input" in guidance
 
 
@@ -22464,6 +22507,60 @@ class TestCodexPromptEvalPolicyEngineSkillIsolation:
         assert "PolicyEngine skills" in response.error
         assert response.unexpected_accesses
 
+    def test_run_codex_prompt_eval_explains_chatgpt_account_model_rejection(
+        self, tmp_path
+    ):
+        runner = parse_runner_spec("codex:gpt-6-luna")
+        workspace = prepare_eval_workspace(
+            citation="us-wa/regulation/388/388-478/388-478-0035",
+            runner=runner,
+            output_root=tmp_path / "out",
+            source_text="income limit",
+            axiom_rules_path=_canonical_rulespec_content_root(tmp_path, "us-wa"),
+            mode="cold",
+            extra_context_paths=[],
+        )
+        rejection = (
+            '{"type":"error","status":400,"error":{"type":"invalid_request_error",'
+            '"message":"The \'gpt-6-luna\' model is not supported when using '
+            'Codex with a ChatGPT account."}}'
+        )
+        event_line = json.dumps({"type": "error", "message": rejection})
+
+        class FakePopen:
+            def __init__(self, cmd, stdout, stderr, text, cwd, stdin=None, env=None):
+                self.args = cmd
+                self.returncode = 1
+                stdout.write(event_line + "\n")
+                stdout.flush()
+
+            def poll(self):
+                return self.returncode
+
+            def terminate(self):
+                self.returncode = -15
+
+            def wait(self, timeout=None):
+                return self.returncode
+
+            def kill(self):
+                self.returncode = -9
+
+        with (
+            patch("axiom_encode.harness.evals.subprocess.Popen", FakePopen),
+            patch(
+                "axiom_encode.harness.evals._wait_for_codex_process",
+                return_value=False,
+            ),
+        ):
+            response = _run_codex_prompt_eval(runner, workspace, "prompt")
+
+        assert response.error is not None
+        assert response.error.startswith(rejection)
+        assert "--model gpt-5.6-terra --escalation-model gpt-5.6-sol" in (
+            response.error
+        )
+
 
 class TestUnexpectedAccessDetection:
     def test_flags_parent_directory_traversal(self, tmp_path):
@@ -23934,3 +24031,27 @@ def test_older_openai_models_reuse_stable_prefix_key_across_retries(tmp_path):
     assert evals_module._openai_prompt_cache_key(
         "gpt-5.4", first_prefix
     ) == evals_module._openai_prompt_cache_key("gpt-5.4", retry_prefix)
+
+
+@pytest.mark.parametrize(
+    ("model", "extended", "explicit_cache"),
+    [
+        ("gpt-6-luna", True, True),
+        ("gpt-6-sol", True, True),
+        ("gpt-5.6-terra", True, True),
+        ("gpt-5.4", True, False),
+        ("gpt-60-luna", False, False),
+        ("gpt-4.1", False, False),
+    ],
+)
+def test_openai_generation_gates_cover_gpt_6_models(model, extended, explicit_cache):
+    expected_tokens = (
+        evals_module._OPENAI_EXTENDED_PROMPT_MAX_OUTPUT_TOKENS
+        if extended
+        else evals_module._OPENAI_DEFAULT_PROMPT_MAX_OUTPUT_TOKENS
+    )
+    assert evals_module._openai_prompt_max_output_tokens(model) == expected_tokens
+    assert (
+        evals_module._openai_model_supports_explicit_prompt_cache(model)
+        is explicit_cache
+    )
