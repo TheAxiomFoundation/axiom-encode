@@ -1116,40 +1116,45 @@
    "jurisdiction": "us-or",
    "label": "Page 29",
    "chars": 2740,
-   "status": "pending",
-   "attempts": []
+   "status": "blocked",
+   "attempts": [],
+   "note": "skipped for the pilot: Oregon Chapter 1 is the manual's introduction; requeue to send it"
   },
   {
    "citation": "us-or/manual/odhs/open/page-30",
    "jurisdiction": "us-or",
    "label": "Page 30",
    "chars": 3593,
-   "status": "pending",
-   "attempts": []
+   "status": "blocked",
+   "attempts": [],
+   "note": "skipped for the pilot: Oregon Chapter 1 is the manual's introduction; requeue to send it"
   },
   {
    "citation": "us-or/manual/odhs/open/page-43",
    "jurisdiction": "us-or",
    "label": "Page 43",
    "chars": 3259,
-   "status": "pending",
-   "attempts": []
+   "status": "blocked",
+   "attempts": [],
+   "note": "skipped for the pilot: Oregon Chapter 1 is the manual's introduction; requeue to send it"
   },
   {
    "citation": "us-or/manual/odhs/open/page-47",
    "jurisdiction": "us-or",
    "label": "Page 47",
    "chars": 1480,
-   "status": "pending",
-   "attempts": []
+   "status": "blocked",
+   "attempts": [],
+   "note": "skipped for the pilot: Oregon Chapter 1 is the manual's introduction; requeue to send it"
   },
   {
    "citation": "us-or/manual/odhs/open/page-52",
    "jurisdiction": "us-or",
    "label": "Page 52",
    "chars": 1670,
-   "status": "pending",
-   "attempts": []
+   "status": "blocked",
+   "attempts": [],
+   "note": "skipped for the pilot: Oregon Chapter 1 is the manual's introduction; requeue to send it"
   },
   {
    "citation": "us-or/manual/odhs/open/page-53",
@@ -1157,16 +1162,18 @@
    "label": "Page 53",
    "chars": 156,
    "kept_because": "between SNAP pages",
-   "status": "pending",
-   "attempts": []
+   "status": "blocked",
+   "attempts": [],
+   "note": "skipped for the pilot: Oregon Chapter 1 is the manual's introduction; requeue to send it"
   },
   {
    "citation": "us-or/manual/odhs/open/page-54",
    "jurisdiction": "us-or",
    "label": "Page 54",
    "chars": 2759,
-   "status": "pending",
-   "attempts": []
+   "status": "blocked",
+   "attempts": [],
+   "note": "skipped for the pilot: Oregon Chapter 1 is the manual's introduction; requeue to send it"
   },
   {
    "citation": "us-or/manual/odhs/open/page-55",
@@ -1174,24 +1181,27 @@
    "label": "Page 55",
    "chars": 2602,
    "kept_because": "between SNAP pages",
-   "status": "pending",
-   "attempts": []
+   "status": "blocked",
+   "attempts": [],
+   "note": "skipped for the pilot: Oregon Chapter 1 is the manual's introduction; requeue to send it"
   },
   {
    "citation": "us-or/manual/odhs/open/page-56",
    "jurisdiction": "us-or",
    "label": "Page 56",
    "chars": 2900,
-   "status": "pending",
-   "attempts": []
+   "status": "blocked",
+   "attempts": [],
+   "note": "skipped for the pilot: Oregon Chapter 1 is the manual's introduction; requeue to send it"
   },
   {
    "citation": "us-or/manual/odhs/open/page-59",
    "jurisdiction": "us-or",
    "label": "Page 59",
    "chars": 2994,
-   "status": "pending",
-   "attempts": []
+   "status": "blocked",
+   "attempts": [],
+   "note": "skipped for the pilot: Oregon Chapter 1 is the manual's introduction; requeue to send it"
   },
   {
    "citation": "us-or/manual/odhs/open/page-60",
@@ -1199,56 +1209,63 @@
    "label": "Page 60",
    "chars": 3124,
    "kept_because": "between SNAP pages",
-   "status": "pending",
-   "attempts": []
+   "status": "blocked",
+   "attempts": [],
+   "note": "skipped for the pilot: Oregon Chapter 1 is the manual's introduction; requeue to send it"
   },
   {
    "citation": "us-or/manual/odhs/open/page-61",
    "jurisdiction": "us-or",
    "label": "Page 61",
    "chars": 2584,
-   "status": "pending",
-   "attempts": []
+   "status": "blocked",
+   "attempts": [],
+   "note": "skipped for the pilot: Oregon Chapter 1 is the manual's introduction; requeue to send it"
   },
   {
    "citation": "us-or/manual/odhs/open/page-62",
    "jurisdiction": "us-or",
    "label": "Page 62",
    "chars": 3035,
-   "status": "pending",
-   "attempts": []
+   "status": "blocked",
+   "attempts": [],
+   "note": "skipped for the pilot: Oregon Chapter 1 is the manual's introduction; requeue to send it"
   },
   {
    "citation": "us-or/manual/odhs/open/page-68",
    "jurisdiction": "us-or",
    "label": "Page 68",
    "chars": 2839,
-   "status": "pending",
-   "attempts": []
+   "status": "blocked",
+   "attempts": [],
+   "note": "skipped for the pilot: Oregon Chapter 1 is the manual's introduction; requeue to send it"
   },
   {
    "citation": "us-or/manual/odhs/open/page-75",
    "jurisdiction": "us-or",
    "label": "Page 75",
    "chars": 2719,
-   "status": "pending",
-   "attempts": []
+   "status": "blocked",
+   "attempts": [],
+   "note": "skipped for the pilot: Oregon Chapter 1 is the manual's introduction; requeue to send it"
   },
   {
    "citation": "us-or/manual/odhs/open/page-80",
    "jurisdiction": "us-or",
    "label": "Page 80",
    "chars": 2632,
-   "status": "pending",
-   "attempts": []
+   "status": "blocked",
+   "attempts": [],
+   "note": "skipped for the pilot: Oregon Chapter 1 is the manual's introduction; requeue to send it"
   },
   {
    "citation": "us-or/manual/odhs/open/page-81",
    "jurisdiction": "us-or",
    "label": "Page 81",
    "chars": 2815,
-   "status": "pending",
-   "attempts": []
+   "status": "blocked",
+   "attempts": [],
+   "note": "skipped for the pilot: Oregon Chapter 1 is the manual's introduction; requeue to send it"
   },
   {
    "citation": "us-or/manual/odhs/open/page-82",
@@ -1256,16 +1273,18 @@
    "label": "Page 82",
    "chars": 3110,
    "kept_because": "between SNAP pages",
-   "status": "pending",
-   "attempts": []
+   "status": "blocked",
+   "attempts": [],
+   "note": "skipped for the pilot: Oregon Chapter 1 is the manual's introduction; requeue to send it"
   },
   {
    "citation": "us-or/manual/odhs/open/page-83",
    "jurisdiction": "us-or",
    "label": "Page 83",
    "chars": 2690,
-   "status": "pending",
-   "attempts": []
+   "status": "blocked",
+   "attempts": [],
+   "note": "skipped for the pilot: Oregon Chapter 1 is the manual's introduction; requeue to send it"
   },
   {
    "citation": "us-or/manual/odhs/open/page-93",
