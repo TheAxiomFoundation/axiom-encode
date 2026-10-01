@@ -7036,7 +7036,7 @@ def test_packaged_dc_2026_registry_text_hash_runtime_and_precedence_are_exact():
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2079"')
+        .startswith('__version__ = "0.2.2080"')
     )
 
 
@@ -7268,13 +7268,13 @@ def test_packaged_ca_2026_bhst_text_hash_runtime_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2079"
+    assert encoder_package["version"] == "0.2.2080"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2079"
+    assert project["project"]["version"] == "0.2.2080"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2079"')
+        .startswith('__version__ = "0.2.2080"')
     )
 
 
@@ -7536,13 +7536,13 @@ def test_packaged_ny_2026_text_hash_runtime_pin_and_precedence_are_exact():
     encoder_package = next(
         package for package in lock["package"] if package["name"] == "axiom-encode"
     )
-    assert encoder_package["version"] == "0.2.2079"
+    assert encoder_package["version"] == "0.2.2080"
     project = tomllib.loads((root / "pyproject.toml").read_text())
-    assert project["project"]["version"] == "0.2.2079"
+    assert project["project"]["version"] == "0.2.2080"
     assert (
         (root / "src/axiom_encode/__init__.py")
         .read_text()
-        .startswith('__version__ = "0.2.2079"')
+        .startswith('__version__ = "0.2.2080"')
     )
 
 
@@ -42515,6 +42515,34 @@ rules:
     versions:
       - effective_from: '2026-01-01'
         formula: is_eligible_household_member
+"""
+
+    assert find_source_scope_consistency_issues(content) == []
+
+
+def test_source_scope_consistency_does_not_treat_person_living_with_the_household_as_unit():
+    content = """format: rulespec/v1
+module:
+  summary: The household may designate a responsible person as its head.
+rules:
+  - name: person_is_head_of_household
+    kind: derived
+    entity: Person
+    dtype: Judgment
+    period: Month
+    metadata:
+      proof:
+        atoms:
+          - path: versions[0].formula
+            kind: exception
+            source:
+              excerpt: |-
+                If the only responsible person living with the household is
+                an ineligible member or a disqualified member, this individual
+                shall be designated as head of the household.
+    versions:
+      - effective_from: '2026-01-01'
+        formula: person_is_only_responsible_member_in_household
 """
 
     assert find_source_scope_consistency_issues(content) == []
