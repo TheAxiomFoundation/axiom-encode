@@ -22831,7 +22831,7 @@ _HOUSEHOLD_MEMBER_MIXED_SCOPE_PATTERN = re.compile(
     r"|"
     r"\b(?:individuals?|persons?|clients?|participants?|recipients?)\b"
     r"[\s\S]{0,80}\b(?:resid(?:e|es|ing)|liv(?:e|es|ing))\s+with\s+"
-    r"(?:a\s+)?household\b",
+    r"(?:(?:a|the)\s+)?household\b",
     flags=re.IGNORECASE,
 )
 _UNIT_MEMBER_AGGREGATE_HELPER_SOURCE_PATTERN = re.compile(
