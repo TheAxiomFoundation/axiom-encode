@@ -1,9 +1,9 @@
 {
  "schema": "axiom-encode/snap-dispatch-queue/v1",
  "queue_id": "us-snap-or-ut-pilot",
- "state": "active",
+ "state": "paused",
  "created_at": "2026-09-30T23:26:35Z",
- "updated_at": "2026-10-01T14:37:41Z",
+ "updated_at": "2026-10-01T14:50:19Z",
  "settings": {
   "country": "us",
   "pr_base_branch": "main",
