@@ -74,7 +74,7 @@ def test_every_correction_field_is_required(field):
 
 
 @pytest.mark.parametrize(
-    "temperature", ["0", "1", "-1", "0.125", "-0.125", "123456789123456789.1"]
+    "temperature", [None, "0", "1", "-1", "0.125", "-0.125", "123456789123456789.1"]
 )
 def test_canonical_decimal_temperature_is_not_a_json_number(temperature):
     body = generation()
@@ -88,7 +88,6 @@ def test_canonical_decimal_temperature_is_not_a_json_number(temperature):
         0,
         0.5,
         True,
-        None,
         [],
         {},
         "-0",
