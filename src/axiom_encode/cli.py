@@ -248,6 +248,7 @@ from .harness.validator_pipeline import (
     _SNAP_UTILITY_ALLOWANCE_SETTING_TARGETS,
     _US_TAX_JOINT_ONLY_ANY_OTHER_CASE_TEXT_PATTERN,
     _US_TAX_JOINT_SURVIVING_SPOUSE_GROUP_TEXT_PATTERN,
+    ExistingTargetOracleContract,
     ValidatorPipeline,
     _authoritative_corpus_scope,
     _authoritative_rulespec_dependency_scope,
@@ -332,6 +333,9 @@ from .legacy_replacement import (
 )
 from .legacy_replacement import (
     RECEIPT_SCHEMA_V6 as APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+)
+from .legacy_replacement import (
+    RECEIPT_SCHEMA_V7 as APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
 )
 from .legacy_replacement import (
     RETAINED_SUCCESSOR_TOOL as APPLIED_ENCODING_LEGACY_RETAINED_SUCCESSOR_TOOL,
@@ -474,6 +478,7 @@ _APPLY_VALIDATION_SCOPES = frozenset(
 APPLIED_ENCODING_SIGNATURE_ALGORITHM = "ed25519-domain-v1"
 APPLIED_ENCODING_DELETED_MARKER = "deleted"
 APPLIED_ENCODING_MODEL_TOOL = "axiom-encode encode --apply"
+APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL = "axiom-encode promote-reviewed-candidate"
 APPLIED_ENCODING_RETIRE_TOOL = "axiom-encode retire"
 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_DIR = Path(
     _LEGACY_REPLACEMENT_RECEIPT_DIR_TEXT
@@ -538,6 +543,23 @@ _MODEL_APPLY_MANIFEST_FIELDS = frozenset(
         "trace_sha256",
         "context_manifest_file",
         "context_manifest_sha256",
+        "applied_files",
+        "source_attestation",
+        "validation_execution",
+        "signature",
+    }
+)
+_REVIEWED_CANDIDATE_MANIFEST_FIELDS = frozenset(
+    {
+        "schema_version",
+        "generated_at",
+        "tool",
+        "axiom_encode_version",
+        "axiom_encode_git",
+        "run_id",
+        "citation",
+        "reviewed_rulespec_ref",
+        VALIDATION_WAIVER_SET_SHA256_FIELD,
         "applied_files",
         "source_attestation",
         "validation_execution",
@@ -667,6 +689,23 @@ def _resolve_explicit_existing_directory(raw_path: Path, *, label: str) -> Path:
         raise ValueError(f"{label} path does not exist: {raw}") from exc
     if not resolved.is_dir():
         raise ValueError(f"{label} path is not a directory: {raw}")
+    return resolved
+
+
+def _resolve_optional_axiom_compose_path(raw_path: object) -> Path | None:
+    """Resolve an explicitly supplied composer executable, when present."""
+
+    if raw_path is None:
+        return None
+    if not isinstance(raw_path, (str, Path)):
+        # argparse supplies only strings or None. Some embedders and older
+        # tests pass dynamic namespace mocks whose missing attributes create a
+        # MagicMock instead of returning None; that is an absent option, not a
+        # filesystem authority.
+        return None
+    resolved = Path(raw_path).resolve(strict=True)
+    if not resolved.is_file() or not os.access(resolved, os.X_OK):
+        raise ValueError("--axiom-compose-path must name an executable regular file")
     return resolved
 
 
@@ -1643,6 +1682,11 @@ def main():
         help="Fail oracle validation when oracle coverage reports unclassified legal IDs",
     )
     _add_complete_source_unit_argument(validate_parser)
+    validate_parser.add_argument(
+        "--axiom-compose-path",
+        type=Path,
+        help="Exact axiom-compose executable for composition modules (no discovery)",
+    )
     _add_rulespec_dependency_root_argument(validate_parser)
 
     validation_waivers_parser = subparsers.add_parser(
@@ -1687,6 +1731,11 @@ def main():
         "--json",
         action="store_true",
         help="Output deterministic outcomes and fingerprints as JSON",
+    )
+    validation_waivers_fingerprint_parser.add_argument(
+        "--axiom-compose-path",
+        type=Path,
+        help="Exact axiom-compose executable for composition modules (no discovery)",
     )
     _add_rulespec_dependency_root_argument(validation_waivers_fingerprint_parser)
 
@@ -1740,6 +1789,11 @@ def main():
         "--json",
         action="store_true",
         help="Output the complete audit report as JSON",
+    )
+    validation_waivers_audit_parser.add_argument(
+        "--axiom-compose-path",
+        type=Path,
+        help="Exact axiom-compose executable for composition modules (no discovery)",
     )
     _add_rulespec_dependency_root_argument(validation_waivers_audit_parser)
 
@@ -2423,9 +2477,63 @@ def main():
         required=True,
         help="Exact axiom-rules-engine checkout (no sibling discovery)",
     )
+    refresh_applied_manifest_parser.add_argument(
+        "--axiom-compose-path",
+        type=Path,
+        help="Explicit axiom-compose executable for composition modules",
+    )
     _add_required_corpus_path_argument(refresh_applied_manifest_parser)
     _add_rulespec_dependency_root_argument(refresh_applied_manifest_parser)
     refresh_applied_manifest_parser.add_argument(
+        "--run-id",
+        default=None,
+        help="Optional protected workflow run identifier recorded in the manifest",
+    )
+
+    promote_reviewed_candidate_parser = subparsers.add_parser(
+        "promote-reviewed-candidate",
+        help=(
+            "Validate and sign one exact allowlisted reviewed RuleSpec head "
+            "without model regeneration"
+        ),
+    )
+    promote_reviewed_candidate_parser.add_argument(
+        "--repo",
+        type=Path,
+        required=True,
+        help="Exact clean canonical rulespec-<country> reviewed checkout",
+    )
+    promote_reviewed_candidate_parser.add_argument(
+        "--rulespec-path",
+        required=True,
+        help="Exact checkout-relative primary RuleSpec module",
+    )
+    promote_reviewed_candidate_parser.add_argument(
+        "--citation",
+        required=True,
+        help="Exact canonical corpus citation bound by the reviewed module",
+    )
+    promote_reviewed_candidate_parser.add_argument(
+        "--reviewed-rulespec-ref",
+        required=True,
+        help="Exact allowlisted reviewed RuleSpec commit checked out at HEAD",
+    )
+    promote_reviewed_candidate_parser.add_argument(
+        "--axiom-rules-engine-path",
+        dest="axiom_rules_path",
+        metavar="AXIOM_RULES_ENGINE_PATH",
+        type=Path,
+        required=True,
+        help="Exact axiom-rules-engine checkout (no sibling discovery)",
+    )
+    promote_reviewed_candidate_parser.add_argument(
+        "--axiom-compose-path",
+        type=Path,
+        help="Explicit axiom-compose executable for composition modules",
+    )
+    _add_required_corpus_path_argument(promote_reviewed_candidate_parser)
+    _add_rulespec_dependency_root_argument(promote_reviewed_candidate_parser)
+    promote_reviewed_candidate_parser.add_argument(
         "--run-id",
         default=None,
         help="Optional protected workflow run identifier recorded in the manifest",
@@ -2674,6 +2782,11 @@ def main():
         help="Exact axiom-rules-engine checkout (no sibling discovery)",
     )
     test_parser.add_argument("--json", action="store_true", help="Output as JSON")
+    test_parser.add_argument(
+        "--axiom-compose-path",
+        type=Path,
+        help="Exact axiom-compose executable for composition modules (no discovery)",
+    )
     _add_rulespec_dependency_root_argument(test_parser)
 
     # compile command
@@ -2703,6 +2816,11 @@ def main():
             "Full 40-hex axiom-rules-engine commit that overrides the "
             "toolchain-declared engine pin"
         ),
+    )
+    compile_parser.add_argument(
+        "--axiom-compose-path",
+        type=Path,
+        help="Exact axiom-compose executable for composition modules (no discovery)",
     )
     _add_rulespec_dependency_root_argument(compile_parser)
 
@@ -2795,9 +2913,11 @@ def main():
         choices=["codex", "openai", "claude"],
         default="codex",
         help=(
-            "Backend (default: codex): 'codex' uses the Codex CLI/ChatGPT "
-            f"path with {DEFAULT_OPENAI_MODEL} (auth via ~/.codex/auth.json "
-            "or OPENAI_API_KEY), 'openai' uses OpenAI Responses API, "
+            "Backend (default: codex): 'codex' uses the Codex CLI with "
+            f"{DEFAULT_OPENAI_MODEL} (auth via ~/.codex/auth.json or "
+            "OPENAI_API_KEY; ChatGPT-account Codex rejected the GPT-6 models on "
+            "2026-09-24, so on that auth pass --model/--escalation-model), "
+            "'openai' uses OpenAI Responses API, "
             "'claude' uses Claude CLI. Claude tiers are reserved for "
             "orchestration and review; net-new statutory encoding runs "
             "through codex."
@@ -2816,6 +2936,14 @@ def main():
         type=Path,
         required=True,
         help="Exact axiom-rules-engine checkout (no sibling discovery)",
+    )
+    encode_parser.add_argument(
+        "--axiom-compose-path",
+        type=Path,
+        help=(
+            "Explicit axiom-compose executable required when validating a "
+            "module with module.kind: composition"
+        ),
     )
     encode_parser.add_argument(
         "--policy-repo-path",
@@ -3616,6 +3744,8 @@ def main():
         cmd_stage_signed_backfill(args)
     elif args.command == "refresh-applied-manifest":
         cmd_refresh_applied_manifest(args)
+    elif args.command == "promote-reviewed-candidate":
+        cmd_promote_reviewed_candidate(args)
     elif args.command == "signed-import-inventory":
         cmd_signed_import_inventory(args)
     elif args.command == "manifest-census":
@@ -3720,6 +3850,9 @@ def _cmd_validate_with_resolution_cache(args):
             pipeline = ValidatorPipeline(
                 policy_repo_path=policy_repo_root,
                 axiom_rules_path=axiom_rules_path,
+                axiom_compose_path=_resolve_optional_axiom_compose_path(
+                    getattr(args, "axiom_compose_path", None)
+                ),
                 enable_oracles=enable_oracles,
                 oracle_validators=oracle_validators,
                 policyengine_runtime=policyengine_runtime,
@@ -3961,6 +4094,7 @@ def _validation_waiver_companion_outcome(
     root: Path,
     policy_repo_path: Path,
     binary: Path,
+    pipeline: ValidatorPipeline | None = None,
     axiom_rules_path: Path,
     env: dict[str, str],
     rulespec_roots: Sequence[Path],
@@ -3987,6 +4121,7 @@ def _validation_waiver_companion_outcome(
         result = _execute_rulespec_test_file(
             companion,
             binary=binary,
+            pipeline=pipeline,
             axiom_rules_path=axiom_rules_path,
             env=env,
             rulespec_roots=rulespec_roots,
@@ -4062,6 +4197,10 @@ def _validation_waiver_path_replacements(
     for binary in binaries:
         add_path(binary, "<engine-binary>", override=True)
     add_path(tmp_path, "<tmp>", override=True)
+    for pipeline in pipelines:
+        compose_path = getattr(pipeline, "axiom_compose_path", None)
+        if compose_path is not None:
+            add_path(compose_path, "<axiom-compose>", override=True)
     return dict(sorted(replacements.items(), key=lambda item: (-len(item[0]), item[0])))
 
 
@@ -4071,6 +4210,7 @@ def _fingerprint_validation_waiver_modules(
     root: Path,
     corpus_path: Path,
     axiom_rules_path: Path,
+    axiom_compose_path: Path | None = None,
     rulespec_dependency_roots: Sequence[Path] = (),
     corpus_release: LocalCorpusRelease | None = None,
 ) -> list[dict[str, Any]]:
@@ -4096,6 +4236,7 @@ def _fingerprint_validation_waiver_modules(
             root=root,
             corpus_path=corpus_path,
             axiom_rules_path=axiom_rules_path,
+            axiom_compose_path=axiom_compose_path,
             rulespec_dependency_roots=rulespec_dependency_roots,
             corpus_release=corpus_release,
         )
@@ -4107,6 +4248,7 @@ def _fingerprint_validation_waiver_modules_impl(
     root: Path,
     corpus_path: Path,
     axiom_rules_path: Path,
+    axiom_compose_path: Path | None = None,
     rulespec_dependency_roots: Sequence[Path] = (),
     corpus_release: LocalCorpusRelease | None = None,
 ) -> list[dict[str, Any]]:
@@ -4141,6 +4283,7 @@ def _fingerprint_validation_waiver_modules_impl(
         content_root: ValidatorPipeline(
             policy_repo_path=content_root,
             axiom_rules_path=engine_root,
+            axiom_compose_path=axiom_compose_path,
             enable_oracles=False,
             local_corpus_release=corpus_release,
             rulespec_dependency_roots=rulespec_dependency_roots,
@@ -4188,6 +4331,7 @@ def _fingerprint_validation_waiver_modules_impl(
                 root=root,
                 policy_repo_path=content_root,
                 binary=binary,
+                pipeline=pipeline,
                 axiom_rules_path=engine_root,
                 env=env,
                 rulespec_roots=rulespec_roots,
@@ -4245,6 +4389,7 @@ def _fingerprint_waiver_chunk(
     axiom_rules_path: str,
     rulespec_dependency_roots: tuple[str, ...],
     release_identity: tuple[str, str, str, object],
+    axiom_compose_path: str | None = None,
 ) -> list[dict[str, Any]]:
     """Worker entrypoint: fingerprint one chunk against a pre-attested release.
 
@@ -4265,6 +4410,7 @@ def _fingerprint_waiver_chunk(
         root=Path(root),
         corpus_path=Path(corpus_path),
         axiom_rules_path=Path(axiom_rules_path),
+        axiom_compose_path=Path(axiom_compose_path) if axiom_compose_path else None,
         rulespec_dependency_roots=tuple(
             Path(path) for path in rulespec_dependency_roots
         ),
@@ -4278,13 +4424,16 @@ def _fingerprint_validation_waiver_modules_parallel(
     root: Path,
     corpus_path: Path,
     axiom_rules_path: Path,
+    axiom_compose_path: Path | None = None,
     rulespec_dependency_roots: Sequence[Path] = (),
 ) -> list[dict[str, Any]]:
     """Fingerprint waiver modules across worker processes.
 
-    Each worker runs the unchanged serial executor over a contiguous slice of
-    the sorted module list with its own pipelines, temporary directory, and
-    compile cache; fingerprints are stable across the split because outcome
+    Each worker runs the unchanged serial executor over an interleaved slice
+    of the sorted module list with its own pipelines, temporary directory, and
+    compile cache. Interleaving prevents adjacent expensive modules from
+    landing on the same worker (for example tariff chapters in a validation
+    shard). Fingerprints are stable across the split because outcome
     canonicalization replaces every process-specific path. A worker failure
     fails the whole audit; results are re-sorted so output order matches the
     serial code path exactly.
@@ -4297,6 +4446,7 @@ def _fingerprint_validation_waiver_modules_parallel(
             root=root,
             corpus_path=corpus_path,
             axiom_rules_path=axiom_rules_path,
+            axiom_compose_path=axiom_compose_path,
             rulespec_dependency_roots=rulespec_dependency_roots,
         )
 
@@ -4309,11 +4459,7 @@ def _fingerprint_validation_waiver_modules_parallel(
         corpus_release.content_sha256,
         corpus_release.public_key,
     )
-    chunk_size = max(8, math.ceil(len(ordered) / (workers * 8)))
-    chunks = [
-        ordered[start : start + chunk_size]
-        for start in range(0, len(ordered), chunk_size)
-    ]
+    chunks = [ordered[offset::workers] for offset in range(workers)]
     dependency_roots = tuple(str(path) for path in rulespec_dependency_roots)
 
     results: list[dict[str, Any]] = []
@@ -4327,6 +4473,7 @@ def _fingerprint_validation_waiver_modules_parallel(
                 str(axiom_rules_path),
                 dependency_roots,
                 release_identity,
+                str(axiom_compose_path) if axiom_compose_path else None,
             )
             for chunk in chunks
         ]
@@ -4405,6 +4552,9 @@ def _cmd_validation_waivers_fingerprint(args) -> int:
         root=root,
         corpus_path=args.corpus_path,
         axiom_rules_path=args.axiom_rules_path,
+        axiom_compose_path=_resolve_optional_axiom_compose_path(
+            getattr(args, "axiom_compose_path", None)
+        ),
         rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
     )
     if args.json:
@@ -4567,6 +4717,9 @@ def _cmd_validation_waivers_audit(args) -> int:
             root=root,
             corpus_path=args.corpus_path,
             axiom_rules_path=args.axiom_rules_path,
+            axiom_compose_path=_resolve_optional_axiom_compose_path(
+                getattr(args, "axiom_compose_path", None)
+            ),
             rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
         )
         if executable_paths
@@ -4617,6 +4770,9 @@ def _cmd_validation_waivers_audit(args) -> int:
             root=root,
             corpus_path=args.corpus_path,
             axiom_rules_path=args.axiom_rules_path,
+            axiom_compose_path=_resolve_optional_axiom_compose_path(
+                getattr(args, "axiom_compose_path", None)
+            ),
             rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
         )
         for result in rechecked:
@@ -5068,6 +5224,9 @@ def cmd_test(args):
     pipeline = ValidatorPipeline(
         policy_repo_path=root,
         axiom_rules_path=axiom_rules_path,
+        axiom_compose_path=_resolve_optional_axiom_compose_path(
+            getattr(args, "axiom_compose_path", None)
+        ),
         local_corpus_release=None,
         enable_oracles=False,
         rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
@@ -5086,6 +5245,7 @@ def cmd_test(args):
             result = _execute_rulespec_test_file(
                 test_file,
                 binary=binary,
+                pipeline=pipeline,
                 axiom_rules_path=Path(axiom_rules_path),
                 env=rulespec_env,
                 rulespec_roots=rulespec_roots,
@@ -5183,6 +5343,7 @@ def _execute_rulespec_test_file(
     test_file: Path,
     *,
     binary: Path,
+    pipeline: ValidatorPipeline | None = None,
     axiom_rules_path: Path,
     env: dict[str, str],
     rulespec_roots: Sequence[Path],
@@ -5216,14 +5377,25 @@ def _execute_rulespec_test_file(
             else program_file
         )
         compiled_path = tmp_path / (_safe_artifact_stem(program_file) + ".json")
-        result = run_rulespec_compile(
-            binary=binary,
-            program=compile_file,
-            rulespec_roots=rulespec_roots,
-            output=compiled_path,
-            cwd=axiom_rules_path if axiom_rules_path.exists() else None,
-            env=env,
-        )
+        payload = _safe_load_unique_keys(compile_file.read_text())
+        module = payload.get("module") if isinstance(payload, dict) else None
+        if isinstance(module, dict) and module.get("kind") == "composition":
+            if pipeline is None:
+                raise ValueError(
+                    "composition companion requires an explicit validation pipeline"
+                )
+            result, _artifact = pipeline._compile_rulespec_to_artifact(
+                program_file, compiled_path
+            )
+        else:
+            result = run_rulespec_compile(
+                binary=binary,
+                program=compile_file,
+                rulespec_roots=rulespec_roots,
+                output=compiled_path,
+                cwd=axiom_rules_path if axiom_rules_path.exists() else None,
+                env=env,
+            )
         if result.returncode != 0:
             return {
                 "cases": 0,
@@ -5900,6 +6072,9 @@ def cmd_compile(args):
         pipeline = ValidatorPipeline(
             policy_repo_path=policy_repo_path,
             axiom_rules_path=axiom_rules_path,
+            axiom_compose_path=_resolve_optional_axiom_compose_path(
+                getattr(args, "axiom_compose_path", None)
+            ),
             local_corpus_release=None,
             enable_oracles=False,
             rulespec_dependency_roots=_rulespec_dependency_roots_from_args(args),
@@ -7661,6 +7836,9 @@ def cmd_refresh_applied_manifest(args):
         args.axiom_rules_path,
         label="Axiom rules engine",
     )
+    axiom_compose_path = _resolve_optional_axiom_compose_path(
+        getattr(args, "axiom_compose_path", None)
+    )
     corpus_path = _resolve_explicit_existing_directory(
         args.corpus_path,
         label="Axiom Corpus",
@@ -7779,6 +7957,7 @@ def cmd_refresh_applied_manifest(args):
                         output_root=output_root,
                         policy_repo_path=content_root,
                         axiom_rules_path=axiom_rules_path,
+                        axiom_compose_path=axiom_compose_path,
                         local_corpus_release=local_corpus_release,
                         rulespec_dependency_roots=dependency_roots,
                     )
@@ -7851,6 +8030,330 @@ def cmd_refresh_applied_manifest(args):
                     "manifest-only refresh returned an unexpected apply set"
                 )
             print(f"refreshed {expected_manifest}")
+
+
+def cmd_promote_reviewed_candidate(args):
+    """Validate and sign one exact allowlisted reviewed RuleSpec commit."""
+
+    from .prepare_signed_backfill import (
+        REVIEWED_RULESPEC_REFS,
+        citation_rulespec_path,
+    )
+
+    repo_path = _resolve_canonical_rulespec_checkout(
+        args.repo,
+        label="RuleSpec checkout",
+    )
+    axiom_rules_path = _resolve_explicit_existing_directory(
+        args.axiom_rules_path,
+        label="Axiom rules engine",
+    )
+    axiom_compose_path = _resolve_optional_axiom_compose_path(
+        getattr(args, "axiom_compose_path", None)
+    )
+    corpus_path = _resolve_explicit_existing_directory(
+        args.corpus_path,
+        label="Axiom Corpus",
+    )
+    dependency_roots = _normalize_rulespec_dependency_roots(
+        _rulespec_dependency_roots_from_args(args)
+    )
+    reviewed_ref = str(args.reviewed_rulespec_ref)
+    country_match = re.fullmatch(r"rulespec-([a-z]{2})", repo_path.name)
+    if country_match is None:
+        raise ValueError("reviewed candidate checkout name is not canonical")
+    country = country_match.group(1)
+    actual_ref = subprocess.check_output(
+        ["git", "-C", str(repo_path), "rev-parse", "HEAD"],
+        text=True,
+    ).strip()
+    if actual_ref != reviewed_ref:
+        raise ValueError("reviewed candidate checkout does not match its exact ref")
+    if (country, reviewed_ref) not in REVIEWED_RULESPEC_REFS:
+        raise ValueError("reviewed candidate ref is not explicitly allowlisted")
+
+    rulespec_relative = Path(args.rulespec_path)
+    expected_relative = Path(citation_rulespec_path(str(args.citation)))
+    if rulespec_relative != expected_relative:
+        raise ValueError(
+            "reviewed candidate path does not match the citation's canonical path"
+        )
+    if (
+        rulespec_relative.is_absolute()
+        or rulespec_relative.as_posix() != str(args.rulespec_path)
+        or any(part in {"", ".", ".."} for part in rulespec_relative.parts)
+        or not _is_protected_rulespec_yaml_path(
+            rulespec_relative,
+            roots=tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS)),
+        )
+    ):
+        raise ValueError("reviewed candidate path is not a protected RuleSpec module")
+
+    status = subprocess.check_output(
+        [
+            "git",
+            "-C",
+            str(repo_path),
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all",
+            "--ignored=matching",
+        ]
+    )
+    if status:
+        raise ValueError("reviewed candidate promotion requires a clean checkout")
+    rulespec_file = repo_path / rulespec_relative
+    companion_relative = _rulespec_test_path(rulespec_relative)
+    companion_file = repo_path / companion_relative
+    manifest_path = repo_path / _applied_encoding_manifest_path(rulespec_relative)
+    if manifest_path.exists() or manifest_path.is_symlink():
+        raise ValueError("reviewed candidate already has an apply manifest")
+
+    def exact_head_bytes(relative: Path, *, label: str) -> bytes:
+        try:
+            raw = read_bounded_regular_file(
+                repo_path,
+                repo_path / relative,
+                label=label,
+                max_bytes=10 * 1024 * 1024,
+            )
+            tracked = subprocess.check_output(
+                ["git", "-C", str(repo_path), "show", f"HEAD:{relative.as_posix()}"]
+            )
+        except (OSError, subprocess.CalledProcessError, UnsafeCorpusPathError) as exc:
+            raise ValueError(f"{label} must be a regular file tracked at HEAD") from exc
+        if raw != tracked:
+            raise ValueError(f"{label} differs from the reviewed HEAD")
+        return raw
+
+    before = {
+        rulespec_relative: exact_head_bytes(
+            rulespec_relative,
+            label="reviewed candidate RuleSpec",
+        ),
+        companion_relative: exact_head_bytes(
+            companion_relative,
+            label="reviewed candidate companion",
+        ),
+    }
+    _recover_apply_transaction(repo_path)
+    with _authoritative_rulespec_dependency_scope(dependency_roots):
+        with _isolated_apply_manifest_signer(preflight=True) as signing_broker:
+            local_corpus_release = load_rulespec_local_corpus_release(
+                repo_path,
+                corpus_path,
+            )
+            _verifications, rulespec_root = _manifest_primary_source_verifications(
+                manifest_root=repo_path,
+                applied_files=[rulespec_file, companion_file],
+            )
+            source_unit = resolve_corpus_source_unit(
+                str(args.citation),
+                local_corpus_release,
+            )
+            normalized_source = source_unit.body.replace("\r\n", "\n").replace(
+                "\r", "\n"
+            )
+            source_attestation = {
+                **source_unit.source_attestation,
+                "generation_input_sha256": hashlib.sha256(
+                    normalized_source.encode("utf-8")
+                ).hexdigest(),
+                "rulespec_root": rulespec_root,
+            }
+            content_root = repo_path / rulespec_relative.parts[0]
+            relative_output = Path(*rulespec_relative.parts[1:])
+            with tempfile.TemporaryDirectory() as temporary:
+                output_root = Path(temporary)
+                context_root = output_root / "reviewed-candidate-context"
+                context_root.mkdir()
+                source_text_file = context_root / "source.txt"
+                source_text_file.write_text(
+                    normalized_source,
+                    encoding="utf-8",
+                    newline="",
+                )
+                context_manifest = context_root / "context-manifest.json"
+                context_manifest.write_text(
+                    json.dumps(
+                        {
+                            "source_text_file": source_text_file.name,
+                            "source_metadata": {
+                                "source_attestation": source_attestation,
+                            },
+                        },
+                        indent=2,
+                        sort_keys=True,
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                generated_file = output_root / "reviewed-candidate" / relative_output
+                generated_file.parent.mkdir(parents=True)
+                shutil.copyfile(rulespec_file, generated_file)
+                generated_companion = _rulespec_test_path(generated_file)
+                shutil.copyfile(companion_file, generated_companion)
+                result = argparse.Namespace(
+                    output_file=str(generated_file),
+                    runner="reviewed-candidate",
+                    backend="openai",
+                    model="reviewed-candidate-promotion-v1",
+                    tool=APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
+                    citation=str(args.citation),
+                    generation_prompt_sha256=None,
+                    trace_file=None,
+                    context_manifest_file=str(context_manifest),
+                    source_attestation=source_attestation,
+                )
+                setattr(
+                    result,
+                    _IMMUTABLE_RULESPEC_SHA256_ATTR,
+                    hashlib.sha256(before[rulespec_relative]).hexdigest(),
+                )
+                setattr(result, _REVIEWED_CANDIDATE_PROMOTION_ATTR, True)
+                valid, validation_issues, supplemental_files = (
+                    _run_generated_encoding_overlay_validation(
+                        result,
+                        output_root=output_root,
+                        policy_repo_path=content_root,
+                        axiom_rules_path=axiom_rules_path,
+                        axiom_compose_path=axiom_compose_path,
+                        local_corpus_release=local_corpus_release,
+                        rulespec_dependency_roots=dependency_roots,
+                        require_complete_source_unit=True,
+                    )
+                )
+                if not valid:
+                    raise RuntimeError(
+                        "reviewed candidate failed current overlay validation: "
+                        + "; ".join(validation_issues)
+                    )
+                reviewed_artifact_bytes = {
+                    relative_output: generated_file.read_bytes(),
+                    _rulespec_test_path(relative_output): (
+                        generated_companion.read_bytes()
+                    ),
+                }
+                supplemental_files = {
+                    path: content
+                    for path, content in supplemental_files.items()
+                    if reviewed_artifact_bytes.get(path) != content.encode("utf-8")
+                }
+                if supplemental_files:
+                    raise RuntimeError(
+                        "reviewed candidate validation produced supplemental changes"
+                    )
+                generated_after = {
+                    rulespec_relative: generated_file.read_bytes(),
+                    companion_relative: generated_companion.read_bytes(),
+                }
+                if generated_after != before:
+                    raise RuntimeError(
+                        "reviewed candidate validation changed RuleSpec bytes"
+                    )
+                snapshot = getattr(result, _APPLY_VALIDATION_SNAPSHOT_ATTR, None)
+                validation_execution = (
+                    snapshot.get("manifest_validation_execution")
+                    if isinstance(snapshot, dict)
+                    else None
+                )
+                if not isinstance(validation_execution, dict):
+                    raise RuntimeError(
+                        "reviewed candidate validation lacks execution provenance"
+                    )
+
+            axiom_encode_git = _require_clean_axiom_encode_git_provenance()
+            payload: dict[str, object] = {
+                "schema_version": APPLIED_ENCODING_MANIFEST_SCHEMA,
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "tool": APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL,
+                "axiom_encode_version": __version__,
+                "axiom_encode_git": axiom_encode_git,
+                "run_id": args.run_id,
+                "citation": str(args.citation),
+                "reviewed_rulespec_ref": reviewed_ref,
+                VALIDATION_WAIVER_SET_SHA256_FIELD: (
+                    verify_rulespec_validation_waiver_set(repo_path)
+                ),
+                "applied_files": [
+                    {
+                        "path": relative.as_posix(),
+                        "sha256": hashlib.sha256(raw).hexdigest(),
+                    }
+                    for relative, raw in before.items()
+                ],
+                "source_attestation": source_attestation,
+                "validation_execution": validation_execution,
+            }
+            _sign_applied_encoding_manifest(payload, signing_broker)
+            manifest_bytes = (
+                json.dumps(payload, indent=2, sort_keys=True) + "\n"
+            ).encode("utf-8")
+
+            def require_unchanged_reviewed_head() -> None:
+                for relative, expected in before.items():
+                    if (
+                        exact_head_bytes(relative, label="reviewed candidate file")
+                        != expected
+                    ):
+                        raise RuntimeError(
+                            "reviewed candidate changed after successful validation"
+                        )
+
+            def verify_installed_manifest() -> None:
+                require_unchanged_reviewed_head()
+                verified, _prefix, _digest, issues = (
+                    _load_verified_applied_encoding_manifest_payload(
+                        repo_path,
+                        manifest_path.relative_to(repo_path).as_posix(),
+                        roots=tuple(sorted(RULESPEC_ATOMIC_MODULE_ROOTS)),
+                        signing_broker=signing_broker,
+                        expected_waiver_set_sha256=payload[
+                            VALIDATION_WAIVER_SET_SHA256_FIELD
+                        ],
+                        local_corpus_release=local_corpus_release,
+                        expected_encoder_identity=(
+                            _current_guard_encoder_execution_identity()
+                        ),
+                    )
+                )
+                if verified is None or issues:
+                    raise RuntimeError(
+                        "installed reviewed candidate manifest failed verification: "
+                        + "; ".join(issues)
+                    )
+
+            _install_apply_transaction(
+                [(manifest_path, manifest_bytes)],
+                checkout_root=repo_path,
+                expected_originals={manifest_path: None},
+                pre_install_check=require_unchanged_reviewed_head,
+                post_install_check=verify_installed_manifest,
+            )
+
+    changed_records = {
+        record
+        for record in subprocess.check_output(
+            [
+                "git",
+                "-C",
+                str(repo_path),
+                "status",
+                "--porcelain=v1",
+                "-z",
+                "--untracked-files=all",
+                "--ignored=matching",
+            ]
+        ).split(b"\0")
+        if record
+    }
+    expected_manifest = manifest_path.relative_to(repo_path).as_posix()
+    if changed_records != {b"?? " + os.fsencode(expected_manifest)}:
+        raise RuntimeError(
+            "reviewed candidate promotion changed paths other than its manifest"
+        )
+    print(f"promoted reviewed candidate {expected_manifest}")
 
 
 def cmd_signed_import_inventory(args):
@@ -9420,6 +9923,7 @@ def _legacy_replacement_pending_paths(
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V4,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+                APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
             }
             or receipt.get("tool") != APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL
@@ -9486,6 +9990,7 @@ def _legacy_replacement_pending_paths(
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V4,
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+            APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
         } and _legacy_destination_predecessor_issues(
             repo_path,
@@ -9668,6 +10173,7 @@ def _legacy_replacement_pending_paths(
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V4,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+                APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
             }
             or receipt.get("tool") != APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL
@@ -17102,11 +17608,13 @@ def _rulespec_companion_test_failures(
     *,
     root: Path,
     axiom_rules_path: Path,
+    axiom_compose_path: Path | None = None,
     rulespec_dependency_roots: Sequence[Path] = (),
 ) -> list[dict[str, str | None]]:
     pipeline = ValidatorPipeline(
         policy_repo_path=root,
         axiom_rules_path=axiom_rules_path,
+        axiom_compose_path=axiom_compose_path,
         local_corpus_release=None,
         enable_oracles=False,
         rulespec_dependency_roots=rulespec_dependency_roots,
@@ -17118,6 +17626,7 @@ def _rulespec_companion_test_failures(
         result = _execute_rulespec_test_file(
             test_file,
             binary=binary,
+            pipeline=pipeline,
             axiom_rules_path=Path(axiom_rules_path),
             env=rulespec_env,
             rulespec_roots=rulespec_roots,
@@ -21933,6 +22442,7 @@ def _manifest_coverage_by_file(
             )
             or payload.get("tool") == APPLIED_ENCODING_LEGACY_EXACT_DEPENDENT_TOOL
             or payload.get("tool") == APPLIED_ENCODING_LEGACY_RETAINED_SUCCESSOR_TOOL
+            or payload.get("tool") == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL
         )
         applied_files = payload.get("applied_files")
         if not isinstance(applied_files, list):
@@ -21998,8 +22508,14 @@ def _applied_manifest_source_attestation_issues(
             for issue in structure_issues
         )
 
-    generated_backend = backend in APPLIED_ENCODING_GENERATED_BACKENDS
-    model_backend = backend in APPLIED_ENCODING_ENCODER_BACKENDS
+    reviewed_candidate = (
+        backend == ""
+        and payload.get("tool") == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL
+    )
+    generated_backend = (
+        backend in APPLIED_ENCODING_GENERATED_BACKENDS or reviewed_candidate
+    )
+    model_backend = backend in APPLIED_ENCODING_ENCODER_BACKENDS or reviewed_candidate
     rulespec_verifications: list[tuple[str, dict[str, object] | None]] = []
     covered_rulespec_paths: list[str] = []
     target_rulespec_paths: list[str] = []
@@ -22450,6 +22966,29 @@ def _applied_manifest_tool_execution_issues(
                 f"{manifest_label} model backend must not claim deterministic execution"
             )
         return issues
+    if backend is None and tool == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL:
+        reviewed_ref = payload.get("reviewed_rulespec_ref")
+        if (
+            not isinstance(reviewed_ref, str)
+            or re.fullmatch(r"[0-9a-f]{40}", reviewed_ref) is None
+        ):
+            issues.append(f"{manifest_label} reviewed RuleSpec ref is invalid")
+        provenance = payload.get("axiom_encode_git")
+        if not isinstance(provenance, dict) or (
+            provenance.get("commit") != expected_encoder_identity.get("commit")
+            or provenance.get("version") != expected_encoder_identity.get("version")
+            or provenance.get("dirty_tracked") is not False
+        ):
+            issues.append(
+                f"{manifest_label} reviewed candidate promotion does not match "
+                "the running pinned encoder"
+            )
+        if "deterministic_execution" in payload:
+            issues.append(
+                f"{manifest_label} reviewed candidate promotion must carry "
+                "validation_execution instead of deterministic_execution"
+            )
+        return issues
     if backend is None:
         applied_files = payload.get("applied_files")
         if tool == APPLIED_ENCODING_LEGACY_EXACT_DEPENDENT_TOOL:
@@ -22648,6 +23187,10 @@ def _applied_manifest_exact_schema_issues(
         expected_fields = _MODEL_APPLY_MANIFEST_FIELDS
         expected_item_fields = _MODEL_APPLIED_FILE_FIELDS
         contract = "model"
+    elif backend is None and tool == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL:
+        expected_fields = _REVIEWED_CANDIDATE_MANIFEST_FIELDS
+        expected_item_fields = _MODEL_APPLIED_FILE_FIELDS
+        contract = "reviewed candidate promotion"
     elif backend is None and tool == APPLIED_ENCODING_RETIRE_TOOL:
         expected_fields = _RETIRE_APPLY_MANIFEST_FIELDS
         expected_item_fields = _RETIRED_APPLIED_FILE_FIELDS
@@ -23833,6 +24376,7 @@ def _legacy_replacement_manifest_issues(
         APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V4,
         APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
         APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+        APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
         APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
     }:
         identity_deleted_files.extend(
@@ -23886,6 +24430,7 @@ def _legacy_replacement_manifest_issues(
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V4,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+                APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
             }
             else None
@@ -23898,6 +24443,7 @@ def _legacy_replacement_manifest_issues(
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V4,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+                APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
             }
             and isinstance(receipt_replacement, dict)
@@ -23914,6 +24460,7 @@ def _legacy_replacement_manifest_issues(
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V4,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+                APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
             }
             and isinstance(receipt_replacement, dict)
@@ -23929,6 +24476,7 @@ def _legacy_replacement_manifest_issues(
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V4,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+                APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
             }
             else None
@@ -23940,6 +24488,7 @@ def _legacy_replacement_manifest_issues(
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V4,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+                APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
             }
             and isinstance(receipt_replacement, dict)
@@ -23962,6 +24511,7 @@ def _legacy_replacement_manifest_issues(
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V4,
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+            APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
         }
         or receipt.get("tool") != APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL
@@ -24065,6 +24615,7 @@ def _legacy_replacement_manifest_issues(
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V4,
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+                    APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
                 }
                 else set()
@@ -24080,6 +24631,7 @@ def _legacy_replacement_manifest_issues(
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V4,
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+                    APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
                 }
                 else set()
@@ -24091,6 +24643,7 @@ def _legacy_replacement_manifest_issues(
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V4,
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+                    APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
                 }
                 else set()
@@ -24137,6 +24690,7 @@ def _legacy_replacement_manifest_issues(
         APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V4,
         APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
         APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+        APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
         APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
     }:
         issues.extend(
@@ -24426,7 +24980,10 @@ def _legacy_replacement_manifest_issues(
         issues.append(f"{manifest_label} exact dependents are malformed")
         exact_dependents = []
     receipt_retained_modules: list[tuple[Path, Path, bytes, bytes]] = []
-    if receipt_schema == APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA:
+    if receipt_schema in {
+        APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+        APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
+    }:
         for successor in receipt_retained_successors:
             if not isinstance(successor, dict):
                 continue
@@ -24469,10 +25026,14 @@ def _legacy_replacement_manifest_issues(
         if receipt_schema in {
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+            APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
         }:
             expected_dependent_fields.add("source_verification_migration")
-        if receipt_schema == APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA:
+        if receipt_schema in {
+            APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+            APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
+        }:
             expected_dependent_fields.add("concept_replacements")
         if (
             not isinstance(dependent, dict)
@@ -24491,6 +25052,7 @@ def _legacy_replacement_manifest_issues(
             in {
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+                APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
             }
             else None
@@ -24620,7 +25182,10 @@ def _legacy_replacement_manifest_issues(
             base_primary_citations = _legacy_primary_source_citations(base_primary_raw)
         exact_authoritative_replacements = authoritative_replacements
         exact_concept_replacements: dict[str, str] = {}
-        if receipt_schema == APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA:
+        if receipt_schema in {
+            APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+            APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
+        }:
             try:
                 derived_concept_replacements = (
                     derive_exact_dependent_parameter_replacements(
@@ -24724,6 +25289,7 @@ def _legacy_replacement_manifest_issues(
                 if path == primary_path and receipt_schema in {
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+                    APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
                 }:
                     rewritten, source_verification_migration = (
@@ -24732,6 +25298,7 @@ def _legacy_replacement_manifest_issues(
                 proof_excerpt_reanchors: tuple[dict[str, object], ...] = ()
                 if path == primary_path and receipt_schema in {
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+                    APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
                 }:
                     receipt_rewrite = rewrite_by_path.get(path)
@@ -24875,6 +25442,7 @@ def _legacy_replacement_manifest_issues(
                 }
                 if receipt_schema in {
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+                    APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
                     APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
                 }:
                     expected_rewrite_fields.add("proof_excerpt_reanchors")
@@ -24889,6 +25457,7 @@ def _legacy_replacement_manifest_issues(
                         receipt_schema
                         in {
                             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+                            APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
                             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
                         }
                         and rewrite.get("proof_excerpt_reanchors")
@@ -24916,6 +25485,7 @@ def _legacy_replacement_manifest_issues(
             in {
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+                APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
                 APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
             }
             and receipt_source_verification_migration is not None
@@ -25176,6 +25746,12 @@ def _legacy_replacement_manifest_issues(
         if old.endswith(RULESPEC_FILE_SUFFIX)
         and not old.endswith(RULESPEC_TEST_FILE_SUFFIX)
     ]
+    in_place_waiver_modules = (
+        frozenset({str(replacement["source"])})
+        if receipt_schema == APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA
+        and replacement.get("source") == replacement.get("destination")
+        else frozenset()
+    )
     post_migration_waiver_sha256: str | None = None
     try:
         base_waiver_raw = _rulespec_migration_base_blob(
@@ -25188,13 +25764,17 @@ def _legacy_replacement_manifest_issues(
                 Path("known-validation-gaps.yaml"),
                 base_waiver_raw,
                 moves=primary_moves,
+                in_place_waiver_modules=in_place_waiver_modules,
             )
         )
         post_migration_waiver_sha256 = hashlib.sha256(rewritten_waiver_raw).hexdigest()
     except (RuntimeError, ValueError):
         pass
     retired_schema_count_transition: tuple[int, int] | None = None
-    if receipt_schema == APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA:
+    if receipt_schema in {
+        APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
+        APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
+    }:
         try:
             base_retired_freeze_raw = _rulespec_migration_base_blob(
                 repo_path,
@@ -25206,6 +25786,7 @@ def _legacy_replacement_manifest_issues(
                     Path(".axiom/retired-schema-freeze.json"),
                     base_retired_freeze_raw,
                     moves=primary_moves,
+                    in_place_waiver_modules=in_place_waiver_modules,
                     retired_schema_modules=frozenset(
                         exact_metadata_retired_schema_modules
                     ),
@@ -25235,6 +25816,11 @@ def _legacy_replacement_manifest_issues(
         issues.append(
             f"{manifest_label} replacement index postimage is unverifiable: {exc}"
         )
+    allowed_metadata_paths = (
+        frozenset({Path("known-validation-gaps.yaml"), Path(".axiom/toolchain.toml")})
+        if in_place_waiver_modules and not primary_moves
+        else _LEGACY_REPLACEMENT_METADATA_REWRITE_PATHS
+    )
     listed_metadata_paths: set[Path] = set()
     for reconciliation in metadata_reconciliations:
         if not isinstance(reconciliation, dict) or set(reconciliation) != {
@@ -25247,10 +25833,7 @@ def _legacy_replacement_manifest_issues(
             continue
         path_raw = reconciliation.get("path")
         path = Path(path_raw) if isinstance(path_raw, str) else Path()
-        if (
-            path not in _LEGACY_REPLACEMENT_METADATA_REWRITE_PATHS
-            or path in listed_metadata_paths
-        ):
+        if path not in allowed_metadata_paths or path in listed_metadata_paths:
             issues.append(
                 f"{manifest_label} metadata reconciliation path is unauthorized"
             )
@@ -25269,6 +25852,7 @@ def _legacy_replacement_manifest_issues(
                 path,
                 base_raw,
                 moves=primary_moves,
+                in_place_waiver_modules=in_place_waiver_modules,
                 validation_waiver_set_sha256=post_migration_waiver_sha256,
                 retired_manifest_paths=frozenset(exact_metadata_manifest_paths),
                 retired_schema_modules=frozenset(exact_metadata_retired_schema_modules),
@@ -25296,13 +25880,14 @@ def _legacy_replacement_manifest_issues(
             {"path": path.as_posix(), "sha256": hashlib.sha256(live_raw).hexdigest()}
         )
     expected_metadata_paths: set[Path] = set()
-    for path in _LEGACY_REPLACEMENT_METADATA_REWRITE_PATHS:
+    for path in allowed_metadata_paths:
         try:
             base_raw = _rulespec_migration_base_blob(repo_path, base_commit, path)
             expected_raw, _operations = _legacy_metadata_reconciliation_bytes(
                 path,
                 base_raw,
                 moves=primary_moves,
+                in_place_waiver_modules=in_place_waiver_modules,
                 validation_waiver_set_sha256=post_migration_waiver_sha256,
                 retired_manifest_paths=frozenset(exact_metadata_manifest_paths),
                 retired_schema_modules=frozenset(exact_metadata_retired_schema_modules),
@@ -25537,6 +26122,7 @@ def _legacy_exact_dependent_manifest_issues(
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V4,
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+            APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
         }
         or receipt.get("tool") != APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL
@@ -25709,6 +26295,7 @@ def _legacy_retained_successor_manifest_issues(
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V4,
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V5,
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V6,
+            APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA_V7,
             APPLIED_ENCODING_LEGACY_REPLACEMENT_RECEIPT_SCHEMA,
         }
         or receipt.get("tool") != APPLIED_ENCODING_LEGACY_REPLACEMENT_TOOL
@@ -25929,8 +26516,8 @@ def _load_verified_applied_encoding_manifest_payload(
         )
     if (
         backend in APPLIED_ENCODING_ENCODER_BACKENDS
-        and expected_encoder_identity is not None
-    ):
+        or payload.get("tool") == APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL
+    ) and expected_encoder_identity is not None:
         issues.extend(
             _model_apply_validation_execution_issues(
                 payload,
@@ -27645,6 +28232,7 @@ _LEGACY_REPLACEMENT_ATTR = "_axiom_legacy_replacement_contract"
 _REPLACEMENT_OVERLAY_SCOPE_ATTR = "_axiom_replacement_overlay_scope"
 _IMMUTABLE_RULESPEC_SHA256_ATTR = "_axiom_immutable_rulespec_sha256"
 _MANIFEST_ONLY_REFRESH_ATTR = "_axiom_manifest_only_refresh"
+_REVIEWED_CANDIDATE_PROMOTION_ATTR = "_axiom_reviewed_candidate_promotion"
 _PRESERVED_COMPANION_TESTS_ATTR = "_axiom_preserved_companion_tests"
 _REQUIRED_TEST_CASE_CONTRACTS_ATTR = "_axiom_required_test_case_contracts"
 
@@ -28157,6 +28745,14 @@ def _line_preserving_yaml_mapping_removal(
     rewritten = "".join(
         line for index, line in enumerate(lines) if index not in remove_indexes
     ).encode("utf-8")
+    if isinstance(expected, dict) and expected.get("validate_failures") == {}:
+        rewritten = re.sub(
+            rb"(?m)^(validate_failures:[ \t]*)(#[^\n]*)?$",
+            lambda match: (
+                b"validate_failures: {}" + (b" " + match[2] if match[2] else b"")
+            ),
+            rewritten,
+        )
     try:
         actual = yaml.safe_load(rewritten.decode("utf-8"))
     except (UnicodeError, yaml.YAMLError, RecursionError) as exc:
@@ -28370,6 +28966,7 @@ def _legacy_metadata_reconciliation_bytes(
     retired_schema_count_transition: tuple[int, int] | None = None,
     reindexed_modules: Mapping[str, bytes] | None = None,
     new_destination_modules: Mapping[str, bytes] | None = None,
+    in_place_waiver_modules: frozenset[str] = frozenset(),
 ) -> tuple[bytes, tuple[dict[str, object], ...]]:
     """Apply one audited metadata cleanup from an explicit move set."""
 
@@ -28550,7 +29147,9 @@ def _legacy_metadata_reconciliation_bytes(
             },
         )
     elif path == Path("known-validation-gaps.yaml"):
-        rewritten, count = _line_preserving_yaml_mapping_removal(raw, keys=old_modules)
+        rewritten, count = _line_preserving_yaml_mapping_removal(
+            raw, keys=old_modules | set(in_place_waiver_modules)
+        )
         operations = ({"operation": "remove_legacy_validation_gaps", "count": count},)
     elif path == Path("oracle-coverage-pending.yaml"):
         relocated, moved_count, removal_moves = (
@@ -28612,10 +29211,11 @@ def _legacy_metadata_reconciliations(
     moves: Sequence[PlannedMove],
     exact_dependents: Sequence[_LegacyReplacementExactDependent] = (),
     deferred_index: bool = False,
+    in_place_waiver_modules: frozenset[str] = frozenset(),
 ) -> tuple[_LegacyReplacementRewrite, ...]:
     """Build audited path-move metadata and its derived toolchain binding."""
 
-    if not moves:
+    if not moves and not in_place_waiver_modules:
         return ()
     old_modules = {move.source.as_posix() for move in moves}
     old_identities = {rulespec_identity(move.source) for move in moves}
@@ -28650,6 +29250,7 @@ def _legacy_metadata_reconciliations(
             retired_freeze_path,
             retired_freeze_raw,
             moves=moves,
+            in_place_waiver_modules=in_place_waiver_modules,
             retired_schema_modules=retired_schema_modules,
         )
         before_retired_count = len(json.loads(retired_freeze_raw)["artifacts"])
@@ -28665,7 +29266,7 @@ def _legacy_metadata_reconciliations(
         Path(".axiom/pending-validation-fingerprints.json"): old_modules,
         Path(".axiom/retired-schema-freeze.json"): old_modules
         | set(retired_schema_modules),
-        Path("known-validation-gaps.yaml"): old_modules,
+        Path("known-validation-gaps.yaml"): old_modules | set(in_place_waiver_modules),
         Path("oracle-coverage-pending.yaml"): old_identities,
         Path("tests/test_encoding_manifests.py"): old_manifests,
         _RETIRED_SCHEMA_COUNT_TEST_PATH: set(),
@@ -28684,6 +29285,7 @@ def _legacy_metadata_reconciliations(
             waiver_path,
             waiver_raw,
             moves=moves,
+            in_place_waiver_modules=in_place_waiver_modules,
         )
         post_migration_waiver_sha256 = hashlib.sha256(waiver_rewritten).hexdigest()
     reconciliations: list[_LegacyReplacementRewrite] = []
@@ -28691,6 +29293,11 @@ def _legacy_metadata_reconciliations(
         _LEGACY_REPLACEMENT_METADATA_REWRITE_PATHS,
         key=Path.as_posix,
     ):
+        if not moves and path not in {
+            Path("known-validation-gaps.yaml"),
+            Path(".axiom/toolchain.toml"),
+        }:
+            continue
         if path not in tracked:
             continue
         if deferred_index and path == Path(".axiom/index/provisions_to_rules.json"):
@@ -28721,6 +29328,7 @@ def _legacy_metadata_reconciliations(
             path,
             raw,
             moves=moves,
+            in_place_waiver_modules=in_place_waiver_modules,
             validation_waiver_set_sha256=post_migration_waiver_sha256,
             retired_manifest_paths=retired_manifest_paths,
             retired_schema_modules=retired_schema_modules,
@@ -29588,6 +30196,9 @@ def _resolve_legacy_replacement_contract(
         base_commit=base_commit,
         tracked=tracked,
         moves=all_moves,
+        in_place_waiver_modules=frozenset({source.as_posix()})
+        if in_place
+        else frozenset(),
         deferred_index=provision_index_base is not None,
     )
     excluded.update(item.path for item in preliminary_metadata_reconciliations)
@@ -29845,6 +30456,9 @@ def _resolve_legacy_replacement_contract(
         base_commit=base_commit,
         tracked=tracked,
         moves=all_moves,
+        in_place_waiver_modules=frozenset({source.as_posix()})
+        if in_place
+        else frozenset(),
         exact_dependents=exact_dependents,
         deferred_index=provision_index_base is not None,
     )
@@ -30644,6 +31258,9 @@ def _run_encode_attempt(
         )
     runner = f"{args.backend}:{model}"
     rulespec_dependency_roots = _rulespec_dependency_roots_from_args(args)
+    axiom_compose_path = _resolve_optional_axiom_compose_path(
+        getattr(args, "axiom_compose_path", None)
+    )
     if args.backend == "codex":
         auth_error = codex_auth_error()
         if auth_error:
@@ -30747,6 +31364,7 @@ def _run_encode_attempt(
             output_root=output_root,
             policy_repo_path=policy_repo_path,
             axiom_rules_path=axiom_rules_path,
+            axiom_compose_path=axiom_compose_path,
             local_corpus_release=corpus_release,
             validate_dependents=validate_dependents,
             scheduled_dependent_rulespec_paths=tuple(
@@ -30790,6 +31408,7 @@ def _run_encode_attempt(
         output_root=args.output,
         policy_path=policy_repo_path,
         runtime_axiom_rules_path=axiom_rules_path,
+        axiom_compose_path=axiom_compose_path,
         corpus_release=corpus_release,
         mode=args.mode,
         extra_context_paths=extra_context_paths,
@@ -39444,12 +40063,11 @@ def _relation_row_replacement_from_companion_tests(
             return copy.deepcopy(row)
     if isinstance(scalar_value, bool):
         template = copy.deepcopy(exemplar_rows[0])
-        changed = False
-        for key, value in list(template.items()):
-            if isinstance(value, bool):
-                template[key] = scalar_value
-                changed = True
-        if changed:
+        boolean_keys = [
+            key for key, value in template.items() if isinstance(value, bool)
+        ]
+        if len(boolean_keys) == 1:
+            template[boolean_keys[0]] = scalar_value
             return template
     return None
 
@@ -39539,7 +40157,8 @@ def _relation_row_matches_scalar_value(
     scalar_value: object,
 ) -> bool:
     if isinstance(scalar_value, bool):
-        return any(value is scalar_value for value in row.values())
+        boolean_values = [value for value in row.values() if isinstance(value, bool)]
+        return len(boolean_values) == 1 and boolean_values[0] is scalar_value
     return False
 
 
@@ -52077,6 +52696,17 @@ def _stamp_generated_source_attestation_for_apply(result, output_file: Path) -> 
             "corpus path(s) not bound by resolver source_attestation: "
             + ", ".join(sorted(unattested_paths))
         )
+    if vars(result).get(_REVIEWED_CANDIDATE_PROMOTION_ATTR) is True:
+        binding_issues = _source_attestation_binding_issues(
+            attestation,
+            source_verification,
+        )
+        if binding_issues:
+            raise RuntimeError(
+                "Cannot promote reviewed candidate with unbound source verification: "
+                + "; ".join(binding_issues)
+            )
+        return
     # The staleness command uses this singular path to recompute the same hash.
     source_verification["corpus_citation_path"] = attestation[
         "requested_corpus_citation_path"
@@ -52238,9 +52868,18 @@ def _apply_result_metadata(result) -> dict[str, object]:
     backend = str(getattr(result, "backend", "") or "").strip().lower()
     if backend not in APPLIED_ENCODING_ENCODER_BACKENDS:
         raise RuntimeError(f"Cannot sign non-generated backend {backend!r}")
-    if tool != APPLIED_ENCODING_MODEL_TOOL:
+    reviewed_candidate_promotion = (
+        vars(result).get(_REVIEWED_CANDIDATE_PROMOTION_ATTR) is True
+    )
+    expected_tool = (
+        APPLIED_ENCODING_REVIEWED_CANDIDATE_TOOL
+        if reviewed_candidate_promotion
+        else APPLIED_ENCODING_MODEL_TOOL
+    )
+    if tool != expected_tool:
         raise RuntimeError(
-            "Cannot sign a model-generated RuleSpec with a non-allowlisted tool"
+            "Cannot sign a RuleSpec with a tool that does not match its "
+            "validated apply mode"
         )
     codex_cli_version, codex_cli_sha256 = _result_codex_cli_provenance(result)
     if backend == "codex" and (codex_cli_version is None or codex_cli_sha256 is None):
@@ -56199,6 +56838,7 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
     output_root: Path,
     policy_repo_path: Path,
     axiom_rules_path: Path,
+    axiom_compose_path: Path | None = None,
     local_corpus_release: LocalCorpusRelease,
     validate_dependents: bool = True,
     scheduled_dependent_rulespec_paths: Sequence[Path] = (),
@@ -56292,10 +56932,11 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
             output_file,
             contained_in=generated_root,
         )
-    _rewrite_generated_yaml_without_non_ascii_escapes(
-        output_test,
-        contained_in=generated_root,
-    )
+    if vars(result).get(_REVIEWED_CANDIDATE_PROMOTION_ATTR) is not True:
+        _rewrite_generated_yaml_without_non_ascii_escapes(
+            output_test,
+            contained_in=generated_root,
+        )
 
     generated_content = output_file.read_text()
     if retired_source_admission is not None:
@@ -56513,6 +57154,12 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
             )
 
         supplemental_files: dict[Path, str] = {}
+        mapped_shape_repairs = _repair_existing_target_oracle_shape_contracts(
+            rules_file=overlay_target,
+            contract=existing_target_oracle_contract,
+        )
+        if mapped_shape_repairs:
+            supplemental_files[relative_output] = overlay_target.read_text()
         repaired_import_symbols = _repair_generated_import_symbol_near_misses(
             rules_file=overlay_target,
             repo_path=overlay_content_root,
@@ -56523,6 +57170,7 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
         pipeline = ValidatorPipeline(
             policy_repo_path=overlay_content_root,
             axiom_rules_path=axiom_rules_path,
+            axiom_compose_path=axiom_compose_path,
             enable_oracles=False,
             require_policy_proofs=True,
             local_corpus_release=local_corpus_release,
@@ -56555,6 +57203,7 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
                 overlay_pipeline=ValidatorPipeline(
                     policy_repo_path=overlay_content_root,
                     axiom_rules_path=axiom_rules_path,
+                    axiom_compose_path=axiom_compose_path,
                     enable_oracles=False,
                     enforce_repository_layout=False,
                     local_corpus_release=local_corpus_release,
@@ -56563,6 +57212,7 @@ def _validate_generated_encoding_in_policy_overlay_with_release(
                 baseline_pipeline=ValidatorPipeline(
                     policy_repo_path=policy_content_root,
                     axiom_rules_path=axiom_rules_path,
+                    axiom_compose_path=axiom_compose_path,
                     enable_oracles=False,
                     enforce_repository_layout=False,
                     local_corpus_release=local_corpus_release,
@@ -57128,6 +57778,7 @@ def _run_generated_encoding_overlay_validation(
     output_root: Path,
     policy_repo_path: Path,
     axiom_rules_path: Path,
+    axiom_compose_path: Path | None = None,
     local_corpus_release: LocalCorpusRelease,
     validate_dependents: bool = True,
     scheduled_dependent_rulespec_paths: Sequence[Path] = (),
@@ -57144,6 +57795,7 @@ def _run_generated_encoding_overlay_validation(
         output_root=output_root,
         policy_repo_path=policy_repo_path,
         axiom_rules_path=axiom_rules_path,
+        axiom_compose_path=axiom_compose_path,
         local_corpus_release=local_corpus_release,
         validate_dependents=validate_dependents,
         scheduled_dependent_rulespec_paths=scheduled_dependent_rulespec_paths,
@@ -57183,6 +57835,85 @@ def _stage_apply_overlay_dependency_roots(
         staged_names.add(dependency_root.name)
         staged.append(target)
     return tuple(staged)
+
+
+def _repair_existing_target_oracle_shape_contracts(
+    *,
+    rules_file: Path,
+    contract: ExistingTargetOracleContract | None,
+) -> list[str]:
+    """Restore exact mapped schemas while leaving generated policy logic intact.
+
+    Replacement generation may legitimately rewrite formulas, but an exact oracle
+    mapping makes the exported rule schema immutable except for a validator-proven
+    ``replacement_entity``.  Repair those mechanical fields deterministically so
+    a model cannot accidentally migrate an otherwise valid mapped helper while
+    correcting a neighbouring legacy entity defect.
+    """
+
+    if contract is None or not rules_file.exists():
+        return []
+    try:
+        payload = _safe_load_unique_keys(rules_file.read_text())
+    except (OSError, ValueError, yaml.YAMLError):
+        return []
+    if not isinstance(payload, dict):
+        return []
+    raw_rules = payload.get("rules")
+    if not isinstance(raw_rules, list):
+        return []
+    rules = {
+        str(rule.get("name") or "").strip(): rule
+        for rule in raw_rules
+        if isinstance(rule, dict) and str(rule.get("name") or "").strip()
+    }
+
+    repaired: list[str] = []
+    for expected in contract.surfaces:
+        rule = rules.get(expected.name)
+        if not isinstance(rule, dict):
+            continue
+        if len(expected.indexed_by) > 1:
+            raise ValueError(
+                f"Cannot restore mapped rule {expected.name!r}: "
+                "multiple indexed_by dimensions are unsupported"
+            )
+        changed = False
+        protected_fields: dict[str, object] = {
+            "kind": expected.kind,
+            "entity": expected.replacement_entity or expected.entity,
+            "dtype": expected.dtype,
+            "period": expected.period,
+            "unit": expected.unit,
+            "indexed_by": expected.indexed_by[0] if expected.indexed_by else "",
+        }
+        for field, value in protected_fields.items():
+            if value == "" or value == () or value == []:
+                if field in rule:
+                    rule.pop(field, None)
+                    changed = True
+                continue
+            if rule.get(field) != value:
+                rule[field] = value
+                changed = True
+        metadata = rule.get("metadata")
+        if expected.private:
+            if not isinstance(metadata, dict):
+                metadata = {}
+                rule["metadata"] = metadata
+            if metadata.get("private") is not True:
+                metadata["private"] = True
+                changed = True
+        elif isinstance(metadata, dict) and "private" in metadata:
+            metadata.pop("private", None)
+            changed = True
+        if changed:
+            repaired.append(expected.name)
+
+    if not repaired:
+        return []
+    rules_file.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True))
+    return repaired
 
 
 _APPLY_OVERLAY_IGNORED_NAMES = frozenset(
@@ -59318,6 +60049,7 @@ def _finalize_legacy_exact_dependents_from_overlay(
 
 _MISSING_INPUT_RE = re.compile(
     r"(?:Test case `)?(?P<case>[^`:]+)`?(?: execution failed)?: "
+    r"(?:(?!Test case `)[^\n]*\n)*?"
     r"missing input `(?P<input>[^`]+)`"
     r"(?: for entity `(?P<entity>[^`]+)`)?"
 )
@@ -60483,7 +61215,19 @@ def _insert_input_default_in_relation_rows(
                     rendered = rendered_value
                 indent = " " * (item_indent + 2)
                 newline = "\n" if lines[index].endswith("\n") else ""
-                insertions.setdefault(index + 1, []).append(
+                insertion_index = index + 1
+                if (
+                    re.match(r"^\s*-\s+\?\s+", lines[index])
+                    and insertion_index < item_end
+                    and re.match(r"^\s+:\s+", lines[insertion_index])
+                ):
+                    # PyYAML renders canonical RuleSpec references longer than
+                    # 127 characters as an explicit ``? key`` / ``: value``
+                    # pair.  Keep that pair contiguous: inserting between the
+                    # two lines produces invalid YAML on the next validation
+                    # pass.
+                    insertion_index += 1
+                insertions.setdefault(insertion_index, []).append(
                     f"{indent}{input_ref}: {rendered}{newline}"
                 )
             index = item_end

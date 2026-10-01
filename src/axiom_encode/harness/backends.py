@@ -20,7 +20,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, List, Optional
 
-from axiom_encode.codex_cli import resolve_codex_cli
+from axiom_encode.codex_cli import (
+    resolve_codex_cli,
+    with_codex_model_availability_hint,
+)
 from axiom_encode.constants import DEFAULT_CLI_MODEL, DEFAULT_MODEL
 from axiom_encode.prompts.encoder import get_encoder_prompt
 
@@ -513,7 +516,9 @@ class CodexCLIBackend(EncoderBackend):
                 tokens = None
 
         return {
-            "text": "\n".join(assistant_messages).strip() or last_error or "",
+            "text": "\n".join(assistant_messages).strip()
+            or with_codex_model_availability_hint(last_error)
+            or "",
             "tokens": tokens,
             "cost_usd": estimate_usage_cost_usd(model, tokens),
             "trace": {

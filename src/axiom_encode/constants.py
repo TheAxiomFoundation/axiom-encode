@@ -12,8 +12,12 @@ REVIEWER_CLI_MODEL = "opus"
 # This is also the *generator* family the LLM judges must never share (see
 # below): same-model self-review correlates errors (the 9/9 identical
 # hardcoded-600,000 incident is the cautionary tale).
-DEFAULT_OPENAI_MODEL = "gpt-5.6-terra"
-DEFAULT_OPENAI_ESCALATION_MODEL = "gpt-5.6-sol"
+# GPT-6 Luna generates; GPT-6 Sol takes the bounded validator-failure retry.
+# On 2026-09-24 ChatGPT-account Codex (codex-cli 0.153.3) rejected both with
+# "not supported when using Codex with a ChatGPT account"; on that auth path
+# pass --model/--escalation-model explicitly until they are served there.
+DEFAULT_OPENAI_MODEL = "gpt-6-luna"
+DEFAULT_OPENAI_ESCALATION_MODEL = "gpt-6-sol"
 DEFAULT_OPENAI_ESCALATE_AFTER = 2
 
 # LLM judge models (maximum-traceability part 2). Cross-family by design: the

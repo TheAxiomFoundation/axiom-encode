@@ -657,6 +657,10 @@ def test_generation_budget_inputs_compose_exact_validated_literal_pairs(
     ("kwargs", "expected_error"),
     [
         ({"initial_model": "gpt-5.6"}, "invalid initial-model"),
+        # The lane's pinned AXIOM_ENCODE_REF predates GPT-6 support; these arms
+        # arrive with the re-pin that moves it past the GPT-6 default.
+        ({"initial_model": "gpt-6-luna"}, "invalid initial-model"),
+        ({"initial_model": "gpt-6-sol"}, "invalid initial-model"),
         (
             {"initial_model": "gpt-5.6-terra --escalate-after 1"},
             "invalid initial-model",
