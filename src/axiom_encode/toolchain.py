@@ -146,9 +146,22 @@ def load_rulespec_toolchain(rulespec_root: Path) -> RuleSpecToolchain:
             label="RuleSpec toolchain file",
             max_bytes=MAX_RULESPEC_TOOLCHAIN_BYTES,
         )
-        payload = tomllib.loads(raw.decode("utf-8"))
     except UnsafeCorpusPathError as exc:
         raise RuleSpecToolchainError(str(exc)) from exc
+    return parse_rulespec_toolchain_bytes(raw, root=root)
+
+
+def parse_rulespec_toolchain_bytes(raw: bytes, *, root: Path) -> RuleSpecToolchain:
+    """Parse the same strict contract from an authenticated Git blob.
+
+    The caller binds ``root`` and the blob's authority. The filesystem loader
+    above remains responsible for canonical checkout and path safety checks.
+    """
+    config_path = root / ".axiom" / "toolchain.toml"
+    if len(raw) > MAX_RULESPEC_TOOLCHAIN_BYTES:
+        raise RuleSpecToolchainError("RuleSpec toolchain exceeds the size bound")
+    try:
+        payload = tomllib.loads(raw.decode("utf-8"))
     except (UnicodeError, tomllib.TOMLDecodeError) as exc:
         raise RuleSpecToolchainError(
             f"RuleSpec toolchain is not valid UTF-8 TOML: {config_path}"

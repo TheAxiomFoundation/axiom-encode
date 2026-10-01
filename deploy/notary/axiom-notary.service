@@ -1,0 +1,33 @@
+# Reference unit: install ONE role per dedicated host after the v33 custody audit.
+[Unit]
+Description=Axiom typed notary service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=axiom-notary
+Group=axiom-notary
+WorkingDirectory=/opt/axiom/notary
+ExecStart=/opt/axiom/notary/.venv/bin/python -I -m axiom_encode.notary.deployment --config /etc/axiom-notary/config.json --socket /run/axiom-notary/service.sock
+RuntimeDirectory=axiom-notary
+RuntimeDirectoryMode=0700
+StateDirectory=axiom-notary
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+ReadWritePaths=/run/axiom-notary /var/lib/axiom-notary
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
