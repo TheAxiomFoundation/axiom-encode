@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "axiom-encode"
-version = "0.2.2041"
+version = "0.2.2081"
 description = "AI-assisted RuleSpec encoding infrastructure - fully self-contained"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -39,15 +39,15 @@ dependencies = [
     "supabase>=2.0.0",
 ]
 
-# By default uses Claude Code CLI (subprocess) - no anthropic SDK needed.
-# Claude Code must be installed: npm install -g @anthropic-ai/claude-code
-#
-# For API backend (Modal, servers), install with: pip install axiom-encode[api]
+# The base install needs no model SDK: the default `codex` backend and the
+# `claude` backend run those CLIs as subprocesses, and the `openai` backend
+# calls the Responses API with `requests`. The `api` extra adds the Anthropic
+# Python SDK, which the Claude judges (judges/client.py) and AgentSDKBackend
+# (harness/backends.py) import.
 
 [project.optional-dependencies]
 api = [
     "anthropic>=0.40.0",
-    "claude-agent-sdk>=0.1.0",
 ]
 observability = [
     "opentelemetry-api>=1.28.0",

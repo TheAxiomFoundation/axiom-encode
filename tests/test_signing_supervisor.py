@@ -1414,7 +1414,7 @@ def test_verification_only_supervisor_accepts_retired_release_key_from_v3_keyrin
     }
 
 
-def test_protected_supervisor_stages_authenticated_v7_exact_dependent_transaction(
+def test_protected_supervisor_stages_authenticated_v8_exact_dependent_transaction(
     signing_supervisor: Path,
     tmp_path_factory: pytest.TempPathFactory,
     monkeypatch: pytest.MonkeyPatch,
@@ -2004,6 +2004,46 @@ def test_targeted_signed_reencode_shell_steps_have_valid_syntax(tmp_path: Path) 
             subprocess.run(["bash", "-n", str(script)], check=True)
 
 
+def test_targeted_signed_reencode_binds_protected_composer_to_rulespec_pin() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    steps = workflow["jobs"]["encode"]["steps"]
+    checkout = next(
+        step
+        for step in steps
+        if step.get("name") == "Checkout RuleSpec-pinned axiom-compose"
+    )["run"]
+    build = next(
+        step
+        for step in steps
+        if step.get("name") == "Build protected axiom-compose runtime"
+    )["run"]
+    encode = next(
+        step
+        for step in steps
+        if step.get("name") == "Encode, review, validate, and apply"
+    )["run"]
+
+    assert 'workflow_toolchain.get("axiom_compose_ref")' in checkout
+    assert 'git -C axiom-compose checkout --detach "$compose_ref"' in checkout
+    assert 'test "$(git -C axiom-compose rev-parse HEAD)" = "$compose_ref"' in checkout
+    assert "git -C axiom-compose merge-base --is-ancestor" in checkout
+    assert "uv export" in build
+    assert "--locked" in build
+    assert "--no-emit-project" in build
+    assert "provision_axiom_compose_runtime.py" in build
+    assert '--compose-ref "$AXIOM_COMPOSE_REF"' in build
+    assert "--destination /opt/axiom-compose-verification" in build
+    assert all(
+        'mv "$RUNNER_TEMP/axiom-compose-verification"' not in step.get("run", "")
+        for step in steps
+    )
+    assert "--axiom-compose-path" in encode
+    assert "/opt/axiom-compose-verification/axiom-compose" in encode
+    assert encode.count("--axiom-compose-path") == 3
+
+
 def test_targeted_signed_reencode_only_allows_audited_legacy_index_shrink() -> None:
     workflow = yaml.safe_load(
         (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
@@ -2130,7 +2170,7 @@ def test_targeted_signed_reencode_workflow_is_main_dispatch_only() -> None:
     assert inputs["source_bundle_json"] == {
         "description": (
             "JSON citation array, canonical_refresh_bundle object, or "
-            "atomic-source-transaction/v2/v3/v4 envelope for an independent refresh "
+            "atomic-source-transaction/v2/v3/v4/v5 envelope for an independent refresh "
             "transaction"
         ),
         "required": False,
@@ -3006,6 +3046,26 @@ def test_targeted_reencode_defaults_legacy_manifest_refresh_mode_to_false() -> N
     )
 
     assert completed.stdout == "false\n"
+
+
+def test_targeted_reencode_has_fail_closed_reviewed_candidate_promotion() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/targeted-signed-reencode.yml").read_text()
+    )
+    command = next(
+        step["run"]
+        for step in workflow["jobs"]["encode"]["steps"]
+        if step.get("name") == "Encode, review, validate, and apply"
+    )
+
+    assert "reviewed_candidate_promotion" in command
+    assert "promote-reviewed-candidate" in command
+    assert '--reviewed-rulespec-ref "$RULESPEC_REF"' in command
+    assert '--rulespec-path "$REPLACE_RULESPEC_PATH"' in command
+    assert "cannot mix with other transaction modes" in command
+    assert command.index("promote-reviewed-candidate") < command.index(
+        'elif [ "$canonical_refresh_enabled" = "true" ]'
+    )
 
 
 def test_targeted_reencode_extracts_false_complete_source_scope() -> None:
@@ -4024,7 +4084,7 @@ def test_targeted_signed_reencode_preserves_checkpoint_guard_failure(
         if step.get("name") == "Encode, review, validate, and apply"
     )
     checkpoint = command.split("checkpoint_signed_changes() {", 1)[1].split(
-        '\n}\n\nif [ "$canonical_refresh_enabled"',
+        '\n}\n\nif [ "$reviewed_candidate_promotion"',
         1,
     )[0]
     guard_stub = tmp_path / "guard-stub"
@@ -4102,7 +4162,7 @@ def test_targeted_signed_reencode_packages_noncontract_checkpoint_failure(
         if step.get("name") == "Encode, review, validate, and apply"
     )
     checkpoint = apply_command.split("checkpoint_signed_changes() {", 1)[1].split(
-        '\n}\n\nif [ "$canonical_refresh_enabled"',
+        '\n}\n\nif [ "$reviewed_candidate_promotion"',
         1,
     )[0]
     guard_stub = tmp_path / "guard-stub"
@@ -4387,7 +4447,7 @@ def test_signed_snap_queue_finalizer_uses_live_fail_closed_evidence() -> None:
     )
     command = evidence["run"]
     assert 'test "$(jq -r \'.state\' "$queue")" = "paused"' in command
-    assert "git/ref/heads/hard-cut/canonical-layout-us" in command
+    assert "git/ref/heads/$pr_base_branch" in command
     assert "commits/$NEW_RULESPEC_REF/check-runs?per_page=100" in command
     assert '.status == "completed"' in command
     assert 'IN("success", "neutral", "skipped")' in command
@@ -4454,7 +4514,7 @@ def test_snap_queue_activation_checks_and_merge_revalidate_live_state() -> None:
     assert "verify-activation-commit" in validate_command
     assert '--finalizer-jobs "$RUNNER_TEMP/finalizer-jobs.json"' in validate_command
     assert "snap-queue-finalization-$run_id" in validate_command
-    assert "git/ref/heads/hard-cut/canonical-layout-us" in validate_command
+    assert "git/ref/heads/$pr_base_branch" in validate_command
     assert 'echo "initial=$authenticate_queue" >> "$GITHUB_OUTPUT"' in validate_command
     assert ".dispatch != $previous[0].dispatch" in validate_command
     assert ".release != $previous[0].release" in validate_command
@@ -4494,8 +4554,9 @@ def test_snap_queue_activation_checks_and_merge_revalidate_live_state() -> None:
     assert "unsupported initial SNAP queue" in provenance_command
     assert "--state paused" in provenance_command
     assert "cmp --silent" in provenance_command
-    assert "rulespec-us/git/ref/heads/hard-cut/canonical-layout-us" in (
-        provenance_command
+    assert "rulespec-us/git/ref/heads/$PR_BASE_BRANCH" in provenance_command
+    assert provenance["env"]["PR_BASE_BRANCH"] == (
+        "${{ steps.transition.outputs.pr_base_branch }}"
     )
     assert "initial-axiom-rules-engine merge-base --is-ancestor" in (provenance_command)
     assert "rules-engine-check-runs.json" in provenance_command
@@ -4535,7 +4596,7 @@ def test_snap_queue_activation_checks_and_merge_revalidate_live_state() -> None:
     assert "commits/$rulespec_ref/check-runs?per_page=100" in command
     assert '--previous-queue "$RUNNER_TEMP/previous-snap-queue.json"' in command
     assert '--expected-base-sha "$BASE_SHA"' in command
-    assert "git/ref/heads/hard-cut/canonical-layout-us" in command
+    assert "git/ref/heads/$pr_base_branch" in command
     assert '--match-head-commit "$HEAD_SHA"' in command
     assert "git log --first-parent" in command
     upload = next(
@@ -4635,7 +4696,7 @@ def test_targeted_signed_reencode_runs_canonical_refresh_bundle_in_order(
         1,
     )
     _checkpoint_body, after_checkpoint = checkpoint_and_after.split(
-        '\n}\n\nif [ "$canonical_refresh_enabled"',
+        '\n}\n\nif [ "$reviewed_candidate_promotion"',
         1,
     )
     command = (
@@ -4643,7 +4704,7 @@ def test_targeted_signed_reencode_runs_canonical_refresh_bundle_in_order(
         + "checkpoint_signed_changes() {\n"
         + '  printf \'%s\\n\' "$1" >> "$CHECKPOINTS_PATH"\n'
         + '  : > "$RUNNER_TEMP/checkpoint-guard-generated.json"\n'
-        + '}\n\nif [ "$canonical_refresh_enabled"'
+        + '}\n\nif [ "$reviewed_candidate_promotion"'
         + after_checkpoint
     )
     canonical_reconciliation = (
@@ -5192,7 +5253,7 @@ def test_targeted_signed_reencode_composes_nonempty_source_bundle(
         1,
     )
     _checkpoint_body, after_checkpoint = checkpoint_and_after.split(
-        '\n}\n\nif [ "$canonical_refresh_enabled"',
+        '\n}\n\nif [ "$reviewed_candidate_promotion"',
         1,
     )
     command = (
@@ -5200,7 +5261,7 @@ def test_targeted_signed_reencode_composes_nonempty_source_bundle(
         + "checkpoint_signed_changes() {\n"
         + '  printf \'%s\\n\' "$1" >> "$CHECKPOINTS_PATH"\n'
         + '  : > "$RUNNER_TEMP/checkpoint-guard-generated.json"\n'
-        + '}\n\nif [ "$canonical_refresh_enabled"'
+        + '}\n\nif [ "$reviewed_candidate_promotion"'
         + after_checkpoint
     )
 
