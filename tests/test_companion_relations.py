@@ -131,6 +131,7 @@ def test_nested_aggregation_does_not_become_root_relation():
 
 def test_cli_qualified_companion_uses_bare_executable_alias(monkeypatch, tmp_path):
     import json
+
     from axiom_encode.cli import _execute_rulespec_test_case
 
     class Captured(Exception):
