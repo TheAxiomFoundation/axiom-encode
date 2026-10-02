@@ -24,7 +24,9 @@ def executable_relation_directions(
             entries = aliases.setdefault(alias, [])
             if not any(entry is rule for entry in entries):
                 entries.append(rule)
-    found: dict[str, tuple[int, str | None]] = {}
+    directions: dict[str, int] = {}
+    explicit_hints: dict[str, set[str]] = {}
+    fallback_hints: dict[str, set[str]] = {}
     visited: set[tuple[int, str, bool]] = set()
     schemas = {str(r["name"]): r for r in relations or [] if r.get("name")}
     active_relations: set[tuple[str, bool]] = set()
@@ -105,10 +107,16 @@ def executable_relation_directions(
         finally:
             active_relations.remove(marker)
 
-    def record(relation: str, direction: tuple[int, str | None]) -> None:
-        if relation in found and found[relation] != direction:
+    def record(
+        relation: str, direction: tuple[int, str | None], *, explicit: bool = True
+    ) -> None:
+        current, hint = direction
+        if relation in directions and directions[relation] != current:
             raise ValueError(f"conflicting executable directions for {relation}")
-        found[relation] = direction
+        directions[relation] = current
+        if hint is not None:
+            hints = explicit_hints if explicit else fallback_hints
+            hints.setdefault(relation, set()).add(hint)
 
     def walk(node: Any, entity: str, root: bool, context: tuple | None = None) -> None:
         if isinstance(node, list):
@@ -178,20 +186,17 @@ def executable_relation_directions(
             for key, value in node.items():
                 if key not in {"current_slot", "related_slot", "relation", "kind"}:
                     child_refs(value)
-            if len(child_entities) > 1:
-                raise ValueError(f"conflicting related entities for {relation}")
-            if child_entities:
+            # Sum value and predicate execute on the same related ID even
+            # when their ordinary derived annotations differ. Mixed kinds are
+            # unavailable typing evidence, not a coordinate conflict.
+            if len(child_entities) == 1:
                 other = next(iter(child_entities))
-                if slots and sorted(slots) != sorted((entity, other)):
-                    raise ValueError(
-                        f"entity evidence conflicts with declaration for {relation}"
-                    )
             elif slots and len(slots) == 2 and entity in slots:
                 other = slots[1 - slots.index(entity)]
             else:
                 other = None
             if root:
-                record(relation, (current, other))
+                record(relation, (current, other), explicit=len(child_entities) == 1)
             relation_derivation(relation, entity, root)
             for key, value in node.items():
                 if key not in {"current_slot", "related_slot", "relation", "kind"}:
@@ -203,4 +208,12 @@ def executable_relation_directions(
     for output in outputs:
         if output in aliases:
             visit_rule(resolve(output), query_entity, True)
+    found: dict[str, tuple[int, str | None]] = {}
+    for relation, current in directions.items():
+        # A bare count supplies no child type evidence. Delay its declaration
+        # fallback until the entire reachable closure has supplied explicit hints.
+        hints = explicit_hints.get(relation) or fallback_hints.get(relation, set())
+        if len(hints) > 1:
+            raise ValueError(f"conflicting related entities for {relation}")
+        found[relation] = (current, next(iter(hints)) if hints else None)
     return found

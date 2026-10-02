@@ -381,3 +381,75 @@ def test_relation_member_uses_context_current_anchor():
         schemas,
     )
     assert result["verified"] == (0, "Person")
+
+
+@pytest.mark.parametrize("outputs", [["count", "bare"], ["bare", "count"]])
+def test_explicit_child_type_precedes_bare_count_fallback(outputs):
+    d = fixture()
+    d["count"]["entity"] = "Person"
+    d["bare"] = {
+        "id": "bare",
+        "entity": "Person",
+        "expr": {
+            "kind": "count_related",
+            "relation": "members",
+            "current_slot": 1,
+            "related_slot": 0,
+        },
+    }
+    result = executable_relation_directions(
+        d,
+        outputs,
+        {"start": "2024-01-01"},
+        "Person",
+        {"members": ("Person", "Household")},
+    )
+    assert result == {"members": (1, "Person")}
+
+
+def test_bare_count_keeps_declaration_fallback_without_explicit_child():
+    d = fixture()
+    d["count"]["expr"].pop("where")
+    assert resolve(d) == {"members": (1, "Person")}
+
+
+def test_conflicting_explicit_children_still_fail():
+    d = fixture()
+    d["second"] = {"id": "second", "entity": "Household", "expr": {"kind": "literal"}}
+    d["other"] = fixture()["count"]
+    d["other"]["id"] = "other"
+    d["other"]["expr"]["where"] = {"kind": "derived", "name": "second"}
+    with pytest.raises(ValueError, match="conflicting related entities"):
+        resolve(d, ["count", "other"])
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_mixed_sum_value_and_predicate_use_fallback_and_traverse_both(reverse):
+    d = fixture()
+    d["value"] = {"id": "value", "entity": "TaxUnit", "expr": {"kind": "literal"}}
+    parts = [
+        ("value", {"kind": "derived", "name": "value"}),
+        ("where", {"kind": "derived", "name": "child"}),
+    ]
+    if reverse:
+        parts.reverse()
+    d["count"]["expr"] = {
+        "kind": "sum_related",
+        "relation": "members",
+        "current_slot": 1,
+        "related_slot": 0,
+        **dict(parts),
+    }
+    assert resolve(d) == {"members": (1, "Person")}
+    # Both sides remain traversed: malformed nested coordinates cannot hide.
+    for key in ("value", "child"):
+        original = d[key]["expr"]
+        d[key]["expr"] = {
+            "kind": "count_related",
+            "relation": "nested",
+            "current_slot": 0,
+            "related_slot": 0,
+        }
+        with pytest.raises(ValueError, match="coordinates"):
+            resolve(d)
+        d[key]["expr"] = original
