@@ -166,3 +166,87 @@ def test_cli_qualified_companion_uses_bare_executable_alias(monkeypatch, tmp_pat
             declared_relation_slots={"members": ("TaxUnit", "Person")},
             policy_repo_path=tmp_path / "rulespec-us" / "us",
         )
+
+
+def scalar_half():
+    # af6 emits formula-valued SSI parameter 42/1382a/b/4 as this Scalar IR.
+    return {
+        "id": "half",
+        "entity": "Scalar",
+        "expr": {
+            "kind": "div",
+            "left": {"kind": "literal", "value": {"kind": "decimal", "value": "1"}},
+            "right": {"kind": "literal", "value": {"kind": "decimal", "value": "2"}},
+        },
+    }
+
+
+def test_scalar_arithmetic_does_not_change_entity_or_relation_evidence():
+    d = fixture()
+    d["half"] = scalar_half()
+    d["child"]["expr"] = {"kind": "derived", "name": "half"}
+    d["count"]["expr"]["where"] = {
+        "kind": "add",
+        "left": {"kind": "derived", "name": "child"},
+        "right": {"kind": "derived", "name": "half"},
+    }
+    assert resolve(d) == {"members": (1, "Person")}
+
+
+@pytest.mark.parametrize(
+    "expr",
+    [
+        {"kind": "input", "name": "income"},
+        fixture()["count"]["expr"],
+        {"kind": "derived", "name": "half"},
+    ],
+)
+def test_scalar_impostors_and_cycles_fail_closed(expr):
+    d = fixture()
+    d["half"] = scalar_half()
+    d["half"]["expr"] = expr
+    d["child"]["expr"] = {"kind": "derived", "name": "half"}
+    with pytest.raises(ValueError, match="changes entity"):
+        resolve(d)
+
+
+def test_scalar_proof_uses_active_version_and_recursive_helpers():
+    d = fixture()
+    d["half"] = scalar_half()
+    d["wrapper"] = {
+        "id": "wrapper",
+        "entity": "Scalar",
+        "expr": {"kind": "derived", "name": "half"},
+    }
+    d["child"]["expr"] = {"kind": "derived", "name": "wrapper"}
+    d["half"]["versions"] = [
+        {"effective_from": "2020-01-01", "expr": d["half"]["expr"]},
+        {"effective_from": "2025-01-01", "expr": {"kind": "input", "name": "income"}},
+    ]
+    assert resolve(d) == {"members": (1, "Person")}
+
+
+def test_scalar_add_uses_compiled_items_shape():
+    d = fixture()
+    d["half"] = scalar_half()
+    d["half"]["expr"] = {"kind": "add", "items": [d["half"]["expr"], d["half"]["expr"]]}
+    d["child"]["expr"] = {"kind": "derived", "name": "half"}
+    assert resolve(d) == {"members": (1, "Person")}
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        {"kind": "decimal", "value": {"kind": "input", "name": "income"}},
+        {"kind": "decimal", "value": "NaN"},
+        {"kind": "integer", "value": True},
+        {"kind": "integer", "value": 1, "hidden": {"kind": "input"}},
+    ],
+)
+def test_malformed_scalar_literals_are_not_context_independent(value):
+    d = fixture()
+    d["half"] = scalar_half()
+    d["half"]["expr"] = {"kind": "literal", "value": value}
+    d["child"]["expr"] = {"kind": "derived", "name": "half"}
+    with pytest.raises(ValueError, match="changes entity"):
+        resolve(d)

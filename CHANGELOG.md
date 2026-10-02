@@ -2,6 +2,9 @@
 
 All notable changes to Axiom Encode will be documented here.
 
+- Preserve entity context for proven numeric Scalar constant helpers during
+  companion relation discovery; reject input-dependent or cyclic helpers.
+
 - Bind affirmative worksheet notice conditions to derived field-code outputs
   through adjacent authoritative rows and complete formula proof excerpts,
   preserving exact threshold direction and independently executed test evidence.
