@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 
@@ -54,7 +55,57 @@ def executable_relation_directions(
             raise ValueError("ambiguous effective compiled expression")
         return [selected[0].get("expr")]
 
+    def independent_scalar(
+        rule: dict[str, Any], seen: frozenset[int] = frozenset()
+    ) -> bool:
+        """Prove a compiled Scalar helper cannot depend on an entity or relation."""
+        if rule.get("entity") != "Scalar" or id(rule) in seen:
+            return False
+        seen = seen | {id(rule)}
+
+        def pure(node: Any) -> bool:
+            if not isinstance(node, dict):
+                return False
+            kind = node.get("kind")
+            if kind == "literal":
+                value = node.get("value")
+                if set(node) != {"kind", "value"} or not isinstance(value, dict):
+                    return False
+                if set(value) != {"kind", "value"}:
+                    return False
+                number = value["value"]
+                if value["kind"] == "integer":
+                    return type(number) is int and -(2**63) <= number < 2**63
+                if value["kind"] == "decimal" and type(number) in (str, int):
+                    try:
+                        return Decimal(number).is_finite()
+                    except InvalidOperation:
+                        return False
+                return False
+            if kind == "derived":
+                return set(node) <= {"kind", "name"} and independent_scalar(
+                    resolve(str(node.get("name", ""))), seen
+                )
+            if kind == "add":
+                items = node.get("items")
+                return (
+                    set(node) == {"kind", "items"}
+                    and isinstance(items, list)
+                    and bool(items)
+                    and all(pure(item) for item in items)
+                )
+            if kind in {"sub", "mul", "div"}:
+                return set(node) == {"kind", "left", "right"} and all(
+                    pure(node[key]) for key in ("left", "right")
+                )
+            return False
+
+        selected = expressions(rule)
+        return bool(selected) and all(pure(expr) for expr in selected)
+
     def visit_rule(rule: dict[str, Any], entity: str) -> None:
+        if independent_scalar(rule):
+            return  # Scalar constants retain the surrounding entity context.
         if rule.get("entity") and rule["entity"] != entity:
             raise ValueError(
                 "compiled derived reference changes entity outside aggregation"
@@ -100,6 +151,9 @@ def executable_relation_directions(
                     if "current_slot" in value or "related_slot" in value:
                         return  # Nested aggregations establish their own context.
                     if value.get("kind") == "derived":
+                        child = resolve(str(value.get("name", "")))
+                        if independent_scalar(child):
+                            return
                         child_entities.add(
                             str(
                                 resolve(str(value.get("name", ""))).get("entity")
