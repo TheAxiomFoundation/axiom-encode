@@ -2,6 +2,10 @@
 
 All notable changes to Axiom Encode will be documented here.
 
+- Separate executable relation directions from advisory entity hints, deferring
+  declaration fallback until reachable explicit evidence is collected and retaining
+  fallback for mixed sum value/predicate annotations on one related entity ID.
+
 - Match companion relation traversal to engine entity-ID context across ordinary
   derived references, nested aggregations, and derived-relation predicates.
 
