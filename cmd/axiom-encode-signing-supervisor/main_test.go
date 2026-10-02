@@ -183,6 +183,26 @@ func TestCleanChildEnvironmentForwardsApplyCheckoutIdentity(t *testing.T) {
 	}
 }
 
+func TestCleanChildEnvironmentForwardsGitHubRunIdentity(t *testing.T) {
+	values := map[string]string{
+		"GITHUB_REPOSITORY":  "TheAxiomFoundation/axiom-encode",
+		"GITHUB_RUN_ATTEMPT": "2",
+		"GITHUB_RUN_ID":      "12345678901",
+		"GITHUB_SERVER_URL":  "https://github.com",
+		"GITHUB_WORKFLOW":    "Targeted signed re-encode",
+	}
+	for name, value := range values {
+		t.Setenv(name, value)
+	}
+	environment := cleanChildEnvironment(10, 11, "/trusted/bin", "/trusted")
+	joined := "\n" + strings.Join(environment, "\n") + "\n"
+	for name, value := range values {
+		if !strings.Contains(joined, "\n"+name+"="+value+"\n") {
+			t.Fatalf("missing GitHub run identity environment %s", name)
+		}
+	}
+}
+
 func framed(raw string) []byte {
 	header := make([]byte, 4)
 	binary.BigEndian.PutUint32(header, uint32(len(raw)))
