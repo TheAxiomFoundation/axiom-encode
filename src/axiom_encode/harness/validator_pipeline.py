@@ -61,6 +61,7 @@ from axiom_encode.codex_cli import (
     resolve_codex_cli,
     with_codex_model_availability_hint,
 )
+from axiom_encode.companion_relations import executable_relation_directions
 from axiom_encode.concepts.jurisdiction import jurisdiction_prefix
 from axiom_encode.constants import (
     DEFAULT_OPENAI_MODEL,
@@ -36204,6 +36205,7 @@ class ValidatorPipeline:
         module_target: str | None = None,
         declared_relation_names: set[str] | None = None,
         declared_relation_slots: dict[str, tuple[str, ...]] | None = None,
+        executable_directions: dict[str, tuple[int, str | None]] | None = None,
     ) -> dict[str, Any]:
         """Build an Axiom rules engine dataset from compact RuleSpec test inputs."""
         if case_input in (None, ""):
@@ -36217,6 +36219,7 @@ class ValidatorPipeline:
         legal_ids_by_friendly_name = legal_ids_by_friendly_name or {}
         declared_relation_names = declared_relation_names or set()
         declared_relation_slots = declared_relation_slots or {}
+        executable_directions = executable_directions or {}
 
         for name, value in case_input.items():
             input_key = str(name)
@@ -36268,6 +36271,20 @@ class ValidatorPipeline:
                     if slots is not None
                     else self._related_entity_from_relation(relation_name)
                 )
+                matches = {
+                    executable_directions[name]
+                    for name in relation_request_names
+                    if name in executable_directions
+                }
+                if len(matches) > 1:
+                    raise ValueError(
+                        f"conflicting executable relation aliases for {input_key}"
+                    )
+                direction = next(iter(matches), None)
+                if direction is not None:
+                    current_slot, executable_entity = direction
+                    if executable_entity is not None:
+                        related_entity = executable_entity
                 for item_index, item in enumerate(value, 1):
                     if not isinstance(item, dict):
                         raise ValueError(
@@ -36762,6 +36779,13 @@ class ValidatorPipeline:
             case, query_entity, case_index
         )
         try:
+            executable_directions = executable_relation_directions(
+                derived_by_key,
+                output_names,
+                period,
+                query_entity,
+                declared_relation_slots or {},
+            )
             dataset = self._build_rulespec_dataset(
                 case.get("input", {}),
                 case_tables=case.get("tables"),
@@ -36773,6 +36797,7 @@ class ValidatorPipeline:
                 module_target=module_target,
                 declared_relation_names=declared_relation_names,
                 declared_relation_slots=declared_relation_slots,
+                executable_directions=executable_directions,
             )
         except ValueError as exc:
             return None, [f"Test case `{case_name}` input invalid: {exc}"]
