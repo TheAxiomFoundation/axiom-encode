@@ -34792,6 +34792,29 @@ def _rulespec_declared_relation_names(compiled_payload: dict[str, Any]) -> set[s
     }
 
 
+def _rulespec_declared_relation_slots(
+    compiled_payload: dict[str, Any],
+) -> dict[str, tuple[str, ...]]:
+    """Return the compiled slot order for explicitly typed relations."""
+    program = (
+        compiled_payload.get("program") if isinstance(compiled_payload, dict) else {}
+    )
+    if not isinstance(program, dict):
+        return {}
+    slots_by_name: dict[str, tuple[str, ...]] = {}
+    for relation in program.get("relations", []):
+        if not isinstance(relation, dict) or not relation.get("name"):
+            continue
+        slot_entities = relation.get("slot_entities")
+        if (
+            isinstance(slot_entities, list)
+            and len(slot_entities) == 2
+            and all(isinstance(entity, str) and entity for entity in slot_entities)
+        ):
+            slots_by_name[str(relation["name"])] = tuple(slot_entities)
+    return slots_by_name
+
+
 class ValidatorPipeline:
     """Runs validators in 3 tiers with session event logging."""
 
@@ -36180,6 +36203,7 @@ class ValidatorPipeline:
         legal_ids_by_friendly_name: dict[str, list[str]] | None = None,
         module_target: str | None = None,
         declared_relation_names: set[str] | None = None,
+        declared_relation_slots: dict[str, tuple[str, ...]] | None = None,
     ) -> dict[str, Any]:
         """Build an Axiom rules engine dataset from compact RuleSpec test inputs."""
         if case_input in (None, ""):
@@ -36192,6 +36216,7 @@ class ValidatorPipeline:
         relations: list[dict[str, Any]] = []
         legal_ids_by_friendly_name = legal_ids_by_friendly_name or {}
         declared_relation_names = declared_relation_names or set()
+        declared_relation_slots = declared_relation_slots or {}
 
         for name, value in case_input.items():
             input_key = str(name)
@@ -36219,7 +36244,30 @@ class ValidatorPipeline:
                     and relation_name not in relation_request_names
                 ):
                     relation_request_names.append(relation_name)
-                related_entity = self._related_entity_from_relation(relation_name)
+                slots = declared_relation_slots.get(
+                    relation_request_name
+                ) or declared_relation_slots.get(relation_name)
+                current_slot = None
+                if slots is not None:
+                    matching_slots = [
+                        index
+                        for index, entity in enumerate(slots)
+                        if entity == query_entity
+                    ]
+                    if not matching_slots:
+                        raise ValueError(
+                            f"relation `{name}` has declared slots {slots!r}, "
+                            f"neither of which matches query entity `{query_entity}`"
+                        )
+                    if len(matching_slots) == 1:
+                        current_slot = matching_slots[0]
+                related_entity = (
+                    slots[1 - current_slot]
+                    if slots is not None and current_slot is not None
+                    else query_entity
+                    if slots is not None
+                    else self._related_entity_from_relation(relation_name)
+                )
                 for item_index, item in enumerate(value, 1):
                     if not isinstance(item, dict):
                         raise ValueError(
@@ -36230,11 +36278,14 @@ class ValidatorPipeline:
                         or item.get("entity_id")
                         or f"{query_entity_id}-{name}-{item_index}"
                     )
+                    relation_tuple = [related_id, query_entity_id]
+                    if current_slot == 0:
+                        relation_tuple.reverse()
                     for current_relation_name in relation_request_names:
                         relations.append(
                             {
                                 "name": current_relation_name,
-                                "tuple": [related_id, query_entity_id],
+                                "tuple": relation_tuple,
                                 "interval": interval,
                             }
                         )
@@ -36703,6 +36754,7 @@ class ValidatorPipeline:
         legal_ids_by_friendly_name: dict[str, list[str]],
         module_target: str | None,
         declared_relation_names: set[str],
+        declared_relation_slots: dict[str, tuple[str, ...]] | None = None,
     ) -> tuple[dict[str, Any] | None, list[str]]:
         """Execute one compact RuleSpec test case through `run-compiled`."""
         query_entity = str(derived_by_key[output_names[0]].get("entity") or "Case")
@@ -36720,6 +36772,7 @@ class ValidatorPipeline:
                 legal_ids_by_friendly_name=legal_ids_by_friendly_name,
                 module_target=module_target,
                 declared_relation_names=declared_relation_names,
+                declared_relation_slots=declared_relation_slots,
             )
         except ValueError as exc:
             return None, [f"Test case `{case_name}` input invalid: {exc}"]
@@ -36937,6 +36990,7 @@ class ValidatorPipeline:
         require_legal_input_keys = _rulespec_program_has_legal_ids(compiled_payload)
         module_target = _rulespec_module_target(compiled_payload)
         declared_relation_names = _rulespec_declared_relation_names(compiled_payload)
+        declared_relation_slots = _rulespec_declared_relation_slots(compiled_payload)
 
         for index, case in enumerate(cases, 1):
             if not isinstance(case, dict):
@@ -37089,6 +37143,7 @@ class ValidatorPipeline:
                         legal_ids_by_friendly_name=legal_ids_by_friendly_name,
                         module_target=module_target,
                         declared_relation_names=declared_relation_names,
+                        declared_relation_slots=declared_relation_slots,
                     )
                 )
                 issues.extend(execution_issues)

@@ -7782,6 +7782,94 @@ rules:
         assert commands[0][6] == "--output"
         assert Path(commands[0][7]).parent == compiled_dir
 
+    @pytest.mark.parametrize(
+        ("slots", "query_entity", "expected_tuple", "related_entity"),
+        [
+            (["Payment", "Asset"], "Payment", ["case", "related_0"], "Asset"),
+            (["Person", "TaxUnit"], "TaxUnit", ["related_0", "case"], "Person"),
+            (["Person", "Person"], "Person", ["related_0", "case"], "Person"),
+        ],
+    )
+    def test_companion_relation_uses_compiled_slot_order(
+        self, monkeypatch, tmp_path, slots, query_entity, expected_tuple, related_entity
+    ):
+        content_root = tmp_path / "rulespec-us/us"
+        program = content_root / "statutes/1/example.yaml"
+        program.parent.mkdir(parents=True)
+        relation_id = "us:statutes/1/example#relation.related_item"
+        output_id = "us:statutes/1/example#benefit"
+        child_input_id = "us:statutes/1/example#input.qualifies"
+        program.write_text(
+            "format: rulespec/v1\nrules:\n"
+            "  - name: related_item\n    kind: data_relation\n"
+            "    data_relation:\n      predicate: related_item\n"
+            "      arity: 2\n      arguments:\n"
+            f"        - {slots[0]}\n        - {slots[1]}\n"
+        )
+        companion = program.with_name("example.test.yaml")
+        companion.write_text(
+            "- name: typed_relation\n  period: 2026-01\n  input:\n"
+            f"    {relation_id}:\n      - {child_input_id}: true\n"
+            f"  output:\n    {output_id}: 1\n"
+        )
+        captured_request = None
+
+        def fake_run(command, **kwargs):
+            nonlocal captured_request
+            captured_request = json.loads(kwargs["input"])
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout=json.dumps(
+                    {
+                        "results": [
+                            {
+                                "outputs": {
+                                    output_id: {
+                                        "kind": "scalar",
+                                        "value": {"kind": "integer", "value": 1},
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                ),
+                stderr="",
+            )
+
+        monkeypatch.setattr("axiom_encode.cli.subprocess.run", fake_run)
+        result = _execute_rulespec_test_file(
+            companion,
+            binary=tmp_path / "axiom-rules-engine",
+            axiom_rules_path=tmp_path,
+            env={},
+            rulespec_roots=(tmp_path / "rulespec-us",),
+            tmp_path=tmp_path,
+            compiled_cache={
+                program: (
+                    tmp_path / "compiled.json",
+                    {
+                        "program": {
+                            "derived": [{"id": output_id, "entity": query_entity}],
+                            "relations": [
+                                {
+                                    "name": relation_id,
+                                    "arity": 2,
+                                    "slot_entities": slots,
+                                }
+                            ],
+                        }
+                    },
+                )
+            },
+            policy_repo_path=content_root,
+        )
+
+        assert result["failures"] == []
+        assert captured_request is not None
+        assert captured_request["dataset"]["relations"][0]["tuple"] == expected_tuple
+        assert captured_request["dataset"]["inputs"][0]["entity"] == related_entity
+
     def test_absolute_module_ref_uses_only_explicit_dependency_roots(
         self, monkeypatch, tmp_path
     ):

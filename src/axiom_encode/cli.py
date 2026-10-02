@@ -266,6 +266,7 @@ from .harness.validator_pipeline import (
     _parse_rulespec_target,
     _resolve_rulespec_target_file,
     _rule_versions_are_constant_false,
+    _rulespec_declared_relation_slots,
     _rulespec_executable_index_for_roots,
     _rulespec_executable_signature,
     _rulespec_payload_from_file,
@@ -5427,6 +5428,7 @@ def _execute_rulespec_test_file(
         for relation in artifact.get("program", {}).get("relations", [])
         if isinstance(relation, dict) and relation.get("name")
     }
+    declared_relation_slots = _rulespec_declared_relation_slots(artifact)
 
     for index, case in enumerate(cases):
         case_name = str(case.get("name") or f"case_{index}")
@@ -5444,6 +5446,7 @@ def _execute_rulespec_test_file(
                     derived_ids=derived_ids,
                     derived_by_id=derived_by_id,
                     declared_relation_names=declared_relation_names,
+                    declared_relation_slots=declared_relation_slots,
                     policy_repo_path=item_policy_repo_path,
                 )
             )
@@ -5482,12 +5485,22 @@ def _execute_rulespec_test_case(
     derived_ids: set[str],
     derived_by_id: dict[str, dict],
     declared_relation_names: set[str],
+    declared_relation_slots: dict[str, tuple[str, ...]],
     policy_repo_path: Path,
 ) -> list[dict[str, str | None]]:
     failures: list[dict[str, str | None]] = []
     period = _rulespec_period_spec(case.get("period", "2026-01"))
     interval = {"start": period["start"], "end": period["end"]}
     root_entity_id = "case"
+    expected = case.get("output") or {}
+    query_entity = next(
+        (
+            str(derived_by_id[str(output)].get("entity") or "Case")
+            for output in expected
+            if str(output) in derived_by_id
+        ),
+        "Case",
+    )
     inputs: list[dict] = []
     relations: list[dict] = []
     flat_inputs: dict[str, object] = {}
@@ -5509,15 +5522,40 @@ def _execute_rulespec_test_case(
                     and unqualified_name not in relation_names
                 ):
                     relation_names.append(unqualified_name)
+            slots = declared_relation_slots.get(
+                relation_name
+            ) or declared_relation_slots.get(
+                unqualified_name if "#relation." in relation_name else relation_name
+            )
+            current_slot = None
+            if slots is not None:
+                matching_slots = [
+                    slot for slot, entity in enumerate(slots) if entity == query_entity
+                ]
+                if not matching_slots:
+                    raise ValueError(
+                        f"relation `{key}` has declared slots {slots!r}, "
+                        f"neither of which matches query entity `{query_entity}`"
+                    )
+                if len(matching_slots) == 1:
+                    current_slot = matching_slots[0]
+            related_entity = (
+                slots[1 - current_slot]
+                if slots is not None and current_slot is not None
+                else query_entity
+                if slots is not None
+                else "Entity"
+            )
             for row_index, row in enumerate(value):
                 related_id = f"related_{row_index}"
-                # The current relation slot convention is related entity first,
-                # enclosing entity second.
+                relation_tuple = [related_id, root_entity_id]
+                if current_slot == 0:
+                    relation_tuple.reverse()
                 for current_relation_name in relation_names:
                     relations.append(
                         {
                             "name": current_relation_name,
-                            "tuple": [related_id, root_entity_id],
+                            "tuple": relation_tuple,
                             "interval": interval,
                         }
                     )
@@ -5534,7 +5572,7 @@ def _execute_rulespec_test_case(
                     inputs.append(
                         {
                             "name": str(row_key),
-                            "entity": "Entity",
+                            "entity": related_entity,
                             "entity_id": related_id,
                             "interval": interval,
                             "value": _rulespec_scalar_value(row_value),
@@ -5544,7 +5582,7 @@ def _execute_rulespec_test_case(
             inputs.append(
                 {
                     "name": key,
-                    "entity": "Entity",
+                    "entity": query_entity,
                     "entity_id": root_entity_id,
                     "interval": interval,
                     "value": _rulespec_scalar_value(value),
@@ -5604,7 +5642,6 @@ def _execute_rulespec_test_case(
                     )
             table_rows_by_entity[table_entity] = resolved_rows
 
-    expected = case.get("output") or {}
     parameter_expected = {
         str(key): value
         for key, value in expected.items()
