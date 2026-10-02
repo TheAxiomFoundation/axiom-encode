@@ -2,6 +2,9 @@
 
 All notable changes to Axiom Encode will be documented here.
 
+- Match companion relation traversal to engine entity-ID context across ordinary
+  derived references, nested aggregations, and derived-relation predicates.
+
 - Preserve entity context for proven numeric Scalar constant helpers during
   companion relation discovery; reject input-dependent or cyclic helpers.
 

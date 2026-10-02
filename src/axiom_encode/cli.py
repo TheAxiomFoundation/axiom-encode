@@ -5448,6 +5448,7 @@ def _execute_rulespec_test_file(
                     derived_by_id=derived_by_id,
                     declared_relation_names=declared_relation_names,
                     declared_relation_slots=declared_relation_slots,
+                    compiled_relations=artifact.get("program", {}).get("relations", []),
                     policy_repo_path=item_policy_repo_path,
                 )
             )
@@ -5487,6 +5488,7 @@ def _execute_rulespec_test_case(
     derived_by_id: dict[str, dict],
     declared_relation_names: set[str],
     declared_relation_slots: dict[str, tuple[str, ...]],
+    compiled_relations: list[dict] | None = None,
     policy_repo_path: Path,
 ) -> list[dict[str, str | None]]:
     failures: list[dict[str, str | None]] = []
@@ -5503,7 +5505,12 @@ def _execute_rulespec_test_case(
         "Case",
     )
     executable_directions = executable_relation_directions(
-        derived_by_id, list(expected), period, query_entity, declared_relation_slots
+        derived_by_id,
+        list(expected),
+        period,
+        query_entity,
+        declared_relation_slots,
+        compiled_relations,
     )
     inputs: list[dict] = []
     relations: list[dict] = []

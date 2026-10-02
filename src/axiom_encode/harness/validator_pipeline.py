@@ -36772,6 +36772,7 @@ class ValidatorPipeline:
         module_target: str | None,
         declared_relation_names: set[str],
         declared_relation_slots: dict[str, tuple[str, ...]] | None = None,
+        compiled_relations: list[dict] | None = None,
     ) -> tuple[dict[str, Any] | None, list[str]]:
         """Execute one compact RuleSpec test case through `run-compiled`."""
         query_entity = str(derived_by_key[output_names[0]].get("entity") or "Case")
@@ -36785,6 +36786,7 @@ class ValidatorPipeline:
                 period,
                 query_entity,
                 declared_relation_slots or {},
+                compiled_relations,
             )
             dataset = self._build_rulespec_dataset(
                 case.get("input", {}),
@@ -37169,6 +37171,9 @@ class ValidatorPipeline:
                         module_target=module_target,
                         declared_relation_names=declared_relation_names,
                         declared_relation_slots=declared_relation_slots,
+                        compiled_relations=compiled_payload.get("program", {}).get(
+                            "relations", []
+                        ),
                     )
                 )
                 issues.extend(execution_issues)
