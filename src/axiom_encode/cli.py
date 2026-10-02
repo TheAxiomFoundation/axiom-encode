@@ -98,6 +98,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from yaml.nodes import MappingNode, ScalarNode, SequenceNode
 
 from axiom_encode import __version__
+from axiom_encode.companion_relations import executable_relation_directions
 
 from . import validation_waivers as _validation_waivers
 from .codex_cli import codex_auth_error
@@ -5501,6 +5502,9 @@ def _execute_rulespec_test_case(
         ),
         "Case",
     )
+    executable_directions = executable_relation_directions(
+        derived_by_id, list(expected), period, query_entity, declared_relation_slots
+    )
     inputs: list[dict] = []
     relations: list[dict] = []
     flat_inputs: dict[str, object] = {}
@@ -5546,6 +5550,18 @@ def _execute_rulespec_test_case(
                 if slots is not None
                 else "Entity"
             )
+            matches = {
+                executable_directions[name]
+                for name in relation_names
+                if name in executable_directions
+            }
+            if len(matches) > 1:
+                raise ValueError(f"conflicting executable relation aliases for {key}")
+            direction = next(iter(matches), None)
+            if direction is not None:
+                current_slot, executable_entity = direction
+                if executable_entity is not None:
+                    related_entity = executable_entity
             for row_index, row in enumerate(value):
                 related_id = f"related_{row_index}"
                 relation_tuple = [related_id, root_entity_id]
