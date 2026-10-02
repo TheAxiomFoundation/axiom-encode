@@ -2108,6 +2108,39 @@ _ENGLISH_LEGAL_CITATION = re.compile(
     r"\d+(?:\.\d+)*(?:\s*(?:through|to|[-–—]|and|,)\s*\d+(?:\.\d+)*)*",
     flags=re.IGNORECASE,
 )
+_US_CORPUS_CITATION_PATH = re.compile(r"us(?:-[a-z0-9]+)?/", flags=re.IGNORECASE)
+# US state eligibility manuals cite administrative-code sections such as
+# `WAC 388-450-0015` and sibling manual policies such as `policy 770-2`. Both
+# are locators. List continuations keep the identifier's hyphenated shape so a
+# substantive number after `policy 254,` is never swallowed.
+_US_MANUAL_CROSS_REFERENCE_NUMERIC_RECALL_CITATION = re.compile(
+    r"\bWAC\s+\d+-\d+-\d+[A-Za-z]?"
+    r"(?:\s*(?:,|and|or|through|to)\s*\d+-\d+-\d+[A-Za-z]?)*"
+    r"|\bpolic(?:y|ies)\s+\d+(?:-\d+)?"
+    r"(?:\s*(?:,|and|or|through|to)\s*\d+-\d+)*\b",
+    flags=re.IGNORECASE,
+)
+# Paginated US manuals repeat numbered section headings such as
+# `214.3 Telephone Allowance` or `770-1 Advance Notice of Adverse Action` on
+# their own line. Only a dotted or hyphenated label followed by a digit-free,
+# unpunctuated title of at least two words is a heading; a flattened table row
+# such as `7.65 Percent` keeps its value.
+_NUMBERED_MANUAL_HEADING_LABEL = re.compile(
+    r"(?m)^[ \t]*\d+(?:[.-]\d+)+"
+    r"(?=[ \t]+"
+    r"(?!(?:Percent|Percentage|Times|Dollars?|Cents?|Days?|Weeks?|Months?|"
+    r"Years?|Hours?)\b)"
+    r"[A-Z][A-Za-z'’&()/-]*(?:[ \t,]+[A-Za-z'’&()/-]+){1,15}[ \t]*$)"
+)
+# Telephone numbers, post-office boxes, ZIP+4 codes and letter-prefixed form
+# numbers (`Schedule K-210`) on US forms and notices. PDF extraction can split
+# a ZIP+4 code at its hyphen.
+_US_FORM_AND_CONTACT_IDENTIFIER_NUMERIC_RECALL = re.compile(
+    r"(?:\(\d{3}\)\s*|\b(?:1-)?\d{3}[-.])\d{3}-\d{4}\b"
+    r"|\bP\.?\s*O\.?\s*Box\s+\d+\b"
+    r"|\b[A-Z]{2}\s+\d{5}\s*-\s*\d{4}\b"
+    r"|\b(?:Schedule|Form)\s+[A-Z]{1,3}-\d+[A-Z]*\b"
+)
 _TITLE_SUFFIX_LEGAL_CITATION = re.compile(
     r"\b(?:sections?\s+)?(?:\d+)?[a-z]\s*"
     r"[-\u2010\u2011\u2012\u2013\u2014\u2015\u2212\ufe58\ufe63\uff0d]"
@@ -12540,6 +12573,12 @@ def authoritative_numeric_recall_text(
         "",
         cleaned,
     )
+    if _US_CORPUS_CITATION_PATH.match(corpus_citation_path):
+        # US-only: a German line such as `1.000 Euro Freibetrag` would
+        # otherwise read as a numbered heading.
+        cleaned = _US_FORM_AND_CONTACT_IDENTIFIER_NUMERIC_RECALL.sub("", cleaned)
+        cleaned = _US_MANUAL_CROSS_REFERENCE_NUMERIC_RECALL_CITATION.sub("", cleaned)
+        cleaned = _NUMBERED_MANUAL_HEADING_LABEL.sub("", cleaned)
     cleaned = re.sub(
         r"\bDate:\s*\d{4}[./-]\d{1,2}[./-]\d{1,2}\s+\d{1,2}:\d{2}:\d{2}"
         r"\s+[+-]\d{2}(?:[':]?\d{2})?'?",

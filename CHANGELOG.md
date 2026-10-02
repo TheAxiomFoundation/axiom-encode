@@ -2,6 +2,11 @@
 
 All notable changes to Axiom Encode will be documented here.
 
+- Keep US manual and form locators out of complete-source-unit numeric recall:
+  `WAC` section citations, `policy NNN-N` cross-references, numbered manual
+  section headings, telephone numbers, PO boxes, ZIP+4 codes and
+  letter-prefixed form numbers are no longer demanded as named scalars.
+
 - Preserve entity context for proven numeric Scalar constant helpers during
   companion relation discovery; reject input-dependent or cyclic helpers.
 
