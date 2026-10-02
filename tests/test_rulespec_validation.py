@@ -37504,6 +37504,104 @@ rules:
     assert dataset["inputs"][0]["name"] == input_key
 
 
+@pytest.mark.parametrize(
+    (
+        "slot_entities",
+        "query_entity",
+        "query_id",
+        "related_id",
+        "expected_tuple",
+        "related_entity",
+    ),
+    [
+        (
+            ("Payment", "Asset"),
+            "Payment",
+            "payment-1",
+            "asset-1",
+            ["payment-1", "asset-1"],
+            "Asset",
+        ),
+        (
+            ("Person", "TaxUnit"),
+            "TaxUnit",
+            "tax-1",
+            "person-1",
+            ["person-1", "tax-1"],
+            "Person",
+        ),
+        (
+            ("Person", "Person"),
+            "Person",
+            "person-2",
+            "person-1",
+            ["person-1", "person-2"],
+            "Person",
+        ),
+    ],
+)
+def test_rulespec_dataset_uses_compiled_relation_slot_order(
+    tmp_path,
+    slot_entities,
+    query_entity,
+    query_id,
+    related_id,
+    expected_tuple,
+    related_entity,
+):
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "missing-rules-engine",
+        enable_oracles=False,
+    )
+    relation_name = "related_item"
+    dataset = pipeline._build_rulespec_dataset(
+        {
+            relation_name: [
+                {
+                    "id": related_id,
+                    "qualifies": True,
+                }
+            ]
+        },
+        period={
+            "period_kind": "tax_year",
+            "start": "2026-01-01",
+            "end": "2026-12-31",
+        },
+        query_entity=query_entity,
+        query_entity_id=query_id,
+        require_legal_input_keys=False,
+        declared_relation_names={relation_name},
+        declared_relation_slots={relation_name: slot_entities},
+    )
+
+    assert dataset["relations"][0]["tuple"] == expected_tuple
+    assert dataset["inputs"][0]["entity"] == related_entity
+
+
+def test_rulespec_dataset_rejects_relation_without_query_entity(tmp_path):
+    repo = _canonical_rulespec_content_root(tmp_path, "us")
+    pipeline = ValidatorPipeline(
+        policy_repo_path=repo,
+        axiom_rules_path=tmp_path / "missing-rules-engine",
+        enable_oracles=False,
+    )
+    with pytest.raises(ValueError, match="neither of which matches query entity"):
+        pipeline._build_rulespec_dataset(
+            {"related_item": [{"id": "asset-1"}]},
+            period={
+                "period_kind": "tax_year",
+                "start": "2026-01-01",
+                "end": "2026-12-31",
+            },
+            query_entity="Household",
+            query_entity_id="household-1",
+            declared_relation_slots={"related_item": ("Payment", "Asset")},
+        )
+
+
 def test_rulespec_ci_rejects_computed_imported_outputs_as_inputs(tmp_path):
     pipeline = ValidatorPipeline(
         policy_repo_path=_canonical_rulespec_content_root(tmp_path / "repos", "us"),
