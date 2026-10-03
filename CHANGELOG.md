@@ -2,6 +2,13 @@
 
 All notable changes to Axiom Encode will be documented here.
 
+- Raise the LLM judge output budget from 2,048 to 16,000 tokens and report a
+  reply cut off by the budget as a `max_tokens` judge error naming the budget,
+  instead of a generic parse error. The statutory-fidelity referee's findings
+  JSON was truncated on modules of about 30k input tokens. 16,000 stays under
+  the anthropic SDK's non-streaming ceiling, and `AXIOM_JUDGE_MAX_TOKENS` still
+  overrides it.
+
 - Separate executable relation directions from advisory entity hints, deferring
   declaration fallback until reachable explicit evidence is collected and retaining
   fallback for mixed sum value/predicate annotations on one related entity ID.
