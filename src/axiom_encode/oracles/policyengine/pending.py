@@ -263,6 +263,35 @@ def load_pending_declarations(root: Path) -> dict[str, PendingEntry]:
     return declarations_from_files(load_pending_files(root))
 
 
+def _recount_status_aggregates(
+    report: dict[str, Any], items: list[dict[str, Any]]
+) -> None:
+    """Recompute the status aggregates from ``items`` as the builder does.
+
+    The axiom-oracles builder derives the top-level ``status_counts`` and each
+    ``repos[]`` row (``total_outputs`` and ``status_counts``) from the item
+    list, so a reclassification must rebuild both or the per-repo rows
+    contradict the top-level status. ``total_outputs``, ``program_counts`` and
+    ``untested_comparable`` need no recount: rewriting ``unmapped`` to
+    ``pending_classification`` adds no item, removes none, and never touches
+    an item's program, tested flag or ``comparable`` status.
+    """
+    report["status_counts"] = dict(
+        sorted(Counter(item.get("status") for item in items).items())
+    )
+    repo_counts: dict[Any, Counter[Any]] = {}
+    for item in items:
+        repo_counts.setdefault(item.get("repo"), Counter())[item.get("status")] += 1
+    report["repos"] = [
+        {
+            "repo": repo,
+            "total_outputs": sum(counter.values()),
+            "status_counts": dict(sorted(counter.items())),
+        }
+        for repo, counter in sorted(repo_counts.items(), key=lambda row: str(row[0]))
+    ]
+
+
 def apply_pending_to_report(
     report: dict[str, Any], declared: dict[str, PendingEntry]
 ) -> dict[str, Any]:
@@ -270,10 +299,11 @@ def apply_pending_to_report(
 
     Every report item whose status is ``unmapped`` and whose legal_id is
     declared is rewritten to ``pending_classification`` with a ``pending``
-    provenance block; ``status_counts`` is recomputed. A ``pending`` summary
-    is attached to the report describing what was declared, applied, and what
-    is stale (declared but no longer unmapped — the ratchet's removal list).
-    Returns the summary that was attached.
+    provenance block; ``status_counts`` and the per-repo ``repos`` rows are
+    recomputed from the items. A ``pending`` summary is attached to the report
+    describing what was declared, applied, and what is stale (declared but no
+    longer unmapped — the ratchet's removal list). Returns the summary that
+    was attached.
     """
     items = report.get("items") or []
     unmapped_ids = {
@@ -306,9 +336,7 @@ def apply_pending_to_report(
         stale.append({"legal_id": legal_id, "reason": reason, "repo": entry.repo})
 
     if items:
-        report["status_counts"] = dict(
-            sorted(Counter(item.get("status") for item in items).items())
-        )
+        _recount_status_aggregates(report, items)
 
     summary = {
         "declared": len(declared),
