@@ -147,9 +147,13 @@ def corpus_uses_lock_files(root: Path) -> bool:
 
 
 def fetch_disabled(environ: Mapping[str, str] = os.environ) -> bool:
-    """True when ``AXIOM_CORPUS_NO_FETCH`` turns materialization off."""
+    """True when ``AXIOM_CORPUS_NO_FETCH`` turns materialization off.
 
-    return environ.get(NO_FETCH_ENV, "").strip() not in {"", "0"}
+    The values axiom-corpus's ``resolver.fetch_disabled`` accepts: ``1``,
+    ``true`` or ``yes``, in any case.
+    """
+
+    return environ.get(NO_FETCH_ENV, "").strip().lower() in {"1", "true", "yes"}
 
 
 @contextmanager
@@ -434,15 +438,19 @@ def _materialize_one(
     release_commit: str,
 ) -> None:
     reasons: list[str] = []
-    created: list[Path] = []
+    created: list[tuple[int, str]] = []
+    descriptors: list[int] = []
+    settled = False
+    relative_parent = PurePosixPath(artifact.path).parent
     try:
-        relative_parent = PurePosixPath(artifact.path).parent
-        _ensure_directories(root, relative_parent, created)
+        parent = _OpenDirectory(root, relative_parent, created)
+        descriptors.append(parent.fd)
         # The staging directory stays, as axiom-corpus leaves it (it is
         # ignored by git): removing it could pull it from under another
         # process's placement.
-        staging = _ensure_directories(root, FETCH_TEMP_DIR, [])
-        _prune_stale_fetch_temporaries(staging)
+        staging_fd = _open_directories(root, FETCH_TEMP_DIR, [])
+        descriptors.append(staging_fd)
+        _prune_stale_fetch_temporaries(root / FETCH_TEMP_DIR, staging_fd)
         for source in sources:
             try:
                 chunks = source.open(artifact)
@@ -453,14 +461,21 @@ def _materialize_one(
                 reasons.append(f"{source.label}: absent")
                 continue
             try:
-                _place_verified(
-                    root, staging, relative_parent, chunks, artifact, created, locks
+                placed = _place_verified(
+                    root, staging_fd, parent, chunks, artifact, locks
                 )
             except SourceError as exc:
                 reasons.append(f"{source.label}: {exc}")
                 continue
-            report.materialized[artifact.path] = source.label
-            report.bytes_materialized += artifact.byte_count
+            finally:
+                descriptors[0] = parent.fd
+            settled = True
+            if placed:
+                report.materialized[artifact.path] = source.label
+                report.bytes_materialized += artifact.byte_count
+            else:
+                # Another process placed the release's bytes first.
+                report.present.append(artifact.path)
             return
         report.failed[artifact.path] = "; ".join(reasons) or "no source is configured"
     except _LockChangedError as exc:
@@ -472,49 +487,154 @@ def _materialize_one(
         report.modified[artifact.path] = _modified_reason(str(exc))
     except CorpusMaterializationError as exc:
         report.failed[artifact.path] = str(exc)
-    # Nothing was placed: remove the scope directories this attempt created,
-    # so a failed run leaves the scopes as it found them (rmdir refuses
-    # non-empty ones).
-    for directory in reversed(created):
+    finally:
+        if not settled:
+            # Nothing was placed: remove the scope directories this attempt
+            # created, so a failed run leaves the scopes as it found them
+            # (rmdir refuses non-empty ones).
+            for parent_fd, name in reversed(created):
+                with suppress(OSError):
+                    os.rmdir(name, dir_fd=parent_fd)
+        for parent_fd, _name in created:
+            with suppress(OSError):
+                os.close(parent_fd)
+        for descriptor in descriptors:
+            with suppress(OSError):
+                os.close(descriptor)
+
+
+_DIRECTORY_FLAGS = (
+    os.O_RDONLY
+    | getattr(os, "O_DIRECTORY", 0)
+    | getattr(os, "O_NOFOLLOW", 0)
+    | getattr(os, "O_CLOEXEC", 0)
+)
+
+
+_DESCRIPTOR_OPERATIONS_SUPPORTED = (
+    bool(getattr(os, "O_NOFOLLOW", 0))
+    and bool(getattr(os, "O_DIRECTORY", 0))
+    and all(
+        function in os.supports_dir_fd
+        for function in (os.open, os.mkdir, os.link, os.stat, os.unlink, os.rmdir)
+    )
+    and os.link in os.supports_follow_symlinks
+)
+
+
+def _require_descriptor_operations() -> None:
+    if not _DESCRIPTOR_OPERATIONS_SUPPORTED:
+        raise CorpusMaterializationError(
+            "this platform cannot place corpus files without following symlinks"
+        )
+
+
+def _open_directories(
+    root: Path,
+    relative: PurePosixPath,
+    created: list[tuple[int, str]],
+    *,
+    create: bool = True,
+) -> int:
+    """Open ``root/relative`` a component at a time, creating missing ones.
+
+    Every component is opened relative to its parent's descriptor with
+    ``O_NOFOLLOW``, so a symlink anywhere below the root is refused and a
+    component swapped for one after it was checked is never followed. Each
+    directory made here is recorded as ``(parent descriptor, name)`` so a
+    failed attempt can remove it; the caller closes those descriptors and the
+    returned one.
+    """
+
+    _require_descriptor_operations()
+    try:
+        descriptor = os.open(root, _DIRECTORY_FLAGS)
+    except OSError as exc:
+        raise CorpusMaterializationError(
+            f"corpus root is not a real directory: {root}"
+        ) from exc
+    cursor = root
+    try:
+        for part in relative.parts:
+            cursor = cursor / part
+            try:
+                if create:
+                    os.mkdir(part, 0o755, dir_fd=descriptor)
+                    created.append((os.dup(descriptor), part))
+            except FileExistsError:
+                pass
+            except OSError as exc:
+                raise CorpusMaterializationError(
+                    f"cannot create directory {cursor}: {exc}"
+                ) from exc
+            try:
+                child = os.open(part, _DIRECTORY_FLAGS, dir_fd=descriptor)
+            except OSError as exc:
+                raise CorpusMaterializationError(
+                    f"path component is not a real directory: {cursor}"
+                ) from exc
+            os.close(descriptor)
+            descriptor = child
+    except BaseException:
+        os.close(descriptor)
+        raise
+    return descriptor
+
+
+class _OpenDirectory:
+    """An artifact's parent directory, held open; reopened if it vanishes."""
+
+    def __init__(
+        self, root: Path, relative: PurePosixPath, created: list[tuple[int, str]]
+    ):
+        self.root = root
+        self.relative = relative
+        self.created = created
+        self.fd = _open_directories(root, relative, created)
+
+    def reopen(self) -> None:
         with suppress(OSError):
-            os.rmdir(directory)
+            os.close(self.fd)
+        self.fd = _open_directories(self.root, self.relative, self.created)
 
 
 def _place_verified(
     root: Path,
-    staging: Path,
-    relative_parent: PurePosixPath,
+    staging_fd: int,
+    parent: _OpenDirectory,
     chunks: Iterator[bytes],
     artifact: VerifiedReleaseArtifact,
-    created: list[Path],
     locks: CheckoutLocks,
-) -> None:
+) -> bool:
     """Stream into a staging file, verify, then give it its name without replacing.
 
-    The temporary file lives in ``data/corpus/.corpus-fetch-tmp/`` and carries
-    the ``.corpus-fetch-`` marker, so a process killed mid-stream leaves it
-    where axiom-corpus looks for and prunes leftovers, never inside a scope.
-    Just before publishing, the lock is checked again, in case another
+    Returns True when this call placed the file, False when another process
+    had already placed the release's bytes there. The temporary file lives in
+    ``data/corpus/.corpus-fetch-tmp/`` and carries the ``.corpus-fetch-``
+    marker, so a process killed mid-stream leaves it where axiom-corpus looks
+    for and prunes leftovers, never inside a scope. Every step goes through
+    directory descriptors without following symlinks, and the placed file
+    must be the temporary file's own inode, reachable from the root by its
+    path. Just before publishing, the lock is checked again, in case another
     process rewrote it meanwhile.
     """
 
     name = PurePosixPath(artifact.path).name
-    temporary = staging / (
-        f"{FETCH_TEMP_MARKER}{name[:40]}.{os.getpid()}.{os.urandom(6).hex()}"
-    )
+    temporary = f"{FETCH_TEMP_MARKER}{name[:40]}.{os.getpid()}.{os.urandom(6).hex()}"
     flags = (
         os.O_WRONLY
         | os.O_CREAT
         | os.O_EXCL
-        | getattr(os, "O_NOFOLLOW", 0)
+        | os.O_NOFOLLOW
         | getattr(os, "O_CLOEXEC", 0)
     )
+    descriptor: int | None = None
     try:
         digest = hashlib.sha256()
         size = 0
         try:
-            descriptor = os.open(temporary, flags, 0o644)
-            with os.fdopen(descriptor, "wb") as handle:
+            descriptor = os.open(temporary, flags, 0o644, dir_fd=staging_fd)
+            with os.fdopen(descriptor, "wb", closefd=False) as handle:
                 for chunk in chunks:
                     size += len(chunk)
                     if size > artifact.byte_count:
@@ -526,9 +646,10 @@ def _place_verified(
                     handle.write(chunk)
                 handle.flush()
                 os.fsync(handle.fileno())
+            written = os.fstat(descriptor)
         except OSError as exc:
             raise CorpusMaterializationError(
-                f"cannot write {temporary}: {exc}"
+                f"cannot write {root / FETCH_TEMP_DIR / temporary}: {exc}"
             ) from exc
         if size != artifact.byte_count:
             raise SourceError(
@@ -539,94 +660,216 @@ def _place_verified(
         changed = locks.recheck(artifact)
         if changed is not None:
             raise _LockChangedError(changed)
-        parent = root.joinpath(*relative_parent.parts)
         for attempt in range(2):
             try:
-                published = publish_no_replace(temporary, parent / name)
+                published = _publish_no_replace_at(
+                    staging_fd,
+                    temporary,
+                    parent.fd,
+                    name,
+                    written,
+                    root / artifact.path,
+                )
                 break
-            except CorpusMaterializationError:
-                if attempt or os.path.isdir(parent):
-                    raise
+            except _ParentVanishedError:
+                if attempt:
+                    raise CorpusMaterializationError(
+                        f"{root / parent.relative} keeps disappearing"
+                    ) from None
                 # Another process's failed attempt removed this empty
-                # directory after it was made here; make it again, once.
-                _ensure_directories(root, relative_parent, created)
+                # directory after it was opened here; make it again, once.
+                parent.reopen()
         if not published:
             # Another process placed a file first; accept only the release's bytes.
-            destination_state(root, artifact, verify=True)
+            _require_release_bytes_at(parent.fd, name, artifact, root / artifact.path)
+            return False
+        if _identity_at_path(root, PurePosixPath(artifact.path)) != _identity(written):
+            # A directory on the path was moved or swapped while the file was
+            # placed: take back the name this call made and fail.
+            if _identity_in(parent.fd, name) == _identity(written):
+                with suppress(OSError):
+                    os.unlink(name, dir_fd=parent.fd)
+            raise CorpusMaterializationError(
+                f"{root / parent.relative} changed while the file was placed; "
+                "nothing was placed"
+            )
+        return True
     finally:
         close = getattr(chunks, "close", None)
         if close is not None:
             close()
+        if descriptor is not None:
+            with suppress(OSError):
+                os.close(descriptor)
         with suppress(OSError):
-            os.unlink(temporary)
+            os.unlink(temporary, dir_fd=staging_fd)
 
 
-def publish_no_replace(temporary: Path, destination: Path) -> bool:
-    """Give ``temporary``'s file the name ``destination`` unless that name exists.
+class _ParentVanishedError(Exception):
+    """The destination directory was removed after it was opened."""
 
-    Returns False, leaving ``destination`` untouched, when something already
-    exists there. Uses ``link(2)``, or where the filesystem has no hard links
-    a no-replace rename (``renamex_np(RENAME_EXCL)`` on macOS,
-    ``renameat2(RENAME_NOREPLACE)`` on Linux), as axiom-corpus's
-    ``content_store.publish_no_replace`` does. Unlike that function it never
-    falls back to a checked plain rename or to a copy beside ``destination``:
-    it raises instead, because either could replace a file or leave a
-    temporary file inside a scope.
+
+def _identity(file_stat: os.stat_result) -> tuple[int, int]:
+    return (file_stat.st_dev, file_stat.st_ino)
+
+
+def _identity_in(directory_fd: int, name: str) -> tuple[int, int] | None:
+    try:
+        return _identity(os.stat(name, dir_fd=directory_fd, follow_symlinks=False))
+    except OSError:
+        return None
+
+
+def _identity_at_path(root: Path, relative: PurePosixPath) -> tuple[int, int] | None:
+    """The (device, inode) at ``root/relative``, walked without following symlinks."""
+
+    try:
+        descriptor = _open_directories(root, relative.parent, [], create=False)
+    except CorpusMaterializationError:
+        return None
+    try:
+        return _identity_in(descriptor, relative.name)
+    finally:
+        os.close(descriptor)
+
+
+def _require_release_bytes_at(
+    directory_fd: int, name: str, artifact: VerifiedReleaseArtifact, shown: Path
+) -> None:
+    """Accept a file someone else placed only if it holds the release's bytes."""
+
+    try:
+        descriptor = os.open(
+            name,
+            os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0),
+            dir_fd=directory_fd,
+        )
+    except OSError as exc:
+        raise CorpusMaterializationError(f"cannot inspect {shown}: {exc}") from exc
+    try:
+        file_stat = os.fstat(descriptor)
+        if not stat.S_ISREG(file_stat.st_mode):
+            raise CorpusMaterializationError(f"artifact is not a regular file: {shown}")
+        if file_stat.st_size != artifact.byte_count:
+            raise _DestinationDiffersError(
+                f"existing file holds {file_stat.st_size} bytes but the release "
+                f"lists {artifact.byte_count}; left untouched"
+            )
+        digest = hashlib.sha256()
+        with os.fdopen(descriptor, "rb", closefd=False) as handle:
+            for chunk in iter(lambda: handle.read(_CHUNK_BYTES), b""):
+                digest.update(chunk)
+    except OSError as exc:
+        raise CorpusMaterializationError(f"cannot read {shown}: {exc}") from exc
+    finally:
+        os.close(descriptor)
+    if digest.hexdigest() != artifact.sha256:
+        raise _DestinationDiffersError(
+            "existing file's sha256 differs from the release; left untouched"
+        )
+
+
+def _publish_no_replace_at(
+    source_dir_fd: int,
+    source: str,
+    target_dir_fd: int,
+    target: str,
+    written: os.stat_result,
+    shown: Path,
+) -> bool:
+    """Give the staged file the name ``target`` unless that name exists.
+
+    Returns False, leaving ``target`` untouched, when something already
+    exists there. Uses ``link(2)`` without following symlinks, or where the
+    filesystem has no hard links a no-replace rename
+    (``renameatx_np(RENAME_EXCL)`` on macOS, ``renameat2(RENAME_NOREPLACE)``
+    on Linux), as axiom-corpus's ``content_store.publish_no_replace`` does.
+    Unlike that function it never falls back to a checked plain rename or to
+    a copy beside ``target``: it raises instead, because either could replace
+    a file or leave a temporary file inside a scope. The new name must reach
+    ``written``'s inode; if the staged name was swapped for another file, the
+    new name is removed and placement fails.
     """
 
     try:
-        os.link(temporary, destination)
-        return True
+        os.link(
+            source,
+            target,
+            src_dir_fd=source_dir_fd,
+            dst_dir_fd=target_dir_fd,
+            follow_symlinks=False,
+        )
     except FileExistsError:
         return False
     except OSError as exc:
+        if exc.errno == errno.ENOENT and _identity_in(source_dir_fd, source):
+            raise _ParentVanishedError() from exc
         if exc.errno == errno.EXDEV:
             raise CorpusMaterializationError(
-                f"{FETCH_TEMP_DIR} and {destination.parent} are on different "
+                f"{FETCH_TEMP_DIR} and {shown.parent} are on different "
                 "filesystems; place this file with `axiom-corpus-ingest corpus fetch`"
             ) from exc
         if exc.errno not in _NO_HARDLINK_ERRNOS:
             raise CorpusMaterializationError(
-                f"cannot link verified bytes into place: {destination}: {exc}"
+                f"cannot link verified bytes into place: {shown}: {exc}"
             ) from exc
-    rename_noreplace = _rename_noreplace()
-    if rename_noreplace is None:
+        rename_noreplace = _rename_noreplace()
+        if rename_noreplace is None:
+            raise CorpusMaterializationError(
+                f"cannot place {shown}: the filesystem has no hard links and "
+                "this platform has no no-replace rename"
+            ) from exc
+        error = rename_noreplace(source_dir_fd, source, target_dir_fd, target)
+        if error == errno.EEXIST:
+            return False
+        if error == errno.ENOENT and _identity_in(source_dir_fd, source):
+            raise _ParentVanishedError() from exc
+        if error != 0:
+            raise CorpusMaterializationError(
+                f"cannot place {shown}: the filesystem has no hard links and a "
+                f"no-replace rename failed: {os.strerror(error)}"
+            ) from exc
+    if _identity_in(target_dir_fd, target) != _identity(written):
+        with suppress(OSError):
+            os.unlink(target, dir_fd=target_dir_fd)
         raise CorpusMaterializationError(
-            f"cannot place {destination}: the filesystem has no hard links and "
-            "this platform has no no-replace rename"
+            f"the staged file for {shown} was replaced before it was published; "
+            "nothing was placed"
         )
-    error = rename_noreplace(temporary, destination)
-    if error == 0:
-        return True
-    if error == errno.EEXIST:
-        return False
-    raise CorpusMaterializationError(
-        f"cannot place {destination}: the filesystem has no hard links and a "
-        f"no-replace rename failed: {os.strerror(error)}"
-    )
+    return True
 
 
 @cache
-def _rename_noreplace() -> Callable[[Path, Path], int] | None:
+def _rename_noreplace() -> Callable[[int, str, int, str], int] | None:
     """An atomic "rename unless the target exists" from the C library, if any.
 
-    Returns a function giving 0 on success or an errno. Loaded on first use:
-    only a filesystem without hard links needs it.
+    Takes (source directory fd, source name, target directory fd, target
+    name) and returns 0 on success or an errno. Loaded on first use: only a
+    filesystem without hard links needs it.
     """
 
     try:
         libc = ctypes.CDLL(None, use_errno=True)
     except OSError:
         return None
-    if sys.platform == "darwin" and hasattr(libc, "renamex_np"):
-        renamex = libc.renamex_np
-        renamex.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
-        renamex.restype = ctypes.c_int
+    if sys.platform == "darwin" and hasattr(libc, "renameatx_np"):
+        renameatx = libc.renameatx_np
+        renameatx.argtypes = [
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        ]
+        renameatx.restype = ctypes.c_int
 
-        def rename_excl(source: Path, target: Path) -> int:
-            if renamex(os.fsencode(source), os.fsencode(target), 0x4) == 0:
-                return 0  # RENAME_EXCL
-            return ctypes.get_errno()
+        def rename_excl(
+            source_fd: int, source: str, target_fd: int, target: str
+        ) -> int:
+            result = renameatx(
+                source_fd, os.fsencode(source), target_fd, os.fsencode(target), 0x4
+            )
+            return 0 if result == 0 else ctypes.get_errno()  # RENAME_EXCL
 
         return rename_excl
     if sys.platform.startswith("linux") and hasattr(libc, "renameat2"):
@@ -639,17 +882,14 @@ def _rename_noreplace() -> Callable[[Path, Path], int] | None:
             ctypes.c_uint,
         ]
         renameat2.restype = ctypes.c_int
-        at_fdcwd = -100
 
-        def rename_noreplace(source: Path, target: Path) -> int:
-            if (
-                renameat2(
-                    at_fdcwd, os.fsencode(source), at_fdcwd, os.fsencode(target), 1
-                )
-                == 0
-            ):
-                return 0  # RENAME_NOREPLACE
-            return ctypes.get_errno()
+        def rename_noreplace(
+            source_fd: int, source: str, target_fd: int, target: str
+        ) -> int:
+            result = renameat2(
+                source_fd, os.fsencode(source), target_fd, os.fsencode(target), 1
+            )
+            return 0 if result == 0 else ctypes.get_errno()  # RENAME_NOREPLACE
 
         return rename_noreplace
     return None
@@ -659,12 +899,15 @@ _PRUNED_STAGING_DIRECTORIES: set[Path] = set()
 _PRUNE_LOCK = threading.Lock()
 
 
-def _prune_stale_fetch_temporaries(staging: Path) -> None:
+def _prune_stale_fetch_temporaries(
+    staging: Path, staging_fd: int | None = None
+) -> None:
     """Delete marker files an interrupted placement left more than a day ago.
 
     The same rule as axiom-corpus's ``_prune_stale_fetch_tmp``, once per
     process: a live placement's file is never that old. ctime counts because
-    a clone keeps its source's old mtime.
+    a clone keeps its source's old mtime. With ``staging_fd`` the directory is
+    listed and pruned through that descriptor, never through a symlink.
     """
 
     with _PRUNE_LOCK:
@@ -672,46 +915,32 @@ def _prune_stale_fetch_temporaries(staging: Path) -> None:
             return
         _PRUNED_STAGING_DIRECTORIES.add(staging)
     cutoff = time.time() - STALE_FETCH_TEMP_SECONDS
-    with suppress(OSError), os.scandir(staging) as entries:
-        for item in entries:
-            if FETCH_TEMP_MARKER not in item.name:
-                continue
-            with suppress(OSError):
-                if not item.is_file(follow_symlinks=False):
+    try:
+        descriptor = (
+            os.dup(staging_fd)
+            if staging_fd is not None
+            else os.open(staging, _DIRECTORY_FLAGS)
+        )
+    except OSError:
+        return
+    try:
+        with os.scandir(descriptor) as entries:
+            for item in entries:
+                if FETCH_TEMP_MARKER not in item.name:
                     continue
-                item_stat = item.stat(follow_symlinks=False)
-                if max(item_stat.st_mtime, item_stat.st_ctime) < cutoff:
-                    os.unlink(item.path)
-
-
-def _ensure_directories(
-    root: Path, relative: PurePosixPath, created: list[Path]
-) -> Path:
-    """Create ``root/relative`` a component at a time; refuse symlinks."""
-
-    cursor = root
-    for part in relative.parts:
-        cursor = cursor / part
-        try:
-            os.mkdir(cursor, 0o755)
-            created.append(cursor)
-        except FileExistsError:
-            pass
-        except OSError as exc:
-            raise CorpusMaterializationError(
-                f"cannot create directory {cursor}: {exc}"
-            ) from exc
-        try:
-            mode = os.lstat(cursor).st_mode
-        except OSError as exc:
-            raise CorpusMaterializationError(
-                f"cannot inspect {cursor}: {exc.strerror}"
-            ) from exc
-        if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
-            raise CorpusMaterializationError(
-                f"path component is not a real directory: {cursor}"
-            )
-    return cursor
+                with suppress(OSError):
+                    item_stat = os.stat(
+                        item.name, dir_fd=descriptor, follow_symlinks=False
+                    )
+                    if not stat.S_ISREG(item_stat.st_mode):
+                        continue
+                    if max(item_stat.st_mtime, item_stat.st_ctime) < cutoff:
+                        os.unlink(item.name, dir_fd=descriptor)
+    except OSError:
+        pass
+    finally:
+        with suppress(OSError):
+            os.close(descriptor)
 
 
 def _require_root(root: Path) -> Path:
@@ -741,7 +970,12 @@ def _require_canonical_artifact_path(path: str) -> None:
 
 def _sha256_path(path: Path) -> str:
     digest = hashlib.sha256()
-    with open(path, "rb") as handle:
+    descriptor = os.open(
+        path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0)
+    )
+    with os.fdopen(descriptor, "rb") as handle:
+        if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+            raise OSError(errno.EINVAL, "not a regular file", str(path))
         for chunk in iter(lambda: handle.read(_CHUNK_BYTES), b""):
             digest.update(chunk)
     return digest.hexdigest()
@@ -776,17 +1010,24 @@ class ContentCacheSource:
     def from_environment(
         cls, environ: Mapping[str, str] = os.environ
     ) -> ContentCacheSource | None:
-        root = Path(environ.get(CACHE_ENV) or DEFAULT_CACHE_ROOT).expanduser()
+        try:
+            root = Path(environ.get(CACHE_ENV) or DEFAULT_CACHE_ROOT).expanduser()
+        except RuntimeError:  # no HOME and no passwd entry
+            return None
         return cls(root) if root.is_dir() else None
 
     def open(self, artifact: VerifiedReleaseArtifact) -> Iterator[bytes] | None:
         path = self.root / "objects" / "sha256" / artifact.sha256[:2] / artifact.sha256
         try:
-            handle = open(path, "rb")
+            # O_NONBLOCK: a FIFO in the cache must not hang the open.
+            descriptor = os.open(
+                path, os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0)
+            )
         except FileNotFoundError:
             return None
         except OSError as exc:
             raise SourceError(f"cannot read {path}: {exc.strerror}") from exc
+        handle = os.fdopen(descriptor, "rb")
         file_stat = os.fstat(handle.fileno())
         if (
             not stat.S_ISREG(file_stat.st_mode)
@@ -840,9 +1081,10 @@ class GitObjectStore:
             self._stop()
             self._unavailable = f"git cat-file cannot read objects in {self.root}"
             raise SourceError(self._unavailable)
-        fields = header.split()
-        if len(fields) == 2 and fields[1] in {b"missing", b"ambiguous"}:
+        encoded = name.encode("utf-8")
+        if header in (encoded + b" missing\n", encoded + b" ambiguous\n"):
             return None
+        fields = header.split()
         if len(fields) != 3 or not fields[2].isdigit():
             self._stop()
             raise SourceError(f"unexpected git cat-file reply {header[:80]!r}")
@@ -879,9 +1121,12 @@ class GitObjectStore:
             if terminator != b"\n":
                 raise SourceError("git cat-file reply is not terminated")
             complete = True
-            self._in_flight = False
+            if self._process is process:
+                self._in_flight = False
         finally:
-            if not complete:
+            # A stream abandoned after a newer request restarted git must not
+            # stop that newer process.
+            if not complete and self._process is process:
                 self._stop()
 
     def _start(self) -> subprocess.Popen[bytes]:
@@ -892,6 +1137,7 @@ class GitObjectStore:
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
+                env=_git_environment(os.environ),
             )
         return self._process
 
@@ -911,6 +1157,28 @@ class GitObjectStore:
 
     def close(self) -> None:
         self._stop()
+
+
+def _git_environment(environ: Mapping[str, str]) -> dict[str, str]:
+    """The caller's environment without ``GIT_*`` overrides, reading local objects only.
+
+    An inherited ``GIT_DIR`` or ``GIT_OBJECT_DIRECTORY`` (from a git hook, say)
+    would read another repository; ``GIT_NO_LAZY_FETCH`` keeps a partial clone
+    from fetching missing blobs, so ``--offline`` and ``--no-remote`` stay
+    local. The supervisor's trusted git wrapper sets the same.
+    """
+
+    clean = {
+        name: value
+        for name, value in environ.items()
+        if not name.startswith("GIT_") and name != "SSH_ASKPASS"
+    }
+    clean.update(
+        GIT_NO_LAZY_FETCH="1",
+        GIT_NO_REPLACE_OBJECTS="1",
+        GIT_TERMINAL_PROMPT="0",
+    )
+    return clean
 
 
 class GitReleaseTreeSource:
@@ -1204,15 +1472,17 @@ def r2_credentials_from_environment(
     *,
     credential_path: str | Path | None = None,
 ) -> R2Credentials | None:
-    """R2 credentials the way ``axiom-corpus-ingest`` finds them, or ``None``.
+    """R2 read credentials, or ``None``.
 
     ``R2_ACCESS_KEY_ID``/``R2_SECRET_ACCESS_KEY`` and ``R2_ENDPOINT`` or
-    ``R2_ACCOUNT_ID`` win over ``~/.config/axiom-foundation/r2-credentials.json``.
+    ``R2_ACCOUNT_ID`` win over ``~/.config/axiom-foundation/r2-credentials.json``,
+    in ``axiom-corpus-ingest``'s order. Unlike it, the ``AWS_*`` variables are
+    not read, so credentials meant for another service are never sent to R2.
     """
 
-    path = Path(credential_path or R2_CREDENTIAL_PATH).expanduser()
     stored: dict[str, Any] = {}
-    with suppress(OSError, ValueError):
+    with suppress(OSError, ValueError, RuntimeError):
+        path = Path(credential_path or R2_CREDENTIAL_PATH).expanduser()
         loaded = json.loads(path.read_text(encoding="utf-8"))
         if isinstance(loaded, dict):
             stored = loaded

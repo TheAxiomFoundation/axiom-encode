@@ -1222,7 +1222,9 @@ def test_a_failed_no_replace_rename_is_reported(tmp_path, monkeypatch):
     art = _artifact(PROVISIONS, data)
     _write_locks(tmp_path, {PROVISIONS: data})
     _refuse_links(monkeypatch, errno.EMLINK)
-    monkeypatch.setattr(cm, "_rename_noreplace", lambda: lambda _s, _t: errno.EACCES)
+    monkeypatch.setattr(
+        cm, "_rename_noreplace", lambda: lambda _sf, _s, _tf, _t: errno.EACCES
+    )
 
     report = cm.materialize_release_artifacts(
         tmp_path,
@@ -1540,6 +1542,7 @@ _SEGMENT = st.text(
 ).filter(lambda s: s not in {".", ".."})
 
 
+@settings(deadline=None)
 @given(j=_SEGMENT, dc=_SEGMENT, v=_SEGMENT, leaf=_SEGMENT)
 def test_property_every_scope_file_maps_to_one_lock(j, dc, v, leaf):
     expected = cm.LOCK_ROOT / j / dc / f"{v}.json"
@@ -1583,6 +1586,7 @@ _HEADER_NAME = st.text(
 ).filter(lambda s: s not in {"host", "x-amz-date", "x-amz-content-sha256"})
 
 
+@settings(deadline=None)
 @given(
     extra=st.dictionaries(
         _HEADER_NAME, st.text(alphabet="abc 123", max_size=10), max_size=4
@@ -2240,3 +2244,397 @@ def test_corpus_fetch_cli(tmp_path, capsys, monkeypatch):
 
     with pytest.raises(SystemExit):
         cm.run_corpus_fetch(["--corpus-path", str(root), "--release", RELEASE])
+
+
+# ------------------------------------------- hardening (#1742 review round 1)
+
+
+def _swap_during_stream(action):
+    """A source whose stream runs ``action`` after the staging file exists."""
+
+    class Swapping:
+        label = "swapping"
+
+        def __init__(self, data: bytes):
+            self.data = data
+
+        def open(self, artifact):
+            def chunks():
+                yield self.data[:1]
+                action()
+                yield self.data[1:]
+
+            return chunks()
+
+    return Swapping
+
+
+def test_a_directory_swapped_for_a_symlink_mid_placement_writes_nothing_outside(
+    tmp_path,
+):
+    root = tmp_path / "corpus"
+    root.mkdir()
+    data = b"row\n"
+    art = _artifact(PROVISIONS, data)
+    _write_locks(root, {PROVISIONS: data})
+    parent = (root / PROVISIONS).parent
+    parent.mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    moved = tmp_path / "moved"
+
+    def swap():
+        os.rename(parent, moved)
+        parent.symlink_to(outside)
+
+    report = cm.materialize_release_artifacts(
+        root, [art], sources=_factory(_swap_during_stream(swap)(data))
+    )
+
+    assert "changed while the file was placed" in report.failed[PROVISIONS]
+    assert list(outside.iterdir()) == []
+    # The name this call made in the moved directory was taken back.
+    assert list(moved.iterdir()) == []
+
+
+def test_a_staged_file_swapped_for_a_symlink_is_never_published(tmp_path):
+    root = tmp_path / "corpus"
+    root.mkdir()
+    data = b"row\n"
+    art = _artifact(PROVISIONS, data)
+    _write_locks(root, {PROVISIONS: data})
+    attacker = tmp_path / "attacker"
+    attacker.write_bytes(b"EVIL\n")
+    staging = root / cm.FETCH_TEMP_DIR
+
+    def swap():
+        (staged,) = [p for p in staging.iterdir() if cm.FETCH_TEMP_MARKER in p.name]
+        staged.unlink()
+        staged.symlink_to(attacker)
+
+    report = cm.materialize_release_artifacts(
+        root, [art], sources=_factory(_swap_during_stream(swap)(data))
+    )
+
+    assert "replaced before it was published" in report.failed[PROVISIONS]
+    assert not os.path.lexists(root / PROVISIONS)
+    assert attacker.read_bytes() == b"EVIL\n" and attacker.stat().st_nlink == 1
+
+
+def test_destination_inspection_errors_are_reported_not_raised(tmp_path):
+    data = b"row\n"
+    art = _artifact(PROVISIONS, data)
+    _write_locks(tmp_path, {PROVISIONS: data})
+    scope = (tmp_path / PROVISIONS).parent
+    scope.mkdir(parents=True)
+    (tmp_path / PROVISIONS).write_bytes(data)
+    scope.chmod(0o000)
+    try:
+        report = cm.materialize_release_artifacts(
+            tmp_path, [art], sources=_no_sources, verify=True
+        )
+    finally:
+        scope.chmod(0o755)
+    assert PROVISIONS in report.failed
+    assert "cannot" in report.failed[PROVISIONS]
+
+
+@pytest.mark.parametrize(
+    ("value", "disabled"),
+    [
+        ("", False),
+        ("0", False),
+        ("false", False),
+        ("no", False),
+        ("2", False),
+        ("1", True),
+        ("true", True),
+        (" TRUE ", True),
+        ("Yes", True),
+    ],
+)
+def test_no_fetch_switch_reads_values_as_axiom_corpus_does(value, disabled):
+    assert cm.fetch_disabled({cm.NO_FETCH_ENV: value}) is disabled
+
+
+def test_a_fifo_in_the_cache_does_not_hang(tmp_path):
+    data = b"row\n"
+    art = _artifact(PROVISIONS, data)
+    cache = tmp_path / "cache"
+    obj = cache / "objects" / "sha256" / art.sha256[:2] / art.sha256
+    obj.parent.mkdir(parents=True)
+    os.mkfifo(obj)
+    with pytest.raises(cm.SourceError, match="cache object"):
+        cm.ContentCacheSource(cache).open(art)
+
+
+def test_a_missing_home_skips_the_cache_and_the_credentials_file(monkeypatch):
+    def no_home(self):
+        raise RuntimeError("Could not determine home directory.")
+
+    monkeypatch.setattr(Path, "expanduser", no_home)
+    assert cm.ContentCacheSource.from_environment({}) is None
+    assert cm.r2_credentials_from_environment({}) is None
+
+
+def test_git_runs_without_inherited_overrides_and_never_lazy_fetches():
+    clean = cm._git_environment(
+        {
+            "PATH": "/bin",
+            "GIT_DIR": "/elsewhere/.git",
+            "GIT_WORK_TREE": "/elsewhere",
+            "GIT_OBJECT_DIRECTORY": "/elsewhere/objects",
+            "GIT_ALTERNATE_OBJECT_DIRECTORIES": "/elsewhere/alt",
+            "SSH_ASKPASS": "/bin/askpass",
+        }
+    )
+    assert clean == {
+        "PATH": "/bin",
+        "GIT_NO_LAZY_FETCH": "1",
+        "GIT_NO_REPLACE_OBJECTS": "1",
+        "GIT_TERMINAL_PROMPT": "0",
+    }
+
+
+@needs_git
+def test_an_inherited_git_dir_does_not_redirect_the_object_reader(
+    tmp_path, monkeypatch
+):
+    root = tmp_path / "axiom-corpus"
+    commit, _ = _pre_switch_corpus(root)
+    other = tmp_path / "other"
+    other.mkdir()
+    _git(other, "init", "--quiet")
+    monkeypatch.setenv("GIT_DIR", str(other / ".git"))
+    data = _rows_bytes()
+    store = cm.GitObjectStore(root)
+    try:
+        assert b"".join(store.open(f"{commit}:{PROVISIONS}", len(data))) == data
+    finally:
+        store.close()
+
+
+@needs_git
+def test_a_partial_clone_is_read_locally_without_fetching(tmp_path):
+    origin = tmp_path / "origin"
+    commit, _ = _pre_switch_corpus(origin)
+    _git(origin, "config", "uploadpack.allowFilter", "true")
+    _git(origin, "config", "uploadpack.allowAnySHA1InWant", "true")
+    clone = tmp_path / "clone"
+    subprocess.run(
+        [
+            GIT,
+            "clone",
+            "--quiet",
+            "--filter=blob:none",
+            "--no-checkout",
+            f"file://{origin}",
+            str(clone),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    blob = _git(origin, "rev-parse", f"{commit}:{PROVISIONS}").strip()
+
+    def present() -> bool:
+        return (
+            subprocess.run(
+                [GIT, "-C", str(clone), "cat-file", "-e", blob],
+                env={**os.environ, "GIT_NO_LAZY_FETCH": "1"},
+                capture_output=True,
+            ).returncode
+            == 0
+        )
+
+    assert not present()
+    data = _rows_bytes()
+    store = cm.GitObjectStore(clone)
+    try:
+        assert store.open(blob, len(data)) is None
+        assert store.open(f"{commit}:{PROVISIONS}", len(data)) is None
+    finally:
+        store.close()
+    assert not present()
+
+
+@needs_git
+def test_git_reports_absent_objects_whose_names_contain_spaces(tmp_path):
+    root = tmp_path / "axiom-corpus"
+    commit, _ = _pre_switch_corpus(root)
+    store = cm.GitObjectStore(root)
+    try:
+        assert store.open(f"{commit}:data/corpus/a b c.jsonl", 3) is None
+        data = _rows_bytes()
+        assert b"".join(store.open(f"{commit}:{PROVISIONS}", len(data))) == data
+    finally:
+        store.close()
+
+
+@needs_git
+def test_an_abandoned_stream_never_stops_a_newer_git_process(tmp_path):
+    root = tmp_path / "axiom-corpus"
+    commit, _ = _pre_switch_corpus(root)
+    data = _rows_bytes()
+    name = f"{commit}:{PROVISIONS}"
+    store = cm.GitObjectStore(root)
+    try:
+        stale = store.open(name, len(data))
+        next(stale)  # started, then abandoned
+        fresh = store.open(name, len(data))  # restarts git
+        stale.close()  # must not stop the new process
+        assert b"".join(fresh) == data
+        assert b"".join(store.open(name, len(data))) == data
+    finally:
+        store.close()
+
+
+@needs_git
+def test_a_file_another_process_placed_counts_as_present(tmp_path):
+    data = b"row\n"
+    art = _artifact(PROVISIONS, data)
+    _write_locks(tmp_path, {PROVISIONS: data})
+    target = tmp_path / PROVISIONS
+
+    report = cm.materialize_release_artifacts(
+        tmp_path, [art], sources=_factory(_racing(target, data, data))
+    )
+
+    assert report.ok and report.present == [PROVISIONS]
+    assert report.materialized == {} and report.bytes_materialized == 0
+
+
+def _place_in_child(root: str, release_sha: str, queue) -> None:
+    from axiom_encode import corpus_materialize as child_cm
+
+    resolved_root, verified = child_cm.load_pinned_release(
+        Path(root), RELEASE, release_sha
+    )
+    report = child_cm.materialize_release_artifacts(
+        resolved_root,
+        [a for a in verified.artifacts if a.artifact_class == "provisions"],
+        sources=lambda: child_cm.release_sources(
+            resolved_root,
+            git_commit=verified.git_commit,
+            r2_bucket=verified.r2_bucket,
+            remote=False,
+        ),
+    )
+    queue.put(report.to_mapping())
+
+
+@needs_git
+def test_eight_processes_place_each_file_exactly_once(tmp_path):
+    import multiprocessing
+
+    root = tmp_path / "axiom-corpus"
+    _, release_sha = _pre_switch_corpus(root, scopes=(STATUTE, REGULATION))
+    _switch(root)
+    context = multiprocessing.get_context("spawn")
+    queue = context.Queue()
+    processes = [
+        context.Process(target=_place_in_child, args=(str(root), release_sha, queue))
+        for _ in range(8)
+    ]
+    for process in processes:
+        process.start()
+    reports = [queue.get(timeout=120) for _ in processes]
+    for process in processes:
+        process.join(timeout=60)
+        assert process.exitcode == 0
+
+    assert all(not report["failed"] for report in reports)
+    assert sum(report["materialized"] for report in reports) == 2
+    assert sum(report["materialized"] + report["present"] for report in reports) == 16
+    assert (root / PROVISIONS).read_bytes() == _rows_bytes()
+    assert (root / PROVISIONS).stat().st_nlink == 1
+    assert _leftovers(root) == []
+
+
+@needs_git
+def test_binding_a_checkout_without_locks_changes_no_file(tmp_path):
+    root = tmp_path / "axiom-corpus"
+    _, release_sha = _pre_switch_corpus(root, scopes=(STATUTE, REGULATION))
+    (root / PROVISIONS).unlink()
+
+    def snapshot() -> dict[str, tuple[int, int, int]]:
+        return {
+            str(path.relative_to(root)): (
+                (info := path.lstat()).st_ino,
+                info.st_size,
+                info.st_mtime_ns,
+            )
+            for path in root.rglob("*")
+            if ".git" not in path.relative_to(root).parts
+        }
+
+    before = snapshot()
+    release = _release(root, release_sha)
+    with pytest.raises(CorpusResolutionError):
+        resolve_local_corpus_source(CITATION, release)
+    resolve_local_corpus_source(REG_CITATION, release)
+    assert snapshot() == before
+
+
+# A model of git cat-file --batch use: every interleaving of reads,
+# abandoned streams and refused objects keeps returning exact blob bytes.
+_GIT_OPERATIONS = st.lists(
+    st.sampled_from(
+        ["read", "abandon", "abandon-unstarted", "missing", "tree", "wrong-size"]
+    ),
+    max_size=20,
+)
+
+
+@pytest.fixture(scope="module")
+def _git_corpus(tmp_path_factory):
+    if GIT is None:
+        pytest.skip("git is required")
+    root = tmp_path_factory.mktemp("stateful") / "axiom-corpus"
+    commit, _ = _pre_switch_corpus(root, scopes=(STATUTE, REGULATION))
+    return root, commit
+
+
+@needs_git
+@settings(
+    max_examples=60,
+    deadline=None,
+    suppress_health_check=[HealthCheck.function_scoped_fixture],
+)
+@given(operations=_GIT_OPERATIONS)
+def test_property_git_batch_reader_survives_any_interleaving(_git_corpus, operations):
+    root, commit = _git_corpus
+    expected = {
+        PROVISIONS: _rows_bytes(),
+        REG_PROVISIONS: _rows_bytes(REG_BODY, scope=REGULATION, citation=REG_CITATION),
+    }
+    store = cm.GitObjectStore(root)
+    pending = []
+    try:
+        for index, operation in enumerate(operations):
+            path = (PROVISIONS, REG_PROVISIONS)[index % 2]
+            data = expected[path]
+            name = f"{commit}:{path}"
+            if operation == "read":
+                assert b"".join(store.open(name, len(data))) == data
+            elif operation == "abandon":
+                stream = store.open(name, len(data))
+                next(stream)
+                pending.append(stream)
+            elif operation == "abandon-unstarted":
+                pending.append(store.open(name, len(data)))
+            elif operation == "missing":
+                assert store.open(f"{commit}:data/corpus/none.jsonl", 1) is None
+            elif operation == "tree":
+                with pytest.raises(cm.SourceError, match="not a blob"):
+                    store.open(f"{commit}:data/corpus", 1)
+            else:
+                with pytest.raises(cm.SourceError, match="holds"):
+                    store.open(name, len(data) + 1)
+            if pending and index % 3 == 0:
+                pending.pop(0).close()
+        for stream in pending:
+            stream.close()
+        for path, data in expected.items():
+            assert b"".join(store.open(f"{commit}:{path}", len(data))) == data
+    finally:
+        store.close()

@@ -34,19 +34,25 @@ there fails when it is read, as before.
 Placement (`src/axiom_encode/corpus_materialize.py`) streams bytes into a
 temporary file in `data/corpus/.corpus-fetch-tmp/`, checks size and sha256, and
 then gives the file its name with `link(2)`. On a filesystem without hard links
-it uses a no-replace rename instead (`renamex_np(RENAME_EXCL)` on macOS,
+it uses a no-replace rename instead (`renameatx_np(RENAME_EXCL)` on macOS,
 `renameat2(RENAME_NOREPLACE)` on Linux); where neither exists, or the staging
 directory is on another filesystem than the destination, it fails rather than
-risk replacing a file. It never replaces an existing file, and it checks every
-component of an artifact's path for symlinks before it writes. Just before it
-gives a file its name, it reads the lock again and compares its bytes. Readers still hash every
-provisions file they read. A file that is already present is checked by size
-only, unless `--verify` is given.
+risk replacing a file. It never replaces an existing file. Just before it
+gives a file its name, it reads the lock again and compares its bytes. Readers
+still hash every provisions file they read. A file that is already present is
+checked by size only, unless `--verify` is given.
 
-These guarantees assume that no other process rewrites the checkout's locks or
-puts a symlink on an artifact's path while encode runs; axiom-corpus's own
-fetch makes the same assumption. The lock re-check narrows the first case to
-the instant between that check and `link(2)`.
+Every write goes through directory descriptors, the way the resolver reads:
+each directory on the path is opened relative to its parent with
+`O_NOFOLLOW`, and the temporary file is created, linked and removed relative
+to those descriptors, without following symlinks. A symlink put on an
+artifact's path or in place of the temporary file while bytes are on the way
+is therefore never followed. After publishing, the new name must be the
+temporary file's own inode, and walking the path from the corpus root must
+reach it; otherwise the name is removed and the artifact fails. The one
+remaining assumption is about locks: no other process rewrites the checkout's
+lock in the instant between the re-check and `link(2)`. axiom-corpus's own
+fetch makes the same assumption.
 
 The staging directory is the one `axiom-corpus-ingest corpus fetch` uses:
 git-ignored, outside every scope, and each temporary file's name carries the
@@ -118,10 +124,19 @@ Then pass `--corpus-path ../axiom-corpus-at-release`.
 | 3 | `git-lock` | the `git_blob` the scope's lock file records for a moved file | the file was in git before the switch and the blob is local |
 | 4 | `r2` | `objects/sha256/<xx>/<sha256>` in the release's R2 bucket, signed with AWS SigV4 | R2 read credentials are configured |
 
-R2 credentials are resolved as `axiom-corpus-ingest` resolves them.
+R2 credentials are resolved in `axiom-corpus-ingest`'s order:
 `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and `R2_ENDPOINT` or `R2_ACCOUNT_ID`
-take precedence over `~/.config/axiom-foundation/r2-credentials.json`. The
-bucket comes from the signed release object, never from the environment.
+take precedence over `~/.config/axiom-foundation/r2-credentials.json`. Unlike
+axiom-corpus, encode does not fall back to `AWS_ACCESS_KEY_ID` and
+`AWS_SECRET_ACCESS_KEY`, so credentials meant for another service are never
+sent to R2. The bucket comes from the signed release object, never from the
+environment.
+
+Git runs with `GIT_NO_LAZY_FETCH=1` and without any inherited `GIT_*`
+variable, as under the supervisor's trusted wrapper: an inherited `GIT_DIR`
+cannot point it at another repository, and a partial clone's missing blobs are
+reported absent rather than fetched. The `git` and `git-lock` sources read
+local objects only.
 
 ## In CI
 
@@ -184,13 +199,14 @@ Exit codes: 0 when every selected artifact is present, placed or skipped; 1 when
 an artifact the lock pins could not be placed, or its file differs from the
 release bytes the lock pins (`modified`); 2 when the release cannot be loaded.
 
-`AXIOM_CORPUS_NO_FETCH=1` turns automatic placement off, as it does in
-axiom-corpus. `axiom-encode ci --offline` uses only the cache and git objects.
+`AXIOM_CORPUS_NO_FETCH` set to `1`, `true` or `yes`, in any case, turns
+automatic placement off; these are the values axiom-corpus accepts.
+`axiom-encode ci --offline` uses only the cache and local git objects.
 
 ## Invariants
 
 For every release, every checkout lock state and every set of sources, while no
-other process rewrites the checkout's locks or artifact paths:
+other process rewrites the checkout's locks between the re-check and `link(2)`:
 
 1. **Fetch fidelity.** Every placed file hashes to the release's sha256 and byte count.
 2. **Lock bytes only.** A file is placed only at a path the checkout's own lock
@@ -206,7 +222,8 @@ other process rewrites the checkout's locks or artifact paths:
    no-replace rename. A file another process places first is accepted only if
    it hashes to the release's bytes.
 6. **No links.** Placed files are regular files with one link. No symlink on an
-   artifact's path, lock path or staging path is followed.
+   artifact's path, lock path or staging path is followed, including one swapped
+   in while bytes are on the way.
 7. **Source order.** The first source whose bytes verify supplies the file.
 8. **Idempotence.** A second pass over a fully placed release opens no source.
 9. **Pre-switch checkouts.** Without `.axiom/corpus-locks/`, binding writes nothing.
@@ -219,6 +236,10 @@ bytes. The file checks 4 by watching the filesystem mid-stream and by SIGKILLing
 a placing process. It checks 6 and 9 directly and compares its lock reader with
 bytes written by axiom-corpus's own `serialize_lock`. It also covers a lock
 rewritten mid-placement, a failed attempt racing a successful one, and a scope
-directory removed mid-placement. It runs the git sources
-against real repositories and through the supervisor's trusted git wrapper, and
-checks SigV4 against the AWS S3 GET Object example.
+directory removed mid-placement, a directory or the temporary file swapped for
+a symlink mid-placement, and eight processes placing the same release at once.
+It runs the git sources against real repositories and through the supervisor's
+trusted git wrapper, including a Hypothesis property that interleaves reads,
+abandoned streams and refused objects, an inherited `GIT_DIR`, and a partial
+clone that must not fetch. It checks SigV4 against the AWS S3 GET Object
+example.
