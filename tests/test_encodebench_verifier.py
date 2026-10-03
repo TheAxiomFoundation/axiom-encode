@@ -2308,3 +2308,94 @@ def test_keep_errors_reassembles_without_rejudging(tmp_path):
     )  # the CLI builds its own runner; the payload is what matters
     payload = load_results(tmp_path / "ke")
     assert payload["coverage"]["errors"] == 1
+
+
+# -- committed boards reproduce -----------------------------------------------
+
+BOARDS_ROOT = VERIFIER_ROOT / "boards"
+REAL_CORPUS = REPO_ROOT / "benchmarks" / "verifier" / "real_defects_v0"
+COMMITTED_BOARDS = ("synthetic_us_v1", "real_defects_v0", "real_defects_v0_under100k")
+
+
+def _manifest_identity_sha(manifest: dict) -> str:
+    mutator = manifest.get("mutator") or {}
+    return canonical_json_sha256(
+        {
+            "schema": SUITE_SCHEMA,
+            "name": manifest["name"],
+            "source_kind": manifest["source"]["kind"],
+            "corpus_release": manifest.get("corpus_release"),
+            "mutator_version": (
+                str(mutator["version"]) if mutator.get("version") is not None else None
+            ),
+            "provision_chars": manifest["provision_chars"],
+            "derived_from": manifest["source"]["identity"].get("derived_from"),
+            "case_identities": manifest["case_identities"],
+        }
+    )
+
+
+@pytest.mark.parametrize("board_dir", COMMITTED_BOARDS)
+def test_committed_board_manifest_and_board_agree(board_dir):
+    manifest = json.loads((BOARDS_ROOT / board_dir / "suite.manifest.json").read_text())
+    board = json.loads((BOARDS_ROOT / board_dir / "board.json").read_text())
+    identities = manifest["case_identities"]
+    # The manifest's digest recomputes from its own contents.
+    assert _manifest_identity_sha(manifest) == manifest["sha256"]
+    # The board was folded over exactly this suite.
+    assert board["suite"]["sha256"] == manifest["sha256"]
+    assert board["suite"]["pair_count"] == manifest["summary"]["pair_count"]
+    assert len(identities) == 2 * manifest["summary"]["pair_count"]
+    kinds: dict[str, int] = {}
+    for item in identities:
+        if item["variant"] == VARIANT_DEFECTIVE:
+            kinds[item["defect_kind"]] = kinds.get(item["defect_kind"], 0) + 1
+    assert {
+        k: v for k, v in manifest["summary"]["defective_by_kind"].items() if v
+    } == kinds
+    for runner in board["runners"]:
+        assert runner["cases_expected"] == len(identities), runner["runner"]
+        assert runner["cases_scored"] + runner["errors"] <= len(identities)
+
+
+@pytest.mark.skipif(
+    not (REAL_CORPUS / "index.json").is_file(),
+    reason="real_defects_v0 corpus (PR #1659) is not in this checkout",
+)
+def test_committed_real_boards_reproduce_from_the_committed_corpus():
+    full = json.loads(
+        (BOARDS_ROOT / "real_defects_v0" / "suite.manifest.json").read_text()
+    )
+    child = json.loads(
+        (BOARDS_ROOT / "real_defects_v0_under100k" / "suite.manifest.json").read_text()
+    )
+    selection = full["source"]["identity"]["selection"]
+    suite, _ = real_source.build_real_suite(
+        REAL_CORPUS,
+        provision_chars=full["provision_chars"],
+        truncate=truncate_provision,
+        name=full["name"],
+        representatives_only=selection["representatives_only"],
+        triage_statuses=tuple(selection["triage_statuses"]),
+        min_confidence=selection["min_confidence"],
+        jurisdictions=tuple(selection["jurisdictions"]),
+    )
+    assert suite.case_identities() == full["case_identities"]
+    assert suite.sha256 == full["sha256"]
+    # The like-for-like child applies the same size rule as `filter-suite`.
+    derived = child["source"]["identity"]["derived_from"]
+    limit = derived["filter"]["max_case_chars"]
+    sizes: dict[str, int] = {}
+    for case in suite.cases:
+        size = len(case.provision_text) + len(case.artifact_text)
+        sizes[case.pair_id] = max(sizes.get(case.pair_id, 0), size)
+    rebuilt = suite.filtered(
+        name=child["name"],
+        keep_pair=lambda case: sizes[case.pair_id] <= limit,
+        description=derived["filter"],
+    )
+    assert (
+        rebuilt.source_identity["derived_from"]["dropped_pairs"]
+        == derived["dropped_pairs"]
+    )
+    assert rebuilt.sha256 == child["sha256"]
