@@ -116,20 +116,21 @@ def read_rows(path: Path) -> list[dict[str, Any]]:
 
     JSON text is written with ``ensure_ascii=False``, so U+2028 and friends
     may appear inside a row; they are not record separators here. Exactly
-    one unparseable *final* line without a trailing newline (a write cut off
-    by a crash) is dropped with a warning; anything else is refused.
+    one unreadable *final* line without a trailing newline (a write cut off
+    by a crash, possibly inside a multibyte character) is dropped with a
+    warning; anything else is refused.
     """
 
-    text = path.read_text(encoding="utf-8")
-    parts = text.split("\n")
+    data = path.read_bytes()
+    parts = data.split(b"\n")
     rows: list[dict[str, Any]] = []
-    for line_no, line in enumerate(parts, 1):
-        if not line.strip():
+    for line_no, raw in enumerate(parts, 1):
+        if not raw.strip():
             continue
         try:
-            row = json.loads(line)
-        except json.JSONDecodeError as exc:
-            if line_no == len(parts) and not text.endswith("\n"):
+            row = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            if line_no == len(parts) and not data.endswith(b"\n"):
                 warnings.warn(
                     f"{path}: dropped one truncated trailing row (line {line_no})",
                     stacklevel=2,

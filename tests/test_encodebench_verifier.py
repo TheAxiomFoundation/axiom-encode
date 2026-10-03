@@ -12,6 +12,7 @@ import random
 import re
 import sys
 import threading
+import warnings
 from pathlib import Path
 
 import pytest
@@ -3025,8 +3026,19 @@ def test_audit_refuses_edits_the_mutator_cannot_plant():
     def audit(defective, kind, control=base):
         return audit_planted_edit(control, defective, stated, kind)
 
-    # Amounts: a non-number, and the same amount reformatted.
-    for formula in ("x * foo", "x * 60,000"):
+    # Amounts: a non-number, the same amount reformatted, and anything not
+    # written as plain digits with the token's decimal places.
+    for formula in (
+        "x * foo",
+        "x * 60,000",
+        "x * NaN",
+        "x * Infinity",
+        "x * -75000",
+        "x *  75000",
+        "x * 75_000",
+        "x * 1E+5",
+        "x * 75000.0",
+    ):
         reason = audit(
             _artifact_with(formulas={1: formula}, periods={1: "Day"}), "amount_changed"
         )
@@ -3056,6 +3068,13 @@ def test_audit_refuses_edits_the_mutator_cannot_plant():
         node[path[-1]] = value
         reason = audit(dump_yaml_document(edited), kind, control=control)
         assert reason and reason.startswith("edits rules[1]."), (path, reason)
+    assert (
+        audit(
+            _artifact_with(formulas={1: "x * 75000"}, periods={1: "Day"}),
+            "amount_changed",
+        )
+        is None
+    )
     # Edits inside a string literal are never operator or amount sites.
     quoted = _artifact_with(formulas={1: 'label == "a > b"'})
     assert (
@@ -3084,6 +3103,29 @@ def test_trim_restores_the_newline_of_a_finished_last_row(tmp_path):
         assert payload["coverage"]["complete"] is True
     assert runner.calls == len(suite.cases)
     assert jsonl.read_bytes() == whole
+
+
+def test_resume_survives_a_tail_torn_inside_a_multibyte_character(tmp_path):
+    suite = _suite_for_board()
+    runner = _CountingReplay(_replay_file(tmp_path, suite, "u"), name="u")
+    run_suite(suite, runner, tmp_path / "u", price=None)
+    jsonl = tmp_path / "u" / "cases.jsonl"
+    whole = jsonl.read_bytes()
+    torn = '{"case_id": "caf\u00e9'.encode("utf-8")[:-1]  # first byte of the e-acute
+    jsonl.write_bytes(whole + torn)
+    with pytest.warns(UserWarning, match="truncated trailing row"):
+        assert len(read_rows(jsonl)) == len(suite.cases)
+    for _ in range(2):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            payload = run_suite(suite, runner, tmp_path / "u", price=None)
+        assert payload["coverage"]["complete"] is True
+    assert runner.calls == len(suite.cases)
+    assert jsonl.read_bytes() == whole
+    # A torn line that is not the last one is still refused.
+    jsonl.write_bytes(torn + b"\n" + whole)
+    with pytest.raises(ResultsError, match="not JSON"):
+        read_rows(jsonl)
 
 
 def test_localization_number_is_not_matched_inside_a_grouped_number():
