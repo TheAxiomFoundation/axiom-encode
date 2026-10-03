@@ -10,6 +10,12 @@ export const meta = {
 
 const S = args.scratch
 const W = args.worktree
+// args.nonkeyword: { us: [...], uk: [...] }, the <jur>_nonkeyword.json rows
+// (commit, date, subject, n_modules) enumerate_candidates.py wrote.
+const NONKEYWORD_BY_COMMIT = {}
+for (const jur of ['us', 'uk']) {
+  for (const row of (args.nonkeyword && args.nonkeyword[jur]) || []) NONKEYWORD_BY_COMMIT[jur + ':' + row.commit] = row
+}
 const REPO = { us: '/Users/maxghenis/TheAxiomFoundation/rulespec-us', uk: '/Users/maxghenis/TheAxiomFoundation/rulespec-uk' }
 const GH = { us: 'TheAxiomFoundation/rulespec-us', uk: 'TheAxiomFoundation/rulespec-uk' }
 const CHUNK = 12
@@ -78,7 +84,7 @@ ${RULES}`
 function triagePrompt(item) {
   const repo = REPO[item.jur]
   const idx = item.indices.join(', ')
-  return `You are triaging one commit from ${GH[item.jur]} for a corpus of REAL encoding defects used to benchmark fidelity judges (EncodeBench verifier track). Commit ${item.commit} (${item.date}): "${item.subject}". This chunk covers module indices [${idx}] (chunk ${item.chunk + 1} of ${item.chunks}). Classify EVERY module index in the chunk; if the bundle has fewer modules than expected, cover the ones that exist and note it.
+  return `You are triaging one commit from ${GH[item.jur]} for a corpus of REAL encoding defects used to benchmark fidelity judges (EncodeBench verifier track). Commit ${item.commit} (${item.date}): "${item.subject}".${item.screen_reason ? ' A subject-only screen flagged it: "' + item.screen_reason + '"; treat that as a lead, not evidence.' : ''} This chunk covers module indices [${idx}] (chunk ${item.chunk + 1} of ${item.chunks}). Classify EVERY module index in the chunk; if the bundle has fewer modules than expected, cover the ones that exist and note it.
 
 Step 1. Load the prepared bundle ${S}/inputs/${item.jur}/${item.commit}.json. If that file does not exist, create it with: cd ${S} && python3 prep_commit.py ${item.jur} ${item.commit}   (idempotent, read-only; it also fetches the merged PR body and review comments through gh). The bundle has commit, parent_commit, subject, body, module_files (index, path, status, diff_file, post_header, corpus_citation_paths_seen, is_rulespec_v1), test_files, other_files, pr (url, body, reviews, review_comments, issue_comments).
 Step 2. For each module index in this chunk, read its diff file (cat the diff_file path). When the diff alone does not show what a changed formula, version, or parameter means, read the surrounding pre-fix and post-fix files: git -C ${repo} show <parent_commit>:<path>   and   git -C ${repo} show ${item.commit}:<path>   (use sed -n to window large files).
@@ -148,7 +154,7 @@ const verify = async (tri, item) => {
 phase('Screen')
 const screenBatches = []
 for (const jur of ['us', 'uk']) {
-  const n = args.nonkeyword_counts[jur]
+  const n = args.nonkeyword_counts ? args.nonkeyword_counts[jur] : ((args.nonkeyword || {})[jur] || []).length
   for (let s = 0; s < n; s += SCREEN_BATCH) screenBatches.push({ jur, start: s, end: Math.min(n, s + SCREEN_BATCH) })
 }
 const screenP = parallel(screenBatches.map(b => () =>
@@ -168,7 +174,12 @@ for (const s of screens) {
     const key = s.jur + ':' + f.commit
     if (seen.has(key)) continue
     seen.add(key)
-    flagged.push({ jur: s.jur, commit: f.commit, date: '', subject: '(screen-flagged) ' + f.reason, n_modules: f.n_modules, screen_reason: f.reason })
+    // Date and subject come from the enumerated commit, never from the screen's
+    // paraphrase (the 2026-09 run put '(screen-flagged) <reason>' here, which
+    // leaked the screen's reading into commit_subject). merge_triage.py
+    // re-reads both from Git in any case.
+    const enumerated = NONKEYWORD_BY_COMMIT[key] || {}
+    flagged.push({ jur: s.jur, commit: f.commit, date: enumerated.date || '', subject: enumerated.subject || '', n_modules: f.n_modules, screen_reason: f.reason })
   }
 }
 const readCount = screens.reduce((a, s) => a + ((s.result && s.result.read_count) || 0), 0)

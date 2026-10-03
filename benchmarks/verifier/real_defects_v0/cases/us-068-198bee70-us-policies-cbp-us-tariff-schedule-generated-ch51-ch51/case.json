@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
   "parent_commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 certify (PR #1300): diff changes the Brazil gate in every generated composition from `not entry_is_line_b` to `not entry_is_section_232_aluminum` and re-grounds the steel parameter proof from 9903.81.87/.88 to 9903.82.02; report says \"The task's 9903.81.x locator is stale for this corpus vintage\".",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: certify generalized component gates",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch51/ch51.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -263,7 +263,8 @@
     "verifier_quote": "+      + (if origin_is_brazil and not entry_is_section_232_aluminum: brazil_ieepa_additional_duty_rate else: 0)))))))))))))))))))))))))))",
     "verifier_notes": "Two independent changes in this module diff; only the first carries the defect. (1) The Brazil IEEPA gate in both `ieepa_component_rate` (line 2367) and `ieepa_component_rate_with_declared_exceptions` (line 2523): `not entry_is_line_b` -> `not entry_is_section_232_aluminum`. Real meaning change, untraceable_branch. (2) `ch51_s232_steel_heading_rate` and `section_232_steel_component_rate`: two proof atoms citing us/statute/hts/9903.81.87 and .88 collapse into one citing us/statute/hts/9903.82.02, with identical excerpt text and the parameter value unchanged at '0.50'. That half is citation-path/provenance only, i.e. mechanical under the rubric, and the commit message confirms it (\"The task's 9903.81.x locator is stale for this corpus vintage\"). So the module is fidelity only because of hunk (1); a reviewer scoring the steel rules alone would score mechanical. Residual issue worth flagging (not a reason to downgrade this verdict): 9903.01.83 exempts steel, wood, vehicles, semiconductors and copper from the Brazil 40% as well as aluminum, so `not entry_is_section_232_aluminum` is still a partial encoding of the carve-out — under-representation that survives the fix. Also note the module's own atom for the carve-out cites us/statute/hts/chapter-99/page-219, but that page in the pinned release (us-rulespec-2026-08-08-obbb-alien-snap, HTS 2026 Rev 3 notes) resolves to a bare list of HTS numbers, not the quoted sentence; the atom is unchanged by this commit, so it is out of scope here, but the excerpt-to-page binding looks stale for this vintage. Alternative kind considered and rejected: wrong_entity_or_scope (the change is a re-grounding of an ungrounded condition, which the untraceable_branch definition explicitly covers) and unrepresented_clause (the exception was present in shape pre-fix, just mis-keyed).",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 certify (PR #1300): diff changes the Brazil gate in every generated composition from `not entry_is_line_b` to `not entry_is_section_232_aluminum` and re-grounds the steel parameter proof from 9903.81.87/.88 to 9903.82.02; report says \"The task's 9903.81.x locator is stale for this corpus vintage\"."
   },
   "triage_notes": "Same pattern as index 48 (diff read individually; identical hunks). Only differences are the chapter-prefixed steel parameter name and the redundant paren count. | verifier confirmed at 0.80",
   "family_id": "us-198bee70-ae51d9d5b290",

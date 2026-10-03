@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
   "parent_commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 certify (PR #1300): diff changes the Brazil gate in every generated composition from `not entry_is_line_b` to `not entry_is_section_232_aluminum` and re-grounds the steel parameter proof from 9903.81.87/.88 to 9903.82.02; report says \"The task's 9903.81.x locator is stale for this corpus vintage\".",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: certify generalized component gates",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch14/ch14.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -263,7 +263,8 @@
     "verifier_quote": "-      + (if origin_is_brazil and not entry_is_line_b: brazil_ieepa_additional_duty_rate else: 0))))))))\n+      + (if origin_is_brazil and not entry_is_section_232_aluminum: brazil_ieepa_additional_duty_rate else: 0))))))))",
     "verifier_notes": "Evidence chain: diff 013.diff lines 9-10 and 18-19 (the only formula changes; the remaining hunks are proof-atom citation/excerpt strings plus the `source:` summary line for the steel parameter, with versions[0].formula '0.50' untouched in both). Source verified through the pinned corpus (resolve_provision.py, release us-rulespec-2026-08-08-obbb-alien-snap, corpus commit e79781bd): note 2(x)(vii) at us/statute/hts/chapter-99/page-220. Note the module's own atom cites page-219 for that excerpt while the text sits on page-220 in this vintage — a pre-existing provenance drift this commit did not touch, not part of the defect. Two residuals a reviewer may want to track separately: (1) the same exemplar-flag coupling survives in post at line 1925, where `entry_is_reciprocal_metals_excluded` is still `entry_is_line_b` despite being sourced to HTS 9903.01.33 \"articles of aluminum; derivative articles of aluminum\" — same class of ungrounded condition, left unfixed (the module's line-571 note says exemplar flags are retained where no membership module exists); (2) the Brazil term encodes only the aluminum carve-out, while notes (v)/(vi) also except iron/steel (9903.81.87-.93) and (xi)-(xv) except copper, vehicles, wood, MHDV and semiconductors — unrepresented in both pre and post, so a possible separate unrepresented_clause finding, not this one. Also note the PR's own framing calls the exemplar coupling \"unlawfully suppressed the surcharge\", though that sentence is about §122, not Brazil; the merged PR has zero formal reviews, and the single issue comment enumerates three other repairs without mentioning the Brazil gate, which is the main reason I hold confidence at 0.8 rather than higher — the commit-level motive is inferred from the diff and source, not stated.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 certify (PR #1300): diff changes the Brazil gate in every generated composition from `not entry_is_line_b` to `not entry_is_section_232_aluminum` and re-grounds the steel parameter proof from 9903.81.87/.88 to 9903.82.02; report says \"The task's 9903.81.x locator is stale for this corpus vintage\"."
   },
   "triage_notes": "Same pattern as index 12 (identical two Brazil-gate hunks plus the 9903.81.87/.88 -> 9903.82.02 steel proof re-grounding); only the chapter prefix on the steel parameter name and the redundant-parenthesis count differ. section_122_component_rate appears only as diff context here and is unchanged. Provision resolution done once at index 12 and applies verbatim. | verifier confirmed at 0.80",
   "family_id": "us-198bee70-ae51d9d5b290",

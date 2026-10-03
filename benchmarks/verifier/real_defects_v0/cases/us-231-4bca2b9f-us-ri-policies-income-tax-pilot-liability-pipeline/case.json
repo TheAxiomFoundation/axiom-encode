@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "4bca2b9f3fcf4d08a5922238e379a6b85af5cab2",
   "parent_commit": "a50507200f111854a11705f0a9d521652b400a98",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) Time-bound: RI and UT pilot pipelines bounded to 2026 (effective period).",
+  "commit_date": "2026-07-23T13:01:04-04:00",
+  "commit_subject": "Bound RI and UT 2026 tax pilots",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1017",
   "module_path": "us-ri/policies/income_tax/pilot_liability_pipeline.yaml",
   "corpus_citation_path": "us-ri/statute/44-30-2.6",
@@ -90,7 +90,8 @@
     "verifier_quote": "The normalized staged body does not preserve the printed table cells, so this candidate does not encode numeric schedule literals.",
     "verifier_notes": "Decisive diff lines (all three identical): `+        effective_to: '2026-12-31'`; the only other change is the summary sentence the first reader quoted. Source line from the pinned release (corpus 01e00777, expression_date 2026-05-06): \"(3) For the period January 1, 2011, through December 31, 2011, and thereafter, “Rhode Island taxable income” means federal adjusted gross income...\" — no 2026 sunset, and the indexing clause (E) says amounts \"shall be increased annually\", which argues the structural formula persists rather than expires. Note the added comment itself concedes the amounts are \"supplied for 2026\", i.e. the staleness risk lives in caller inputs, not in the encoding. Also worth a reviewer's eye: if the window were being matched to the source, the correct effective_from would be 2011-01-01, not 2026-01-01 — both the pre- and post-fix windows are narrower than the statute, which supports reading 2026-12-31 as a pilot/fixture-vintage convention rather than a source-derived date. Countervailing consideration if the corpus counts declared-scope truthfulness as fidelity: the module summary always claimed a \"2026 ordinary full-year resident wage-earner slice\" while its executable versions were unbounded, so a reviewer who treats over-broad executable coverage of a self-declared single-year pilot as a defect would keep this as wrong_period_or_effective_date (that is the only kind that could fit; amount/boundary/clause/scope/logic are all untouched). No test file changed in this commit, so the PR's \"2027 probes fail closed\" claim is not evidenced here.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "Time-bound: RI and UT pilot pipelines bounded to 2026 (effective period)."
   },
   "triage_notes": "Read the pinned corpus text for us-ri/statute/44-30-2.6 (source_as_of 2026-05-06): (c)(3) runs \"For the period January 1, 2011, through December 31, 2011, and thereafter\" with annual cost-of-living adjustment of the (A)/(B)/(C) dollar amounts, so the statute itself has no 2026 sunset - the 2026-12-31 bound is a scope bound on a year-calibrated pilot slice, not a statutory end date. That is the main reason confidence is not higher: the defect is an over-broad declared period on a 2026-only artifact (internally inconsistent with the module's own summary, which says \"the active 2026 bracket\" and fixtures hand-computed from the Division's TY2026 advisory) rather than a mis-stated statutory window. Formulas, inputs, outputs, entity, and dtype are untouched; the only other change is the summary sentence quoted above plus the companion .axiom/encoding-manifests/us-ri/.../pilot_liability_pipeline.json. The bracket base/floor/rate and deduction/exemption amounts are caller-supplied inputs, so no numeric literal is baked in - a skeptical reviewer could call this hygiene rather than fidelity. Part of PR #1017, which applied the same bound to MI, WA, VT, and ID modules in sibling commits; the quote is the module summary added by this diff, unwrapped from its YAML block scalar. No follow-up commit reopens the bound (next touches are unrelated migration/e2e waves). | verifier said not_a_defect at 0.60 (below 0.7); kept as unclear",
   "family_id": "us-4bca2b9f-8714639b4721",

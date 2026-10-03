@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
   "parent_commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 certify (PR #1300): diff changes the Brazil gate in every generated composition from `not entry_is_line_b` to `not entry_is_section_232_aluminum` and re-grounds the steel parameter proof from 9903.81.87/.88 to 9903.82.02; report says \"The task's 9903.81.x locator is stale for this corpus vintage\".",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: certify generalized component gates",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch71/ch71.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -263,7 +263,8 @@
     "verifier_quote": "-      + (if origin_is_brazil and not entry_is_line_b: brazil_ieepa_additional_duty_rate else: 0))))))))))))))))))))))))))))))))\n+      + (if origin_is_brazil and not entry_is_section_232_aluminum: brazil_ieepa_additional_duty_rate else: 0))))))))))))))))))))))))))))))))",
     "verifier_notes": "inferred from verified sibling module index 60 (same kind and rule path in this chunk). Refutation attempts that failed: (1) \"mechanical\" — no, formula tokens changed in two derived Rate rules; only the second half of the diff (ch61_s232_steel_heading_rate / section_232_steel_component_rate proof atoms collapsing 9903.81.87+.88 into 9903.82.02, parameter value unchanged at '0.50') is provenance-only. (2) \"enhancement / new coverage\" — the generated ch61 composition is chapter-scale and `entry_is_line_b` has no meaning for any chapter-61 line, and the module summary itself distinguishes membership-semantic inputs from retained exemplar flags (it deliberately keeps `entry_is_line_d` for section 338 \"because no membership module exists\"), i.e. line_b was replaced precisely because a grounded input existed. Caveats for the reviewer: (a) practical impact inside this particular module is nil for lawful entries — no chapter-61 apparel line is a product of aluminum provided for in 9903.85.02, so both the old and new gates are inert unless a caller sets the flag; the same edit is applied identically across ~100 generated chapter modules and bites in the metals chapters; (b) the fix is partial against the note, which also carves out iron/steel (9903.81.87/.88), derivative steel, derivative aluminum (9903.85.04/.07/.08/.09), copper, wood and vehicles — those remain unencoded, which is residual incompleteness, not evidence against this correction; (c) the module's atom cites page-219 while the text resolves at page-220 in the pinned rev3 release (pagination drift vs the Rev. 15 vintage the module names), so the excerpt was verified by content, not by page locator. Alternative kind considered and rejected: wrong_entity_or_scope (the exception did target the wrong population, but the decisive fault is that the token has no source basis at all, which the rubric assigns to untraceable_branch, \"including formulas grounded on the wrong provision\").",
     "verifier_inferred_from_module_index": 60,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 certify (PR #1300): diff changes the Brazil gate in every generated composition from `not entry_is_line_b` to `not entry_is_section_232_aluminum` and re-grounds the steel parameter proof from 9903.81.87/.88 to 9903.82.02; report says \"The task's 9903.81.x locator is stale for this corpus vintage\"."
   },
   "triage_notes": "Same pattern as index 60. Chapter-prefixed parameter `ch71_s232_steel_heading_rate`. | verifier confirmed at 0.74",
   "family_id": "us-198bee70-ae51d9d5b290",

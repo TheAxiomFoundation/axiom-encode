@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
   "parent_commit": "956a547418964c90e37b134c3c96ab3acdb8a375",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair.",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: make generated entry flags caller inputs",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch21/ch21.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -236,7 +236,8 @@
     "verifier_quote": "-  source: HTS 7202.11.10.00 statistical reporting number\n-  - formula: (((((((hts_number == \"7202.11.10.00\")))))))",
     "verifier_notes": "inferred from verified sibling module index 12 (same kind and rule path in this chunk). Refutation attempts that failed: (1) \"mechanical\" does not hold — five derived rules with formulas are deleted and the identifiers become implicit caller inputs under the \"referenced-implies-input convention\", so inputs and runtime values change, not just hashes/excerpts/metadata; (2) \"not_a_defect / architecture-only\" is weakened by the PR body's own fidelity finding that the witness's exemplar coupling \"unlawfully suppressed the surcharge on §301-member lines for all origins\"; (3) \"wrong_entity_or_scope\" is a worse fit than untraceable_branch, since the entity (CustomsEntry) is right and the defect is conditions grounded on provisions from other chapters, which the untraceable_branch definition explicitly covers.\n\nCaveats for the reviewer: (a) the repair is incomplete in this same file — post-fix ch13 still contains `- name: entry_is_energy_resource` with `formula: (((((((hts_number == \"7202.11.10.00\")))))))` and proof atoms citing `us/statute/hts/7202` (\"Ferroalloys:\"), i.e. one hard-coded out-of-chapter exemplar identity test survives at post line ~1950; (b) every referencing formula is byte-identical across this diff (e.g. `section_301_component_rate` still sums `if entry_is_line_a and origin_is_china: ...` through `entry_is_line_e`), so the membership-semantic re-gating described in the PR body lands in other commits of PR #1300, not here; (c) the module summary retains the boilerplate sentence \"This deterministic RuleSpec serialization changes no formula tokens, dates, inputs, proof atoms, or runtime values\", which is false for this commit — the flags stop being always-false constants for this chapter; (d) the file is `module.kind: composition` (generated, assembled rather than encoder-produced), which is the main reason a reviewer might downgrade this to \"unclear\"; it is still a rulespec/v1 module containing rule formulas, so not_a_rule_module does not apply.\n\nFiles: diff /private/tmp/claude-501/-Users-maxghenis-TheAxiomFoundation-axiom-encode--claude-worktrees-zealous-heyrovsky-31a96b/86103d8f-b97f-4559-a96c-7e79bdbe616d/scratchpad/diffs/us/2a6bdb01de/012.diff; pre/post copies at .../scratchpad/ch13_pre.yaml and .../scratchpad/ch13_post.yaml.",
     "verifier_inferred_from_module_index": 12,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair."
   },
   "triage_notes": "Same pattern as index 12; diff read individually and normalized-compared — only the parenthesis depth (11 pairs) differs. Same caveats as index 12. | verifier confirmed at 0.68",
   "family_id": "us-2a6bdb01-7331f444c639",

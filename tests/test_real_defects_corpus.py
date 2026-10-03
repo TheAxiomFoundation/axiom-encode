@@ -127,6 +127,56 @@ def test_artifacts_reproduce_from_rulespec_git():
     assert report.failures == []
 
 
+def _cases() -> list[dict]:
+    return [
+        json.loads(
+            (CORPUS_DIR / "cases" / entry["id"] / "case.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        for entry in _index()["cases"]
+    ]
+
+
+def test_commit_metadata_is_the_commits_own_not_the_screen_paraphrase():
+    for case in _cases():
+        assert case["commit_date"], case["id"]
+        assert not case["commit_subject"].startswith("(screen-flagged)"), case["id"]
+        reason = case["triage"]["screen_reason"]
+        assert (reason is None) == (case["triage"]["candidate_source"] == "keyword")
+        if reason:
+            assert reason not in case["commit_subject"], case["id"]
+
+
+def test_only_label_bearing_fields_carry_the_label():
+    """No field outside LABEL_BEARING_KEYS names a defect kind or repeats the
+    case's screen reason, reader reasoning, or verifier justification."""
+
+    label_keys = set(verify_real_defects.LABEL_BEARING_KEYS)
+    for case in _cases():
+        triage = case["triage"]
+        probes = [
+            text[:80]
+            for text in (
+                triage.get("screen_reason") or "",
+                triage["pre_fix_wrong_because"],
+                triage["verifier_justification"],
+                case["triage_notes"],
+            )
+            if len(text) >= 20
+        ]
+        for key, value in case.items():
+            if key in label_keys:
+                continue
+            rendered = json.dumps(value, ensure_ascii=False)
+            assert "(screen-flagged)" not in rendered, (case["id"], key)
+            for kind in verify_real_defects.DEFECT_KINDS:
+                if kind != "other":
+                    assert kind not in rendered, (case["id"], key, kind)
+            for probe in probes:
+                assert probe not in rendered, (case["id"], key)
+
+
 CORPUS_TIER_ENV = "AXIOM_REAL_DEFECTS_CORPUS_TIER"
 
 
@@ -233,3 +283,68 @@ def test_git_object_reader_streams_blobs_and_reports_missing(tmp_path):
         assert (
             reader.blob_sha256("HEAD", "small.txt") == hashlib.sha256(b"x").hexdigest()
         )
+
+
+def _git(repo: Path, *args: str) -> str:
+    return subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@example.invalid",
+            *args,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def test_git_tier_checks_parent_bytes_and_commit_metadata(tmp_path):
+    repo = tmp_path / "rulespec"
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    module = repo / "us" / "m.yaml"
+    module.parent.mkdir()
+    module.write_bytes(b"format: rulespec/v1\nrules: []\n")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "Encode m")
+    parent = _git(repo, "rev-parse", "HEAD")
+    module.write_bytes(b"format: rulespec/v1\nrules: [x]\n")
+    _git(repo, "commit", "-qam", "Fix m")
+    commit = _git(repo, "rev-parse", "HEAD")
+    date = _git(repo, "log", "-1", "--format=%cI", commit)
+    good = {
+        "id": "us-001-test",
+        "jurisdiction": "us",
+        "commit": commit,
+        "parent_commit": parent,
+        "commit_date": date,
+        "commit_subject": "Fix m",
+        "module_path": "us/m.yaml",
+        "pre_fix_artifact_sha256": hashlib.sha256(
+            b"format: rulespec/v1\nrules: []\n"
+        ).hexdigest(),
+        "post_fix_artifact_sha256": hashlib.sha256(
+            b"format: rulespec/v1\nrules: [x]\n"
+        ).hexdigest(),
+    }
+    bad = dict(
+        good,
+        id="us-002-test",
+        commit_date="",
+        commit_subject="(screen-flagged) Wrong amount",
+        parent_commit=commit,
+        post_fix_artifact_sha256="0" * 64,
+    )
+    report = verify_real_defects.Report()
+    verify_real_defects.check_git([good, bad], {"us": repo}, report, "HEAD")
+    assert sorted(report.failures) == [
+        "us-002-test: commit_date does not match the commit",
+        "us-002-test: commit_subject does not match the commit",
+        "us-002-test: parent_commit is not the first parent of commit",
+        "us-002-test: post_fix artifact digest does not reproduce",
+        "us-002-test: pre_fix artifact digest does not reproduce",
+    ]

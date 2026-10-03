@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
   "parent_commit": "29dbbdac05e18cd4f851b200f4da9121fccd7e00",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 generalize (PR #1300): decouples component gates from exemplar flags; PR body says the witness's exemplar coupling \"unlawfully suppressed the surcharge on §301-member lines for all origins\" — logic/scope correction to 100 merged generated modules.",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: generalize generated component surfaces",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch91/ch91.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -316,7 +316,8 @@
     "verifier_quote": "-      ((((((((((((((((((((((((((((((((((((((((((if entry_is_line_a or entry_is_line_b: 0\n+      ((((((((((((((((((((((((((((((((((((((((((if entry_is_section_122_exempt or entry_is_section_232_covered: 0",
     "verifier_notes": "inferred from verified sibling module index 84 (same kind and rule path in this chunk). Kind runner-up is wrong_entity_or_scope (the condition selects the wrong population of lines), but the taxonomy puts \"a condition with no basis in the cited source (the fix removes or re-grounds it)\" under untraceable_branch, which is the better fit here: the source states no exception keyed to exemplar-line identity at all. Reviewer cautions on the rest of this same module diff, which is multi-kind and should not be folded into this finding: (1) `section_232_steel_component_rate` + `ch86_s232_steel_heading_rate` are NEW coverage the module never claimed (the pre-fix summary scopes the stack to \"the same panel-projection component sequence as the witness total\", and the witness's 7202.11.10.00 ferroalloy exemplar sits outside note 16(c)), so that addition alone would be not_a_defect / unclear, not a fidelity fix; (2) the `brazil_section_301_component_rate` and `forced_labor_section_301_component_rate` edits ADD a previously-missing listed-line membership condition (pre-fix they applied the §301 rate to every Brazil-origin / listed-country entry in the chapter), which reads as unrepresented_clause — a separate defect from the pinned §122 one; (3) the decoupling is only partial — post-fix lines 1908, 1925, 2693, 2817, 2873 and 2998 still ride `entry_is_line_a/b/d`, so residual exemplar coupling survives this commit (the summary admits \"Beer/section-338 keeps entry_is_line_d because no membership module exists\"). Proof atoms and citation paths for §122 are unchanged by the diff, so this is not an excerpt/provenance-only change. I also resolved us/statute/hts/chapter-99/page-221 through the pinned release (corpus us-rulespec-2026-08-08-obbb-alien-snap, provision sha 818d993e…); the resolved page under HTS 2026 Rev. 3 covers note subdivisions (x)–(z) rather than the (aa)(ii) list the atom spans, i.e. the atom's page anchor does not reproduce under the pinned release — that is a provenance wrinkle worth a separate look, but it does not bear on this kind, which turns on the branch condition rather than on the exclusion list's contents. This module is one of 100 identically generated chapter files in the commit, so the same finding presumably duplicates across the sibling modules.",
     "verifier_inferred_from_module_index": 84,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 generalize (PR #1300): decouples component gates from exemplar flags; PR body says the witness's exemplar coupling \"unlawfully suppressed the surcharge on §301-member lines for all origins\" — logic/scope correction to 100 merged generated modules."
   },
   "triage_notes": "Same pattern as index 84 (only chapter prefix, paren count and the 'from:' key spelling differ). Same caveats as index 84. | verifier confirmed at 0.82",
   "family_id": "us-a9562cfd-a47a2c82a367",

@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
   "parent_commit": "956a547418964c90e37b134c3c96ab3acdb8a375",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair.",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: make generated entry flags caller inputs",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch62/ch62.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -236,7 +236,8 @@
     "verifier_quote": "-  source: HTS 7202.11.10.00 statistical reporting number\n-    formula: (((((((((((((((((((((((((((((((hts_number == \"7202.11.10.00\")))))))))))))))))))))))))))))))",
     "verifier_notes": "Verified read-only from the bundle diff (061.diff), `git show` of parent 956a5474 and 2a6bdb01de, and the ch62 companion-test diff. Caveats for the reviewer: (1) this is a bulk generator commit (tools/generate_schedule_compositions.py + 100 chapters, identical pattern), the commit message is a single generic line, and the module summary still asserts \"This deterministic RuleSpec serialization changes no formula tokens, dates, inputs, proof atoms, or runtime values\" — a boilerplate sentence that the input/output surface change contradicts; (2) the consuming formulas are unchanged, so at this commit ch62 still reads `if entry_is_line_a and origin_is_china: list_1_additional_ad_valorem_rate` and the §122/membership re-gating described in the PR body is not visible in this file's diff; (3) the module header's corpus_citation_paths were NOT regenerated — ch62 still cites us/statute/hts/7202.11.10.00, 7601.10.30.00, 9506.62.40(.40), 2203.00.00(.30), 8541.42.00(.10) after the rules citing them were removed (leftover provenance, worth a separate note); (4) no later commit reachable from the checkout's HEAD touches this file. If the corpus is scored per-commit and a reviewer wants the \"membership-semantic\" half, the sibling commits of PR #1300 carry it; this commit's contribution is the removal of the ungrounded exemplar grounding, which is the untraceable_branch half.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair."
   },
   "triage_notes": "Same pattern as index 60 (identical removed blocks; diff differs only in chapter number and the serialization-variance wording of the summary). Read the diff in full; no downstream formula changed. | verifier confirmed at 0.70",
   "family_id": "us-2a6bdb01-7331f444c639",

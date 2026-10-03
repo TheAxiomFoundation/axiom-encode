@@ -4,7 +4,7 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "4d2856a9587ea13d74d6321a79dcde956bb239e2",
   "parent_commit": "75a3677870cc38e35dffbe9099f363a82bde53aa",
-  "commit_date": "2026-08-02",
+  "commit_date": "2026-08-02T11:27:29-04:00",
   "commit_subject": "Fix sol r2 findings: legal handoff dates and Boolean polarity coverage",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1197",
   "module_path": "us/policies/usitc/us-tariff-duty/overlays/ieepa/reciprocal-switzerland-9903-02-82.yaml",
@@ -236,7 +236,8 @@
     "verifier_quote": "-      - effective_from: '2025-08-07'\n+      - effective_from: '2025-11-14'",
     "verifier_notes": "Verification path: bundle module_files[8].diff_file plus resolve_provision.py on us/rulemaking/federal-register/2025-12-18/2025-23316 at rulespec commit 4d2856a958 (release us-rulespec-2026-08-03-ecps-pit-tariff-union, pages 59281-59317, matching the \"90 Fed. Reg. 59281\" cite). Refutation attempts that failed: (1) \"mechanical/provenance only\" — false, seven version windows move; (2) \"new coverage the module never claimed\" — false, the module already declared versions with the wrong start; (3) \"retroactive to 2025-08-07 like Japan\" — the Swiss/Liechtenstein notice contains no Aug 7 applicability; it applies Annex II from Nov 14, 2025 and directs CBP refunds for duties already collected, so the Aug 7 start had no source basis (the EO 2025-17389 Japan retroactivity is asserted in the commit body only and I did not verify it; it concerns 9903.02.72/.73, not .82). Caveat for a reviewer: 4d2856a958 is a same-PR review round on PR #1197 (both dated 2026-08-02, PR merged 18:34Z), so this defect was introduced and corrected in flight and likely never reached main — it is still a genuine fidelity defect in encoded meaning, but it is a pre-merge catch, not a shipped regression. The commit-message quote the first reader used (\"ch-82 moves from its premature 2025-08-07 start to 2025-11-14 (test dates moved with it)\") matches the body's text modulo line wrapping.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "keyword"
+    "candidate_source": "keyword",
+    "screen_reason": null
   },
   "triage_notes": "Distinct from the other successor modules: this one was too early (2025-08-07), not too late (2026-02-15), which is why the commit calls it a 'premature' start; pre-fix it overlapped heading 9903.02.58's own window for that span. Source verified: same Annex II insertion of 9903.02.82-9903.02.91 effective November 14, 2025 (see index 3 notes). Companion test dates moved with it (test file, not this module file). No formula change; summary, corpus_citation_paths and two effective_period atoms per rule added. | verifier confirmed at 0.94",
   "family_id": "us-4d2856a9-c8e98d71fb51",

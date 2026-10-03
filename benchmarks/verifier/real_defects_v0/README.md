@@ -66,7 +66,7 @@ benchmarks/verifier/real_defects_v0/
     provision.txt            provision text from corpus_release (when artifacts_shipped)
   triage/
     workflow_script.js       the screen/triage/verify workflow that read the diffs
-    workflow_output.json     its return value (every reader and verifier output)
+    workflow_output.json     its literal return value (every reader and verifier output)
     triage_merged.json       one row per module touched, with keep/drop decisions
     screen.json              the screening pass output (flagged commits and reasons)
     summary.json             the yield counts
@@ -76,7 +76,15 @@ benchmarks/verifier/real_defects_v0/
     prep_commit.py           read-only per-commit bundle (diffs, PR text) for readers
     merge_triage.py          workflow output to keep/drop rows
     build_real_defects.py    rows to cases, index, and build log
+    revise_corpus.py         the 2026-10-03 review revisions, applied to the built cases
 ```
+
+`workflow_output.json` is kept exactly as the 2026-09 run returned it. In that
+run every screen-flagged item carried `date: ""` and
+`subject: "(screen-flagged) <screen reason>"`; `tools/merge_triage.py` now
+replaces both with the commit's own `%cI` and `%s` in `triage_merged.json`
+and `screen.json`, and the workflow script takes them from the enumerated
+commit list.
 
 ## Case schema
 
@@ -90,7 +98,7 @@ schema; do not change key names without telling Max.
 | `repo` | `TheAxiomFoundation/rulespec-us` or `TheAxiomFoundation/rulespec-uk`. |
 | `commit` | Full sha of the correcting commit (post-fix state). On `origin/main`. |
 | `parent_commit` | Full sha of the commit's first parent (pre-fix state). |
-| `commit_date`, `commit_subject` | From the commit. |
+| `commit_date`, `commit_subject` | The commit's committer date (`%cI`, strict ISO 8601) and subject line (`%s`), as `git log -1 --format=%cI%n%s <commit>` prints them. The verify script's Git tier checks both. |
 | `pr_url` | The merged pull request that carried the commit, or null. |
 | `module_path` | Repository path of the rule module. |
 | `corpus_citation_path` | The module's `source_verification.corpus_citation_path` (first entry when plural) at the post-fix commit. `corpus_citation_paths_all` lists all of them. |
@@ -108,8 +116,25 @@ schema; do not change key names without telling Max.
 | `artifacts_shipped` | `true` when `pre_fix.yaml`, `post_fix.yaml` and `provision.txt` are in the case directory. `false` for the inherited-verdict members of the generator families, which ship `case.json` only; the digests still verify from Git and the release, and `tools/build_real_defects.py --ship-artifacts all` writes the files. |
 | `family_id`, `family_size`, `family_representative` | Cases that carry one correction applied to many modules (same commit, defect kind, and rule path) share a family; `family_size` is the member count and the representative is the family's first module path in sorted order. The three generator regenerations in rulespec-us PR #1300 each touched all 100 generated tariff-schedule chapter compositions, so a runner that wants independent cases should take representatives only (`counts.family_representatives` in `index.json`). |
 | `triage_status` | `fidelity` (reader and verifier agree it is a fidelity correction of the stated kind) or `unclear` (kept for a reviewer to prune). |
-| `triage` | The first reader's classification and notes, and the verifier's verdict, kind, confidence, justification, and quote. `candidate_source` is `keyword` or `screen`. When a triage chunk held more than three kept modules with the same kind and rule path (the generator families), the verifier read three and the others inherited a verified sibling's verdict; `verifier_inferred_from_module_index` names that sibling and is null for directly verified cases. |
+| `triage` | The first reader's classification and notes, and the verifier's verdict, kind, confidence, justification, and quote. `candidate_source` is `keyword` or `screen`; `screen_reason` is the subject-only screen's one-line reason for flagging the commit (null for keyword candidates). When a triage chunk held more than three kept modules with the same kind and rule path (the generator families), the verifier read three and the others inherited a verified sibling's verdict; `verifier_inferred_from_module_index` names that sibling and is null for directly verified cases. |
 | `triage_notes` | The reader's notes for a reviewer. |
+
+### Label-bearing fields
+
+These fields carry the answer a judge is scored against, or the triage
+readers' words about it, and must not be shown to a judge: `defect_kind`,
+`other_kind`, `confidence`, `description`, `description_source`, `locator`,
+`triage_status`, `triage`, `triage_notes`, `evidence_in_provision`, and
+`evidence_check`. `LABEL_BEARING_KEYS` in `scripts/verify_real_defects.py`
+lists them, and `tests/test_real_defects_corpus.py` checks that no other
+field contains a defect-kind name, the `(screen-flagged)` marker, or the
+screen reason, reader reasoning, or verifier justification of its case.
+
+Three other fields are not triage labels but are the maintainers' own words
+or links about the fix, so a blind benchmark should withhold them too:
+`commit_subject` (80 of the 520 built cases' subjects contain fix, correct,
+wrong, repair or bug), `pr_url`, and `commit`/`parent_commit` (which lead to
+the diff).
 
 ### How the release is chosen
 
@@ -258,12 +283,30 @@ merged PR URL), then:
 ```bash
 uv run python benchmarks/verifier/real_defects_v0/tools/merge_triage.py \
   --workflow-output benchmarks/verifier/real_defects_v0/triage/workflow_output.json \
-  --inputs-dir /tmp/real-defects-inputs --corpus-dir benchmarks/verifier/real_defects_v0
+  --inputs-dir /tmp/real-defects-inputs --corpus-dir benchmarks/verifier/real_defects_v0 \
+  --rulespec-us ../rulespec-us --rulespec-uk ../rulespec-uk
 uv run python benchmarks/verifier/real_defects_v0/tools/build_real_defects.py \
   --corpus-dir benchmarks/verifier/real_defects_v0 \
   --rulespec-us ../rulespec-us --rulespec-uk ../rulespec-uk \
   --axiom-corpus ../axiom-corpus --release-cache ~/.cache/axiom-real-defects
 ```
+
+The committed corpus is that build plus the revisions the 2026-10-03 review
+of PR #1659 asked for. They change no module or provision bytes, and the
+release cache the build used was not kept, so they are applied to the built
+cases by `tools/revise_corpus.py` rather than by a rebuild. It reads only the
+committed files and the rulespec checkouts, and re-running it on its own
+output changes nothing:
+
+```bash
+uv run python benchmarks/verifier/real_defects_v0/tools/revise_corpus.py \
+  --corpus-dir benchmarks/verifier/real_defects_v0 \
+  --rulespec-us ../rulespec-us --rulespec-uk ../rulespec-uk
+```
+
+Its stages are listed in its docstring: `commit_metadata` replaces
+`commit_date` and `commit_subject` with the commit's own `%cI` and `%s` and
+moves the screen reason to `triage.screen_reason`.
 
 Verify (each tier is skipped, and reported as skipped, when its inputs are
 absent):

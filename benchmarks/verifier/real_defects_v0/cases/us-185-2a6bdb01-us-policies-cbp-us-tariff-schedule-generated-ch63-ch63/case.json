@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
   "parent_commit": "956a547418964c90e37b134c3c96ab3acdb8a375",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair.",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: make generated entry flags caller inputs",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch63/ch63.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -236,7 +236,8 @@
     "verifier_quote": "-  - formula: ((((((((((((((((((((((((((((((((hts_number == \"7202.11.10.00\"))))))))))))))))))))))))))))))))",
     "verifier_notes": "Decisive supporting lines, all verbatim from the diff: the removed rule headers `-- name: entry_is_line_a` .. `entry_is_line_e`, their removed proof atoms `-          corpus_citation_path: us/statute/hts/7202.11.10.00` (and 7601.10.30.00 / 9506.62.40.40 / 2203.00.00.30 / 8541.42.00.10), and the added summary sentence \"The identifiers entry_is_line_a, entry_is_line_b, entry_is_line_c, entry_is_line_d, and entry_is_line_e are caller inputs supplied by entry preparation from incidence classification.\"\n\nCaveats a reviewer should weigh:\n1) The repair is PARTIAL in this module. After the commit, ch63 still contains `entry_is_energy_resource` with formula `hts_number == \"7202.11.10.00\"` (post line 1950, proof atoms citing us/statute/hts/7202 and us/statute/hts/7202.11.10.00) — i.e. a ferroalloy line used as the chapter 63 proxy for the 9903.01.13 energy/critical-minerals carve-out. The same exemplar grounding therefore survives this commit; only the five entry_is_line_* flags were removed.\n2) Stale artifacts remain: `source_verification.corpus_citation_paths` still lists all five exemplar lines (2203.00.00, 7202, 7202.11.10.00, 7601.10.30.00, 8541.42.00, 9506.62.40 ...) and the unchanged rationale block still says the composition contributes \"line selection over the five encoded HTS statistical reporting numbers.\"\n3) Behavior in THIS commit changes only the input surface — the five identifiers go from \"necessarily false for any ch63 entry\" to caller-supplied; the PR asserts witness-slice equivalence \"exact under input mapping,\" so the observable duty change materializes once entry preparation feeds real membership values (and the PR's later commit re-gates §122 on entry_is_section_122_exempt / entry_is_section_232_covered and adds the steel component — those are not in this module's diff).\n4) Corpus dedup: this identical change is applied to all 100 generated chapter modules in commit 2a6bdb01de; ch63 (module index 62) is one instance of a single generator-level defect, not 100 independent defects.\n5) A later PR comment notes flags c and e were dropped as valid input slots (\"companion tests now feed only the retained exemplar flags (a/b/d)\"), which is downstream of this commit.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair."
   },
   "triage_notes": "Same pattern as index 60. Read the diff in full; removal of the five derived rules plus the generator-version/summary sentence only. | verifier confirmed at 0.72",
   "family_id": "us-2a6bdb01-7331f444c639",

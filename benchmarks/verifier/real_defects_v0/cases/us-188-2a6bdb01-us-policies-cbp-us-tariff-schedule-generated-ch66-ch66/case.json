@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
   "parent_commit": "956a547418964c90e37b134c3c96ab3acdb8a375",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair.",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: make generated entry flags caller inputs",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch66/ch66.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -236,7 +236,8 @@
     "verifier_quote": "-  - formula: (((((((((((((((((((((((((((((((hts_number == \"9506.62.40.40\")))))))))))))))))))))))))))))))",
     "verifier_notes": "inferred from verified sibling module index 60 (same kind and rule path in this chunk). Verified against both file versions (pre 956a547418, post 2a6bdb01de). Two caveats for a reviewer: (1) the repair is partial at this commit — `entry_is_energy_resource` in the post file (line 1950) still reads `hts_number == \"7202.11.10.00\"`, the same exemplar-grounding pattern, so the commit targeted only the five named `entry_is_line_*` slots; (2) `section_122_component_rate` (post line 2526) still carries `if entry_is_line_a or entry_is_line_b: 0 else: temporary_import_surcharge_rate` at this commit — the membership re-gating described in the PR body (entry_is_section_122_exempt / entry_is_section_232_covered) lands in other commits of stacked PR #1300, so this file's consumers are byte-unchanged here and only the flag definitions moved. Also note the retained boilerplate in the rewritten summary (\"This deterministic RuleSpec serialization changes no formula tokens, dates, inputs, proof atoms, or runtime values ... runtime semantics are unchanged\") is stale/false for this change: the five identifiers move from module-local derived rules to caller inputs, so chapter 61 outputs that were dead-false can now fire. The commit body is a bare subject line (\"b1.6: make generated entry flags caller inputs\") with no further message; evidence of intent comes from the PR body and the maintainer issue comment (\"c and e are fully replaced and no longer valid input slots\"). No corpus provision lookup was needed: the kind turns on chapter-scoping of HTS numbers, which the diff settles.",
     "verifier_inferred_from_module_index": 60,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair."
   },
   "triage_notes": "Same pattern as index 60. Read the diff in full. | verifier confirmed at 0.70",
   "family_id": "us-2a6bdb01-7331f444c639",

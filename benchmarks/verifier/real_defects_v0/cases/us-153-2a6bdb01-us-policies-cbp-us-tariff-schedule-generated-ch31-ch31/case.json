@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
   "parent_commit": "956a547418964c90e37b134c3c96ab3acdb8a375",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair.",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: make generated entry flags caller inputs",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch31/ch31.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -239,7 +239,8 @@
     "verifier_quote": "-  versions:\n-  - formula: (((((((((((((hts_number == \"7202.11.10.00\")))))))))))))",
     "verifier_notes": "inferred from verified sibling module index 24 (same kind and rule path in this chunk). Refutation attempts that failed: (1) \"mechanical / plumbing\" — the diff deletes five derived rules and their proof atoms, converting them to caller inputs, so the module's input surface and computed values change; the retained summary sentence \"This deterministic RuleSpec serialization changes no formula tokens, dates, inputs, proof atoms, or runtime values\" is stale boilerplate contradicted by the new sentence in the same summary (\"The identifiers entry_is_line_a, ... are caller inputs supplied by entry preparation from incidence classification\"). (2) \"not_a_defect / new scope never claimed\" — the module does claim these concepts: `entry_is_reciprocal_annex_excluded`, `entry_is_reciprocal_metals_excluded` (source \"HTS 9903.01.33 section 232 metals article scope\") and `china_section_301_component_rate` exist, are cited to those sources, and are wired into `schedule_statutory_stack`; the source list demonstrably covers chapter 25 lines. The PR body independently characterizes the old scheme as wrong: \"the witness's exemplar coupling, which round-2 evaluation showed unlawfully suppressed the surcharge on §301-member lines for all origins\". Closest alternative kind is wrong_entity_or_scope (a list-membership population encoded as one line), but the fix removes the branch rather than widening a population, and the kind definition for untraceable_branch explicitly covers \"formulas grounded on the wrong provision\". Reviewer caveats: this is a partial repair — post-fix ch25 line 1950 still has `entry_is_energy_resource` (source \"HTS 9903.01.13 energy and critical minerals article scope\") encoded as `hts_number == \"7202.11.10.00\"`, the identical pattern, so the same defect class survives this commit; and the commit touches 100 generated chapter modules with byte-identical structure, so this case should be deduplicated against the other ch* modules in 2a6bdb01de. Files: pre/post copies at /private/tmp/claude-501/-Users-maxghenis-TheAxiomFoundation-axiom-encode--claude-worktrees-zealous-heyrovsky-31a96b/86103d8f-b97f-4559-a96c-7e79bdbe616d/scratchpad/ch25_pre.yaml and ch25_post.yaml.",
     "verifier_inferred_from_module_index": 24,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair."
   },
   "triage_notes": "Same pattern as index 24; diff differs only by chapter number and the pre-existing cosmetic distinctness devices. | verifier confirmed at 0.78",
   "family_id": "us-2a6bdb01-7331f444c639",
