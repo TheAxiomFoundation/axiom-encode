@@ -120,6 +120,159 @@
     "requested_citation_path": "us/statute/26/1401",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "self_employment_tax_pipeline_domain_is_valid",
+      "federal_self_employment_oasdi_tax",
+      "federal_self_employment_hospital_insurance_tax",
+      "federal_self_employment_tax"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "During any period in which there is in effect an agreement entered into pursuant to section 233 of the Social Security Act with any foreign country, the self-employment income of an individual shall be exempt from the taxes imposed by this section to the extent that such self-employment income is subject under such agreement exclusively to the laws applicable to the social security system of such foreign country.",
+        "where": [
+          "self_employment_tax_pipeline_domain_is_valid.versions[0].formula"
+        ],
+        "cites": "us/statute/26/1401",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "In addition to the tax imposed by the preceding subsection",
+        "where": [
+          "federal_self_employment_tax.versions[0].formula"
+        ],
+        "cites": "us/statute/26/1401",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "a tax equal to 2.9 percent of the amount of the self-employment income",
+        "where": [
+          "federal_self_employment_hospital_insurance_tax.versions[0].formula"
+        ],
+        "cites": "us/statute/26/1401",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "on the self-employment income of every individual",
+        "where": [
+          "federal_self_employment_oasdi_tax.versions[0].formula"
+        ],
+        "cites": "us/statute/26/1401",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-01-01",
+        "where": [
+          "self_employment_tax_pipeline_domain_is_valid.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-01-01",
+          "January 1, 2026",
+          "1 January 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-12-31",
+        "where": [
+          "self_employment_tax_pipeline_domain_is_valid.versions[0].effective_to"
+        ],
+        "forms": [
+          "2026-12-31",
+          "December 31, 2026",
+          "31 December 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Gated the existing OASDI, hospital-insurance, and combined ordinary SECA tax outputs behind that Judgment without renaming any existing surface",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Relief from taxes in cases covered by certain international agreements",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Section 1401(c) exempts income subject exclusively to a foreign social security system under a section 233 agreement. The cap-aware, Person-level section 1401(a) and (b)(1) submodules do not encode that exemption...",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The executable slice assumes ... no section 1401(c) foreign-exclusive social security coverage. Those mechanisms ... remain explicit deferred boundaries below.",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "assumes ... no section 1401(c) foreign-exclusive social security coverage",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "valid ONLY in its verified domain ... out-of-domain fails closed",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 9,
+    "post_side_matched": 2,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "unclear",
   "triage": {

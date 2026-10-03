@@ -112,6 +112,64 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "direct_wage_payment_third_party_liability_applies"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "if a lender, surety, or other person, who is not an employer under such sections ... pays wages directly",
+        "where": [
+          "direct_wage_payment_third_party_liability_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/26/3505",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "For purposes of sections 3102, 3202, 3402, and 3403",
+        "where": [
+          "triage.pre_fix_wrong_because",
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "regenerate 26 USC 3505 with axiom-encode 0.2.532 and gpt-5.5",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "taxes ... required to be deducted and withheld from such wages by such employer",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 4,
+    "post_side_matched": 3,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

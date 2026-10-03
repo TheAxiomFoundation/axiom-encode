@@ -293,6 +293,83 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "qualified_tips_phaseout_threshold",
+      "qualified_tips_modified_adjusted_gross_income",
+      "qualified_tips_deduction_eligibility",
+      "nonemployee_trade_or_business_qualified_tips_taken_into_account",
+      "qualified_tips_taken_into_account_before_cap",
+      "qualified_tips_deduction_before_phaseout"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "qualified tips deduction amount for the taxable year",
+        "where": [
+          "qualified_tips_phaseout_threshold.versions[0].formula",
+          "qualified_tips_modified_adjusted_gross_income.versions[0].formula",
+          "qualified_tips_deduction_eligibility.versions[0].formula",
+          "nonemployee_trade_or_business_qualified_tips_taken_into_account.versions[0].formula",
+          "qualified_tips_taken_into_account_before_cap.versions[0].formula",
+          "qualified_tips_deduction_before_phaseout.versions[0].formula"
+        ],
+        "cites": "us/statute/26/224",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "$150,000 ($300,000 in the case of a joint return)",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "exceeds $150,000 ($300,000 in the case of a joint return)",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "in the case of a joint return or surviving spouse",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the adjusted gross income of the taxpayer ... increased by any amount excluded",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 5,
+    "post_side_matched": 3,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

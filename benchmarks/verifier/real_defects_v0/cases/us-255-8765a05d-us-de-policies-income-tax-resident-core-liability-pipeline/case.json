@@ -495,6 +495,331 @@
     "requested_citation_path": "us-de/statute/30/1102",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "de_pit_2026_tax_table_method_applies",
+      "de_pit_2026_definite_tax_table_method_controls",
+      "de_pit_2026_tax_method_uncertain_without_2026_director_ceiling",
+      "de_pit_2026_schedule_method_controls",
+      "de_pit_2026_definite_schedule_method_controls",
+      "de_pit_2026_minimum_director_tax_table_income_ceiling",
+      "de_pit_2026_definite_schedule_personal_credit_candidate",
+      "de_pit_2026_definite_schedule_other_jurisdiction_credit_candidate",
+      "de_pit_2026_definite_schedule_child_and_dependent_care_credit_candidate",
+      "de_pit_2026_supported_modification_profile_applies",
+      "de_pit_2026_supported_profile_applies",
+      "de_pit_2026_input_domain_is_valid"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "$110 for each personal exemption to which such individual is entitled",
+        "where": [
+          "de_pit_2026_definite_schedule_personal_credit_candidate.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1110",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "50 percent of the child and dependent care expense credit allowable for federal income tax purposes",
+        "where": [
+          "de_pit_2026_definite_schedule_child_and_dependent_care_credit_candidate.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1114",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "A resident individual shall be allowed a credit against the tax otherwise due under this chapter",
+        "where": [
+          "de_pit_2026_definite_schedule_other_jurisdiction_credit_candidate.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1110",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "An additional $110 in the case of each resident person age 60 or over",
+        "where": [
+          "de_pit_2026_definite_schedule_personal_credit_candidate.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1110",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Any deduction, to the extent such deduction exceeds $30,000, for a net operating loss carryback",
+        "where": [
+          "de_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1102",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "For persons age 60 or older, amounts received, not to exceed $12,500, as pensions",
+        "where": [
+          "de_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1102",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "In no event shall the allowable credit under this subsection exceed the tax otherwise due",
+        "where": [
+          "de_pit_2026_definite_schedule_child_and_dependent_care_credit_candidate.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1114",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "In no event shall the credit allowed under subsection (b) of this section exceed the tax otherwise due",
+        "where": [
+          "de_pit_2026_definite_schedule_personal_credit_candidate.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1110",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "The amount of $2,000 by any person who has a total and permanent disability or by a person who is over 60 years of age",
+        "where": [
+          "de_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1102",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "The deduction of a resident individual shall be the standard deduction, unless the individual elects to itemize deductions",
+        "where": [
+          "de_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1108",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "The entire taxable income of a resident of this State",
+        "where": [
+          "de_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1102",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "a separate tax in the amount determined in paragraph (b)(2) of this section, on the ordinary income portion of a lump sum distribution",
+        "where": [
+          "de_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1102",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "but in any event not less than $20,000",
+        "where": [
+          "de_pit_2026_definite_tax_table_method_controls.versions[0].formula",
+          "de_pit_2026_minimum_director_tax_table_income_ceiling.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1102",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "contributed by an individual during the taxable year to 1 or more accounts established and maintained pursuant to the DE529 Education Savings Plan",
+        "where": [
+          "de_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1102",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "contributed by an individual during the taxable year to 1 or more accounts established and maintained pursuant to the Delaware Achieving a Better Life Experience",
+        "where": [
+          "de_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1102",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "does not exceed $60,000, or such lesser amount as the Director may determine but in any event not less than $20,000",
+        "where": [
+          "de_pit_2026_tax_method_uncertain_without_2026_director_ceiling.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1102",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "shall not exceed the amount computed by multiplying the tax otherwise due under this chapter by a fraction",
+        "where": [
+          "de_pit_2026_definite_schedule_other_jurisdiction_credit_candidate.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1110",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "spouses who file a joint federal return but who elect to determine their Delaware taxes separately",
+        "where": [
+          "de_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1114",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the amount of taxable income",
+        "where": [
+          "de_pit_2026_input_domain_is_valid.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1102",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the standard deduction of a resident individual shall be $3,250, and the standard deduction of resident spouses shall be $6,500 if they file a joint return and $3,250 each if they file separate returns",
+        "where": [
+          "de_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1108",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "whose tax table income for the taxable year does not exceed $60,000",
+        "where": [
+          "de_pit_2026_definite_schedule_method_controls.versions[0].formula"
+        ],
+        "cites": "us-de/statute/30/1102",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "20000",
+        "where": [
+          "de_pit_2026_minimum_director_tax_table_income_ceiling.versions[0].formula"
+        ],
+        "forms": [
+          "20000",
+          "20,000"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "...whose tax table income for the taxable year does not exceed $60,000, or such lesser amount as the Director may determine but in any event not less than $20,000, a tax determined under tables... prescribed by the Director of Revenue.",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "For taxable income at or below $60,000, section 1102(d) requires a Director-prescribed table",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "but in any event not less than $20,000",
+        "where": [
+          "triage.pre_fix_wrong_because",
+          "triage.triage_notes",
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "tax table income for the taxable year does not exceed $60,000",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "whose tax table income for the taxable year does not exceed $60,000, or such lesser amount as the Director may determine but in any event not less than $20,000",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 27,
+    "post_side_matched": 10,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

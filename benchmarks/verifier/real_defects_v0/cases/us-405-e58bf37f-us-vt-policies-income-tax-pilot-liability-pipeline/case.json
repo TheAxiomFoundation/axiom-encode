@@ -243,6 +243,123 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "vt_pit_pilot_income_tax_liability",
+      "vt_pit_pilot_federal_agi_minimum_tax",
+      "vt_pit_pilot_normal_income_tax",
+      "vt_pit_pilot_individual_schedule_tax",
+      "vt_pit_pilot_schedule_tax",
+      "vt_pit_pilot_individual_taxable_income",
+      "vt_pit_pilot_taxable_income",
+      "vt_pit_pilot_taxpayer_of_tax_unit"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "If the federal adjusted gross income of the taxpayer exceeds $150,000.00",
+        "where": [
+          "vt_pit_pilot_federal_agi_minimum_tax.versions[0].formula"
+        ],
+        "cites": "us-vt/statute/32-5822",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the tax calculated under subdivisions (1)-(5) of this subsection",
+        "where": [
+          "vt_pit_pilot_normal_income_tax.versions[0].formula"
+        ],
+        "cites": "us-vt/statute/32-5822",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "three percent of the taxpayer's federal adjusted gross income",
+        "where": [
+          "vt_pit_pilot_federal_agi_minimum_tax.versions[0].formula"
+        ],
+        "cites": "us-vt/statute/32-5822",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "the tax calculated under this subsection shall be the greater of",
+        "where": [
+          "vt_pit_pilot_income_tax_liability.versions[0].formula"
+        ],
+        "cites": "us-vt/statute/32-5822",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "0.03",
+        "where": [
+          "vt_pit_pilot_federal_agi_minimum_tax.versions[0].formula"
+        ],
+        "forms": [
+          "0.03",
+          "3 percent",
+          "3 per cent",
+          "3%"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "150000",
+        "where": [
+          "vt_pit_pilot_federal_agi_minimum_tax.versions[0].formula"
+        ],
+        "forms": [
+          "150000",
+          "150,000"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The threshold and rate are now source-backed named parameters",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the amounts of taxable income shown in the tables",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 7,
+    "post_side_matched": 3,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "unclear",
   "triage": {

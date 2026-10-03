@@ -113,6 +113,107 @@
     "requested_citation_path": "us-co/statute/39/39-22-104",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "co_pit_pilot_taxable_income",
+      "co_pit_pilot_income_tax_liability"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Prior to the application of the rate of tax prescribed in subsection (1), (1.5), or (1.7) of this section, the federal taxable income shall be modified as provided in subsections (3) and (4) of this section.",
+        "where": [
+          "co_pit_pilot_taxable_income.versions[0].formula"
+        ],
+        "cites": "us-co/statute/39/39-22-104",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "a tax of four and forty one-hundredths percent is imposed on the federal taxable income",
+        "where": [
+          "co_pit_pilot_income_tax_liability.versions[0].formula"
+        ],
+        "cites": "us-co/statute/39/39-22-104",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "with respect to taxable years commencing on or after January 1, 2022",
+        "where": [
+          "co_pit_pilot_taxable_income.versions[0].effective_from",
+          "co_pit_pilot_income_tax_liability.versions[0].effective_from"
+        ],
+        "cites": "us-co/statute/39/39-22-104",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": ". Decisive module-diff lines for the rework itself:",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": ": the cited provision text (pinned corpus release us-rulespec-2026-07-22-current-la-status-fix, provision us-co/statute/39/39-22-104, body sha256 5575bf68...) reads",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "This is deliberately the section 104 base-tax surface",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "on the federal taxable income, as determined pursuant to section 63 of the internal revenue code",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "— so an IRC-63 derivation is expressly within the cited source, which defeats",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 8,
+    "post_side_matched": 4,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "unclear",
   "triage": {

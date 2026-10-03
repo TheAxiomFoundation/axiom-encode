@@ -68,6 +68,81 @@
     "requested_citation_path": "us-vt/statute/32-5822",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "vt_pit_pilot_normal_income_tax",
+      "vt_pit_pilot_federal_agi_minimum_tax",
+      "vt_pit_pilot_income_tax_liability"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-12-31",
+        "where": [
+          "vt_pit_pilot_federal_agi_minimum_tax.versions[0].effective_to",
+          "vt_pit_pilot_income_tax_liability.versions[0].effective_to",
+          "vt_pit_pilot_normal_income_tax.versions[0].effective_to"
+        ],
+        "forms": [
+          "2026-12-31",
+          "December 31, 2026",
+          "31 December 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Closes the remaining cross-state TY2026 truthfulness and period-boundary gaps without changing the underlying tax formulas",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "[t]he amounts of taxable income shown in the tables in this section shall be adjusted annually for inflation",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "period-boundary gaps without changing the underlying tax formulas.",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the amounts of taxable income shown in the tables,",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 5,
+    "post_side_matched": 0,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "unclear",
   "triage": {

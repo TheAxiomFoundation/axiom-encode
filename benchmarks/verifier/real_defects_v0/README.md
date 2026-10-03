@@ -71,11 +71,13 @@ benchmarks/verifier/real_defects_v0/
     screen.json              the screening pass output (flagged commits and reasons)
     summary.json             the yield counts
     build_log.json           rows dropped at build time and why
+    evidence_validation.json hand calls the evidence check was validated against
   tools/
     enumerate_candidates.py  module-touching commits and the keyword split
     prep_commit.py           read-only per-commit bundle (diffs, PR text) for readers
     merge_triage.py          workflow output to keep/drop rows
     build_real_defects.py    rows to cases, index, and build log
+    check_evidence.py        evidence_in_provision: is the defect's evidence in provision.txt?
     revise_corpus.py         the 2026-10-03 review revisions, applied to the built cases
 ```
 
@@ -112,6 +114,8 @@ schema; do not change key names without telling Max.
 | `pre_fix_artifact_sha256`, `post_fix_artifact_sha256` | sha256 of the shipped module bytes; must equal the Git blobs. |
 | `provision_sha256`, `provision_chars` | sha256 and length of `provision.txt` (UTF-8, no added trailing newline). |
 | `provision_resolution` | How the text was resolved: `mode` (`axiom_encode_resolver`, or `direct_row_exact` for release rows the current resolver rejects because they lack an `id`), `provision_file`, `provision_file_sha256`, `line_number`, `stored_body_sha256`, `resolved_text_sha256`, `slice_required`, `component_rows`, `selection_basis`, `fallback_index`, `toolchain_corpus_ref`, `fix_time_corpus_match`. |
+| `evidence_in_provision` | Whether `provision.txt` carries text tied to the change: `present`, `absent`, or `unknown` (nothing to test, or a metadata-only case). Computed mechanically by `tools/check_evidence.py`; see Known limits. |
+| `evidence_check` | How that was decided: `method`, `normalization`, `rules_tested`, `rules_missing`, every string tested (`origin`, `side`, `text`, where it came from, `matched`, and whether it `counts`), the tested and matched counts per side, and `reason` (`post_side_string_found`, `no_tested_string_found`, `provision_supports_pre_fix`, `nothing_to_test`, or `metadata_only`). |
 | `fix_stage` | `post_merge` when the pre-fix module bytes were once on the first-parent history of `origin/main`; `pre_merge_review` when the correction landed on the branch before its pull request merged (the pre-fix state is the encoder's output as reviewed, never on main). |
 | `artifacts_shipped` | `true` when `pre_fix.yaml`, `post_fix.yaml` and `provision.txt` are in the case directory. `false` for the inherited-verdict members of the generator families, which ship `case.json` only; the digests still verify from Git and the release, and `tools/build_real_defects.py --ship-artifacts all` writes the files. |
 | `family_id`, `family_size`, `family_representative` | Cases that carry one correction applied to many modules (same commit, defect kind, and rule path) share a family; `family_size` is the member count and the representative is the family's first module path in sorted order. The three generator regenerations in rulespec-us PR #1300 each touched all 100 generated tariff-schedule chapter compositions, so a runner that wants independent cases should take representatives only (`counts.family_representatives` in `index.json`). |
@@ -235,6 +239,48 @@ bytes changed.
   three times, and one of those corrections flipped a boundary back. Judges
   should be scored on whether they flag the pre-fix defect, not on whether
   they pass the post-fix artifact.
+- The provision often lacks the defect's evidence. `provision.txt` is
+  resolved from the module's first `corpus_citation_path` only, and the text
+  a correction rests on often sits under another citation (an amending
+  Federal Register notice, a sibling section, a different HTS heading).
+  `evidence_in_provision` flags this per case. `tools/check_evidence.py`
+  takes the rules in `locator.rule_names` and tests whether these appear in
+  `provision.txt`, after casefolding and collapsing whitespace:
+  - the proof-atom excerpts the fix added;
+  - the excerpts on rule fields the fix changed (counted only when the fix
+    added no excerpt or value of its own);
+  - numbers, dates and code-like identifiers that appear on one side of the
+    fix only, in written forms such as `15 percent` and `November 14, 2025`;
+  - quoted spans of eight or more words from the triage reasoning.
+
+  Strings that carry a value the fix removed are pre-side: they support the
+  pre-fix module, as the printed `$143` of 7 CFR 273.10 does in `us-015`.
+  The result is `present` when a post-side string appears. It is `unknown`
+  for the metadata-only family members, which ship no files to test. Of the
+  172 fidelity family representatives, 111 are `present` and 61 `absent`.
+  Across all 520 cases, 181 are `present`, 123 `absent` and 216 `unknown`.
+
+  The check is mechanical and does not read the provision for meaning.
+  `triage/evidence_validation.json` records three sets of hand calls:
+  - The round-two reviewer's 15 calls: 14 agree. The method was revised
+    after the first version agreed on 12, so this figure is in-sample.
+  - 24 blind calls by an agent, used during development: 19 agree.
+  - 24 fresh blind calls on a sanitized copy, scored once with the final
+    method: 20 agree.
+
+  Every disagreement but one (`us-386`, development set) is the method
+  saying `present` where the hand call said not detectable. In those cases
+  one of three things happened:
+  - a tested string is in the provision but is not what exposes the defect
+    (an excerpt about another part of the rule, or a number that recurs by
+    coincidence);
+  - the decisive text is there, but the pre-fix module restates it;
+  - the defect sits in an imported module.
+  Treat `absent` as reliable (the held-out set had no false `absent`) and
+  `present` as an upper bound on detectability. A runner that wants cases a
+  judge can decide from the provision should filter on
+  `evidence_in_provision == "present"`; re-resolving provisions from the
+  changed rules' own citations is a separate decision (d885).
 - Provision windows can exceed the judge's 24,000-character truncation
   (`DEFAULT_PROVISION_CHARS` in `src/axiom_encode/judges/client.py`):
   37 of 520 cases do. `provision_chars` is in `index.json` so a runner
@@ -304,9 +350,15 @@ uv run python benchmarks/verifier/real_defects_v0/tools/revise_corpus.py \
   --rulespec-us ../rulespec-us --rulespec-uk ../rulespec-uk
 ```
 
-Its stages are listed in its docstring: `commit_metadata` replaces
-`commit_date` and `commit_subject` with the commit's own `%cI` and `%s` and
-moves the screen reason to `triage.screen_reason`.
+Its stages are listed in its docstring:
+- `commit_metadata` replaces `commit_date` and `commit_subject` with the
+  commit's own `%cI` and `%s`, and moves the screen reason to
+  `triage.screen_reason`.
+- `evidence` writes `evidence_in_provision` and `evidence_check`.
+- `index` regenerates `index.json` from the case records.
+
+`build_real_defects.py` runs the same evidence check and index builder, so a
+rebuild produces the same fields.
 
 Verify (each tier is skipped, and reported as skipped, when its inputs are
 absent):

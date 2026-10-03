@@ -225,6 +225,239 @@
     "requested_citation_path": "us-wv/statute/11-21-3",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "wv_pit_2026_low_income_earned_income_exclusion",
+      "wv_pit_2026_profile_candidate_additions",
+      "wv_pit_2026_input_domain_is_valid",
+      "wv_pit_2026_supported_profile_applies"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Except in the case of a taxable year closed by reason of the death of the taxpayer, no credit shall be allowed under this section in the case of a taxable year covering a period of less than twelve months",
+        "where": [
+          "wv_pit_2026_low_income_earned_income_exclusion.versions[0].formula"
+        ],
+        "cites": "us-wv/statute/11-21-10",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Taxable year must be full taxable year",
+        "where": [
+          "wv_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-wv/statute/11-21-10",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "20 percent additional tax imposed on taxable withdrawals from a medical savings account",
+        "where": [
+          "wv_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-wv/statute/11-21-9",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Separate taxes may be determined on their separate West Virginia taxable incomes if they so elect",
+        "where": [
+          "wv_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-wv/statute/11-21-11",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Tax Commissioner shall develop and publish on an annual basis two indexed tax credit tables",
+        "where": [
+          "wv_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-wv/statute/11-21-22B",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "There shall be added to federal adjusted gross income, unless already included therein",
+        "where": [
+          "wv_pit_2026_profile_candidate_additions.versions[0].formula"
+        ],
+        "cites": "us-wv/statute/11-21-12",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "West Virginia taxable income of a resident individual",
+        "where": [
+          "wv_pit_2026_input_domain_is_valid.versions[0].formula"
+        ],
+        "cites": "us-wv/statute/11-21-11",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "West Virginia taxable income of every individual",
+        "where": [
+          "wv_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-wv/statute/11-21-3",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "subsequently withdrawn from said account and not used for qualified expenses",
+        "where": [
+          "wv_pit_2026_profile_candidate_additions.versions[0].formula"
+        ],
+        "cites": "us-wv/statute/11-21-12M",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "subsequently withdrawn from the account for purposes other than a qualified disability expense",
+        "where": [
+          "wv_pit_2026_profile_candidate_additions.versions[0].formula"
+        ],
+        "cites": "us-wv/statute/11-21-12J",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "subsequently withdrawn from the prepaid tuition contract or other college savings plan",
+        "where": [
+          "wv_pit_2026_profile_candidate_additions.versions[0].formula"
+        ],
+        "cites": "us-wv/statute/11-21-12F",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "the taxpayer’s share, as beneficiary of an estate or trust, of the West Virginia fiduciary adjustment",
+        "where": [
+          "wv_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-wv/statute/11-21-12",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "there shall be added to federal taxable income the amount deducted under Section 199",
+        "where": [
+          "wv_pit_2026_profile_candidate_additions.versions[0].formula"
+        ],
+        "cites": "us-wv/statute/11-21-12G",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "there shall be allowed as a deduction from federal adjusted gross income the amount of his or her earned income included therein",
+        "where": [
+          "wv_pit_2026_low_income_earned_income_exclusion.versions[0].formula"
+        ],
+        "cites": "us-wv/statute/11-21-10",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Increasing-modification withdrawal inputs are expressly limited to amounts not already included in federal adjusted gross income.",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Taxable year must be full taxable year. -- Except in the case of a taxable year closed by reason of the death of the taxpayer, no credit shall be allowed under this section in the case of a taxable year covering a period of less than twelve months",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Taxable year must be full taxable year. -- Except in the case of a taxable year closed by reason of the death of the taxpayer, no credit shall be allowed under this section in the case of a taxable year covering a period of less than twelve months.",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "There shall be added to federal adjusted gross income, unless already included therein",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Whether the return covers a full taxable year for West Virginia full-year residents",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "a taxable year closed by reason of the death of the taxpayer",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 8,
+    "post_side_matched": 0,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

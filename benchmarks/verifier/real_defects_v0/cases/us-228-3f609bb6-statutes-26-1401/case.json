@@ -305,6 +305,84 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "additional_medicare_self_employment_tax_base",
+      "self_employment_oasdi_tax",
+      "self_employment_hospital_insurance_tax",
+      "taxable_self_employment_income_for_section_1401",
+      "self_employment_income_exempt_under_international_agreement",
+      "international_agreement_exemption_applies",
+      "additional_medicare_self_employment_threshold",
+      "additional_medicare_self_employment_separate_threshold",
+      "additional_medicare_self_employment_separate_threshold_fraction",
+      "self_employment_tax"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "1990-01-01",
+        "where": [
+          "international_agreement_exemption_applies.versions[0].effective_from",
+          "self_employment_income_exempt_under_international_agreement.versions[0].effective_from",
+          "taxable_self_employment_income_for_section_1401.versions[0].effective_from"
+        ],
+        "forms": [
+          "1990-01-01",
+          "January 1, 1990",
+          "1 January 1990"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2013-01-01",
+        "where": [
+          "additional_medicare_self_employment_separate_threshold.versions[0].effective_from",
+          "additional_medicare_self_employment_separate_threshold_fraction.versions[0].effective_from"
+        ],
+        "forms": [
+          "2013-01-01",
+          "January 1, 2013",
+          "1 January 2013"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "0 single/other case, 1 joint return, 2 married filing separately, 3 head of household/other case",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "½ of the dollar amount determined under clause (i)",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 4,
+    "post_side_matched": 1,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

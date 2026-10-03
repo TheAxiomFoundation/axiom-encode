@@ -63,6 +63,73 @@
     "requested_citation_path": "us/regulation/7/273/10",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "snap_minimum_benefit"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "The minimum benefit is 8 percent of the maximum allotment for a household of one, rounded to the nearest whole dollar.",
+        "where": [
+          "snap_minimum_benefit.versions[0].formula"
+        ],
+        "cites": "us/regulation/7/273/10",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "NY SNAP ECPS comparison now has 92/92 eligibility matches; the prior ecps-9901 minimum-benefit mismatch is gone",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The minimum benefit is 8 percent of the maximum allotment for a household of one, rounded to the nearest whole dollar,",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The minimum benefit is 8 percent of the maximum allotment for a household of one, rounded to the nearest whole dollar.",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "a value with no basis in the cited source (the fix removes or re-grounds it)",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 5,
+    "post_side_matched": 2,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

@@ -96,6 +96,77 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "tier_2_employee_tax_collectible_by_employer_deduction"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "1990-01-01",
+        "where": [
+          "tier_2_employee_tax_collectible_by_employer_deduction.versions[0].effective_from"
+        ],
+        "forms": [
+          "1990-01-01",
+          "January 1, 1990",
+          "1 January 1990"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The taxes imposed by section 3201 shall be collected by the employer of the taxpayer by deducting the amount of the taxes from the compensation of the employee as and when paid",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The taxes imposed by section 3201 shall be collected by the employer of the taxpayer by deducting the amount of the taxes from the compensation of the employee as and when paid.",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The taxes imposed by section 3201 shall be collected by the employer...",
+        "where": [
+          "triage.pre_fix_wrong_because"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "only to the extent that collection can be made by the employer",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 4,
+    "post_side_matched": 4,
+    "pre_side_tested": 1,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

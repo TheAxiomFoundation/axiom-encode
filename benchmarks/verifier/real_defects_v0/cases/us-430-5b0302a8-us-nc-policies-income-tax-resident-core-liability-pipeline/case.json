@@ -124,6 +124,150 @@
     "requested_citation_path": "us-nc/statute/105/105-153.5",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "nc_pit_2026_itemized_deduction",
+      "nc_pit_2026_eligible_charitable_contributions",
+      "nc_pit_2026_mortgage_and_property_tax_deduction",
+      "nc_pit_2026_modified_income_before_tax_base",
+      "nc_pit_2026_tax_base",
+      "nc_pit_2026_income_tax_before_credits"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "A qualified donation that is the basis for an allocated credit under G.S. 105-153.11 is not eligible for a deduction under this subdivision.",
+        "where": [
+          "nc_pit_2026_eligible_charitable_contributions.versions[0].formula"
+        ],
+        "cites": "us-nc/statute/105/105-153.5",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "For spouses filing as married filing separately or married filing jointly, the total mortgage interest and real estate taxes claimed by both spouses combined may not exceed twenty thousand dollars ($20,000).",
+        "where": [
+          "nc_pit_2026_mortgage_and_property_tax_deduction.versions[0].formula"
+        ],
+        "cites": "us-nc/statute/105/105-153.5",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "In calculating North Carolina taxable income",
+        "where": [
+          "nc_pit_2026_modified_income_before_tax_base.versions[0].formula",
+          "nc_pit_2026_tax_base.versions[0].formula"
+        ],
+        "cites": "us-nc/statute/105/105-153.5",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "these deductions must be prorated based on the percentage paid by each spouse",
+        "where": [
+          "nc_pit_2026_mortgage_and_property_tax_deduction.versions[0].formula"
+        ],
+        "cites": "us-nc/statute/105/105-153.5",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "An amount equal to the sum of the items listed in this subdivision.",
+        "where": [
+          "nc_pit_2026_itemized_deduction.versions[0].formula"
+        ],
+        "cites": "us-nc/statute/105/105-153.5",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "The amount allowed under this sub-subdivision may not exceed twenty thousand dollars ($20,000).",
+        "where": [
+          "nc_pit_2026_itemized_deduction.versions[0].formula"
+        ],
+        "cites": "us-nc/statute/105/105-153.5",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-01-01",
+        "where": [
+          "nc_pit_2026_eligible_charitable_contributions.versions[0].effective_from",
+          "nc_pit_2026_modified_income_before_tax_base.versions[0].effective_from",
+          "nc_pit_2026_mortgage_and_property_tax_deduction.versions[0].effective_from",
+          "nc_pit_2026_tax_base.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-01-01",
+          "January 1, 2026",
+          "1 January 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-12-31",
+        "where": [
+          "nc_pit_2026_eligible_charitable_contributions.versions[0].effective_to",
+          "nc_pit_2026_modified_income_before_tax_base.versions[0].effective_to",
+          "nc_pit_2026_mortgage_and_property_tax_deduction.versions[0].effective_to",
+          "nc_pit_2026_tax_base.versions[0].effective_to"
+        ],
+        "forms": [
+          "2026-12-31",
+          "December 31, 2026",
+          "31 December 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "3. (Effective for taxable years beginning on or after January 1, 2025, and expiring for taxable years beginning on or after January 1, 2027 ...) Certain Real Property Donations. - A qualified donation that is the basis for an allocated credit under G.S. 105-153.11 is not eligible for a deduction under this subdivision.",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "For spouses filing as married filing separately or married filing jointly, the total mortgage interest and real estate taxes claimed by both spouses combined may not exceed twenty thousand dollars ($20,000). ... these deductions must be prorated based on the percentage paid by each spouse.",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 8,
+    "post_side_matched": 5,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

@@ -104,6 +104,75 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "secretary_may_designate_wage_control_person_to_perform_employer_acts"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the Secretary, under regulations prescribed by him, is authorized to designate",
+        "where": [
+          "secretary_may_designate_wage_control_person_to_perform_employer_acts.versions[0].formula"
+        ],
+        "cites": "us/statute/26/3504",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "wages of an employee or group of employees, employed by one or more employers",
+        "where": [
+          "secretary_may_designate_wage_control_person_to_perform_employer_acts.versions[0].formula"
+        ],
+        "cites": "us/statute/26/3504",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "a fiduciary, agent, or other person has the control, receipt, custody, or disposal of, or pays the wages",
+        "where": [
+          "secretary_may_designate_wage_control_person_to_perform_employer_acts.versions[0].formula"
+        ],
+        "cites": "us/statute/26/3504",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "In case a fiduciary, agent, or other person has the control, receipt, custody, or disposal of, or pays the wages of an employee or group of employees, employed by one or more employers, the Secretary ... is authorized to designate ...",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "has the control, receipt, custody, or disposal of, or pays the wages of an employee or group of employees",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 4,
+    "post_side_matched": 4,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

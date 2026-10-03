@@ -138,6 +138,73 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "snap_telephone_standard_allowance_eligible",
+      "snap_individual_utility_allowance",
+      "telephone_standard_allowance_amount"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2025-10-01",
+        "where": [
+          "snap_telephone_standard_allowance_eligible.versions[0].effective_from",
+          "telephone_standard_allowance_amount.versions[0].effective_from"
+        ],
+        "forms": [
+          "2025-10-01",
+          "October 1, 2025",
+          "1 October 2025"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "32",
+        "where": [
+          "telephone_standard_allowance_amount.versions[0].formula"
+        ],
+        "forms": [
+          "32"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The standard allowance for telephone consists of the cost for basic service for one telephone",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The standard allowance for telephone consists of the cost for basic service for one telephone.",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 4,
+    "post_side_matched": 4,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

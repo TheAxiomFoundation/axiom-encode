@@ -100,6 +100,62 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "additional_medicare_wage_tax_threshold"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(A) in the case of a joint return, $250,000, (B) in the case of a married taxpayer (as defined in section 7703) filing a separate return, 1/2 of the dollar amount determined under subparagraph (A), and (C) in any other case, $200,000.",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "in the case of a joint return, $250,000",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "stripped — that quote should not be relied on as a verbatim amount citation; the diff line is the decisive evidence. The commit also corrected the module summary prose, which pre-fix asserted",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "was lost when the PR was created (shell mangling), so the quote is verbatim but visibly truncated; PR title is",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 4,
+    "post_side_matched": 1,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

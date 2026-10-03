@@ -200,6 +200,42 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "nonpermanent_ineligibility_period_years"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "report 1 or 2 years during a permanent disqualification, which is not closer to the source either. The commit message is a bare regeneration subject (",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the first occasion of a finding ... of the trading of a controlled substance ... for benefits",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 2,
+    "post_side_matched": 1,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "unclear",
   "triage": {

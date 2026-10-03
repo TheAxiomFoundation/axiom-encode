@@ -208,6 +208,135 @@
     "requested_citation_path": "us/statute/26/3101",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "additional_medicare_tax_pipeline_self_employment_domain_is_valid",
+      "wages_taken_into_account_for_additional_medicare_tax",
+      "pipeline_reduced_additional_medicare_self_employment_threshold"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Under section 1401(b)(2)(B), the applicable threshold specified under section 1401(b)(2)(A) is reduced (but not below zero) by the amount of wages (as defined in section 3121(a)) taken into account in determining Additional Medicare Tax under section 3101(b)(2) with respect to the taxpayer.",
+        "where": [
+          "wages_taken_into_account_for_additional_medicare_tax.versions[0].formula",
+          "pipeline_reduced_additional_medicare_self_employment_threshold.versions[0].formula"
+        ],
+        "cites": "us/regulation/26/1/1401-1/d/2/i",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "During any period in which there is in effect an agreement entered into pursuant to section 233 of the Social Security Act with any foreign country, the self-employment income of an individual shall be exempt from the taxes imposed by this section to the extent that such self-employment income is subject under such agreement exclusively to the laws applicable to the social security system of such foreign country.",
+        "where": [
+          "additional_medicare_tax_pipeline_self_employment_domain_is_valid.versions[0].formula"
+        ],
+        "cites": "us/statute/26/1401",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2013-01-01",
+        "where": [
+          "pipeline_reduced_additional_medicare_self_employment_threshold.versions[0].effective_from",
+          "wages_taken_into_account_for_additional_medicare_tax.versions[0].effective_from"
+        ],
+        "forms": [
+          "2013-01-01",
+          "January 1, 2013",
+          "1 January 2013"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2026-01-01",
+        "where": [
+          "pipeline_reduced_additional_medicare_self_employment_threshold.versions[0].effective_from",
+          "wages_taken_into_account_for_additional_medicare_tax.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-01-01",
+          "January 1, 2026",
+          "1 January 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2026-12-31",
+        "where": [
+          "pipeline_reduced_additional_medicare_self_employment_threshold.versions[0].effective_to",
+          "wages_taken_into_account_for_additional_medicare_tax.versions[0].effective_to"
+        ],
+        "forms": [
+          "2026-12-31",
+          "December 31, 2026",
+          "31 December 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "pending re-ingest under axiom-corpus#514, which was itself wrong — the enacted statute really says 3121(b)(2); the post-fix rationale corrects this to",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the applicable threshold specified under section 1401(b)(2)(A) is reduced (but not below zero) by the amount of wages (as defined in section 3121(a)) taken into account in determining Additional Medicare Tax under section 3101(b)(2)",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the public self-employment leg is a fail-closed zero and the combined surface is valid only for tax units whose imported federal self-employment income is zero",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "valid only for tax units whose imported federal self-employment income is zero",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 6,
+    "post_side_matched": 0,
+    "pre_side_tested": 2,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "unclear",
   "triage": {

@@ -77,6 +77,81 @@
     "requested_citation_path": "us-ri/statute/44-30-2.6",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "ri_pit_pilot_taxable_income",
+      "ri_pit_pilot_schedule_tax",
+      "ri_pit_pilot_income_tax_liability"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-12-31",
+        "where": [
+          "ri_pit_pilot_income_tax_liability.versions[0].effective_to",
+          "ri_pit_pilot_schedule_tax.versions[0].effective_to",
+          "ri_pit_pilot_taxable_income.versions[0].effective_to"
+        ],
+        "forms": [
+          "2026-12-31",
+          "December 31, 2026",
+          "31 December 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(3) For the period January 1, 2011, through December 31, 2011, and thereafter, “Rhode Island taxable income” means federal adjusted gross income...",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "For the period January 1, 2011, through December 31, 2011, and thereafter",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "For the period January 1, 2011, through December 31, 2011, and thereafter,",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "period-boundary gaps without changing the underlying tax formulas",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 5,
+    "post_side_matched": 3,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "unclear",
   "triage": {

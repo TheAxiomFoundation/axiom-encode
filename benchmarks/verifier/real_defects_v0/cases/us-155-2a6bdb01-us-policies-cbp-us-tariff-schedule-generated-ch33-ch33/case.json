@@ -226,6 +226,19 @@
     "requested_citation_path": "us/statute/hts/general-note-3/page-1",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "unknown",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [],
+    "rules_missing": [],
+    "strings": [],
+    "post_side_tested": 0,
+    "post_side_matched": 0,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "metadata_only"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

@@ -173,6 +173,196 @@
     "requested_citation_path": "us-oh/statute/5747.02",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "oh_pit_pilot_schedule_tax",
+      "oh_pit_pilot_taxable_income",
+      "oh_pit_pilot_income_tax_liability"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "For taxable years beginning in 2026 and thereafter, $332.00 plus 2.75% of the amount in excess of $26,050.",
+        "where": [
+          "oh_pit_pilot_schedule_tax.versions[0].formula"
+        ],
+        "cites": "us-oh/statute/5747.02",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "If the balance thus obtained is equal to or less than twenty-six thousand fifty dollars, no tax shall be imposed on that balance.",
+        "where": [
+          "oh_pit_pilot_schedule_tax.versions[0].formula"
+        ],
+        "cites": "us-oh/statute/5747.02",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the tax imposed by this section on income other than taxable business income",
+        "where": [
+          "oh_pit_pilot_income_tax_liability.versions[0].formula"
+        ],
+        "cites": "us-oh/statute/5747.02",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the tax imposed by this section on income other than taxable business income shall be measured by Ohio adjusted gross income, less taxable business income and less an exemption",
+        "where": [
+          "oh_pit_pilot_taxable_income.versions[0].formula"
+        ],
+        "cites": "us-oh/statute/5747.02",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-12-31",
+        "where": [
+          "oh_pit_pilot_income_tax_liability.versions[0].effective_to",
+          "oh_pit_pilot_schedule_tax.versions[0].effective_to",
+          "oh_pit_pilot_taxable_income.versions[0].effective_to"
+        ],
+        "forms": [
+          "2026-12-31",
+          "December 31, 2026",
+          "31 December 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Bound Ohio 2026 nonbusiness income tax schedule (#1105)",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "For taxable years beginning in 2026 and thereafter",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "For taxable years beginning in 2026 and thereafter, $332.00 plus 2.75% of the amount in excess of $26,050.",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Ground Ohio 2026 PIT in H.B. 96 analysis",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "If the balance thus obtained is equal to or less than twenty-six thousand fifty dollars, no tax shall be imposed on that balance",
+        "where": [
+          "triage.pre_fix_wrong_because"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "In the case of individuals ... If the balance thus obtained is equal to or less than twenty-six thousand fifty dollars, no tax shall be imposed on that balance",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "It deliberately models only the ordinary resident wage earner above the $26,050 no-tax threshold",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "To recompute the tax dollar amount corresponding to the lowest tax rate in division (A)(3) ... the commissioner shall multiply the tax rate prescribed in division (A)(2) of this section by the income amount specified in that division",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "first-bracket effective rate 0.0127448 (the $332.00204 base amount / 26,050)",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "import the official $26,050 threshold, $332 base amount, and 2.75% excess rate",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "reproduces the statutory ... form for filers above the no-tax threshold",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 16,
+    "post_side_matched": 9,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

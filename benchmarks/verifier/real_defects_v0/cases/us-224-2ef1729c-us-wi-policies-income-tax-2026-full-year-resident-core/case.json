@@ -397,6 +397,140 @@
     "requested_citation_path": "us-wi/statute/71.01",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "wi_pit_2026_complete_gross_tax",
+      "wi_pit_2026_complete_tax_after_nonrefundable_credits",
+      "wi_pit_2026_net_income_tax_liability_before_payments",
+      "wi_pit_2026_complete_liability_source_hold_applies",
+      "wi_pit_2026_annual_tax_table_source_hold_applies",
+      "wi_pit_2026_profile_candidate_gross_tax",
+      "wi_pit_2026_final_bracket_selector",
+      "wi_pit_2026_final_bracket_within_schedule",
+      "wi_pit_2026_tax_after_stillbirth_credit",
+      "wi_pit_2026_tax_after_transportation_credit",
+      "wi_pit_2026_tax_after_school_property_credit",
+      "wi_pit_2026_profile_candidate_tax_after_nonrefundable_credits",
+      "wi_pit_2026_profile_candidate_net_income_tax_liability_before_payments"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "shall determine income tax from the tax table",
+        "where": [
+          "wi_pit_2026_complete_gross_tax.versions[0].formula",
+          "wi_pit_2026_complete_tax_after_nonrefundable_credits.versions[0].formula",
+          "wi_pit_2026_net_income_tax_liability_before_payments.versions[0].formula",
+          "wi_pit_2026_annual_tax_table_source_hold_applies.versions[0].formula"
+        ],
+        "cites": "us-wi/statute/71.06",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "make computations in the following order",
+        "where": [
+          "wi_pit_2026_complete_liability_source_hold_applies.versions[0].formula"
+        ],
+        "cites": "us-wi/statute/71.10",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(3) Tax table. The secretary of revenue shall prepare a table from which the tax in effect on taxable personal income shall be determined... (b) The first 2 columns shall contain the minimum and the maximum amounts, respectively, of taxable income in brackets of not more than $100... (c) ...rates shall be applied to the amount of income at the middle of each bracket. The amount of tax for each bracket shall be computed to the nearest dollar.",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Computation of tax on taxable income in excess of the amount shown on the table may be set forth at the foot of such table",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Encode Wisconsin 2026 resident liability end to end",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The secretary of revenue shall prepare a table from which the tax in effect on taxable personal income shall be determined,",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "applied to the amount of income at the middle of each bracket,",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "shall determine income tax from the tax table",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "shall prepare a table from which the tax ... shall be determined",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "shall prepare a table from which the tax in effect on taxable personal income shall be determined.",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 9,
+    "post_side_matched": 0,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

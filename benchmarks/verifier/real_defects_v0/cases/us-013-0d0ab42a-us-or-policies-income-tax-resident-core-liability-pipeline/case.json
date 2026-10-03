@@ -337,6 +337,389 @@
       }
     ]
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "or_pit_2026_profile_candidate_schedule_tax",
+      "or_pit_2026_bounded_tax_after_nonrefundable_credits",
+      "or_pit_2026_bounded_net_income_tax_liability_candidate",
+      "or_pit_2026_schedule_selector",
+      "or_pit_2026_schedule_rate",
+      "or_pit_2026_schedule_base",
+      "or_pit_2026_schedule_floor"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "0.0475",
+        "where": [
+          "or_pit_2026_schedule_rate.versions[0].values"
+        ],
+        "forms": [
+          "0.0475",
+          "4.75 percent",
+          "4.75 per cent",
+          "4.75%"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "0.0675",
+        "where": [
+          "or_pit_2026_schedule_rate.versions[0].values"
+        ],
+        "forms": [
+          "0.0675",
+          "6.75 percent",
+          "6.75 per cent",
+          "6.75%"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "0.0875",
+        "where": [
+          "or_pit_2026_schedule_rate.versions[0].values"
+        ],
+        "forms": [
+          "0.0875",
+          "8.75 percent",
+          "8.75 per cent",
+          "8.75%"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "0.099",
+        "where": [
+          "or_pit_2026_schedule_rate.versions[0].values"
+        ],
+        "forms": [
+          "0.099",
+          "9.9 percent",
+          "9.9 per cent",
+          "9.9%"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "10618",
+        "where": [
+          "or_pit_2026_schedule_base.versions[0].values"
+        ],
+        "forms": [
+          "10618",
+          "10,618"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "11400",
+        "where": [
+          "or_pit_2026_schedule_floor.versions[0].values"
+        ],
+        "forms": [
+          "11400",
+          "11,400"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "125000",
+        "where": [
+          "or_pit_2026_schedule_floor.versions[0].values"
+        ],
+        "forms": [
+          "125000",
+          "125,000"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "1357",
+        "where": [
+          "or_pit_2026_schedule_base.versions[0].values"
+        ],
+        "forms": [
+          "1357",
+          "1,357"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2026-01-01",
+        "where": [
+          "or_pit_2026_bounded_net_income_tax_liability_candidate.versions[0].effective_from",
+          "or_pit_2026_bounded_tax_after_nonrefundable_credits.versions[0].effective_from",
+          "or_pit_2026_profile_candidate_schedule_tax.versions[0].effective_from",
+          "or_pit_2026_schedule_base.versions[0].effective_from",
+          "or_pit_2026_schedule_floor.versions[0].effective_from",
+          "or_pit_2026_schedule_rate.versions[0].effective_from",
+          "or_pit_2026_schedule_selector.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-01-01",
+          "January 1, 2026",
+          "1 January 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2026-12-31",
+        "where": [
+          "or_pit_2026_bounded_net_income_tax_liability_candidate.versions[0].effective_to",
+          "or_pit_2026_bounded_tax_after_nonrefundable_credits.versions[0].effective_to",
+          "or_pit_2026_profile_candidate_schedule_tax.versions[0].effective_to",
+          "or_pit_2026_schedule_base.versions[0].effective_to",
+          "or_pit_2026_schedule_floor.versions[0].effective_to",
+          "or_pit_2026_schedule_rate.versions[0].effective_to",
+          "or_pit_2026_schedule_selector.versions[0].effective_to"
+        ],
+        "forms": [
+          "2026-12-31",
+          "December 31, 2026",
+          "31 December 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "21237",
+        "where": [
+          "or_pit_2026_schedule_base.versions[0].values"
+        ],
+        "forms": [
+          "21237",
+          "21,237"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "216",
+        "where": [
+          "or_pit_2026_schedule_base.versions[0].values"
+        ],
+        "forms": [
+          "216"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "22800",
+        "where": [
+          "or_pit_2026_schedule_floor.versions[0].values"
+        ],
+        "forms": [
+          "22800",
+          "22,800"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "250000",
+        "where": [
+          "or_pit_2026_schedule_floor.versions[0].values"
+        ],
+        "forms": [
+          "250000",
+          "250,000"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "432",
+        "where": [
+          "or_pit_2026_schedule_base.versions[0].values"
+        ],
+        "forms": [
+          "432"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "4550",
+        "where": [
+          "or_pit_2026_schedule_floor.versions[0].values"
+        ],
+        "forms": [
+          "4550",
+          "4,550"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "678",
+        "where": [
+          "or_pit_2026_schedule_base.versions[0].values"
+        ],
+        "forms": [
+          "678"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "9100",
+        "where": [
+          "or_pit_2026_schedule_floor.versions[0].values"
+        ],
+        "forms": [
+          "9100",
+          "9,100"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(1)(a) A tax is imposed for each taxable year on the entire taxable income of every resident of this state. The amount of the tax shall be determined in accordance with the following table",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(b) For tax years beginning in each calendar year, the Department of Revenue shall adopt a table that shall apply in lieu of the table contained in paragraph (a)",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "-        subtraction ceiling, $260 exemption-credit unit, and Chart S/J rates.",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Publication OR-ESTIMATE labels its indexed values as estimates",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Publication OR-ESTIMATE labels its indexed values as estimates,",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "derived and published tax before credits ... net liability",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "remove duplicate Chart S/J and annual tax/liability ownership from the resident core while preserving independently sourced upstream candidates and explicit annual deferrals",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "shall be twice the tax which would be imposed if the taxable income were cut in half",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the tax imposed by ORS 316.037 shall be twice the tax which would be imposed if the taxable income were cut in half ... a return of a head of household or a surviving spouse ... shall be treated as a joint return",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 9,
+    "post_side_matched": 0,
+    "pre_side_tested": 18,
+    "pre_side_matched": 16,
+    "reason": "provision_supports_pre_fix"
+  },
   "fix_stage": "post_merge",
   "triage_status": "unclear",
   "triage": {

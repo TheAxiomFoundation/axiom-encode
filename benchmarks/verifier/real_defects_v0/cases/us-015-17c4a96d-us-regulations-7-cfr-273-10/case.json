@@ -84,6 +84,83 @@
     "requested_citation_path": "us/regulation/7/273/10",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "snap_homeless_shelter_deduction_for_net_income",
+      "snap_homeless_shelter_deduction_cap"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "context_excerpt",
+        "side": "pre",
+        "text": "Subtract the homeless shelter deduction, if any, up to the maximum of $143.",
+        "where": [
+          "snap_homeless_shelter_deduction_for_net_income.versions[0].formula"
+        ],
+        "cites": "us/regulation/7/273/10",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "143",
+        "where": [
+          "snap_homeless_shelter_deduction_cap.versions[0].formula"
+        ],
+        "forms": [
+          "143"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2025-10-01",
+        "where": [
+          "snap_homeless_shelter_deduction_cap.versions[0].effective_from"
+        ],
+        "forms": [
+          "2025-10-01",
+          "October 1, 2025",
+          "1 October 2025"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "encoded a superseded printed base figure where the source indexes annually",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "pre",
+        "text": "Subtract the homeless shelter deduction, if any, up to the maximum of $143",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 1,
+    "post_side_matched": 0,
+    "pre_side_tested": 4,
+    "pre_side_matched": 3,
+    "reason": "provision_supports_pre_fix"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

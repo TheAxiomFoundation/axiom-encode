@@ -362,6 +362,44 @@
       }
     ]
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "eitc_demographic_eligible",
+      "eitc_identification_requirements_satisfied",
+      "eitc_qualifying_child",
+      "eitc_allowed",
+      "eitc_maximum",
+      "eitc_phased_in",
+      "eitc"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-01-01",
+        "where": [
+          "eitc_allowed.versions[0].effective_from",
+          "eitc_identification_requirements_satisfied.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-01-01",
+          "January 1, 2026",
+          "1 January 2026"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 1,
+    "post_side_matched": 0,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

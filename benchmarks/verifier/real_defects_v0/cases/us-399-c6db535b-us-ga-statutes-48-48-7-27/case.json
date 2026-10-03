@@ -178,6 +178,250 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "married_joint_standard_deduction",
+      "single_or_head_of_household_standard_deduction",
+      "married_separate_standard_deduction",
+      "age_additional_deduction",
+      "blindness_additional_deduction"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "In the case of a single taxpayer, head of household, or married taxpayer filing a separate return, $12,000.00",
+        "where": [
+          "single_or_head_of_household_standard_deduction.versions[1].formula",
+          "married_separate_standard_deduction.versions[1].formula"
+        ],
+        "cites": "us-ga/statute/session-laws/2023/sb56/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "In the case of a single taxpayer, head of household, or married taxpayer filing a separate return, $15,000.00",
+        "where": [
+          "single_or_head_of_household_standard_deduction.versions[2].formula",
+          "married_separate_standard_deduction.versions[2].formula"
+        ],
+        "cites": "us-ga/statute/session-laws/2026/hb463/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "married couple filing a joint return, $24,000.00",
+        "where": [
+          "married_joint_standard_deduction.versions[1].formula"
+        ],
+        "cites": "us-ga/statute/session-laws/2023/sb56/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "married couple filing a joint return, $30,000.00",
+        "where": [
+          "married_joint_standard_deduction.versions[2].formula"
+        ],
+        "cites": "us-ga/statute/session-laws/2026/hb463/document-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "12000",
+        "where": [
+          "married_separate_standard_deduction.versions[1].formula",
+          "single_or_head_of_household_standard_deduction.versions[1].formula"
+        ],
+        "forms": [
+          "12000",
+          "12,000"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "15000",
+        "where": [
+          "married_separate_standard_deduction.versions[2].formula",
+          "single_or_head_of_household_standard_deduction.versions[2].formula"
+        ],
+        "forms": [
+          "15000",
+          "15,000"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2023-12-31",
+        "where": [
+          "age_additional_deduction.versions[0].effective_to",
+          "blindness_additional_deduction.versions[0].effective_to",
+          "married_joint_standard_deduction.versions[0].effective_to",
+          "married_separate_standard_deduction.versions[0].effective_to",
+          "single_or_head_of_household_standard_deduction.versions[0].effective_to"
+        ],
+        "forms": [
+          "2023-12-31",
+          "December 31, 2023",
+          "31 December 2023"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2024-01-01",
+        "where": [
+          "married_joint_standard_deduction.versions[1].effective_from",
+          "married_separate_standard_deduction.versions[1].effective_from",
+          "single_or_head_of_household_standard_deduction.versions[1].effective_from"
+        ],
+        "forms": [
+          "2024-01-01",
+          "January 1, 2024",
+          "1 January 2024"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2025-12-31",
+        "where": [
+          "married_joint_standard_deduction.versions[1].effective_to",
+          "married_separate_standard_deduction.versions[1].effective_to",
+          "single_or_head_of_household_standard_deduction.versions[1].effective_to"
+        ],
+        "forms": [
+          "2025-12-31",
+          "December 31, 2025",
+          "31 December 2025"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-01-01",
+        "where": [
+          "married_joint_standard_deduction.versions[2].effective_from",
+          "married_separate_standard_deduction.versions[2].effective_from",
+          "single_or_head_of_household_standard_deduction.versions[2].effective_from"
+        ],
+        "forms": [
+          "2026-01-01",
+          "January 1, 2026",
+          "1 January 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "24000",
+        "where": [
+          "married_joint_standard_deduction.versions[1].formula"
+        ],
+        "forms": [
+          "24000",
+          "24,000"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "30000",
+        "where": [
+          "married_joint_standard_deduction.versions[2].formula"
+        ],
+        "forms": [
+          "30000",
+          "30,000"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(A) In the case of a single taxpayer or a head of household, $5,400.00;",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(C) In the case of a married couple filing a joint return, $7,100.00;",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(i) In the case of a married couple filing a joint return, $24,000.00; or (ii) In the case of a single taxpayer, head of household, or married taxpayer filing a separate return, $12,000.00",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Delayed effective date.\\nCode Section 48-7-27 is set out twice in this Code. This version is effective until January 1, 2024. For version effective January 1, 2024, see the following version.",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "This version is effective until January 1, 2024. For version effective January 1, 2024, see the following version.",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 17,
+    "post_side_matched": 6,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

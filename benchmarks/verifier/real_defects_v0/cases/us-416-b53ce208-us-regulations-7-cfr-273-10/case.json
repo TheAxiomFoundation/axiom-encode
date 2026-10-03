@@ -117,6 +117,125 @@
     "requested_citation_path": "us/regulation/7/273/10",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "snap_excess_shelter_cost",
+      "snap_earned_income_deduction_for_net_income",
+      "snap_homeless_shelter_deduction_for_net_income"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Round down each income and allotment calculation that ends in 1 through 49 cents and round up each calculation that ends in 50 through 99 cents",
+        "where": [
+          "snap_excess_shelter_cost.versions[0].formula"
+        ],
+        "cites": "us/regulation/7/273/10",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Multiply the total gross monthly earned income by 20 percent and subtract that amount from the total gross income.",
+        "where": [
+          "snap_earned_income_deduction_for_net_income.versions[0].formula"
+        ],
+        "cites": "us/regulation/7/273/10",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Subtract from total shelter costs 50 percent of the household's monthly income after all the above deductions have been subtracted. The remaining amount, if any, is the excess shelter cost.",
+        "where": [
+          "snap_excess_shelter_cost.versions[0].formula"
+        ],
+        "cites": "us/regulation/7/273/10",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Subtract the homeless shelter deduction, if any, up to the maximum of $143.",
+        "where": [
+          "snap_homeless_shelter_deduction_for_net_income.versions[0].formula"
+        ],
+        "cites": "us/regulation/7/273/10",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "0.5",
+        "where": [
+          "snap_excess_shelter_cost.versions[0].formula",
+          "snap_homeless_shelter_deduction_for_net_income.versions[0].formula"
+        ],
+        "forms": [
+          "0.5",
+          "50 percent",
+          "50 per cent",
+          "50%"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(ii) In calculating net monthly income, the State agency shall use one of the following two procedures: (A) Round down each income and allotment calculation that ends in 1 through 49 cents and round up each calculation that ends in 50 through 99 cents",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(ii) In calculating net monthly income, the State agency shall use one of the following two procedures: (A) Round down each income and allotment calculation that ends in 1 through 49 cents and round up each calculation that ends in 50 through 99 cents; or (B) ...",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "7 CFR 273.10(e)(1)(i)(B) with the (e)(1)(ii) rounding election",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "fixes the shelter direction the data alone cannot distinguish,",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 6,
+    "post_side_matched": 4,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

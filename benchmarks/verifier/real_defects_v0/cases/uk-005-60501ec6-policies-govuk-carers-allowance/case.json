@@ -204,6 +204,162 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "entitled_to_carers_allowance",
+      "carers_allowance_weekly_earnings_limit",
+      "carers_allowance_weekly_amount",
+      "carers_allowance_annual_amount"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "You could get £86.45 a week",
+        "where": [
+          "carers_allowance_weekly_amount.versions[0].formula",
+          "carers_allowance_annual_amount.versions[0].formula"
+        ],
+        "cites": "uk/guidance/govuk/carers-allowance/eligibility",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "You're 16 or over",
+        "where": [
+          "entitled_to_carers_allowance.versions[0].formula"
+        ],
+        "cites": "uk/guidance/govuk/carers-allowance/eligibility",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "You're not in full-time education",
+        "where": [
+          "entitled_to_carers_allowance.versions[0].formula"
+        ],
+        "cites": "uk/guidance/govuk/carers-allowance/eligibility",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Your earnings are £204 or less a week after tax, National Insurance and expenses",
+        "where": [
+          "carers_allowance_weekly_earnings_limit.versions[0].formula"
+        ],
+        "cites": "uk/guidance/govuk/carers-allowance/eligibility",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "if you care for someone at least 35 hours a week and they get certain benefits",
+        "where": [
+          "entitled_to_carers_allowance.versions[0].formula"
+        ],
+        "cites": "uk/guidance/govuk/carers-allowance/eligibility",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "you need to apply for Carer Support Payment instead of Carer's Allowance",
+        "where": [
+          "entitled_to_carers_allowance.versions[0].formula"
+        ],
+        "cites": "uk/guidance/govuk/carers-allowance/eligibility",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "0001-01-01",
+        "where": [
+          "carers_allowance_annual_amount.versions[0].effective_from",
+          "carers_allowance_weekly_amount.versions[0].effective_from",
+          "entitled_to_carers_allowance.versions[0].effective_from"
+        ],
+        "forms": [
+          "0001-01-01",
+          "January 1, 1",
+          "1 January 1"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "204",
+        "where": [
+          "carers_allowance_weekly_earnings_limit.versions[0].formula"
+        ],
+        "forms": [
+          "204"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "All of the following must apply: You're 16 or over. You're not in full-time education. ... Your earnings are £204 or less a week after tax, National Insurance and expenses",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "All of the following must apply: You're 16 or over. You're not in full-time education. You're not studying for 21 hours a week or more. Your earnings are £204 or less a week after tax, National Insurance and expenses.",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "You could get £86.45 a week if you care for someone at least 35 hours a week and they get certain benefits. ... All of the following must apply: You're 16 or over. You're not in full-time education. You're not studying for 21 hours a week or more. Your earnings are £204 or less a week after tax, National Insurance and expenses. If you live in Scotland, you need to apply for Carer Support Payment instead of Carer's Allowance.",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "not studying for 21 hours a week or more",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 12,
+    "post_side_matched": 11,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

@@ -80,6 +80,64 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "additional_standard_deduction_for_aged_or_blind"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "the additional standard deduction amount under § 63(f) for the aged or the blind is $1,650. The additional standard deduction amount is increased to $2,050 if the individual is also unmarried and not a surviving spouse.",
+        "where": [
+          "additional_standard_deduction_for_aged_or_blind.versions[0].formula"
+        ],
+        "cites": "us/guidance/irs/rev-proc-2025-32/page-18",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": ".14 ... (3) Aged or blind. For taxable years beginning in 2026, the additional standard deduction amount under Sec. 63(f) for the aged or the blind is $1,650. The additional standard deduction amount is increased to $2,050 if the individual is also unmarried and not a surviving spouse.",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Tax filing-status component is a derived legal classification, not a local factual input",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The additional standard deduction amount is increased to $2,050 if the individual is also unmarried and not a surviving spouse.",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 4,
+    "post_side_matched": 2,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

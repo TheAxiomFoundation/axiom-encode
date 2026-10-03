@@ -106,6 +106,145 @@
     "requested_citation_path": "us-nc/statute/105/105-153.5",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "nc_pit_2026_itemized_deduction"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "The amount allowed as a deduction for wagering losses under section 165(d) of the Code, to the extent the losses are not deducted in arriving at adjusted gross income.",
+        "where": [
+          "nc_pit_2026_itemized_deduction.versions[0].formula"
+        ],
+        "cites": "us-nc/statute/105/105-153.5",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "An amount equal to the sum of the items listed in this subdivision.",
+        "where": [
+          "nc_pit_2026_itemized_deduction.versions[0].formula"
+        ],
+        "cites": "us-nc/statute/105/105-153.5",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "The amount allowed under this sub-subdivision may not exceed twenty thousand dollars ($20,000).",
+        "where": [
+          "nc_pit_2026_itemized_deduction.versions[0].formula"
+        ],
+        "cites": "us-nc/statute/105/105-153.5",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": ") carries the successor row that does contain it. (3) The parent commit 5c087fc88 is",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": ", so the correct text was already available and cited when the omission stood — the disagreement with the cited source is real at the parent, not created by this commit. (4) Residual nuance a reviewer may weigh: the rule's source line (",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "An amount equal to the sum of the items listed in this subdivision,",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Effective for taxable years beginning on or after January 1, 2025, and expiring ... January 1, 2027",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "both before AND after the fix, so the hedge cannot be read as an intentional exclusion of item e.; and the commit-level framing (",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "e. The amount allowed as a deduction for wagering losses under section 165(d) of the Code, to the extent the losses are not deducted in arriving at adjusted gross income,",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "e. The amount allowed as a deduction for wagering losses under section 165(d) of the Code, to the extent the losses are not deducted in arriving at adjusted gross income.",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "independent review fixed ... an incorrectly anchored wagering proof",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the available section 105-153.9 provision is the pre-2023 version",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 10,
+    "post_side_matched": 1,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

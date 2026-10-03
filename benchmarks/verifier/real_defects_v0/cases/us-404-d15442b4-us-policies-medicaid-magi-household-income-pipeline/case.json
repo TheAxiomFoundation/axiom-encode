@@ -69,6 +69,72 @@
     "requested_citation_path": "us/regulation/42/435/603/b",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "medicaid_household_relation_applicant_facts_consistent"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Fail closed on Medicaid family size FPL mismatches",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "runtime validity is diagnostic only, so structurally invalid inputs still emit affirmative results",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "runtime validity is diagnostic only, so structurally invalid inputs still emit affirmative results.",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the age specified by the State under paragraph (f)(3)(iv)",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the campaign-wide lesson from the sibling benefit reviews,",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 5,
+    "post_side_matched": 0,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "unclear",
   "triage": {

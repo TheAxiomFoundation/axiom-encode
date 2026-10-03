@@ -76,6 +76,159 @@
     "requested_citation_path": "us/statute/26/61",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "taxable_income_pipeline_verified_domain_applies"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "an estate or trust, common trust fund, or partnership",
+        "where": [
+          "taxable_income_pipeline_verified_domain_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "For purposes of losses from wagering transactions, the amount allowed as a deduction for any taxable year— (A) shall be equal to 90 percent of the amount of such losses during such taxable year, and (B) shall be allowed only to the extent of the gains from such transactions during such taxable year.",
+        "where": [
+          "taxable_income_pipeline_verified_domain_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/26/165",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "In the case of an individual who does not elect to itemize his deductions for the taxable year",
+        "where": [
+          "taxable_income_pipeline_verified_domain_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Unless an individual makes an election under this subsection for the taxable year, no itemized deduction shall be allowed for the taxable year.",
+        "where": [
+          "taxable_income_pipeline_verified_domain_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/26/63",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "the determination of whether an individual is married shall be made as of the close of his taxable year",
+        "where": [
+          "taxable_income_pipeline_verified_domain_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/26/7703",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "the term “surviving spouse” means a taxpayer",
+        "where": [
+          "taxable_income_pipeline_verified_domain_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/26/2",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "In the case of an individual who does not elect to itemize his deductions",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "In the case of— ... (D) an estate or trust, common trust fund, or partnership, the standard deduction shall be zero",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Made the individual verified-domain guard reject a simultaneous estate/trust/common-trust-fund/partnership fact.",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The shared valid-domain facts attest that the taxpayer is an individual. Simultaneously claiming an estate, trust, common trust fund, or partnership is contradictory, so this individual compose must fail closed.",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "an estate or trust, common trust fund, or partnership",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "an estate or trust, common trust fund, or partnership, the standard deduction shall be zero",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "consistent branch facts ... and an individual taxpayer",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 8,
+    "post_side_matched": 0,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

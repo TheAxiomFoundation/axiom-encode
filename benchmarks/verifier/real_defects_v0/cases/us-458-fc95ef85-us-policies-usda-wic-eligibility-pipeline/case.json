@@ -214,6 +214,127 @@
     "requested_citation_path": "us/regulation/7/246/7/c",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "wic_income_limit_multiplier",
+      "wic_income_limit",
+      "wic_income_eligible",
+      "wic_numeric_inputs_valid",
+      "wic_nutritional_risk_eligibility_requirement_met",
+      "wic_eligible"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "income guidelines, definitions, and procedures to be used in determining an applicant's income eligibility",
+        "where": [
+          "wic_numeric_inputs_valid.versions[0].formula"
+        ],
+        "cites": "us/regulation/7/246/7/d",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "may be certified immediately without an evaluation of nutritional risk for a period up to 60 days",
+        "where": [
+          "wic_nutritional_risk_eligibility_requirement_met.versions[0].formula"
+        ],
+        "cites": "us/regulation/7/246/7/e",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Persons who are adjunctively income eligible",
+        "where": [
+          "wic_income_eligible.versions[0].formula"
+        ],
+        "cites": "us/regulation/7/246/7/d",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "To qualify for the Program",
+        "where": [
+          "wic_eligible.versions[0].formula"
+        ],
+        "cites": "us/regulation/7/246/7/c",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "must be determined to be at nutritional risk",
+        "where": [
+          "wic_eligible.versions[0].formula"
+        ],
+        "cites": "us/regulation/7/246/7/e",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "pregnant women",
+        "where": [
+          "wic_income_eligible.versions[0].formula"
+        ],
+        "cites": "us/regulation/7/246/7/c",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "1.85",
+        "where": [
+          "wic_income_limit_multiplier.versions[0].formula"
+        ],
+        "forms": [
+          "1.85"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "a State agency may adopt a lower compliant income guideline, which is outside this Federal-parity pipeline",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "gross income in excess of 185 percent of the Federal income guidelines",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 4,
+    "post_side_matched": 0,
+    "pre_side_tested": 1,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

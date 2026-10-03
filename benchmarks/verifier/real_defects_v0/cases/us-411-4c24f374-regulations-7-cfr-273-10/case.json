@@ -67,6 +67,64 @@
     "requested_citation_path": "us/regulation/7/273/10",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "snap_calculated_monthly_allotment_before_minimums"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "If 30 percent of the household's net income ends in cents, the State agency shall round ... up ... or ... round the allotment down to the nearest lower dollar.",
+        "where": [
+          "snap_calculated_monthly_allotment_before_minimums.versions[0].formula"
+        ],
+        "cites": "us/regulation/7/273/10",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "a ... value with no basis in the cited source (the fix ... re-grounds it)",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the household's monthly allotment shall be equal to the maximum SNAP allotment for the household's size reduced by 30 percent of the household's net monthly income",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "value with no basis in the cited source ... the fix re-grounds it",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 4,
+    "post_side_matched": 2,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

@@ -120,6 +120,84 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "institution_of_higher_education"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "awards a bachelor’s or higher degree, or provides a program which is acceptable for full credit toward such a degree, or offers a program of training",
+        "where": [
+          "institution_of_higher_education.versions[0].formula"
+        ],
+        "cites": "us/statute/26/3304",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the term “institution of higher education” means an educational institution in any State which",
+        "where": [
+          "institution_of_higher_education.versions[0].formula"
+        ],
+        "cites": "us/statute/26/3304",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "1990-01-01",
+        "where": [
+          "institution_of_higher_education.versions[0].effective_from"
+        ],
+        "forms": [
+          "1990-01-01",
+          "January 1, 1990",
+          "1 January 1990"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2024-01-01",
+        "where": [
+          "institution_of_higher_education.versions[0].effective_from"
+        ],
+        "forms": [
+          "2024-01-01",
+          "January 1, 2024",
+          "1 January 2024"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "regenerate 26 USC 3304 with axiom-encode 0.2.532 and gpt-5.5",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 4,
+    "post_side_matched": 2,
+    "pre_side_tested": 1,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

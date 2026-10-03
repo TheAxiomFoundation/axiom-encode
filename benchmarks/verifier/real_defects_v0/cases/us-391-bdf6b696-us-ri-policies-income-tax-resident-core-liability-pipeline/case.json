@@ -178,6 +178,439 @@
       }
     ]
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "ri_pit_2026_profile_candidate_other_statutory_subtractions",
+      "ri_pit_2026_supported_profile_applies",
+      "ri_pit_2026_input_domain_is_valid"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "in the case of any investment in a Rhode Island opportunity zone by the taxpayer for at least seven (7) years",
+        "where": [
+          "ri_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-ri/statute/44-30-12",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "A net operating loss deduction shall be allowed",
+        "where": [
+          "ri_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-ri/statute/44-30-87.1",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "An individual may claim that subtract modification hereunder only once",
+        "where": [
+          "ri_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-ri/statute/44-30-12",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Any rebate issued to the taxpayer pursuant to § 44-30-103 to the extent included in gross income",
+        "where": [
+          "ri_pit_2026_profile_candidate_other_statutory_subtractions.versions[0].formula"
+        ],
+        "cites": "us-ri/statute/44-30-12",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "At the election of an individual engaged in a farming business or fishing business",
+        "where": [
+          "ri_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-ri/statute/44-30-2.6",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Federal averaging of farm income as determined in IRC section 1301",
+        "where": [
+          "ri_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-ri/statute/44-30-2.6",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Modification for taxable Social Security income",
+        "where": [
+          "ri_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-ri/statute/44-30-12",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Modification of taxable retirement income from certain pension plans or annuities",
+        "where": [
+          "ri_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-ri/statute/44-30-12",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Nonresident alien individuals, estates and trusts are not eligible for standard deductions",
+        "where": [
+          "ri_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-ri/statute/44-30-2.6",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Rhode Island fiduciary adjustment shall be the net amount of the modifications",
+        "where": [
+          "ri_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-ri/statute/44-30-17",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "The Federal income tax on lump-sum distributions",
+        "where": [
+          "ri_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-ri/statute/44-30-2.6",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "The Federal income tax on parents' election to report child's interest and dividends",
+        "where": [
+          "ri_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-ri/statute/44-30-2.6",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "The Federal tax for children under the age of 18 with investment income",
+        "where": [
+          "ri_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-ri/statute/44-30-2.6",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "The recapture of Federal tax credits that were previously claimed on Rhode Island return",
+        "where": [
+          "ri_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-ri/statute/44-30-2.6",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "There shall be added to federal adjusted gross income",
+        "where": [
+          "ri_pit_2026_input_domain_is_valid.versions[0].formula"
+        ],
+        "cites": "us-ri/statute/44-30-12",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "There shall be subtracted from federal adjusted gross income",
+        "where": [
+          "ri_pit_2026_input_domain_is_valid.versions[0].formula"
+        ],
+        "cites": "us-ri/statute/44-30-12",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Who is domiciled in this state",
+        "where": [
+          "ri_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-ri/statute/44-30-5",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "a nonqualified withdrawal made from an account in the tuition savings program",
+        "where": [
+          "ri_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-ri/statute/44-30-12",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "aggregate of net income taxes imposed on him or her for the taxable year by other states",
+        "where": [
+          "ri_pit_2026_input_domain_is_valid.versions[0].formula"
+        ],
+        "cites": "us-ri/statute/44-30-18",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "any modification described in subsection (b), (c), or (d) of § 44-30-12",
+        "where": [
+          "ri_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-ri/statute/44-30-15",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "exemption applies to works of art sold by the writers, composers, and artists who created them",
+        "where": [
+          "ri_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-ri/statute/44-30-1.1",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "expenditure that is eligible to be claimed as a federal income tax deduction but is disallowed under 26 U.S.C. § 280E",
+        "where": [
+          "ri_pit_2026_profile_candidate_other_statutory_subtractions.versions[0].formula"
+        ],
+        "cites": "us-ri/statute/44-30-12",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "family education account",
+        "where": [
+          "ri_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-ri/statute/44-30-25",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "including an individual’s distributive share of the amount of a pass-through entity’s loan forgiveness",
+        "where": [
+          "ri_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-ri/statute/44-30-12",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "incremental difference between the benefit allowed under 26 U.S.C. § 1400Z-2(b)(2)(B)(iv) and the federal benefit allowed under 26 U.S.C. § 1400Z-2(c)",
+        "where": [
+          "ri_pit_2026_profile_candidate_other_statutory_subtractions.versions[0].formula"
+        ],
+        "cites": "us-ri/statute/44-30-12",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "insurance benefits to a dependent, including a domestic partner",
+        "where": [
+          "ri_pit_2026_profile_candidate_other_statutory_subtractions.versions[0].formula"
+        ],
+        "cites": "us-ri/statute/44-30-12",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "investment in a Rhode Island opportunity zone by the taxpayer for at least seven (7) years",
+        "where": [
+          "ri_pit_2026_profile_candidate_other_statutory_subtractions.versions[0].formula"
+        ],
+        "cites": "us-ri/statute/44-30-12",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "medical savings account",
+        "where": [
+          "ri_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-ri/statute/44-30-25.1",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "military service pension benefits included in federal adjusted gross income",
+        "where": [
+          "ri_pit_2026_profile_candidate_other_statutory_subtractions.versions[0].formula"
+        ],
+        "cites": "us-ri/statute/44-30-12",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "no exemption shall be allowed under this section with respect to any individual unless the Taxpayer Identification Number of such individual is included",
+        "where": [
+          "ri_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-ri/statute/44-30-2.6",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "taxpayer that is licensed in accordance with chapters 28.6 and/or 28.11 of title 21",
+        "where": [
+          "ri_pit_2026_profile_candidate_other_statutory_subtractions.versions[0].formula"
+        ],
+        "cites": "us-ri/statute/44-30-12",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "the “contributions carryover” pursuant to subsection (c)(4)(iv)",
+        "where": [
+          "ri_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-ri/statute/44-30-12",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "withdrawal or distribution from the “tuition savings program”",
+        "where": [
+          "ri_pit_2026_profile_candidate_other_statutory_subtractions.versions[0].formula"
+        ],
+        "cites": "us-ri/statute/44-30-12",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "at pre line 714 plus the holding flag); what was wrong was the grain and geographic scope of the quantities that clause gated. (4)",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "fail closed for unsupported/ambiguous credit ordering and multi-investment opportunity-zone facts...",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "in the case of any investment in a Rhode Island opportunity zone by the taxpayer for at least seven (7) years",
+        "where": [
+          "triage.pre_fix_wrong_because",
+          "triage.triage_notes",
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "— the closest call: the arithmetic for a single-investment taxpayer is byte-identical after the rename, so the only behavioral delta is that multi/mixed taxpayers now fall out of the supported profile. But the pre-fix module did claim that population (no gate excluded it) and would have subtracted benefit the statute does not qualify, including benefit from non-Rhode-Island zones, so the old text was wrong against the source, not merely less complete. (3)",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "— weaker: the seven-year condition was already represented pre-fix (atom excerpt",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 6,
+    "post_side_matched": 0,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

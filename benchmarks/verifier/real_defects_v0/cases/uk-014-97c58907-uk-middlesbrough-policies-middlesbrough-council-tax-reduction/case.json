@@ -77,6 +77,152 @@
     "requested_citation_path": "uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-65",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "middlesbrough_council_tax_reduction_selected_band_index",
+      "middlesbrough_council_tax_reduction_paragraph_8_adverse_evidence_or_failure_applies",
+      "middlesbrough_council_tax_reduction_per_cent_unit"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "100 per cent. of such payments",
+        "where": [
+          "middlesbrough_council_tax_reduction_per_cent_unit.versions[0].formula"
+        ],
+        "cites": "uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-70",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "8. Where an applicant is otherwise entitled to discount in bands 1 to 4, where that band is determined as a result of state benefit entitlement, but the authority has evidence or there has been a failure to respond to a request for evidence concerning income or capital that would otherwise mean no discount then no discount may be granted.",
+        "where": [
+          "middlesbrough_council_tax_reduction_paragraph_8_adverse_evidence_or_failure_applies.versions[0].formula"
+        ],
+        "cites": "uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-65",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "1. The authority’s Council Tax Reduction scheme from 2026/27 shall be calculated on the basis of the following Banded Discount Scheme: Discount Band Discount Single Person Single person with one child Single person with two or more children Couple Couple with one child Couple with two or more children WEEKLY Income Ranges Band 1* 90% £0 ­ £126.77 £0 ­ £200.80 £0 ­ £275.17 £0 ­ £177.47 £0 ­ £257.89 £0 ­ £326.00 Band 2 72% £126.78 ­ £228.17 £200.81 ­ £301.20 £275.18 ­ £368.99 £177.48 ­ £304.22 £257.90 ­ £353.49 £326.01 ­ £426.30 Band 3 36% £228.18 ­ £272.54 £301.21 ­ £320.03 £369.00 ­ £437.78 £304.23 ­ £367.60 £353.50 ­ £402.56 £426.31 ­ £501.54 Band 4 23% £272.55 ­ £323.24 £320.04 ­ £351.40 £437.79 ­ £562.87 £367.61 ­ £430.99 £402.57 ­ £465.45 £501.55 ­ £601.85 0% Over £323.24 Over £351.40 Over £562.87 Over £430.99 Over £465.45 Over £601.85",
+        "where": [
+          "middlesbrough_council_tax_reduction_selected_band_index.versions[0].formula"
+        ],
+        "cites": "uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-65",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "7. *Where an applicant or partner is in receipt of Income Support, Income Related Employment and Support Allowance or Income Based Jobseeker’s Allowance, discount will be awarded at Band 1 level except where the authority determines that 8 below applies.",
+        "where": [
+          "middlesbrough_council_tax_reduction_selected_band_index.versions[0].formula"
+        ],
+        "cites": "uk-middlesbrough/manual/council-tax-reduction-scheme-2026-2027/page-65",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "0.01",
+        "where": [
+          "middlesbrough_council_tax_reduction_per_cent_unit.versions[0].formula"
+        ],
+        "forms": [
+          "0.01",
+          "1 percent",
+          "1 per cent",
+          "1%"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-04-01",
+        "where": [
+          "middlesbrough_council_tax_reduction_paragraph_8_adverse_evidence_or_failure_applies.versions[0].effective_from",
+          "middlesbrough_council_tax_reduction_per_cent_unit.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-04-01",
+          "April 1, 2026",
+          "1 April 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "8. Where an applicant is otherwise entitled to discount in bands 1 to 4, where that band is determined as a result of state benefit entitlement, but the authority has evidence or there has been a failure to respond to a request for evidence concerning income or capital that would otherwise mean no discount then no discount may be granted.",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "bands 1 to 4, where that band is determined as a result of state benefit entitlement",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "discount will be awarded at Band 1 level except where the authority determines that 8 below applies",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "except where the authority determines that 8 below applies",
+        "where": [
+          "triage.pre_fix_wrong_because",
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "including where the authority determines that 8 below applies",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 9,
+    "post_side_matched": 6,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

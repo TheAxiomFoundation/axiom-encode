@@ -225,6 +225,53 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [],
+    "rules_missing": [
+      "non_408_p_exclusion_category_applies (was qualified_plan_cafeteria_or_deferred_compensation_exclusion_category_applies)",
+      "non_408_p_payment_excluded_from_wages (was qualified_plan_cafeteria_or_deferred_compensation_payment_excluded_from_wages)"
+    ],
+    "strings": [
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "other than any contributions described in section 408(k)(6)",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "text in the task brief is a screening summary, not repo text. PR #328 frames the whole change as",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "under an arrangement to which section 408(p) applies, other than any elective contributions under paragraph (2)(A)(i) thereof",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 3,
+    "post_side_matched": 2,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "unclear",
   "triage": {

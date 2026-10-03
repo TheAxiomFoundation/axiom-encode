@@ -262,6 +262,177 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "section_232_aluminum_russia_additional_duty_applies",
+      "section_232_aluminum_russia_additional_duty_rate",
+      "section_232_aluminum_russia_statutory_additional_duty_rate"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Aluminum articles that are the product of Russia",
+        "where": [
+          "section_232_aluminum_russia_additional_duty_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.85.67",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Rates of duty (1-General): The duty provided in the applicable subheading + 200%",
+        "where": [
+          "section_232_aluminum_russia_statutory_additional_duty_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.85.67",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "any amount of primary aluminum used in the manufacture of the aluminum articles is smelted in Russia",
+        "where": [
+          "section_232_aluminum_russia_additional_duty_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.85.67",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "except any exclusions that may be determined and announced by the Department of Commerce",
+        "where": [
+          "section_232_aluminum_russia_additional_duty_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.85.67",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the aluminum articles are cast in Russia",
+        "where": [
+          "section_232_aluminum_russia_additional_duty_applies.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.85.67",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "The duty provided in the applicable subheading + 200%",
+        "where": [
+          "section_232_aluminum_russia_additional_duty_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.85.67",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2026-02-15",
+        "where": [
+          "section_232_aluminum_russia_additional_duty_applies.versions[0].effective_from",
+          "section_232_aluminum_russia_statutory_additional_duty_rate.versions[0].effective_from"
+        ],
+        "forms": [
+          "2026-02-15",
+          "February 15, 2026",
+          "15 February 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The duty provided in the applicable subheading + 200%",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "as enumerated in subdivision (b) of this note",
+        "where": [
+          "triage.verifier_justification",
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "as enumerated in subdivision (g) of this note",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "or note 19(m)(A) ..., as applicable per the date of entry",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "prior to 12:01 a.m. eastern daylight time on March 12, 2025",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the foregoing under the terms of note 19(a)(vii)(A) ... or note 19(m)(A) ..., as applicable per the date of entry",
+        "where": [
+          "triage.pre_fix_wrong_because"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the foregoing under the terms of note 19(a)(vii)(A) to this subchapter, or note 19(m)(A) to this subchapter, as applicable per the date of entry for consumption or withdrawal from warehouse for consumption",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 13,
+    "post_side_matched": 9,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

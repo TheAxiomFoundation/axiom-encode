@@ -92,6 +92,94 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "employee_or_employee_representative_service_excluded_from_employment"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "or employee representative as defined in section 3231",
+        "where": [
+          "employee_or_employee_representative_service_excluded_from_employment.versions[0].formula"
+        ],
+        "cites": "us/statute/26/3121",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "service performed by an individual as an employee",
+        "where": [
+          "employee_or_employee_representative_service_excluded_from_employment.versions[0].formula"
+        ],
+        "cites": "us/statute/26/3121",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(9) service performed by an individual as an employee or employee representative as defined in section 3231;",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Defined terms and imports: Explicitly or implicitly legally defined terms are imported from their canonical source when one exists.",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "free predicates are per se a defect in this repo",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "label is only half-supported: the pre-fix branch was verbatim in the cited source (",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "refresh generated RuleSpec artifacts for the Chapter 21 FICA wage/tax chain",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 7,
+    "post_side_matched": 3,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "unclear",
   "triage": {

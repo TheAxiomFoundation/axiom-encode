@@ -220,6 +220,256 @@
     "requested_citation_path": "us-nc/statute/105/105-153.5",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "standard_deduction_joint_or_surviving_spouse",
+      "standard_deduction_head_of_household",
+      "standard_deduction_single",
+      "standard_deduction_married_filing_separately",
+      "child_deduction_joint_or_surviving_spouse_agi_up_to_40000",
+      "child_deduction_highest_amount_before_2022"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Head of Household 19,125",
+        "where": [
+          "standard_deduction_head_of_household.versions[0].formula"
+        ],
+        "cites": "us-nc/statute/105/105-153.5",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Married, filing jointly/surviving spouse $25,500",
+        "where": [
+          "standard_deduction_joint_or_surviving_spouse.versions[0].formula"
+        ],
+        "cites": "us-nc/statute/105/105-153.5",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Married, filing separately 12,750",
+        "where": [
+          "standard_deduction_married_filing_separately.versions[0].formula"
+        ],
+        "cites": "us-nc/statute/105/105-153.5",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Single 12,750",
+        "where": [
+          "standard_deduction_single.versions[0].formula"
+        ],
+        "cites": "us-nc/statute/105/105-153.5",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Up to $40,000 $3,000",
+        "where": [
+          "child_deduction_joint_or_surviving_spouse_agi_up_to_40000.versions[0].formula"
+        ],
+        "cites": "us-nc/statute/105/105-153.5",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "0001-01-01",
+        "where": [
+          "child_deduction_highest_amount_before_2022.versions[0].effective_from",
+          "child_deduction_joint_or_surviving_spouse_agi_up_to_40000.versions[0].effective_from"
+        ],
+        "forms": [
+          "0001-01-01",
+          "January 1, 1",
+          "1 January 1"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "10000",
+        "where": [
+          "standard_deduction_married_filing_separately.versions[0].formula",
+          "standard_deduction_single.versions[0].formula"
+        ],
+        "forms": [
+          "10000",
+          "10,000"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "10750",
+        "where": [
+          "standard_deduction_married_filing_separately.versions[1].formula",
+          "standard_deduction_single.versions[1].formula"
+        ],
+        "forms": [
+          "10750",
+          "10,750"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "15000",
+        "where": [
+          "standard_deduction_head_of_household.versions[0].formula"
+        ],
+        "forms": [
+          "15000",
+          "15,000"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "16125",
+        "where": [
+          "standard_deduction_head_of_household.versions[1].formula"
+        ],
+        "forms": [
+          "16125",
+          "16,125"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "20000",
+        "where": [
+          "standard_deduction_joint_or_surviving_spouse.versions[0].formula"
+        ],
+        "forms": [
+          "20000",
+          "20,000"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2019-01-01",
+        "where": [
+          "standard_deduction_head_of_household.versions[0].effective_from",
+          "standard_deduction_joint_or_surviving_spouse.versions[0].effective_from",
+          "standard_deduction_married_filing_separately.versions[0].effective_from",
+          "standard_deduction_single.versions[0].effective_from"
+        ],
+        "forms": [
+          "2019-01-01",
+          "January 1, 2019",
+          "1 January 2019"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2020-01-01",
+        "where": [
+          "standard_deduction_head_of_household.versions[1].effective_from",
+          "standard_deduction_joint_or_surviving_spouse.versions[1].effective_from",
+          "standard_deduction_married_filing_separately.versions[1].effective_from",
+          "standard_deduction_single.versions[1].effective_from"
+        ],
+        "forms": [
+          "2020-01-01",
+          "January 1, 2020",
+          "1 January 2020"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "21500",
+        "where": [
+          "standard_deduction_joint_or_surviving_spouse.versions[1].formula"
+        ],
+        "forms": [
+          "21500",
+          "21,500"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2500",
+        "where": [
+          "child_deduction_highest_amount_before_2022.versions[0].formula",
+          "child_deduction_joint_or_surviving_spouse_agi_up_to_40000.versions[0].formula"
+        ],
+        "forms": [
+          "2500",
+          "2,500"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Filing Status Standard Deduction Married, filing jointly/surviving spouse $25,500 Head of Household 19,125 Single 12,750 Married, filing separately 12,750",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "are all zero. The older 2026-07-13-recovery rendition holds the us-nc/statute/105/105-153.5/a fragment the module used to cite; its text also has only the single current column and zero occurrences of",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 7,
+    "post_side_matched": 6,
+    "pre_side_tested": 10,
+    "pre_side_matched": 4,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "post_merge",
   "triage_status": "fidelity",
   "triage": {

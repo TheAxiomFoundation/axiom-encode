@@ -253,6 +253,164 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "reciprocal_liechtenstein_additional_duty_rate",
+      "reciprocal_liechtenstein_in_transit_exception_applies",
+      "reciprocal_liechtenstein_heading_product_exception_applies",
+      "reciprocal_liechtenstein_otherwise_provision_exception_applies",
+      "reciprocal_liechtenstein_additional_duty_applies",
+      "reciprocal_liechtenstein_additional_duty",
+      "reciprocal_liechtenstein_general_duty_rate",
+      "reciprocal_liechtenstein_special_duty_rate",
+      "reciprocal_liechtenstein_column_2_duty_change"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Effective with respect to goods entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern time on November 14, 2025, subchapter III of chapter 99 of the Harmonized Tariff Schedule of the United States (HTSUS) is modified as follows: 1. Headings 9903.02.36 and 9903.02.58 are hereby terminated.",
+        "where": [
+          "reciprocal_liechtenstein_additional_duty_rate.versions[0].effective_to",
+          "reciprocal_liechtenstein_in_transit_exception_applies.versions[0].effective_to",
+          "reciprocal_liechtenstein_heading_product_exception_applies.versions[0].effective_to",
+          "reciprocal_liechtenstein_otherwise_provision_exception_applies.versions[0].effective_to",
+          "reciprocal_liechtenstein_additional_duty_applies.versions[0].effective_to",
+          "reciprocal_liechtenstein_additional_duty.versions[0].effective_to",
+          "reciprocal_liechtenstein_general_duty_rate.versions[0].effective_to",
+          "reciprocal_liechtenstein_special_duty_rate.versions[0].effective_to",
+          "reciprocal_liechtenstein_column_2_duty_change.versions[0].effective_to"
+        ],
+        "cites": "us/rulemaking/federal-register/2025-12-18/2025-23316",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "[Compiler's note: provision terminated. See 90 Fed. Reg. 59281.]",
+        "where": [
+          "reciprocal_liechtenstein_additional_duty_rate.versions[0].effective_to",
+          "reciprocal_liechtenstein_in_transit_exception_applies.versions[0].effective_to",
+          "reciprocal_liechtenstein_heading_product_exception_applies.versions[0].effective_to",
+          "reciprocal_liechtenstein_otherwise_provision_exception_applies.versions[0].effective_to",
+          "reciprocal_liechtenstein_additional_duty_applies.versions[0].effective_to",
+          "reciprocal_liechtenstein_additional_duty.versions[0].effective_to",
+          "reciprocal_liechtenstein_general_duty_rate.versions[0].effective_to",
+          "reciprocal_liechtenstein_special_duty_rate.versions[0].effective_to",
+          "reciprocal_liechtenstein_column_2_duty_change.versions[0].effective_to"
+        ],
+        "cites": "us/statute/hts/9903.02.36",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2025-11-13",
+        "where": [
+          "reciprocal_liechtenstein_additional_duty.versions[0].effective_to",
+          "reciprocal_liechtenstein_additional_duty_applies.versions[0].effective_to",
+          "reciprocal_liechtenstein_additional_duty_rate.versions[0].effective_to",
+          "reciprocal_liechtenstein_column_2_duty_change.versions[0].effective_to",
+          "reciprocal_liechtenstein_general_duty_rate.versions[0].effective_to",
+          "reciprocal_liechtenstein_heading_product_exception_applies.versions[0].effective_to",
+          "reciprocal_liechtenstein_in_transit_exception_applies.versions[0].effective_to",
+          "reciprocal_liechtenstein_otherwise_provision_exception_applies.versions[0].effective_to",
+          "reciprocal_liechtenstein_special_duty_rate.versions[0].effective_to"
+        ],
+        "forms": [
+          "2025-11-13",
+          "November 13, 2025",
+          "13 November 2025"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "removed_value",
+        "side": "pre",
+        "text": "2026-02-14",
+        "where": [
+          "reciprocal_liechtenstein_additional_duty.versions[0].effective_to",
+          "reciprocal_liechtenstein_additional_duty_applies.versions[0].effective_to",
+          "reciprocal_liechtenstein_additional_duty_rate.versions[0].effective_to",
+          "reciprocal_liechtenstein_column_2_duty_change.versions[0].effective_to",
+          "reciprocal_liechtenstein_general_duty_rate.versions[0].effective_to",
+          "reciprocal_liechtenstein_heading_product_exception_applies.versions[0].effective_to",
+          "reciprocal_liechtenstein_in_transit_exception_applies.versions[0].effective_to",
+          "reciprocal_liechtenstein_otherwise_provision_exception_applies.versions[0].effective_to",
+          "reciprocal_liechtenstein_special_duty_rate.versions[0].effective_to"
+        ],
+        "forms": [
+          "2026-02-14",
+          "February 14, 2026",
+          "14 February 2026"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Annex II Effective with respect to goods entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern time on November 14, 2025 ... 1. Headings 9903.02.36 and 9903.02.58 are hereby terminated.",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "[Compiler's note: provision terminated. See 90 Fed. Reg. 59281.]",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "a conservative no-later-than bound, the last day before the successor floor headings' 2026-02-15 panel domain",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "effective with respect to goods entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 a.m. eastern time on November 14, 2025",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "new source, old bound was a documented placeholder",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 7,
+    "post_side_matched": 1,
+    "pre_side_tested": 1,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

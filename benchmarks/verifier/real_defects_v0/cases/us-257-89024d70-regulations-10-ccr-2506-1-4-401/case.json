@@ -93,6 +93,98 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "snap_elderly_disabled_separate_household_allowed",
+      "co_resident_gross_income_limit_165_percent_fpl_48_states_dc"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2025-10-01",
+        "where": [
+          "co_resident_gross_income_limit_165_percent_fpl_48_states_dc.versions[0].effective_from"
+        ],
+        "forms": [
+          "2025-10-01",
+          "October 1, 2025",
+          "1 October 2025"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(4) ... The combined income of the others with whom the individual who is aged sixty (60) and older and a person with disabilities resides (excluding the income of the individual ... and his or her spouse) must not exceed one hundred sixty-five percent (165%) of the poverty level.",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "), and PR #395's body is the monorepo-consolidation text — it never mentions 4.401, 165%, or co-residents (a substring probe for",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "For household members who are persons that are aged sixty (60) and older ... may be considered, together with his or her spouse ... a separate household from the others with whom the individual lives",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The combined income of the others with whom the individual ... resides (excluding the income of the individual ... and his or her spouse) must not exceed one hundred sixty-five percent (165%) of the poverty level,",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the combined income of the others with whom the individual ... resides",
+        "where": [
+          "triage.pre_fix_wrong_because"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "use a separate co-resident group-size threshold for the 4.401 165% FPL test",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 7,
+    "post_side_matched": 2,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

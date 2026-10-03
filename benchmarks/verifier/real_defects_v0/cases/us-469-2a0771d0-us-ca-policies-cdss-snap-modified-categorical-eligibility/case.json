@@ -149,6 +149,151 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "calfresh_mce_household_exclusion_applies",
+      "calfresh_mce_status_conferred",
+      "calfresh_mce_member_of_household"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "No person shall be included as a member in any household which is otherwise categorically eligible if that person is:",
+        "where": [
+          "calfresh_mce_status_conferred.versions[0].formula"
+        ],
+        "cites": "us/regulation/7/273/2",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Receipt of the PUB 275, in and of itself, does not confer MCE status.",
+        "where": [
+          "calfresh_mce_status_conferred.versions[0].formula"
+        ],
+        "cites": "us-ca/guidance/cdss/acl-2014-14-56/page-3",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "The department shall establish a program of categorical eligibility for CalFresh",
+        "where": [
+          "calfresh_mce_status_conferred.versions[0].formula"
+        ],
+        "cites": "us-ca/statute/wic/18901.5",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "The entire household is disqualified because one or more of its members failed to comply with workfare in accordance with § 273.22",
+        "where": [
+          "calfresh_mce_household_exclusion_applies.versions[0].formula"
+        ],
+        "cites": "us/regulation/7/273/2",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Under no circumstances shall any household be considered categorically eligible if:",
+        "where": [
+          "calfresh_mce_household_exclusion_applies.versions[0].formula",
+          "calfresh_mce_status_conferred.versions[0].formula"
+        ],
+        "cites": "us/regulation/7/273/2",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "with gross income at or below 200 percent of the FPL must be conferred MCE status if they are issued or have online access to the TANF-funded “Family Planning – PUB 275” brochure and meet all other conditions of eligibility for CalFresh",
+        "where": [
+          "calfresh_mce_status_conferred.versions[0].formula"
+        ],
+        "cites": "us-ca/guidance/cdss/acl-2015-15-42/page-2",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "(vii) Under no circumstances shall any household be considered categorically eligible if: (A) Any member of that household is disqualified for an intentional Program violation in accordance with § 273.16 or for failure to comply with monthly reporting requirements...",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": ", and the PROGRESS.md diff in the same commit states",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Traced every MCE member scan. Only the household-bar and eligible-member aggregations scan members",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Under no circumstances shall any household be considered categorically eligible if: (A) Any member of that household is disqualified...",
+        "where": [
+          "triage.pre_fix_wrong_because"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "fix: bind MCE gates to canonical member projection",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "fix: fail closed on injected canonical SNAP members",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 12,
+    "post_side_matched": 1,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

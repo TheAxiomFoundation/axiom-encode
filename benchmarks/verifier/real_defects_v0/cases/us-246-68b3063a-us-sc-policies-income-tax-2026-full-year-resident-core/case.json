@@ -261,6 +261,311 @@
     "requested_citation_path": "us-sc/statute/12-6-30",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "sc_pit_2026_candidate_itemized_tax_addback",
+      "sc_pit_2026_candidate_federal_section_63_deduction_addback",
+      "sc_pit_2026_candidate_additions",
+      "sc_pit_2026_candidate_sciad",
+      "sc_pit_2026_candidate_sciad_base",
+      "sc_pit_2026_candidate_sciad_reduction",
+      "sc_pit_2026_candidate_sciad_phaseout_start",
+      "sc_pit_2026_candidate_sciad_phaseout_denominator",
+      "sc_pit_2026_candidate_deductions_and_exemptions",
+      "sc_pit_2026_candidate_earned_income_credit",
+      "sc_pit_2026_eitc_credit_cap",
+      "sc_pit_2026_input_domain_is_valid",
+      "sc_pit_2026_supported_profile_applies",
+      "sc_pit_2026_regular_workday_count_ceiling"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "If the fraction calculated by this subitem is equal to or exceeds one, then the deduction is not allowed",
+        "where": [
+          "sc_pit_2026_candidate_sciad.versions[0].formula"
+        ],
+        "cites": "us-sc/statute/12-6-1140",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "If the fraction is between zero and one, then the deduction must be reduced by the corresponding fraction",
+        "where": [
+          "sc_pit_2026_candidate_sciad_reduction.versions[0].formula"
+        ],
+        "cites": "us-sc/statute/12-6-1140",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Section 63(b) through (g) relating to standard deductions and the itemized deduction",
+        "where": [
+          "sc_pit_2026_candidate_federal_section_63_deduction_addback.versions[0].formula"
+        ],
+        "cites": "us-sc/statute/12-6-50",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "a South Carolina Income Adjusted Deduction (SCIAD)",
+        "where": [
+          "sc_pit_2026_candidate_deductions_and_exemptions.versions[0].formula"
+        ],
+        "cites": "us-sc/statute/12-6-1140",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "a South Carolina Income Adjusted Deduction (SCIAD) equal to",
+        "where": [
+          "sc_pit_2026_candidate_sciad_base.versions[0].formula"
+        ],
+        "cites": "us-sc/statute/12-6-1140",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "for each regular work day in a taxable year",
+        "where": [
+          "sc_pit_2026_regular_workday_count_ceiling.versions[0].formula"
+        ],
+        "cites": "us-sc/statute/12-6-1140",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "not to exceed two hundred dollars",
+        "where": [
+          "sc_pit_2026_candidate_earned_income_credit.versions[0].formula",
+          "sc_pit_2026_eitc_credit_cap.versions[0].formula"
+        ],
+        "cites": "us-sc/statute/12-6-3632",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "rounded to the next lowest ten dollars",
+        "where": [
+          "sc_pit_2026_candidate_sciad_reduction.versions[0].formula"
+        ],
+        "cites": "us-sc/statute/12-6-1140",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "standard deductions and the itemized deduction which are hereby specifically not allowed or adopted",
+        "where": [
+          "sc_pit_2026_candidate_additions.versions[0].formula"
+        ],
+        "cites": "us-sc/statute/12-6-50",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the denominator is",
+        "where": [
+          "sc_pit_2026_candidate_sciad_phaseout_denominator.versions[0].formula"
+        ],
+        "cites": "us-sc/statute/12-6-1140",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "the numerator is the amount the taxpayer's federal adjusted gross income exceeds",
+        "where": [
+          "sc_pit_2026_candidate_sciad_phaseout_start.versions[0].formula"
+        ],
+        "cites": "us-sc/statute/12-6-1140",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "\"Resident individual\" means an individual domiciled in this State",
+        "where": [
+          "sc_pit_2026_input_domain_is_valid.versions[0].formula"
+        ],
+        "cites": "us-sc/statute/12-6-30",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "A student is allowed a refundable individual income tax credit",
+        "where": [
+          "sc_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-sc/statute/12-6-3385",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "A taxpayer is entitled to a refundable tax credit",
+        "where": [
+          "sc_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-sc/statute/12-6-3790",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Resident individuals are allowed a credit",
+        "where": [
+          "sc_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-sc/statute/12-6-3400",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "The exclusions permitted by Internal Revenue Code Sections 912",
+        "where": [
+          "sc_pit_2026_candidate_additions.versions[0].formula"
+        ],
+        "cites": "us-sc/statute/12-6-1120",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "There is allowed as a deduction in computing South Carolina taxable income",
+        "where": [
+          "sc_pit_2026_candidate_deductions_and_exemptions.versions[0].formula"
+        ],
+        "cites": "us-sc/statute/12-6-1140",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "allowed as a nonrefundable credit",
+        "where": [
+          "sc_pit_2026_candidate_earned_income_credit.versions[0].formula"
+        ],
+        "cites": "us-sc/statute/12-6-3632",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "for taxable years beginning after 2025, a tax is imposed",
+        "where": [
+          "sc_pit_2026_supported_profile_applies.versions[0].formula"
+        ],
+        "cites": "us-sc/statute/12-6-510",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "gross income, adjusted gross income, and taxable income as calculated under the Internal Revenue Code are modified",
+        "where": [
+          "sc_pit_2026_input_domain_is_valid.versions[0].formula"
+        ],
+        "cites": "us-sc/statute/12-6-1110",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "modified to exempt only interest on obligations of this State",
+        "where": [
+          "sc_pit_2026_candidate_additions.versions[0].formula"
+        ],
+        "cites": "us-sc/statute/12-6-1120",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "one hundred twenty-five percent of the federal earned income tax credit",
+        "where": [
+          "sc_pit_2026_candidate_earned_income_credit.versions[0].formula"
+        ],
+        "cites": "us-sc/statute/12-6-3632",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "200",
+        "where": [
+          "sc_pit_2026_eitc_credit_cap.versions[0].formula"
+        ],
+        "forms": [
+          "200"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Section 63(b) through (g) ... which are hereby specifically not allowed or adopted",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "a South Carolina Income Adjusted Deduction (SCIAD) equal to: (i) fifteen thousand dollars...",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 14,
+    "post_side_matched": 0,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

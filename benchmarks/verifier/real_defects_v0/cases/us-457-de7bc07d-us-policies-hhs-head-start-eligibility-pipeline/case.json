@@ -214,6 +214,217 @@
     "requested_citation_path": "us/regulation/45/1302/12",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "head_start_ordinary_or_tribal_age_requirement_met",
+      "head_start_migrant_or_seasonal_age_requirement_met",
+      "head_start_paragraph_c_path_satisfied",
+      "head_start_participation_path_satisfied",
+      "head_start_additional_allowance_path_satisfied",
+      "head_start_tribal_service_area_path_satisfied",
+      "head_start_migrant_or_seasonal_path_satisfied",
+      "head_start_runtime_inputs_valid",
+      "head_start_eligible",
+      "early_head_start_eligible",
+      "family_does_not_meet_paragraph_c_criterion",
+      "head_start_paragraph_c_overincome_exception_path_satisfied"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "The program must calculate total gross income using applicable sources of income.",
+        "where": [
+          "head_start_runtime_inputs_valid.versions[0].formula"
+        ],
+        "cites": "us/regulation/45/1302/12",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "a child must be an infant or a toddler younger than three years old",
+        "where": [
+          "head_start_runtime_inputs_valid.versions[0].formula"
+        ],
+        "cites": "us/regulation/45/1302/12",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "any pregnant women or children in the approved service area",
+        "where": [
+          "head_start_ordinary_or_tribal_age_requirement_met.versions[0].formula"
+        ],
+        "cites": "us/regulation/45/1302/12",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "may enroll an additional 35 percent of participants",
+        "where": [
+          "head_start_runtime_inputs_valid.versions[0].formula"
+        ],
+        "cites": "us/regulation/45/1302/12",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "only make up to 10 percent of a program's enrollment",
+        "where": [
+          "head_start_runtime_inputs_valid.versions[0].formula"
+        ],
+        "cites": "us/regulation/45/1302/12",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "pregnant women and children are eligible for Migrant or Seasonal Head Start",
+        "where": [
+          "head_start_migrant_or_seasonal_age_requirement_met.versions[0].formula"
+        ],
+        "cites": "us/regulation/45/1302/12",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "A pregnant woman or a child is eligible if",
+        "where": [
+          "head_start_paragraph_c_path_satisfied.versions[0].formula",
+          "head_start_participation_path_satisfied.versions[0].formula",
+          "early_head_start_eligible.versions[0].formula"
+        ],
+        "cites": "us/regulation/45/1302/12",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "A program may enroll an additional 35 percent of participants whose families do not meet a criterion",
+        "where": [
+          "head_start_additional_allowance_path_satisfied.versions[0].formula"
+        ],
+        "cites": "us/regulation/45/1302/12",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "For Head Start Preschool, a child must",
+        "where": [
+          "head_start_eligible.versions[0].formula"
+        ],
+        "cites": "us/regulation/45/1302/12",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "If the family does not meet a criterion under paragraph (c)(1) of this section, a program may enroll a child",
+        "where": [
+          "family_does_not_meet_paragraph_c_criterion.versions[0].formula"
+        ],
+        "cites": "us/regulation/45/1302/12",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "a program may enroll a child who would benefit from services",
+        "where": [
+          "head_start_paragraph_c_overincome_exception_path_satisfied.versions[0].formula"
+        ],
+        "cites": "us/regulation/45/1302/12",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "may determine any pregnant women or children in the approved service area to be eligible for services regardless of income",
+        "where": [
+          "head_start_tribal_service_area_path_satisfied.versions[0].formula"
+        ],
+        "cites": "us/regulation/45/1302/12",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "pregnant women and children are eligible for Migrant or Seasonal Head Start",
+        "where": [
+          "head_start_migrant_or_seasonal_path_satisfied.versions[0].formula"
+        ],
+        "cites": "us/regulation/45/1302/12",
+        "matched": true,
+        "counts": false
+      },
+      {
+        "origin": "added_value",
+        "side": "post",
+        "text": "2021-01-01",
+        "where": [
+          "head_start_migrant_or_seasonal_age_requirement_met.versions[0].effective_from",
+          "head_start_ordinary_or_tribal_age_requirement_met.versions[0].effective_from",
+          "head_start_runtime_inputs_valid.versions[0].effective_from"
+        ],
+        "forms": [
+          "2021-01-01",
+          "January 1, 2021",
+          "1 January 2021"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "A pregnant woman or a child is eligible if",
+        "where": [
+          "triage.pre_fix_wrong_because",
+          "triage.triage_notes",
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "numeric runtime leaves fail OPEN with no domain contract",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 9,
+    "post_side_matched": 7,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

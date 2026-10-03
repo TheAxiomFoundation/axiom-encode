@@ -312,6 +312,118 @@
       }
     ]
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "ks_pit_2026_itemized_deduction",
+      "ks_pit_2026_input_domain_is_valid"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "\"Resident individual\" means a natural person who is domiciled in this state",
+        "where": [
+          "ks_pit_2026_input_domain_is_valid.versions[0].formula"
+        ],
+        "cites": "us-ks/statute/2026/79-32-109/block-1",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "100% of charitable contributions",
+        "where": [
+          "ks_pit_2026_itemized_deduction.versions[0].formula"
+        ],
+        "cites": "us-ks/statute/2026/79-32-120/block-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "federal adjusted gross income for the taxable year, with the modifications specified in this section",
+        "where": [
+          "ks_pit_2026_input_domain_is_valid.versions[0].formula"
+        ],
+        "cites": "us-ks/statute/2026/79-32-117/block-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "total amount of deductions from federal adjusted gross income shall be reduced",
+        "where": [
+          "ks_pit_2026_itemized_deduction.versions[0].formula"
+        ],
+        "cites": "us-ks/statute/2026/79-32-120/block-1",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The total amount of deductions from federal adjusted gross income shall be reduced by the total amount of income taxes imposed by or paid to this state or any other taxing jurisdiction to the extent that the same are deducted in determining the federal itemized deductions and by the amount of all depreciation deductions ...",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The total amount of deductions from federal adjusted gross income shall be reduced by the total amount of income taxes imposed by or paid to this state or any other taxing jurisdiction to the extent that the same are deducted in determining the federal itemized deductions and by the amount of all depreciation deductions claimed...",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "computes ... the exemption amount on which both official amendment versions agree",
+        "where": [
+          "triage.triage_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "the tax-year-2026 Form K-40 and credit ordering instructions are not yet available.",
+        "where": [
+          "triage.verifier_notes"
+        ],
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "total amount of deductions from federal adjusted gross income shall be reduced",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 9,
+    "post_side_matched": 1,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "unclear",
   "triage": {

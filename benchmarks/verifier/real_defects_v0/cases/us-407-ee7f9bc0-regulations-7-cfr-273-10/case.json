@@ -63,6 +63,54 @@
     "requested_citation_path": "us/regulation/7/273/10",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "present",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "snap_calculated_monthly_allotment_before_minimums"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "If 30 percent of the household's net income ends in cents, the State agency shall round ... up ... or ... round the allotment down to the nearest lower dollar.",
+        "where": [
+          "snap_calculated_monthly_allotment_before_minimums.versions[0].formula"
+        ],
+        "cites": "us/regulation/7/273/10",
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "Except as provided in paragraphs (a)(1), (e)(2)(iii) and (e)(2)(vi) of this section",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "an eligible household with three or more members which is entitled to no benefits",
+        "where": [
+          "triage.triage_notes",
+          "triage.verifier_justification"
+        ],
+        "matched": true,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 3,
+    "post_side_matched": 3,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "post_side_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {

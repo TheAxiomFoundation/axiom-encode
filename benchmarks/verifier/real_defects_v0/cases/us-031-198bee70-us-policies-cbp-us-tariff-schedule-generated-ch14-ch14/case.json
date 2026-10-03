@@ -250,6 +250,300 @@
     "requested_citation_path": "us/statute/hts/general-note-3/page-1",
     "release_errors_before_success": []
   },
+  "evidence_in_provision": "absent",
+  "evidence_check": {
+    "method": "changed_rule_strings_v1",
+    "normalization": "casefold; whitespace runs collapsed to one space; number, date and code forms must not touch another digit",
+    "rules_tested": [
+      "ieepa_component_rate",
+      "ieepa_component_rate_with_declared_exceptions",
+      "ch14_s232_steel_heading_rate",
+      "section_232_steel_component_rate"
+    ],
+    "rules_missing": [],
+    "strings": [
+      {
+        "origin": "added_excerpt",
+        "side": "post",
+        "text": "Rates of duty (1-General): The duty provided in the applicable subheading + 50%",
+        "where": [
+          "ch14_s232_steel_heading_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.82.02",
+        "matched": false,
+        "counts": true
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Articles the product of Canada, as provided for in subdivision (v)(iv) of U.S. note 2 to this subchapter",
+        "where": [
+          "ieepa_component_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.01.26",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Articles the product of Mexico, as provided for in subdivision (v)(v) of U.S. note 2 to this subchapter",
+        "where": [
+          "ieepa_component_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.01.27",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Except for products described in headings 9903.01.02, 9903.01.03, 9903.01.04 and 9903.01.05",
+        "where": [
+          "ieepa_component_rate_with_declared_exceptions.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.01.01",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Except for products described in headings 9903.01.11, 9903.01.12, 9903.01.13, 9903.01.14 or 9903.01.15",
+        "where": [
+          "ieepa_component_rate_with_declared_exceptions.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.01.10",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Except for products described in headings 9903.01.21, 9903.01.22, 9903.01.23",
+        "where": [
+          "ieepa_component_rate_with_declared_exceptions.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.01.24",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "For the purposes of heading 9903.01.20, products of China and Hong Kong, which have been entered for consumption, or withdrawn from warehouse for consumption, on or after 12:01 am eastern standard time February 4, 2025, and prior to 12:01 a.m. eastern standard time on March 4, 2025",
+        "where": [
+          "ieepa_component_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-175",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "For the purposes of heading 9903.01.24, products of China and Hong Kong entered for consumption, or withdrawn from warehouse for consumption on or after 12:01 a.m., eastern standard time on November 10, 2025",
+        "where": [
+          "ieepa_component_rate.versions[0].formula",
+          "ieepa_component_rate_with_declared_exceptions.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-176",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Potash that is a product of Canada, as provided for in U.S. note 2(I) to this subchapter",
+        "where": [
+          "ieepa_component_rate_with_declared_exceptions.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.01.15",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Potash that is a product of Mexico, as provided for in U.S. note 2(c) to this subchapter",
+        "where": [
+          "ieepa_component_rate_with_declared_exceptions.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.01.05",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Rates of duty (1-General): 15%",
+        "where": [
+          "ieepa_component_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.02.20",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Rates of duty (1-General): The duty provided in the applicable subheading",
+        "where": [
+          "ieepa_component_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.02.19",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Rates of duty (1-General): The duty provided in the applicable subheading + 10%",
+        "where": [
+          "ieepa_component_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.01.13",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Rates of duty (1-General): The duty provided in the applicable subheading + 25%",
+        "where": [
+          "ieepa_component_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.01.01",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "Rates of duty (1-General): The duty provided in the applicable subheading + 35%",
+        "where": [
+          "ieepa_component_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.01.10",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "The additional duties imposed by heading 9903.01.77 shall not apply to products of aluminum provided for in heading 9903.85.02.",
+        "where": [
+          "ieepa_component_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/chapter-99/page-219",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "articles the product of Canada, as provided for in U.S. note 2(j) to this subchapter",
+        "where": [
+          "ieepa_component_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.01.10",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "articles the product of Mexico, as provided for in U.S. note 2(a) to this subchapter",
+        "where": [
+          "ieepa_component_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.01.01",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "with an ad valorem (or ad valorem equivalent) rate of duty under column 1 equal to or greater than 15 percent",
+        "where": [
+          "ieepa_component_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.02.72",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "with an ad valorem (or ad valorem equivalent) rate of duty under column 1 less than 15 percent",
+        "where": [
+          "ieepa_component_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.02.73",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "with an ad valorem (or ad valorem equivalent) rate of duty under column 1-General equal to or greater than 15 percent",
+        "where": [
+          "ieepa_component_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.02.19",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "with an ad valorem (or ad valorem equivalent) rate of duty under column 1-General less than 15 percent",
+        "where": [
+          "ieepa_component_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.02.20",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "with an ad valorem (or ad valorem equivalent) rate of duty under column 1-General or column 1-Special equal to or greater than 15 percent",
+        "where": [
+          "ieepa_component_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.02.79",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "context_excerpt",
+        "side": "post",
+        "text": "with an ad valorem (or ad valorem equivalent) rate of duty under column 1-General or column 1-Special less than 15 percent",
+        "where": [
+          "ieepa_component_rate.versions[0].formula"
+        ],
+        "cites": "us/statute/hts/9903.02.80",
+        "matched": false,
+        "counts": false
+      },
+      {
+        "origin": "triage_quote",
+        "side": "post",
+        "text": "The additional duties imposed by heading 9903.01.77 shall not apply to products of aluminum provided for in heading 9903.85.02",
+        "where": [
+          "triage.verifier_justification"
+        ],
+        "matched": false,
+        "counts": true
+      }
+    ],
+    "post_side_tested": 2,
+    "post_side_matched": 0,
+    "pre_side_tested": 0,
+    "pre_side_matched": 0,
+    "reason": "no_tested_string_found"
+  },
   "fix_stage": "pre_merge_review",
   "triage_status": "fidelity",
   "triage": {
