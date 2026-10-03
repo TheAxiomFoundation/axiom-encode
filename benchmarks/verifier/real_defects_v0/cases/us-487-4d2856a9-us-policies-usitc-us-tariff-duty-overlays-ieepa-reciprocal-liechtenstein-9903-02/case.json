@@ -4,7 +4,7 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "4d2856a9587ea13d74d6321a79dcde956bb239e2",
   "parent_commit": "75a3677870cc38e35dffbe9099f363a82bde53aa",
-  "commit_date": "2026-08-02",
+  "commit_date": "2026-08-02T11:27:29-04:00",
   "commit_subject": "Fix sol r2 findings: legal handoff dates and Boolean polarity coverage",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1197",
   "module_path": "us/policies/usitc/us-tariff-duty/overlays/ieepa/reciprocal-liechtenstein-9903-02-87.yaml",
@@ -236,7 +236,8 @@
     "verifier_quote": "-  - effective_from: '2026-02-15'\n+  - effective_from: '2025-11-14'",
     "verifier_notes": "Source verification (read this session, pinned release us-rulespec-2026-08-03-ecps-pit-tariff-union, corpus commit d9d6fba0): FR Doc 2025-23316 (90 FR 59281, Dec 18 2025) Annex II opens \"Effective with respect to goods entered for consumption ... on or after 12:01 a.m. eastern time on November 14, 2025\", item 1 terminates headings 9903.02.36 and 9903.02.58, and item 7 inserts new headings 9903.02.82-9903.02.91. Both excerpts added as proof atoms in this diff are byte-faithful to that text. The HTS 9903.02.87 provision itself carries no effective date, so nothing grounded the old 2026-02-15 value.\n\nOne correction to the first reader's stated reading, which does not change the verdict or kind: the pre-fix encoding did not leave 2025-11-14 through 2026-02-14 uncovered by a dormant successor. The predecessor module reciprocal-liechtenstein-9903-02-36.yaml carried `effective_to: '2026-02-14'` pre-fix (module index 2 in this commit changes it to '2025-11-13'), so the window was covered — but by the terminated +15% heading rather than by the floor pass-through heading the source actually made effective on 2025-11-14. The defect is therefore a wrong handoff date producing the wrong duty treatment for three months, not a coverage gap. Both sides of the handoff were redated in the same commit, and the module-level summary now states the November 14 ground.\n\nSecondary changes in this diff are provenance (corpus_citation_path -> corpus_citation_paths, two effective_period atoms per rule, summary sentence). Those alone would be mechanical; the effective_from scalars are what make it fidelity. No formula, parameter value, input, output, or entity/scope changed.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "keyword"
+    "candidate_source": "keyword",
+    "screen_reason": null
   },
   "triage_notes": "Same defect pattern as indices 4, 5, 6, 9 (successor floor modules moved 2026-02-15 -> 2025-11-14). Source read and confirmed: the FR notice's Annex II preamble ('effective ... on or after 12:01 a.m. eastern time on November 14, 2025') and item 7 ('New headings 9903.02.82-9903.02.91 shall be inserted in numerical sequence'). Diff touches effective_from (7x), module summary, corpus_citation_paths, and two new effective_period proof atoms per rule; formulas untouched. The 44 new Boolean-witness test cases from F2 live in the .test.yaml files, not in this module file. | verifier confirmed at 0.94",
   "family_id": "us-4d2856a9-498874ad9b6f",

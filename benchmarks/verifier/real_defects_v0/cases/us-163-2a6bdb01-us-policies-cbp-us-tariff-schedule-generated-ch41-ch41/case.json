@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
   "parent_commit": "956a547418964c90e37b134c3c96ab3acdb8a375",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair.",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: make generated entry flags caller inputs",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch41/ch41.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -236,7 +236,8 @@
     "verifier_quote": "-  - formula: (((((((((((((((((((hts_number == \"7202.11.10.00\")))))))))))))))))))",
     "verifier_notes": "inferred from verified sibling module index 36 (same kind and rule path in this chunk). Evidence trail: diff /private/tmp/claude-501/-Users-maxghenis-TheAxiomFoundation-axiom-encode--claude-worktrees-zealous-heyrovsky-31a96b/86103d8f-b97f-4559-a96c-7e79bdbe616d/scratchpad/diffs/us/2a6bdb01de/036.diff; pre/post copies at .../scratchpad/ch37_pre.yaml and .../scratchpad/ch37_post.yaml (git show 956a5474../2a6bdb01de of us/policies/cbp/us-tariff-schedule/generated/ch37/ch37.yaml in /Users/maxghenis/TheAxiomFoundation/rulespec-us).\n\n(1) Partial fix worth flagging: the same defect class survives this commit. In the post file at line 1950, `entry_is_energy_resource` — source \"HTS 9903.01.13 energy and critical minerals article scope\" — is still encoded as `hts_number == \"7202.11.10.00\"` with atoms citing `us/statute/hts/7202` excerpt \"Ferroalloys:\" and 7202.11.10.00 excerpt \"Mn kg\", i.e. another out-of-chapter exemplar equality inside a chapter-37 module. If the corpus wants one row per defect, this is the same untraceable_branch pattern left unrepaired here.\n\n(2) The removed atoms were traceable strings but to the wrong provisions: each cited a real corpus excerpt describing the exemplar line itself (\"Footballs\", \"Beer made from malt\", \"Crystalline silicon photovoltaic cells\"), never a provision this chapter module's action components rest on. That is why untraceable_branch (\"formulas grounded on the wrong provision\") fits better than unrepresented_clause or wrong_entity_or_scope.\n\n(3) Stale text a reviewer may trip on: the post summary still carries the generator boilerplate \"This deterministic RuleSpec serialization changes no formula tokens, dates, inputs, proof atoms, or runtime values.\" That clause describes only the sibling-distinctness serialization step and is contradicted by this diff (atoms removed, five identifiers become caller inputs). Do not read it as evidence of a semantics-preserving change.\n\n(4) Dedup: this commit applies the identical removal to 100 generated chapter modules (module_files[0..99]); ch37 is one instance, and the chapter-72 pilot is called out in the new summary as sharing the input surface. The hand-built witness composition is deliberately untouched and remains the five-line oracle, so the defect is specific to the generated chapters.",
     "verifier_inferred_from_module_index": 36,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair."
   },
   "triage_notes": "Same pattern as index 36; diff read, two hunks only. Kind reasoning identical to index 36. | verifier confirmed at 0.74",
   "family_id": "us-2a6bdb01-7331f444c639",

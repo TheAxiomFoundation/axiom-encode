@@ -4,7 +4,7 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "75a3677870cc38e35dffbe9099f363a82bde53aa",
   "parent_commit": "91d3b50b9c75b266a1c54596477171fd40cf44d3",
-  "commit_date": "2026-08-02",
+  "commit_date": "2026-08-02T10:09:04-04:00",
   "commit_subject": "Sol r1 fixes: afghanistan 02.78 exception, five floor modules completed, terminated predecessors, FALSE-origin witnesses",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1197",
   "module_path": "us/policies/usitc/us-tariff-duty/overlays/ieepa/reciprocal-south-korea-9903-02-56.yaml",
@@ -221,7 +221,8 @@
     "verifier_quote": "+          - path: versions[0].effective_to\n+            kind: effective_period\n+            source:\n+              corpus_citation_path: us/statute/hts/9903.02.56\n+              excerpt: \"[Compiler's note: This provision was terminated on November 14, 2025. See 90 Fed. Reg. 55964]\"\n     versions:\n       - effective_from: '2025-08-07'\n+        effective_to: '2025-11-13'",
     "verifier_notes": "Refutation attempts and residual risk for the reviewer. (1) Mechanical? No — nine `effective_to` additions at `versions[0]`, verified by diffing pre/post: pre-fix every rule had `effective_from: '2025-08-07'` with no `effective_to`; post-fix every one has `effective_to: '2025-11-13'`. (2) Enhancement rather than correction? No — the pre-fix summary line already stated the November 14, 2025 termination, so the module's own header disagreed with its encoded windows. (3) Boundary_direction instead? Tempting because 2025-11-13 versus a stated termination date of November 14 encodes an inclusive-end convention, but the pre-fix defect was an absent bound, not a mis-sided one; the inclusive-end choice is the fix's convention, documented in the new summary text. (4) Residual open question worth flagging, not a refutation: whether the last effective day is 2025-11-13 or 2025-11-14 depends on whether termination \"on November 14\" bites at the start or the end of that day — the compiler's note does not say, and the module asserts the start-of-day reading. Corroborating context: commit body F3 says the four superseded modules \"now carry effective_to termination matching their compiler's-note termination dates\", and the same commit (F2) completes the successor South Korea floor modules 9903.02.79/.80, so the predecessor's open-ended window would have overlapped its successor. This is module index 6 of commit 75a3677870; the same F3 pattern presumably recurs in the Japan 9903.02.30, Liechtenstein 9903.02.36, and Switzerland 9903.02.58 modules in this commit, so treat those as the same kind if they appear separately in the corpus.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "keyword"
+    "candidate_source": "keyword",
+    "screen_reason": null
   },
   "triage_notes": "Provision read and confirms '[Compiler's note: This provision was terminated on November 14, 2025. See 90 Fed. Reg. 55964]'. This is the only one of the four terminated predecessors whose end date is source-stated (effective_to 2025-11-13 as the inclusive last day), hence higher confidence than indices 2, 3, 9. The pre-fix summary already recited the termination date while the versions ran open-ended. Nine rules each gain effective_to plus an effective_period proof atom; nothing else changed. | verifier confirmed at 0.93",
   "family_id": "us-75a36778-366b00161c98",

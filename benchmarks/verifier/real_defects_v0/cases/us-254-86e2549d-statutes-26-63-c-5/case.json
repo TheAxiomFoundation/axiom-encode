@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "86e2549dc760f652ab5419fa52d4cb6eeba1f87b",
   "parent_commit": "b3801ee4eb82f8fc2c753d809c8b36d9ae6c42c2",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) Subject says Encode, but it re-encodes existing 63, 63(c), 63(c)(5) and rev-proc standard-deduction modules: taxable_income restructured into 63(a)/(b) branches, standard_deduction effective_from 2026 to 2018, inputs and rule sets replaced; unsure.",
+  "commit_date": "2026-05-12T11:06:22-04:00",
+  "commit_subject": "Encode upstream IRC 63 dependencies",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/25",
   "module_path": "statutes/26/63/c/5.yaml",
   "corpus_citation_path": "us/statute/26/63",
@@ -133,7 +133,8 @@
     "verifier_quote": "-              single_basic_standard_deduction, … +          500",
     "verifier_notes": "Recommend a reviewer prune or heavily caveat this case. Evidence gathered: (1) entity change `-    entity: Person` → `+    entity: TaxUnit` moves AWAY from the statute's \"an individual\" and is structural alignment with the TaxUnit-scoped consumer, so the \"entity\" half of wrong_entity_or_scope is not supported by the source; only the filing-status (\"scope\") half is. (2) The corrective effect of dropping the single-filer ceiling is realized in a different file (statutes/26/63/c.yaml, module index 5), not in this one — this file merely stops computing a ceiling and is renamed from `dependent_standard_deduction` (the deduction) to `dependent_basic_standard_deduction_statutory_limit` (the cap), an output-surface redefinition. (3) The pre-fix summary openly declared the simplification (\"subject to the single-filer basic standard deduction\"), and its $1,350/$450 were correct for 2026. (4) The post-fix introduces a fresh fidelity defect (amount_mismatch / unrepresented 63(c)(4) indexation) in the same hunk — this would be a better corpus case in the reverse direction, i.e. as a defect INTRODUCED at 86e2549dc7, if the corpus ever wants regression examples. Verified against the pinned release us-rulespec-2026-07-13 (corpus commit 612d20ca43), citation us/statute/26/63.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "Subject says Encode, but it re-encodes existing 63, 63(c), 63(c)(5) and rev-proc standard-deduction modules: taxable_income restructured into 63(a)/(b) branches, standard_deduction effective_from 2026 to 2018, inputs and rule sets replaced; unsure."
   },
   "triage_notes": "Provision READ via resolve_provision: 63(c)(5) reads 'the basic standard deduction applicable to such individual for such individual's taxable year shall not exceed the greater of— (A) $500, or (B) the sum of $250 and such individual's earned income.' Pre-fix summary explicitly said 'subject to the single-filer basic standard deduction' and 'Annual inflation-adjusted dollar amounts are imported from the IRS tax-year authority, not encoded in the statute file', so the single-filer ceiling was a deliberate, documented choice rather than an obvious slip; that plus the fact that the fix replaces indexed $1,350/$450 with unindexed statutory $500/$250 (dropping the 63(c)(4) adjustment this module used to get from the Rev. Proc.) is why I kept this unclear rather than fidelity. Real changes in the diff: entity Person -> TaxUnit, the min() ceiling moved out into 63/c.yaml where it is now taken against the taxpayer's own basic standard deduction, and a new Judgment rule for the 'deduction under section 151 allowable to another taxpayer' condition. Same encoder-rewrite pattern as index 5. | verifier unclear at 0.62",
   "family_id": "us-86e2549d-986cd43801b3",

@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
   "parent_commit": "29dbbdac05e18cd4f851b200f4da9121fccd7e00",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 generalize (PR #1300): decouples component gates from exemplar flags; PR body says the witness's exemplar coupling \"unlawfully suppressed the surcharge on §301-member lines for all origins\" — logic/scope correction to 100 merged generated modules.",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: generalize generated component surfaces",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch26/ch26.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -316,7 +316,8 @@
     "verifier_quote": "-      (((((((((((((if entry_is_line_a or entry_is_line_b: 0\n+      (((((((((((((if entry_is_section_122_exempt or entry_is_section_232_covered: 0",
     "verifier_notes": "Kept as a real fidelity defect, kind unchanged. Two caveats for the reviewer. (1) The first reader's mechanism sentence (\"zeroed on China-301 list-1 and section-232-aluminum membership\") is not how the in-repo flag tool behaved at the parent commit: `git -C /Users/maxghenis/TheAxiomFoundation/rulespec-us show 29dbbdac05:tools/b16_entry_flags.py` computes `WITNESS_LINES` flags as `hts == digits` (exemplar identity), with the membership tables (`china_301_list1_membership`, `s122_aa_ii_membership`, …) computed separately and not consumed by the compositions. The \"for all origins\" over-suppression the PR body describes comes from the evaluation harness populating those flags from incidence classification. The defect and its kind survive either reading (too-narrow or too-broad exemption population), but do not repeat the membership mechanism as fact about this repo's tool. (2) Only the §122 hunk should count as the defect. The same diff also adds `ch26_s232_steel_heading_rate` + `section_232_steel_component_rate` and wires it into `schedule_statutory_stack`; the PR body says the witness \"never had\" a steel component and that its ferroalloy exemplar \"sits outside note 16(c)\", so that part is new coverage the module never claimed (not a defect). The §201 hunk (`entry_is_line_e` → `entry_is_section_201_cspv`) is inert — both branches return 0. The Brazil-301 and forced-labor-301 hunks are additional scope changes in the same family (gating on list membership instead of origin-wide application), but the module summary states those membership inputs \"currently default to the declared-boolean FALSE pattern\", so their runtime effect is zeroed pending entry preparation. Source-text lookup through the pinned release could not corroborate the atom excerpts directly: the pinned corpus (us-rulespec-2026-08-08-obbb-alien-snap, HTS 2026 Rev. 3) returns unrelated note text for `us/statute/hts/chapter-99/page-221` and no §122/9903.03 text on page-230, because the atoms' page numbers are Rev. 15 vintage. The verdict therefore rests on the module's own unchanged proof atoms plus the PR body, not on a re-read of the provision.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 generalize (PR #1300): decouples component gates from exemplar flags; PR body says the witness's exemplar coupling \"unlawfully suppressed the surcharge on §301-member lines for all origins\" — logic/scope correction to 100 merged generated modules."
   },
   "triage_notes": "Same pattern as index 24 (I read this diff in full). After normalizing the chapter prefix, the redundant-parenthesis count and the effective_from/from key spelling, all 12 diffs in this chunk are identical in shape. Also adds ch26_s232_steel_heading_rate / section_232_steel_component_rate with the same malformed nested metadata.proof.proof.atoms repaired later in a14f43975. | verifier confirmed at 0.82",
   "family_id": "us-a9562cfd-5666e5ff8301",

@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
   "parent_commit": "956a547418964c90e37b134c3c96ab3acdb8a375",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair.",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: make generated entry flags caller inputs",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch26/ch26.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -239,7 +239,8 @@
     "verifier_quote": "-  source: HTS 7202.11.10.00 statistical reporting number\n-    formula: (((((((((((((hts_number == \"7202.11.10.00\")))))))))))))",
     "verifier_notes": "Runner-up kind is wrong_entity_or_scope (the flags identified the wrong population of entries for this chapter); untraceable_branch fits better because the taxonomy puts \"formulas grounded on the wrong provision\" there and the fix removes the branch instead of re-scoping it. Three caveats a reviewer should weigh. (1) This commit only deletes the definitions; the referencing formulas (`entry_is_reciprocal_annex_excluded: formula: entry_is_line_a`, `china_section_301_component_rate`, `section_232_aluminum_component_rate`, `section_338_component_rate`) are byte-identical before and after, so the correction is a re-grounding by deferral to caller-supplied incidence, not a newly encoded membership test inside this module. (2) The identical defect survives this commit in the same file: post-fix line 1951 still has `entry_is_energy_resource` (cited to 9903.01.13 \"critical minerals\") encoded as `hts_number == \"7202.11.10.00\"` in the chapter-26 module, so the repair is partial. (3) The summary sentence \"This deterministic RuleSpec serialization changes no formula tokens, dates, inputs, proof atoms, or runtime values\" is stale boilerplate about the sibling-distinctness parenthesis/prefix treatment; the same paragraph's new text announces the flags are now caller inputs and that \"its earlier byte freeze ends with this generator version\", and the PR records -500 removed exemplar-flag outputs and witness equivalence only \"under input mapping\" with an enumerated exception class, so it does not support a mechanical verdict. Verification commands used: diff at scratchpad/diffs/us/2a6bdb01de/025.diff; pre/post at /Users/maxghenis/TheAxiomFoundation/rulespec-us (956a5474 vs 2a6bdb01de); provision reads via resolve_provision.py for us/statute/hts/chapter-99/page-{177..185} on corpus release us-rulespec-2026-08-08-obbb-alien-snap.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair."
   },
   "triage_notes": "Same pattern as index 24 (identical two-hunk shape: summary rewrite plus removal of entry_is_line_a..e). Verified in the post-fix ch26.yaml that entry_is_reciprocal_annex_excluded (formula: entry_is_line_a) and entry_is_reciprocal_metals_excluded (formula: entry_is_line_b) plus the §301/§232/§338/Brazil terms still reference the flags, now as caller inputs. Chapter-specific cosmetic variants (redundant parenthesis depth, from vs effective_from spelling) are pre-existing placement-gate devices and unchanged by this commit. | verifier confirmed at 0.78",
   "family_id": "us-2a6bdb01-7331f444c639",

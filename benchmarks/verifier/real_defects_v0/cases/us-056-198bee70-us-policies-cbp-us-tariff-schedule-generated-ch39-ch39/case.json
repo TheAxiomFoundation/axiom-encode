@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
   "parent_commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 certify (PR #1300): diff changes the Brazil gate in every generated composition from `not entry_is_line_b` to `not entry_is_section_232_aluminum` and re-grounds the steel parameter proof from 9903.81.87/.88 to 9903.82.02; report says \"The task's 9903.81.x locator is stale for this corpus vintage\".",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: certify generalized component gates",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch39/ch39.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -263,7 +263,8 @@
     "verifier_quote": "-      + (if origin_is_brazil and not entry_is_line_b: brazil_ieepa_additional_duty_rate else: 0)))))))))))))))))))))\n+      + (if origin_is_brazil and not entry_is_section_232_aluminum: brazil_ieepa_additional_duty_rate else: 0)))))))))))))))))))))",
     "verifier_notes": "Refutations I tested and rejected: (1) \"Pure generalization / new coverage the module never claimed\" — rejected, because the module already carried the carve-out and already cited the 9903.01.77 exception as a proof atom (unchanged in the diff), so it claimed the meaning it encoded wrongly; the PR's own framing (\"move from the witness's five per-line exemplar flags to membership-semantic caller inputs\") is the mechanism, not proof that the old text was right. (2) \"Behaviorally inert in ch39\" — rejected, since the same file has `section_232_steel_component_rate`/`section_232_aluminum_component_rate` branches for chapter 39 and the resolved note page listing covered lines includes chapter-39 lines (3917.31.00, 3926.90.94, ...), so real ch39 entries hit the changed branch. (3) \"Whole diff is provenance\" — rejected for the anchor, but true for the rest: the `ch39_s232_steel_heading_rate` / `section_232_steel_component_rate` half (9903.81.87/.88 → 9903.82.02, plus the `source:` string) is citation/excerpt-only, with formula `'0.50'` and the steel formulas byte-identical, i.e. mechanical. Caveats for the reviewer: the first reader's cited heading 9903.01.83 is substantively right but the module's own atom uses the page-219 / 9903.85.02 aluminum formulation; the post-fix gate is still under-inclusive versus 9903.01.83 (which also excepts steel, wood, vehicles, semiconductors, copper) though it now matches the module's cited aluminum-only excerpt; and the same exemplar proxy survives unfixed at `entry_is_reciprocal_metals_excluded` (formula `entry_is_line_b`, cited to 9903.01.33 \"articles of aluminum; derivative articles of aluminum\") in both pre and post — a residual instance of the identical defect worth flagging separately. Files used: /private/tmp/claude-501/-Users-maxghenis-TheAxiomFoundation-axiom-encode--claude-worktrees-zealous-heyrovsky-31a96b/86103d8f-b97f-4559-a96c-7e79bdbe616d/scratchpad/diffs/us/198bee703e/038.diff and git-show copies of us/policies/cbp/us-tariff-schedule/generated/ch39/ch39.yaml at a9562cfd and 198bee703e.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 certify (PR #1300): diff changes the Brazil gate in every generated composition from `not entry_is_line_b` to `not entry_is_section_232_aluminum` and re-grounds the steel parameter proof from 9903.81.87/.88 to 9903.82.02; report says \"The task's 9903.81.x locator is stale for this corpus vintage\"."
   },
   "triage_notes": "Same pattern as index 36; diff read individually, identical hunk shape. Chapter 39 (plastics) contains Section 232 aluminum/steel derivative articles in principle, so the pre-fix gate could add +40% to Brazil-origin entries the order excepts. Steel citation hunks are provenance only (0.50 rate unchanged). | verifier confirmed at 0.78",
   "family_id": "us-198bee70-ae51d9d5b290",

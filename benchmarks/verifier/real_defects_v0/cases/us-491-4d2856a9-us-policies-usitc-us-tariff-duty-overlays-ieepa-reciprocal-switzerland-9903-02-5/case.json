@@ -4,7 +4,7 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "4d2856a9587ea13d74d6321a79dcde956bb239e2",
   "parent_commit": "75a3677870cc38e35dffbe9099f363a82bde53aa",
-  "commit_date": "2026-08-02",
+  "commit_date": "2026-08-02T11:27:29-04:00",
   "commit_subject": "Fix sol r2 findings: legal handoff dates and Boolean polarity coverage",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1197",
   "module_path": "us/policies/usitc/us-tariff-duty/overlays/ieepa/reciprocal-switzerland-9903-02-58.yaml",
@@ -266,7 +266,8 @@
     "verifier_quote": "-        effective_to: '2026-02-14'\n+        effective_to: '2025-11-13'",
     "verifier_notes": "Refutation attempts and residual doubt, for the reviewer: (1) Mechanical? No — nine operative version windows changed; the added corpus_citation_paths, summary rewrite, and new effective_period proof atoms are provenance riding along with a real meaning change. (2) Not-a-defect / new coverage? The originally cited source (the HTS compiler's note) gave no date itself, but it pointed at \"90 Fed. Reg. 59281\", which is the exact start page of the FR doc whose Annex II carries the date, so the 2026-02-14 value was never grounded in the source it cited. (3) Alternative kind: untraceable_branch is arguable, since the pre-fix date came from a successor heading's panel date rather than any source text and the fix re-grounds it; I kept wrong_period_or_effective_date because the more specific kind explicitly covers effective_to/version windows disagreeing with the source. boundary_direction does not fit — the inclusive-end choice (2025-11-13 as last effective day before a 12:01 a.m. Nov 14 start) is correct in both readings; the defect is the date being ~3 months off, not the strictness. amount_mismatch does not fit: the 0.39 rate is unchanged. (4) Related context from the same commit (not this module): ch-82, the successor, moved from a premature 2025-08-07 start to 2025-11-14, so pre-fix the terminated heading and its successor overlapped Aug 2025–Feb 2026 in the composition — additional evidence that the old window produced wrong duties rather than merely imprecise metadata. Corpus resolution used release us-rulespec-2026-08-03-ecps-pit-tariff-union (corpus commit d9d6fba0); note the resolver reported fix_time_corpus_match \"provision_file_absent_at_corpus_ref\" for the HTS file, so the FR text may not have been in the corpus at the original encoding time — that mitigates blame but does not change that the encoded window disagreed with the source.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "keyword"
+    "candidate_source": "keyword",
+    "screen_reason": null
   },
   "triage_notes": "Same pattern as index 2 (li-36); the Switzerland rate is +39% rather than +15%, and the rate itself was not touched. Source verified in the same Annex II text (see index 2 notes), which names 9903.02.36 and 9903.02.58 together. Diff changes effective_to (9x), summary, corpus_citation_paths and adds one effective_period atom per rule; no formula change. This is the largest live-money window in the chunk, since the pre-fix module overstated Swiss duties by 39 points over the 2025-11-14 to 2026-02-14 span. | verifier confirmed at 0.93",
   "family_id": "us-4d2856a9-1a0d4561fe0a",

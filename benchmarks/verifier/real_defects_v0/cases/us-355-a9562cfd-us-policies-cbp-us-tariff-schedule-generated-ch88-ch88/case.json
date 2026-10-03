@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
   "parent_commit": "29dbbdac05e18cd4f851b200f4da9121fccd7e00",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 generalize (PR #1300): decouples component gates from exemplar flags; PR body says the witness's exemplar coupling \"unlawfully suppressed the surcharge on §301-member lines for all origins\" — logic/scope correction to 100 merged generated modules.",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: generalize generated component surfaces",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch88/ch88.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -316,7 +316,8 @@
     "verifier_quote": "-      (((((((((((((((((((((((((((((((((((((((((((if entry_is_line_a or entry_is_line_b: 0\n+      (((((((((((((((((((((((((((((((((((((((((((if entry_is_section_122_exempt or entry_is_section_232_covered: 0",
     "verifier_notes": "Corroboration: in the pre file `entry_is_reciprocal_annex_excluded` has `formula: entry_is_line_a` and `entry_is_reciprocal_metals_excluded` has `formula: entry_is_line_b`, while `china_section_301_component_rate` uses the same two flags for list-1 and 2024-action membership — one boolean carrying two different memberships is the concrete mechanism of the \"unlawful suppression.\" Scope caveats for the reviewer: (1) this file is a generator-emitted composition (\"generator b1.6-schedule-compositions-2\" → \"-3\", \"hand edits prohibited\"), so the defect lives in tools/generate_schedule_compositions.py and was replicated across all 100 chapter modules; ch88 is one instance, not an independent defect. (2) Not every hunk in this diff is a correction: the `section_201_component_rate` swap (`if entry_is_line_e: 0 else: 0` → `if entry_is_section_201_cspv: 0 else: 0`) is value-neutral, and the new `section_232_steel_component_rate` + its stack term is added coverage the module never claimed (the PR itself says \"a Section 232 steel component the witness never had\"), which is not a defect — if the corpus wants one defect per commit-module, the §122/§301/§232-aluminum/Brazil/forced-labor re-grounding is the defect and the steel component is a separate enhancement. (3) The steel component shipped here with malformed double-nested `metadata: proof: proof: atoms:`, repaired in a follow-up per the PR issue comment (\"steel atoms unwrapped to canonical `metadata.proof.atoms`\"); ignore that for classification. (4) Post-fix, `entry_is_line_d` survives (beer/§338, \"because no membership module exists\") and Brazil/forced-labor membership inputs default FALSE, so the decoupling is deliberately partial.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 generalize (PR #1300): decouples component gates from exemplar flags; PR body says the witness's exemplar coupling \"unlawfully suppressed the surcharge on §301-member lines for all origins\" — logic/scope correction to 100 merged generated modules."
   },
   "triage_notes": "Same pattern as index 84; this file is byte-identical in normalized diff to index 84 (same 'effective_from:' spelling). Same caveats as index 84. | verifier confirmed at 0.80",
   "family_id": "us-a9562cfd-a47a2c82a367",

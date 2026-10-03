@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
   "parent_commit": "956a547418964c90e37b134c3c96ab3acdb8a375",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair.",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: make generated entry flags caller inputs",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch03/ch03.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -236,7 +236,8 @@
     "verifier_quote": "-  - formula: ((hts_number == \"7202.11.10.00\"))",
     "verifier_notes": "Attempted refutations and why they fail: (1) \"Mechanical / generator-version bump b1.3 -> b1.6\" — refuted: five `kind: derived` rules with formulas and proof atoms are deleted and the module's input surface grows by five slots (the post-fix ch03.test.yaml feeds `input.entry_is_line_a..e: false`, which the pre-fix test could not have done since they were derived). (2) \"Enhancement, not a defect — the module never claimed §301 membership logic\" — refuted: `china_section_301_component_rate`, `section_122`/temporary-surcharge and the reciprocal-exclusion rules are chapter-03 outputs in the statutory stack, and with foreign-chapter line equality tests they were pinned to a constant for every line the module covers; the PR characterizes the prior coupling as unlawful suppression. (3) \"not_a_rule_module (module.kind: composition)\" — the file is rulespec/v1 with rules and formulas, and the harness passed it as a module file; composed modules are assembled rather than encoder-generated but are still rule modules. Residual uncertainty (why 0.74, not higher): this commit is only stage 2 of PR #1300 — it removes the ungrounded exemplar tests but does not yet install the source-grounded membership predicates described in the PR body (`entry_is_section_122_exempt`, per-list China-301 membership); in this commit the downstream gates still read `entry_is_line_a..e`, now unbound caller inputs whose proof atoms still cite exemplar excerpts (e.g. `entry_is_reciprocal_annex_excluded` cites chapter-99 page-182 excerpt \"7202.11.10\"). A reviewer could argue the fidelity correction lands in the later commit and this one is the decoupling half. Alternative kind if the panel prefers it: wrong_entity_or_scope (chapter-03 gating scoped to chapters 22/72/76/85/95 lines); I chose untraceable_branch because the rubric names \"formulas grounded on the wrong provision\" under that kind. The PR issue comment notes later repairs (steel atoms unwrapped, 9903.82.02 added to source verification, tests feeding only a/b/d), so the merged end state differs from this commit.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair."
   },
   "triage_notes": "Same pattern as index 0: identical two-hunk diff (summary + removal of the five entry_is_line_* derived rules). Diff read individually; justification reused from index 0. | verifier confirmed at 0.74",
   "family_id": "us-2a6bdb01-7331f444c639",

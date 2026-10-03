@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "07f5517d7416416a753e57b591f632ae99d310d7",
   "parent_commit": "4bca2b9f3fcf4d08a5922238e379a6b85af5cab2",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) Time-bound: WA and VT pilot pipelines bounded to tax year 2026 (effective period).",
+  "commit_date": "2026-07-23T13:01:04-04:00",
+  "commit_subject": "Bound WA and VT pilots to tax year 2026",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1017",
   "module_path": "us-wa/policies/income_tax/pilot_liability_pipeline.yaml",
   "corpus_citation_path": "us-wa/statute/82/82.87/82.87.040",
@@ -83,7 +83,8 @@
     "verifier_quote": "+        effective_to: '2026-12-31'",
     "verifier_notes": "Refutation targets the \"fidelity\" classification, not the kind: if a reviewer does treat this as a fidelity defect, wrong_period_or_effective_date is the right kind, so \"reclassify\" was never the alternative. The first reader's stated reading is factually off on the decisive point — it claims the module was \"built on a supplied PolicyEngine 2026 projected $284,000 standard deduction and 2026 supplied rates/threshold\", but those values appear nowhere in the module; they are only in pilot_liability_pipeline.test.yaml inputs (`wa_pit_pilot_supplied_standard_deduction: 284000`), so RCW 82.87.060's annual adjustment under RCW 82.87.150 does not make the unbounded formula false. Pre/post files confirm the WA module contains only three derived rules and no parameters (unlike VT, whose \"two parameters were already bounded\" per the PR), so there is not even an internal inconsistency between bounded parameters and unbounded dependents here. Verdict is not \"mechanical\": the version window is encoded meaning and the engine behavior for 2027 genuinely changes (probes now fail closed) — the change just isn't a correction against the cited source. A reviewer who holds that in this repo an open version window is itself an ungrounded claim about unvalidated periods could reasonably keep this as \"unclear\"; I would not accept \"confirmed\" without a source-side basis for a 2026-12-31 end date, and none exists in RCW 82.87.040/060 as resolved through corpus release us-rulespec-2026-07-22-current-la-status-fix. Same reasoning applies verbatim to module index 0 (VT) except that VT's parameters were already bounded.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "Time-bound: WA and VT pilot pipelines bounded to tax year 2026 (effective period)."
   },
   "triage_notes": "Same pattern as index 0: three identical one-line additions of effective_to: '2026-12-31', no formula/parameter/input/output/scope change. Provision read: resolve_provision.py for us-wa/statute/82/82.87/82.87.060 at this rulespec commit returns RCW 82.87.060 with \"A standard deduction of $250,000 per individual... The amount of the standard deduction shall be adjusted pursuant to RCW 82.87.150\", confirming the operative deduction is year-specific while the module supplies a single 2026 value. Weaker case than VT: unlike VT, none of WA's inputs are module-internal parameters bounded to 2026 (all deduction/rate/threshold values are caller-supplied), so the open-ended window did not create an internal inconsistency and the formula shape is not itself year-specific — hence lower confidence and a real possibility a reviewer prunes this to 'unclear' as pilot-coverage conservatism rather than a source disagreement. The claim the fix corrects is the period claim itself: the module's summary scopes it to the 2026 oracle slice while its versions claimed all future years, and the PR records that \"explicit 2025/2027 probes fail closed\" after the change. Commit body empty; see index 0 notes on PR #1017 being a multi-state consolidation. | verifier said not_a_defect at 0.64 (below 0.7); kept as unclear",
   "family_id": "us-07f5517d-8e1effdfd1fa",

@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
   "parent_commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 certify (PR #1300): diff changes the Brazil gate in every generated composition from `not entry_is_line_b` to `not entry_is_section_232_aluminum` and re-grounds the steel parameter proof from 9903.81.87/.88 to 9903.82.02; report says \"The task's 9903.81.x locator is stale for this corpus vintage\".",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: certify generalized component gates",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch88/ch88.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -261,7 +261,8 @@
     "verifier_quote": "-      + (if origin_is_brazil and not entry_is_line_b: brazil_ieepa_additional_duty_rate else: 0)\n+      + (if origin_is_brazil and not entry_is_section_232_aluminum: brazil_ieepa_additional_duty_rate else: 0)",
     "verifier_notes": "Bundle/paths: diff /private/tmp/claude-501/-Users-maxghenis-TheAxiomFoundation-axiom-encode--claude-worktrees-zealous-heyrovsky-31a96b/86103d8f-b97f-4559-a96c-7e79bdbe616d/scratchpad/diffs/us/198bee703e/086.diff; pre/post extracts at .../scratchpad/ch88_pre_86.yaml and ch88_post_86.yaml. (1) Only 20 lines differ in the whole 3,416-line file: the two Brazil gates (lines 2368, 2524) plus the steel parameter re-grounding. (2) The steel half of the diff is provenance-only and must not carry the verdict: `ch88_s232_steel_heading_rate` keeps `formula: '0.50'` and `effective_from: '2026-02-15'`; only `source:` text and proof-atom citation paths/excerpts change (9903.81.87/.88 -> 9903.82.02), and 9903.82.02 resolves to \"+ 50%\", so that portion is mechanical. (3) Residual gaps a reviewer may want to track separately, which do not change this verdict: the post-fix gate is still narrower than the source carve-out — 9903.01.83 also excepts steel, copper, wood, vehicles and semiconductor articles, and 9903.01.82 excepts civil aircraft and their parts, i.e. chapter 88's own subject matter (a potential unrepresented_clause); and `entry_is_reciprocal_metals_excluded` still has `formula: entry_is_line_b` post-fix (line 1925), so the exemplar-to-membership decoupling is incomplete in this file. (4) Provision texts read through resolve_provision at corpus release us-rulespec-2026-08-08-obbb-alien-snap (corpus commit e79781bd); note that us/statute/hts/chapter-99/page-219 in that release resolves to a derivative-article list page, not the note text quoted in the proof atom — a vintage/page-numbering mismatch worth a separate provenance check, but the substantive exception is confirmed via 9903.01.77/.83 and 9903.85.02.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 certify (PR #1300): diff changes the Brazil gate in every generated composition from `not entry_is_line_b` to `not entry_is_section_232_aluminum` and re-grounds the steel parameter proof from 9903.81.87/.88 to 9903.82.02; report says \"The task's 9903.81.x locator is stale for this corpus vintage\"."
   },
   "triage_notes": "Same pattern as index 84: Brazil gate `not entry_is_line_b` -> `not entry_is_section_232_aluminum` in `ieepa_component_rate` and `ieepa_component_rate_with_declared_exceptions` (fidelity), plus citation-only re-grounding of `ch88_s232_steel_heading_rate` / `section_232_steel_component_rate` atoms from 9903.81.87/.88 to 9903.82.02 (mechanical). No other change in the diff. Provisions read once, under index 84. | verifier confirmed at 0.82",
   "family_id": "us-198bee70-324afbabcf79",

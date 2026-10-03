@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
   "parent_commit": "956a547418964c90e37b134c3c96ab3acdb8a375",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair.",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: make generated entry flags caller inputs",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch51/ch51.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -236,7 +236,8 @@
     "verifier_quote": "-  - formula: ((((((((((((((((((((((((((hts_number == \"9506.62.40.40\"))))))))))))))))))))))))))",
     "verifier_notes": "Re-anchor the citation: the first reader quoted the PR #1300 body, and half of that quote (\"gain a Section 232 steel component the witness never had\") is not in this commit at all — 2a6bdb01de only drops the five derived rules and rewrites the module summary. Better evidence is the module diff itself plus the generator comment added in the same commit (tools/generate_schedule_compositions.py): \"generated compositions must not derive them from the five hand-built witness HTS exemplars\". Caveats for the corpus: (1) this single generator-level fix rewrites 100 near-identical chapter modules in one commit, so ch51 is one of 100 duplicate instances — dedupe or sample. (2) The repair is partial: in the post file `entry_is_energy_resource` still has formula `hts_number == \"7202.11.10.00\"` and `china_section_301_component_rate`'s proof atoms still cite 7202.11.10.00 / 9506.62.40 / 7601.10.30.00 footnotes inside the chapter-51 module, so the same exemplar coupling survives this commit; the module is made less wrong, not faithful. (3) The fix defers the membership determination to entry preparation rather than encoding it from source, so \"re-grounded\" here means \"ungrounded branch removed\", not \"correct branch added\". (4) Alternative kind considered and rejected: wrong_entity_or_scope (the flags scoped incidence to another chapter's population), but the taxonomy puts \"formulas grounded on the wrong provision\" and removal-style fixes under untraceable_branch. (5) Note the pre-fix branches were dead-false rather than mis-firing, so the observable wrongness is zero §301/§232/§122 duty for every chapter-51 line; if the corpus wants only mis-firing defects, this is an under-application case.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair."
   },
   "triage_notes": "Same pattern as index 48. Diff read in full; two hunks only (summary plus the five removed derived rules), no other substantive change. | verifier confirmed at 0.70",
   "family_id": "us-2a6bdb01-7331f444c639",

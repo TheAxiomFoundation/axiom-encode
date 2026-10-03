@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
   "parent_commit": "29dbbdac05e18cd4f851b200f4da9121fccd7e00",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 generalize (PR #1300): decouples component gates from exemplar flags; PR body says the witness's exemplar coupling \"unlawfully suppressed the surcharge on §301-member lines for all origins\" — logic/scope correction to 100 merged generated modules.",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: generalize generated component surfaces",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch60/ch60.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -316,7 +316,8 @@
     "verifier_quote": "-      (((((((((((((((((((((((((if entry_is_line_a or entry_is_line_b: 0\n+      (((((((((((((((((((((((((if entry_is_section_122_exempt or entry_is_section_232_covered: 0",
     "verifier_notes": "inferred from verified sibling module index 48 (same kind and rule path in this chunk). Refutation attempts and what survived. (1) \"Mechanical rename\" fails: the flag mapping is one-to-many (entry_is_line_a -> entry_is_china_301_list123 in china_section_301_component_rate AND -> entry_is_section_122_exempt in section_122_component_rate), the input surface changed (PR issue comment: \"c and e are fully replaced and no longer valid input slots\"), and the pending ledger moved (-500 exemplar-flag outputs). (2) \"Not a defect / new coverage\" partly bites but not on the designated rule_path: section_232_steel_component_rate + ch49_s232_steel_heading_rate and their addition to schedule_statutory_stack are NEW coverage the module never claimed (the witness's 7202.11.10.00 ferroalloy sits outside note 16(c)), so those rule_names should not be scored as the defect; the confirmed defect is scoped to section_122_component_rate.versions[1].formula (and, on the same pattern, the brazil_/forced_labor_ gates). (3) Runner-up kind: wrong_entity_or_scope is arguable, since the branch cited the right provision and only its operand covered the wrong population of lines; I kept untraceable_branch because the fix re-grounds the condition itself, which is that kind's stated signature (\"the fix removes or re-grounds it\"). (4) Caveat bounding the claim: the decoupling is partial — in the POST file the same exemplar coupling survives at lines 1907/1924 (`entry_is_reciprocal_annex_excluded` -> formula: entry_is_line_a; `entry_is_reciprocal_metals_excluded` -> formula: entry_is_line_b) and entry_is_line_d remains for the §338/beer path. (5) Corpus caveat: the pinned release (us-rulespec-2026-08-08-obbb-alien-snap, Rev 3 notes) renumbers chapter-99 pages, so the atoms' page-221/page-226/page-230 anchors do not resolve to the cited text under it; I confirmed the carve-out through us/statute/hts/9903.03.03 instead. (6) This is one of 100 near-identical generated modules in a bulk regeneration; ch49 carries no chapter-specific evidence beyond the generator-level PR body, so the per-module evidence is the diff plus that body.",
     "verifier_inferred_from_module_index": 48,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 generalize (PR #1300): decouples component gates from exemplar flags; PR body says the witness's exemplar coupling \"unlawfully suppressed the surcharge on §301-member lines for all origins\" — logic/scope correction to 100 merged generated modules."
   },
   "triage_notes": "Chapter 60; same pattern as index 48, diff read in full (30 paren pairs, `effective_from:` spelling). Index 48 caveats apply. Chunk complete: all 12 expected indices (48-59) were present in the bundle and classified. | verifier confirmed at 0.78",
   "family_id": "us-a9562cfd-a47a2c82a367",

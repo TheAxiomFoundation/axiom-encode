@@ -50,7 +50,7 @@ import subprocess
 import sys
 import tempfile
 import urllib.request
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -96,6 +96,23 @@ REQUIRED_CASE_KEYS = (
     "family_representative",
     "artifacts_shipped",
     "triage_notes",
+)
+# Fields that carry the answer a judge is scored against, or the triage
+# readers' words about it. A benchmark must not show them to a judge; every
+# other case.json field is checked to be free of defect-kind names and of its
+# case's triage text (tests/test_real_defects_corpus.py).
+LABEL_BEARING_KEYS = (
+    "defect_kind",
+    "other_kind",
+    "confidence",
+    "description",
+    "description_source",
+    "locator",
+    "triage_status",
+    "triage",
+    "triage_notes",
+    "evidence_in_provision",
+    "evidence_check",
 )
 DEFECT_KINDS = (
     "amount_mismatch",
@@ -608,17 +625,36 @@ def check_shipped(case_dir: Path, case: dict[str, Any], report: Report) -> None:
         report.fail(f"{cid}: confidence must be within [0, 1]")
 
 
-def commit_parents(repo: Path, commits: list[str]) -> dict[str, list[str]]:
-    """Map each commit to its parent list with one ``git rev-list`` call."""
+COMMIT_METADATA_FORMAT = "%H%x00%P%x00%cI%x00%s"
 
-    if not commits:
+
+def commit_metadata(
+    repo: Path | str, commits: Iterable[str]
+) -> dict[str, dict[str, Any]]:
+    """Parents, committer date and subject per commit, from one ``git log`` call.
+
+    Keys are full shas (abbreviated input is resolved first). ``date`` is
+    ``%cI`` (strict ISO 8601 committer date) and ``subject`` is ``%s``, the
+    same values ``git log -1 --format=%cI%n%s <commit>`` prints.
+    """
+
+    refs = sorted(set(commits))
+    if not refs:
         return {}
-    out = git(repo, "rev-list", "--no-walk=unsorted", "--parents", *commits)
-    parents: dict[str, list[str]] = {}
-    for line in out.splitlines():
-        sha, *rest = line.split()
-        parents[sha] = rest
-    return parents
+    full = git(repo, "rev-parse", *(f"{ref}^{{commit}}" for ref in refs)).split()
+    out = git(
+        repo, "log", "--no-walk=unsorted", f"--format={COMMIT_METADATA_FORMAT}", *full
+    )
+    metadata: dict[str, dict[str, Any]] = {}
+    for line in out.split("\n"):
+        if not line:
+            continue
+        sha, parents, date, subject = line.split("\x00")
+        metadata[sha] = {"parents": parents.split(), "date": date, "subject": subject}
+    for ref, sha in zip(refs, full, strict=True):
+        if ref != sha:
+            metadata[ref] = metadata[sha]
+    return metadata
 
 
 def check_git(
@@ -626,8 +662,10 @@ def check_git(
 ) -> None:
     """Git tier: parentage, ancestry, and the module bytes on both sides.
 
-    Commit metadata and main-branch ancestry are read once per repository;
-    module blobs stream through one ``git cat-file --batch`` process.
+    Also checks that ``commit_date`` and ``commit_subject`` equal the commit's
+    ``%cI`` and ``%s``. Commit metadata and main-branch ancestry are read once
+    per repository; module blobs stream through one ``git cat-file --batch``
+    process.
     """
 
     by_jurisdiction: dict[str, list[dict[str, Any]]] = {}
@@ -640,7 +678,7 @@ def check_git(
         repo = repos[jurisdiction]
         commits = sorted({str(case.get("commit")) for case in group})
         try:
-            parents = commit_parents(repo, commits)
+            metadata = commit_metadata(repo, commits)
         except subprocess.CalledProcessError as exc:
             for case in group:
                 report.fail(f"{case['id']}: git tier error: {exc}")
@@ -654,14 +692,14 @@ def check_git(
         with GitObjectReader(repo) as reader:
             for case in group:
                 try:
-                    _check_git_case(case, parents, on_main, main_ref, reader, report)
+                    _check_git_case(case, metadata, on_main, main_ref, reader, report)
                 except (KeyError, RuntimeError, ValueError) as exc:
                     report.fail(f"{case.get('id')}: git tier error: {exc}")
 
 
 def _check_git_case(
     case: dict[str, Any],
-    parents: dict[str, list[str]],
+    metadata: dict[str, dict[str, Any]],
     on_main: set[str] | None,
     main_ref: str,
     reader: GitObjectReader,
@@ -670,8 +708,13 @@ def _check_git_case(
     cid = case["id"]
     commit = case["commit"]
     parent = case["parent_commit"]
-    if parents.get(commit, [None])[:1] != [parent]:
+    meta = metadata.get(commit) or {"parents": [], "date": None, "subject": None}
+    if meta["parents"][:1] != [parent]:
         report.fail(f"{cid}: parent_commit is not the first parent of commit")
+    if case.get("commit_date") != meta["date"]:
+        report.fail(f"{cid}: commit_date does not match the commit")
+    if case.get("commit_subject") != meta["subject"]:
+        report.fail(f"{cid}: commit_subject does not match the commit")
     if on_main is not None and commit not in on_main:
         report.fail(f"{cid}: commit {commit[:10]} is not on {main_ref}")
     for label, ref, key in (

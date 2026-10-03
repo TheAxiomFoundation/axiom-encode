@@ -4,7 +4,7 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "198f20b05810e7190463ae8807207e38175c000b",
   "parent_commit": "116728773d936408a8c0218550ed9984bdc351e9",
-  "commit_date": "2026-07-27",
+  "commit_date": "2026-07-27T14:04:16-04:00",
   "commit_subject": "fix: limit SC rent exclusion to basic allowance",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1139",
   "module_path": "us-sc/policies/dss/snap-policy-manual/page-165.yaml",
@@ -71,7 +71,8 @@
     "verifier_quote": "-          and not household_utility_costs_included_in_rent_payment",
     "verifier_notes": "Corroboration: PR #1139 review round 1 lists \"uncited rent exclusion on p.165\" among four fidelity findings, and the repair-round comment says \"the uncited rent guard is removed\"; the commit subject is \"fix: limit SC rent exclusion to basic allowance\". Provision read via resolve_provision.py (release us-rulespec-2026-07-24-snap-cms-pit-union, provision sha256 cd1ac04b..., fix_time_corpus_match: same_body). Considered and rejected wrong_entity_or_scope: the rule's entity (Household), period, inputs and output surface are unchanged — only an ungrounded conjunct was deleted — and the taxonomy's untraceable_branch explicitly covers conditions grounded on the wrong provision. Only 1 line of the module changed (279 -> 278 lines); no hashes, versions, effective dates, or metadata moved. Scope note: module index 0 (page-159.yaml, 8 lines) is a separate change in this commit (telephone-standard precedence over page 369's 2009-era $33 via import-first ordering) and needs its own classification; do not let it color this one.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "keyword"
+    "candidate_source": "keyword",
+    "screen_reason": null
   },
   "triage_notes": "Provision read through the pinned corpus release us-rulespec-2026-07-24-snap-cms-pit-union (resolve_provision.py, fix_time_corpus_match: same_body). Page 165 says 'The BUA must not be given to the following households: (A) Households with one or no utility expenses. (B) Households whose utility costs are included in the rent payment.' and separately 'Actual utility costs are only allowed for households not entitled to the MUA or BUA.' - the rent clause is scoped to the BUA only, and it remains correctly encoded in `basic_utility_allowance_prohibited`, which this commit leaves untouched. The rule's own proof atom excerpt is exactly the actual-cost sentence, which never mentions rent, so the removed conjunct had no support in the cited text: untraceable_branch. An alternative reading is wrong_entity_or_scope (a BUA-scoped exclusion applied to the actual-cost population), but the reviewer's wording ('uncited rent exclusion on p.165', 'the uncited rent guard is removed') and the fix being a pure deletion favor untraceable_branch. Quote source: PR #1139 issue comments by MaxGhenis recording blind review round 1 (REQUEST-CHANGES, four fidelity findings) and repair round 2; the PR has no formal review objects, so I labeled it pr_review. Commit is one of four sibling repair commits on the same branch (991bfb2ac shared-residence agreement, 116728773 setter ordering, 48da39b87 heating/cooling qualifications) and is an ancestor of repair head 8da79dd4e. Companion test added in the same commit (`utility_in_rent_does_not_block_separate_verified_actual_water_cost`) asserts actual_utility_costs_allowed: holds with household_utility_costs_included_in_rent_payment: true, confirming the intended meaning change. Nothing else in the module changed - one deleted line only. | verifier confirmed at 0.91",
   "family_id": "us-198f20b0-f141f04e4116",

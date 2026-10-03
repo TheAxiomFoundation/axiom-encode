@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "2a6bdb01deaa107490ae2a6098d5109b44b3a5a1",
   "parent_commit": "956a547418964c90e37b134c3c96ab3acdb8a375",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair.",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: make generated entry flags caller inputs",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch15/ch15.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -236,7 +236,8 @@
     "verifier_quote": "-- name: entry_is_line_a\n-  kind: derived\n-  entity: CustomsEntry\n-  dtype: Judgment\n-  period: Day\n-  source: HTS 7202.11.10.00 statistical reporting number\n...\n-  versions:\n-  - formula: ((((((((hts_number == \"7202.11.10.00\"))))))))\n-    from: '2026-02-15'",
     "verifier_notes": "Residual doubt, and why I held at 0.7 rather than higher: the repair is partial for this module. The branches themselves survive unchanged — `if entry_is_line_a and origin_is_china: list_1_additional_ad_valorem_rate`, `if entry_is_line_a or entry_is_line_b: 0` on the §122 temporary import surcharge and on the forced-labor §301 component are byte-identical pre and post; only the local derivations are deleted. The PR body's \"membership-semantic\" re-grounding (a/b/d → lists 1/2/3, c → list 4A) reaches ch15 only as prose in `module.summary` (\"caller inputs supplied by entry preparation from incidence classification ... referenced-implies-input convention\"), with no proof atom binding entry_is_line_a to a §301 list-membership provision, and the five out-of-chapter citations (us/statute/hts/7202.11.10.00, /7601.10.30.00, /9506.62.40.40, /2203.00.00.30, /8541.42.00.10) remain in the module's source_verification set after the fix. So a reviewer could reasonably call this a boundary/ownership refactor that moves an ungrounded derivation to the caller rather than a full source-fidelity correction inside ch15. Two further facts for the reviewer: `git log -- us/policies/cbp/us-tariff-schedule/generated/ch15/ch15.yaml` shows only two commits ever (the b1.3 generation 1bc7292fa and this one), so the component-decoupling work the PR body describes for `section_122_component_rate` never landed in this file; and the boilerplate sentence \"changes no formula tokens, dates, inputs, proof atoms, or runtime values\" is retained in the new summary and is literally false about inputs and proof atoms for this commit — it describes the placement-variant serialization, not the flag change. Same defect applies identically to all 100 generated chapter modules in this commit; treat them as one instance, not 100.",
     "verifier_inferred_from_module_index": null,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 (PR #1300): removes hard-coded exemplar entry_is_line_a..e derived rules (proof atoms citing other chapters' HTS lines) from every generated chapter and makes them caller inputs; summary claims runtime semantics unchanged — unsure, part of the same decoupling repair."
   },
   "triage_notes": "Same pattern as index 12; diff read individually and normalized-compared — only cosmetic difference is the redundant-parenthesis depth (8 pairs instead of 7) used by the placement gate. Same caveats as index 12. | verifier confirmed at 0.70",
   "family_id": "us-2a6bdb01-7331f444c639",

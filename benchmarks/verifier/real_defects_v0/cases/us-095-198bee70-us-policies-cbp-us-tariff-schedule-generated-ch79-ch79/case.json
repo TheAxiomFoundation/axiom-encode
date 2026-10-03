@@ -4,8 +4,8 @@
   "repo": "TheAxiomFoundation/rulespec-us",
   "commit": "198bee703ec415be77352ae9ffdc6bf1d6cf6a14",
   "parent_commit": "a9562cfd4478f86e1815e4d9a492378ba1e9df81",
-  "commit_date": "",
-  "commit_subject": "(screen-flagged) b1.6 certify (PR #1300): diff changes the Brazil gate in every generated composition from `not entry_is_line_b` to `not entry_is_section_232_aluminum` and re-grounds the steel parameter proof from 9903.81.87/.88 to 9903.82.02; report says \"The task's 9903.81.x locator is stale for this corpus vintage\".",
+  "commit_date": "2026-08-16T18:58:24-04:00",
+  "commit_subject": "b1.6: certify generalized component gates",
   "pr_url": "https://github.com/TheAxiomFoundation/rulespec-us/pull/1300",
   "module_path": "us/policies/cbp/us-tariff-schedule/generated/ch79/ch79.yaml",
   "corpus_citation_path": "us/statute/hts/general-note-3/page-1",
@@ -263,7 +263,8 @@
     "verifier_quote": "-      + (if origin_is_brazil and not entry_is_line_b: brazil_ieepa_additional_duty_rate else: 0)))))))))))))))))))))))))))))))))))))\n+      + (if origin_is_brazil and not entry_is_section_232_aluminum: brazil_ieepa_additional_duty_rate else: 0)))))))))))))))))))))))))))))))))))))",
     "verifier_notes": "inferred from verified sibling module index 72 (same kind and rule path in this chunk). Scope of the meaning change: only the Brazil gate (identical edit in `ieepa_component_rate` and `ieepa_component_rate_with_declared_exceptions`). The second hunk — `ch73_s232_steel_heading_rate` / `section_232_steel_component_rate` moving from 9903.81.87/.88 to 9903.82.02 — is provenance-only (source string, proof-atom citation_path, atom count); the excerpt text, `formula: '0.50'`, effective_from 2026-02-15 and the derived formula are byte-identical pre/post, so by the rubric that part is mechanical. 9903.82.02 does exist in the pinned corpus and carries \"+ 50%\" for note 16(c) derivative articles, so the re-grounding is also substantively right.\n\nNot a same-PR artifact: `git log 198bee703e -- .../ch73/ch73.yaml` shows the `not entry_is_line_b` gate originated in b2858d659 (\"Generated tariff-schedule compositions, batch 3\") and survived 2a6bdb01d and the parent a9562cfd4, which introduced `entry_is_section_232_aluminum` for the aluminum component but left the Brazil gate on the exemplar flag.\n\nCaveats a reviewer should weigh: (1) within chapter 73 (iron/steel articles) the set of entries that are section-232 aluminum articles may be small or empty, so the mis-priced population here could be latent rather than realized — the encoded-meaning defect is real either way, and the same one-line edit lands in every generated chapter composition; (2) `entry_is_reciprocal_metals_excluded` still has `formula: entry_is_line_b` post-fix (proof citing 9903.01.33 \"articles of aluminum; derivative articles of aluminum\"), so an ungrounded exemplar flag remains elsewhere in the module — evidence the fix was targeted, and a residual of the same class; (3) the proof excerpt's locator `us/statute/hts/chapter-99/page-219` resolves in the pinned release (us-rulespec-2026-08-08, rev3 notes) to a bare list of HTS numbers, not that sentence — page drift versus the module's \"Rev. 15 vintage\"; I verified the exception's substance indirectly through 9903.01.77, 9903.01.90 and 9903.85.02 rather than through that page.",
     "verifier_inferred_from_module_index": 72,
-    "candidate_source": "screen"
+    "candidate_source": "screen",
+    "screen_reason": "b1.6 certify (PR #1300): diff changes the Brazil gate in every generated composition from `not entry_is_line_b` to `not entry_is_section_232_aluminum` and re-grounds the steel parameter proof from 9903.81.87/.88 to 9903.82.02; report says \"The task's 9903.81.x locator is stale for this corpus vintage\"."
   },
   "triage_notes": "Same pattern as index 72; diff read and confirmed identical in shape. Both IEEPA component rules changed; steel citation change is provenance-only. | verifier confirmed at 0.78",
   "family_id": "us-198bee70-ae51d9d5b290",
